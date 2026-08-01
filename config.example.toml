@@ -1,0 +1,105 @@
+# ---------------------------------------------------------------------------
+# pcbridge yapilandirmasi
+# Bu dosyayi "config.toml" olarak kopyalayip duzenleyin, sonra: chmod 600 config.toml
+# ---------------------------------------------------------------------------
+
+# Tailscale Funnel / Cloudflare Tunnel'in verdigi DIS adres.
+# Sonunda / OLMAYACAK. Spark'a bu adresin sonuna /mcp ekleyerek gireceksiniz.
+public_url = "https://DEGISTIR.tailXXXX.ts.net"
+
+# Sunucunun yerelde dinledigi adres. Tunel bu porta baglanir.
+host = "127.0.0.1"
+port = 8765
+
+# MCP endpoint yolu (Spark'a girecegin adres: public_url + bu yol)
+mcp_path = "/mcp"
+
+
+[auth]
+# /authorize sayfasinda soracagi parola. UZUN ve SIZE OZEL olsun.
+# Ortam degiskeni ile de verilebilir: PCBRIDGE_PASSWORD=...
+password = "BURAYA-COK-UZUN-BIR-PAROLA-YAZ"
+
+# Opsiyonel: curl/test icin sabit bearer token. Bos birakilirsa devre disi.
+# Ornek kullanim: curl -H "Authorization: Bearer <token>" https://.../mcp
+# Ortam degiskeni: PCBRIDGE_STATIC_TOKEN=...
+static_token = ""
+
+# Token omurleri (saniye)
+access_token_ttl = 43200      # 12 saat
+refresh_token_ttl = 7776000   # 90 gun
+auth_code_ttl = 300           # 5 dakika
+
+# Ayni IP'den art arda yanlis parola denemesi limiti
+max_failed_attempts = 8
+lockout_seconds = 900
+
+# HATA AYIKLAMA: true yapilirsa parola dogrulandiktan sonra otomatik
+# yonlendirme yapilmaz, tiklanabilir bir baglanti gosterilir. Karsi tarafin
+# (Gemini'nin) hata sayfasini gorebilmek icin. Normal kullanimda false olmali.
+manual_redirect = false
+
+
+[paths]
+# Arac cagrilarinda workdir verilmezse kullanilacak dizin
+default_workdir = "~"
+# Job kayitlari, loglar ve oauth veritabani buraya yazilir
+state_dir = "~/.local/state/pcbridge"
+
+
+[limits]
+# Tek bir cevapta don(dur)ulacak maksimum karakter (telefonda okunabilirlik icin)
+max_output_chars = 12000
+# Arka plan islerinin varsayilan zaman asimi (saniye)
+default_job_timeout = 1800
+# shell_run (senkron) icin maksimum bekleme
+max_sync_timeout = 120
+
+
+# ---------------------------------------------------------------------------
+# AJANLAR
+# {prompt} ve {session_id} sablon olarak degistirilir.
+# `command` bir liste; ilk eleman calistirilabilir dosyanin adi.
+# `parser` = "claude_stream_json" | "plain"
+# `pty`    = komutu sahte bir terminalde calistir (TTY yoksa ciktisini
+#            yutan CLI'lar icin gerekli)
+# ---------------------------------------------------------------------------
+
+[agents.claude]
+enabled = true
+description = "Claude Code - Anthropic's terminal coding agent"
+command = [
+  "claude", "-p", "{prompt}",
+  "--output-format", "stream-json",
+  "--verbose",
+  "--dangerously-skip-permissions",
+]
+# Onceki oturumu surdurmek icin komuta EKLENECEK argumanlar
+resume_args = ["--resume", "{session_id}"]
+parser = "claude_stream_json"
+pty = false
+
+[agents.antigravity]
+# Antigravity CLI'in calistirilabilir adi `agy` (paket adi antigravity-cli).
+#
+# pty = true NEDEN GEREKLI: agy'nin bilinen bir hatasi var (upstream issue #76)
+# -> `-p` ile calistirildiginda cikti yalnizca gercek bir terminale yaziliyor,
+#    boru/dosya/alt surec durumunda sessizce bos donuyor. `pty = true` komutu
+#    `script` ile sahte terminale sarar ve ciktiyi kurtarir. Hata duzelirse
+#    bunu false yapabilirsin.
+enabled = true
+description = "Antigravity CLI (agy) - Google's terminal coding agent"
+command = ["agy", "-p", "{prompt}", "--dangerously-skip-permissions"]
+# Onceki konusmaya donmek icin; kimlik ciktidan otomatik yakalanir.
+resume_args = ["--conversation", "{session_id}"]
+parser = "plain"
+pty = true
+
+# Istersen baska ajanlar da ekleyebilirsin, ornek:
+# [agents.codex]
+# enabled = true
+# description = "OpenAI Codex CLI"
+# command = ["codex", "exec", "{prompt}"]
+# resume_args = []
+# parser = "plain"
+# pty = false

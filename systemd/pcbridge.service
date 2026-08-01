@@ -1,0 +1,21 @@
+[Unit]
+Description=pcbridge - kisisel MCP sunucusu (Gemini Spark -> bu bilgisayar)
+Documentation=file://__DIR__/README.md
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__DIR__
+ExecStart=__DIR__/.venv/bin/python -m pcbridge.server
+Restart=on-failure
+RestartSec=5
+# Ajanlarin (claude, antigravity) PATH'te bulunabilmesi icin
+Environment=PATH=%h/.local/bin:%h/bin:%h/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONUNBUFFERED=1
+# notify-send'in masaustune ulasabilmesi icin (Wayland oturumu)
+Environment=DISPLAY=:0
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
