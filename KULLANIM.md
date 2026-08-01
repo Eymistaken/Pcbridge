@@ -38,6 +38,43 @@ Gemini kimliği kendisi hatırlayıp `resume_session` olarak geçirir. Unutursa
 bekler, bitmezse iş kimliğiyle döner. Sonra "durumu ne" diye sorarsın. Bu
 tasarım bilinçli — uzun görevlerde bağlantı zaman aşımına uğramasın diye.
 
+### Model ve akıl yürütme seviyesi seçme
+
+Model demezsen **Sonnet 5 + medium** çalışır: hızlı ve ucuz, günlük işlerin
+çoğu için yeterli. Ağır iş için bilinçli olarak yükseltirsin:
+
+> claude'a opus ile `~/kod/api` içindeki yarış durumunu bulmasını söyle
+
+> opus, extra efor ile bu mimariyi baştan tasarla
+
+> haiku ile şu klasörde ne var diye bak
+
+Antigravity tarafı ayrı kotada — Claude kotan biterse buraya geçebilirsin:
+
+> antigravity ile `~/projeler/oyun` klasöründeki README'yi güncelle
+
+> antigravity üzerinden 3.1 pro ile, düşük efor: şu dosyayı özetle
+
+Serbest yazabilirsin: "Gemini 3.6 Flash", "gemini-3.6-flash", "3.6 flash" ve
+"flash" aynı yere gider. Efor için Türkçe de olur: "yüksek", "orta", "düşük",
+"extra" (= xhigh), "maksimum".
+
+Bilmen gereken üç davranış:
+
+- **Fable kapalı.** Pro planında ek kullanım kredisi yaktığı için `fable` ve
+  onun takma adı `best` hiçbir koşulda seçilemez; istersen gerekçesiyle reddedilir.
+- **Sessiz düşürme yok.** Bir ajanda olmayan bir efor istersen (Antigravity'de
+  `xhigh` yok) en yakın alt seviyeye inilir ve **iş özetinde bunu görürsün**.
+- **Ne istediğin değil, ne çalıştığı yazar.** İş özetinin başında
+  `ajan: claude · model: opus · effort: high` satırı var; istenen ile gerçekleşen
+  model farklıysa en üste uyarı basılır.
+
+Neyin var olduğunu unutursan:
+
+> hangi modelleri kullanabiliyorsun
+
+`list_agents` her ajanın model tablosunu, varsayılanını ve efor listesini döner.
+
 ---
 
 ## 2. Açık terminale müdahale (tmux)
@@ -119,8 +156,8 @@ ya da bir işin bittiğini fark etmek için.
 
 | Araç | Ne yapar |
 |---|---|
-| `list_agents` | Tanımlı ajanları ve PATH'te bulunup bulunmadıklarını listeler |
-| `agent_run` | Ajana prompt gönderir, iş kimliği döner |
+| `list_agents` | Tanımlı ajanlar, PATH durumu, model tablosu ve efor listeleri |
+| `agent_run` | Ajana prompt gönderir, iş kimliği döner (`model` / `effort` seçilebilir) |
 | `job_status` | İşin durumu, adımları, sonucu, oturum kimliği |
 | `job_output` | İşin ham terminal çıktısı (ajan çöktüyse buraya bak) |
 | `job_list` | Son işler, yeniden başlatmadan sonra da görünür |

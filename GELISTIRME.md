@@ -13,10 +13,12 @@ yazıldı. Yeni bir araç eklemeden önce **"Spark'a özgü kurallar"** ve
 | `pcbridge/tools.py` | MCP araçlarının tamamı | **Yeni araç eklerken burası** |
 | `pcbridge/config.py` | Yapılandırma şeması | Yeni ayar eklerken |
 | `pcbridge/jobs.py` | Arka plan işleri, çıktı ayrıştırıcılar | Yeni ajan çıktı formatı |
+| `pcbridge/models.py` | Ajan/model/effort çözümleyicisi (**saf fonksiyon**) | Seçim mantığı değişirse — kurallar config'de, burası değil |
 | `pcbridge/tmuxctl.py` | tmux sarmalayıcı | Nadiren |
 | `pcbridge/auth.py` | OAuth 2.1 sunucusu, onay sayfası | Kimlik doğrulama davranışı |
 | `pcbridge/server.py` | Uygulama kurulumu, ASGI ara katmanları | Protokol düzeltmeleri |
 | `config.example.toml` | Ayarların belgelenmiş hâli | Yeni ayar eklediğinde **mutlaka** |
+| `tests/test_models.py` | Çözümleyici testleri, sunucusuz koşar | Model/effort kuralı değişirse |
 | `tests/test_e2e.py` | Uçtan uca testler | Her yeni araçta |
 
 ---
@@ -182,20 +184,75 @@ codex exec "merhaba" | cat
 
 Sona eklediğin `| cat` kritik: çıktıyı boruya yönlendirir. **Hiçbir şey
 çıkmıyorsa** o CLI TTY istiyor demektir → `pty = true` yap. Antigravity'nin
-`agy` komutunda tam olarak bu sorun var (upstream issue #76): `-p` ile
-çalıştırıldığında çıktıyı yalnızca gerçek terminale yazıyor, alt süreçte
-sessizce boş dönüyor. `pty = true` komutu `script` ile sahte terminale sarıp
-çıktıyı kurtarıyor.
+`agy` komutunda bu sorun vardı (upstream issue #76) ama **1.1.9'da düzeldi**;
+ölçüldükten sonra `pty = false` yapıldı. `pty = true` komutu `script` ile sahte
+terminale sarar — gerekmiyorsa açma, ANSI gürültüsü ekliyor.
 
 `parser` seçenekleri:
 
 - `plain` — çıktıyı olduğu gibi verir, ANSI kodlarını temizler, metinde
   konuşma kimliği geçiyorsa (UUID) yakalar
 - `claude_stream_json` — Claude Code'un `--output-format stream-json`
-  çıktısını ayrıştırır: adımlar, araç çağrıları, maliyet, oturum kimliği
+  çıktısını ayrıştırır: adımlar, araç çağrıları, maliyet, oturum kimliği,
+  `modelUsage`'den **gerçekte çalışan model**
+- `agy_json` — Antigravity'nin `--output-format json` çıktısını ayrıştırır:
+  `conversation_id`, `status`, `response`, jeton kullanımı
 
 Başka bir format lazımsa `jobs.py` içine yeni bir ayrıştırıcı yazıp
-`summarize()` fonksiyonuna bağla.
+`summarize()` fonksiyonuna bağla. Ayrıştırıcının döndürdüğü sözlükte
+`warnings` (iş özetinin **en üstüne** basılır) ve `actual_model` (istenen
+modelle karşılaştırılır) alanlarını doldurabilirsin.
+
+### Model ve effort seçimini yapılandırmak
+
+Bir CLI `--model` / `--effort` kabul ediyorsa bunu **koda değil config'e**
+yazarsın. Çözümleyici `pcbridge/models.py`'da ve saf fonksiyondur; yeni ajan
+eklerken o dosyaya dokunmak gerekmez.
+
+```toml
+[agents.codex]
+# ...
+model_args  = ["--model", "{model}"]     # bayrak sozdizimi
+effort_args = ["--effort", "{effort}"]
+default_model = "gpt-5-mini"             # model demezsen bu
+models  = ["gpt-5-mini", "gpt-5"]        # serbestce secilebilenler
+restricted_models = ["gpt-5-pro"]        # YALNIZCA acikca istenirse
+blocked_models    = ["o1-preview"]       # hicbir kosulda
+efforts = ["low", "medium", "high"]
+effort_required_with_model = false
+
+[agents.codex.model_efforts]             # model basina; `efforts`i ezer
+"gpt-5"     = ["low", "medium", "high"]
+"gpt-5-pro" = []                         # BOS = --effort kabul etmiyor
+
+[agents.codex.model_effort]              # model basina VARSAYILAN effort
+"gpt-5-mini" = "low"
+
+[agents.codex.aliases]                   # serbest metin -> kanonik ad
+"mini" = "gpt-5-mini"
+"yuksek" = "high"
+```
+
+Dört tuzak, dördü de fiilen yaşandı:
+
+1. **Model kimliğini tahmin etme, CLI'a sor.** `agy models` gerçek listeyi
+   veriyor ve tahminlerin hepsi yanlıştı (`claude-sonnet-4.6` değil
+   `claude-sonnet-4-6`). CLI'ın böyle bir alt komutu yoksa tek tek dene.
+2. **Effort ajan geneli olmayabilir.** agy'de `gemini-3.1-pro`'nun `medium`'u
+   yok, Claude/GPT-OSS modelleri `--effort` verilirse **exit 1** ediyor. Bunu
+   `model_efforts` ile ifade et; boş liste "bayrağı hiç ekleme" demektir.
+3. **Alias yazmadan önce normalizasyonu hatırla.** Eşleştirme küçük harfe
+   indirir, nokta/tire/alt çizgiyi ayıraç sayar ve harf-rakam sınırını böler:
+   `"Gemini 3.6 Flash" == "gemini-3.6-flash"`, `"Opus5" == "opus 5"`. Alias
+   yalnızca *gerçekten farklı* adlar için gerekli (`"flash"`, `"pro"`).
+4. **Sistemd birimine `ANTHROPIC_MODEL` / `CLAUDE_CODE_EFFORT_LEVEL` ekleme.**
+   İşler `os.environ.copy()` ile başlıyor (`jobs.py`), yani birimin ortamı
+   ajanlara aynen geçiyor ve `CLAUDE_CODE_EFFORT_LEVEL` `--effort` bayrağını
+   **sessizce** etkisiz kılıyor.
+
+`config.py` içindeki `_check_agents()` bu hataların çoğunu **yüklemede**
+yakalayıp servisi açık bir mesajla durdurur; sessiz yanlış davranıştansa
+açık hata iyidir.
 
 ---
 
@@ -270,8 +327,10 @@ gövdesi. Bir OAuth sorununda ilk bakacağın yer burası.
 
 ## Değişiklikten sonra kontrol listesi
 
+- [ ] `./.venv/bin/python tests/test_models.py` → hepsi geçiyor (sunucu gerekmez)
 - [ ] `./.venv/bin/python tests/test_e2e.py` → hepsi geçiyor
 - [ ] Yeni ayar varsa `config.example.toml`'a yorumuyla eklendi
+- [ ] `config.example.toml` değiştiyse `config.toml` da aynı hizaya getirildi
 - [ ] Docstring İngilizce ve "ne zaman kullanılır" içeriyor
 - [ ] `readOnlyHint` / `destructiveHint` doğru
 - [ ] Uzun işler bloklamıyor, iş kimliği dönüyor

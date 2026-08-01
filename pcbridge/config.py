@@ -33,6 +33,50 @@ class AgentSpec:
     # komut `script` ile sahte bir terminale sarilir.
     pty: bool = False
 
+    # -- model / effort secimi ----------------------------------------------
+    # Hepsi opsiyonel. Hicbiri tanimlanmazsa ajan bugunku gibi davranir:
+    # komuta model/effort bayragi eklenmez, CLI kendi varsayilanini kullanir.
+    model_args: list[str] = field(default_factory=list)
+    effort_args: list[str] = field(default_factory=list)
+    models: list[str] = field(default_factory=list)
+    # Yalnizca kullanici adini ACIKCA verdiyse secilebilir; varsayilan
+    # doldurma buraya asla dusemez.
+    restricted_models: list[str] = field(default_factory=list)
+    blocked_models: list[str] = field(default_factory=list)
+    efforts: list[str] = field(default_factory=list)
+    # Model basina izinli effort listesi. Ajan geneli `efforts`i ezer.
+    # Bos liste = bu model --effort bayragini KABUL ETMIYOR (agy'de
+    # claude-sonnet-4-6 gibi); bayrak hic eklenmez.
+    model_efforts: dict[str, list[str]] = field(default_factory=dict)
+    default_model: str = ""
+    default_effort: str = ""
+    # Model basina varsayilan effort (sonnet -> medium, opus -> high).
+    model_effort: dict[str, str] = field(default_factory=dict)
+    effort_required_with_model: bool = False
+    # Serbest metin -> kanonik ad. Hem modeller hem effort seviyeleri icin.
+    aliases: dict[str, str] = field(default_factory=dict)
+
+    # ------------------------------------------------------------- turetilmis
+    @property
+    def selectable_models(self) -> list[str]:
+        """Varsayilan/otomatik secime acik modeller."""
+        return list(self.models)
+
+    @property
+    def known_models(self) -> list[str]:
+        """Ajanin tanidigi butun model adlari (engelliler dahil)."""
+        return [*self.models, *self.restricted_models, *self.blocked_models]
+
+    def efforts_for(self, model: str | None) -> list[str]:
+        """Verilen modelin kabul ettigi effort listesi.
+
+        `model_efforts` girdisi varsa o kazanir (bos liste dahil: "bu model
+        --effort kabul etmiyor" demektir). Yoksa ajan geneli `efforts`.
+        """
+        if model is not None and model in self.model_efforts:
+            return list(self.model_efforts[model])
+        return list(self.efforts)
+
 
 @dataclass
 class Config:
@@ -58,6 +102,8 @@ class Config:
     max_sync_timeout: int
 
     agents: dict[str, AgentSpec]
+    # Ajan adi verilmediginde ve model hicbir ajana ait degilse kullanilir.
+    default_agent: str = "claude"
     source_path: Path | None = None
 
     # -- turetilmis ---------------------------------------------------------
@@ -107,6 +153,65 @@ def find_config(explicit: str | None = None) -> Path:
     )
 
 
+def _check_agents(agents: dict[str, AgentSpec], path: Path) -> None:
+    """Model/effort yapilandirmasindaki sessiz tuzaklari yuklemede yakala.
+
+    Buradaki her kontrol, gecmiste fiilen yasanmis bir hataya karsilik geliyor:
+    yanlis yazilmis model kimligi (`claude-sonnet-4.6` vs `claude-sonnet-4-6`),
+    varsayilanin kisitli bir modele dusmesi, ya da `model_args` unutuldugu icin
+    butun model ayarlarinin sessizce yok sayilmasi.
+    """
+    where = f"({path})"
+    for name, spec in agents.items():
+        tag = f"[agents.{name}] {where}"
+        known = set(spec.known_models)
+
+        if not spec.model_args and (spec.models or spec.default_model):
+            raise SystemExit(
+                f"{tag}: `models`/`default_model` tanimli ama `model_args` yok. "
+                'Bayrak sozdizimini ekleyin: model_args = ["--model", "{model}"]'
+            )
+        if spec.default_model:
+            if spec.default_model in spec.blocked_models:
+                raise SystemExit(
+                    f"{tag}: `default_model = \"{spec.default_model}\"` ayni zamanda "
+                    "`blocked_models` icinde."
+                )
+            if spec.default_model in spec.restricted_models:
+                raise SystemExit(
+                    f"{tag}: `default_model = \"{spec.default_model}\"` "
+                    "`restricted_models` icinde. Kisitli modeller yalnizca acikca "
+                    "istendiginde secilebilir, varsayilan olamaz."
+                )
+            if spec.models and spec.default_model not in spec.models:
+                raise SystemExit(
+                    f"{tag}: `default_model = \"{spec.default_model}\"` `models` "
+                    f"listesinde yok. Liste: {', '.join(spec.models) or '-'}"
+                )
+
+        for key in (*spec.model_effort, *spec.model_efforts):
+            if known and key not in known:
+                raise SystemExit(
+                    f"{tag}: `{key}` bilinmeyen bir model. Model kimligini "
+                    "dogrulayin (Antigravity icin: `agy models`). "
+                    f"Tanimli: {', '.join(sorted(known))}"
+                )
+
+        # Model basina varsayilan effort, o modelin kabul ettigi listede olmali.
+        for model, effort in spec.model_effort.items():
+            allowed = spec.efforts_for(model)
+            if not allowed:
+                raise SystemExit(
+                    f"{tag}: `model_effort.\"{model}\" = \"{effort}\"` ama bu model "
+                    "hic effort kabul etmiyor (`model_efforts` bos)."
+                )
+            if effort not in allowed:
+                raise SystemExit(
+                    f"{tag}: `model_effort.\"{model}\" = \"{effort}\"` gecersiz. "
+                    f"Bu modelin kabul ettikleri: {', '.join(allowed)}"
+                )
+
+
 def load_config(explicit: str | None = None) -> Config:
     path = find_config(explicit)
     with path.open("rb") as fh:
@@ -146,6 +251,34 @@ def load_config(explicit: str | None = None) -> Config:
             resume_args=[str(x) for x in spec.get("resume_args", [])],
             parser=str(spec.get("parser", "plain")),
             pty=bool(spec.get("pty", False)),
+            model_args=[str(x) for x in spec.get("model_args", [])],
+            effort_args=[str(x) for x in spec.get("effort_args", [])],
+            models=[str(x) for x in spec.get("models", [])],
+            restricted_models=[str(x) for x in spec.get("restricted_models", [])],
+            blocked_models=[str(x) for x in spec.get("blocked_models", [])],
+            efforts=[str(x) for x in spec.get("efforts", [])],
+            model_efforts={
+                str(k): [str(x) for x in v]
+                for k, v in (spec.get("model_efforts") or {}).items()
+            },
+            default_model=str(spec.get("default_model", "")),
+            default_effort=str(spec.get("default_effort", "")),
+            model_effort={
+                str(k): str(v) for k, v in (spec.get("model_effort") or {}).items()
+            },
+            effort_required_with_model=bool(
+                spec.get("effort_required_with_model", False)
+            ),
+            aliases={str(k): str(v) for k, v in (spec.get("aliases") or {}).items()},
+        )
+
+    _check_agents(agents, path)
+
+    default_agent = str(raw.get("default_agent", "claude"))
+    if agents and default_agent not in agents:
+        raise SystemExit(
+            f"`default_agent = \"{default_agent}\"` ama boyle bir [agents.*] blogu yok. "
+            f"Tanimli ajanlar: {', '.join(agents) or '-'}"
         )
 
     state_dir = _expand(paths.get("state_dir", "~/.local/state/pcbridge"))
@@ -174,5 +307,6 @@ def load_config(explicit: str | None = None) -> Config:
         default_job_timeout=int(limits.get("default_job_timeout", 1800)),
         max_sync_timeout=int(limits.get("max_sync_timeout", 120)),
         agents=agents,
+        default_agent=default_agent,
         source_path=path,
     )

@@ -300,6 +300,23 @@ def main() -> int:
     ):
         check(f"arac mevcut: {expected}", expected in names, str(sorted(names)))
 
+    # agent_run'in model/effort semasi -- Gemini bu alanlari gorebilmeli
+    schema = next(
+        (t.get("inputSchema", {}) for t in tools if t["name"] == "agent_run"), {}
+    )
+    props = schema.get("properties", {})
+    required = schema.get("required", [])
+    for field_ in ("model", "effort"):
+        check(f"agent_run.{field_} parametresi var", field_ in props, str(sorted(props)))
+        desc = str(props.get(field_, {}).get("description", ""))
+        check(
+            f"agent_run.{field_} aciklamasinda gecerli degerler sayiliyor",
+            len(desc) > 40,
+            desc,
+        )
+    check("agent_run.agent artik zorunlu degil", "agent" not in required, str(required))
+    check("agent_run.prompt hala zorunlu", "prompt" in required, str(required))
+
     section("11. Arac cagrilari")
 
     def call(name: str, args: dict, sid: str | None = session_id) -> str:
@@ -321,6 +338,8 @@ def main() -> int:
 
     out = call("list_agents", {})
     check("list_agents calisti", "claude" in out, out[:300])
+    check("list_agents model tablosu gosteriyor", "modeller:" in out, out[:600])
+    check("list_agents varsayilani gosteriyor", "varsayilan:" in out, out[:600])
 
     out = call("system_status", {})
     check("system_status calisti", "Bilgisayar durumu" in out, out[:300])

@@ -18,10 +18,21 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from . import jobs as jobslib
+from . import models as modelslib
 from . import tmuxctl
 from .config import Config
 
 MAX_INLINE = 4000
+
+# Arac parametrelerinin aciklamalari yapilandirmaya bagli (hangi modeller var,
+# varsayilan ajan ne). Ama `from __future__ import annotations` yuzunden
+# Annotated[...] icerigi tanimlanma aninda degil, FastMCP semayi cikarirken
+# MODUL GLOBAL UZAYINDA eval ediliyor -- yani register()'in yerel `cfg`'si
+# oradan gorunmez (NameError). Bu yuzden metinler burada global olarak duruyor
+# ve register() icinde dolduruluyor.
+_DESC_AGENT = "Agent name, e.g. 'claude' or 'antigravity'."
+_DESC_MODEL = "Model to run with."
+_DESC_EFFORT = "Reasoning effort level."
 
 
 def _resolve_dir(cfg: Config, path: str | None) -> Path:
@@ -40,14 +51,55 @@ def _resolve_file(cfg: Config, path: str) -> Path:
     return p.resolve()
 
 
+def _model_matches(requested: str, actual: str) -> bool:
+    """Istenen model adi ile CLI'in bildirdigi ad ortusuyor mu?
+
+    Istenen genelde takma ad (`opus`), gerceklesen tam isim (`claude-opus-5`).
+    Bu yuzden esitlik degil, parca kapsama araniyor.
+    """
+    want = set(modelslib.normalize(requested).split())
+    got = set(modelslib.normalize(actual).split())
+    return bool(want) and (want <= got or got <= want)
+
+
 def _fmt_job_summary(cfg: Config, jm: jobslib.JobManager, job_id: str) -> str:
     st = jm.status(job_id)
     log = jm.read_log(job_id)
     parsed = jobslib.summarize(log, st.get("parser", "plain"))
 
-    lines = [
+    lines: list[str] = []
+
+    # Uyarilar en USTTE: yanlis modelle calisan bir is, basarili gorunen bir is
+    # olarak asagida kaybolmasin.
+    warnings = list(parsed.get("warnings") or [])
+    requested = st.get("model")
+    actual = parsed.get("actual_model")
+    if requested and actual and not _model_matches(requested, actual):
+        warnings.append(
+            f"Istenen model `{requested}` ama calisan `{actual}`. "
+            "CLI istegi yok saymis olabilir."
+        )
+    for w in warnings:
+        lines.append(f"⚠️ **{w}**")
+    if warnings:
+        lines.append("")
+
+    lines += [
         f"**{job_id}** — durum: `{st['status']}`"
         + (f" (exit {st['exit_code']})" if st.get("exit_code") is not None else ""),
+    ]
+    if st.get("agent"):
+        head = f"ajan: {st['agent']}"
+        if st.get("model"):
+            head += f" · model: {st['model']}"
+        if st.get("effort"):
+            head += f" · effort: {st['effort']}"
+        if actual and (not requested or not _model_matches(requested, actual)):
+            head += f" · calisan: {actual}"
+        lines.append(head)
+    for note in st.get("model_notes") or []:
+        lines.append(f"_not: {note}_")
+    lines += [
         f"komut: `{jobslib.tail_chars(st['command'], 300)}`",
         f"dizin: `{st['cwd']}` · sure: {st['elapsed_seconds']}s",
     ]
@@ -72,18 +124,41 @@ def _fmt_job_summary(cfg: Config, jm: jobslib.JobManager, job_id: str) -> str:
         lines.append(jobslib.tail_chars(jobslib.strip_ansi(log), MAX_INLINE))
     if parsed.get("cost_usd") is not None:
         lines.append(f"\n_maliyet: ${parsed['cost_usd']:.4f} · tur: {parsed.get('num_turns')}_")
+    elif parsed.get("total_tokens") is not None:
+        lines.append(
+            f"\n_jeton: {parsed['total_tokens']:,} · tur: {parsed.get('num_turns')}_"
+        )
     return "\n".join(lines)
 
 
 def register(mcp: FastMCP, cfg: Config, jm: jobslib.JobManager) -> None:
+    global _DESC_AGENT, _DESC_MODEL, _DESC_EFFORT
+    _DESC_AGENT = (
+        "Agent name, e.g. 'claude' or 'antigravity'. Optional: if omitted it is "
+        f"inferred from the model, defaulting to '{cfg.default_agent}'. Give it "
+        "explicitly to reach an agent's restricted models."
+    )
+    _DESC_MODEL = (
+        "Model to run with. Aliases and free text are accepted ('opus', "
+        "'Gemini 3.6 Flash', '3.1 pro'). Valid values — "
+        + (modelslib.model_hint(cfg) or "(not configured)")
+        + ". Omit to use the agent's default."
+    )
+    _DESC_EFFORT = (
+        "Reasoning effort. Valid values — "
+        + (modelslib.effort_hint(cfg) or "(not configured)")
+        + ". Higher costs more; omit to use the model's default."
+    )
+
     # ================================================================= AJANLAR
     @mcp.tool(
         annotations={"title": "List available coding agents"},
     )
     def list_agents() -> str:
         """List the coding agents installed on the computer (Claude Code,
-        Antigravity CLI, ...) and whether their executables are found on PATH.
-        Call this first if you are unsure which agent name to use."""
+        Antigravity CLI, ...), whether their executables are found on PATH, and
+        which models and reasoning effort levels each one accepts. Call this
+        first if you are unsure which agent, model or effort value to use."""
         out = ["**Tanimli ajanlar**", ""]
         for name, spec in cfg.agents.items():
             if not spec.enabled:
@@ -99,7 +174,9 @@ def register(mcp: FastMCP, cfg: Config, jm: jobslib.JobManager) -> None:
             mark = "✅" if where else "❌ PATH'te bulunamadi"
             out.append(f"- `{name}` — {spec.description or exe} · {mark} {where}")
             out.append(f"  - komut: `{shlex.join(spec.command)}`")
-        out.append("")
+            out.extend(modelslib.describe_agent(spec))
+            out.append("")
+        out.append(f"ajan belirtilmezse: `{cfg.default_agent}`")
         out.append(f"varsayilan calisma dizini: `{cfg.default_workdir}`")
         return "\n".join(out)
 
@@ -107,12 +184,12 @@ def register(mcp: FastMCP, cfg: Config, jm: jobslib.JobManager) -> None:
         annotations={"title": "Send a prompt to a coding agent", "destructiveHint": True},
     )
     def agent_run(
-        agent: Annotated[
-            str, Field(description="Agent name, e.g. 'claude' or 'antigravity'.")
-        ],
         prompt: Annotated[
             str, Field(description="The instruction to send to the agent.")
         ],
+        agent: Annotated[str | None, Field(description=_DESC_AGENT)] = None,
+        model: Annotated[str | None, Field(description=_DESC_MODEL)] = None,
+        effort: Annotated[str | None, Field(description=_DESC_EFFORT)] = None,
         workdir: Annotated[
             str | None,
             Field(description="Absolute path of the project directory to run in."),
@@ -140,17 +217,20 @@ def register(mcp: FastMCP, cfg: Config, jm: jobslib.JobManager) -> None:
     ) -> str:
         """Start a coding agent (Claude Code / Antigravity CLI) on the user's Linux
         desktop with the given prompt. Runs in the background and survives long
-        tasks. Returns a job id; poll it with job_status. This can modify files
-        and run commands on the machine."""
-        spec = cfg.agents.get(agent)
-        if not spec or not spec.enabled:
-            names = ", ".join(k for k, v in cfg.agents.items() if v.enabled) or "-"
-            return f"'{agent}' tanimli degil. Kullanilabilir ajanlar: {names}"
+        tasks. Returns a job id; poll it with job_status. Use model/effort to pick
+        how much reasoning power the task deserves — the default is a cheap, fast
+        model, so ask for a stronger one for hard work. Call list_agents to see
+        what is available. This can modify files and run commands on the machine."""
+        res = modelslib.resolve(cfg, agent=agent, model=model, effort=effort)
+        if res.error:
+            return res.error
 
+        spec = cfg.agents[res.agent]
         argv = [
             a.replace("{prompt}", prompt) if "{prompt}" in a else a
             for a in spec.command
         ]
+        argv += modelslib.build_args(spec, res)
         if resume_session and spec.resume_args:
             argv += [a.replace("{session_id}", resume_session) for a in spec.resume_args]
 
@@ -159,14 +239,21 @@ def register(mcp: FastMCP, cfg: Config, jm: jobslib.JobManager) -> None:
             return f"Dizin yok: {cwd}"
 
         job_id = jm.start(
-            kind=f"agent:{agent}",
+            kind=f"agent:{res.agent}",
             argv=argv,
             cwd=cwd,
             label=jobslib._short(prompt, 90),
             parser=spec.parser,
             timeout=timeout,
             pty=spec.pty,
-            extra={"agent": agent, "prompt": prompt, "resume_session": resume_session},
+            extra={
+                "agent": res.agent,
+                "model": res.model,
+                "effort": res.effort,
+                "model_notes": res.notes,
+                "prompt": prompt,
+                "resume_session": resume_session,
+            },
         )
 
         if wait_seconds > 0:

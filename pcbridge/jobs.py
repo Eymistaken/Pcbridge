@@ -263,6 +263,8 @@ def parse_claude_stream_json(text: str) -> dict[str, Any]:
     cost = duration_ms = num_turns = None
     is_error = False
     junk: list[str] = []
+    init_model: str | None = None
+    used_models: list[str] = []
 
     for line in text.splitlines():
         line = line.strip()
@@ -281,6 +283,7 @@ def parse_claude_stream_json(text: str) -> dict[str, Any]:
         if etype == "system":
             if evt.get("subtype") == "init":
                 session_id = evt.get("session_id") or session_id
+                init_model = evt.get("model") or init_model
                 steps.append(
                     f"· oturum baslatildi (model: {evt.get('model', '?')}, "
                     f"dizin: {evt.get('cwd', '?')})"
@@ -309,6 +312,11 @@ def parse_claude_stream_json(text: str) -> dict[str, Any]:
             duration_ms = evt.get("duration_ms")
             num_turns = evt.get("num_turns")
             is_error = bool(evt.get("is_error")) or evt.get("subtype") != "success"
+            # `modelUsage` anahtarlari gercekten calisan model adlaridir. Istenen
+            # modelle karsilastirilabilmesi icin disari verilir.
+            usage = evt.get("modelUsage")
+            if isinstance(usage, dict):
+                used_models = [str(k) for k in usage if k]
 
     return {
         "session_id": session_id,
@@ -318,6 +326,8 @@ def parse_claude_stream_json(text: str) -> dict[str, Any]:
         "cost_usd": cost,
         "duration_ms": duration_ms,
         "num_turns": num_turns,
+        "actual_model": ", ".join(used_models) if used_models else init_model,
+        "warnings": [],
         "unparsed": junk[-20:],
     }
 
@@ -327,10 +337,100 @@ _ID_RE = re.compile(
     r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
 )
 
+# Model/effort secimi istendigi gibi gitmediginde CLI'in bastigi kaliplar.
+# Bunlar goruldugunde is ozetinin EN USTUNE uyari basilir; yanlis modelle
+# calismis bir is "basarili" gorunup gecip gitmesin.
+_MODEL_WARN_PATTERNS: tuple[tuple[str, str], ...] = (
+    (
+        "using the default model instead",
+        "CLI istenen modeli yok sayip kendi varsayilanina dustu.",
+    ),
+    (
+        "requires --effort",
+        "Model effort ile birlikte verilmeliydi; cagri reddedildi.",
+    ),
+    (
+        "invalid model selection",
+        "Gecersiz model/effort birlesimi — CLI cagriyi reddetti.",
+    ),
+)
+
+
+def _scan_model_warnings(clean: str) -> list[str]:
+    low = clean.lower()
+    out: list[str] = []
+    for needle, message in _MODEL_WARN_PATTERNS:
+        if needle in low:
+            out.append(message)
+    return out
+
+
+def _find_json_object(clean: str) -> dict[str, Any] | None:
+    """Ciktidaki son ust duzey JSON nesnesini cozmeyi dene.
+
+    agy hata verdiginde stdout bos kalir ve loga yalnizca `Error: ...` duser;
+    o yuzden JSON bulunamamasi normal bir durum, hata degil.
+    """
+    for line in reversed(clean.splitlines()):
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict):
+                return obj
+    return None
+
+
+def parse_agy_json(text: str) -> dict[str, Any]:
+    """`agy -p --output-format json` ciktisini ozetler.
+
+    JSON alanlari (agy 1.1.9): conversation_id, status, response,
+    duration_seconds, num_turns, usage{input,output,thinking,cache_read,total}.
+    Model adi JSON'da YOK — gerek de yok: yanlis model/effort birlesimi sessizce
+    calismiyor, exit 1 ile reddediliyor (bkz. PLAN.md "Faz 0 sonuclari").
+    """
+    clean = strip_ansi(text)
+    warnings = _scan_model_warnings(clean)
+    obj = _find_json_object(clean)
+
+    if obj is None:
+        # JSON yok: ya is henuz bitmedi ya da CLI hata verip stderr'e yazdi.
+        match = _ID_RE.search(clean)
+        return {
+            "session_id": match.group(1) if match else None,
+            "steps": [],
+            "final_answer": clean,
+            "is_error": bool(warnings),
+            "actual_model": None,
+            "warnings": warnings,
+        }
+
+    status = str(obj.get("status", ""))
+    usage = obj.get("usage") if isinstance(obj.get("usage"), dict) else {}
+    return {
+        "session_id": obj.get("conversation_id"),
+        "steps": [],
+        "final_answer": obj.get("response"),
+        "is_error": bool(warnings) or (bool(status) and status.upper() != "SUCCESS"),
+        "num_turns": obj.get("num_turns"),
+        "duration_ms": (
+            int(float(obj["duration_seconds"]) * 1000)
+            if obj.get("duration_seconds") is not None
+            else None
+        ),
+        "total_tokens": (usage or {}).get("total_tokens"),
+        "actual_model": None,
+        "warnings": warnings,
+    }
+
 
 def summarize(text: str, parser: str) -> dict[str, Any]:
     if parser == "claude_stream_json":
         return parse_claude_stream_json(text)
+    if parser == "agy_json":
+        return parse_agy_json(text)
     clean = strip_ansi(text)
     # Duz ciktida da bir konusma kimligi geciyorsa yakala; agy gibi CLI'larda
     # bu kimlikle `--conversation` uzerinden sohbete devam edilebiliyor.
@@ -340,4 +440,6 @@ def summarize(text: str, parser: str) -> dict[str, Any]:
         "steps": [],
         "final_answer": clean,
         "is_error": False,
+        "actual_model": None,
+        "warnings": _scan_model_warnings(clean),
     }
