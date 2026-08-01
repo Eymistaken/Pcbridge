@@ -2,6 +2,14 @@
 Description=pcbridge - kisisel MCP sunucusu (Gemini Spark -> bu bilgisayar)
 Documentation=file://__DIR__/README.md
 After=network-online.target
+# Masaustu kontrolu ve bildirimler oturum ortamina (WAYLAND_DISPLAY,
+# DBUS_SESSION_BUS_ADDRESS) ihtiyac duyuyor; grafik oturum kurulduktan sonra
+# baslasin. BILINCLI OLARAK EKLENMEYENLER:
+#   PartOf=graphical-session.target   -> oturum kapaninca pcbridge'i oldururdu;
+#     bugun oldurmuyor ve ajan/tmux/kabuk araclarinin masaustune ihtiyaci yok.
+#   WantedBy=graphical-session.target -> acilista otomatik baslatirdi; bu proje
+#     otomatik baslatmayi bilincle reddediyor (install.sh servisi disable eder).
+After=graphical-session.target
 
 [Service]
 Type=simple
@@ -12,8 +20,15 @@ RestartSec=5
 # Ajanlarin (claude, antigravity) PATH'te bulunabilmesi icin
 Environment=PATH=%h/.local/bin:%h/bin:%h/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=PYTHONUNBUFFERED=1
-# notify-send'in masaustune ulasabilmesi icin (Wayland oturumu)
+# XWayland'e ihtiyac duyan araclar icin (xrandr yedegi gibi). Wayland'e ozgu
+# WAYLAND_DISPLAY / DBUS_SESSION_BUS_ADDRESS / XDG_RUNTIME_DIR degiskenleri
+# BURAYA YAZILMAZ; oturum acilisinda systemd kullanici yoneticisine import
+# edilir (install.sh bunu garantiye alir) ve buradan ajanlara gecer.
 Environment=DISPLAY=:0
+# ANTHROPIC_MODEL / CLAUDE_CODE_EFFORT_LEVEL BURAYA EKLENMEZ. Isler
+# os.environ.copy() ile basliyor (jobs.py), yani birimin ortami ajanlara aynen
+# geciyor ve CLAUDE_CODE_EFFORT_LEVEL --effort bayragini SESSIZCE etkisiz
+# kiliyor -- A bolumundeki model/effort secimi bosa giderdi.
 StandardOutput=journal
 StandardError=journal
 

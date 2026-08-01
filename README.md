@@ -245,6 +245,38 @@ yazılır. Onu koruyan tek şey OAuth parolası. Dolayısıyla:
 Daha sıkı istersen: `config.toml`'a bir izinli klasör listesi eklemek 20 satırlık
 bir iş, söyle ekleyeyim.
 
+### Masaüstü kontrolü (`[desktop]`) — ayrı bir risk sınıfı
+
+`[desktop] enabled = true` yaptığın anda bu sunucu bilgisayarını **kullanabilir**
+hale geliyor: sanal bir klavye ve fare yaratıp tıklıyor, yazıyor. Bu, "uzaktan
+komut çalıştırma"dan daha geniş bir yetki — çünkü komut çalıştırmanın erişemediği
+şeylere erişiyor:
+
+- **Oturum açmış olduğun her şey.** Tarayıcında açık bankacılık sekmesi, parola
+  yöneticin, e-postan. Girdi, senin klavyeni kullanmakla aynı şey; hiçbir
+  uygulama aradaki farkı göremez.
+- **Klavye simülasyonu izin sormaz.** uinput çekirdek seviyesinde çalıştığı için
+  Wayland'in izin mekanizmaları devreye girmiyor. Koruma tamamen pcbridge'in
+  kendi kapısında (`desktop_unlock` süreli izni, ekran kilidi kontrolü, idle
+  koruması, hız sınırı, `audit.log`).
+- **`enabled = false` varsayılanı bilinçli.** Açmadan önce "telefonumu
+  kaybedersem ne olur" sorusuna cevabın olsun. Tek koruma yine OAuth parolası.
+
+Bu yüzden varsayılan akış: kapalı gelir, `sudo ./setup_uinput.sh` bir kez
+çalıştırılır, `config.toml`'da açılır, ve her kullanım öncesi `desktop_unlock`
+ile **süreli** izin verilir. İzin kendiliğinden kapanır.
+
+Acil durdurma (kaçak bir döngü ihtimaline karşı):
+
+```bash
+systemctl --user stop pcbridge
+```
+
+Süreç ölünce sanal klavye/fare cihazı da yok olur. Geri almak için:
+`config.toml`'da `enabled = false`, ya da tamamen:
+`sudo rm /etc/udev/rules.d/60-pcbridge-uinput.rules` (geri alma komutlarının
+tamamı `setup_uinput.sh` dosyasının başında).
+
 ---
 
 ## Sorun giderme

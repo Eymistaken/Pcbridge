@@ -61,6 +61,57 @@ default_agent = "claude"
 
 
 # ---------------------------------------------------------------------------
+# MASAUSTU KONTROLU (klavye + fare)
+#
+# Bu bolum acildiginda pcbridge, /dev/uinput uzerinden sanal bir klavye ve fare
+# yaratip bilgisayari fiilen KULLANABILIR hale gelir. Wayland'de baska yolu yok
+# (xdotool yalnizca XWayland'i gorur, portal her oturumda onay ister).
+#
+# NE DEMEK OLDUGUNU BILEREK ACIN: acik oturumunuzdaki her uygulama, oturum
+# acilmis tarayiciniz ve parola yoneticiniz erisime girer. Telefonunuzu
+# kaybederseniz ne olacagi sorusuna cevabiniz olmali.
+#
+# Onkosul (bir kez):  sudo ./setup_uinput.sh
+# Tani:               ./doctor.sh   (8. baslik)
+# Acil durdurma:      systemctl --user stop pcbridge
+# ---------------------------------------------------------------------------
+
+[desktop]
+# VARSAYILAN KAPALI. Acmak bilincli bir islem olsun diye.
+enabled = false
+
+# GUI araclari yalnizca desktop_unlock(dakika) sonrasi calisir ve sure dolunca
+# izin kendiliginden kapanir. Dakika verilmezse ilk deger, tavan ikinci deger.
+unlock_default_minutes = 15
+unlock_max_minutes = 120
+
+# Kullanicinin son klavye/fare hareketinden bu kadar saniye gecmediyse YAZMA
+# eylemleri reddedilir: makinenin basindaysaniz telefondan gelen fare ile
+# sizinki kavga etmesin. Arac cagrisinda force = true ile bilincli olarak
+# gecilebilir. 0 = bu kontrol kapali.
+idle_guard_seconds = 60
+
+# Saniyede en fazla kac eylem gonderilebilir. Sonsuz donguye giren bir ajan
+# makineyi kilitleyemesin diye. 0 = sinirsiz (onerilmez).
+max_actions_per_second = 10
+
+# monitor= verilmeyen ve monitore ozel yorumlanan cagrilar icin varsayilan.
+# Numaralandirma SOLDAN SAGA, 1'den baslar (birincil monitor sagda olabilir).
+default_monitor = 1
+
+# Metin girisinin varsayilan yolu pano + Ctrl+V (klavye duzeninden bagimsiz
+# oldugu icin). true ise yapistirmadan sonra panonun eski icerigi geri yuklenir
+# — sessizce pano calmamak icin.
+restore_clipboard = true
+
+# YALNIZCA BILGI: ham tus yolunun (keyboard(..., raw = true)) hangi duzende
+# yorumlanacagini soyler, girdiyi degistirmez. uinput ham keycode gonderir;
+# ekrana ne dusecegini sistemin XKB duzeni belirler. Turkce duzende ham yol
+# isaretleri bozar (`@` yerine `"`), bu yuzden varsayilan yol PANO.
+keyboard_layout = "tr+intl"
+
+
+# ---------------------------------------------------------------------------
 # AJANLAR
 # {prompt} ve {session_id} sablon olarak degistirilir.
 # `command` bir liste; ilk eleman calistirilabilir dosyanin adi.

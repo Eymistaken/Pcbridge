@@ -2,3 +2,6 @@ fastmcp>=3.0.0
 uvicorn>=0.30.0
 starlette>=0.37.0
 tomli>=2.0.0; python_version < "3.11"
+# Masaustu kontrolu ([desktop]): /dev/uinput uzerinden sanal klavye/fare.
+# Kurulu olmasa da pcbridge calisir; yalnizca GUI araclari devre disi kalir.
+evdev>=1.7.0

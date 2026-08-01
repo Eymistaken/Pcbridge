@@ -15,6 +15,11 @@ yazıldı. Yeni bir araç eklemeden önce **"Spark'a özgü kurallar"** ve
 | `pcbridge/jobs.py` | Arka plan işleri, çıktı ayrıştırıcılar | Yeni ajan çıktı formatı |
 | `pcbridge/models.py` | Ajan/model/effort çözümleyicisi (**saf fonksiyon**) | Seçim mantığı değişirse — kurallar config'de, burası değil |
 | `pcbridge/tmuxctl.py` | tmux sarmalayıcı | Nadiren |
+| `pcbridge/desktop/monitors.py` | Monitör tablosu, **koordinat uzayının tek kaynağı** | Ekran/koordinat işi |
+| `pcbridge/desktop/input.py` | uinput sanal klavye + mutlak fare | Yeni girdi yeteneği |
+| `pcbridge/desktop/safety.py` | İzin penceresi, kilit/idle kontrolü, hız sınırı, denetim | Güvenlik kuralı değişirse |
+| `tests/test_desktop.py` | Masaüstü birim testleri, **girdi göndermez** | Masaüstü mantığı değişirse |
+| `setup_uinput.sh` | `/dev/uinput` izinleri (sudo, kullanıcı çalıştırır) | udev/izin işi |
 | `pcbridge/auth.py` | OAuth 2.1 sunucusu, onay sayfası | Kimlik doğrulama davranışı |
 | `pcbridge/server.py` | Uygulama kurulumu, ASGI ara katmanları | Protokol düzeltmeleri |
 | `config.example.toml` | Ayarların belgelenmiş hâli | Yeni ayar eklediğinde **mutlaka** |
@@ -256,6 +261,87 @@ açık hata iyidir.
 
 ---
 
+## Wayland ve masaüstü tuzakları
+
+Altısı da bu makinede fiilen ölçüldü. Hiçbiri tahmin değil.
+
+### 1. udev kural dosyasının **numarası** işlevsel
+
+`/dev/uinput`'a `uaccess` ACL'i veren satır sistemin
+`/usr/lib/udev/rules.d/73-seat-late.rules` dosyasında:
+
+```
+TAG=="uaccess", ENV{MAJOR}!="", RUN{builtin}+="uaccess"
+```
+
+Kendi kuralını **73'ten sonra** gelen bir dosyaya yazarsan (`80-uinput.rules`
+gibi) etiket çok geç konur, builtin onu hiç görmez, ACL oluşmaz —
+`GROUP`/`MODE` çalışır ama ACL çalışmaz, yani "yarım çalışıyor" gibi görünür.
+Bu yüzden dosya `60-pcbridge-uinput.rules`. ACL olmadan erişim `input` grubu
+üyeliğine kalır, o da **oturum kapatıp açmayı** ister.
+
+### 2. Mutlak fare cihazının yetenek bileşkesi monitör kapsamını belirliyor
+
+`ABS_X + ABS_Y + BTN_LEFT` → udev `ID_INPUT_MOUSE=1` verir ("VMware mutlak
+faresi" yolu) ve cihaz **tüm tuvale** eşlenir. Ölçüldü: 3840×1080'de 6 noktada
+en büyük sapma 1 piksel.
+
+`BTN_TOUCH` veya `BTN_TOOL_PEN` **eklenmemeli** — onlar cihazı dokunmatik
+ekran/tablet yapar ve kompozitör tek bir çıkışa bağlar; ikinci monitöre
+ulaşamazsın. ABS aralığı da tuvalden türetilmeli (`monitors.canvas_size()`),
+sabit yazılmamalı; monitör eklenince cihaz yeniden yaratılıyor.
+
+### 3. `wl-copy` capture_output ile asılır
+
+`wl-copy` panonun sahibi olarak arka planda yaşamaya devam eder (Wayland'de
+pano içeriğini kaynak süreç servis eder). `subprocess.run(..., capture_output=True)`
+boruların EOF vermesini bekler, o boruları da arka plandaki çocuk tutar →
+komut bitmiş olsa bile `run()` zaman aşımına uğrar. Yazma yolunda
+stdout/stderr `DEVNULL` olmalı (`input.py` → `_wl_copy`). Okuma (`wl-paste`)
+tarafında capture sorunsuz.
+
+### 4. Türkçe düzende ham keycode yazma bozar
+
+uinput ham *keycode* gönderir; ekrana ne düşeceğini sistemin XKB düzeni
+belirler. Bu makinede düzen **`tr+intl`**. Bu yüzden metin girişinin varsayılan
+yolu **pano + Ctrl+V**: düzenden tamamen bağımsız ve uzun metinlerde çok daha
+hızlı. Ham yol `raw=True` ile durur ama yalnızca ASCII'yi bilir. Tuş
+*kombinasyonları* (Return, Escape, ctrl+v, oklar, F-tuşları) keycode düzeyinde
+düzenden bağımsız, onlarda sorun yok.
+
+### 5. Koordinat dönüşümü tek bir yerde
+
+Bütün iç API **global tuval koordinatı** kullanır (0–3839 × 0–1079).
+`monitor=` ofseti yalnızca `monitors.to_global()` içinde eklenir ve o da
+yalnızca `tools.py` sınırında çağrılır. İki yerde yapılırsa er geç biri
+unutulur ve **sessizce 1920 piksel sola tıklanır** — hata hiçbir yerde
+görünmez. Monitör numaralandırması **x konumuna göre soldan sağa**; bu makinede
+birincil monitör sağdaki, yani "birincil önce" sıralaması kullanıcının "birinci
+ekran" beklentisiyle çelişirdi.
+
+### 6. Monitör tablosunu `busctl --json=short` ile oku
+
+`gdbus` GVariant metni döndürüyor ve `GetCurrentState`'in iç içe yapısını
+ayrıştırmak zor. `busctl --user --json=short` aynı çağrıyı **düz JSON** verir,
+ikisi de sistemde hazır, yeni Python bağımlılığı gerekmez. Yedek yol
+`xrandr --listmonitors` (XWayland tüm mantıksal düzeni tek X ekranı olarak
+yansıtıyor).
+
+### Masaüstü aracı eklerken
+
+Her GUI aracı `safety.SafetyGate.check()`'ten geçmeli — `[desktop] enabled`,
+ekran kilidi, süreli izin, kullanıcı çakışması ve hız sınırı orada. Reddin
+gerekçesi kullanıcıya **aynen** dönüyor, o yüzden gerekçe ne yapılacağını
+söylesin. Her eylem `gate.audit(...)` ile kaydedilsin.
+
+Test ederken: `tests/test_desktop.py` bilinçli olarak **girdi göndermez** (D-Bus
+okumaları ve monitör tablosu sahtelenir). Gerçek klavye/fare doğrulaması elle,
+kullanıcıya haber verilerek ve **boş bir pencerede** yapılır — bu makine
+pcbridge'in kontrol ettiği makinenin ta kendisi, bir `type` testi senin
+terminaline yazabilir. Acil durdurma: `systemctl --user stop pcbridge`.
+
+---
+
 ## Protokol tuzakları
 
 İlk kurulumda saatlerimizi alan üç sorun. Kodda düzeltildiler; kaldırma.
@@ -328,6 +414,7 @@ gövdesi. Bir OAuth sorununda ilk bakacağın yer burası.
 ## Değişiklikten sonra kontrol listesi
 
 - [ ] `./.venv/bin/python tests/test_models.py` → hepsi geçiyor (sunucu gerekmez)
+- [ ] `./.venv/bin/python tests/test_desktop.py` → hepsi geçiyor (sunucu gerekmez)
 - [ ] `./.venv/bin/python tests/test_e2e.py` → hepsi geçiyor
 - [ ] Yeni ayar varsa `config.example.toml`'a yorumuyla eklendi
 - [ ] `config.example.toml` değiştiyse `config.toml` da aynı hizaya getirildi

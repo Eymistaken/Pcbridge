@@ -1,0 +1,227 @@
+"""Guvenlik kapisi — GUI araclarinin gecmek zorunda oldugu tek nokta.
+
+`UYGULAMA.md`: "Bu modul olmadan girdi araclarini yayina alma."
+
+Bu ozellik pcbridge'in risk profilini buyutuyor: bugune kadar "uzaktan komut
+calistirma" vardi, simdi acik oturumdaki her uygulamaya -- tarayicidaki oturum
+acilmis hesaplara, parola yoneticisine -- erisim ekleniyor. Bu yuzden bes kat:
+
+  1. `[desktop] enabled = false` varsayilani. Acmak bilincli bir islem.
+  2. Sureli izin. `desktop_unlock(dakika)` sonrasi calisir, sure dolunca
+     kendiliginden kapanir. Izin durumu DISKTE tutulur; servis yeniden
+     baslayinca izin ne kaybolur ne de uzar.
+  3. Ekran kilidi. `org.gnome.ScreenSaver.GetActive` true ise her sey reddedilir.
+     Kilitli ekranin arkasina parola yazdirmak yok.
+  4. Cakisma korumasi. `Mutter.IdleMonitor` 60 saniyenin altindaysa kullanici
+     makine basindadir; yazma eylemleri reddedilir. `force=true` ile bilincli
+     olarak gecilir.
+  5. Hiz siniri + denetim kaydi. Sonsuz donguye giren bir ajan makineyi
+     kilitleyemesin, ve olan biten `audit.log`'tan geriye donuk okunabilsin.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import subprocess
+import time
+from collections import deque
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger("pcbridge.desktop")
+
+STATE_FILE = "desktop_unlock.json"
+
+
+@dataclass(frozen=True)
+class Decision:
+    allowed: bool
+    reason: str = ""
+
+    def __bool__(self) -> bool:
+        return self.allowed
+
+
+def _busctl_json(dest: str, path: str, iface: str, method: str) -> Any:
+    """Tek degerli bir D-Bus cagrisini oku. Hata durumunda None."""
+    try:
+        proc = subprocess.run(
+            ["busctl", "--user", "--json=short", "call", dest, path, iface, method],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if proc.returncode != 0:
+            return None
+        data = json.loads(proc.stdout).get("data")
+        return data[0] if isinstance(data, list) and data else None
+    except Exception:  # noqa: BLE001 — D-Bus yoksa kapiyi kapatmiyoruz, bilmiyoruz
+        return None
+
+
+def screen_locked() -> bool | None:
+    """Ekran kilitli mi? Ogrenilemezse None."""
+    val = _busctl_json(
+        "org.gnome.ScreenSaver", "/org/gnome/ScreenSaver", "org.gnome.ScreenSaver",
+        "GetActive",
+    )
+    return bool(val) if isinstance(val, bool) else None
+
+
+def idle_ms() -> int | None:
+    """Kullanicinin son girdisinden bu yana gecen ms. Ogrenilemezse None."""
+    val = _busctl_json(
+        "org.gnome.Mutter.IdleMonitor",
+        "/org/gnome/Mutter/IdleMonitor/Core",
+        "org.gnome.Mutter.IdleMonitor",
+        "GetIdletime",
+    )
+    return int(val) if isinstance(val, int) else None
+
+
+class SafetyGate:
+    def __init__(self, cfg: Any) -> None:
+        self.cfg = cfg
+        self.spec = cfg.desktop
+        self._state_path = Path(cfg.state_dir) / STATE_FILE
+        self._events: deque[float] = deque(maxlen=200)
+
+    # ------------------------------------------------------------- izin durumu
+    def _read_state(self) -> dict:
+        try:
+            return json.loads(self._state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def _write_state(self, data: dict) -> None:
+        try:
+            self._state_path.parent.mkdir(parents=True, exist_ok=True)
+            self._state_path.write_text(
+                json.dumps(data, ensure_ascii=False), encoding="utf-8"
+            )
+        except OSError as exc:  # pragma: no cover
+            logger.warning("desktop izin durumu yazilamadi: %s", exc)
+
+    def unlocked_until(self) -> float:
+        return float(self._read_state().get("until", 0) or 0)
+
+    def remaining_seconds(self) -> int:
+        return max(0, int(self.unlocked_until() - time.time()))
+
+    def is_unlocked(self) -> bool:
+        return self.remaining_seconds() > 0
+
+    def unlock(self, minutes: int | None = None, reason: str = "") -> str:
+        # Yalnizca None "varsayilani kullan" demektir. Verilen 0 ya da negatif
+        # bir deger sessizce 15 dakikaya donmemeli -- istenenden UZUN izin
+        # vermek, kisa vermekten kotu.
+        mins = self.spec.unlock_default_minutes if minutes is None else int(minutes)
+        mins = max(1, min(mins, self.spec.unlock_max_minutes))
+        until = time.time() + mins * 60
+        self._write_state({"until": until, "reason": reason, "granted": time.time()})
+        self.audit("desktop_unlock", minutes=mins, reason=reason or None)
+        return (
+            f"Masaustu kontrolu {mins} dakika acildi "
+            f"(bitis {time.strftime('%H:%M', time.localtime(until))})."
+        )
+
+    def lock(self) -> str:
+        was = self.remaining_seconds()
+        self._write_state({"until": 0})
+        self.audit("desktop_lock", was_remaining=was)
+        return (
+            "Masaustu kontrolu kapatildi."
+            if was
+            else "Masaustu kontrolu zaten kapaliydi."
+        )
+
+    # ------------------------------------------------------------- hiz siniri
+    def _rate_ok(self) -> bool:
+        limit = self.spec.max_actions_per_second
+        if limit <= 0:
+            return True
+        now = time.monotonic()
+        while self._events and now - self._events[0] > 1.0:
+            self._events.popleft()
+        if len(self._events) >= limit:
+            return False
+        self._events.append(now)
+        return True
+
+    # ------------------------------------------------------------------ kapi
+    def check(self, tool: str, write: bool = True, force: bool = False) -> Decision:
+        """GUI araci calisabilir mi? Reddin gerekcesi kullaniciya aynen doner."""
+        if not self.spec.enabled:
+            return Decision(
+                False,
+                "Masaustu kontrolu kapali. Acmak icin config.toml'da "
+                "`[desktop] enabled = true` yapip `systemctl --user restart pcbridge` "
+                "calistirin. (Varsayilan kapali olmasi bilincli: bu ozellik acik "
+                "oturumunuzdaki her uygulamaya erisim demek.)",
+            )
+
+        locked = screen_locked()
+        if locked:
+            return Decision(
+                False,
+                "Ekran kilitli. Kilitli ekranin arkasina girdi gonderilmez — "
+                "makinenin basina gecip kilidi acin.",
+            )
+
+        if not self.is_unlocked():
+            return Decision(
+                False,
+                "Masaustu kontrolu su an kilitli. Once desktop_unlock ile "
+                f"sureli izin verin (varsayilan {self.spec.unlock_default_minutes} dakika).",
+            )
+
+        if write and not force:
+            idle = idle_ms()
+            guard = self.spec.idle_guard_seconds * 1000
+            if idle is not None and idle < guard:
+                return Decision(
+                    False,
+                    f"Makinenin basinda birisi var ({idle // 1000} saniye once "
+                    "klavye/fare kullanildi). Telefondan gelen eylemle sizin "
+                    "farenizin kavga etmemesi icin reddedildi. Yine de gonderilsin "
+                    "isterseniz force=true verin.",
+                )
+
+        if not self._rate_ok():
+            return Decision(
+                False,
+                f"Hiz siniri: saniyede en fazla {self.spec.max_actions_per_second} "
+                "eylem. Bir sonraki saniyede tekrar deneyin.",
+            )
+
+        return Decision(True)
+
+    # ---------------------------------------------------------- denetim kaydi
+    def audit(self, event: str, **fields: Any) -> None:
+        """auth.py'daki `audit()` ile ayni bicim: audit.log'a tek satir JSON."""
+        rec = {
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "event": event,
+            **{k: v for k, v in fields.items() if v is not None},
+        }
+        line = json.dumps(rec, ensure_ascii=False)
+        logger.info(line)
+        try:
+            with Path(self.cfg.audit_log).open("a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+        except OSError:  # pragma: no cover
+            pass
+
+    # -------------------------------------------------------------- durum ozet
+    def status_line(self) -> str:
+        """`system_status` ve arac ciktilari icin tek satirlik ozet."""
+        if not self.spec.enabled:
+            return "masaustu kontrolu: kapali (config.toml → [desktop] enabled)"
+        rem = self.remaining_seconds()
+        if rem <= 0:
+            return "masaustu kontrolu: acik ama kilitli (desktop_unlock bekliyor)"
+        locked = screen_locked()
+        extra = " · EKRAN KILITLI" if locked else ""
+        return f"masaustu kontrolu: izinli, {rem // 60} dk {rem % 60} sn kaldi{extra}"

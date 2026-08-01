@@ -21,6 +21,9 @@ from . import jobs as jobslib
 from . import models as modelslib
 from . import tmuxctl
 from .config import Config
+from .desktop import input as inputlib
+from .desktop import monitors as monitorslib
+from .desktop import safety as safetylib
 
 MAX_INLINE = 4000
 
@@ -586,6 +589,259 @@ def register(mcp: FastMCP, cfg: Config, jm: jobslib.JobManager) -> None:
         lines = out.splitlines()[:max_results]
         return f"`{d}` altinda {len(lines)} sonuc\n```\n" + "\n".join(lines) + "\n```"
 
+    # =============================================================== MASAUSTU
+    # Klavye/fare kontrolu. Her cagri once SafetyGate'ten gecer: [desktop]
+    # enabled, ekran kilidi, sureli izin, kullanici cakismasi, hiz siniri.
+    gate = safetylib.SafetyGate(cfg)
+    backend = inputlib.InputBackend()
+
+    def _guard(tool: str, write: bool = True, force: bool = False) -> str | None:
+        """Reddedildiyse kullaniciya donecek Turkce gerekce, izinliyse None."""
+        decision = gate.check(tool, write=write, force=force)
+        if not decision.allowed:
+            gate.audit(f"{tool}_denied", reason=decision.reason[:120])
+            return f"⛔ {decision.reason}"
+        ok, why = backend.available()
+        if not ok:
+            gate.audit(f"{tool}_unavailable", reason=why[:120])
+            return f"⛔ Sanal girdi cihazi kullanilamiyor: {why}"
+        return None
+
+    @mcp.tool(
+        annotations={"title": "Allow desktop control for a while", "destructiveHint": True}
+    )
+    def desktop_unlock(
+        minutes: Annotated[
+            int,
+            Field(
+                ge=1,
+                le=120,
+                description="How long the permission stays open, in minutes.",
+            ),
+        ] = 15,
+        reason: Annotated[
+            str | None,
+            Field(description="Short note about what this is for; goes to the audit log."),
+        ] = None,
+    ) -> str:
+        """Open a time-limited permission window for controlling the computer's
+        keyboard and mouse. The mouse and keyboard tools refuse to do anything
+        until this is called, and the permission expires on its own. Call this
+        first whenever the user asks you to click, type or drive an application
+        on their screen."""
+        if not cfg.desktop.enabled:
+            return (
+                "⛔ Masaustu kontrolu kapali. config.toml'da `[desktop] enabled = true` "
+                "yapip `systemctl --user restart pcbridge` calistirin. Once "
+                "`sudo ./setup_uinput.sh` gerekiyor (bir kez)."
+            )
+        ok, why = backend.available()
+        if not ok:
+            return f"⛔ Sanal girdi cihazi kullanilamiyor: {why}"
+
+        msg = gate.unlock(minutes, reason or "")
+        subprocess.run(
+            [
+                "notify-send",
+                "-a",
+                "pcbridge",
+                "-u",
+                "critical",
+                "Masaüstü kontrolü açıldı",
+                f"{minutes} dakika · {reason or 'gerekçe belirtilmedi'}",
+            ],
+            capture_output=True,
+            timeout=10,
+        )
+        out = [msg, "", monitorslib.describe(), ""]
+        out.append(
+            "Koordinatlar **global tuval uzayinda**; sol ust (0, 0). Monitore ozel "
+            "koordinat verecekseniz `monitor` parametresini de verin."
+        )
+        out.append("Erken kapatmak icin: desktop_lock")
+        return "\n".join(out)
+
+    @mcp.tool(annotations={"title": "Stop desktop control"})
+    def desktop_lock() -> str:
+        """Close the desktop control permission immediately instead of waiting for
+        it to expire, and destroy the virtual keyboard/mouse devices. Use when the
+        user says they are done, or asks you to stop touching their screen."""
+        backend.close()
+        return gate.lock()
+
+    @mcp.tool(annotations={"title": "Move or click the mouse", "destructiveHint": True})
+    def mouse(
+        action: Annotated[
+            str,
+            Field(
+                description="One of: move, click, double_click, right_click, "
+                "middle_click, drag, scroll."
+            ),
+        ],
+        x: Annotated[
+            int | None,
+            Field(description="Target X. Global desktop coordinate unless monitor is given."),
+        ] = None,
+        y: Annotated[int | None, Field(description="Target Y.")] = None,
+        to_x: Annotated[
+            int | None, Field(description="For drag: X where the drag ends.")
+        ] = None,
+        to_y: Annotated[
+            int | None, Field(description="For drag: Y where the drag ends.")
+        ] = None,
+        scroll_amount: Annotated[
+            int,
+            Field(
+                ge=-50,
+                le=50,
+                description="For scroll: wheel clicks. Positive scrolls up, negative down.",
+            ),
+        ] = 3,
+        monitor: Annotated[
+            int | None,
+            Field(
+                description="Treat x/y as coordinates inside this monitor instead of "
+                "the whole desktop. Monitors are numbered left to right starting at 1."
+            ),
+        ] = None,
+        force: Annotated[
+            bool,
+            Field(
+                description="Send even if the user was recently active at the machine. "
+                "Only set this when the user explicitly asked you to take over."
+            ),
+        ] = False,
+    ) -> str:
+        """Move the mouse pointer, click, drag or scroll on the user's Linux
+        desktop. Requires desktop_unlock first. Use when the user asks you to
+        press a button, open a menu or otherwise operate a graphical application.
+        Coordinates are global desktop pixels unless you pass monitor. Take a
+        screenshot or check the result after acting — never click blind."""
+        err = _guard("mouse", write=True, force=force)
+        if err:
+            return err
+
+        act = (action or "").strip().lower()
+        try:
+            if act in ("move", "click", "double_click", "right_click", "middle_click", "drag"):
+                if x is None or y is None:
+                    return "x ve y zorunlu (drag icin ayrica to_x/to_y)."
+                gx, gy = monitorslib.to_global(x, y, monitor)
+            if act == "move":
+                pos = backend.move(gx, gy)
+                done = f"imlec {pos} konumuna tasindi"
+            elif act in ("click", "double_click", "right_click", "middle_click"):
+                pos = backend.move(gx, gy)
+                time.sleep(0.08)
+                button = {"right_click": "right", "middle_click": "middle"}.get(act, "left")
+                backend.click(button, 2 if act == "double_click" else 1)
+                done = f"{pos} konumuna {button} tiklama" + (
+                    " (cift)" if act == "double_click" else ""
+                )
+            elif act == "drag":
+                if to_x is None or to_y is None:
+                    return "drag icin to_x ve to_y zorunlu."
+                ex, ey = monitorslib.to_global(to_x, to_y, monitor)
+                backend.drag(gx, gy, ex, ey)
+                done = f"({gx}, {gy}) -> ({ex}, {ey}) suruklendi"
+            elif act == "scroll":
+                if x is not None and y is not None:
+                    backend.move(*monitorslib.to_global(x, y, monitor))
+                    time.sleep(0.08)
+                backend.scroll(scroll_amount)
+                done = f"{scroll_amount} tik kaydirildi"
+            else:
+                return (
+                    f"Bilinmeyen eylem: '{action}'. Gecerli: move, click, "
+                    "double_click, right_click, middle_click, drag, scroll"
+                )
+        except (inputlib.InputError, monitorslib.MonitorError) as exc:
+            gate.audit("mouse_error", action=act, error=str(exc)[:160])
+            return f"Hata: {exc}"
+
+        gate.audit("mouse", action=act, x=x, y=y, monitor=monitor, forced=force or None)
+        where = backend.position
+        note = ""
+        if where:
+            m = monitorslib.find_monitor(*where)
+            if m:
+                note = f" · monitor {m.index} ({m.connector})"
+        return f"{done}{note}.\nSonucu dogrulamadan bir sonraki adima gecmeyin."
+
+    @mcp.tool(annotations={"title": "Type text or press keys", "destructiveHint": True})
+    def keyboard(
+        action: Annotated[
+            str, Field(description="One of: type, key, hold, release.")
+        ],
+        text: Annotated[
+            str | None, Field(description="For type: the text to enter.")
+        ] = None,
+        keys: Annotated[
+            str | None,
+            Field(
+                description="For key/hold/release: a combination like 'ctrl+v', "
+                "'super', 'alt+tab', 'Return', 'Escape', 'f5', 'down'."
+            ),
+        ] = None,
+        raw: Annotated[
+            bool,
+            Field(
+                description="For type: send raw key codes instead of pasting via the "
+                "clipboard. The clipboard path is the default because it is immune to "
+                "the machine's keyboard layout; raw only handles ASCII and will produce "
+                "wrong punctuation on a non-US layout. Leave this false unless the "
+                "target application ignores paste."
+            ),
+        ] = False,
+        force: Annotated[
+            bool,
+            Field(description="Send even if the user was recently active at the machine."),
+        ] = False,
+    ) -> str:
+        """Type text or press key combinations on the user's Linux desktop.
+        Requires desktop_unlock first. Use when the user asks you to fill in a
+        field, confirm a dialog with Enter, or trigger a shortcut. Text is entered
+        through the clipboard, so accented and non-English characters come out
+        correctly; the previous clipboard contents are restored afterwards."""
+        err = _guard("keyboard", write=True, force=force)
+        if err:
+            return err
+
+        act = (action or "").strip().lower()
+        try:
+            if act == "type":
+                if not text:
+                    return "type icin `text` zorunlu."
+                note = backend.type_text(
+                    text, raw=raw, restore_clipboard=cfg.desktop.restore_clipboard
+                )
+                done = note
+            elif act in ("key", "hold", "release"):
+                if not keys:
+                    return f"{act} icin `keys` zorunlu (ornek: 'ctrl+v')."
+                if act == "key":
+                    backend.key(keys)
+                elif act == "hold":
+                    backend.key_down(keys)
+                else:
+                    backend.key_up(keys)
+                done = f"`{keys}` {'basildi' if act == 'key' else act}"
+            else:
+                return f"Bilinmeyen eylem: '{action}'. Gecerli: type, key, hold, release"
+        except inputlib.InputError as exc:
+            gate.audit("keyboard_error", action=act, error=str(exc)[:160])
+            return f"Hata: {exc}"
+
+        gate.audit(
+            "keyboard",
+            action=act,
+            keys=keys,
+            chars=len(text) if text else None,
+            raw=raw or None,
+            forced=force or None,
+        )
+        return f"{done}.\nSonucu dogrulamadan bir sonraki adima gecmeyin."
+
     # ================================================================== SISTEM
     @mcp.tool(annotations={"title": "Computer status", "readOnlyHint": True})
     def system_status() -> str:
@@ -626,6 +882,8 @@ def register(mcp: FastMCP, cfg: Config, jm: jobslib.JobManager) -> None:
         )
         if gpu:
             parts += ["**GPU**", "```", gpu, "```"]
+
+        parts.append(f"\n**Masaustu:** {gate.status_line()}")
 
         running = jm.list_jobs(limit=10, only_running=True)
         parts.append(f"\n**Calisan isler:** {len(running)}")

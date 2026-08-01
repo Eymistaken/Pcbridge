@@ -123,7 +123,53 @@ done
 command -v tmux >/dev/null && pass "tmux var" || fail "tmux yok: sudo apt install tmux"
 command -v script >/dev/null && pass "script var (agy pty sarmalayicisi icin)" || fail "script yok: sudo apt install bsdutils"
 
-head_ "7. Son 15 gunluk kaydi"
+head_ "7. Masaustu kontrolu (klavye/fare)"
+DESK_ON="$(grep -A20 '^\[desktop\]' config.toml 2>/dev/null | grep -E '^enabled' | head -1 | grep -o 'true\|false')"
+case "${DESK_ON:-yok}" in
+  true)  pass "[desktop] enabled = true (araclar acik)" ;;
+  false) info "[desktop] enabled = false (varsayilan; mouse/keyboard araclari kapali)" ;;
+  *)     fail "config.toml'da [desktop] bolumu yok — config.example.toml'dan kopyalayin" ;;
+esac
+
+if [ -e /dev/uinput ]; then
+  if getfacl -p /dev/uinput 2>/dev/null | grep -q "^user:$USER:.*w"; then
+    pass "/dev/uinput yazilabilir (uaccess ACL)"
+  elif id -nG | tr ' ' '\n' | grep -qx input && [ -w /dev/uinput ]; then
+    pass "/dev/uinput yazilabilir (input grubu)"
+  else
+    fail "/dev/uinput erisimi yok — calistir: sudo $DIR/setup_uinput.sh"
+  fi
+else
+  fail "/dev/uinput yok (uinput modulu yuklu degil) — sudo $DIR/setup_uinput.sh"
+fi
+
+if ./.venv/bin/python -c "import evdev" 2>/dev/null; then
+  pass "python paketi evdev kurulu"
+else
+  fail "evdev yok — ./.venv/bin/pip install -r requirements.txt"
+fi
+command -v wl-copy >/dev/null && pass "wl-copy var (pano yoluyla metin girisi)" \
+  || fail "wl-clipboard yok: sudo apt install wl-clipboard"
+
+MONS="$(./.venv/bin/python -c 'from pcbridge.desktop import monitors as m; print(m.describe())' 2>&1)"
+if printf '%s' "$MONS" | grep -q '^tuval:'; then
+  printf '%s\n' "$MONS" | sed 's/^/  · /'
+else
+  fail "monitor tablosu okunamadi: $(printf '%s' "$MONS" | tail -1)"
+fi
+
+# A bolumunun kazanimini koruyan kontrol: bu degisken --effort'u sessizce ezer.
+# Yalnizca gercek Environment= satirlarina bak; birimdeki "bunu ekleme" yorumu
+# kendini yakalamasin.
+UNIT="$HOME/.config/systemd/user/pcbridge.service"
+if grep -E '^\s*Environment=' "$UNIT" 2>/dev/null \
+   | grep -qE 'ANTHROPIC_MODEL|CLAUDE_CODE_EFFORT_LEVEL'; then
+  fail "servis biriminde ANTHROPIC_MODEL/CLAUDE_CODE_EFFORT_LEVEL var — --effort bayragini etkisiz kilar, kaldirin"
+else
+  pass "birimde model/effort ortam degiskeni yok (dogru)"
+fi
+
+head_ "8. Son 15 gunluk kaydi"
 journalctl --user -u pcbridge -n 15 --no-pager 2>/dev/null | sed 's/^/  /'
 
 echo

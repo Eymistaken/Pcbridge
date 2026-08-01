@@ -11,7 +11,7 @@ blue() { printf "\033[1;34m%s\033[0m\n" "$*"; }
 warn() { printf "\033[1;33m%s\033[0m\n" "$*"; }
 ok()   { printf "\033[1;32m%s\033[0m\n" "$*"; }
 
-blue "==> 1/6  Gerekli paketler"
+blue "==> 1/7  Gerekli paketler"
 MISSING=()
 command -v python3 >/dev/null || MISSING+=(python3)
 python3 -c "import venv" 2>/dev/null || MISSING+=(python3-venv)
@@ -19,6 +19,8 @@ command -v tmux >/dev/null || MISSING+=(tmux)
 command -v notify-send >/dev/null || MISSING+=(libnotify-bin)
 command -v script >/dev/null || MISSING+=(bsdutils)
 command -v curl >/dev/null || MISSING+=(curl)
+# Masaustu kontrolu icin: pano yoluyla metin girisi ve monitor tablosu
+command -v wl-copy >/dev/null || MISSING+=(wl-clipboard)
 
 if [ ${#MISSING[@]} -gt 0 ]; then
   warn "Eksik: ${MISSING[*]}"
@@ -30,13 +32,13 @@ else
   ok "Hepsi zaten kurulu."
 fi
 
-blue "==> 2/6  Sanal ortam (.venv)"
+blue "==> 2/7  Sanal ortam (.venv)"
 [ -d .venv ] || python3 -m venv .venv
 ./.venv/bin/pip install --upgrade pip >/dev/null
 ./.venv/bin/pip install -r requirements.txt >/dev/null
 ok "Bagimliliklar kuruldu."
 
-blue "==> 3/6  Yapilandirma"
+blue "==> 3/7  Yapilandirma"
 NEWPW=""
 if [ ! -f config.toml ]; then
   cp config.example.toml config.toml
@@ -57,7 +59,7 @@ else
   ok "config.toml zaten var, dokunulmadi."
 fi
 
-blue "==> 4/6  Tailscale"
+blue "==> 4/7  Tailscale"
 TS_DNS=""
 if command -v tailscale >/dev/null; then
   TS_DNS="$(tailscale status --json 2>/dev/null \
@@ -81,7 +83,7 @@ else
   echo "    curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up"
 fi
 
-blue "==> 5/6  systemd kullanici servisi (otomatik baslatma KAPALI)"
+blue "==> 5/7  systemd kullanici servisi (otomatik baslatma KAPALI)"
 UNIT_DIR="$HOME/.config/systemd/user"
 mkdir -p "$UNIT_DIR"
 sed "s|__DIR__|$DIR|g" systemd/pcbridge.service > "$UNIT_DIR/pcbridge.service"
@@ -89,7 +91,31 @@ systemctl --user daemon-reload
 systemctl --user disable pcbridge >/dev/null 2>&1 || true
 ok "Servis tanimlandi ama acilista baslamayacak."
 
-blue "==> 6/6  Alias'lar (~/.bashrc)"
+# Wayland oturum ortami servise gecmeli: bildirimler, ekran kilidi kontrolu ve
+# monitor tablosu bunlara bagli. Modern GNOME bunu zaten yapiyor; asagisi
+# yapmayan oturumlar icin guvenlik agi ve calistirmasi zararsiz.
+if [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
+  systemctl --user import-environment \
+    WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP XDG_RUNTIME_DIR 2>/dev/null || true
+  dbus-update-activation-environment --systemd --all 2>/dev/null || true
+  ok "Oturum ortami systemd kullanici yoneticisine aktarildi."
+fi
+
+blue "==> 6/7  Masaustu kontrolu (klavye/fare) - OPSIYONEL"
+if [ -e /dev/uinput ] && getfacl -p /dev/uinput 2>/dev/null | grep -q "^user:$USER:.*w"; then
+  ok "/dev/uinput erisimi hazir."
+else
+  warn "Masaustu kontrolu (mouse/keyboard araclari) icin bir kez sudo gerekiyor:"
+  echo
+  echo "    sudo $DIR/setup_uinput.sh"
+  echo
+  echo "  Ne yaptigini gormek icin dosyanin basindaki aciklamayi okuyun."
+  echo "  Bunu ATLAYABILIRSINIZ: pcbridge'in geri kalani (ajan, tmux, kabuk,"
+  echo "  dosya) uinput olmadan da calisir."
+fi
+echo "  Araclar ayrica config.toml'da [desktop] enabled = true ister (varsayilan false)."
+
+blue "==> 7/7  Alias'lar (~/.bashrc)"
 chmod +x spark.sh run.sh doctor.sh 2>/dev/null || true
 BRC="$HOME/.bashrc"
 MARK_START="# >>> pcbridge >>>"

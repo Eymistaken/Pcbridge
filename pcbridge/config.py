@@ -79,6 +79,34 @@ class AgentSpec:
 
 
 @dataclass
+class DesktopSpec:
+    """Masaustu (klavye/fare) kontrolu ayarlari.
+
+    `enabled` VARSAYILAN OLARAK FALSE ve oyle kalmali: bu ozellik acik
+    oturumdaki her uygulamaya erisim demek, kullanici bilincli olarak acsin.
+    """
+
+    enabled: bool = False
+    # desktop_unlock(dakika) verilmezse bu kadar; tavan da asagida.
+    unlock_default_minutes: int = 15
+    unlock_max_minutes: int = 120
+    # Kullanici son girdisinden bu kadar saniye gecmediyse yazma eylemleri
+    # reddedilir (telefon ile kullanicinin faresi kavga etmesin). force=true
+    # ile bilincli olarak gecilebilir. 0 = kontrol kapali.
+    idle_guard_seconds: int = 60
+    # Saniyede en fazla kac eylem. Sonsuz donguye giren bir ajan makineyi
+    # kilitleyemesin diye. 0 = sinirsiz.
+    max_actions_per_second: int = 10
+    # `monitor=` verilmeyen ve monitore ozel yorumlanan cagrilar icin.
+    default_monitor: int = 1
+    # Pano yoluyla metin yazildiktan sonra eski pano icerigi geri yuklensin mi.
+    restore_clipboard: bool = True
+    # Yalnizca bilgi/tani amacli: ham tus yolunun (raw=true) hangi duzende
+    # yorumlanacagini soyler. Girdi gonderimini DEGISTIRMEZ.
+    keyboard_layout: str = "tr+intl"
+
+
+@dataclass
 class Config:
     public_url: str
     host: str
@@ -104,6 +132,7 @@ class Config:
     agents: dict[str, AgentSpec]
     # Ajan adi verilmediginde ve model hicbir ajana ait degilse kullanilir.
     default_agent: str = "claude"
+    desktop: DesktopSpec = field(default_factory=DesktopSpec)
     source_path: Path | None = None
 
     # -- turetilmis ---------------------------------------------------------
@@ -281,6 +310,24 @@ def load_config(explicit: str | None = None) -> Config:
             f"Tanimli ajanlar: {', '.join(agents) or '-'}"
         )
 
+    desktop_raw = raw.get("desktop") or {}
+    desktop = DesktopSpec(
+        enabled=bool(desktop_raw.get("enabled", False)),
+        unlock_default_minutes=int(desktop_raw.get("unlock_default_minutes", 15)),
+        unlock_max_minutes=int(desktop_raw.get("unlock_max_minutes", 120)),
+        idle_guard_seconds=int(desktop_raw.get("idle_guard_seconds", 60)),
+        max_actions_per_second=int(desktop_raw.get("max_actions_per_second", 10)),
+        default_monitor=int(desktop_raw.get("default_monitor", 1)),
+        restore_clipboard=bool(desktop_raw.get("restore_clipboard", True)),
+        keyboard_layout=str(desktop_raw.get("keyboard_layout", "tr+intl")),
+    )
+    if desktop.unlock_default_minutes > desktop.unlock_max_minutes:
+        raise SystemExit(
+            f"[desktop] ({path}): `unlock_default_minutes` "
+            f"({desktop.unlock_default_minutes}) `unlock_max_minutes` "
+            f"({desktop.unlock_max_minutes}) degerini asamaz."
+        )
+
     state_dir = _expand(paths.get("state_dir", "~/.local/state/pcbridge"))
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / "jobs").mkdir(parents=True, exist_ok=True)
@@ -308,5 +355,6 @@ def load_config(explicit: str | None = None) -> Config:
         max_sync_timeout=int(limits.get("max_sync_timeout", 120)),
         agents=agents,
         default_agent=default_agent,
+        desktop=desktop,
         source_path=path,
     )

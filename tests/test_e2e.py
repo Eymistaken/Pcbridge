@@ -297,8 +297,43 @@ def main() -> int:
         "fs_list",
         "system_status",
         "list_agents",
+        "desktop_unlock",
+        "desktop_lock",
+        "mouse",
+        "keyboard",
     ):
         check(f"arac mevcut: {expected}", expected in names, str(sorted(names)))
+
+    # Masaustu araclarinin semasi -- Gemini bunlari dogru doldurabilmeli
+    by_name = {t["name"]: t for t in tools}
+    for tool_name, must_have in (
+        ("mouse", ("action", "x", "y", "monitor", "force")),
+        ("keyboard", ("action", "text", "keys", "raw", "force")),
+        ("desktop_unlock", ("minutes", "reason")),
+    ):
+        props = by_name.get(tool_name, {}).get("inputSchema", {}).get("properties", {})
+        for field_ in must_have:
+            check(
+                f"{tool_name}.{field_} parametresi var",
+                field_ in props,
+                str(sorted(props)),
+            )
+    for tool_name in ("mouse", "keyboard", "desktop_unlock"):
+        ann = by_name.get(tool_name, {}).get("annotations", {}) or {}
+        check(
+            f"{tool_name} destructiveHint isaretli",
+            ann.get("destructiveHint") is True,
+            str(ann),
+        )
+    mouse_req = by_name.get("mouse", {}).get("inputSchema", {}).get("required", [])
+    check("mouse.action zorunlu", "action" in mouse_req, str(mouse_req))
+    check("mouse.x zorunlu DEGIL (scroll icin)", "x" not in mouse_req, str(mouse_req))
+    desc = str(by_name.get("keyboard", {}).get("description", ""))
+    check(
+        "keyboard aciklamasi 'ne zaman kullanilir' iceriyor",
+        "Use when" in desc,
+        desc[:160],
+    )
 
     # agent_run'in model/effort semasi -- Gemini bu alanlari gorebilmeli
     schema = next(
@@ -343,6 +378,20 @@ def main() -> int:
 
     out = call("system_status", {})
     check("system_status calisti", "Bilgisayar durumu" in out, out[:300])
+    check("system_status masaustu satirini gosteriyor", "asaustu" in out, out[:2000])
+
+    # Masaustu araclari: test yapilandirmasinda [desktop] tanimli degil, yani
+    # varsayilan enabled = false gecerli ve HICBIRI girdi gondermemeli.
+    # Bu testler gercek klavye/fareye dokunmaz.
+    out = call("mouse", {"action": "move", "x": 10, "y": 10})
+    check("mouse kapaliyken reddediyor", "⛔" in out, out[:200])
+    check("mouse reddi nasil acilacagini soyluyor", "enabled" in out, out[:200])
+    out = call("keyboard", {"action": "type", "text": "bu-yazilmamali"})
+    check("keyboard kapaliyken reddediyor", "⛔" in out, out[:200])
+    out = call("desktop_unlock", {"minutes": 1})
+    check("desktop_unlock kapaliyken reddediyor", "⛔" in out, out[:200])
+    out = call("desktop_lock", {})
+    check("desktop_lock kapaliyken de cevap veriyor", "kontrolu" in out, out[:200])
 
     section("12. Ajan calistirma ve is takibi")
     out = call(

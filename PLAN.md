@@ -63,6 +63,11 @@ da en güçlü çözüm oluyor — computer use, `agent_run`'ın rakibi değil *
 | XDG `RemoteDesktop` portalı + libei | ✅ ama | Her oturumda GNOME onay penceresi çıkar. Kalıcı izin (`persist_mode`) portal **1.21+** ile geldi; Ubuntu 24.04'te 1.18 var → **telefondan kullanım için uygun değil**, makine başında birinin "İzin Ver" demesi gerekir |
 | `gnome-remote-desktop` (RDP) | ✅ | Ağır; ayrı bir RDP istemcisi + oturum yönetimi gerekir. Yalnızca "sanal ekran" senaryosu için mantıklı |
 
+> ⚠️ **Aşağıdaki iki aday da kullanılmadı.** Ölçüm sonrası `python-evdev` seçildi:
+> makinede zaten kurulu, derleme/daemon istemiyor ve ABS eksenini bizim
+> tanımlamamıza izin verdiği için çift monitör riskini kapatıyor. Gerekçe:
+> **"Faz 1 sonuçları — ölçüldü 2026-08-01 (B bölümü)"** bölümü, 2. madde.
+
 **Karar: uinput.** İki aday var:
 
 - **`ydotool`** — Ubuntu 24.04 deposundaki sürüm **0.1.8** (eski). `mousemove --absolute`
@@ -261,6 +266,11 @@ tek kullanımlık; OAuth'tan bağımsız olduğu için bağlantıyı paylaşma.
 - `doctor.sh`, `README.md`, `KULLANIM.md`, `GELISTIRME.md`
 
 ### systemd düzeltmesi (kritik)
+
+> ⚠️ **Ölçüldü: bu makinede gerekmiyordu ve aşağıdaki hâliyle uygulanmadı.**
+> Oturum ortamı birime zaten geliyor; `WantedBy`/`PartOf` değişiklikleri ise
+> projenin "açılışta otomatik başlama" kararıyla çelişiyor. Uygulanan hâli ve
+> gerekçesi: **"Faz 1 sonuçları"** bölümü, 3. madde.
 
 Mevcut birim yalnızca `Environment=DISPLAY=:0` veriyor; Wayland'de bu yetmez.
 Servis, grafik oturumun ortam değişkenlerini görmeden ne uinput'a ne D-Bus'a
@@ -834,6 +844,91 @@ yanlış model sessizce çalışmıyor, exit 1 veriyor (madde 5).
 net: boş bırakmak "hangi modelle çalıştığını bilmemek" demek, planın çözmeye
 çalıştığı sorunun ta kendisi. **`gemini-3.6-flash` uygulandı.**
 
+### Faz 1 sonuçları — ölçüldü 2026-08-01 (B bölümü)
+
+Girdi katmanı yazıldı ve makinede doğrulandı. **Bu planın üç kararı değişti**;
+gerekçeleri aşağıda, ilgili bölümlere de not düşüldü.
+
+**1. Mutlak fare TÜM TUVALİ kapsıyor — §2.5 ve §8'deki "yüksek risk" kapandı.**
+
+`ABS_X`/`ABS_Y` aralığı `0..3839` / `0..1079` verilen bir uinput cihazı, global
+tuvale **1:1** eşleniyor. Altı noktada ölçüldü (imleç konumu ekran görüntüsü
+farkından okunarak):
+
+| Hedef | İstenen | Ölçülen | Sapma |
+|---|---|---|---|
+| tuvalin başı (sol üst) | (5, 5) | (5, 5) | 0 |
+| SOL ekran ortası | (960, 540) | (960, 540) | 0 |
+| SOL ekran sağ-alt | (1900, 1050) | (1900, 1050) | 0 |
+| SAĞ ekran sol-üst | (1930, 10) | (1930, 10) | 0 |
+| SAĞ ekran ortası | (2760, 540) | (2760, 540) | 0 |
+| tuvalin sonu (sağ alt) | (3834, 1074) | (3834, 1075) | 1 px* |
+
+\* sprite ekranın alt kenarında kırpıldığı için ölçüm artefaktı, konumlama hatası değil.
+
+Kritik olan **yetenek bileşkesi**: `ABS_X + ABS_Y + BTN_LEFT` → udev
+`ID_INPUT_MOUSE=1` ("VMware mutlak faresi" yolu). `BTN_TOUCH` ya da
+`BTN_TOOL_PEN` eklenirse cihaz dokunmatik ekran/tablet olur ve kompozitör onu
+**tek bir çıkışa** bağlar — ikinci monitör erişilemez hale gelirdi. Göreli
+hareket + geri besleme tasarımına gerek kalmadı.
+
+**2. Girdi arka ucu `dotool` değil, `python-evdev` — §2.1 değişti.**
+
+Ölçüm: makinede `dotool`, `ydotool`, `go`, `cmake` yok; depodaki ydotool 0.1.8
+(eski). Buna karşılık `python3-evdev` zaten kurulu ve venv'e bir `pip install`
+ile giriyor. `dotool`'un tek gerçek üstünlüğü `DOTOOL_XKB_LAYOUT=tr` ile ham tuş
+yolunda düzen farkındalığıydı — ama planın kendisi metin girişinin varsayılan
+yolunu **pano + Ctrl+V** yapıyor, yani o üstünlük yalnızca `raw=True` kaçış
+kapısında işe yarıyor. Bedeli ise Go kurulumu (~400 MB), kaynaktan derleme ve
+ayrı bir `dotoold` servisi. evdev ayrıca **ABS aralığını bizim tanımlamamıza**
+izin verdiği için 1. maddedeki riski doğrudan hedefledi. Kullanıcı onayıyla
+değiştirildi.
+
+Yan etki: acil durdurma komutu değişti. Ayrı daemon yok, sanal cihaz pcbridge
+sürecinin içinde yaşıyor → **`systemctl --user stop pcbridge`** (eski plandaki
+`pkill -f dotoold` geçersiz).
+
+**3. systemd düzeltmesi büyük ölçüde gereksizmiş — §3 değişti.**
+
+Ölçüm: systemd kullanıcı yöneticisinde `WAYLAND_DISPLAY`,
+`DBUS_SESSION_BUS_ADDRESS`, `XDG_RUNTIME_DIR`, `XDG_SESSION_TYPE` **zaten
+import edilmiş** durumda ve çalışan pcbridge süreci hepsini görüyor (GNOME
+oturumu bunu kendisi yapıyor). Planın "kritik" dediği sorun bu makinede yok.
+
+Ayrıca §3'ün önerdiği iki satır **uygulanmadı**, çünkü projenin açık kararıyla
+çelişiyorlar:
+
+- `WantedBy=graphical-session.target` servisi **açılışta otomatik başlatır**;
+  oysa `install.sh` servisi bilinçle `disable` ediyor ve `doctor.sh` bunu
+  *"açılışta otomatik başlamıyor (istenen davranış)"* diye doğruluyor.
+- `PartOf=graphical-session.target` oturum kapanınca pcbridge'i **öldürür**;
+  bugün öldürmüyor ve ajan/tmux/kabuk araçlarının masaüstüne ihtiyacı yok.
+
+Uygulanan: yalnızca `After=graphical-session.target` (sıralama, zararsız), artı
+`install.sh`'a `import-environment` + `dbus-update-activation-environment`
+güvenlik ağı (bunu yapmayan oturumlar için).
+
+**4. Ek ölçümler.**
+
+- Klavye düzeni düz `tr` değil, **`tr+intl`** (`gsettings ... input-sources`).
+- `/dev/uinput` için udev kural dosyasının **numarası işlevsel**: ACL'i veren
+  satır `73-seat-late.rules` içinde, dolayısıyla kural 73'ten önce gelmeli.
+  İlk denemede `80-uinput.rules` yazıldı → `GROUP`/`MODE` uygulandı ama
+  `uaccess` ACL'i oluşmadı. `60-pcbridge-uinput.rules`'a alınınca oturum
+  kapatmaya gerek kalmadan çalıştı.
+- Monitör tablosu `busctl --user --json=short` ile **düz JSON** olarak okunuyor
+  → yeni Python bağımlılığı yok. Yedek: `xrandr --listmonitors` (XWayland).
+- `wl-copy` `capture_output=True` ile **asılıyor**: pano sahibi olarak arka
+  planda yaşadığı için borular EOF vermiyor. Yazma yolunda `DEVNULL` şart.
+- Ekran kilidi (`ScreenSaver.GetActive`) ve idle (`IdleMonitor.GetIdletime`)
+  D-Bus okumaları servis içinden sorunsuz çalışıyor.
+
+**Uçtan uca doğrulandı:** izin almadan ret → `desktop_unlock(5)` → kullanıcı
+makinedeyken `force`suz ret (43 sn idle okundu) → görülen konuma tıklama →
+`merhaba @ ış ğü ÖÇ — pcbridge B testi #1` pano yoluyla **birebir** yazıldı,
+pano eski içeriğine döndü → `ctrl+a` seçim → `desktop_lock` sonrası tekrar ret.
+Testler: `test_desktop.py` 101/101, `test_models.py` 69/69, `test_e2e.py` 115/115.
+
 ### Faz 1 — Girdi katmanı + güvenlik kapısı (~1 gün)
 
 - [ ] `dotool` derle (Go) veya `ydotool` 1.0.4 derle; `~/.local/bin`'e kur
@@ -1012,7 +1107,8 @@ modu Faz 1-4'ün büyük kısmını bedavaya getirir ve iyi bir ilk adımdır.
 |---|---|---|---|
 | Gemini metin ağacını (ui_dump) doğru yorumlayamaz | orta | orta | Çıktı formatını kısa ve tablomsu tut; `computer_task` ile yerel ajana kaç |
 | ~~`gnome-screenshot` GNOME 46'da bozuk çıkar~~ | — | — | **Kapandı:** ölçüldü, çalışıyor (§2.2). İleride dağıtım yükseltmesinde bozulursa portal yedeği |
-| **Çift monitörde 1920 px kaymış tıklama** | yüksek | yüksek | Global koordinat uzayı + ofset taşıma + Faz 1'in ilk testi (§2.5) |
+| **Çift monitörde 1920 px kaymış tıklama** | yüksek | yüksek | Global koordinat uzayı + ofset taşıma; dönüşüm tek yerde (`monitors.to_global`), birim testli |
+| ~~uinput mutlak fare yalnızca birincil monitörü kapsar~~ | — | — | **Kapandı:** 6 noktada ölçüldü, tuvalin tamamına 1:1, en büyük sapma 1 px (Faz 1 sonuçları) |
 | uinput mutlak fare yalnızca birincil monitörü kapsar | orta | orta | Faz 1'de ölçülür; gerekirse göreli hareket + imleç konumu geri beslemesiyle konumlan. **Birincil sağdaki olduğu için testi sol ekranda yap** — kapsama sorunu varsa orada görünür |
 | ~~Kesirli ölçekleme koordinatları bozar~~ | — | — | **Kapandı:** her iki monitör `scale = 1.0` (§2.5) |
 | AT-SPI ağacı Wayland'de eksik koordinat verir | yüksek | düşük | Koordinat yerine `do_action` kullan |

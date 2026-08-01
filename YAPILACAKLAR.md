@@ -49,8 +49,12 @@ kontrolü — gerçek anlamda computer use.
   Birincil monitör sağdaki. GNOME üst çubuğu ve `Super` menüsü orada beliriyor.
   Monitör numaralandırması **her zaman x konumuna göre soldan sağa**, "birincil
   önce" değil. Sıra `Mutter.DisplayConfig.GetCurrentState`'ten okunur.
-- **Klavye düzeni Türkçe.** uinput ham keycode gönderir → ASCII metin bozulur.
-  Metin girişinde varsayılan yol **`wl-copy` + Ctrl+V**.
+- **Klavye düzeni Türkçe** (tam olarak **`tr+intl`**). uinput ham keycode
+  gönderir → ASCII metin bozulur. Metin girişinde varsayılan yol
+  **`wl-copy` + Ctrl+V** (`desktop/input.py` bunu uyguluyor).
+- **Girdi katmanı `python-evdev` ile**, `dotool`/`ydotool` ile değil (ölçüm
+  gerekçesi `PLAN.md` → "Faz 1 sonuçları"). Mutlak fare 3840×1080 tuvalin
+  tamamına 1:1 eşleniyor, ölçüldü.
 - `gnome-screenshot` 41.0-2build2 **kurulu ve çalışıyor** (3840×1080 birleşik tuval)
 - Claude Code **v2.1.220**, Claude **Pro** planı · Antigravity CLI **1.1.9**,
   Google AI Pro
@@ -69,7 +73,9 @@ Girdi testlerinde kural:
 1. Önce `gnome-text-editor` gibi bir boş pencere aç, testi **oraya** yap
 2. Fare testinde önce `mousemove`, sonra ekran görüntüsü alıp konumu **doğrula**,
    ancak ondan sonra `click`
-3. Kaçak döngü ihtimaline karşı acil durdurma: `pkill -f dotoold` (veya `ydotoold`)
+3. Kaçak döngü ihtimaline karşı acil durdurma: **`systemctl --user stop pcbridge`**
+   (sanal klavye/fare pcbridge sürecinin içinde yaşıyor, süreç ölünce cihaz da
+   yok oluyor — ayrı bir `dotoold`/`ydotoold` daemon'ı yok)
 4. Uzun/tekrarlı girdi denemelerini kullanıcıya haber vermeden başlatma
 
 ---
@@ -110,8 +116,11 @@ cd ~/Belgeler/Pcbridge
 systemctl --user restart pcbridge          # kod degistiyse sart
 journalctl --user -u pcbridge -f           # canli log
 ./doctor.sh                                # tani
-./.venv/bin/python tests/test_models.py    # cozumleyici (sunucu gerekmez)
-./.venv/bin/python tests/test_e2e.py       # e2e (sunucu ayakta olmali)
+./.venv/bin/python tests/test_models.py     # cozumleyici (sunucu gerekmez)
+./.venv/bin/python tests/test_desktop.py    # masaustu (sunucu gerekmez, girdi gondermez)
+./.venv/bin/python tests/test_e2e.py        # e2e (sunucu ayakta olmali)
+
+sudo ./setup_uinput.sh                      # masaustu kontrolu icin, BIR KEZ
 ```
 
 Dosya düzenleme komutu önerirken `nano` **kullanma**; kullanıcının `edit` takma

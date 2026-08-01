@@ -138,7 +138,51 @@ doğru aracı seçiyor.
 
 ---
 
-## 5. Makine durumu ve bildirim
+## 5. Bilgisayarı fiilen kullandırma (klavye + fare)
+
+**Varsayılan kapalı.** Açmak için bir kez `sudo ./setup_uinput.sh`, sonra
+`config.toml`'da `[desktop] enabled = true` ve `systemctl --user restart pcbridge`.
+Neyi kabul ettiğini `README.md`'nin güvenlik bölümünde okuyabilirsin.
+
+Açıkken bile her seferinde **süreli izin** vermen gerekiyor:
+
+> pcbridge ile masaüstü kontrolünü 10 dakikalığına aç
+
+> ekranın ortasına tıkla
+
+> `merhaba dünya` yaz
+
+> Enter'a bas
+
+> Ctrl+S'ye bas
+
+> masaüstü kontrolünü kapat
+
+Süre dolunca izin kendiliğinden kapanır; `desktop_lock` ile erken de kapatırsın.
+
+**Koordinatlar tek bir tuvalde.** İki ekranın birlikte 3840×1080 tek bir yüzey.
+Sol ekran 0–1919, sağ ekran 1920–3839. "Sağ ekranın ortasına tıkla" dediğinde
+Gemini `monitor` parametresini kullanabilir; numaralandırma **soldan sağa**, yani
+`1` sol, `2` sağ. GNOME üst çubuğu ve `Super` menüsü **sağ** ekranda beliriyor.
+
+Dört davranışı bilmen işini kolaylaştırır:
+
+- **Türkçe karakterler doğru çıkar.** Metin klavye tuşu taklidiyle değil,
+  **pano üzerinden** giriliyor (`wl-copy` + Ctrl+V). `ış ğü ÖÇ @` sorunsuz.
+  Yapıştırmadan sonra panonun eski içeriği geri yüklenir.
+- **Makine başındaysan reddeder.** Son 60 saniye içinde klavye/fareye
+  dokunduysan yazma eylemleri reddedilir — telefondan gelen fareyle seninki
+  kavga etmesin diye. "yine de yap" dersen `force` ile geçer.
+- **Ekran kilitliyken hiçbir şey yapmaz.** Kilitli ekranın arkasına parola
+  yazdırma yolu yok.
+- **Her eylem kaydediliyor.** `~/.local/state/pcbridge/audit.log` — ne zaman,
+  hangi araç, hangi parametre.
+
+Acil durdurma, makine başındaysan: `systemctl --user stop pcbridge`.
+
+---
+
+## 6. Makine durumu ve bildirim
 
 > bilgisayarımın durumunu göster
 
@@ -176,6 +220,12 @@ ya da bir işin bittiğini fark etmek için.
 | `fs_search` | Dosya içinde arama (ripgrep varsa onu kullanır) |
 | `system_status` | Makine durumu, diskler, GPU, işler, terminaller |
 | `notify` | Masaüstünde bildirim çıkarır |
+| `desktop_unlock` | Klavye/fare kontrolüne süreli izin verir (varsayılan 15 dk) |
+| `desktop_lock` | İzni erken kapatır, sanal cihazları yok eder |
+| `mouse` | Fareyi hareket ettirir, tıklar, sürükler, kaydırır |
+| `keyboard` | Metin yazar (pano yoluyla) veya tuş kombinasyonu gönderir |
+
+Son dördü `[desktop] enabled = true` ister; varsayılan kapalı.
 
 ---
 
