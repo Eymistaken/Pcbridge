@@ -120,6 +120,18 @@ class DesktopSpec:
     # gonderip "gercekten oraya gitti mi" diye bakmanin tek yolu bu.
     include_pointer: bool = True
 
+    # -- toplu eylem (E bolumu) ---------------------------------------------
+    # computer_batch tek cagrida en fazla kac eylem alir.
+    batch_max_actions: int = 40
+    # Toplam sure butcesi (saniye). MCP cagrisi 110 saniyeyi asamaz; aradaki
+    # fark cevabin hazirlanmasi ve `final` adimi icin pay. Butce dolunca batch
+    # siradaki eyleme HIC BASLAMAZ, kalan listeyi geri dondurur.
+    batch_budget_seconds: int = 90
+    # Fare tiklamasindan sonra odak dogrulansin mi. OLCULDU: kor tiklama odagi
+    # kaydiriyor ve sonraki tuslar yanlis pencereye gidiyor -- gelistirme
+    # sirasinda masaustundeki 23 oge boyle copa gitti. Kapatmayin.
+    batch_check_focus: bool = True
+
 
 @dataclass
 class Config:
@@ -148,6 +160,10 @@ class Config:
     # Ajan adi verilmediginde ve model hicbir ajana ait degilse kullanilir.
     default_agent: str = "claude"
     desktop: DesktopSpec = field(default_factory=DesktopSpec)
+    # audit.log bu boyutu asinca `.1`'e devredilir. 0 = donderme kapali.
+    # Masaustu araclarindan sonra kabuk/ajan/dosya araclari da kayit tuttugu
+    # icin dosya artik hizli buyuyor.
+    audit_max_bytes: int = 5_000_000
     source_path: Path | None = None
 
     # -- turetilmis ---------------------------------------------------------
@@ -388,6 +404,7 @@ def load_config(explicit: str | None = None) -> Config:
         max_output_chars=int(limits.get("max_output_chars", 12000)),
         default_job_timeout=int(limits.get("default_job_timeout", 1800)),
         max_sync_timeout=int(limits.get("max_sync_timeout", 120)),
+        audit_max_bytes=int(limits.get("audit_max_bytes", 5_000_000)),
         agents=agents,
         default_agent=default_agent,
         desktop=desktop,

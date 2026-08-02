@@ -488,7 +488,51 @@ def cmd_settext(req: dict) -> dict:
     }
 
 
-COMMANDS = {"dump": cmd_dump, "act": cmd_act, "settext": cmd_settext}
+def cmd_windows(req: dict) -> dict:
+    """Acik pencereler. `dump`tan cok daha ucuz: agaci GEZMEZ, iki seviye iner.
+
+    OLCULDU 2026-08-02: 22 satir 42 ms. Karsilastirma icin gnome-shell'in
+    agacini gezmek 1,93 saniye suruyordu.
+
+    Pencere listesinin tek kaynagi burasi: `Shell.Introspect.GetWindows()` bu
+    surumde "Access denied" veriyor (C bolumunde olculdu).
+    """
+    desk = _desktop()
+    out = []
+    for app in _apps(desk):
+        an = _name(app)
+        try:
+            n = app.get_child_count()
+        except Exception:
+            continue
+        for j in range(n):
+            try:
+                w = app.get_child_at_index(j)
+                if w is None:
+                    continue
+                # ACTIVE, STATE_FLAGS'te yok (dugum listesinde anlamsiz) --
+                # burada dogrudan okunuyor; odagin tek kaynagi bu.
+                _states_unused, st = _states(w)
+                active = bool(st and st.contains(Atspi.StateType.ACTIVE))
+                out.append({
+                    "app": an,
+                    "window": _name(w),
+                    "index": j,
+                    "role": w.get_role_name(),
+                    "active": active,
+                    "children": w.get_child_count(),
+                })
+            except Exception:
+                continue
+    return {"ok": True, "windows": out}
+
+
+COMMANDS = {
+    "dump": cmd_dump,
+    "act": cmd_act,
+    "settext": cmd_settext,
+    "windows": cmd_windows,
+}
 
 
 def main() -> int:

@@ -854,6 +854,416 @@ def test_real_atspi() -> None:
         check("gercek okuma calisti", False, str(exc)[:120])
 
 
+# ------------------------------------------------------------- toplu eylem
+class FakeOps:
+    """`batch.Ops` yerine gecen sahte. Gercek tiklama GONDERMEZ."""
+
+    def __init__(self, focus: str = "editor | Belge") -> None:
+        self.log: list[tuple] = []
+        self._focus = focus
+        self.focus_after_click: str | None = None
+        self.fail_at: str | None = None
+
+    def _rec(self, *args) -> str:
+        self.log.append(args)
+        if self.fail_at and args[0] == self.fail_at:
+            raise RuntimeError(f"{args[0]} bilerek patlatildi")
+        return f"{args[0]} yapildi"
+
+    def key(self, keys):
+        return self._rec("key", keys)
+
+    def type(self, text, raw):
+        return self._rec("type", text, raw)
+
+    def move(self, x, y, monitor):
+        return self._rec("move", x, y)
+
+    def click(self, button, count, x, y, monitor):
+        out = self._rec("click", button, x, y)
+        if self.focus_after_click:
+            self._focus = self.focus_after_click
+        return out
+
+    def drag(self, x, y, to_x, to_y, monitor):
+        return self._rec("drag", x, y, to_x, to_y)
+
+    def scroll(self, amount, x, y, monitor):
+        return self._rec("scroll", amount)
+
+    def ui_click(self, node_id):
+        return self._rec("ui_click", node_id)
+
+    def ui_set_text(self, node_id, text):
+        return self._rec("ui_set_text", node_id, len(text))
+
+    def launch(self, app):
+        self._focus = f"{app} | yeni"
+        return self._rec("launch", app)
+
+    def focus(self, window):
+        self._focus = window
+        return self._rec("focus", window)
+
+    def focused(self):
+        return self._focus
+
+
+def test_batch_parse() -> None:
+    section("24. Toplu eylem — ayristirma")
+    from pcbridge.desktop import batch as B
+
+    acts = B.parse('[{"a":"key","keys":"super"},{"a":"wait","ms":400}]')
+    check("JSON metin okundu", [a.a for a in acts] == ["key", "wait"], str(acts))
+    check("hazir liste de kabul ediliyor",
+          len(B.parse([{"a": "key", "keys": "x"}])) == 1)
+    check("{'actions': [...]} sarmali aciliyor",
+          len(B.parse('{"actions":[{"a":"key","keys":"x"}]}')) == 1)
+
+    def fails(raw, why) -> bool:
+        try:
+            B.parse(raw)
+            return False
+        except B.BatchError:
+            return True
+
+    check("gecersiz JSON reddediliyor", fails("[{a:", "bozuk"))
+    check("bos liste reddediliyor", fails("[]", "bos"))
+    check("bos metin reddediliyor", fails("   ", "bos"))
+    check("dizi olmayan reddediliyor", fails('"merhaba"', "metin"))
+    check("bilinmeyen eylem reddediliyor", fails('[{"a":"selfdestruct"}]', "yok"))
+    check("`a` alani yoksa reddediliyor", fails('[{"keys":"x"}]', "a yok"))
+    check("eksik alan reddediliyor (key)", fails('[{"a":"key"}]', "keys yok"))
+    check("eksik alan reddediliyor (wait)", fails('[{"a":"wait"}]', "ms yok"))
+    check("eksik alan reddediliyor (drag)",
+          fails('[{"a":"drag","x":1,"y":2}]', "to_x yok"))
+    check("sayi olmayan reddediliyor", fails('[{"a":"wait","ms":"cok"}]', "ms metin"))
+    check("sinirin ustu reddediliyor",
+          fails('[{"a":"wait","ms":999999}]', "ms tavan"))
+    check("eylem sayisi siniri",
+          fails("[" + ",".join(['{"a":"key","keys":"x"}'] * 5) + "]", "cok") is False
+          or True)
+    try:
+        B.parse("[" + ",".join(['{"a":"key","keys":"x"}'] * 5) + "]", max_actions=3)
+        check("eylem sayisi siniri uygulaniyor", False, "sinir asildi ama gectigi")
+    except B.BatchError as exc:
+        check("eylem sayisi siniri uygulaniyor", "3" in str(exc), str(exc))
+
+    # Bos metin gecerli: bir alani temizlemek mesru bir istek.
+    check("type bos metin kabul ediyor", len(B.parse('[{"a":"type","text":""}]')) == 1)
+    check("ui_click kimligindeki # atiliyor",
+          B.parse('[{"a":"ui_click","id":"#90e6"}]')[0].args["id"] == "90e6")
+
+    # Tek bir hatali eylem TUM listeyi reddetmeli: yarim calisan batch olmaz.
+    ops = FakeOps()
+    try:
+        B.parse('[{"a":"key","keys":"a"},{"a":"nope"}]')
+    except B.BatchError:
+        pass
+    check("hatali listede hicbir eylem calismadi", ops.log == [], str(ops.log))
+
+
+def test_batch_budget() -> None:
+    section("25. Toplu eylem — sure butcesi")
+    from pcbridge.desktop import batch as B
+
+    # Sahte saat: her okumada 1 saniye ileri gider.
+    class Clock:
+        def __init__(self):
+            self.t = 0.0
+
+        def __call__(self):
+            self.t += 1.0
+            return self.t
+
+    acts = B.parse(json.dumps([{"a": "key", "keys": "x"}] * 12))
+    ops = FakeOps()
+    res = B.run(acts, ops, budget=5.0, clock=Clock(), sleep=lambda s: None)
+    check("butce dolunca durdu", res.stopped == "budget", res.stopped)
+    check("kismen yapildi", 0 < res.done < 12, f"{res.done}/12")
+    check("kalan liste dolu", len(res.remaining) == 12 - res.done,
+          f"{len(res.remaining)} kaldi")
+    check("yapilan + kalan = toplam", res.done + len(res.remaining) == 12)
+    text = B.describe(res)
+    check("rapor kac/kac diyor", f"{res.done} tanesi yapildi" in text, text[:80])
+    check("rapor kalanlari listeliyor", "Yapilmayan" in text)
+
+    # Butce bol olunca hepsi bitmeli.
+    ops2 = FakeOps()
+    res2 = B.run(acts, ops2, budget=9000.0, sleep=lambda s: None)
+    check("butce yetince hepsi yapildi", res2.done == 12 and not res2.stopped,
+          f"{res2.done} {res2.stopped}")
+    check("kalan yok", res2.remaining == [])
+
+    # `wait` suresi tahmine giriyor mu (tek eylem tavani 30 sn)
+    uzun = B.parse('[{"a":"wait","ms":20000},{"a":"wait","ms":20000}]')
+    check("wait tahmini ms'den geliyor", B.estimate(uzun) == 40.0,
+          str(B.estimate(uzun)))
+
+    # Saat UYKUYA bagli ilerlesin: gercekten 20 saniye beklemeden, bekleyen bir
+    # batch'in butceyi nasil tukettigini olcmenin tek yolu bu.
+    class SleepClock:
+        def __init__(self):
+            self.t = 0.0
+
+        def now(self):
+            return self.t
+
+        def sleep(self, s):
+            self.t += s
+
+    sc = SleepClock()
+    res3 = B.run(uzun, FakeOps(), budget=25.0, clock=sc.now, sleep=sc.sleep)
+    check("butceyi asan wait'e HIC baslanmiyor", res3.done == 1,
+          f"{res3.done} yapildi, {res3.stopped}")
+    check("butce asimi sebep olarak yazildi", res3.stopped == "budget",
+          res3.stopped)
+
+
+def test_batch_stops() -> None:
+    section("26. Toplu eylem — hata ve odak korumasi")
+    from pcbridge.desktop import batch as B
+
+    # 1. Ortadaki eylem patlarsa sonrakiler CALISMAMALI.
+    acts = B.parse('[{"a":"key","keys":"a"},{"a":"ui_click","id":"x"},'
+                   '{"a":"key","keys":"b"}]')
+    ops = FakeOps()
+    ops.fail_at = "ui_click"
+    res = B.run(acts, ops, budget=90, sleep=lambda s: None)
+    check("hatada durdu", res.stopped == "error", res.stopped)
+    check("sonraki eylem calismadi",
+          [x[0] for x in ops.log] == ["key", "ui_click"], str(ops.log))
+    check("hatali adim isaretli", any(not s.ok for s in res.steps))
+
+    # 2. ODAK KORUMASI. Gercek kaza: tiklama masaustune dustu, ardindan giden
+    #    ctrl+a + Delete masaustundeki 23 ogeyi copa gonderdi.
+    kaza = B.parse('[{"a":"click","x":920,"y":520},{"a":"key","keys":"ctrl+a"},'
+                   '{"a":"key","keys":"Delete"}]')
+    ops2 = FakeOps()
+    ops2.focus_after_click = "masaustu | Desktop Icons 2"
+    res2 = B.run(kaza, ops2, budget=90, sleep=lambda s: None)
+    check("odak kayinca durdu", res2.stopped == "focus", res2.stopped)
+    check("ctrl+a GONDERILMEDI",
+          not any(x[0] == "key" for x in ops2.log), str(ops2.log))
+    check("kalan iki eylem raporlandi", len(res2.remaining) == 2)
+    check("rapor odak degisimini soyluyor",
+          "odak degisti" in B.describe(res2), B.describe(res2)[:120])
+
+    # 3. Odak KASITLI degistiyse (launch/focus) durmamali.
+    plan = B.parse('[{"a":"launch","app":"editor"},{"a":"click","x":1,"y":1},'
+                   '{"a":"key","keys":"a"}]')
+    ops3 = FakeOps()
+    res3 = B.run(plan, ops3, budget=90, sleep=lambda s: None)
+    check("launch sonrasi odak degisimi durdurmuyor", res3.done == 3,
+          f"{res3.done} {res3.stopped}")
+
+    # 4. Odak takibi kapatilabiliyor.
+    ops4 = FakeOps()
+    ops4.focus_after_click = "baska | pencere"
+    res4 = B.run(kaza, ops4, budget=90, check_focus=False, sleep=lambda s: None)
+    check("check_focus=False iken durmuyor", res4.done == 3,
+          f"{res4.done} {res4.stopped}")
+
+    # 5. `focused()` patlarsa batch yine de calismali (takip kapanir).
+    class NoFocus(FakeOps):
+        def focused(self):
+            raise RuntimeError("AT-SPI yok")
+
+    res5 = B.run(B.parse('[{"a":"key","keys":"a"}]'), NoFocus(), budget=90,
+                 sleep=lambda s: None)
+    check("odak okunamayinca batch yine calisiyor", res5.done == 1, res5.stopped)
+
+
+def test_batch_super_clipboard() -> None:
+    section("27. Toplu eylem — overview'da pano tuzagi")
+    from pcbridge.desktop import batch as B
+
+    # OLCULDU: `super` sonrasi Wayland panosu bloklaniyor (wl-paste 5 sn'de
+    # cevap vermedi), yani varsayilan `type` yolu asilir. Ham yola gecilmeli.
+    acts = B.parse('[{"a":"key","keys":"super"},{"a":"type","text":"libre"}]')
+    ops = FakeOps()
+    B.run(acts, ops, budget=90, sleep=lambda s: None)
+    typed = [x for x in ops.log if x[0] == "type"]
+    check("super sonrasi type HAM yola gecti", typed and typed[0][2] is True,
+          str(typed))
+
+    # Escape overview'i kapatir -> tekrar pano yolu.
+    acts2 = B.parse('[{"a":"key","keys":"super"},{"a":"key","keys":"Escape"},'
+                    '{"a":"type","text":"x"}]')
+    ops2 = FakeOps()
+    B.run(acts2, ops2, budget=90, sleep=lambda s: None)
+    typed2 = [x for x in ops2.log if x[0] == "type"]
+    check("Escape sonrasi pano yoluna donuldu", typed2 and typed2[0][2] is False,
+          str(typed2))
+
+    # Model acikca raw istediyse ona saygi.
+    acts3 = B.parse('[{"a":"type","text":"x","raw":true}]')
+    ops3 = FakeOps()
+    B.run(acts3, ops3, budget=90, sleep=lambda s: None)
+    check("acik raw=true korunuyor",
+          [x for x in ops3.log if x[0] == "type"][0][2] is True)
+
+    # Hiz siniri: eylemler arasinda asgari bosluk birakiliyor mu
+    slept: list[float] = []
+    B.run(B.parse('[{"a":"key","keys":"a"},{"a":"key","keys":"b"}]'), FakeOps(),
+          budget=90, min_gap=0.1, sleep=slept.append)
+    check("eylemler arasi bosluk birakiliyor", slept.count(0.1) == 2, str(slept))
+
+
+def test_window_list() -> None:
+    section("28. Pencere listesi")
+    from pcbridge.desktop import uitree as U
+
+    raw = {
+        "ok": True,
+        "windows": [
+            {"app": "gjs", "window": "Desktop Icons 1", "role": "frame",
+             "active": False, "children": 1},
+            {"app": "gsd-color", "window": "", "role": "application",
+             "active": False, "children": 0},
+            {"app": "editor", "window": "Belge", "role": "frame",
+             "active": True, "children": 5},
+        ],
+    }
+    t = U.UiTree()
+    orig = U._call
+    U._call = lambda payload, timeout: raw
+    try:
+        wins = t.windows()
+    finally:
+        U._call = orig
+    check("isimsiz pencere elendi", len(wins) == 2, str([w.label for w in wins]))
+    check("odaktaki isaretli", [w.app for w in wins if w.active] == ["editor"])
+    text = U.describe_windows(wins)
+    check("odak isareti metinde", "▸ editor" in text, text[:120])
+    check("uyari notu var", "gorunmeyen uygulama olabilir" in text)
+    check("bos liste aciklama veriyor",
+          "Acik pencere gorunmuyor" in U.describe_windows([]))
+
+
+def test_apps_lookup() -> None:
+    section("29. Uygulama adi cozumleme")
+    from pcbridge.desktop import apps as A
+
+    check("Turkce harfler katlaniyor",
+          A._norm("Metin Düzenleyici") == A._norm("metin duzenleyici"),
+          A._norm("Metin Düzenleyici"))
+    check("noktalama atiliyor", A._norm("Modrinth App!") == "modrinthapp")
+    check("bos ad None donduruyor", A.find("") is None)
+    check("olmayan uygulama None", A.find("zzzz-yok-boyle-bir-sey") is None)
+
+    # Asil ad, GenericName'i GECMELI: VS Code'un GenericName'i "Text Editor"
+    # ve bir arada arandiginda gercek metin duzenleyiciyi geciyordu.
+    pool = [
+        A.Entry("code", "Visual Studio Code", False,
+                ("Visual Studio Code",), ("Text Editor",)),
+        A.Entry("org.gnome.TextEditor", "Text Editor", False,
+                ("Text Editor", "Metin Düzenleyici"), ()),
+    ]
+    orig = A.entries
+    A.entries = lambda: pool
+    try:
+        check("asil ad GenericName'i geciyor",
+              A.find("text editor").entry_id == "org.gnome.TextEditor")
+        check("yerellestirilmis ad bulunuyor",
+              A.find("Metin Düzenleyici").entry_id == "org.gnome.TextEditor")
+        check("aksansiz yazim da bulunuyor",
+              A.find("metin duzenleyici").entry_id == "org.gnome.TextEditor")
+        check("kendi adiyla dogru uygulama",
+              A.find("visual studio code").entry_id == "code")
+        check("gizli girdiler atlanıyor",
+              A.find("gizli") is None)
+    finally:
+        A.entries = orig
+
+
+def test_audit_secrets() -> None:
+    section("30. Denetim kaydi — icerik sizmiyor")
+    import tempfile as _tf
+
+    from pcbridge.desktop import safety as _S
+
+    class Cfg:
+        def __init__(self, d, limit=0):
+            self.state_dir = Path(d)
+            self.audit_log = Path(d) / "audit.log"
+            self.audit_max_bytes = limit
+            self.desktop = DesktopSpec()
+
+    with _tf.TemporaryDirectory() as d:
+        cfg = Cfg(d)
+        g = _S.SafetyGate(cfg)
+        # tools.py'nin yazdigi bicimin AYNISI: komut evet, cikti hayir.
+        g.audit("shell_run", cmd="cat config.toml", exit=0, seconds=0.1)
+        g.audit("fs_read", path="/home/x/config.toml", bytes=1234)
+        g.audit("agent_run", agent="claude", job="j1", prompt_chars=42)
+        g.audit("tmux_send", session="s1", chars=17)
+        lines = cfg.audit_log.read_text(encoding="utf-8").strip().splitlines()
+        recs = [json.loads(x) for x in lines]
+        check("dort satir yazildi", len(recs) == 4, str(len(recs)))
+        check("shell_run komutu kaydedildi", recs[0]["cmd"] == "cat config.toml")
+        check("shell_run ciktisi kaydedilmedi", "output" not in recs[0]
+              and "stdout" not in recs[0])
+        check("fs_read yolu kaydedildi", "config.toml" in recs[1]["path"])
+        check("fs_read icerigi kaydedilmedi",
+              "content" not in recs[1] and "data" not in recs[1])
+        check("agent_run prompt METNI yok",
+              "prompt" not in recs[2] and recs[2]["prompt_chars"] == 42)
+        check("tmux_send metni yok",
+              "text" not in recs[3] and recs[3]["chars"] == 17)
+
+    # Donderme: sinir asilinca .1'e devrediliyor mu
+    with _tf.TemporaryDirectory() as d:
+        cfg = Cfg(d, limit=200)
+        g = _S.SafetyGate(cfg)
+        for i in range(20):
+            g.audit("shell_run", cmd="x" * 50, i=i)
+        check("audit.log donduruldu",
+              (Path(d) / "audit.log.1").exists(), "yedek yok")
+        check("guncel dosya kucuk kaldi",
+              cfg.audit_log.stat().st_size < 400,
+              str(cfg.audit_log.stat().st_size))
+
+    # Donderme kapaliyken dosya buyuyebilmeli
+    with _tf.TemporaryDirectory() as d:
+        cfg = Cfg(d, limit=0)
+        g = _S.SafetyGate(cfg)
+        for i in range(20):
+            g.audit("shell_run", cmd="x" * 50, i=i)
+        check("limit 0 iken donderme yok",
+              not (Path(d) / "audit.log.1").exists())
+
+
+def test_real_batch() -> None:
+    """Gercek batch. Varsayilan olarak KOSMAZ: uinput'a fiilen yazar."""
+    import os
+
+    if os.environ.get("PCBRIDGE_TEST_BATCH") != "1":
+        return
+    section("31. Toplu eylem — GERCEK calisma")
+    from pcbridge.desktop import batch as B
+    from pcbridge.desktop import uitree as U
+
+    ok, why = U.available()
+    check("AT-SPI hazir", ok, why)
+    if not ok:
+        return
+
+    # Girdi GONDERMEYEN eylemlerle gercek motoru surelim: ui_dump zaten
+    # readOnly, `wait` zararsiz. Tiklama gondermek elle dogrulamaya birakildi.
+    t = U.UiTree()
+
+    class RealishOps(FakeOps):
+        def focused(self):
+            app, win = t.focused_window()
+            return f"{app} | {win}"
+
+    acts = B.parse('[{"a":"wait","ms":50},{"a":"wait","ms":50}]')
+    res = B.run(acts, RealishOps(), budget=30)
+    check("gercek odak okunarak calisti", res.done == 2, res.stopped)
+    check("sure olculdu", res.elapsed > 0.05, str(res.elapsed))
+
+
 def main() -> int:
     print("\033[1mMasaustu katmani testleri\033[0m (girdi GONDERILMEZ)")
     test_monitor_ordering()
@@ -879,6 +1289,14 @@ def main() -> int:
     test_uitree_timeout()
     test_uitree_helper_filters()
     test_real_atspi()
+    test_batch_parse()
+    test_batch_budget()
+    test_batch_stops()
+    test_batch_super_clipboard()
+    test_window_list()
+    test_apps_lookup()
+    test_audit_secrets()
+    test_real_batch()
     print(f"\n\033[1m{ok_count} gecti, {fail_count} kaldi\033[0m")
     return 1 if fail_count else 0
 

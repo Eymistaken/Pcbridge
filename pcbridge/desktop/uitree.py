@@ -79,6 +79,19 @@ class Dump:
     by_id: dict[str, Node] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class Window:
+    app: str
+    title: str
+    role: str
+    active: bool
+    children: int
+
+    @property
+    def label(self) -> str:
+        return f"{self.app} — {self.title}" if self.title else self.app
+
+
 def available() -> tuple[bool, str]:
     """(kullanilabilir mi, degilse Turkce gerekce)."""
     if not HELPER.exists():
@@ -220,6 +233,30 @@ class UiTree:
             raise UiTreeError(resp.get("error") or "Odaktaki pencere okunamadi.")
         return resp.get("app") or "?", resp.get("window") or ""
 
+    def windows(self) -> list[Window]:
+        """Acik pencereler. Onbellegi bozmaz, agaci gezmez (olculdu: 42 ms).
+
+        Penceresi olmayan arka plan servisleri (gsd-*, ibus-*) ve isimsiz
+        yardimci pencereler elenir: model icin gurultu, kullanici icin anlamsiz.
+        """
+        resp = _call({"cmd": "windows"}, DUMP_TIMEOUT)
+        if not resp.get("ok"):
+            raise UiTreeError(resp.get("error") or "Pencere listesi okunamadi.")
+        out = []
+        for item in resp.get("windows") or []:
+            title = (item.get("window") or "").strip()
+            app = (item.get("app") or "").strip()
+            if not title and not item.get("active"):
+                continue
+            out.append(Window(
+                app=app or "?",
+                title=title,
+                role=item.get("role") or "",
+                active=bool(item.get("active")),
+                children=int(item.get("children") or 0),
+            ))
+        return out
+
     def resolve(self, node_id: str) -> Node:
         key = str(node_id).strip().lstrip("#")
         node = (self._last.by_id if self._last else {}).get(key)
@@ -270,6 +307,28 @@ class UiTree:
 
 
 # ------------------------------------------------------------------ bicimleme
+def describe_windows(wins: list[Window]) -> str:
+    """Pencere listesini modele gosterilecek duz metne cevir."""
+    if not wins:
+        return (
+            "Acik pencere gorunmuyor. AT-SPI yalnizca erisilebilirlik agaci "
+            "yayinlayan uygulamalari gosterir; Chromium tabanli bazi "
+            "uygulamalar `--force-renderer-accessibility` olmadan hic "
+            "gorunmez. Ekrana bakmak icin screen_capture kullanin."
+        )
+    lines = []
+    for w in wins:
+        mark = "▸ " if w.active else "  "
+        lines.append(f"{mark}{w.label}")
+    lines.append("")
+    lines.append(f"{len(wins)} pencere · ▸ odaktaki")
+    lines.append(
+        "NOT: burada yalnizca erisilebilirlik agaci yayinlayan uygulamalar var; "
+        "acik olup listede gorunmeyen uygulama olabilir."
+    )
+    return "\n".join(lines)
+
+
 def describe(dump: Dump) -> str:
     """Dokumu modele gosterilecek duz metne cevir."""
     head = f"**{dump.app}** — {dump.window}" if dump.window else f"**{dump.app}**"

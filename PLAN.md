@@ -1089,12 +1089,91 @@ değil ve AT-SPI'ın göremediği Electron uygulamaları için F bölümündeki
 
 **Bu fazın sonunda Spark, klavye/fare koordinatı bilmeden GUI kullanabiliyor.**
 
-### Faz 4 — Toplu eylem + pencereler (~1 gün)
+### Faz 4 sonuçları — ölçüldü 2026-08-02 (E bölümü)
 
-- [ ] `computer_batch` (eylem şeması, süre bütçesi, 110 s aşımında job'a devir)
-- [ ] `window_list` / `window_focus`
-- [ ] Hazır makrolar: `open_app(name)`, `switch_window(title)`, `screenshot_of(app)`
+**1. uinput olayı `IdleMonitor`'ü SIFIRLIYOR** — 104227 ms → 151 ms. Sonuç:
+"kullanıcı makinenin başında mı" kontrolü bir eylem dizisinin **içinde**
+yapılamaz; dizi ikinci adımda kendi tuşunu kullanıcı sanıp kendini durdururdu.
+Kontrol yalnızca batch **başında**, `SafetyGate` tarafından yapılıyor.
+
+**2. Pencere öne alma: iki yol daha çürüdü.** C'de `Shell.Introspect` kapalı
+çıkmıştı; E'de kalan iki aday da elendi:
+
+| yol | sonuç |
+|---|---|
+| AT-SPI `Component.grab_focus` | GTK'da `atspi_error`, Electron'da `False` |
+| D-Bus `org.freedesktop.Application.Activate` | `exit=0` **ama pencere gelmiyor** — sessiz başarısızlık, iki kez doğrulandı |
+| **GNOME araması** (`super` + ad + `Return`) | **çalışıyor**, ~6,5 sn |
+
+`window_focus` bu yüzden pahalı ve sonucu **AT-SPI'dan doğruluyor**; arama
+yanlış uygulamayı seçerse `Escape` ile toparlanıp hata dönüyor.
+
+**3. GNOME overview açıkken Wayland panosu bloklanıyor** — `wl-paste` 5 sn'de
+cevap vermedi, `focused_window` da "ACTIVE pencere yok" diyor. Yani
+`UYGULAMA.md`'nin `computer_batch` örneği (`super` → `type "libre"`) varsayılan
+yolda **asılırdı**. `batch.py` `super` sonrası `type` eylemlerini kendiliğinden
+ham tuş yoluna çeviriyor ve bunu raporda söylüyor; `Escape`/`Return` ile geri
+dönüyor.
+
+**4. Ölçülen eylem maliyetleri** — bütçe tahmini bunlardan kuruldu:
+
+| eylem | ilk çağrı | sonraki |
+|---|---|---|
+| `key` | 1331 ms | **30 ms** |
+| `move` | 1307 ms | **0 ms** |
+| `type` (pano) | — | ~620 ms, **uzunluktan bağımsız** |
+| `ui_dump` / `focused_window` | — | 115–135 ms |
+| `windows` (pencere listesi) | — | **42 ms** (ağaç gezmiyor) |
+| `screen_capture` | — | 2200–2500 ms |
+
+İlk çağrılardaki ~1,3 sn uinput cihazı yaratma; sunucu ömründe bir kez.
+
+**5. Kör tıklama odağı kaydırıyor — ve bu gerçekten oldu.** Bir ölçüm
+tıklaması (`move(920,520)` + `click`, konumu doğrulanmadan) masaüstüne düştü;
+ardından temizlik için gönderilen `ctrl+a` + `Delete` masaüstündeki **23 öğeyi
+çöpe gönderdi** (hepsi geri alındı). Karşılığı: `computer_batch` fare
+tıklamalarından sonra odağı doğruluyor, kaymışsa **duruyor**. Aynı senaryo
+regresyon testi olarak duruyor (`test_desktop.py` 26. bölüm).
+
+**6. 110 s aşımı: job'a devir YAPILMADI** (kullanıcı kararı). `jm.start()` ayrı
+bir süreç (`argv`) istiyor, yani batch'i önce CLI'ye taşımak gerekirdi — o iş
+F bölümündeki `bin/pcb-do`. Bunun yerine **kısmi çalıştırma**: bütçe dolunca
+sıradaki eyleme hiç başlanmaz, yapılmayanlar listelenir. GUI eylemleri geri
+alınamadığı için modelin sonucu göremeden devam etmesindense durması doğru.
+
+**7. Denetim kaydı genişletildi.** Bulgu: 438 satırlık `audit.log`'da
+`shell_run` geçen **tek satır yoktu** — en sıkı denetim en zayıf araçlardaydı.
+Artık `shell_run`, `shell_run_background`, `agent_run`, `fs_read`, `fs_write`,
+`tmux_send/keys/kill`, `job_cancel` de yazıyor. Kural her yerde aynı: **ne
+yapıldığı yazılır, içerik yazılmaz** (komut evet çıktısı hayır, dosya yolu evet
+içeriği hayır, `prompt_chars` evet prompt hayır).
+
+**Canlı doğrulandı:** izin yokken ret → `desktop_unlock(3)` → `window_list`
+5 pencere → `window_focus("Metin Duzenleyici")` öne aldı → `computer_batch` ile
+**4 eylem tek çağrıda 1,5 saniyede** (`ui_set_text` + `wait` + `key` + `type`) →
+metin kutusundaki içerik `pcbridge E7 — toplu eylem testi · ek metin ığüşöç`
+ile **birebir eşleşti** (49 karakter, 58 bayt) → bütçe aşımı 2/3 yapıp durdu →
+hatalı `ui_click` sonrası `type` **çalışmadı** → `desktop_lock` sonrası üçü de
+reddetti. `config.toml` hiç değiştirilmedi (izin yalnızca test sürecinin
+belleğindeydi).
+
+### Faz 4 — Toplu eylem + pencereler ✅ tamamlandı 2026-08-02
+
+- [x] `computer_batch` — eylem şeması, süre bütçesi, ~~110 s aşımında job'a
+  devir~~ → **kısmi çalıştırma** (gerekçe: yukarıda 6. madde)
+- [x] `window_list` / `window_focus` — ~~`Shell.Introspect`~~ → AT-SPI listesi +
+  GNOME araması (gerekçe: 2. madde)
+- [x] Hazır makrolar → ayrı araç **değil**, `computer_batch` içinde `launch` ve
+  `focus` eylemleri. Araç sayısı Spark'ta doğrudan token maliyeti; 32 araç oldu
+- [x] Odak koruması (planda yoktu, 5. maddedeki kazadan doğdu)
+- [x] Denetim kaydının kabuk/ajan/dosya araçlarına genişletilmesi
+- [x] Yetki haritası: `[desktop] enabled = false`'un ne kapatıp **ne
+  kapatmadığı** (`KULLANIM.md`, `README.md`)
 - [ ] **Ekran çerçevesi eklentisi (§7.1)** — `pcbridge-frame@local`, Cairo gradyan stroke, `affectsInputRegion: false`, D-Bus `SetActive`/`SetState`, `monitors-changed` bağlantısı, durum renkleri. Bir kez logout gerekiyor
+  → **G bölümüne taşındı.** `UYGULAMA.md` bunu "G · opsiyonel, en son" diye
+  sıralıyor; bu satır plan ile uygulama belgesi arasında tutarsızlıktı
+
+**Bu fazın sonunda bir menü seçimi telefonda 5 onay değil, 1 onay.**
 
 ### Faz 5 — Yerel görsel ajan: `computer_task` (~1 gün)
 

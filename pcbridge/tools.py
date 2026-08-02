@@ -22,6 +22,8 @@ from . import models as modelslib
 from . import shots as shotslib
 from . import tmuxctl
 from .config import Config
+from .desktop import apps as appslib
+from .desktop import batch as batchlib
 from .desktop import capture as capturelib
 from .desktop import input as inputlib
 from .desktop import monitors as monitorslib
@@ -161,6 +163,17 @@ def register(
         + ". Higher costs more; omit to use the model's default."
     )
 
+    # SafetyGate iki is yapiyor: masaustu kapisi (asagida) ve DENETIM KAYDI.
+    # Ikincisi masaustune ozel degil -- kabuk, ajan ve dosya araclari da buraya
+    # yaziyor. Eskiden yalnizca masaustu araclari kayit tutuyordu, yani en sert
+    # denetim en zayif araclardaydi; `shell_run` keyfi komut calistirmasina
+    # ragmen hicbir iz birakmiyordu.
+    gate = safetylib.SafetyGate(cfg)
+
+    def _short(text: str, limit: int = 120) -> str:
+        s = " ".join(str(text or "").split())
+        return s if len(s) <= limit else s[: limit - 1] + "…"
+
     # ================================================================= AJANLAR
     @mcp.tool(
         annotations={"title": "List available coding agents"},
@@ -267,6 +280,13 @@ def register(
             },
         )
 
+        # Prompt METNI kaydedilmez, yalnizca uzunlugu: parola ya da ozel bilgi
+        # icerebilir. Tam metin zaten jobs/<id>/meta.json'da duruyor -- oradan
+        # okumak icin dosya sistemine erisim gerekir, denetim kaydini okumak
+        # yetmez.
+        gate.audit("agent_run", agent=res.agent, model=res.model,
+                   effort=res.effort, job=job_id, prompt_chars=len(prompt),
+                   resumed=bool(resume_session) or None)
         if wait_seconds > 0:
             jm.wait(job_id, wait_seconds)
         return _fmt_job_summary(cfg, jm, job_id)
@@ -327,9 +347,11 @@ def register(
     def job_cancel(job_id: str) -> str:
         """Stop a running background job (sends SIGTERM, then SIGKILL)."""
         try:
-            return jm.cancel(job_id)
+            out = jm.cancel(job_id)
         except KeyError as exc:
             return str(exc)
+        gate.audit("job_cancel", job=str(job_id)[:40])
+        return out
 
     # =================================================================== TMUX
     @mcp.tool(annotations={"title": "List live terminal sessions", "readOnlyHint": True})
@@ -398,6 +420,9 @@ def register(
             tmuxctl.send_text(session, text, press_enter=press_enter)
         except tmuxctl.TmuxError as exc:
             return f"Hata: {exc}"
+        # Gonderilen METIN kaydedilmez, uzunlugu kaydedilir: terminale parola
+        # yazilmis olabilir.
+        gate.audit("tmux_send", session=str(session)[:40], chars=len(text or ""))
         if capture_after_seconds:
             time.sleep(capture_after_seconds)
         try:
@@ -423,6 +448,8 @@ def register(
             tmuxctl.send_keys(session, keys)
         except tmuxctl.TmuxError as exc:
             return f"Hata: {exc}"
+        gate.audit("tmux_keys", session=str(session)[:40],
+                   keys=_short(" ".join(keys or []), 60))
         if capture_after_seconds:
             time.sleep(capture_after_seconds)
         try:
@@ -445,9 +472,11 @@ def register(
     def tmux_kill(session: str) -> str:
         """Close a live terminal session and everything running inside it."""
         try:
-            return tmuxctl.kill(session)
+            out = tmuxctl.kill(session)
         except tmuxctl.TmuxError as exc:
             return f"Hata: {exc}"
+        gate.audit("tmux_kill", session=str(session)[:40])
+        return out
 
     # ================================================================== SHELL
     @mcp.tool(annotations={"title": "Run a shell command", "destructiveHint": True})
@@ -463,6 +492,7 @@ def register(
         if not cwd.is_dir():
             return f"Dizin yok: {cwd}"
         limit = min(timeout, cfg.max_sync_timeout)
+        started = time.monotonic()
         try:
             proc = subprocess.run(
                 ["bash", "-lc", command],
@@ -473,10 +503,15 @@ def register(
                 stdin=subprocess.DEVNULL,
             )
         except subprocess.TimeoutExpired:
+            gate.audit("shell_run", cmd=_short(command), timeout=limit)
             return (
                 f"`{command}` {limit} saniyede bitmedi ve iptal edildi. "
                 "Uzun surecekse shell_run_background kullan."
             )
+        # Komut kaydedilir, CIKTISI kaydedilmez: cikti parola, token ya da
+        # ozel yazisma icerebilir. `ui_set_text`teki kural burada da gecerli.
+        gate.audit("shell_run", cmd=_short(command), exit=proc.returncode,
+                   seconds=round(time.monotonic() - started, 1))
         body = jobslib.strip_ansi((proc.stdout or "") + (proc.stderr or ""))
         head = f"`$ {command}` (dizin: {cwd}) → exit {proc.returncode}"
         if not body.strip():
@@ -504,6 +539,7 @@ def register(
             parser="plain",
             timeout=timeout,
         )
+        gate.audit("shell_run_background", cmd=_short(command), job=job_id)
         return f"Baslatildi: `{job_id}`\nDurum icin: job_status('{job_id}')"
 
     # =================================================================== DOSYA
@@ -545,6 +581,11 @@ def register(
             data = f.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
             return f"Okunamadi: {exc}"
+        # YOL kaydedilir, ICERIK kaydedilmez. Bu satirin asil amaci: `config.toml`
+        # parola ve statik token iceriyor ve okunmasi engellenmis DEGIL (engellemek
+        # aldatici olurdu -- `shell_run` zaten keyfi komut calistiriyor, `cat` ile
+        # de okunur). Engellemek yerine IZ birakiliyor.
+        gate.audit("fs_read", path=str(f)[:200], bytes=f.stat().st_size)
         return f"`{f}` ({f.stat().st_size:,} bayt)\n```\n" + jobslib.tail_chars(
             data, max_chars
         ) + "\n```"
@@ -567,6 +608,8 @@ def register(
                 fh.write(content)
         except OSError as exc:
             return f"Yazilamadi: {exc}"
+        gate.audit("fs_write", path=str(f)[:200], chars=len(content or ""),
+                   append=append or None)
         return f"{'Eklendi' if append else 'Yazildi'}: `{f}` ({f.stat().st_size:,} bayt)"
 
     @mcp.tool(annotations={"title": "Search inside files", "readOnlyHint": True})
@@ -600,7 +643,6 @@ def register(
     # =============================================================== MASAUSTU
     # Klavye/fare kontrolu. Her cagri once SafetyGate'ten gecer: [desktop]
     # enabled, ekran kilidi, sureli izin, kullanici cakismasi, hiz siniri.
-    gate = safetylib.SafetyGate(cfg)
     backend = inputlib.InputBackend()
     tree = uitreelib.UiTree()
 
@@ -883,13 +925,17 @@ def register(
         ui_ok, ui_why = uitreelib.available()
         ui_line = f"**Erisilebilirlik agaci:** {'hazir' if ui_ok else 'KULLANILAMIYOR'}"
         if ui_ok:
-            # Odaktaki pencere yalnizca buradan okunabiliyor: C bolumunde
-            # olculdu, Shell.Introspect "Access denied" veriyor.
+            # Pencere listesi ve odak yalnizca buradan okunabiliyor: C
+            # bolumunde olculdu, Shell.Introspect "Access denied" veriyor.
+            # `windows()` agaci gezmedigi icin `dump`tan ucuz (olculdu: 42 ms).
             try:
-                app, win = tree.focused_window()
-                ui_line += f" · odakta: {app}" + (f" — {win}" if win else "")
+                wins = tree.windows()
+                focused = next((w for w in wins if w.active), None)
+                ui_line += f" · {len(wins)} pencere"
+                if focused:
+                    ui_line += f", odakta: {focused.label}"
             except uitreelib.UiTreeError as exc:
-                ui_line += f" · odaktaki pencere okunamadi ({exc})"
+                ui_line += f" · pencere listesi okunamadi ({exc})"
         else:
             ui_line += f" — {ui_why}"
         lines.append(ui_line)
@@ -1131,6 +1177,213 @@ def register(
             f"(oncekiler silindi: {res.get('replaced_chars', 0)} karakter).\n"
             "Sonucu dogrulamadan bir sonraki adima gecmeyin."
         )
+
+    # -------------------------------------------------------- pencere yonetimi
+    @mcp.tool(annotations={"title": "List open windows", "readOnlyHint": True})
+    def window_list() -> str:
+        """List the windows that are currently open, marking which one has focus.
+        Use this to find out what the user is working on, or to pick a window to
+        bring forward with `window_focus`. Cheap compared to `ui_dump`: it does
+        not read the contents of any window."""
+        denied = _guard("window_list", write=False, needs_input=False)
+        if denied:
+            return denied
+        ok, why = uitreelib.available()
+        if not ok:
+            gate.audit("window_list_unavailable", reason=why[:120])
+            return f"⛔ Pencere listesi okunamiyor: {why}"
+        try:
+            wins = tree.windows()
+        except uitreelib.UiTreeError as exc:
+            gate.audit("window_list_error", error=str(exc)[:160])
+            return f"Hata: {exc}"
+        gate.audit("window_list", windows=len(wins))
+        return uitreelib.describe_windows(wins)
+
+    @mcp.tool(
+        annotations={"title": "Bring a window to the front", "destructiveHint": True}
+    )
+    def window_focus(
+        window: Annotated[
+            str,
+            Field(
+                description="Application or window name, e.g. 'Text Editor' or "
+                "'Firefox'. Names from `window_list` work best."
+            ),
+        ],
+        force: Annotated[
+            bool,
+            Field(description="Go ahead even if the user just used the machine."),
+        ] = False,
+    ) -> str:
+        """Bring an application's window to the front so the next keystrokes go
+        there. Takes a few seconds because it goes through the desktop's own
+        search. If you only need to press a button or fill a field, prefer
+        `ui_click` / `ui_set_text` — those reach the widget directly and do not
+        require the window to be in front at all."""
+        denied = _guard("window_focus", write=True, force=force)
+        if denied:
+            return denied
+        try:
+            note = appslib.focus(str(window), backend, tree.focused_window)
+        except appslib.AppError as exc:
+            gate.audit("window_focus_error", target=str(window)[:60],
+                       error=str(exc)[:160])
+            return f"Hata: {exc}"
+        gate.audit("window_focus", target=str(window)[:60], forced=force or None)
+        return note
+
+    # ------------------------------------------------------------ toplu eylem
+    class _BatchOps:
+        """`batch.Ops` uygulamasi: motoru gercek cihazlara baglar.
+
+        Motorun kendisi bunlari tanimiyor; boylece gercek tiklama gondermeden
+        test edilebiliyor.
+        """
+
+        def key(self, keys: str) -> str:
+            backend.key(keys)
+            return f"`{keys}` basildi"
+
+        def type(self, text: str, raw: bool) -> str:
+            return backend.type_text(
+                text, raw=raw, restore_clipboard=cfg.desktop.restore_clipboard
+            )
+
+        def move(self, x: int, y: int, monitor: int | None) -> str:
+            gx, gy = monitorslib.to_global(x, y, monitor)
+            return f"imlec {backend.move(gx, gy)} konumuna tasindi"
+
+        def click(self, button: str, count: int, x: int | None, y: int | None,
+                  monitor: int | None) -> str:
+            where = ""
+            if x is not None and y is not None:
+                gx, gy = monitorslib.to_global(x, y, monitor)
+                backend.move(gx, gy)
+                time.sleep(0.08)
+                where = f" ({gx}, {gy})"
+            backend.click(button, count)
+            return f"{button} tiklama{where}" + (" (cift)" if count > 1 else "")
+
+        def drag(self, x: int, y: int, to_x: int, to_y: int,
+                 monitor: int | None) -> str:
+            gx, gy = monitorslib.to_global(x, y, monitor)
+            ex, ey = monitorslib.to_global(to_x, to_y, monitor)
+            backend.drag(gx, gy, ex, ey)
+            return f"({gx}, {gy}) -> ({ex}, {ey}) suruklendi"
+
+        def scroll(self, amount: int, x: int | None, y: int | None,
+                   monitor: int | None) -> str:
+            if x is not None and y is not None:
+                backend.move(*monitorslib.to_global(x, y, monitor))
+                time.sleep(0.08)
+            backend.scroll(amount)
+            return f"{amount} tik kaydirildi"
+
+        def ui_click(self, node_id: str) -> str:
+            res = tree.click(node_id)
+            return f"{res.get('role', '?')} \"{res.get('name', '')}\" tiklandi"
+
+        def ui_set_text(self, node_id: str, text: str) -> str:
+            res = tree.set_text(node_id, text)
+            return (
+                f"{res.get('role', '?')} icine {len(text)} karakter yazildi "
+                f"(silinen: {res.get('replaced_chars', 0)})"
+            )
+
+        def launch(self, app: str) -> str:
+            return appslib.launch(app)
+
+        def focus(self, window: str) -> str:
+            return appslib.focus(window, backend, tree.focused_window)
+
+        def focused(self) -> str:
+            app, win = tree.focused_window()
+            return f"{app} | {win}"
+
+    @mcp.tool(
+        annotations={"title": "Run several actions in one go", "destructiveHint": True}
+    )
+    def computer_batch(
+        actions: Annotated[
+            str,
+            Field(
+                description=(
+                    'JSON array of actions, run in order. Each item is '
+                    '{"a": "<kind>", ...}. Kinds: key {keys}, type {text, raw?}, '
+                    'wait {ms}, move/click/double_click/right_click/middle_click '
+                    '{x?, y?, monitor?}, drag {x, y, to_x, to_y}, scroll {amount}, '
+                    'ui_click {id}, ui_set_text {id, text}, launch {app}, '
+                    'focus {window}. Example: '
+                    '[{"a":"ui_click","id":"90e6"},{"a":"wait","ms":400},'
+                    '{"a":"type","text":"hello"}]'
+                )
+            ),
+        ],
+        final: Annotated[
+            str,
+            Field(
+                description="What to return afterwards so you can see the result: "
+                "'ui_dump' (default), 'screen_capture', or 'none'."
+            ),
+        ] = "ui_dump",
+        force: Annotated[
+            bool,
+            Field(description="Go ahead even if the user just used the machine."),
+        ] = False,
+    ) -> str:
+        """Run a whole sequence of desktop actions in a single call, then show you
+        the result. Use this instead of calling `mouse`, `keyboard`, `ui_click` one
+        at a time: each separate call asks the user for confirmation on their
+        phone, so a five-step menu selection becomes five interruptions. Put the
+        whole sequence here instead. Actions stop as soon as one fails, the time
+        budget runs out, or a click moves focus to a different window — you get
+        back what was done and what was left."""
+        try:
+            plan = batchlib.parse(actions, max_actions=cfg.desktop.batch_max_actions)
+        except batchlib.BatchError as exc:
+            # Kapidan ONCE: hicbir sey calistirilmiyor, yalnizca sozdizimi.
+            return f"⛔ {exc}"
+
+        kinds = {a.a for a in plan}
+        # Yalnizca erisilebilirlik eylemleri varsa /dev/uinput aranmaz --
+        # C bolumunde duzeltilen ayni hata burada tekrarlanmasin.
+        needs_input = bool(kinds & batchlib.INPUT_ACTIONS) or "focus" in kinds
+        denied = _guard("computer_batch", write=True, force=force,
+                        needs_input=needs_input)
+        if denied:
+            return denied
+
+        gap = 0.0
+        if cfg.desktop.max_actions_per_second > 0:
+            # Hiz sinirina saygi: batch icindeki her eylem gate.check()'ten
+            # gecseydi batch kendi kendini bogardi, onun yerine eylemler
+            # arasina asgari bosluk konuyor.
+            gap = 1.0 / cfg.desktop.max_actions_per_second
+
+        gate.audit("computer_batch_start", count=len(plan),
+                   kinds=",".join(sorted(kinds)), forced=force or None)
+        result = batchlib.run(
+            plan,
+            _BatchOps(),
+            budget=float(cfg.desktop.batch_budget_seconds),
+            min_gap=gap,
+            check_focus=cfg.desktop.batch_check_focus,
+        )
+        for step in result.steps:
+            # Metin ICERIGI yazilmaz -- `ui_set_text`teki kural aynen gecerli.
+            gate.audit("batch_step", i=step.index, a=step.action,
+                       ok=step.ok, ms=round(step.ms))
+        gate.audit("computer_batch", done=result.done, total=result.total,
+                   seconds=round(result.elapsed, 1), stopped=result.stopped or None)
+
+        out = [batchlib.describe(result)]
+        want = (final or "ui_dump").strip().lower()
+        if want == "screen_capture":
+            out += ["", "---", screen_capture()]
+        elif want != "none":
+            out += ["", "---", ui_dump()]
+        return jobslib.tail_chars("\n".join(out), MAX_INLINE)
 
     # ================================================================== SISTEM
     @mcp.tool(annotations={"title": "Computer status", "readOnlyHint": True})

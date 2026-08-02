@@ -260,7 +260,55 @@ görüntüsü almakla aynı gizlilik sınıfında.
 
 ---
 
-## 8. Makine durumu ve bildirim
+## 8. Tek onayda çok adım (`computer_batch`)
+
+> menüden "Farklı Kaydet"i seç
+
+Bunu tek tek yaptırırsan Gemini dört ayrı araç çağırır: menüyü aç, bekle,
+öğeyi bul, tıkla. **Her çağrı telefonunda ayrı bir onay kutusu demek** — dört
+onay, dört tur gecikme. Bir menü seçimi için kabul edilemez.
+
+`computer_batch` hepsini tek çağrıya sığdırır: bir eylem listesi alır, sırayla
+çalıştırır, sonunda ekranın son hâlini gösterir.
+
+```json
+[{"a": "ui_click", "id": "89f0"},
+ {"a": "wait", "ms": 400},
+ {"a": "ui_click", "id": "3c1a"}]
+```
+
+Eylemler: `key`, `type`, `wait`, `move`, `click`, `double_click`, `right_click`,
+`middle_click`, `drag`, `scroll`, `ui_click`, `ui_set_text`, `launch`, `focus`.
+
+**Üç durumda kendiliğinden durur** ve nerede kaldığını söyler:
+
+- **Bir eylem başarısız olursa.** Kalanlar çalıştırılmaz — yanlış duruma kör
+  devam etmek en kötü sonuç.
+- **Süre bütçesi dolarsa** (varsayılan 90 sn). Sıradaki eyleme *hiç başlamaz*,
+  yarım tıklama olmaz. Yapılmayanları listeler, yeni bir çağrıyla devam
+  edebilirsin.
+- **Bir tıklama odağı başka pencereye kaydırırsa.** Bu koruma gerçek bir
+  kazadan doğdu: geliştirme sırasında bir ölçüm tıklaması masaüstüne düştü,
+  ardından gönderilen `ctrl+a` + `Delete` masaüstündeki 23 öğeyi çöpe gönderdi.
+  Artık batch o noktada durur ve tuşlar hiç gitmez.
+
+Bu yüzden batch içinde de **koordinatla tıklamak yerine `ui_click` tercih
+edilir**: düğümün kendisine gider, odağın nerede olduğu fark etmez.
+
+> not defterini aç ve içine alışveriş listemi yaz
+
+`launch` uygulamayı açar (Türkçe adıyla da bulur: "metin düzenleyici"),
+`focus` açık bir pencereyi öne alır.
+
+**`window_list`** açık pencereleri gösterir, odaktaki `▸` ile işaretli.
+**`window_focus`** bir pencereyi öne getirir — ama birkaç saniye sürer, çünkü
+masaüstünün kendi aramasından geçmek zorunda (AT-SPI'nin pencere öne alma
+çağrıları bu sistemde çalışmıyor, ölçüldü). Sadece bir düğmeye basacaksan
+`ui_click` daha hızlı: pencerenin önde olmasını gerektirmiyor.
+
+---
+
+## 9. Makine durumu ve bildirim
 
 > bilgisayarımın durumunu göster
 
@@ -307,10 +355,47 @@ ya da bir işin bittiğini fark etmek için.
 | `ui_dump` | Ekrandaki düğme/menü/kutuları metin olarak listeler |
 | `ui_click` | Listedeki bir öğeye tıklar (koordinat kullanmadan) |
 | `ui_set_text` | Metin kutusunu doğrudan doldurur (klavye taklidi yok) |
+| `computer_batch` | Bir eylem listesini tek onayda sırayla çalıştırır |
+| `window_list` | Açık pencereler, odaktaki işaretli |
+| `window_focus` | Bir pencereyi öne getirir |
 
-`desktop_unlock`'tan `ui_set_text`'e kadar olanlar `[desktop] enabled = true`
-ister; varsayılan kapalı. Tek istisna `screen_info`: yalnızca donanım düzenini
-söylediği için hep çalışır.
+---
+
+## Hangi araç neyin iznini istiyor
+
+Burası bir yanlış anlamayı önlemek için: **`[desktop] enabled = false`
+bilgisayarını kapatmaz.** Yalnızca pcbridge'in kendi sanal klavye/faresini ve
+ekran okumasını kapatır. Komut çalıştırma ve dosya erişimi ayrı bir yoldan
+gider ve o yol açıktır — projenin amacı zaten bu.
+
+| Araç grubu | `[desktop] enabled` | `desktop_unlock` | "kullanıcı makinede" koruması |
+|---|:---:|:---:|:---:|
+| `mouse`, `keyboard`, `ui_click`, `ui_set_text`, `computer_batch`, `window_focus` | gerekli | gerekli | var (`force` ile geçilir) |
+| `screen_capture`, `ui_dump`, `window_list` | gerekli | gerekli | yok (okuma) |
+| `screen_info` | — | — | — |
+| `shell_run`, `shell_run_background`, `agent_run`, `fs_*`, `tmux_*`, `job_*`, `notify` | — | — | — |
+
+Son satır önemli: **`shell_run` masaüstü kapısından geçmez.** Masaüstü kontrolü
+kapalıyken bile Gemini komut çalıştırabilir, uygulama açabilir, dosya
+okuyabilir. Nitekim ekranı da okuyabiliyor — `agent_run` ile makinedeki bir
+ajanı çalıştırıp ona ekran görüntüsü aldırarak (ölçüldü, 2026-08-02).
+
+Bunun bir sonucu var: **`config.toml` okunabilir**, yani parolan ve statik
+token'ın. `fs_read` ile de olur, `shell_run` ile de. Engellemedik, çünkü
+`shell_run` keyfi komut çalıştırdığı sürece engel gerçek değil — sadece
+gerçek olmayan bir güvenlik hissi verirdi. Bunun yerine **iz bırakılıyor**:
+her `shell_run`, `fs_read`, `agent_run` çağrısı `audit.log`'a düşüyor.
+
+```bash
+tail -f ~/.local/state/pcbridge/audit.log
+```
+
+Kayda **ne yapıldığı** yazılır, **içerik** yazılmaz: komut evet çıktısı hayır,
+dosya yolu evet içeriği hayır, metin uzunluğu evet metnin kendisi hayır.
+Denetim kaydını okuyabilen birinin parolaları da okuyabilmesi anlamsız olurdu.
+
+Asıl sınır başka yerde: sunucu **Tailscale ağında** ve **OAuth** arkasında.
+Yani soru "Gemini ne yapabilir" değil, "kim Gemini'ye ulaşabilir".
 
 ---
 

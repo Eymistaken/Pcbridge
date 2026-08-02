@@ -186,6 +186,41 @@ fi
 A11Y="$(gsettings get org.gnome.desktop.interface toolkit-accessibility 2>/dev/null)"
 info "toolkit-accessibility = ${A11Y:-?} (bu makinede agac kapaliyken de dolu geliyor)"
 
+# --- pencere listesi (window_list / computer_batch'in focus eylemi) ---
+WINS="$(printf '{"cmd":"windows"}' \
+  | timeout 20 python3 "$DIR/pcbridge/desktop/atspi_helper.py" 2>/dev/null)"
+if printf '%s' "$WINS" | grep -q '"ok": *true'; then
+  SUM="$(printf '%s' "$WINS" | ./.venv/bin/python -c '
+import json, sys
+d = json.load(sys.stdin)
+ws = [w for w in d.get("windows", []) if w.get("window") or w.get("active")]
+act = next((w for w in ws if w.get("active")), None)
+tail = (" · odakta: " + act["app"]) if act else " · odakta pencere yok"
+print(str(len(ws)) + " pencere" + tail)
+' 2>/dev/null)"
+  pass "pencere listesi okunuyor · ${SUM:-?}"
+else
+  warn "pencere listesi okunamadi (window_list calismayabilir)"
+fi
+
+# --- toplu eylem (computer_batch) ---
+BATCH="$(./.venv/bin/python -c '
+from pcbridge.config import load_config
+from pcbridge.desktop import batch as b
+cfg = load_config()
+b.parse([{"a": "key", "keys": "a"}, {"a": "wait", "ms": 100}])
+guard = "acik" if cfg.desktop.batch_check_focus else "KAPALI"
+print(str(cfg.desktop.batch_max_actions) + " eylem tavani, "
+      + str(cfg.desktop.batch_budget_seconds) + " sn butce, odak korumasi " + guard)
+' 2>&1 | tail -1)"
+if printf '%s' "$BATCH" | grep -q "butce"; then
+  pass "computer_batch ayarlari · $BATCH"
+  printf '%s' "$BATCH" | grep -q "KAPALI" && \
+    warn "odak korumasi kapali: kor tiklama sonrasi tuslar yanlis pencereye gidebilir"
+else
+  fail "computer_batch kurulamadi: $BATCH"
+fi
+
 MONS="$(./.venv/bin/python -c 'from pcbridge.desktop import monitors as m; print(m.describe())' 2>&1)"
 if printf '%s' "$MONS" | grep -q '^tuval:'; then
   printf '%s\n' "$MONS" | sed 's/^/  · /'

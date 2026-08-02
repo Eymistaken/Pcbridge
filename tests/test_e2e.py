@@ -331,6 +331,9 @@ def main() -> int:
         "ui_dump",
         "ui_click",
         "ui_set_text",
+        "computer_batch",
+        "window_list",
+        "window_focus",
     ):
         check(f"arac mevcut: {expected}", expected in names, str(sorted(names)))
 
@@ -421,6 +424,48 @@ def main() -> int:
     check("ui_dump aciklamasi goruntu yerine metni onermeyi soyluyor",
           "cannot read images" in dump_desc, dump_desc[:240])
 
+    # Toplu eylem ve pencereler (E bolumu)
+    batch_props = (
+        by_name.get("computer_batch", {}).get("inputSchema", {}).get("properties", {})
+    )
+    for field_ in ("actions", "final", "force"):
+        check(f"computer_batch.{field_} parametresi var", field_ in batch_props,
+              str(sorted(batch_props)))
+    batch_req = (
+        by_name.get("computer_batch", {}).get("inputSchema", {}).get("required", [])
+    )
+    check("computer_batch.actions zorunlu", "actions" in batch_req, str(batch_req))
+    check("computer_batch destructiveHint isaretli",
+          (by_name.get("computer_batch", {}).get("annotations") or {})
+          .get("destructiveHint") is True,
+          str(by_name.get("computer_batch", {}).get("annotations")))
+    batch_desc = str(by_name.get("computer_batch", {}).get("description", ""))
+    check("computer_batch aciklamasi 'ne zaman kullanilir' iceriyor",
+          "Use this" in batch_desc, batch_desc[:160])
+    # Aracin varlik sebebi bu: her ayri cagri telefonda bir onay demek.
+    check("computer_batch aciklamasi onay maliyetini anlatiyor",
+          "confirmation" in batch_desc, batch_desc[:300])
+    actions_desc = str(batch_props.get("actions", {}).get("description", ""))
+    check("actions aciklamasi ornek JSON veriyor", '{"a":' in actions_desc,
+          actions_desc[:200])
+    for kind in ("key", "type", "wait", "ui_click", "launch", "focus"):
+        check(f"actions aciklamasi '{kind}' eylemini sayiyor",
+              kind in actions_desc, actions_desc[:300])
+
+    check("window_list readOnlyHint isaretli",
+          (by_name.get("window_list", {}).get("annotations") or {})
+          .get("readOnlyHint") is True,
+          str(by_name.get("window_list", {}).get("annotations")))
+    check("window_focus destructiveHint isaretli",
+          (by_name.get("window_focus", {}).get("annotations") or {})
+          .get("destructiveHint") is True,
+          str(by_name.get("window_focus", {}).get("annotations")))
+    wf_req = by_name.get("window_focus", {}).get("inputSchema", {}).get("required", [])
+    check("window_focus.window zorunlu", "window" in wf_req, str(wf_req))
+    wf_desc = str(by_name.get("window_focus", {}).get("description", ""))
+    check("window_focus aciklamasi ui_click'i oneriyor",
+          "ui_click" in wf_desc, wf_desc[:240])
+
     # agent_run'in model/effort semasi -- Gemini bu alanlari gorebilmeli
     schema = next(
         (t.get("inputSchema", {}) for t in tools if t["name"] == "agent_run"), {}
@@ -495,6 +540,24 @@ def main() -> int:
     check("ui_click kapaliyken reddediyor", "⛔" in out, out[:200])
     out = call("ui_set_text", {"id": "#abcd", "text": "bu-yazilmamali"})
     check("ui_set_text kapaliyken reddediyor", "⛔" in out, out[:200])
+    # Toplu eylem: izin yokken HICBIR eylem calismamali.
+    out = call("computer_batch", {
+        "actions": '[{"a":"key","keys":"a"},{"a":"type","text":"bu-yazilmamali"}]',
+    })
+    check("computer_batch kapaliyken reddediyor", "⛔" in out, out[:200])
+    check("computer_batch reddinde eylem raporu yok",
+          "yapildi" not in out, out[:200])
+    # Bozuk liste kapiya varmadan reddedilmeli ve gerekcesi ANLASILIR olmali.
+    out = call("computer_batch", {"actions": "[{bozuk"})
+    check("computer_batch bozuk JSON'u aciklayarak reddediyor",
+          "JSON" in out and "⛔" in out, out[:200])
+    out = call("computer_batch", {"actions": '[{"a":"ucmak"}]'})
+    check("computer_batch bilinmeyen eylemi reddediyor",
+          "ucmak" in out, out[:200])
+    out = call("window_list", {})
+    check("window_list kapaliyken reddediyor", "⛔" in out, out[:200])
+    out = call("window_focus", {"window": "Terminal"})
+    check("window_focus kapaliyken reddediyor", "⛔" in out, out[:200])
 
     section("12. Ajan calistirma ve is takibi")
     out = call(

@@ -55,6 +55,12 @@ default_job_timeout = 1800
 # shell_run (senkron) icin maksimum bekleme
 max_sync_timeout = 120
 
+# audit.log bu boyutu (bayt) asinca `.1` olarak devredilir. 0 = donderme yok.
+# Denetim kaydi yalnizca masaustu araclarini degil, kabuk/ajan/dosya araclarini
+# da iceriyor: ne yapildigi yazilir, ICERIK yazilmaz (komut evet ciktisi hayir,
+# dosya yolu evet icerigi hayir).
+audit_max_bytes = 5000000
+
 
 # Ajan adi verilmedigi ve model hicbir ajana ait olmadigi durumda kullanilir.
 default_agent = "claude"
@@ -135,6 +141,23 @@ shot_keep_hours = 24
 # Imlec goruntuye dahil edilsin mi. Varsayilan true: fareyi bir yere gonderip
 # "gercekten oraya gitti mi" diye dogrulamanin tek yolu bu.
 include_pointer = true
+
+# computer_batch tek cagrida en fazla kac eylem alir. Listeyi bolmek her zaman
+# mumkun; bu sinir sonsuz donguye giren bir ajana karsi.
+batch_max_actions = 40
+
+# Toplu eylemin sure butcesi (saniye). Bir MCP cagrisi 110 saniyeyi asamaz;
+# aradaki fark cevabin hazirlanmasi ve son `ui_dump`/`screen_capture` icin pay.
+# Butce dolunca batch siradaki eyleme HIC BASLAMAZ (yarim tiklama olmaz) ve
+# yapilmayan eylemleri listeleyerek doner.
+batch_budget_seconds = 90
+
+# Fare tiklamasindan sonra odagin degisip degismedigi kontrol edilsin mi.
+# OLCULDU 2026-08-02: kor bir tiklama odagi baska pencereye kaydiriyor ve
+# ardindan gonderilen tuslar oraya gidiyor -- gelistirme sirasinda bir olcum
+# tiklamasi masaustune dustu, sonraki `ctrl+a` + `Delete` masaustundeki 23
+# ogeyi copa gonderdi. Kontrol acikken batch o noktada durur. Kapatmayin.
+batch_check_focus = true
 
 
 # ---------------------------------------------------------------------------

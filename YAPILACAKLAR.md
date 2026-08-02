@@ -75,6 +75,26 @@ kontrolü — gerçek anlamda computer use.
   Ama `get_extents` **koordinatları yanlış** — tıklama `Action.do_action` ile
   yapılır, koordinatla değil. `gi` venv'de yok, AT-SPI ayrı bir süreçte
   (sistem `python3`) çalışır
+- **Spark ekranı `agent_run` üzerinden okuyabiliyor** — ölçüldü 2026-08-02,
+  `~/.local/state/pcbridge/jobs/20260802-135923-87d0ea` (`kind:
+  agent:antigravity`). Masaüstü kontrolü **kapalıyken** oldu: `screen_capture`
+  reddedildi, Spark `agy`'ye ekran görüntüsü aldırıp okuttu. Yani F bölümünün
+  mimarisi elle bir kez çalıştırılmış durumda
+- **`[desktop] enabled = false` yalnızca masaüstü araçlarını kapatır.**
+  `shell_run`, `agent_run`, `fs_*`, `tmux_*` bu kapıdan geçmez — kapalıyken de
+  komut çalışır, uygulama açılır, `config.toml` okunabilir. Bu bilinçli
+  (projenin amacı bu) ama belgede açıkça yazmalı; koruma engelleme değil,
+  `audit.log`'a **iz bırakma**
+- **uinput olayı `IdleMonitor`'ü SIFIRLIYOR** — ölçüldü: 104227 ms → 151 ms.
+  Yani "kullanıcı makinede mi" kontrolü bir eylem dizisinin **içinde**
+  yapılamaz; dizi kendi tuşunu kullanıcı sanar. Kontrol yalnızca dizi başında
+- **GNOME overview açıkken (`super` sonrası) Wayland panosu bloklanıyor** —
+  `wl-paste` 5 sn'de cevap vermedi, yani varsayılan `type` yolu orada **asılır**.
+  Overview'da ham tuş yolu (`raw=true`) şart
+- **Pencere öne alma: AT-SPI ve D-Bus yolları KAPALI.** `Component.grab_focus`
+  GTK'da `atspi_error`, Electron'da `False`; `org.freedesktop.Application.Activate`
+  `exit=0` dönüp hiçbir şey yapmıyor (sessiz başarısızlık). Çalışan tek yol
+  GNOME'un kendi araması (`super` + ad + `Return`), **~6,5 saniye**
 
 ---
 
@@ -93,6 +113,16 @@ Girdi testlerinde kural:
    (sanal klavye/fare pcbridge sürecinin içinde yaşıyor, süreç ölünce cihaz da
    yok oluyor — ayrı bir `dotoold`/`ydotoold` daemon'ı yok)
 4. Uzun/tekrarlı girdi denemelerini kullanıcıya haber vermeden başlatma
+5. **Tıklamadan sonra odağın kaydığını varsay.** Sonraki tuşlar artık başka bir
+   pencereye gider
+
+> **Bu gerçekten oldu — 2026-08-02, E bölümü ölçümleri.** `move(920, 520)` +
+> `click` yapıldı, oranın metin düzenleyici penceresi olduğu **varsayıldı,
+> doğrulanmadı**. Tıklama masaüstüne düştü, odak oraya kaydı, ardından temizlik
+> için gönderilen `ctrl+a` + `Delete` masaüstündeki **23 öğeyi çöpe gönderdi**.
+> (Hepsi çöpten geri alındı, kalıcı kayıp yok.) İhlal edilen kural 2'ydi.
+> Karşılığı koda girdi: `computer_batch` artık fare tıklamalarından sonra odağı
+> doğruluyor ve kaymışsa **duruyor** (`[desktop] batch_check_focus`).
 
 ---
 

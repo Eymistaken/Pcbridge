@@ -281,6 +281,17 @@ Bu yüzden varsayılan akış: kapalı gelir, `sudo ./setup_uinput.sh` bir kez
 çalıştırılır, `config.toml`'da açılır, ve her kullanım öncesi `desktop_unlock`
 ile **süreli** izin verilir. İzin kendiliğinden kapanır.
 
+> **`enabled = false` ne KAPATMAZ.** Yalnızca yukarıdakileri kapatır — sanal
+> klavye/fare ve ekran okuma. `shell_run`, `agent_run`, `fs_*` ve `tmux_*` bu
+> kapıdan geçmez; masaüstü kontrolü kapalıyken de komut çalışır, uygulama
+> açılır, dosya okunur. Gemini ekranı bile okuyabilir: `agent_run` ile
+> makinedeki bir ajanı çalıştırıp ona ekran görüntüsü aldırarak (ölçüldü
+> 2026-08-02). Dolayısıyla `config.toml` da okunabilir, yani parolan.
+> Engellemedik çünkü `shell_run` keyfi komut çalıştırdığı sürece engel gerçek
+> olmazdı; onun yerine **iz bırakılıyor** — her `shell_run`, `fs_read`,
+> `agent_run`, `tmux_send` çağrısı `audit.log`'a düşüyor (ne yapıldığı yazılır,
+> içerik yazılmaz). Araç-izin haritasının tamamı `KULLANIM.md`'de.
+
 Acil durdurma (kaçak bir döngü ihtimaline karşı):
 
 ```bash
