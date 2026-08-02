@@ -308,8 +308,14 @@ görünmez.
 `pcbridge/shots.py` ekran görüntülerini `state_dir/shots/` altına yazar ve
 `/shot/<token>.png` rotasından servis eder: 128 bit token, tek kullanım, 5 dakika
 TTL, `Cache-Control: no-store`. Bu bağlantı **model için değil kullanıcı için** —
-Gemini görsel göremiyor, ama kullanıcı telefondan dokunup ekrana bakabiliyor.
+Spark'a giden MCP function-response kanalı yalnızca metin taşıdığı için araç
+sonucuna görsel konulamıyor, ama kullanıcı telefondan dokunup ekrana bakabiliyor.
 Dosyaları 24 saat sonra temizle.
+
+> Not: sınır **kanalın**, modelin değil. Gemini'nin görme yeteneği var;
+> Antigravity içindeki Gemini ve Claude Code PNG okuyabiliyor (ölçüldü —
+> `YAPILACAKLAR.md` "Makine gerçekleri"). F bölümündeki `computer_task` tam da
+> buna dayanıyor: görsel işi PNG okuyabilen **yerel** bir ajana devrediyor.
 
 Araçlar: `screen_info` (monitör tablosu, hangi backend seçildi, birincil hangisi,
 GNOME üst çubuğunun hangi ekranda olduğu) ve `screen_capture`.

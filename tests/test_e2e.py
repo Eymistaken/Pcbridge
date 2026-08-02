@@ -328,6 +328,9 @@ def main() -> int:
         "keyboard",
         "screen_info",
         "screen_capture",
+        "ui_dump",
+        "ui_click",
+        "ui_set_text",
     ):
         check(f"arac mevcut: {expected}", expected in names, str(sorted(names)))
 
@@ -395,6 +398,29 @@ def main() -> int:
         cap_desc[:200],
     )
 
+    # Erisilebilirlik araclari: ui_dump okuma, digerleri gercek eylem.
+    dump_props = by_name.get("ui_dump", {}).get("inputSchema", {}).get("properties", {})
+    for field_ in ("target", "interactive_only"):
+        check(f"ui_dump.{field_} parametresi var", field_ in dump_props, str(sorted(dump_props)))
+    check(
+        "ui_dump readOnlyHint isaretli",
+        (by_name.get("ui_dump", {}).get("annotations") or {}).get("readOnlyHint") is True,
+        str(by_name.get("ui_dump", {}).get("annotations")),
+    )
+    for tool_name in ("ui_click", "ui_set_text"):
+        ann = by_name.get(tool_name, {}).get("annotations", {}) or {}
+        check(f"{tool_name} destructiveHint isaretli",
+              ann.get("destructiveHint") is True, str(ann))
+        req = by_name.get(tool_name, {}).get("inputSchema", {}).get("required", [])
+        check(f"{tool_name}.id zorunlu", "id" in req, str(req))
+    settext_req = by_name.get("ui_set_text", {}).get("inputSchema", {}).get("required", [])
+    check("ui_set_text.text zorunlu", "text" in settext_req, str(settext_req))
+    dump_desc = str(by_name.get("ui_dump", {}).get("description", ""))
+    check("ui_dump aciklamasi 'ne zaman kullanilir' iceriyor",
+          "Use this" in dump_desc or "Use when" in dump_desc, dump_desc[:160])
+    check("ui_dump aciklamasi goruntu yerine metni onermeyi soyluyor",
+          "cannot read images" in dump_desc, dump_desc[:240])
+
     # agent_run'in model/effort semasi -- Gemini bu alanlari gorebilmeli
     schema = next(
         (t.get("inputSchema", {}) for t in tools if t["name"] == "agent_run"), {}
@@ -461,6 +487,14 @@ def main() -> int:
     out = call("screen_info", {})
     check("screen_info kapaliyken de calisiyor", "tuval:" in out, out[:200])
     check("screen_info koordinat sozlesmesini soyluyor", "global" in out, out[:300])
+    # Erisilebilirlik araclari da ayni kapidan geciyor: izin yokken EKRAN
+    # ICERIGI (etiketler, metin kutulari) okunmamali.
+    out = call("ui_dump", {})
+    check("ui_dump kapaliyken reddediyor", "⛔" in out, out[:200])
+    out = call("ui_click", {"id": "#abcd"})
+    check("ui_click kapaliyken reddediyor", "⛔" in out, out[:200])
+    out = call("ui_set_text", {"id": "#abcd", "text": "bu-yazilmamali"})
+    check("ui_set_text kapaliyken reddediyor", "⛔" in out, out[:200])
 
     section("12. Ajan calistirma ve is takibi")
     out = call(

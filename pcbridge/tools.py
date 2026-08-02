@@ -26,6 +26,7 @@ from .desktop import capture as capturelib
 from .desktop import input as inputlib
 from .desktop import monitors as monitorslib
 from .desktop import safety as safetylib
+from .desktop import uitree as uitreelib
 
 MAX_INLINE = 4000
 
@@ -601,17 +602,29 @@ def register(
     # enabled, ekran kilidi, sureli izin, kullanici cakismasi, hiz siniri.
     gate = safetylib.SafetyGate(cfg)
     backend = inputlib.InputBackend()
+    tree = uitreelib.UiTree()
 
-    def _guard(tool: str, write: bool = True, force: bool = False) -> str | None:
-        """Reddedildiyse kullaniciya donecek Turkce gerekce, izinliyse None."""
+    def _guard(
+        tool: str,
+        write: bool = True,
+        force: bool = False,
+        needs_input: bool = True,
+    ) -> str | None:
+        """Reddedildiyse kullaniciya donecek Turkce gerekce, izinliyse None.
+
+        `needs_input=False`: sanal klavye/fare cihazi ARANMAZ. Ekran goruntusu
+        ve erisilebilirlik araclari uinput kullanmiyor; /dev/uinput yokken
+        onlari "girdi cihazi yok" diye reddetmek yanlis gerekce olurdu.
+        """
         decision = gate.check(tool, write=write, force=force)
         if not decision.allowed:
             gate.audit(f"{tool}_denied", reason=decision.reason[:120])
             return f"⛔ {decision.reason}"
-        ok, why = backend.available()
-        if not ok:
-            gate.audit(f"{tool}_unavailable", reason=why[:120])
-            return f"⛔ Sanal girdi cihazi kullanilamiyor: {why}"
+        if needs_input:
+            ok, why = backend.available()
+            if not ok:
+                gate.audit(f"{tool}_unavailable", reason=why[:120])
+                return f"⛔ Sanal girdi cihazi kullanilamiyor: {why}"
         return None
 
     @mcp.tool(
@@ -867,6 +880,19 @@ def register(
             f"**Klavye/fare:** {'hazir' if in_ok else 'KULLANILAMIYOR'}"
             + ("" if in_ok else f" — {in_why}")
         )
+        ui_ok, ui_why = uitreelib.available()
+        ui_line = f"**Erisilebilirlik agaci:** {'hazir' if ui_ok else 'KULLANILAMIYOR'}"
+        if ui_ok:
+            # Odaktaki pencere yalnizca buradan okunabiliyor: C bolumunde
+            # olculdu, Shell.Introspect "Access denied" veriyor.
+            try:
+                app, win = tree.focused_window()
+                ui_line += f" · odakta: {app}" + (f" — {win}" if win else "")
+            except uitreelib.UiTreeError as exc:
+                ui_line += f" · odaktaki pencere okunamadi ({exc})"
+        else:
+            ui_line += f" — {ui_why}"
+        lines.append(ui_line)
         lines.append(f"**Izin:** {gate.status_line()}")
         lines.append("")
         lines.append(
@@ -915,7 +941,7 @@ def register(
         # klavye kullanildi" korumasina takilmiyor -- makinenin basinda olmaniz
         # ekraniniza bakmanizi engellememeli. Izin penceresi ve ekran kilidi
         # kontrolu ise aynen gecerli: goruntu en gizlilik-hassas cikti.
-        denied = _guard("screen_capture", write=False)
+        denied = _guard("screen_capture", write=False, needs_input=False)
         if denied:
             return denied
         if shot_store is None:
@@ -989,6 +1015,122 @@ def register(
                     "daha keskin gerekiyorsa `scale=0` ile tam cozunurlukte alin."
                 )
         return "\n".join(out)
+
+    # ------------------------------------------------- erisilebilirlik agaci
+    # Ekranin metinsel ikizi. Model goruntuyu goremedigi icin asil "goz" burasi;
+    # tiklama da koordinatla degil dugumun kendi Action'iyla yapiliyor.
+    # Hicbiri uinput kullanmaz -> needs_input=False.
+    @mcp.tool(annotations={"title": "Read the screen as text", "readOnlyHint": True})
+    def ui_dump(
+        target: Annotated[
+            str,
+            Field(
+                description=(
+                    "Which window to read: 'focused' (default) for the active "
+                    "window, or an application name like 'gnome-text-editor'."
+                )
+            ),
+        ] = "focused",
+        interactive_only: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Only list things that can be clicked or typed into. Set "
+                    "false to also get labels and static text."
+                )
+            ),
+        ] = True,
+    ) -> str:
+        """List what is on screen as text: every button, menu, text box and label
+        the application publishes, each with a short id. Use this instead of a
+        screenshot when you need to know what is there — you can read this, and you
+        cannot read images. Then act on an item with `ui_click` or `ui_set_text`
+        using its id. Prefer this over clicking coordinates: it is exact, while
+        coordinates are guesswork."""
+        denied = _guard("ui_dump", write=False, needs_input=False)
+        if denied:
+            return denied
+        ok, why = uitreelib.available()
+        if not ok:
+            gate.audit("ui_dump_unavailable", reason=why[:120])
+            return f"⛔ Erisilebilirlik agaci okunamiyor: {why}"
+        try:
+            dump = tree.dump(target=target, interactive_only=interactive_only)
+        except uitreelib.UiTreeError as exc:
+            gate.audit("ui_dump_error", error=str(exc)[:160])
+            return f"Hata: {exc}"
+        gate.audit("ui_dump", target=target, nodes=len(dump.nodes))
+        return jobslib.tail_chars(uitreelib.describe(dump), MAX_INLINE)
+
+    @mcp.tool(annotations={"title": "Click something on screen", "destructiveHint": True})
+    def ui_click(
+        id: Annotated[
+            str,
+            Field(description="Id of the item from `ui_dump`, e.g. '#90e6'."),
+        ],
+        force: Annotated[
+            bool,
+            Field(description="Go ahead even if the user just used the machine."),
+        ] = False,
+    ) -> str:
+        """Click a button, menu item or link by the id `ui_dump` gave it. This asks
+        the application to activate that item directly, so it works regardless of
+        where the window sits or what has focus. Use it whenever the thing you want
+        appears in `ui_dump`; fall back to the `mouse` tool only for things the
+        application does not publish, like canvases and games."""
+        denied = _guard("ui_click", force=force, needs_input=False)
+        if denied:
+            return denied
+        try:
+            res = tree.click(str(id))
+        except uitreelib.UiTreeError as exc:
+            gate.audit("ui_click_error", node=str(id)[:40], error=str(exc)[:160])
+            return f"Hata: {exc}"
+        gate.audit("ui_click", node=str(id)[:40], name=res.get("name", "")[:60],
+                   forced=force or None)
+        note = ""
+        if res.get("resolved_by") == "search":
+            # Yol tutmadi, dugum rol+etiketle bulundu. Kullanici bunu bilsin.
+            note = " (arayuz degismis, dugum adiyla bulundu)"
+        return (
+            f"{res.get('role','?')} \"{res.get('name','')}\" tiklandi{note}.\n"
+            "Sonucu dogrulamadan bir sonraki adima gecmeyin — ui_dump ile "
+            "yeniden bakin."
+        )
+
+    @mcp.tool(annotations={"title": "Type into a text box", "destructiveHint": True})
+    def ui_set_text(
+        id: Annotated[
+            str,
+            Field(description="Id of the text box from `ui_dump`, e.g. '#1b72'."),
+        ],
+        text: Annotated[str, Field(description="The text to put in the box.")],
+        force: Annotated[
+            bool,
+            Field(description="Go ahead even if the user just used the machine."),
+        ] = False,
+    ) -> str:
+        """Replace the contents of a text box directly, by the id `ui_dump` gave it.
+        Prefer this over the `keyboard` tool for filling in fields: it writes into
+        the widget itself instead of simulating keystrokes, so nothing depends on
+        the keyboard layout and no other window can steal the text. Note it
+        replaces what is already there rather than appending."""
+        denied = _guard("ui_set_text", force=force, needs_input=False)
+        if denied:
+            return denied
+        try:
+            res = tree.set_text(str(id), text)
+        except uitreelib.UiTreeError as exc:
+            gate.audit("ui_set_text_error", node=str(id)[:40], error=str(exc)[:160])
+            return f"Hata: {exc}"
+        # Metnin KENDISI denetim kaydina yazilmaz; parola girilmis olabilir.
+        gate.audit("ui_set_text", node=str(id)[:40], chars=len(text),
+                   forced=force or None)
+        return (
+            f"{res.get('role','?')} icine {len(text)} karakter yazildi "
+            f"(oncekiler silindi: {res.get('replaced_chars', 0)} karakter).\n"
+            "Sonucu dogrulamadan bir sonraki adima gecmeyin."
+        )
 
     # ================================================================== SISTEM
     @mcp.tool(annotations={"title": "Computer status", "readOnlyHint": True})

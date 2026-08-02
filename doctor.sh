@@ -6,6 +6,7 @@ cd "$DIR"
 
 pass() { printf "  \033[32m✔\033[0m %s\n" "$*"; }
 fail() { printf "  \033[31m✘\033[0m %s\n" "$*"; }
+warn() { printf "  \033[33m!\033[0m %s\n" "$*"; }
 info() { printf "  \033[2m·\033[0m %s\n" "$*"; }
 head_() { printf "\n\033[1m%s\033[0m\n" "$*"; }
 
@@ -165,6 +166,25 @@ if [ -n "$SHOTS" ] && mkdir -p "$SHOTS" 2>/dev/null && [ -w "$SHOTS" ]; then
 else
   fail "ekran goruntusu dizini yazilamiyor: ${SHOTS:-?}"
 fi
+
+# --- erisilebilirlik agaci (ui_dump / ui_click / ui_set_text) ---
+# gi SISTEM python'unda aranir; venv'de yok ve olmasi da gerekmiyor.
+if python3 -c "import gi; gi.require_version('Atspi','2.0')" 2>/dev/null; then
+  pass "AT-SPI baglantilari kurulu (sistem python3'unde)"
+  ATSPI="$(printf '{"cmd":"dump","target":"focused","max_nodes":1}' \
+    | timeout 20 python3 "$DIR/pcbridge/desktop/atspi_helper.py" 2>/dev/null)"
+  if printf '%s' "$ATSPI" | grep -q '"ok": *true'; then
+    WHO="$(printf '%s' "$ATSPI" | ./.venv/bin/python -c 'import json,sys; d=json.load(sys.stdin); print(d.get("app",""), "-", d.get("window",""))' 2>/dev/null)"
+    pass "erisilebilirlik agaci okunuyor · odakta: $WHO"
+  else
+    WHY="$(printf '%s' "$ATSPI" | ./.venv/bin/python -c 'import json,sys; print(json.load(sys.stdin).get("error","?"))' 2>/dev/null)"
+    warn "odaktaki pencere okunamadi: ${WHY:-yardimci cevap vermedi}"
+  fi
+else
+  fail "AT-SPI yok: sudo apt install python3-gi gir1.2-atspi-2.0"
+fi
+A11Y="$(gsettings get org.gnome.desktop.interface toolkit-accessibility 2>/dev/null)"
+info "toolkit-accessibility = ${A11Y:-?} (bu makinede agac kapaliyken de dolu geliyor)"
 
 MONS="$(./.venv/bin/python -c 'from pcbridge.desktop import monitors as m; print(m.describe())' 2>&1)"
 if printf '%s' "$MONS" | grep -q '^tuval:'; then

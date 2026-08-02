@@ -64,6 +64,17 @@ kontrolü — gerçek anlamda computer use.
 - Claude Code **v2.1.220**, Claude **Pro** planı · Antigravity CLI **1.1.9**,
   Google AI Pro
 - İkisi de PNG okuyabiliyor (görsel işleme doğrulandı)
+- **"Gemini görsel göremiyor" derken kastedilen tam olarak şu:** Spark'a giden
+  **MCP function-response kanalı** araç sonucunda yalnızca metin taşıyor.
+  Sınır kanalın, modelin değil — Gemini'nin görme yeteneği var ve Antigravity
+  içindeki Gemini görüntü okuyabiliyor (yukarıdaki satır). Belgelerde bu ayrımı
+  koru; kısa kesilirse F bölümünün (`computer_task`, görsel işi PNG okuyabilen
+  yerel bir ajana devreder) mantığı anlaşılmaz hale geliyor
+- **Erişilebilirlik ağacı dolu ve kullanılabilir** (ölçüldü): GTK4
+  uygulamalarında rol/etiket/durum eksiksiz, `Action` ve `EditableText` var.
+  Ama `get_extents` **koordinatları yanlış** — tıklama `Action.do_action` ile
+  yapılır, koordinatla değil. `gi` venv'de yok, AT-SPI ayrı bir süreçte
+  (sistem `python3`) çalışır
 
 ---
 

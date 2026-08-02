@@ -1021,15 +1021,73 @@ gösteriyor. Doğrusu B'deki gibi hedefin etrafındaki dar pencerede fark almak.
 - [x] `screen_capture` + `screen_info` araçları
 - [ ] Gerekirse: ScreenCast portalı + `restore_token`'ı `state_dir/screencast.token`'a sakla — **gerekmedi**, `gnome-screenshot` çalışıyor
 
-### Faz 3 — Metinsel gözler: AT-SPI + OCR (~1.5 gün)
+### Faz 3 sonuçları — ölçüldü 2026-08-02 (D bölümü)
 
-- [ ] `uitree.py`: ağacı gez, gürültüyü ele (görünmez/boş düğümler), kararlı `#id` üret (rol+etiket+yol karması), `ui_dump` çıktısını 4000 karaktere sığdır
-- [ ] `ui_click`: önce `Action.do_action`, olmazsa `Component.get_extents` + fare
-- [ ] `ui_set_text`: `Text`/`EditableText` arayüzü
-- [ ] `ocr.py`: tesseract TSV, `screen_find_text`
-- [ ] Elektron uygulamaları için not: `--force-renderer-accessibility` bayrağı
+**1. Ağaç dolu ve kullanılabilir.** `toolkit-accessibility = false` olmasına
+rağmen 20 uygulama kayıtlı; a11y veri yolu `systemd-run --user` altından da
+görünüyor (servis bağlamı sorun değil). Ölçülen ağaçlar:
 
-**Bu fazın sonunda Spark, klavye/fare koordinatı bilmeden GUI kullanabiliyor olacak.**
+| uygulama | düğüm | tıklanabilir | süre |
+|---|---|---|---|
+| gnome-text-editor (GTK4) | 66 | 14 (+1 düzenlenebilir) | 0,04 sn |
+| ModrinthApp | 411 | 399 | 0,27 sn |
+| gnome-shell | 3121 | 1 | 1,93 sn |
+| claude-desktop (Electron) | 3 | — | 0,00 sn |
+
+GTK4 ağacı **derin**: düzenlenebilir `text` düğümü 16. seviyede, dip 18. Sığ bir
+derinlik sınırı konulamaz — sınır düğüm sayısında.
+
+**2. `gi` venv'den import edilemiyor** (`include-system-site-packages = false`).
+AT-SPI ayrı bir yardımcı süreçte (sistem `python3`) çalışıyor. İkinci ve daha
+önemli gerekçe: AT-SPI cevap vermeyen uygulamada bloklayabiliyor, ayrı süreç
+sert zaman aşımıyla öldürülebiliyor.
+
+**3. GTK4 her düğüme TÜM GAction grubunu iliştiriyor.** gnome-text-editor'de
+frame 35 "eylem" bildiriyor (`page.save-as`, `clipboard.copy`, `win.open`…).
+Bunlar tıklanabilirlik değil. Ayırt edici işaret **nokta**: GAction'lar
+`grup.ad`, gerçek AT-SPI eylemleri tek kelime (`click`). Filtresiz bırakılınca
+her etiket tıklanabilir görünüyordu.
+
+**4. Chromium/Electron her düğüme `doDefault` + `showContextMenu` koyuyor** —
+noktasız oldukları için yukarıdaki filtreye takılmıyorlar. Bu yüzden
+**kapsayıcı roller** (`application`, `frame`, `panel`, `section`…) eylem
+bildirseler bile hedef sayılmıyor. Düzeltmeden önce claude-desktop
+"3 tıklanabilir düğüm" gibi görünüyordu, oysa içeriğini hiç yayınlamıyor.
+
+**5. Koordinatlar güvenilmez — ölçüldü.** `get_extents(SCREEN)` çağrısında
+`Desktop Icons 1` ve `Desktop Icons 2` **ikisi de `@(0,0) 1920x1080`**
+bildiriyor, oysa tanımı gereği ayrı monitörlerde. Bu yüzden `ui_click`
+**koordinata düşmüyor**: `Action` yoksa açıkça reddediyor ve `screen_capture` +
+`mouse` yolunu öneriyor. Sessizce yanlış yere tıklamak en kötü sonuç olurdu.
+
+**6. `insert_text`'in uzunluk parametresi KARAKTER DEĞİL BAYT.** `len(text)`
+verilince `merhaba @ ış ğü ÖÇ — pcbridge D testi #1` (40 karakter, 48 bayt)
+sessizce **32 karaktere düşüyordu** — hiçbir hata vermeden. Türkçe harfler 2,
+em-dash 3 bayt. Düzeltildi; ayrıca yazılan karakter sayısı doğrulanıyor.
+
+**7. Odaktaki pencere AT-SPI'dan okunabiliyor** (`StateType.ACTIVE`, tam bir
+tane). C'de `Shell.Introspect` "Access denied" verdiği için düşen odak bilgisi
+buradan geliyor; `screen_info` artık odaktaki pencereyi söylüyor.
+
+**Kapsam:** OCR bu bölüme **girmedi** (kullanıcı kararı). `tesseract` kurulu
+değil ve AT-SPI'ın göremediği Electron uygulamaları için F bölümündeki
+`computer_task` daha iyi bir cevap.
+
+### Faz 3 — Metinsel gözler: AT-SPI ✅ tamamlandı 2026-08-02
+
+- [x] `uitree.py`: ağacı gez, gürültüyü ele, kararlı `#id` üret, `ui_dump` çıktısını 4000 karaktere sığdır
+  — **kimlik karmasına yol GİRMİYOR** (rol + etiket + kaçıncı geçtiği). Yol
+  karışıma girseydi her sekme açılışında bütün kimlikler değişir, modelin
+  elindeki liste sessizce eskirdi
+- [x] `ui_click`: `Action.do_action`. ~~olmazsa `Component.get_extents` + fare~~
+  → **fare yedeği bilinçli olarak YOK**, gerekçesi yukarıda 5. madde
+- [x] `ui_set_text`: `EditableText` arayüzü — klavye taklidi olmadığı için
+  Türkçe düzenden tamamen bağımsız (canlı doğrulandı, birebir eşleşme)
+- [ ] `ocr.py`: tesseract TSV, `screen_find_text` — **ertelendi** (yukarıda)
+- [x] Electron uygulamaları için not: `--force-renderer-accessibility` bayrağı
+  — `ui_dump` boş ağaç gördüğünde bunu kullanıcıya kendisi söylüyor
+
+**Bu fazın sonunda Spark, klavye/fare koordinatı bilmeden GUI kullanabiliyor.**
 
 ### Faz 4 — Toplu eylem + pencereler (~1 gün)
 

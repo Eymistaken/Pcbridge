@@ -263,6 +263,11 @@ komut çalıştırma"dan daha geniş bir yetki — çünkü komut çalıştırma
   yakalar: açık mesajlar, e-posta, ekranda görünen parolalar. O yüzden o da
   `desktop_unlock` istiyor. Tek gevşetme, "makinenin başındasın" korumasının
   ekran görüntüsüne uygulanmaması — başında olman ekranına bakmanı engellememeli.
+- **`ui_dump` ekranı metin olarak okuyor** — düğme etiketleri, menü öğeleri,
+  metin kutularının içeriği. Görüntü kadar açık edici, o yüzden aynı kapıdan
+  geçiyor. `ui_set_text` ise metin kutularına doğrudan yazıyor; yazılan metnin
+  **kendisi denetim kaydına düşmüyor** (parola girilmiş olabilir), yalnızca
+  karakter sayısı.
 - **Ekran görüntüsü bağlantısı OAuth'un DIŞINDA.** `https://<host>/shot/<token>.png`
   adresini açmak için parola ya da token istenmiyor; yetki, adresteki 128 bitlik
   token'ın kendisi. Sebebi pratik: telefonun tarayıcısında görüntüyü açabilmen
@@ -389,5 +394,7 @@ Pcbridge/
         ├── monitors.py     monitör tablosu — koordinat uzayının tek kaynağı
         ├── input.py        sanal klavye + mutlak fare (/dev/uinput)
         ├── capture.py      ekran görüntüsü: yakala, kırp, ölçekle
+        ├── uitree.py       erişilebilirlik ağacı → metin, kararlı #id'ler
+        ├── atspi_helper.py AT-SPI yardımcısı — SİSTEM python3'ü, ayrı süreç
         └── safety.py       süreli izin, kilit/idle kontrolü, denetim kaydı
 ```

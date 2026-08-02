@@ -194,9 +194,13 @@ baktığını tahmin etmen gerekmiyor.
 
 Bilmen gereken üç şey:
 
-- **Gemini görüntüyü göremiyor, sen görüyorsun.** Bağlantı senin için. Gemini
-  yalnızca görüntünün ekranın neresine denk geldiğini (ofset ve ölçek) okuyor;
-  "şuraya tıkla" derken o bilgiyi kullanıyor.
+- **Görüntü Spark'a geçmiyor, sen görüyorsun.** Bağlantı senin için. Sebep
+  Gemini'nin kör olması değil — Spark'a giden MCP kanalı araç sonucunda
+  yalnızca metin taşıyor. (Gemini'nin gözü var; Antigravity içindeki Gemini
+  görüntü okuyabiliyor.) Gemini bu kanaldan yalnızca görüntünün ekranın
+  neresine denk geldiğini (ofset ve ölçek) okuyor; "şuraya tıkla" derken onu
+  kullanıyor. Ekranda ne olduğunu **metin olarak** öğrenmesinin yolu ise
+  `ui_dump` — aşağıdaki bölüm.
 - **Bağlantı 5 dakika yaşıyor ve OAuth'tan bağımsız.** Yani bağlantıyı alan
   herkes görüntüyü açabilir — **paylaşma.** Süre dolunca kendiliğinden ölür,
   dosyalar da 24 saat sonra silinir.
@@ -215,7 +219,48 @@ koordinat birkaç piksel şaşabilir (ölçüldü: ~5 px) — düğme için soru
 
 ---
 
-## 7. Makine durumu ve bildirim
+## 7. Ekranı Gemini'ye okutma (asıl yol)
+
+Ekran görüntüsü senin için. Gemini'nin ekranda ne olduğunu **öğrenmesinin**
+yolu ise başka: uygulamalar arayüzlerini zaten metin olarak yayınlıyor.
+
+> açık pencerede ne var?
+
+Karşılığında düğmelerin, menülerin ve metin kutularının listesi gelir — her
+birinin kısa bir kimliğiyle:
+
+```
+#993a toggle button "Aç"
+#90e6 push button "Yeni sekme"
+#1b72 text [editable]
+```
+
+Sonra doğrudan onlara iş verilir:
+
+> Kaydet düğmesine bas
+
+> arama kutusuna "fatura" yaz
+
+Bu yol **tahmin içermiyor.** Koordinat hesaplanmıyor, piksel okunmuyor;
+uygulamanın kendi beyanı kullanılıyor ve tıklama pencerenin nerede olduğundan
+bağımsız çalışıyor. Metin kutusuna yazarken de klavye taklit edilmiyor — Türkçe
+karakterler doğrudan gidiyor, hiçbir düzen sorunu yok.
+
+İki sınırı bilmen iyi olur:
+
+- **Bazı uygulamalar arayüzünü yayınlamıyor.** Özellikle bazı Electron
+  uygulamaları (Claude masaüstü gibi) yalnızca pencere çerçevesini veriyor.
+  Böyle bir durumda araç bunu sana açıkça söyler; o zaman `screen_capture` +
+  koordinatla tıklama yoluna dönülür.
+- **Listede olmayan şey tıklanamaz.** Oyun, harita, çizim tuvali gibi
+  yerlerde yayınlanacak bir "düğme" yok. Orada da ekran görüntüsü yolu geçerli.
+
+Bu araçlar da `desktop_unlock` istiyor: ekrandaki yazıları okumak, ekran
+görüntüsü almakla aynı gizlilik sınıfında.
+
+---
+
+## 8. Makine durumu ve bildirim
 
 > bilgisayarımın durumunu göster
 
@@ -257,10 +302,13 @@ ya da bir işin bittiğini fark etmek için.
 | `desktop_lock` | İzni erken kapatır, sanal cihazları yok eder |
 | `mouse` | Fareyi hareket ettirir, tıklar, sürükler, kaydırır |
 | `keyboard` | Metin yazar (pano yoluyla) veya tuş kombinasyonu gönderir |
-| `screen_info` | Monitör tablosu, koordinat uzayı, hangi ekran birincil |
+| `screen_info` | Monitör tablosu, koordinat uzayı, odaktaki pencere |
 | `screen_capture` | Ekran görüntüsü alır, 5 dakikalık bağlantı döner |
+| `ui_dump` | Ekrandaki düğme/menü/kutuları metin olarak listeler |
+| `ui_click` | Listedeki bir öğeye tıklar (koordinat kullanmadan) |
+| `ui_set_text` | Metin kutusunu doğrudan doldurur (klavye taklidi yok) |
 
-`desktop_unlock`'tan `screen_capture`'a kadar olanlar `[desktop] enabled = true`
+`desktop_unlock`'tan `ui_set_text`'e kadar olanlar `[desktop] enabled = true`
 ister; varsayılan kapalı. Tek istisna `screen_info`: yalnızca donanım düzenini
 söylediği için hep çalışır.
 

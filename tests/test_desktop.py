@@ -587,6 +587,273 @@ def test_real_capture() -> None:
         _sh.rmtree(tmp, ignore_errors=True)
 
 
+# ====================================================== ERISILEBILIRLIK AGACI
+# Yardimcinin JSON ciktisi sabit orneklerden verilir: gercek masaustu, acik
+# uygulama ve X/Wayland oturumu gerekmez.
+HELPER_DUMP = {
+    "ok": True,
+    "app": "gnome-text-editor",
+    "window": "Taslak - Metin Duzenleyici",
+    "truncated": False,
+    "nodes": [
+        {"path": [0, 1], "role": "text", "name": "", "states": ["focused", "editable"],
+         "actions": [], "editable": True, "depth": 16},
+        {"path": [0, 2], "role": "push button", "name": "Kaydet",
+         "states": ["sensitive"], "actions": ["click"], "editable": False, "depth": 15},
+        {"path": [0, 3], "role": "push button", "name": "Kapat",
+         "states": ["sensitive"], "actions": ["click"], "editable": False, "depth": 15},
+        {"path": [0, 4], "role": "push button", "name": "Kapat",
+         "states": ["sensitive"], "actions": ["click"], "editable": False, "depth": 15},
+        {"path": [0, 5], "role": "label", "name": "Hazir",
+         "states": ["sensitive"], "actions": [], "editable": False, "depth": 15},
+    ],
+}
+
+
+class FakeCall:
+    """`uitree._call`'in yerine gecer; ne istendigini de kaydeder."""
+
+    def __init__(self, *responses):
+        self.responses = list(responses)
+        self.seen: list[dict] = []
+
+    def __call__(self, payload, timeout):
+        self.seen.append(payload)
+        return self.responses.pop(0) if len(self.responses) > 1 else self.responses[0]
+
+
+def test_uitree_describe() -> None:
+    section("18. Erisilebilirlik agaci — metne cevirme")
+    from pcbridge.desktop import uitree as U
+
+    real = U._call
+    try:
+        U._call = FakeCall(HELPER_DUMP)
+        t = U.UiTree()
+        d = t.dump("gnome-text-editor")
+        check("dugumler okundu", len(d.nodes) == 5, str(len(d.nodes)))
+        check("uygulama adi", d.app == "gnome-text-editor", d.app)
+
+        txt = U.describe(d)
+        check("basligda uygulama ve pencere var",
+              "gnome-text-editor" in txt and "Metin Duzenleyici" in txt, txt[:80])
+        check("dugme etiketi ve kimligi listede",
+              '"Kaydet"' in txt and "#" in txt, txt[:200])
+        check("sayim dogru", "5 dugum · 3 tiklanabilir · 1 yazilabilir" in txt,
+              [l for l in txt.splitlines() if "dugum ·" in l])
+        check("eylemsiz dugum isaretleniyor", "eylemsiz" in txt, txt[:400])
+
+        bos = U.Dump(app="claude-desktop", window="Claude", nodes=[])
+        btxt = U.describe(bos)
+        check("bos agac Electron uyarisi veriyor",
+              "Electron" in btxt and "screen_capture" in btxt, btxt[:160])
+
+        kirpik = U.Dump(app="x", window="", nodes=d.nodes, truncated=True)
+        check("kirpilma bildiriliyor", "kirpildi" in U.describe(kirpik))
+    finally:
+        U._call = real
+
+
+def test_uitree_stable_ids() -> None:
+    section("19. Erisilebilirlik agaci — kararli kimlikler")
+    from pcbridge.desktop import uitree as U
+
+    real = U._call
+    try:
+        U._call = FakeCall(HELPER_DUMP)
+        t = U.UiTree()
+        first = {n.name: n.node_id for n in t.dump("x").nodes if n.name}
+        second = {n.name: n.node_id for n in t.dump("x").nodes if n.name}
+        check("ayni agac -> ayni kimlikler", first == second, str(first))
+
+        # Ayni rol+etiketli iki dugum AYRISMALI: ikisi de "Kapat".
+        ids = [n.node_id for n in t.dump("x").nodes if n.name == "Kapat"]
+        check("ayni etiketli iki dugum ayri kimlik", len(set(ids)) == 2, str(ids))
+
+        # ASIL SART: alakasiz bir yere dugum eklenince kimlikler DEGISMEMELI.
+        # Yol karisima girseydi burasi patlardi (her sekme acilisinda oluyor).
+        shifted = json.loads(json.dumps(HELPER_DUMP))
+        shifted["nodes"].insert(0, {
+            "path": [0, 0], "role": "push button", "name": "Yeni",
+            "states": [], "actions": ["click"], "editable": False, "depth": 15,
+        })
+        for n in shifted["nodes"][1:]:
+            n["path"] = [0, n["path"][1] + 1]  # yollar kaydi
+        U._call = FakeCall(shifted)
+        t2 = U.UiTree()
+        after = {n.name: n.node_id for n in t2.dump("x").nodes if n.name}
+        check("araya dugum eklenince kimlikler korunuyor",
+              all(after.get(k) == v for k, v in first.items()),
+              f"once={first} sonra={after}")
+        check("yeni dugum de kimlik aldi", "Yeni" in after, str(after))
+    finally:
+        U._call = real
+
+
+def test_uitree_actions() -> None:
+    section("20. Erisilebilirlik agaci — eylemler ve hatalar")
+    from pcbridge.desktop import uitree as U
+
+    real = U._call
+    try:
+        fake = FakeCall(HELPER_DUMP)
+        U._call = fake
+        t = U.UiTree()
+        d = t.dump("x")
+        kaydet = next(n for n in d.nodes if n.name == "Kaydet")
+        metin = next(n for n in d.nodes if n.editable)
+
+        U._call = FakeCall({"ok": True, "role": "push button", "name": "Kaydet",
+                            "action": "click", "resolved_by": "path"})
+        res = t.click(kaydet.node_id)
+        check("tiklama basarili", res["name"] == "Kaydet", str(res))
+        check("bastaki diyez kabul ediliyor",
+              t.click("#" + kaydet.node_id)["name"] == "Kaydet")
+
+        # Eylemi olmayan dugumde KOORDINATA DUSULMEMELI: olculen AT-SPI
+        # koordinatlari yanlis, sessizce yanlis yere tiklamak en kotu sonuc.
+        etiket = next(n for n in d.nodes if n.name == "Hazir")
+        try:
+            t.click(etiket.node_id)
+            check("eylemsiz dugum reddediliyor", False, "hata firlatilmadi")
+        except U.UiTreeError as exc:
+            check("eylemsiz dugum reddediliyor", "eylem sunmuyor" in str(exc), str(exc))
+            check("koordinat yolu onerilmiyor ama alternatif veriliyor",
+                  "screen_capture" in str(exc), str(exc))
+
+        # Taninmayan kimlik
+        try:
+            t.click("ffff")
+            check("taninmayan kimlik reddediliyor", False, "hata firlatilmadi")
+        except U.UiTreeError as exc:
+            check("taninmayan kimlik reddediliyor", "taninmiyor" in str(exc), str(exc))
+            check("hata mesajinda cift diyez yok", "##" not in str(exc), str(exc))
+
+        # Metin yazma: metnin kendisi cagriya girer ama yol/parmak izi de gider
+        fake2 = FakeCall({"ok": True, "role": "text", "name": "",
+                          "replaced_chars": 3, "now_chars": 5, "resolved_by": "path"})
+        U._call = fake2
+        t.set_text(metin.node_id, "merhaba")
+        sent = fake2.seen[0]
+        check("settext yolu gonderiyor", sent["path"] == metin.path, str(sent))
+        check("settext parmak izi gonderiyor",
+              sent["role"] == "text" and "name" in sent, str(sent))
+        check("settext metni gonderiyor", sent["text"] == "merhaba", str(sent))
+
+        # Yardimci ok=false donerse Turkce hataya cevrilmeli
+        U._call = FakeCall({"ok": False, "error": "duzenlenebilir degil"})
+        try:
+            t.set_text(metin.node_id, "x")
+            check("yardimci hatasi yukari tasiniyor", False, "hata firlatilmadi")
+        except U.UiTreeError as exc:
+            check("yardimci hatasi yukari tasiniyor",
+                  "duzenlenebilir degil" in str(exc), str(exc))
+    finally:
+        U._call = real
+
+
+def test_uitree_timeout() -> None:
+    """Zaman asimi SESSIZCE yutulmamali."""
+    section("21. Erisilebilirlik agaci — zaman asimi")
+    import subprocess as sp
+
+    from pcbridge.desktop import uitree as U
+
+    real_run = U.subprocess.run
+    try:
+        def boom(*a, **kw):
+            raise sp.TimeoutExpired(cmd="atspi_helper", timeout=kw.get("timeout", 20))
+
+        U.subprocess.run = boom
+        try:
+            U._call({"cmd": "dump"}, 20)
+            check("zaman asimi hataya cevriliyor", False, "hata firlatilmadi")
+        except U.UiTreeError as exc:
+            check("zaman asimi hataya cevriliyor", "cevap vermedi" in str(exc), str(exc))
+            check("kullaniciya ne yapacagi soyleniyor",
+                  "screen_capture" in str(exc), str(exc))
+
+        # Bos cikti da sessizce gecilmemeli
+        class Empty:
+            stdout = ""
+            stderr = "dbind-WARNING: bir sey"
+
+        U.subprocess.run = lambda *a, **kw: Empty()
+        try:
+            U._call({"cmd": "dump"}, 20)
+            check("bos cikti hataya cevriliyor", False, "hata firlatilmadi")
+        except U.UiTreeError as exc:
+            check("bos cikti hataya cevriliyor", "cevap vermedi" in str(exc), str(exc))
+    finally:
+        U.subprocess.run = real_run
+
+
+def test_uitree_helper_filters() -> None:
+    """Yardimcinin GAction ve kapsayici filtreleri — saf fonksiyonlar."""
+    section("22. Erisilebilirlik agaci — yardimci filtreleri")
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "atspi_helper_probe", ROOT / "pcbridge" / "desktop" / "atspi_helper.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+    except Exception as exc:
+        # `gi` venv'de yok; yardimci yine de ice aktarilabilmeli, yoksa saf
+        # filtre kurallari hic test edilemez.
+        check("yardimci gi olmadan ice aktarilabiliyor", False, f"{type(exc).__name__}: {exc}")
+        return
+    check("yardimci gi olmadan ice aktarilabiliyor", True)
+
+    # GAction gurultusu: gnome-text-editor'de olculen gercek adlar
+    for real in ("click", "press", "activate", "doDefault"):
+        check(f"gercek eylem taniniyor: {real}", mod.is_real_action(real))
+    for noise in ("page.save-as", "clipboard.copy", "win.open", "window.minimize"):
+        check(f"GAction eleniyor: {noise}", not mod.is_real_action(noise))
+    check("bos ad eleniyor", not mod.is_real_action("   "))
+    dedup = mod._dedup([
+        {"path": [0], "role": "push button", "name": "Ac", "actions": [], "editable": False},
+        {"path": [0, 0], "role": "toggle button", "name": "Ac", "actions": ["click"],
+         "editable": False},
+        {"path": [1], "role": "push button", "name": "Baska", "actions": ["click"],
+         "editable": False},
+    ])
+    names = [(n["role"], n["name"]) for n in dedup]
+    check("GTK4 sarmalayici dugumu eleniyor",
+          ("push button", "Ac") not in names, str(names))
+    check("eylemli ic dugum kaliyor", ("toggle button", "Ac") in names, str(names))
+    check("alakasiz dugum korunuyor", ("push button", "Baska") in names, str(names))
+    check("kapsayici roller tanimli",
+          {"application", "frame", "panel"} <= mod.CONTAINER_ROLES,
+          str(sorted(mod.CONTAINER_ROLES))[:120])
+
+
+def test_real_atspi() -> None:
+    """Gercek AT-SPI. Varsayilan olarak KOSMAZ (grafik oturum ister)."""
+    import os
+
+    if os.environ.get("PCBRIDGE_TEST_ATSPI") != "1":
+        return
+    section("23. Erisilebilirlik agaci — GERCEK okuma")
+    from pcbridge.desktop import uitree as U
+
+    ok, why = U.available()
+    check("AT-SPI hazir", ok, why)
+    if not ok:
+        return
+    t = U.UiTree()
+    try:
+        app, win = t.focused_window()
+        check("odaktaki pencere okundu", bool(app), f"{app} - {win}")
+        d = t.dump("focused")
+        check("odaktaki pencerenin agaci geldi", d.app != "", d.app)
+        check("kimlikler benzersiz",
+              len({n.node_id for n in d.nodes}) == len(d.nodes), str(len(d.nodes)))
+    except U.UiTreeError as exc:
+        check("gercek okuma calisti", False, str(exc)[:120])
+
+
 def main() -> int:
     print("\033[1mMasaustu katmani testleri\033[0m (girdi GONDERILMEZ)")
     test_monitor_ordering()
@@ -606,6 +873,12 @@ def main() -> int:
     test_shot_store()
     test_capture_config_defaults()
     test_real_capture()
+    test_uitree_describe()
+    test_uitree_stable_ids()
+    test_uitree_actions()
+    test_uitree_timeout()
+    test_uitree_helper_filters()
+    test_real_atspi()
     print(f"\n\033[1m{ok_count} gecti, {fail_count} kaldi\033[0m")
     return 1 if fail_count else 0
 

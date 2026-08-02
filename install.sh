@@ -24,6 +24,11 @@ command -v wl-copy >/dev/null || MISSING+=(wl-clipboard)
 # Ekran goruntusu (screen_capture). Wayland'de disaridan yakalama yapabilen
 # tek hazir arac bu; grim wlroots-only, portal her cagrida onay istiyor.
 command -v gnome-screenshot >/dev/null || MISSING+=(gnome-screenshot)
+# Erisilebilirlik agaci (ui_dump/ui_click/ui_set_text). SISTEM python'una
+# kurulur, venv'e degil: PyGObject'i pip ile kurmak derleme bagimliliklari
+# istiyor, kaldi ki AT-SPI zaten ayri bir surecte calistiriliyor.
+python3 -c "import gi; gi.require_version('Atspi','2.0')" 2>/dev/null \
+  || MISSING+=(python3-gi gir1.2-atspi-2.0)
 
 if [ ${#MISSING[@]} -gt 0 ]; then
   warn "Eksik: ${MISSING[*]}"

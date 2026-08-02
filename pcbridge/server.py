@@ -343,9 +343,11 @@ def build_app(cfg: Config):
     async def _shot(request: Request):
         """Kisa omurlu ekran goruntusu. Yetki token'in KENDISI -- OAuth yok.
 
-        Kullanici telefondan baglantiya dokunup ekranina baksin diye var
-        (Gemini gorseli goremiyor). Gecersiz ve suresi dolmus token ayni
-        cevabi alir: disaridan token tahmini icin bilgi sizmasin.
+        Kullanici telefondan baglantiya dokunup ekranina baksin diye var:
+        Spark'a giden MCP function-response kanali yalnizca metin tasidigi icin
+        goruntu arac sonucuna konulamiyor (sinir kanalin, modelin degil).
+        Gecersiz ve suresi dolmus token ayni cevabi alir: disaridan token
+        tahmini icin bilgi sizmasin.
         """
         name = request.path_params.get("name", "")
         token = name[:-4] if name.endswith(".png") else name
