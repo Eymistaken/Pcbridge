@@ -116,9 +116,14 @@ cd ~/Belgeler/Pcbridge
 systemctl --user restart pcbridge          # kod degistiyse sart
 journalctl --user -u pcbridge -f           # canli log
 ./doctor.sh                                # tani
-./.venv/bin/python tests/test_models.py     # cozumleyici (sunucu gerekmez)
+./.venv/bin/python tests/test_models.py     # cozumleyici + ajan ayristirici (sunucu gerekmez)
 ./.venv/bin/python tests/test_desktop.py    # masaustu (sunucu gerekmez, girdi gondermez)
-./.venv/bin/python tests/test_e2e.py        # e2e (sunucu ayakta olmali)
+
+# e2e sunucu ayakta olmali VE parolayi ortamdan ister; vermezsen OAuth
+# adimlari 401 doner ve testin bozuldugunu sanirsin (bir kez yasandi).
+export PCBRIDGE_TEST_PASSWORD="$(./.venv/bin/python -c 'import sys; sys.path.insert(0,"."); from pcbridge.config import load_config; print(load_config().password)')"
+export PCBRIDGE_TEST_STATIC="$(./.venv/bin/python -c 'import sys; sys.path.insert(0,"."); from pcbridge.config import load_config; print(load_config().static_token or "")')"
+./.venv/bin/python tests/test_e2e.py        # 111 gecer + 4 ATLA (gerekcesi testin icinde)
 
 sudo ./setup_uinput.sh                      # masaustu kontrolu icin, BIR KEZ
 ```

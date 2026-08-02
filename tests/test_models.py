@@ -16,12 +16,15 @@ dogrulanmis olur.
 
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from pcbridge import jobs as J  # noqa: E402
 from pcbridge import models as M  # noqa: E402
 from pcbridge.config import AgentSpec, Config, load_config  # noqa: E402
 
@@ -332,6 +335,77 @@ def test_live_config_policy() -> None:
         )
 
 
+def test_claude_stream_parser() -> None:
+    """`parse_claude_stream_json` — sahte ajanin gercek ciktisi uzerinden.
+
+    Bu ayristiriciyi eskiden yalnizca `test_e2e.py`'nin 12. bolumu kontrol
+    ediyordu; orasi sabit ciktili bir ajan ister ve `bash -lc` login kabugu
+    PATH'i yeniden kurdugu icin sahte ajan oraya enjekte EDILEMIYOR. Sonuc:
+    ayristirici fiilen test edilmiyordu. Saf fonksiyon oldugu icin dogru yeri
+    burasi -- sunucu da, PATH oyunu da gerekmiyor.
+
+    Ciktiyi elle yazmak yerine stub'i calistiriyoruz; stub ile ayristiricinin
+    beklentisi birbirinden kayarsa test bunu yakalar.
+    """
+    section("11. claude stream-json ayristiricisi")
+    stub = ROOT / "tests" / "fake_agents" / "claude"
+    proc = subprocess.run(
+        [
+            sys.executable, str(stub),
+            "-p", "merhaba testi",
+            "--output-format", "stream-json", "--verbose",
+            "--model", "sonnet",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    check("sahte ajan calisti", proc.returncode == 0, proc.stderr[:200])
+
+    p = J.parse_claude_stream_json(proc.stdout)
+    check("oturum kimligi okundu", p["session_id"] == "sess-abc-123", str(p["session_id"]))
+    check(
+        "arac cagrisi adimi var",
+        any("arac: Bash" in s for s in p["steps"]),
+        str(p["steps"]),
+    )
+    check(
+        "arac sonucu adimi var",
+        any(s.startswith("← sonuc:") for s in p["steps"]),
+        str(p["steps"]),
+    )
+    check(
+        "sonuc metni okundu",
+        p["final_answer"] == "Istek tamamlandi: merhaba testi",
+        str(p["final_answer"]),
+    )
+    check("maliyet okundu", p["cost_usd"] == 0.0123, str(p["cost_usd"]))
+    check("hata bayragi kapali", p["is_error"] is False, str(p["is_error"]))
+    check("calisan model bildirildi", p["actual_model"] == "sonnet", str(p["actual_model"]))
+
+    # Ajanlar akisa banner/uyari gibi duz metin satirlari karistirabiliyor.
+    noisy = "Uyari: guncelleme var\n" + proc.stdout + "\nbozuk {json\n"
+    p2 = J.parse_claude_stream_json(noisy)
+    check(
+        "JSON olmayan satirlar akisi bozmuyor",
+        p2["final_answer"] == p["final_answer"] and p2["cost_usd"] == 0.0123,
+        str(p2["final_answer"]),
+    )
+
+    # subtype != "success" -> basarisiz sayilmali (is_error alani gelmese bile)
+    p3 = J.parse_claude_stream_json(
+        json.dumps(
+            {
+                "type": "result",
+                "subtype": "error_max_turns",
+                "session_id": "s1",
+                "result": "tur limiti",
+            }
+        )
+    )
+    check("basarisiz sonuc is_error yapiyor", p3["is_error"] is True, str(p3["is_error"]))
+
+
 def main() -> int:
     for fn in (
         test_normalize,
@@ -344,6 +418,7 @@ def main() -> int:
         test_effort_required,
         test_backward_compatible,
         test_live_config_policy,
+        test_claude_stream_parser,
     ):
         fn()
     print(f"\n\033[1mSonuc:\033[0m {ok_count} gecti, {fail_count} kaldi")

@@ -927,20 +927,35 @@ güvenlik ağı (bunu yapmayan oturumlar için).
 makinedeyken `force`suz ret (43 sn idle okundu) → görülen konuma tıklama →
 `merhaba @ ış ğü ÖÇ — pcbridge B testi #1` pano yoluyla **birebir** yazıldı,
 pano eski içeriğine döndü → `ctrl+a` seçim → `desktop_lock` sonrası tekrar ret.
-Testler: `test_desktop.py` 101/101, `test_models.py` 69/69, `test_e2e.py` 115/115.
+Testler: `test_desktop.py` 101/101, `test_models.py` 79/79, `test_e2e.py` 111 geçti
++ 4 atlandı (0 hata).
 
-### Faz 1 — Girdi katmanı + güvenlik kapısı (~1 gün)
+> ⚠️ **Düzeltme.** Bu satır bir ara "`test_e2e.py` 115/115" diyordu. O sayı
+> tekrar üretilemiyordu: 12. bölümün dört ayrıştırma kontrolü sabit çıktılı
+> sahte bir ajan ister, o da yalnızca geçici olarak PATH'e konmuştu. Sahte ajan
+> `tests/fake_agents/claude` olarak depoya alındı; sunucuya PATH ile enjekte
+> etmek **mümkün değil** (`jobs.py` `bash -lc` kullanıyor, login kabuğu
+> `~/.profile` üzerinden `$HOME/.local/bin`'i PATH'in başına koyuyor — ölçüldü).
+> `parse_claude_stream_json`'un kapsamı bu yüzden `test_models.py` 11. bölüme
+> taşındı (sunucusuz, 10 kontrol); e2e'deki dördü artık **ATLA** sayılıyor.
 
-- [ ] `dotool` derle (Go) veya `ydotool` 1.0.4 derle; `~/.local/bin`'e kur
-- [ ] `/etc/udev/rules.d/80-uinput.rules` → `KERNEL=="uinput", GROUP="input", MODE="0660", TAG+="uaccess"`, `usermod -aG input $USER`
-- [ ] `~/.config/systemd/user/dotoold.service` (veya `ydotoold`) — kullanıcı servisi
-- [ ] **İlk test: ikinci monitörün sağ alt köşesine tıkla.** uinput mutlak fare 3840 px'in tamamını kapsıyor mu, yoksa birincil monitörle mi sınırlı (§2.5)
-- [ ] `pcbridge/desktop/input.py`: move/click/drag/scroll/key/type + **pano-yapıştır** metin girişi
-- [ ] `pcbridge/desktop/safety.py`: `desktop_unlock` süreli izin, ekran kilidi kontrolü, "kullanıcı 60 s içinde klavyeye dokunduysa reddet" (IdleMonitor), saniyede eylem limiti, `audit.log`'a her eylem
-- [ ] `mouse` / `keyboard` / `desktop_unlock` / `desktop_lock` araçları
-- [ ] `config.toml`: `[desktop] enabled = false` (**varsayılan kapalı**)
-- [ ] **Model/effort seçimi (§5.2)** — `AgentSpec` alanları (`model_args`, `effort_args`, `models`, `restricted_models`, `blocked_models`, `efforts`, `default_model`, `model_effort`, `effort_required_with_model`, `aliases`); §5.2.2'deki 8 adımlı çözümleyici; `agent_run`'a `model` + `effort` (+ `agent` artık opsiyonel); `list_agents` çıktısına model tablosu; `parse_claude_stream_json`'a `modelUsage`; `plain` ayrıştırıcıya agy başlık satırı + "default model instead" uyarı taraması (§5.4). Masaüstünden bağımsız, tek başına test edilebilir → **ilk bu yapılabilir**
-- [ ] §5.2.2'deki "Ne dersen / ne olur" tablosunun her satırı için birim test (çözümleyici saf fonksiyon, sunucu ayakta olmadan test edilebilir)
+### Faz 1 — Girdi katmanı + güvenlik kapısı ✅ tamamlandı 2026-08-01
+
+- [x] ~~`dotool`/`ydotool` derle~~ → **`python-evdev`** kullanıldı; harici derleme
+  ve ayrı daemon yok. Gerekçe: "Faz 1 sonuçları", 1. madde
+- [x] `/etc/udev/rules.d/`**`60`**`-pcbridge-uinput.rules` → `KERNEL=="uinput", GROUP="input", MODE="0660", TAG+="uaccess"`, `usermod -aG input $USER`
+  — **dosya numarası 80 değil 60 olmak zorunda**; ACL'i veren `73-seat-late.rules`
+  ondan sonra koşarsa `uaccess` etiketi hiç görülmüyor (ölçüldü). `setup_uinput.sh`
+- [x] ~~`dotoold.service` kullanıcı servisi~~ → **gerekmedi**; sanal cihaz pcbridge
+  sürecinin içinde yaşıyor, süreç ölünce cihaz da yok oluyor
+- [x] **İlk test: ikinci monitörün sağ alt köşesine tıkla.** → 6 noktada ölçüldü,
+  tuvalin tamamına 1:1, en büyük sapma 1 px (§2.5 riski kapandı)
+- [x] `pcbridge/desktop/input.py`: move/click/drag/scroll/key/type + **pano-yapıştır** metin girişi
+- [x] `pcbridge/desktop/safety.py`: `desktop_unlock` süreli izin, ekran kilidi kontrolü, "kullanıcı 60 s içinde klavyeye dokunduysa reddet" (IdleMonitor), saniyede eylem limiti, `audit.log`'a her eylem
+- [x] `mouse` / `keyboard` / `desktop_unlock` / `desktop_lock` araçları
+- [x] `config.toml`: `[desktop] enabled = false` (**varsayılan kapalı**)
+- [x] **Model/effort seçimi (§5.2)** — `AgentSpec` alanları (`model_args`, `effort_args`, `models`, `restricted_models`, `blocked_models`, `efforts`, `default_model`, `model_effort`, `effort_required_with_model`, `aliases`); §5.2.2'deki 8 adımlı çözümleyici; `agent_run`'a `model` + `effort` (+ `agent` artık opsiyonel); `list_agents` çıktısına model tablosu; `parse_claude_stream_json`'a `modelUsage`; `plain` ayrıştırıcıya agy başlık satırı + "default model instead" uyarı taraması (§5.4). Masaüstünden bağımsız, tek başına test edilebilir → **ilk bu yapılabilir**
+- [x] §5.2.2'deki "Ne dersen / ne olur" tablosunun her satırı için birim test (çözümleyici saf fonksiyon, sunucu ayakta olmadan test edilebilir)
 
 **Doğrulama:** telefondan `desktop_unlock(10)` → `keyboard(type:"merhaba")` → gedit'e yazıldı mı; Türkçe düzende `@`, `ı`, `ş` doğru çıkıyor mu.
 

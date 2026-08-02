@@ -165,6 +165,18 @@ penceresi yok, hatta `WAYLAND_DISPLAY` bile gerekmiyor.
 
 ### Araç seçimi
 
+> ⚠️ **Uygulandı, ama başka türlü — 2026-08-01.** Aşağıdaki `dotool`/`ydotool`
+> yolu **kullanılmadı**; girdi katmanı **`python-evdev`** ile yazıldı
+> (`pcbridge/desktop/input.py`). Harici derleme yok, ayrı daemon yok, ABS
+> aralığını kendimiz tanımladığımız için mutlak fare tuvalin tamamına eşleniyor.
+> `dotool`'un düzen bilme avantajı da gerekmedi: metin girişi zaten
+> **pano + Ctrl+V** ile yapılıyor, ham keycode gönderilmiyor.
+>
+> Kurulumdan da yalnızca udev kuralı + `input` grubu kaldı, **daemon servisi
+> yok**; ve kural dosyasının adı **`60-`** olmak zorunda (`80-` çok geç koşuyor,
+> `uaccess` ACL'i hiç oluşmuyor — ölçüldü). Uygulaması: `setup_uinput.sh`.
+> Gerekçelerin tamamı `PLAN.md` → **"Faz 1 sonuçları"**.
+
 **`dotool`** birinci tercih, çünkü klavye düzenini biliyor
 (`DOTOOL_XKB_LAYOUT=tr`) ve kullanıcının klavyesi Türkçe. Go ile yazılmış,
 kaynaktan derlenecek. `ydotool` ikinci tercih ama Ubuntu 24.04 deposundaki sürüm
