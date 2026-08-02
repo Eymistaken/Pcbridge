@@ -182,7 +182,40 @@ Acil durdurma, makine başındaysan: `systemctl --user stop pcbridge`.
 
 ---
 
-## 6. Makine durumu ve bildirim
+## 6. Ekrana bakma
+
+> ekranımda ne var?
+
+> sağ ekranın görüntüsünü al
+
+Karşılığında **tıklanabilir bir bağlantı** gelir; telefondan açınca ekranını
+görürsün. Varsayılan olarak her monitör **ayrı bir görüntü** — hangisine
+baktığını tahmin etmen gerekmiyor.
+
+Bilmen gereken üç şey:
+
+- **Gemini görüntüyü göremiyor, sen görüyorsun.** Bağlantı senin için. Gemini
+  yalnızca görüntünün ekranın neresine denk geldiğini (ofset ve ölçek) okuyor;
+  "şuraya tıkla" derken o bilgiyi kullanıyor.
+- **Bağlantı 5 dakika yaşıyor ve OAuth'tan bağımsız.** Yani bağlantıyı alan
+  herkes görüntüyü açabilir — **paylaşma.** Süre dolunca kendiliğinden ölür,
+  dosyalar da 24 saat sonra silinir.
+- **Ekran görüntüsü de izin istiyor.** `desktop_unlock` vermeden çalışmaz;
+  ekranda ne varsa (parolalar, mesajlar) hepsini gösterdiği için klavye/fareyle
+  aynı kapıdan geçiyor. Tek farkı: makinenin başında olman ekran görüntüsünü
+  engellemiyor, yalnızca yazma eylemlerini engelliyor.
+
+> ekrandaki Kaydet düğmesine tıkla
+
+Tipik akış şu: Gemini önce görüntüyü alır, düğmenin görüntüdeki yerini okur,
+formülle gerçek koordinata çevirir, sonra tıklar. Küçültülmüş görüntüden okunan
+koordinat birkaç piksel şaşabilir (ölçüldü: ~5 px) — düğme için sorun değil.
+
+`ekranımı tam çözünürlükte göster` dersen küçültme yapılmaz, sapma da kalmaz.
+
+---
+
+## 7. Makine durumu ve bildirim
 
 > bilgisayarımın durumunu göster
 
@@ -224,8 +257,12 @@ ya da bir işin bittiğini fark etmek için.
 | `desktop_lock` | İzni erken kapatır, sanal cihazları yok eder |
 | `mouse` | Fareyi hareket ettirir, tıklar, sürükler, kaydırır |
 | `keyboard` | Metin yazar (pano yoluyla) veya tuş kombinasyonu gönderir |
+| `screen_info` | Monitör tablosu, koordinat uzayı, hangi ekran birincil |
+| `screen_capture` | Ekran görüntüsü alır, 5 dakikalık bağlantı döner |
 
-Son dördü `[desktop] enabled = true` ister; varsayılan kapalı.
+`desktop_unlock`'tan `screen_capture`'a kadar olanlar `[desktop] enabled = true`
+ister; varsayılan kapalı. Tek istisna `screen_info`: yalnızca donanım düzenini
+söylediği için hep çalışır.
 
 ---
 

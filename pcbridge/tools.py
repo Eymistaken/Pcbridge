@@ -19,8 +19,10 @@ from pydantic import Field
 
 from . import jobs as jobslib
 from . import models as modelslib
+from . import shots as shotslib
 from . import tmuxctl
 from .config import Config
+from .desktop import capture as capturelib
 from .desktop import input as inputlib
 from .desktop import monitors as monitorslib
 from .desktop import safety as safetylib
@@ -134,7 +136,12 @@ def _fmt_job_summary(cfg: Config, jm: jobslib.JobManager, job_id: str) -> str:
     return "\n".join(lines)
 
 
-def register(mcp: FastMCP, cfg: Config, jm: jobslib.JobManager) -> None:
+def register(
+    mcp: FastMCP,
+    cfg: Config,
+    jm: jobslib.JobManager,
+    shot_store: "shotslib.ShotStore | None" = None,
+) -> None:
     global _DESC_AGENT, _DESC_MODEL, _DESC_EFFORT
     _DESC_AGENT = (
         "Agent name, e.g. 'claude' or 'antigravity'. Optional: if omitted it is "
@@ -841,6 +848,147 @@ def register(mcp: FastMCP, cfg: Config, jm: jobslib.JobManager) -> None:
             forced=force or None,
         )
         return f"{done}.\nSonucu dogrulamadan bir sonraki adima gecmeyin."
+
+    # ------------------------------------------------------- ekran goruntusu
+    @mcp.tool(annotations={"title": "Describe the screens", "readOnlyHint": True})
+    def screen_info() -> str:
+        """Describe the monitors: how many there are, their resolution, where each
+        one sits in the shared coordinate space, and which one is primary. Use this
+        before clicking or capturing anything, so you know which coordinates land on
+        which screen. Contains no personal data, only the hardware layout."""
+        lines = [monitorslib.describe(), ""]
+        cap_ok, cap_why = capturelib.available()
+        lines.append(
+            f"**Ekran goruntusu:** {'hazir' if cap_ok else 'KULLANILAMIYOR'} "
+            f"(`{capturelib.backend_name()}`)" + ("" if cap_ok else f" — {cap_why}")
+        )
+        in_ok, in_why = backend.available()
+        lines.append(
+            f"**Klavye/fare:** {'hazir' if in_ok else 'KULLANILAMIYOR'}"
+            + ("" if in_ok else f" — {in_why}")
+        )
+        lines.append(f"**Izin:** {gate.status_line()}")
+        lines.append("")
+        lines.append(
+            "Koordinatlar **global tuval uzayinda**: sol ust (0, 0). Bir monitore "
+            "ozel koordinat veriyorsaniz `monitor` parametresini de verin, ofseti "
+            "pcbridge ekler."
+        )
+        return "\n".join(lines)
+
+    @mcp.tool(annotations={"title": "Take a screenshot", "readOnlyHint": True})
+    def screen_capture(
+        monitor: Annotated[
+            str,
+            Field(
+                description=(
+                    "Which screen to capture: 'all' (default, one image per "
+                    "monitor), a monitor number like '1' or '2', a connector name "
+                    "like 'DP-1', 'primary', or 'window' for just the focused "
+                    "window. 'window' images cannot be turned back into "
+                    "coordinates."
+                )
+            ),
+        ] = "all",
+        scale: Annotated[
+            int | None,
+            Field(
+                description=(
+                    "Longest edge of the returned image in pixels, after cropping. "
+                    "0 means full resolution. Leave empty for the configured "
+                    "default."
+                )
+            ),
+        ] = None,
+        include_pointer: Annotated[
+            bool | None,
+            Field(description="Draw the mouse pointer into the image."),
+        ] = None,
+    ) -> str:
+        """Take a screenshot of the user's screen and return a short-lived link they
+        can open on their phone. Use when the user asks what is on their screen, and
+        before clicking somewhere, to check what is actually there. You cannot see
+        the image yourself — the link is for the user. The reply also tells you each
+        image's position in the global coordinate space so you can convert a spot in
+        the picture into coordinates for the `mouse` tool."""
+        # write=False: ekran goruntusu bir YAZMA eylemi degil, o yuzden "yakinda
+        # klavye kullanildi" korumasina takilmiyor -- makinenin basinda olmaniz
+        # ekraniniza bakmanizi engellememeli. Izin penceresi ve ekran kilidi
+        # kontrolu ise aynen gecerli: goruntu en gizlilik-hassas cikti.
+        denied = _guard("screen_capture", write=False)
+        if denied:
+            return denied
+        if shot_store is None:
+            return "⛔ Ekran goruntusu servisi kurulu degil (sunucu eski surumde?)."
+
+        cap_ok, cap_why = capturelib.available()
+        if not cap_ok:
+            gate.audit("screen_capture_unavailable", reason=cap_why[:120])
+            return f"⛔ Ekran goruntusu alinamiyor: {cap_why}"
+
+        spec: int | str = monitor.strip() if isinstance(monitor, str) else monitor
+        if isinstance(spec, str) and spec.isdigit():
+            spec = int(spec)
+        long_edge = (
+            cfg.desktop.screenshot_scale_long_edge if scale is None else max(0, scale)
+        )
+        pointer = (
+            cfg.desktop.include_pointer if include_pointer is None else include_pointer
+        )
+
+        try:
+            shots = capturelib.capture(
+                spec,
+                out_dir=shot_store.dir,
+                scale_long_edge=long_edge,
+                include_pointer=pointer,
+            )
+        except (capturelib.CaptureError, monitorslib.MonitorError) as exc:
+            gate.audit("screen_capture_error", error=str(exc)[:160])
+            return f"Hata: {exc}"
+
+        ttl_min = max(1, cfg.desktop.shot_ttl_seconds // 60)
+        out: list[str] = []
+        for shot in shots:
+            # Token denetim kaydina YAZILMAZ: audit.log'u okuyabilen birinin
+            # goruntuyu de acabilmesi anlamsiz bir yetki genislemesi olurdu.
+            _token, url = shot_store.publish(shot.path)
+            if shot.offset is None:
+                out.append(
+                    f"**{shot.label}** · {shot.scaled[0]}x{shot.scaled[1]}\n"
+                    f"  {url}\n"
+                    "  ⚠️ Bu goruntu odaktaki pencere; ekranin neresinde oldugu "
+                    "bilinmiyor, buradan koordinat turetmeyin."
+                )
+            else:
+                out.append(
+                    f"**{shot.label}** · {shot.size[0]}x{shot.size[1]} "
+                    f"@ ({shot.offset[0]}, {shot.offset[1]}) → "
+                    f"{shot.scaled[0]}x{shot.scaled[1]} (olcek {shot.scale:.3f})\n"
+                    f"  {url}"
+                )
+
+        gate.audit("screen_capture", monitor=str(monitor), shots=len(shots))
+
+        out.append("")
+        out.append(f"Baglantilar {ttl_min} dakika gecerli, sonra kapaniyor.")
+        if any(s.offset is not None for s in shots):
+            out.append(
+                "Goruntudeki bir noktayi tiklamak icin once global koordinata "
+                "cevirin:  `global_x = ofset_x + goruntu_x / olcek`  "
+                "(y icin de ayni). Sonra `mouse` aracina **global** koordinati "
+                "verin, `monitor` parametresi olmadan."
+            )
+            if any(s.scale < 1.0 for s in shots):
+                # Olculdu: tam cozunurlukte gidis-donus sapmasi 1 px, 1280'e
+                # kucultulmusde ~5 px. Buton icin sorun degil, ama modelin
+                # koordinati birebir sanmamasi lazim.
+                out.append(
+                    "Goruntu kucultuldugu icin geri cevrilen koordinat birkac "
+                    "piksel sapabilir (olculdu: ~5 px). Buton/menu icin yeterli; "
+                    "daha keskin gerekiyorsa `scale=0` ile tam cozunurlukte alin."
+                )
+        return "\n".join(out)
 
     # ================================================================== SISTEM
     @mcp.tool(annotations={"title": "Computer status", "readOnlyHint": True})

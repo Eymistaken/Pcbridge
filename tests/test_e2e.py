@@ -326,6 +326,8 @@ def main() -> int:
         "desktop_lock",
         "mouse",
         "keyboard",
+        "screen_info",
+        "screen_capture",
     ):
         check(f"arac mevcut: {expected}", expected in names, str(sorted(names)))
 
@@ -358,6 +360,39 @@ def main() -> int:
         "keyboard aciklamasi 'ne zaman kullanilir' iceriyor",
         "Use when" in desc,
         desc[:160],
+    )
+
+    # Ekran goruntusu araclari: okuma araci olduklari icin destructiveHint
+    # DEGIL readOnlyHint tasimali, yoksa Gemini her cagriyi onaya sokar.
+    cap_props = (
+        by_name.get("screen_capture", {}).get("inputSchema", {}).get("properties", {})
+    )
+    for field_ in ("monitor", "scale", "include_pointer"):
+        check(
+            f"screen_capture.{field_} parametresi var",
+            field_ in cap_props,
+            str(sorted(cap_props)),
+        )
+    cap_req = by_name.get("screen_capture", {}).get("inputSchema", {}).get("required", [])
+    check("screen_capture zorunlu parametresiz", not cap_req, str(cap_req))
+    for tool_name in ("screen_info", "screen_capture"):
+        ann = by_name.get(tool_name, {}).get("annotations", {}) or {}
+        check(f"{tool_name} readOnlyHint isaretli", ann.get("readOnlyHint") is True, str(ann))
+        check(
+            f"{tool_name} destructiveHint tasimiyor",
+            ann.get("destructiveHint") is not True,
+            str(ann),
+        )
+    cap_desc = str(by_name.get("screen_capture", {}).get("description", ""))
+    check(
+        "screen_capture aciklamasi 'ne zaman kullanilir' iceriyor",
+        "Use when" in cap_desc,
+        cap_desc[:160],
+    )
+    check(
+        "screen_capture aciklamasi goruntuyu modelin GOREMEDIGINI soyluyor",
+        "cannot see" in cap_desc,
+        cap_desc[:200],
     )
 
     # agent_run'in model/effort semasi -- Gemini bu alanlari gorebilmeli
@@ -417,6 +452,15 @@ def main() -> int:
     check("desktop_unlock kapaliyken reddediyor", "⛔" in out, out[:200])
     out = call("desktop_lock", {})
     check("desktop_lock kapaliyken de cevap veriyor", "kontrolu" in out, out[:200])
+    # Ekran goruntusu de ayni kapidan geciyor: izin yokken EKRAN OKUNMAMALI.
+    out = call("screen_capture", {})
+    check("screen_capture kapaliyken reddediyor", "⛔" in out, out[:200])
+    check("screen_capture reddinde baglanti sizmiyor", "/shot/" not in out, out[:200])
+    # screen_info izin kapisindan gecmez (yalnizca donanim duzeni) ama
+    # calismali ve koordinat sozlesmesini soylemeli.
+    out = call("screen_info", {})
+    check("screen_info kapaliyken de calisiyor", "tuval:" in out, out[:200])
+    check("screen_info koordinat sozlesmesini soyluyor", "global" in out, out[:300])
 
     section("12. Ajan calistirma ve is takibi")
     out = call(

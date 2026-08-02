@@ -21,6 +21,9 @@ command -v script >/dev/null || MISSING+=(bsdutils)
 command -v curl >/dev/null || MISSING+=(curl)
 # Masaustu kontrolu icin: pano yoluyla metin girisi ve monitor tablosu
 command -v wl-copy >/dev/null || MISSING+=(wl-clipboard)
+# Ekran goruntusu (screen_capture). Wayland'de disaridan yakalama yapabilen
+# tek hazir arac bu; grim wlroots-only, portal her cagrida onay istiyor.
+command -v gnome-screenshot >/dev/null || MISSING+=(gnome-screenshot)
 
 if [ ${#MISSING[@]} -gt 0 ]; then
   warn "Eksik: ${MISSING[*]}"

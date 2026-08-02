@@ -259,6 +259,16 @@ komut çalıştırma"dan daha geniş bir yetki — çünkü komut çalıştırma
   Wayland'in izin mekanizmaları devreye girmiyor. Koruma tamamen pcbridge'in
   kendi kapısında (`desktop_unlock` süreli izni, ekran kilidi kontrolü, idle
   koruması, hız sınırı, `audit.log`).
+- **Ekran görüntüsü ayrıca okunuyor.** `screen_capture` ekranda ne varsa onu
+  yakalar: açık mesajlar, e-posta, ekranda görünen parolalar. O yüzden o da
+  `desktop_unlock` istiyor. Tek gevşetme, "makinenin başındasın" korumasının
+  ekran görüntüsüne uygulanmaması — başında olman ekranına bakmanı engellememeli.
+- **Ekran görüntüsü bağlantısı OAuth'un DIŞINDA.** `https://<host>/shot/<token>.png`
+  adresini açmak için parola ya da token istenmiyor; yetki, adresteki 128 bitlik
+  token'ın kendisi. Sebebi pratik: telefonun tarayıcısında görüntüyü açabilmen
+  gerekiyor ve Gemini görseli gösteremiyor. Bu yüzden **bağlantıyı kimseye
+  iletme**; 5 dakika sonra kendiliğinden ölüyor, PNG'ler de 24 saat içinde
+  siliniyor (`[desktop] shot_ttl_seconds` / `shot_keep_hours`).
 - **`enabled = false` varsayılanı bilinçli.** Açmadan önce "telefonumu
   kaybedersem ne olur" sorusuna cevabın olsun. Tek koruma yine OAuth parolası.
 
@@ -352,20 +362,32 @@ curl -H "Authorization: Bearer <static_token>" \
 ## Dosya düzeni
 
 ```
-mcp_server/
+Pcbridge/
 ├── install.sh              kurulum (venv, config, systemd, alias'lar)
+├── setup_uinput.sh         /dev/uinput izinleri — sudo, bir kez
 ├── spark.sh                aç/kapa (sparkac / sparkkapat / sparkdurum)
 ├── run.sh                  ön planda çalıştır
 ├── doctor.sh               tanılama
 ├── config.example.toml     örnek yapılandırma
 ├── requirements.txt
 ├── systemd/pcbridge.service
-├── tests/test_e2e.py       OAuth + MCP uçtan uca testi (74 kontrol)
+├── tests/
+│   ├── test_models.py      model/effort çözümleyici + ajan çıktı ayrıştırıcı
+│   ├── test_desktop.py     masaüstü katmanı — sunucusuz, girdi göndermez
+│   ├── test_e2e.py         OAuth + MCP uçtan uca (sunucu ayakta olmalı)
+│   └── fake_agents/claude  sabit çıktılı sahte ajan (ayrıştırıcı testi için)
 └── pcbridge/
     ├── config.py           yapılandırma
     ├── auth.py             OAuth 2.1 sunucusu + onay sayfası
-    ├── jobs.py             arka plan işleri + Claude çıktı ayrıştırıcı
+    ├── jobs.py             arka plan işleri + ajan çıktı ayrıştırıcıları
     ├── tmuxctl.py          canlı terminal kontrolü
+    ├── models.py           model/effort çözümleyici
+    ├── shots.py            ekran görüntüsü bağlantıları (token'lı, süreli)
     ├── tools.py            MCP araçları
-    └── server.py           giriş noktası
+    ├── server.py           giriş noktası
+    └── desktop/
+        ├── monitors.py     monitör tablosu — koordinat uzayının tek kaynağı
+        ├── input.py        sanal klavye + mutlak fare (/dev/uinput)
+        ├── capture.py      ekran görüntüsü: yakala, kırp, ölçekle
+        └── safety.py       süreli izin, kilit/idle kontrolü, denetim kaydı
 ```

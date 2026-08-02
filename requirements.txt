@@ -5,3 +5,6 @@ tomli>=2.0.0; python_version < "3.11"
 # Masaustu kontrolu ([desktop]): /dev/uinput uzerinden sanal klavye/fare.
 # Kurulu olmasa da pcbridge calisir; yalnizca GUI araclari devre disi kalir.
 evdev>=1.7.0
+# Ekran goruntusu: tuvali monitor basina kirpmak ve kirpmadan SONRA
+# olceklemek icin. Yoksa yalnizca screen_capture kapanir.
+Pillow>=10.0.0

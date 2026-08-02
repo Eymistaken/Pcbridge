@@ -55,7 +55,12 @@ kontrolü — gerçek anlamda computer use.
 - **Girdi katmanı `python-evdev` ile**, `dotool`/`ydotool` ile değil (ölçüm
   gerekçesi `PLAN.md` → "Faz 1 sonuçları"). Mutlak fare 3840×1080 tuvalin
   tamamına 1:1 eşleniyor, ölçüldü.
-- `gnome-screenshot` 41.0-2build2 **kurulu ve çalışıyor** (3840×1080 birleşik tuval)
+- `gnome-screenshot` 41.0-2build2 **kurulu ve çalışıyor** (3840×1080 birleşik
+  tuval). Ekran görüntüsü **monitör başına kırpılır, ölçekleme kırpmadan
+  sonra** gelir; her görüntü global ofsetini taşır (`desktop/capture.py`)
+- **`Shell.Introspect` kapalı** — `GetWindows` "Access denied" veriyor (GNOME 46).
+  Yani odaktaki pencerenin hangi monitörde olduğu dışarıdan okunamıyor;
+  `monitor="focused"` yok. `monitor="window"` var ama koordinat üretmiyor
 - Claude Code **v2.1.220**, Claude **Pro** planı · Antigravity CLI **1.1.9**,
   Google AI Pro
 - İkisi de PNG okuyabiliyor (görsel işleme doğrulandı)

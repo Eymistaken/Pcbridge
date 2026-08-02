@@ -130,12 +130,24 @@ sürücü ikisine birden bakar, tahmin yok. Diğer seçenekler ek olarak durur:
 | `monitor=` | Davranış |
 |---|---|
 | `"all"` (varsayılan) | Her monitör ayrı görüntü + her birinin global ofseti |
-| `1`, `2` | Tek monitör |
-| `"focused"` | `Shell.Introspect.GetWindows()`'tan odaktaki pencerenin monitörü; odak yoksa `default_monitor`'a düşer |
-| `"window"` | Yalnızca odaktaki pencere (`gnome-screenshot -w`) — dar, hızlı, tek pencerede çalışırken |
+| `1`, `2`, `"DP-1"`, `"primary"` | Tek monitör |
+| ~~`"focused"`~~ | **Yapılamadı**, aşağıya bakın |
+| `"window"` | Yalnızca odaktaki pencere (`gnome-screenshot -w`) — global ofseti **yok** |
 
-`config.toml` → `[desktop] default_monitor = 1` ile "odak yok" durumundaki
-davranış sabitlenir.
+> ⚠️ **`"focused"` ölçüldü ve düşürüldü — 2026-08-02.**
+> `busctl --user call org.gnome.Shell /org/gnome/Shell/Introspect
+> org.gnome.Shell.Introspect GetWindows` → **`Call failed: Access denied`**.
+> GNOME 46 bu arayüzü izin listesindeki uygulamalara kapatmış, yani odaktaki
+> pencerenin monitörünü dışarıdan okumanın yolu yok. Odak bilgisi ileride
+> AT-SPI'dan gelebilir (D bölümü).
+>
+> `"window"` duruyor ama **koordinat üretmiyor**: `gnome-screenshot -w`
+> pencerenin ekranda nerede olduğunu bildirmiyor, o yüzden `Shot.offset = None`
+> ve araç çıktısı "buradan koordinat türetmeyin" diye uyarıyor. (Ölçüldü:
+> pencere görüntüsü 1944×1062 geldi — monitörden geniş, çünkü gölge dahil.)
+
+`config.toml` → `[desktop] default_monitor = 1` ile monitöre özel yorumlanan
+çağrıların varsayılanı sabitlenir.
 
 ℹ️ **Odak, GUI'yi sürmek için gerekli değil.** uinput tıklaması odaktan bağımsız
 çalışır; bir pencereye tıklamak zaten onu odağa alır. Odak yalnızca "hangi dar
@@ -212,9 +224,15 @@ Görsel gönderilemediğine göre iki kaynak kalıyor:
 
 Model göremiyor ama **sen görebilirsin**. pcbridge zaten HTTPS'ten yayında:
 ekran görüntüsünü `~/.local/state/pcbridge/shots/` altına yazıp
-`https://<host>/shot/<tek-kullanımlık-token>.png` bağlantısı döndüreceğiz.
-Telefonda bağlantıya dokunursun, ekranı görürsün. Token kısa ömürlü (5 dk) ve
-tek kullanımlık; OAuth'tan bağımsız olduğu için bağlantıyı paylaşma.
+`https://<host>/shot/<token>.png` bağlantısı döndüreceğiz.
+Telefonda bağlantıya dokunursun, ekranı görürsün. Token kısa ömürlü (5 dk);
+OAuth'tan bağımsız olduğu için bağlantıyı paylaşma.
+
+> ⚠️ **"Tek kullanımlık" kararı değişti — 2026-08-02.** Bağlantı artık süre
+> bazlı: 5 dakika boyunca kaç kez istenirse istensin çalışıyor. Tek kullanım
+> daha dar bir pencere verirdi ama telefon tarayıcısında **yenileme, geri tuşu
+> ve bağlantı önizlemesi ikinci bir istek atıyor** ve görüntüyü daha kullanıcı
+> bakmadan yakıyordu. Kullanıcı onayıyla süre bazlı yola geçildi.
 
 ---
 
@@ -959,14 +977,49 @@ Testler: `test_desktop.py` 101/101, `test_models.py` 79/79, `test_e2e.py` 111 ge
 
 **Doğrulama:** telefondan `desktop_unlock(10)` → `keyboard(type:"merhaba")` → gedit'e yazıldı mı; Türkçe düzende `@`, `ı`, `ş` doğru çıkıyor mu.
 
-### Faz 2 — Ekran görüntüsü (~1 gün, Faz 0'a göre yarım gün)
+### Faz 2 sonuçları — ölçüldü 2026-08-02 (C bölümü)
 
-- [ ] `capture.py` backend zinciri + otomatik seçim + `screen_info`'da hangisinin seçildiğini göster
-- [ ] **Monitör farkındalığı (§2.5)** — `Mutter.DisplayConfig.GetCurrentState`'ten monitör tablosu; `screen_capture(monitor=…)` kırpması; varsayılan tek monitör; her kırpılmış görüntüyle birlikte ofset taşınması; koordinatların **global uzayda** normalleştirilmesi
-- [ ] Ölçekleme: kırpma sonrası uzun kenar ≤ 1280 px, PNG optimize (telefon için)
-- [ ] `pcbridge/shots.py` + `/shot/<token>.png` rotası, 5 dk TTL, tek kullanım, `state_dir/shots` temizliği
-- [ ] `screen_capture` aracı
-- [ ] Gerekirse: ScreenCast portalı + `restore_token`'ı `state_dir/screencast.token`'a sakla
+**1. `monitor="focused"` yapılamadı.** `Shell.Introspect.GetWindows` "Access
+denied" veriyor (§2.5'teki düzeltme notu). Kalan değerler: `"all"`, `N`,
+bağlantı adı, `"primary"`, `"window"`.
+
+**2. `/shot` bağlantısı tek kullanımlık değil, süre bazlı** (§2.4'teki not).
+
+**3. Pillow bir bağımlılık olarak eklendi.** Sistemde vardı ama venv'de yoktu;
+`requirements.txt`'e girdi. Yoksa yalnızca `screen_capture` kapanıyor.
+
+**4. Aynı saniyedeki iki yakalama birbirini eziyordu.** Dosya adı
+`%Y%m%d-%H%M%S` + monitör'den üretiliyordu; saniye çözünürlüğü yetmiyor. İlk
+koordinat ölçümünde yakalandı: taban görüntü siliniyor, fark boş çıkıyordu.
+Üretimde sonucu daha ağır olurdu — **yayımlanmış eski bir `/shot` bağlantısı
+sessizce daha yeni bir ekran görüntüsü göstermeye başlardı.** Ada rastgele
+6 haneli bir son ek eklendi; `test_desktop.py` bunu artık koruyor.
+
+**5. Koordinat gidiş-dönüşü ölçüldü.** Fare bilinen global noktalara
+gönderilip ekran görüntüsünde imleç arandı, formülle geri çevrildi:
+
+| ölçek | nokta sayısı | en büyük sapma |
+|---|---|---|
+| tam çözünürlük (`scale=0`) | 5 (iki monitörde) | **1 px** |
+| 1280 uzun kenar (varsayılan) | 4 | ~5 px (bir uç noktada 14 px) |
+
+Kırpma + ofset zinciri birebir doğru. Küçültmedeki sapma küçültmenin kendisinden
+(1 görüntü pikseli = 1,5 ekran pikseli, üstüne LANCZOS'un imleç kenarını
+yayması). Buton/menü için fazlasıyla yeterli; araç çıktısı bunu **açıkça
+söylüyor** ve keskinlik gerekirse `scale=0` öneriyor.
+
+**6. Fark ölçümünde aynı tuzağa iki kez düşüldü:** tüm görüntünün farkını almak
+saati/yanıp sönen imleci de yakalıyor ve `getbbox()` alakasız bir yeri
+gösteriyor. Doğrusu B'deki gibi hedefin etrafındaki dar pencerede fark almak.
+
+### Faz 2 — Ekran görüntüsü ✅ tamamlandı 2026-08-02
+
+- [x] `capture.py` backend zinciri + `screen_info`'da hangisinin seçildiğini göster
+- [x] **Monitör farkındalığı (§2.5)** — monitör tablosu `monitors.py`'dan (B'de yazıldı, C onu yeniden kullanıyor); `screen_capture(monitor=…)` kırpması; **varsayılan `"all"`**; her kırpılmış görüntüyle ofset taşınması; koordinatların global uzayda normalleştirilmesi
+- [x] Ölçekleme: kırpma sonrası uzun kenar ≤ 1280 px, PNG optimize (telefon için)
+- [x] `pcbridge/shots.py` + `/shot/<token>.png` rotası, 5 dk TTL, ~~tek kullanım~~ süre bazlı, `state_dir/shots` temizliği
+- [x] `screen_capture` + `screen_info` araçları
+- [ ] Gerekirse: ScreenCast portalı + `restore_token`'ı `state_dir/screencast.token`'a sakla — **gerekmedi**, `gnome-screenshot` çalışıyor
 
 ### Faz 3 — Metinsel gözler: AT-SPI + OCR (~1.5 gün)
 

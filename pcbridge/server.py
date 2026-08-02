@@ -13,12 +13,13 @@ from urllib.parse import parse_qsl, unquote, urlencode
 from fastmcp import FastMCP
 from starlette.middleware import Middleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, PlainTextResponse
+from starlette.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from . import tools as toolsmod
 from .auth import SqliteOAuthProvider, make_consent_routes
 from .config import Config, load_config
 from .jobs import JobManager
+from .shots import ShotStore
 
 logging.basicConfig(
     level=logging.INFO,
@@ -256,7 +257,8 @@ def build_app(cfg: Config):
     )
 
     jm = JobManager(cfg.jobs_dir, default_timeout=cfg.default_job_timeout)
-    toolsmod.register(mcp, cfg, jm)
+    shot_store = ShotStore(cfg)
+    toolsmod.register(mcp, cfg, jm, shot_store)
 
     consent_get, consent_post = make_consent_routes(provider)
 
@@ -335,6 +337,31 @@ def build_app(cfg: Config):
                 "mcp_url": cfg.mcp_url,
                 "agents": sorted(k for k, v in cfg.agents.items() if v.enabled),
             }
+        )
+
+    @mcp.custom_route("/shot/{name}", methods=["GET"], include_in_schema=False)
+    async def _shot(request: Request):
+        """Kisa omurlu ekran goruntusu. Yetki token'in KENDISI -- OAuth yok.
+
+        Kullanici telefondan baglantiya dokunup ekranina baksin diye var
+        (Gemini gorseli goremiyor). Gecersiz ve suresi dolmus token ayni
+        cevabi alir: disaridan token tahmini icin bilgi sizmasin.
+        """
+        name = request.path_params.get("name", "")
+        token = name[:-4] if name.endswith(".png") else name
+        path = shot_store.resolve(token)
+        if path is None:
+            return PlainTextResponse("bulunamadi", status_code=404)
+        return FileResponse(
+            path,
+            media_type="image/png",
+            headers={
+                # Telefon tarayicisi ya da araya giren bir vekil sunucu
+                # goruntuyu saklamasin: baglanti kisa omurlu olmali.
+                "Cache-Control": "no-store, max-age=0",
+                "X-Content-Type-Options": "nosniff",
+                "Referrer-Policy": "no-referrer",
+            },
         )
 
     @mcp.custom_route("/", methods=["GET"], include_in_schema=False)

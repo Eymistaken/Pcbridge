@@ -371,6 +371,222 @@ def test_config_defaults() -> None:
           cfg.desktop.unlock_max_minutes >= cfg.desktop.unlock_default_minutes)
 
 
+# ============================================================ EKRAN GORUNTUSU
+def _synthetic_canvas(path: Path) -> None:
+    """3840x1080 tuval: sol yari kirmizi, sag yari mavi, koselerde isaretci.
+
+    Kirpmanin DOGRU kutudan geldigini renk bakarak anlayabilmek icin.
+    """
+    from PIL import Image
+
+    img = Image.new("RGB", (3840, 1080), (255, 0, 0))
+    for x in range(1920, 3840):
+        for y in (0, 1079):
+            img.putpixel((x, y), (0, 0, 255))
+    img.paste(Image.new("RGB", (1920, 1080), (0, 0, 255)), (1920, 0))
+    # her monitorun sol ust kosesine benzersiz bir isaretci
+    img.putpixel((0, 0), (0, 255, 0))  # monitor 1
+    img.putpixel((1920, 0), (255, 255, 0))  # monitor 2
+    img.save(path, format="PNG")
+
+
+def test_capture_scaling() -> None:
+    """Olcekleme KIRPMADAN SONRA yapilmali."""
+    section("13. Ekran goruntusu — olcekleme")
+    from pcbridge.desktop import capture as C
+
+    check("1920x1080 -> 1280 uzun kenar", C._scaled_size(1920, 1080, 1280) == (1280, 720),
+          str(C._scaled_size(1920, 1080, 1280)))
+    # Tuvalin tamami tek parca kucultulseydi bu cikardi -- okunmaz. Testin
+    # varlik sebebi: kirpma sirasi bozulursa burasi yakalasin.
+    check("3840x1080 tek parca kucultulurse okunmaz olur",
+          C._scaled_size(3840, 1080, 1280) == (1280, 360),
+          str(C._scaled_size(3840, 1080, 1280)))
+    check("zaten kucukse buyutmez", C._scaled_size(800, 600, 1280) == (800, 600),
+          str(C._scaled_size(800, 600, 1280)))
+    check("0 = olcekleme yok", C._scaled_size(1920, 1080, 0) == (1920, 1080),
+          str(C._scaled_size(1920, 1080, 0)))
+    check("dikey goruntude uzun kenar yukseklik",
+          C._scaled_size(1080, 1920, 1280) == (720, 1280),
+          str(C._scaled_size(1080, 1920, 1280)))
+
+
+def test_capture_crop_offsets() -> None:
+    """Her kirpma dogru kutudan gelmeli ve global ofsetini tasimali."""
+    section("14. Ekran goruntusu — kirpma ve ofset")
+    from PIL import Image
+
+    from pcbridge.desktop import capture as C
+
+    mons = M._ordered(TWO_SCREENS)
+    real_list, real_avail, real_grab = M.list_monitors, C.available, C._grab_canvas
+    tmp = Path(tempfile.mkdtemp(prefix="pcb-cap-"))
+    try:
+        M.list_monitors = lambda *a, **k: mons
+        C.available = lambda: (True, "")
+        C._grab_canvas = lambda td, ptr: (_synthetic_canvas(td / "c.png") or (td / "c.png"))
+
+        shots = C.capture("all", out_dir=tmp, scale_long_edge=0)
+        check("monitor=all her ekran icin bir goruntu", len(shots) == 2, str(len(shots)))
+        by_idx = {s.monitor.index: s for s in shots}
+        check("1 numara solda, ofset (0,0)", by_idx[1].offset == (0, 0), str(by_idx[1].offset))
+        check("2 numara sagda, ofset (1920,0)", by_idx[2].offset == (1920, 0),
+              str(by_idx[2].offset))
+        check("kirpilmis boyut monitor boyutu", by_idx[1].size == (1920, 1080),
+              str(by_idx[1].size))
+
+        # Renk isaretcisi: kirpma gercekten dogru kutudan mi geldi?
+        with Image.open(by_idx[1].path) as im:
+            check("1 numaranin sol ust kosesi kendi isaretcisi",
+                  im.getpixel((0, 0)) == (0, 255, 0), str(im.getpixel((0, 0))))
+            check("1 numara kirmizi bolgeden geldi",
+                  im.getpixel((500, 500)) == (255, 0, 0), str(im.getpixel((500, 500))))
+        with Image.open(by_idx[2].path) as im:
+            check("2 numaranin sol ust kosesi kendi isaretcisi",
+                  im.getpixel((0, 0)) == (255, 255, 0), str(im.getpixel((0, 0))))
+            check("2 numara mavi bolgeden geldi",
+                  im.getpixel((500, 500)) == (0, 0, 255), str(im.getpixel((500, 500))))
+
+        # Ayni saniyede iki yakalama BIRBIRINI EZMEMELI. Bu bir kez oldu:
+        # dosya adi saniye cozunurluklu damgadan uretiliyordu ve yayimlanmis
+        # eski bir /shot baglantisi daha yeni goruntuyu gostermeye basliyordu.
+        a = C.capture(1, out_dir=tmp, scale_long_edge=0)[0]
+        b = C.capture(1, out_dir=tmp, scale_long_edge=0)[0]
+        check("ayni saniyedeki iki yakalama ayri dosya", a.path != b.path,
+              f"{a.path.name} == {b.path.name}")
+
+        # Ofset + olcek zinciri: goruntudeki nokta -> global koordinat
+        s2 = C.capture(2, out_dir=tmp, scale_long_edge=1280)[0]
+        check("olcek 1280/1920", abs(s2.scale - 1280 / 1920) < 1e-9, str(s2.scale))
+        check("olcekli goruntude (0,0) -> monitorun sol ustu",
+              s2.to_global(0, 0) == (1920, 0), str(s2.to_global(0, 0)))
+        check("olcekli goruntude (640,360) -> tuval ortasi civari",
+              s2.to_global(640, 360) == (2880, 540), str(s2.to_global(640, 360)))
+        check("tek monitor istenince tek goruntu",
+              len(C.capture("DP-2", out_dir=tmp, scale_long_edge=0)) == 1)
+
+        # Tuval boyutu monitor tablosuyla uyusmazsa sessizce yanlis yerden
+        # kirpmak yerine patlamali.
+        M.list_monitors = lambda *a, **k: M._ordered(ODD_SCREENS)
+        try:
+            C.capture("all", out_dir=tmp, scale_long_edge=0)
+            check("tuval/tablo uyusmazligi yakalaniyor", False, "hata firlatilmadi")
+        except C.CaptureError as exc:
+            check("tuval/tablo uyusmazligi yakalaniyor", "degismis olabilir" in str(exc),
+                  str(exc)[:80])
+    finally:
+        M.list_monitors, C.available, C._grab_canvas = real_list, real_avail, real_grab
+        import shutil as _sh
+
+        _sh.rmtree(tmp, ignore_errors=True)
+
+
+def test_shot_store() -> None:
+    """Token deposu: sure, tekrar okuma, temizlik."""
+    section("15. Ekran goruntusu — baglanti token'lari")
+    import os
+
+    from pcbridge.shots import ShotStore
+
+    tmp = Path(tempfile.mkdtemp(prefix="pcb-shots-"))
+    try:
+        cfg = FakeCfg(tmp)
+        cfg.public_url = "https://ornek.invalid/"
+        store = ShotStore(cfg)
+
+        png = store.dir / "a.png"
+        png.write_bytes(b"\x89PNG")
+        token, url = store.publish(png)
+        check("token 128 bit (22 karakter urlsafe)", len(token) == 22, str(len(token)))
+        check("url sonunda .png", url.endswith(".png"), url)
+        check("url'de cift egik cizgi yok", "//shot" not in url, url)
+        check("token cozuluyor", store.resolve(token) == png)
+        # TEK KULLANIMLIK DEGIL: telefon tarayicisi yenileme/geri tusunda
+        # ikinci bir istek atiyor, tek kullanim goruntuyu yakiyordu.
+        check("ayni token ikinci kez de cozuluyor", store.resolve(token) == png)
+        check("gecersiz token None", store.resolve("yok") is None)
+
+        # Suresi dolmus token
+        with store._lock:
+            entry = store._entries[token]
+            store._entries[token] = type(entry)(path=entry.path, expires_at=time.time() - 1)
+        check("suresi dolmus token None", store.resolve(token) is None)
+        check("suresi dolan token kayittan dusuyor", token not in store._entries)
+
+        # Dosya elle silinmisse de None donmeli
+        png2 = store.dir / "b.png"
+        png2.write_bytes(b"x")
+        t2, _ = store.publish(png2)
+        png2.unlink()
+        check("dosyasi silinmis token None", store.resolve(t2) is None)
+
+        # sweep: eski PNG'ler siliniyor, yenisi duruyor
+        old = store.dir / "eski.png"
+        old.write_bytes(b"x")
+        os.utime(old, (0, 0))
+        fresh = store.dir / "yeni.png"
+        fresh.write_bytes(b"x")
+        store.sweep()
+        check("sweep eski PNG'yi sildi", not old.exists())
+        check("sweep yeni PNG'ye dokunmadi", fresh.exists())
+
+        # shot_keep_hours = 0 -> dosya temizligi kapali
+        cfg0 = FakeCfg(tmp, shot_keep_hours=0)
+        cfg0.public_url = "https://ornek.invalid"
+        store0 = ShotStore(cfg0)
+        old2 = store0.dir / "eski2.png"
+        old2.write_bytes(b"x")
+        os.utime(old2, (0, 0))
+        store0.sweep()
+        check("keep_hours = 0 iken dosya silinmiyor", old2.exists())
+    finally:
+        import shutil as _sh
+
+        _sh.rmtree(tmp, ignore_errors=True)
+
+
+def test_capture_config_defaults() -> None:
+    section("16. Ekran goruntusu — ornek yapilandirma")
+    from pcbridge.config import load_config
+
+    d = load_config(str(ROOT / "config.example.toml")).desktop
+    check("uzun kenar 1280", d.screenshot_scale_long_edge == 1280,
+          str(d.screenshot_scale_long_edge))
+    check("baglanti omru 5 dakika", d.shot_ttl_seconds == 300, str(d.shot_ttl_seconds))
+    check("dosyalar 24 saat tutuluyor", d.shot_keep_hours == 24, str(d.shot_keep_hours))
+    check("imlec varsayilan olarak dahil", d.include_pointer is True, str(d.include_pointer))
+
+
+def test_real_capture() -> None:
+    """Gercek gnome-screenshot. Varsayilan olarak KOSMAZ.
+
+    Grafik oturum gerektirdigi icin (ve kullanicinin ekranini diske yazdigi
+    icin) yalnizca PCBRIDGE_TEST_CAPTURE=1 verilince kosar.
+    """
+    import os
+
+    if os.environ.get("PCBRIDGE_TEST_CAPTURE") != "1":
+        return
+    section("17. Ekran goruntusu — GERCEK yakalama")
+    from pcbridge.desktop import capture as C
+
+    ok, why = C.available()
+    check("yakalama hazir", ok, why)
+    if not ok:
+        return
+    tmp = Path(tempfile.mkdtemp(prefix="pcb-real-"))
+    try:
+        shots = C.capture("all", out_dir=tmp)
+        check("en az bir goruntu", len(shots) >= 1, str(len(shots)))
+        for s in shots:
+            check(f"{s.label}: dosya yazildi", s.path.exists() and s.path.stat().st_size > 0)
+            check(f"{s.label}: ofset var", s.offset is not None)
+    finally:
+        import shutil as _sh
+
+        _sh.rmtree(tmp, ignore_errors=True)
+
+
 def main() -> int:
     print("\033[1mMasaustu katmani testleri\033[0m (girdi GONDERILMEZ)")
     test_monitor_ordering()
@@ -385,6 +601,11 @@ def main() -> int:
     test_gate_rate_limit()
     test_audit_log()
     test_config_defaults()
+    test_capture_scaling()
+    test_capture_crop_offsets()
+    test_shot_store()
+    test_capture_config_defaults()
+    test_real_capture()
     print(f"\n\033[1m{ok_count} gecti, {fail_count} kaldi\033[0m")
     return 1 if fail_count else 0
 

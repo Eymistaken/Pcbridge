@@ -263,6 +263,25 @@ varsayılanıyla gel; kullanıcı bilinçli olarak açsın.
 
 ## C · Ekran görüntüsü ve monitörler
 
+> ✅ **Uygulandı 2026-08-02.** Aşağıdaki tarif büyük ölçüde olduğu gibi
+> gerçekleşti. Üç sapma var, hepsi ölçümle:
+>
+> 1. **`monitor="focused"` yapılamadı.** `Shell.Introspect.GetWindows` bu
+>    makinede `Access denied` veriyor (GNOME 46 arayüzü kısıtlamış), yani
+>    odaktaki pencerenin monitörünü dışarıdan okumanın yolu yok. Kalan
+>    değerler: `"all"`, `1`/`2`, `"DP-1"`, `"primary"`, `"window"`. Odak
+>    bilgisi D bölümünde AT-SPI'dan gelebilir.
+> 2. **`"window"` koordinat üretmiyor.** `gnome-screenshot -w` pencerenin
+>    ekranda nerede olduğunu bildirmiyor; o görüntünün ofseti `None` ve araç
+>    çıktısı "buradan koordinat türetmeyin" diye uyarıyor.
+> 3. **`/shot` bağlantısı tek kullanımlık değil**, 5 dakika boyunca sınırsız
+>    açılabiliyor. Tek kullanım telefonda yenileme/geri tuşuyla görüntüyü daha
+>    kullanıcı bakmadan yakıyordu.
+>
+> Ayrıca `screen_capture` de `desktop_unlock` istiyor (ekranda ne varsa hepsini
+> gösterdiği için), ama "yakında klavye kullanıldı" koruması ona uygulanmıyor.
+> Ölçüm ayrıntıları: `PLAN.md` → **"Faz 2 sonuçları"**.
+
 `gnome-screenshot` ölçüldü, çalışıyor — birincil yol o. Yine de `capture.py`'yi
 backend soyutlamasıyla yaz; paket GNOME 49'da bozulmuş görünüyor, bir gün
 ScreenCast portalı + PipeWire yedeğine geçmek gerekebilir.

@@ -110,6 +110,32 @@ restore_clipboard = true
 # isaretleri bozar (`@` yerine `"`), bu yuzden varsayilan yol PANO.
 keyboard_layout = "tr+intl"
 
+# --- ekran goruntusu -------------------------------------------------------
+# screen_capture DE desktop_unlock ister: ekranda ne varsa (parolalar,
+# mesajlar) hepsini gosterdigi icin en gizlilik-hassas arac. Yalnizca "yakinda
+# klavye kullanildi" korumasi ona uygulanmaz -- makinenin basinda olmaniz
+# ekraniniza bakmanizi engellememeli. Ekran KILITLIYSE yine reddedilir.
+
+# Kirpma SONRASI uzun kenar. Tuval 3840x1080; tek parca 1280'e indirilse her
+# monitor ~640x180 kalir ve buton yazilari okunmaz olur. Bu yuzden once monitor
+# basina kirpilir, olcekleme ondan sonra yapilir. 0 = hic olcekleme (tam
+# cozunurluk, buyuk dosya). 0 disinda en az 320.
+screenshot_scale_long_edge = 1280
+
+# /shot/<token>.png baglantisinin omru (saniye). Bu baglanti OAuth'tan
+# BAGIMSIZ: token'i olan herkes goruntuyu gorur, o yuzden paylasmayin.
+# Sure icinde kac kez acilirsa acilsin calisir (tek kullanimlik degil, yoksa
+# telefonda yenileme/geri tusu goruntuyu yakardi). En az 10.
+shot_ttl_seconds = 300
+
+# Diskteki PNG'ler bu kadar saat sonra silinir. Baglantilari coktan olmustur;
+# bu yalnizca disk temizligi.
+shot_keep_hours = 24
+
+# Imlec goruntuye dahil edilsin mi. Varsayilan true: fareyi bir yere gonderip
+# "gercekten oraya gitti mi" diye dogrulamanin tek yolu bu.
+include_pointer = true
+
 
 # ---------------------------------------------------------------------------
 # AJANLAR

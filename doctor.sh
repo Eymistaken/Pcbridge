@@ -123,7 +123,7 @@ done
 command -v tmux >/dev/null && pass "tmux var" || fail "tmux yok: sudo apt install tmux"
 command -v script >/dev/null && pass "script var (agy pty sarmalayicisi icin)" || fail "script yok: sudo apt install bsdutils"
 
-head_ "7. Masaustu kontrolu (klavye/fare)"
+head_ "7. Masaustu kontrolu (klavye/fare/ekran)"
 DESK_ON="$(grep -A20 '^\[desktop\]' config.toml 2>/dev/null | grep -E '^enabled' | head -1 | grep -o 'true\|false')"
 case "${DESK_ON:-yok}" in
   true)  pass "[desktop] enabled = true (araclar acik)" ;;
@@ -150,6 +150,21 @@ else
 fi
 command -v wl-copy >/dev/null && pass "wl-copy var (pano yoluyla metin girisi)" \
   || fail "wl-clipboard yok: sudo apt install wl-clipboard"
+
+# --- ekran goruntusu ---
+command -v gnome-screenshot >/dev/null && pass "gnome-screenshot var (ekran goruntusu)" \
+  || fail "gnome-screenshot yok: sudo apt install gnome-screenshot"
+if ./.venv/bin/python -c "import PIL" 2>/dev/null; then
+  pass "python paketi Pillow kurulu (kirpma/olcekleme)"
+else
+  fail "Pillow yok — ./.venv/bin/pip install -r requirements.txt"
+fi
+SHOTS="$(./.venv/bin/python -c 'from pcbridge.config import load_config; print(load_config().state_dir / "shots")' 2>/dev/null)"
+if [ -n "$SHOTS" ] && mkdir -p "$SHOTS" 2>/dev/null && [ -w "$SHOTS" ]; then
+  pass "ekran goruntusu dizini yazilabilir ($SHOTS)"
+else
+  fail "ekran goruntusu dizini yazilamiyor: ${SHOTS:-?}"
+fi
 
 MONS="$(./.venv/bin/python -c 'from pcbridge.desktop import monitors as m; print(m.describe())' 2>&1)"
 if printf '%s' "$MONS" | grep -q '^tuval:'; then

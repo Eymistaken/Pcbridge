@@ -105,6 +105,21 @@ class DesktopSpec:
     # yorumlanacagini soyler. Girdi gonderimini DEGISTIRMEZ.
     keyboard_layout: str = "tr+intl"
 
+    # -- ekran goruntusu (C bolumu) -----------------------------------------
+    # Kirpma SONRASI uzun kenar. 3840x1080 tuval tek parca kuculturse her
+    # monitor ~640x180 kaliyor ve buton yazilari okunmaz oluyor; bu yuzden once
+    # monitor basina kirpiliyor, olcekleme ondan sonra. 0 = hic olcekleme.
+    screenshot_scale_long_edge: int = 1280
+    # /shot/<token>.png baglantisinin omru. Baglanti OAuth'tan BAGIMSIZ, yani
+    # token'i olan herkes goruntuyu gorur -- kisa tutuluyor.
+    shot_ttl_seconds: int = 300
+    # Diskteki PNG'ler bu kadar saat sonra silinir (baglantilari coktan olmus
+    # olur; bu yalnizca disk temizligi).
+    shot_keep_hours: int = 24
+    # Imlec goruntuye dahil edilsin mi. Varsayilan true: fareyi bir yere
+    # gonderip "gercekten oraya gitti mi" diye bakmanin tek yolu bu.
+    include_pointer: bool = True
+
 
 @dataclass
 class Config:
@@ -320,12 +335,32 @@ def load_config(explicit: str | None = None) -> Config:
         default_monitor=int(desktop_raw.get("default_monitor", 1)),
         restore_clipboard=bool(desktop_raw.get("restore_clipboard", True)),
         keyboard_layout=str(desktop_raw.get("keyboard_layout", "tr+intl")),
+        screenshot_scale_long_edge=int(
+            desktop_raw.get("screenshot_scale_long_edge", 1280)
+        ),
+        shot_ttl_seconds=int(desktop_raw.get("shot_ttl_seconds", 300)),
+        shot_keep_hours=int(desktop_raw.get("shot_keep_hours", 24)),
+        include_pointer=bool(desktop_raw.get("include_pointer", True)),
     )
     if desktop.unlock_default_minutes > desktop.unlock_max_minutes:
         raise SystemExit(
             f"[desktop] ({path}): `unlock_default_minutes` "
             f"({desktop.unlock_default_minutes}) `unlock_max_minutes` "
             f"({desktop.unlock_max_minutes}) degerini asamaz."
+        )
+    # 0 = olcekleme yok; negatif ya da minicik bir deger sessizce okunmaz
+    # goruntu uretmesin.
+    if desktop.screenshot_scale_long_edge and desktop.screenshot_scale_long_edge < 320:
+        raise SystemExit(
+            f"[desktop] ({path}): `screenshot_scale_long_edge` "
+            f"({desktop.screenshot_scale_long_edge}) ya 0 (olcekleme yok) ya da "
+            "en az 320 olmali."
+        )
+    if desktop.shot_ttl_seconds < 10:
+        raise SystemExit(
+            f"[desktop] ({path}): `shot_ttl_seconds` "
+            f"({desktop.shot_ttl_seconds}) en az 10 olmali; daha kisasi "
+            "baglantiyi telefonda acmaya yetmez."
         )
 
     state_dir = _expand(paths.get("state_dir", "~/.local/state/pcbridge"))
