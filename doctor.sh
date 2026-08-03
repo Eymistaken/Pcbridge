@@ -289,8 +289,108 @@ else
   pass "birimde model/effort ortam degiskeni yok (dogru)"
 fi
 
-head_ "8. Son 15 gunluk kaydi"
+head_ "8. Istemci kayitlari (stdio)"
+
+# stdio gercekten baslatilabiliyor mu: initialize + tools/list el sikismasi.
+# Yaniti SATIR SATIR okuyor -- stdin'i erken kapatmak sunucuyu tools/list
+# yanitini yazmadan kapatiyor ve tani "bozuk" der (bu betik yazilirken yasandi).
+STDIO="$(./.venv/bin/python - <<'PY' 2>/dev/null
+import json, subprocess, sys, pathlib
+root = pathlib.Path.cwd()
+p = subprocess.Popen([str(root / ".venv/bin/python"), "-m", "pcbridge.server", "--stdio"],
+                     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                     stderr=subprocess.DEVNULL, text=True, bufsize=1, cwd="/")
+def send(m):
+    p.stdin.write(json.dumps(m) + "\n"); p.stdin.flush()
+def read_id(want):
+    while True:
+        line = p.stdout.readline()
+        if not line:
+            return None
+        try:
+            m = json.loads(line)
+        except ValueError:
+            continue
+        if m.get("id") == want:
+            return m
+try:
+    send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+          "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                     "clientInfo": {"name": "doctor", "version": "0"}}})
+    if read_id(1) is None:
+        print("HATA initialize yanit vermedi"); sys.exit()
+    send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    send({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    r = read_id(2)
+    tools = r["result"]["tools"] if r and "result" in r else []
+    inline = next((t for t in tools if t["name"] == "screen_capture"), {})
+    print(f"OK {len(tools)} arac"
+          + (" · screen_capture goruntu blogu donebiliyor"
+             if inline.get("outputSchema") is None else ""))
+finally:
+    try:
+        p.stdin.close(); p.wait(timeout=10)
+    except Exception:
+        p.kill()
+PY
+)"
+case "$STDIO" in
+  OK*) pass "stdio baslatilabiliyor · ${STDIO#OK }" ;;
+  *)   fail "stdio baslatilamadi: ${STDIO:-cevap yok}" ;;
+esac
+
+# Claude Code: kayitli mi VE baglanabiliyor mu (bunu `claude mcp list` soyluyor).
+if command -v claude >/dev/null; then
+  CL="$(claude mcp list 2>/dev/null | grep '^pcbridge' || true)"
+  if [ -z "$CL" ]; then
+    warn "Claude Code'a kayitli degil — ./connect.sh"
+  elif printf '%s' "$CL" | grep -q "Connected"; then
+    pass "Claude Code: kayitli ve BAGLANIYOR"
+  else
+    fail "Claude Code: kayitli ama baglanamiyor · $CL"
+  fi
+else
+  info "claude PATH'te yok"
+fi
+
+# Codex: BURADA YALNIZCA "KAYITLI MI" DENEBILIR. Gercek bir oturum acilip
+# araclarin geldigi ve goruntu blogunun islendigi BU MAKINEDE OLCULEMEDI
+# (abonelik yok). "kayitli" ile "calisiyor" ayrimini bozma.
+if command -v codex >/dev/null; then
+  if codex mcp list 2>/dev/null | grep -q "^pcbridge"; then
+    pass "Codex: yapilandirmada KAYITLI (baglanti denenmedi — abonelik yok)"
+  else
+    warn "Codex yapilandirmasinda yok — ./connect.sh"
+  fi
+else
+  info "codex PATH'te yok"
+fi
+
+# Claude Desktop: dosyayi okumuyoruz, yalnizca adin gectigine bakiyoruz.
+CD_CFG="$HOME/.config/Claude/claude_desktop_config.json"
+if [ -f "$CD_CFG" ]; then
+  if grep -q '"pcbridge"' "$CD_CFG" 2>/dev/null; then
+    pass "Claude Desktop yapilandirmasinda kayitli"
+  else
+    warn "Claude Desktop'a kayitli degil — ./connect.sh eklenecek parcayi basar"
+  fi
+else
+  info "Claude Desktop yapilandirmasi yok"
+fi
+
+INLINE="$(./.venv/bin/python - <<'PY' 2>&1 | tail -1
+from pcbridge.config import load_config
+from pcbridge.tools import _want_inline
+s = load_config().inline_images
+on = lambda t: "goruntu VAR" if _want_inline(s, t) else "yalnizca metin"
+print(f'"{s}" -> stdio: {on("stdio")} · http: {on("http")}')
+PY
+)"
+info "inline_images = $INLINE"
+
+head_ "9. Son 15 gunluk kaydi"
 journalctl --user -u pcbridge -n 15 --no-pager 2>/dev/null | sed 's/^/  /'
 
 echo
-echo "Spark'a girilecek adres:  ${PUB:-?}${MPATH:-/mcp}"
+echo "Uzak istemciye (Spark) girilecek adres:  ${PUB:-?}${MPATH:-/mcp}"
+echo "Yerel istemciler icin:  ./connect.sh"
