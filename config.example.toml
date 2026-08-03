@@ -4,7 +4,8 @@
 # ---------------------------------------------------------------------------
 
 # Tailscale Funnel / Cloudflare Tunnel'in verdigi DIS adres.
-# Sonunda / OLMAYACAK. Spark'a bu adresin sonuna /mcp ekleyerek gireceksiniz.
+# Sonunda / OLMAYACAK. Uzak istemciye bu adresin sonuna /mcp ekleyerek verilir.
+# YEREL istemciler (stdio) bu adresi HIC kullanmiyor -- onlar icin gereksiz.
 public_url = "https://DEGISTIR.tailXXXX.ts.net"
 
 # Sunucunun yerelde dinledigi adres. Tunel bu porta baglanir.
@@ -18,24 +19,25 @@ mcp_path = "/mcp"
 [server]
 # Ekran goruntusu arac SONUCUNDA goruntu blogu olarak da gonderilsin mi?
 #
-#   "auto"  (varsayilan) tasimaya bakar: stdio'da ACIK, HTTP'de KAPALI
-#   true    her istemciye goruntu gider
+#   true    (varsayilan) her istemciye goruntu gider
 #   false   hicbir istemciye gitmez, yalnizca /shot/<token>.png baglantisi
+#   "auto"  tasimaya bakar: stdio'da ACIK, HTTP'de KAPALI
 #
-# NEDEN UC DEGERLI: tek sunucu iki farkli istemci sinifina bakiyor.
-#  - Gemini Spark'a giden function-response kanali yalnizca METIN tasiyor ve
-#    goruntu blogu gelince BOZULUYOR. Spark HTTP + OAuth ile geliyor.
-#  - Claude Code / Codex goruntuyu okuyabiliyor ve stdio ile geliyor.
-#    OLCULDU (2026-08-03): bilinen icerikli bir PNG'ye yazilan gizli deger
-#    Claude Code'dan birebir geri geldi; uctan uca `screen_capture` cagiran
-#    gercek bir oturum ekrani dogru tarif etti.
-# Yani tasima, "bu istemci goruyor mu" sorusunun en iyi vekili.
+# Varsayilan neden true: hedeflenen butun istemciler goruntuyu okuyabiliyor.
+# OLCULDU (2026-08-03): bilinen icerikli bir PNG'ye yazilan gizli deger Claude
+# Code'dan birebir geri geldi; uctan uca `screen_capture` cagiran gercek bir
+# oturum ekrani dogru tarif etti.
+#
+# "auto" GERI DONUS YOLU. Gemini Spark cagindan kalma: oraya giden
+# function-response kanali yalnizca METIN tasiyor ve goruntu blogu gelince
+# BOZULUYOR. Spark artik hedef degil, ama goruntu isleyemeyen baska bir
+# istemciyle karsilasirsan "auto" (ya da false) yine ise yarar.
 #
 # Goruntunun maliyeti (olculdu, Claude): 1920x1080 ~12976, 1280x720 ~11712
 # cache_creation jeton. `agy`'de olculen ~40 bin BURADA GECERLI DEGIL.
 # Yine de metin yolu (`ui_dump`) hala hem daha ucuz hem ISKALAMIYOR --
 # koordinat kullanmadigi icin.
-inline_images = "auto"
+inline_images = true
 
 
 [auth]

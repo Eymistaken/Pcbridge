@@ -140,14 +140,26 @@ mkdir -p "$HOME/.claude/skills"
 ln -sfn "$DIR/skills/computer-use" "$HOME/.claude/skills/computer-use"
 ok "computer-use skill'i ~/.claude/skills'e baglandi."
 
-blue "==> 7/7  Alias'lar (~/.bashrc)"
-chmod +x spark.sh run.sh doctor.sh 2>/dev/null || true
+blue "==> 7/7  Servisi acilista baslat"
+chmod +x remote.sh run.sh doctor.sh connect.sh 2>/dev/null || true
+
+# Servis acilista basliyor. Bu bir DAVRANIS DEGISIKLIGI: proje Gemini Spark
+# icin yazilirken bilincle reddedilmisti (sunucu bosuna acik kalmasin diye).
+# Artik kodlama ajanlari bu sunucuyu kullaniyor ve kullanicidan her seferinde
+# bir komut beklemek anlamsiz.
+#
+# TUNEL BASLAMIYOR, YALNIZCA SERVIS. Servis 127.0.0.1'i dinliyor: makineyi
+# internete acan sey Tailscale Funnel ve onu hala `./remote.sh start` aciyor.
+systemctl --user enable pcbridge >/dev/null 2>&1 \
+  && ok "pcbridge acilista basliyor (yalnizca 127.0.0.1; tunel elle acilir)" \
+  || warn "systemctl --user enable pcbridge basarisiz — elle calistirin"
+
+# ESKI ALIAS'LARI TEMIZLE. `sparkac`/`sparkkapat`/`sparkdurum` Gemini Spark
+# caginin kalintisi; artik ne isim dogru ne de gerekliler.
 BRC="$HOME/.bashrc"
 MARK_START="# >>> pcbridge >>>"
 MARK_END="# <<< pcbridge <<<"
-
 if grep -q "$MARK_START" "$BRC" 2>/dev/null; then
-  # eski blogu sil, yenisini yaz (guncelleme)
   python3 - "$BRC" "$MARK_START" "$MARK_END" <<'PY'
 import sys, pathlib
 path, a, b = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -160,16 +172,8 @@ for ln in lines:
     if not skip: out.append(ln)
 p.write_text("".join(out), encoding="utf-8")
 PY
+  ok "eski spark alias'lari ~/.bashrc'den kaldirildi"
 fi
-
-cat >> "$BRC" <<EOF
-$MARK_START
-alias sparkac='$DIR/spark.sh start'
-alias sparkkapat='$DIR/spark.sh stop'
-alias sparkdurum='$DIR/spark.sh status'
-$MARK_END
-EOF
-ok "sparkac / sparkkapat / sparkdurum eklendi."
 
 echo
 echo "------------------------------------------------------------------"
@@ -181,27 +185,23 @@ fi
 cat <<EOF
 Sirada:
 
-  1) Alias'lar aktif olsun:      source ~/.bashrc
-  2) Her sey yolunda mi:         $DIR/doctor.sh
+  1) Istemcilere bagla:   $DIR/connect.sh --apply
+  2) Her sey yolunda mi:  $DIR/doctor.sh
 
-YEREL istemciler (Claude Code, Codex, Claude Desktop) -- tunel gerekmez,
-sunucuyu istemci baslatir:
+Kodlama ajanlari (Claude Code, Codex, Claude Desktop) sunucuyu stdio ile
+kullanir: sunucuyu ISTEMCI baslatir. Ne tunel ne komut gerekiyor -- ajani
+actiginda pcbridge oradadir.
 
-      $DIR/connect.sh           # komutlari yazdirir
-      $DIR/connect.sh --apply   # claude/codex kayitlarini yapar
+  UYARI: stdio'da parola SORULMAZ. Yetki, sureci baslatabilmenin kendisi.
+  Masaustu araclarinin onunde [desktop] enabled + desktop_unlock durmaya
+  devam eder; shell_run / agent_run / fs_* onunde durmaz.
 
-  UYARI: yerel yolda (stdio) parola SORULMAZ. Yetki, sureci baslatabilmenin
-  kendisi. Masaustu araclarinin onunde [desktop] enabled + desktop_unlock
-  durmaya devam eder; shell_run / agent_run / fs_* onunde durmaz.
+UZAKTAN erisim (telefon, baska makine) -- istege bagli:
 
-UZAKTAN (Gemini Spark, telefon):
+      $DIR/remote.sh start    # tuneli acar, makineyi INTERNETE acar
+      $DIR/remote.sh stop     # kapatir
 
-  3) Sunucuyu ac:                sparkac
-  4) gemini.google.com > Settings & help > Connected Apps >
-     "Add a custom app" alanina su adresi gir:
-
+  Uzak istemciye verilecek adres:
       $( [ -n "$TS_DNS" ] && echo "https://$TS_DNS/mcp" || echo "https://<makinen>.<tailnet>.ts.net/mcp" )
-
-  Kapatmak icin:  sparkkapat
 ------------------------------------------------------------------
 EOF

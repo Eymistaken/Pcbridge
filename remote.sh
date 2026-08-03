@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# pcbridge ac/kapa kontrol betigi.
-#   spark.sh start   -> sunucu + tunel acilir   (alias: sparkac)
-#   spark.sh stop    -> tunel kapanir + sunucu durur (alias: sparkkapat)
-#   spark.sh status  -> durum ozeti             (alias: sparkdurum)
+# pcbridge UZAKTAN ERISIM kontrolu (Tailscale Funnel tuneli).
+#   ./remote.sh start   -> sunucu + tunel acilir
+#   ./remote.sh stop    -> tunel kapanir + sunucu durur
+#   ./remote.sh status  -> durum ozeti
 #
-# Sistemle birlikte otomatik BASLAMAZ. Sadece bu komutlarla acilir/kapanir.
+# BU BETIK YEREL ISTEMCILER ICIN GEREKMIYOR. Claude Code, Codex ve Claude
+# Desktop stdio kullaniyor: sunucuyu istemcinin kendisi baslatiyor, ne tunel
+# ne systemd servisi gerekiyor. Burasi yalnizca makineyi INTERNETE acmak icin
+# -- telefondan baglanmak, ya da baska bir makinedeki ajani baglamak.
+#
+# systemd servisi acilista kendiliginden basliyor (yalnizca 127.0.0.1 dinler).
+# TUNEL BASLAMIYOR: onu bu betik aciyor, cunku makineyi disariya o aciyor.
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -134,19 +140,19 @@ case "${1:-start}" in
       echo "tamam"
       d "    $NOTE"
       echo
-      g "✔ Spark hazir"
+      g "✔ Uzaktan erisim acik"
       echo "   Adres : $PUB$MPATH"
-      d  "   Kapat : sparkkapat     ·  Loglar: journalctl --user -u pcbridge -f"
+      d  "   Kapat : ./remote.sh stop  ·  Loglar: journalctl --user -u pcbridge -f"
       echo
     else
       echo "BASARISIZ (HTTP $CODE)"
       d "    $NOTE"
       echo
       y "⚠ Sunucu yerelde calisiyor ama INTERNETTEN erisilemiyor."
-      y "  Gemini de tam bu yuzden 'MCP sunucusuna ulasilamadi' diyor."
+      y "  Uzak istemci de tam bu yuzden 'sunucuya ulasilamadi' diyecek."
       echo
       d "  Sirasiyla dene:"
-      d "   1) Funnel yeni acildiysa 2-3 dakika bekle, tekrar 'sparkdurum'"
+      d "   1) Funnel yeni acildiysa 2-3 dakika bekle, tekrar './remote.sh status'"
       d "   2) tailscale funnel status      -> 443'te proxy gorunuyor mu"
       d "   3) https://login.tailscale.com/admin/dns"
       d "         > HTTPS Certificates  ACIK olmali"

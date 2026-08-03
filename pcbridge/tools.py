@@ -90,11 +90,14 @@ def _want_inline(setting: str, transport: str) -> bool:
     Saf fonksiyon: I/O yok, `Config` bile almiyor. `models.py`'deki cozumleyici
     gibi sunucu ayakta olmadan test edilebilsin diye.
 
-    "auto" tasimaya bakar. Gerekce bir olcume dayaniyor: Gemini Spark'a giden
-    function-response kanali yalnizca metin tasiyor ve goruntu blogu gelince
-    BOZULUYOR; Claude Code stdio'dan gelen goruntuyu okuyabiliyor (H0.1). Spark
-    HTTP'den, yerel gorebilen istemciler stdio'dan geldigi icin tasima bu ayrimin
-    en iyi vekili.
+    Varsayilan artik "true": hedeflenen butun istemciler (Claude Code, Codex,
+    Claude Desktop) goruntuyu okuyabiliyor -- olculdu, bilinen icerikli bir
+    PNG'deki gizli deger birebir geri geldi.
+
+    "auto" tasimaya bakar ve GERI DONUS YOLU olarak duruyor. Gemini Spark cagindan
+    kalma: oraya giden function-response kanali yalnizca metin tasiyordu ve
+    goruntu blogu gelince BOZULUYORDU. Goruntu isleyemeyen bir istemciyle
+    karsilasilirsa yine ise yarar. Bos deger de buraya duser.
     """
     s = (setting or "auto").strip().lower()
     if s == "true":

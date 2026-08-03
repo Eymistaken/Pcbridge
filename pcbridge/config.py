@@ -181,15 +181,17 @@ class Config:
 
     agents: dict[str, AgentSpec]
     # Ekran goruntusu arac sonucunda GORUNTU BLOGU olarak da gonderilsin mi.
-    # "auto" | "true" | "false" -- degerlendirme `tools._want_inline()`te.
+    # "true" (varsayilan) | "false" | "auto" -- degerlendirme
+    # `tools._want_inline()`te.
     #
-    # NEDEN UC DEGERLI: bir sunucu iki farkli istemci sinifina bakiyor.
-    # Gemini Spark'a giden function-response kanali yalnizca METIN tasiyor ve
-    # goruntu blogu gelince bozuluyor; Claude Code / Codex ise goruntuyu
-    # okuyabiliyor (H0.1'de olculdu: gizli deger goruntuden birebir okundu).
-    # "auto" bu ayrimi tasimaya bakarak yapiyor -- Spark HTTP'den, yerel
-    # istemciler stdio'dan geliyor.
-    inline_images: str = "auto"
+    # Varsayilan "auto" IDI: Gemini Spark'a giden function-response kanali
+    # yalnizca METIN tasiyor ve goruntu blogu gelince bozuluyordu, "auto" da
+    # HTTP'de goruntuyu kapatarak onu koruyordu. Spark artik hedef degil ve
+    # HTTP'den gelen de goren bir istemci (Codex --url, Claude Code
+    # --transport http), yani goruntuyu kapatmak artik goreni kor birakmak
+    # olurdu. "auto" GERI DONUS YOLU olarak duruyor: goruntu isleyemeyen bir
+    # istemci cikarsa false ya da auto yapilir.
+    inline_images: str = "true"
     # Ajan adi verilmediginde ve model hicbir ajana ait degilse kullanilir.
     default_agent: str = "claude"
     desktop: DesktopSpec = field(default_factory=DesktopSpec)
@@ -366,12 +368,13 @@ def load_config(explicit: str | None = None) -> Config:
     # TOML'da `true` bool gelir, `"auto"` string; ikisi de ayni yoldan gecsin
     # diye str()'ye cevrilip kucultuluyor.
     inline_images = str(
-        server.get("inline_images", raw.get("inline_images", "auto"))
+        server.get("inline_images", raw.get("inline_images", "true"))
     ).strip().lower()
     if inline_images not in ("auto", "true", "false"):
         raise SystemExit(
             f"[server] ({path}): `inline_images` = {inline_images!r} gecersiz. "
-            'Gecerli degerler: "auto" (stdio\'da acik, HTTP\'de kapali), true, false.'
+            'Gecerli degerler: true (varsayilan), false, '
+            '"auto" (stdio\'da acik, HTTP\'de kapali).'
         )
 
     password = os.environ.get("PCBRIDGE_PASSWORD") or auth.get("password", "")

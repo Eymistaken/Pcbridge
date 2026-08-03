@@ -9,9 +9,14 @@ sürülebilir hale getiren kişisel bir MCP sunucusu. 33 araç: kodlama ajanlar�
 iş verme, arka plan işleri, tmux, kabuk/dosya, ve `[desktop]` altında sanal
 klavye/fare + ekran okuma.
 
-**İki taşıma, tek sunucu:** HTTP (Gemini Spark, uzaktan — HTTPS + OAuth 2.1 +
-Tailscale Funnel) ve stdio (`--stdio`; Claude Code, Codex, Claude Desktop —
-**ağ yok, OAuth yok**). Kurulum komutlarını `./connect.sh` üretir.
+**İki taşıma, tek sunucu:** stdio (`--stdio`; Claude Code, Codex, Claude
+Desktop — **ağ yok, OAuth yok**, sunucuyu istemci başlatır) ve HTTP (telefon /
+başka makine — HTTPS + OAuth 2.1 + Tailscale Funnel, isteğe bağlı). Kurulum
+komutlarını `./connect.sh` üretir.
+
+Proje Gemini Spark için başlamıştı; **artık hedef değil.** Mimarinin
+"görüntü yerine metin" tercihleri (`ui_dump`, `/shot` bağlantıları) o çağdan
+kalma ve **kazanç oldukları için duruyorlar** — daha ucuz ve ıskalamıyorlar.
 
 **Aktif çalışma yönergesi [YAPILACAKLAR.md](YAPILACAKLAR.md).** Görev listesi,
 onaylanmış kararlar ve son ölçümler orada; bir işe başlamadan önce oku.
@@ -61,10 +66,13 @@ Masaüstünü elle sürmek (MCP'den bağımsız kabuklar):
 ./.venv/bin/python -m pcbridge.cli.lock  # masaustu iznini kapat
 ```
 
-Sunucuyu dışarıya açma: `sparkac` / `sparkkapat` / `sparkdurum`
-(= `./spark.sh start|stop|status`). `./install.sh` venv + config + systemd +
-alias'ları kurar; **açılışta otomatik başlatmayı bilinçle reddediyor.**
 Yerel istemci kaydı: `./connect.sh` (yazdırır) / `./connect.sh --apply` (yapar).
+Uzaktan erişim: `./remote.sh start|stop|status` (Tailscale Funnel tüneli).
+
+**Servis açılışta başlıyor** (`systemctl --user enable`), ama **tünel
+başlamıyor**. Ayrım bilinçli: servis yalnızca `127.0.0.1`'i dinliyor, makineyi
+internete açan şey tünel. Ayrıca stdio istemcileri servisi hiç kullanmıyor —
+sunucuyu kendileri başlatıyor, servis kapalıyken de çalışırlar.
 
 ## Mimari
 
@@ -135,6 +143,8 @@ uzunluğu evet metnin kendisi hayır.
   yalnızca bunları okuyor. Kullanıcıya dönen metinler Türkçe.
 - Docstring "ne zaman kullanılır"ı söylesin, sadece "ne yapar"ı değil.
 - Dönüş tipi `str`, çıktı `jobslib.tail_chars(metin, 4000)` ile kırpılmış.
+  Görüntü de dönüyorsa tip **`list[ContentBlock]`** (çıplak `-> list` FastMCP'ye
+  outputSchema ürettirir ve çağrı patlar).
 - `readOnlyHint` / `destructiveHint` doğru işaretlensin (yanlış `readOnlyHint`
   tehlikeli bir aracı sessizce çalıştırır).
 - **110 saniyeden uzun bloklama yok.**
@@ -271,7 +281,7 @@ ve o değişken `--effort` bayrağını sessizce etkisiz kılıyor.
 | `YAPILACAKLAR.md` | **Aktif çalışma yönergesi** — görev listesi, kararlar, son ölçümler |
 | `KULLANIM.md` | Kullanıcıya dönük araç kataloğu + izin haritası — **güncel tutulmalı** |
 | `config.example.toml` | Ayarların belgelenmiş hâli; projenin asıl referansı |
-| `README.md` | Kurulum, Spark'a bağlanma, güvenlik değerlendirmesi, sorun giderme |
+| `README.md` | Kurulum, istemcilere bağlanma, güvenlik değerlendirmesi, sorun giderme |
 | `GELISTIRME.md` | Yeni araç eklemenin uzun anlatımı + protokol tuzakları — geçmiş kayıt |
 | `PLAN.md`, `UYGULAMA.md` | Geçmiş kayıt: neyin neden böyle yapıldığı. Okuma zorunlu değil, **silme** |
 

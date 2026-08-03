@@ -187,14 +187,17 @@ def _test_inline_setting() -> None:
     cfg = _load()
     check("inline_images gecerli deger", cfg.inline_images in ("auto", "true", "false"),
           cfg.inline_images)
-    # SPARK KORUMASI: HTTP'de goruntu blogu gitmemeli, yoksa Spark bozulur.
-    if cfg.inline_images == "auto":
-        check("auto: HTTP'de goruntu KAPALI (Spark korunuyor)",
-              _wi(cfg.inline_images, "http") is False)
-        check("auto: stdio'da goruntu ACIK",
-              _wi(cfg.inline_images, "stdio") is True)
+    # Hedeflenen istemcilerin hepsi goruntuyu okuyabiliyor, o yuzden varsayilan
+    # `true`: stdio'dan da HTTP'den de goruntu gitmeli.
+    if cfg.inline_images == "true":
+        check("true: stdio'da goruntu ACIK", _wi(cfg.inline_images, "stdio") is True)
+        check("true: HTTP'de de goruntu ACIK", _wi(cfg.inline_images, "http") is True)
+    elif cfg.inline_images == "auto":
+        # Geri donus yolu: goruntu isleyemeyen bir istemci varsa boyle kullanilir.
+        check("auto: stdio'da ACIK", _wi(cfg.inline_images, "stdio") is True)
+        check("auto: HTTP'de KAPALI", _wi(cfg.inline_images, "http") is False)
     else:
-        skip("inline_images auto degil", f"deger: {cfg.inline_images}")
+        skip("inline_images kapali", f"deger: {cfg.inline_images}")
 
 
 def main() -> int:

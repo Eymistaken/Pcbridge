@@ -45,9 +45,11 @@ cat <<EOF
 pcbridge iki yoldan baglanir:
 
   stdio  — sunucuyu ISTEMCI baslatir, ag yok, OAuth yok.
-           Yerel istemciler icin (Claude Code, Codex, Claude Desktop).
+           Kodlama ajanlari icin (Claude Code, Codex, Claude Desktop).
+           Hicbir sey acip kapatmana gerek yok.
   HTTP   — systemd servisi + Tailscale Funnel + OAuth.
-           Uzaktan erisim ve Gemini Spark icin. ('sparkac' ile acilir.)
+           Telefondan ya da baska bir makineden baglanmak icin.
+           ('./remote.sh start' ile acilir, istege bagli.)
 
 ⚠️  stdio'da KIMLIK DOGRULAMA YOK. Yetki, sureci baslatabilmenin kendisi:
     bu komutu calistirabilen her yerel program pcbridge'in butun araclarina
@@ -182,13 +184,16 @@ else
   warn "Claude Desktop yapilandirmasi yok ($CD_CFG) — kurulu mu?"
 fi
 
-# ------------------------------------------------------------------ Spark
-blue "4. Gemini Spark (HTTP)"
+# ------------------------------------------------------- uzaktan erisim
+blue "4. Uzaktan erisim (HTTP + OAuth) — istege bagli"
+dim "Yerel istemciler icin GEREKMIYOR. Bu yol telefondan baglanmak ya da"
+dim "baska bir makinedeki ajani baglamak icin."
+echo
 dim "Adres: $MCP_URL"
-dim "Sunucuyu ac ('sparkac'), sonra gemini.google.com > Settings & help >"
-dim "Connected Apps > Add a custom app."
-dim "Spark goruntu blogu ISLEYEMIYOR; [server] inline_images = \"auto\" bu yuzden"
-dim "HTTP'de goruntuyu kapali tutuyor. Kurcalamana gerek yok."
+cmd "./remote.sh start     # tuneli acar (makineyi INTERNETE acar)"
+cmd "./remote.sh stop      # kapatir"
+dim "Servis acilista kendiliginden basliyor ama TUNEL BASLAMIYOR: servis"
+dim "yalnizca 127.0.0.1'i dinler, disariya acan sey tunel."
 
 echo
 if [ "$APPLY" = "0" ]; then

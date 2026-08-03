@@ -8,12 +8,12 @@ fiilen sürebilir (klavye, fare, ekran okuma).
 İki bağlanma yolu var ve **ikisi de aynı sunucu**:
 
 ```
-  YEREL (stdio)                          UZAK (HTTP + OAuth)
-  Claude Code · Codex · Claude Desktop   Gemini Spark · telefon
+  YEREL (stdio) — asıl yol                UZAK (HTTP + OAuth) — isteğe bağlı
+  Claude Code · Codex · Claude Desktop    telefon · başka bir makine
         │                                        │
         │ sunucuyu istemci başlatır              │ OAuth 2.1 + HTTPS
         │ ağ yok, OAuth yok                      ▼
-        │                                 Tailscale Funnel
+        │ açıp kapatman gerekmez           Tailscale Funnel
         │                                        │
         ▼                                        ▼
    python -m pcbridge.server --stdio     127.0.0.1:8765  pcbridge (systemd)
@@ -27,10 +27,16 @@ fiilen sürebilir (klavye, fare, ekran okuma).
 
 Kurulum komutlarını `./connect.sh` üretir.
 
-**Proje Gemini Spark için tasarlandı ve o yol hâlâ birinci sınıf.** Ama artık
-tek istemci o değil: Claude Code ve Codex MCP araç sonucundaki **görüntüyü
-okuyabiliyor**, Spark okuyamıyor. Bu fark mimaride birkaç yerde görünür —
-aşağıda geçtikçe belirtiliyor.
+**Kodlama ajanları için hiçbir şey açıp kapatmanız gerekmiyor.** Claude Code,
+Codex ya da Claude Desktop'ı açtığınızda pcbridge'i kendisi başlatır, kapanınca
+öldürür. Uzaktan erişim (telefon, başka makine) ayrı bir karar ve
+`./remote.sh start` ile açılır — makineyi internete açan şey odur.
+
+> Proje Gemini Spark için başlamıştı ve bütün mimariyi bir kısıt belirlemişti:
+> *Spark'a giden kanal araç sonucunda yalnızca metin taşıyor.* `ui_dump`,
+> `/shot/<token>.png` bağlantıları ve `computer_task` hep o yüzden var. Spark
+> artık hedef değil, ama o kısıt bize **daha ucuz ve daha isabetli** bir yol
+> inşa ettirdi — metin ağacı hâlâ tercih edilen yol, aşağıda anlatılıyor.
 
 ---
 
@@ -57,23 +63,23 @@ Ajan çağrıları senkron değil: `agent_run` işi başlatır ve bir `job_id` d
 
 ---
 
-## Neden bu kadar dolambaçlı: Spark'ın üç şartı
+## Uzaktan erişim neden bu kadar dolambaçlı
 
-Araştırınca çıkan gerçekler:
+Yerel yolda hiçbiri gerekmiyor — bunlar yalnızca HTTP tarafı için:
 
-1. **HTTPS + Streamable HTTP zorunlu.** Spark Google'ın bulutunda çalışıyor,
-   `localhost` diye bir şey bilmiyor. Makinen dışarıdan erişilebilir olmalı →
+1. **HTTPS + Streamable HTTP.** Uzaktan bağlanan bir istemci `localhost` diye
+   bir şey bilmez; makinenin dışarıdan erişilebilir olması gerekir →
    Tailscale Funnel.
-2. **OAuth 2.1 zorunlu.** Düz "Bearer <token>" kabul etmiyor. Bu yüzden pcbridge
-   kendi içinde tam bir mini OAuth sunucusu barındırıyor (DCR + PKCE + refresh).
-   Sen sadece bir parola giriyorsun; gerisi otomatik.
-3. **Resmî olarak ABD, İngilizce ve kişisel Google hesabı.** Ayrıca Keep Activity
-   açık olmalı. Spark sende zaten çalışıyorsa sorun yok; araç açıklamalarını da
-   bu yüzden İngilizce yazdım (Gemini aracı seçerken bu metinleri okuyor).
+2. **OAuth 2.1.** Bulut tabanlı istemciler düz "Bearer &lt;token&gt;" kabul
+   etmiyor. Bu yüzden pcbridge kendi içinde tam bir mini OAuth sunucusu
+   barındırıyor (DCR + PKCE + refresh). Sen sadece bir parola giriyorsun.
+3. **Araç açıklamaları İngilizce.** İstemci hangi aracı çağıracağına bu
+   metinlere bakarak karar veriyor; kullanıcıya dönen çıktılar Türkçe.
 
-Ek olarak Google, **yazma işlemlerinde her seferinde onay soruyor**. Yani
-`agent_run` çağrıldığında telefonunda bir onay çıkacak. Bu can sıkıcı ama
-aslında iyi bir güvenlik ağı.
+> `server.py`'deki `MetadataNormalizer` ve `BasicAuthFormShim` katmanları
+> Google'ın OAuth doğrulayıcısının katılığı yüzünden yazılmıştı. Diğer
+> istemcilerde etkisizler ve **duruyorlar** — silmenin kazancı yok, geri
+> getirmenin bedeli var.
 
 ---
 
@@ -95,52 +101,26 @@ Certificates: Enable", ve Access Controls içinde `nodeAttrs` altında
 
 ```bash
 sudo tailscale set --operator=$USER      # tünel komutları sudo istemesin
-cd ~/Belgeler/mcp_server
+cd ~/Belgeler/Pcbridge
 chmod +x *.sh
 ./install.sh
-source ~/.bashrc
 ```
 
 `install.sh` şunları yapar: sanal ortamı kurar, rastgele bir **parola** üretip
-ekrana basar (kaydet), Tailscale adını okuyup `public_url`'i otomatik doldurur,
-systemd birimini tanımlar (**açılışta başlamaz**) ve alias'ları `~/.bashrc`'ye ekler.
+ekrana basar (kaydet — yalnızca uzaktan erişimde gerekiyor), Tailscale adını
+okuyup `public_url`'i doldurur, systemd birimini tanımlar ve **açılışta
+başlayacak şekilde etkinleştirir** (yalnızca `127.0.0.1`; tünel açılmaz).
 
-### 3. Aç
-
-```bash
-sparkac
-```
-
-Sunucuyu başlatır, tüneli açar, dışarıdan erişilebilir mi diye kontrol eder ve
-Spark'a gireceğin adresi ekrana yazar. Kapatmak için `sparkkapat`, durum için
-`sparkdurum`, ayrıntılı tanı için `./doctor.sh`.
-
-### 4. Spark'a bağla
-
-Bu adım **sadece bilgisayardaki web arayüzünden** yapılabiliyor (telefondan değil):
-
-1. <https://gemini.google.com> → alt taraftaki **Settings & help** → **Connected Apps**
-   (görünmüyorsa önce **Personal Intelligence** → **Connected Apps**)
-2. "Custom apps for Spark" altında **Add a custom app**
-3. Adres olarak şunu gir:
-   ```
-   https://thinkstation.tailXXXX.ts.net/mcp
-   ```
-4. Karşına pcbridge'in koyu temalı **onay sayfası** çıkacak → kurulumda aldığın
-   parolayı gir → **Onayla ve bağlan**
-
-Bağlandıktan sonra telefondaki Gemini uygulamasında da kullanılabilir hale gelir.
-Bu adımı **bir kez** yaparsın; sonrasında sadece `sparkac` / `sparkkapat`.
-
-### 5. Yerel istemcilere bağla (Claude Code, Codex, Claude Desktop)
+### 3. İstemcilere bağla — asıl adım
 
 ```bash
 ./connect.sh            # komutları yazdırır
-./connect.sh --apply    # claude / codex kayıtlarını yapar
+./connect.sh --apply    # claude / codex / Claude Desktop kayıtlarını yapar
 ```
 
-Yerel istemciler sunucuya **stdio** ile bağlanır: tünel yok, `sparkac` gerekmez,
-sunucuyu istemcinin kendisi başlatır. Claude Code için tek komut:
+Kodlama ajanları sunucuya **stdio** ile bağlanır: tünel yok, servis gerekmez,
+sunucuyu istemcinin kendisi başlatır. Bir şey açıp kapatmanız gerekmiyor.
+Claude Code için tek komut:
 
 ```bash
 claude mcp add -s user pcbridge -- /YOL/Pcbridge/.venv/bin/python -m pcbridge.server --stdio
@@ -165,39 +145,54 @@ uygulamayı **tamamen kapatıp** yeniden açmak gerekiyor.
 
 ⚠️ **stdio'da kimlik doğrulama yoktur.** Ayrıntı: [Güvenlik](#güvenlik--dürüst-değerlendirme).
 
+### 4. Uzaktan erişim — isteğe bağlı
+
+Telefondan bağlanmak ya da başka bir makinedeki ajanı bağlamak istiyorsanız:
+
+```bash
+./remote.sh start
+```
+
+Tüneli açar, dışarıdan erişilebilir mi diye kontrol eder ve uzak istemciye
+gireceğiniz adresi yazar. Kapatmak için `./remote.sh stop`, durum için
+`./remote.sh status`.
+
 ---
 
 ## Günlük kullanım
 
+**Kodlama ajanları için hiçbir komut yok.** Claude Code / Codex / Claude Desktop
+açıldığında pcbridge oradadır; kapanınca süreç ölür.
+
 | Komut | Ne yapar |
 |---|---|
-| `sparkac` | Sunucuyu başlatır + tüneli açar + dışarıdan erişimi doğrular |
-| `sparkkapat` | Tüneli kapatır + sunucuyu durdurur (dışarıya tamamen kapanır) |
-| `sparkdurum` | Sunucu / tünel / dış erişim durumu |
 | `./doctor.sh` | Bir şey çalışmıyorsa ayrıntılı tanı |
-| `journalctl --user -u pcbridge -f` | Canlı log |
+| `journalctl --user -u pcbridge -f` | Canlı log (HTTP servisi) |
+| `./remote.sh start` / `stop` / `status` | Uzaktan erişim tüneli |
+| `./connect.sh` | İstemci kurulum komutları |
 
-Bilgisayarı açtığında hiçbir şey kendiliğinden başlamaz. Kullanmak istediğinde
-terminale `sparkac` yazarsın, işin bitince `sparkkapat`. Terminali kapatman
-sorun değil — sunucu systemd altında arka planda çalışmaya devam eder;
-`sparkkapat` diyene kadar açık kalır.
+HTTP servisi açılışta kendiliğinden başlıyor ama yalnızca `127.0.0.1`'i dinliyor
+— makineyi internete açan şey **tünel** ve o otomatik açılmıyor. Bu ayrım
+bilinçli: sunucunun ayakta olması bir risk değil, dışarı açık olması risk.
 
-`sparkkapat` çalışan işleri öldürmez, sadece dışarıdan erişimi keser. Arka
-plandaki bir Claude Code görevi devam eder, sonucunu bir dahaki `sparkac`'ta
-`job_list` ile görebilirsin.
+`./remote.sh stop` çalışan işleri öldürmez, sadece dışarıdan erişimi keser. Arka
+plandaki bir Claude Code görevi devam eder, sonucunu `job_list` ile görürsünüz.
+
+> Ama `systemctl --user restart pcbridge` **çalışan işleri öldürür** — işler
+> servisin cgroup'unda yaşıyor. Koddan sonra restart atacaksanız önce `job_list`.
 
 ---
 
 ## Belgeler
 
-- **[KULLANIM.md](KULLANIM.md)** — 20 aracın tamamı ve telefondan yazabileceğin
-  gerçek örnek cümleler
+- **[KULLANIM.md](KULLANIM.md)** — 33 aracın tamamı, izin haritası ve gerçek
+  örnek cümleler
 - **[GELISTIRME.md](GELISTIRME.md)** — yeni araç eklemek, ajan tanımlamak,
-  Spark'a özgü kurallar ve yaşadığımız protokol tuzakları
+  yaşadığımız protokol tuzakları (geçmiş kayıt)
 
 ## Kullanım örnekleri
 
-Telefondan Spark'a yazabileceklerin:
+Bağlandığınız ajana yazabilecekleriniz:
 
 > "pcbridge ile `~/projeler/site` klasöründe claude'a şunu yaptır: login formundaki
 > validasyon hatasını bul ve düzelt."
@@ -292,7 +287,7 @@ ihtiyacı yok.** Senin kullanıcınla kod çalıştırabilen biri `claude -p` de
 kapının arkasındakini daha kullanışlı hale getiriyor. Yine de fark gerçek ve
 bilinerek kabul edildi:
 
-| | HTTP (Spark, uzak) | stdio (yerel istemci) |
+| | HTTP (uzak) | stdio (yerel istemci) |
 |---|---|---|
 | Ağ katmanı | Tailscale Funnel | **yok** |
 | Kimlik doğrulama | OAuth 2.1 + parola | **yok** |
@@ -316,7 +311,7 @@ değil, iz bırakma.
 - Tüm yetkilendirme olayları `~/.local/state/pcbridge/audit.log` dosyasına yazılıyor.
   Ara sıra bak.
 - Şüphelenirsen: `rm ~/.local/state/pcbridge/oauth.db && systemctl --user restart pcbridge`
-  → tüm tokenlar ölür, Spark'ın yeniden yetki alması gerekir.
+  → tüm tokenlar ölür, uzak istemcilerin yeniden yetki alması gerekir.
 - Tüneli tamamen kapatmak: `sudo tailscale funnel --bg off` veya `tailscale funnel reset`.
 
 Daha sıkı istersen: `config.toml`'a bir izinli klasör listesi eklemek 20 satırlık
@@ -464,10 +459,10 @@ ve `./capture.sh` ile denemeyi kaydet.
 
 | Belirti | Bak |
 |---|---|
-| `sparkac: command not found` | `source ~/.bashrc` (veya yeni bir terminal aç) |
-| Spark "couldn't connect" diyor | `sparkac` yaptın mı? Sonra `./doctor.sh` |
+| Ajan pcbridge'i görmüyor | `./connect.sh` — Claude Code'da kayıt `-s user` kapsamında mı? |
+| Uzak istemci "couldn't connect" diyor | `./remote.sh start` yaptın mı? Sonra `./doctor.sh` |
 | Onay sayfası açılmıyor | `public_url` ile tarayıcıdaki adres birebir aynı olmalı (sonda `/` yok) |
-| Parola doğru ama kabul etmiyor | `config.toml` düzenledikten sonra `spark.sh restart` |
+| Parola doğru ama kabul etmiyor | `config.toml` düzenledikten sonra `systemctl --user restart pcbridge` |
 | Araçlar görünüyor ama çalışmıyor | `journalctl --user -u pcbridge -f` |
 | `claude: command not found` | `systemd/pcbridge.service` içindeki `PATH` satırına npm global bin dizinini ekle, sonra `./install.sh` |
 | `agy` boş sonuç dönüyor | `config.toml`'da `pty = true` olduğundan emin ol |
@@ -487,11 +482,10 @@ PCBRIDGE_TEST_PASSWORD='<parolan>' \
 ## Düşündüğün diğer yol: Hermes + Gemini API
 
 Kendi ajanını kurup Gemini API'ye bağlamak da çalışır ama farklı bir şey çözer:
-o durumda **kendi ajanını** yazmış olursun ve telefondaki Gemini uygulamasıyla
-bağlantısı olmaz — ayrı bir arayüz (Telegram botu, web sayfası) lazım olur.
-Buradaki yaklaşımın avantajı, zaten cebinde duran Gemini uygulamasının doğrudan
-giriş noktası hâline gelmesi. Dezavantajı, Spark'ın kurallarına (OAuth, onay
-istemleri, ABD/İngilizce) tabi olman.
+o durumda **kendi ajanını** yazmış olursun ve hazır bir istemciyle bağlantısı
+olmaz — ayrı bir arayüz (Telegram botu, web sayfası) lazım olur. Buradaki
+yaklaşımın avantajı, zaten kullandığın ajanların (Claude Code, Codex) doğrudan
+giriş noktası hâline gelmesi.
 
 İkisi birbirini dışlamıyor: aynı MCP sunucusuna Claude Desktop, Gemini CLI veya
 kendi ajanın da bağlanabilir — `static_token` tam olarak bunun için var:
@@ -510,9 +504,10 @@ curl -H "Authorization: Bearer <static_token>" \
 
 ```
 Pcbridge/
-├── install.sh              kurulum (venv, config, systemd, alias'lar)
+├── install.sh              kurulum (venv, config, systemd)
 ├── setup_uinput.sh         /dev/uinput izinleri — sudo, bir kez
-├── spark.sh                aç/kapa (sparkac / sparkkapat / sparkdurum)
+├── remote.sh               uzaktan erişim tüneli (start / stop / status)
+├── connect.sh              istemci kayıtları (--apply ile uygular)
 ├── run.sh                  ön planda çalıştır
 ├── doctor.sh               tanılama
 ├── config.example.toml     örnek yapılandırma

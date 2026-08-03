@@ -7,9 +7,9 @@ belirgin şekilde iyileştiriyor.
 Cümlelerin başına **"pcbridge ile"** eklemek doğru aracın seçilme olasılığını
 artırıyor. Bir süre sonra gerek kalmıyor.
 
-> Bu belge Gemini Spark ağzıyla yazıldı ve öyle kalıyor — örnekler oradan.
-> Claude Code / Codex / Claude Desktop'tan da aynı araçlar aynı şekilde
-> çağrılıyor; **tek fark ekran görüntüsünde** ve o fark 6. bölümde anlatılıyor.
+> Örnekler günlük konuşma dilinde yazıldı. Hangi ajandan bağlanırsan bağlan
+> aynı araçlar aynı şekilde çağrılıyor; **tek fark ekran görüntüsünde** ve o
+> fark 6. bölümde anlatılıyor.
 
 ---
 
@@ -22,7 +22,7 @@ pcbridge'e iki yoldan bağlanılır. Kurulum komutlarını `./connect.sh` basar.
 | **Claude Code** | `./connect.sh --apply`, ya da `claude mcp add -s user pcbridge -- <venv>/bin/python -m pcbridge.server --stdio` | görüntünün **kendisi** gelir, ajan bakar |
 | **Claude Desktop** | `./connect.sh --apply` (yedekleyip birleştirir), sonra uygulamayı **tamamen kapatıp** aç | aynı |
 | **Codex CLI** | `codex mcp add pcbridge -- <venv>/bin/python -m pcbridge.server --stdio` | **denenmedi**, aşağıya bak |
-| **Gemini Spark** | `sparkac`, sonra Connected Apps → Add a custom app | bağlantı gelir, **sen** bakarsın |
+| **Uzaktan** (telefon, başka makine) | `./remote.sh start`, sonra istemciye `public_url` + `/mcp` ver | görüntü **ve** `/shot` bağlantısı |
 
 Üç yerel kayıt da **global**: hangi dizinde çalışırsan çalış pcbridge görünür.
 Claude Code'da bunun şartı `-s user` — atlanırsa kayıt yalnızca eklendiği
@@ -30,7 +30,7 @@ dizinde geçerli olur ve başka klasörde açtığın oturum pcbridge'i **hiç g
 `claude mcp list` yine "kayıtlı" dediği için sessiz bir tuzak; `./doctor.sh`
 bu durumu ayrıca uyarıyor.
 
-İlk üçü **stdio** kullanır: tünel yok, `sparkac` gerekmez, sunucuyu istemci
+İlk üçü **stdio** kullanır: tünel yok, komut yok, sunucuyu istemci
 başlatır. Bunun bedeli var — stdio'da **parola sorulmaz**; bu komutu
 çalıştırabilen her yerel program bütün araçlara erişir. Masaüstü araçlarının
 önünde `[desktop] enabled` ve `desktop_unlock` durmaya devam ediyor,
@@ -230,13 +230,12 @@ geliyor, ajan ekrana bakıyor. Yanında metin de var (monitör, ofset, ölçek) 
 ajan "şuraya tıkla" derken onu kullanıyor. Ayrıca PNG'nin disk yolu veriliyor,
 istersen sen de açabilirsin.
 
-**Gemini Spark (HTTP):** **tıklanabilir bir bağlantı** geliyor; telefondan
-açınca ekranını görürsün. Görüntü Spark'a geçmiyor, çünkü Spark'a giden MCP
-kanalı araç sonucunda yalnızca metin taşıyor. (Gemini kör değil — kısıt kanalın.)
-Spark bu kanaldan yalnızca ofset ve ölçeği okuyor.
+**Uzaktan (HTTP):** görüntünün yanında **tıklanabilir bir bağlantı** da
+geliyor — telefondan açınca ekranını kendi gözünle görürsün.
 
-Bunu `[server] inline_images` ayarı belirliyor; varsayılan `"auto"` iki tarafı
-da doğru yapıyor, elleşmene gerek yok.
+Bunu `[server] inline_images` ayarı belirliyor; varsayılan `true`, yani her
+istemciye görüntü gider. Görüntü işleyemeyen bir istemciyle karşılaşırsan
+`false` (hiç gönderme) ya da `"auto"` (yalnızca stdio'ya gönder) yapılabilir.
 
 Bilmen gereken üç şey:
 
@@ -448,7 +447,7 @@ ya da bir işin bittiğini fark etmek için.
 | `mouse` | Fareyi hareket ettirir, tıklar, sürükler, kaydırır |
 | `keyboard` | Metin yazar (pano yoluyla) veya tuş kombinasyonu gönderir |
 | `screen_info` | Monitör tablosu, koordinat uzayı, odaktaki pencere |
-| `screen_capture` | Ekran görüntüsü alır: gören istemciye görüntünün kendisi, Spark'a 5 dakikalık bağlantı |
+| `screen_capture` | Ekran görüntüsü alır: görüntünün kendisi, uzaktan bağlıysan ayrıca 5 dakikalık bağlantı |
 | `ui_dump` | Ekrandaki düğme/menü/kutuları metin olarak listeler |
 | `ui_click` | Listedeki bir öğeye tıklar (koordinat kullanmadan) |
 | `ui_set_text` | Metin kutusunu doğrudan doldurur (klavye taklidi yok) |
@@ -494,7 +493,7 @@ ona ekran görüntüsü aldırarak (ölçüldü, 2026-08-02).
 Yukarıdaki tablo **araç kapılarını** anlatıyor; onların önünde bir de sunucuya
 ulaşma kapısı var ve o kapı taşımaya göre değişiyor:
 
-| | HTTP (Spark) | stdio (yerel istemci) |
+| | HTTP (uzak) | stdio (yerel istemci) |
 |---|---|---|
 | Ağa girmek | Tailscale gerekli | — |
 | Kimlik doğrulama | OAuth 2.1 + parola | **yok** |
@@ -526,21 +525,21 @@ Yani soru "Gemini ne yapabilir" değil, "kim Gemini'ye ulaşabilir".
 
 ## Bilmen gereken sınırlar
 
-**Yazma işlemlerinde onay çıkar.** Google, özel MCP uygulamalarında dosya
-yazma ve komut çalıştırma gibi işlemler için her seferinde onay soruyor.
-Telefonda bir onay kutusu göreceksin. Can sıkıcı ama iyi bir güvenlik ağı.
+**Yazma işlemlerinde onay çıkabilir.** Bazı istemciler (bulut tabanlı olanlar
+ve Claude Code'un varsayılan izin kipi) dosya yazma ve komut çalıştırma için
+onay soruyor. Can sıkıcı ama iyi bir güvenlik ağı.
 
-**Sunucu açık olmalı.** `sparkac` demeyi unutursan Gemini "bağlanamadım" der.
-`sparkdurum` ile bakabilirsin.
+**Yerel ajanlar için sunucu açmana gerek yok** — istemci kendi başlatıyor.
+Yalnızca uzaktan bağlanacaksan `./remote.sh start` gerekiyor.
 
 **Uzun çıktılar kırpılır.** Telefonda okunabilirlik için yanıtlar
 ~12.000 karakterle sınırlı (`config.toml` → `max_output_chars`). Daha fazlası
 lazımsa `job_output` ile parça parça iste.
 
-**Gemini bazen yanlış aracı seçer.** "Terminalde şunu çalıştır" dediğinde
+**Ajan bazen yanlış aracı seçer.** "Terminalde şunu çalıştır" dediğinde
 `shell_run` yerine `agent_run` seçebiliyor. Aracın adını doğrudan söylemek
 (`shell_run ile ...`) bunu çözüyor.
 
-**İşler sunucudan bağımsız yaşar.** `sparkkapat` desen bile arka plandaki
-Claude Code görevi devam eder. Bir dahaki açılışta `job_list` ile sonucunu
-görürsün.
+**İşler sunucudan bağımsız yaşar.** `./remote.sh stop` desen bile arka plandaki
+Claude Code görevi devam eder; `job_list` ile sonucunu görürsün. Ama
+`systemctl --user restart pcbridge` **öldürür** — işler servisin cgroup'unda.

@@ -22,7 +22,7 @@ if [ -f config.toml ]; then
   info "public_url = $PUB"
   case "$PUB" in
     https://*) pass "https kullaniliyor" ;;
-    *) fail "public_url https olmali (Spark http kabul etmiyor)" ;;
+    *) fail "public_url https olmali (uzak istemciler duz http kabul etmiyor)" ;;
   esac
   case "$PUB" in
     *DEGISTIR*) fail "public_url hala ornek deger! duzenle: gnome-text-editor $DIR/config.toml" ;;
@@ -32,21 +32,27 @@ else
   exit 1
 fi
 
-head_ "2. Servis"
+head_ "2. Servis (yalnizca UZAKTAN erisim icin)"
+# NOT: bu servis yerel istemcileri ILGILENDIRMIYOR. Claude Code / Codex /
+# Claude Desktop stdio kullaniyor ve sunucuyu kendileri baslatiyor; servis
+# kapaliyken de calisirlar. Buradaki kontroller HTTP yolu icin.
 if systemctl --user is-active --quiet pcbridge; then
-  pass "pcbridge servisi calisiyor"
+  pass "pcbridge servisi calisiyor (HTTP yolu)"
 else
-  fail "servis calismiyor — 'sparkac' yaz"
+  warn "servis kapali — yerel ajanlar yine calisir, uzaktan erisim calismaz"
+  info "acmak icin: systemctl --user start pcbridge"
 fi
 if systemctl --user is-enabled --quiet pcbridge 2>/dev/null; then
-  info "acilista otomatik basliyor (kapatmak icin: systemctl --user disable pcbridge)"
+  pass "acilista otomatik basliyor"
 else
-  pass "acilista otomatik baslamiyor (istenen davranis)"
+  warn "acilista baslamiyor — her acilista elle baslatman gerekir"
+  info "duzeltmek icin: systemctl --user enable pcbridge"
 fi
+# Tunel ayri bir karar ve BILINCLI olarak otomatik degil: servis yalnizca
+# 127.0.0.1'i dinler, makineyi INTERNETE acan sey Funnel. Acilista servis
+# baslar, tunel BASLAMAZ.
 if grep -q "alias sparkac=" "$HOME/.bashrc" 2>/dev/null; then
-  pass "sparkac / sparkkapat alias'lari kurulu"
-else
-  fail "alias'lar yok — ./install.sh calistir"
+  warn "~/.bashrc'de eski 'sparkac' alias'lari duruyor — ./install.sh temizler"
 fi
 
 head_ "3. Yerel erisim"
@@ -410,5 +416,6 @@ head_ "9. Son 15 gunluk kaydi"
 journalctl --user -u pcbridge -n 15 --no-pager 2>/dev/null | sed 's/^/  /'
 
 echo
-echo "Uzak istemciye (Spark) girilecek adres:  ${PUB:-?}${MPATH:-/mcp}"
+echo "Uzaktan baglanacak istemciye verilecek adres:  ${PUB:-?}${MPATH:-/mcp}"
+echo "  (once ./remote.sh start ile tunel acilmali)"
 echo "Yerel istemciler icin:  ./connect.sh"

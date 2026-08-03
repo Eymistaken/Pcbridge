@@ -443,7 +443,12 @@ def test_want_inline() -> None:
     import tempfile
 
     base = (ROOT / "config.example.toml").read_text(encoding="utf-8")
-    bad = base.replace('inline_images = "auto"', 'inline_images = "belki"')
+    check(
+        "config.example.toml varsayilani true",
+        "\ninline_images = true" in base,
+        "ornek dosyada `inline_images = true` satiri yok",
+    )
+    bad = base.replace("inline_images = true", 'inline_images = "belki"')
     bad = bad.replace(
         'public_url = "https://DEGISTIR.tailXXXX.ts.net"',
         'public_url = "http://localhost:8765"',
