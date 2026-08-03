@@ -714,8 +714,27 @@ def register(
     backend = inputlib.InputBackend(
         pointer_speed=cfg.desktop.pointer_speed,
         pointer_max_ms=cfg.desktop.pointer_move_max_ms,
+        hold_max_seconds=cfg.desktop.hold_max_seconds,
     )
     tree = uitreelib.UiTree()
+
+    def _held_note() -> str:
+        """Basili tutulan varsa yanitin sonuna eklenecek not.
+
+        Ajanin `release`i unutmasi sessiz kalmasin: her cagrida gorunur.
+        Zamanlayici bir sey biraktiysa o da BIR KEZ bildirilir.
+        """
+        parts: list[str] = []
+        freed = backend.take_auto_released()
+        if freed:
+            parts.append(
+                f"⚠ {cfg.desktop.hold_max_seconds} sn dolduğu için kendiliğinden "
+                f"bırakıldı: {', '.join(freed)}"
+            )
+        still = backend.held()
+        if still:
+            parts.append(f"basılı tutulan: {', '.join(still)}")
+        return ("\n· " + "\n· ".join(parts)) if parts else ""
 
     def _guard(
         tool: str,
@@ -797,10 +816,13 @@ def register(
     @mcp.tool(annotations={"title": "Stop desktop control"})
     def desktop_lock() -> str:
         """Close the desktop control permission immediately instead of waiting for
-        it to expire, and destroy the virtual keyboard/mouse devices. Use when the
-        user says they are done, or asks you to stop touching their screen."""
+        it to expire, and destroy the virtual keyboard/mouse devices. Any key or
+        mouse button still held down is released first. Use when the user says they
+        are done, or asks you to stop touching their screen."""
+        freed = backend.release_all()
         backend.close()
-        return gate.lock()
+        note = f"\n· bırakılan: {', '.join(freed)}" if freed else ""
+        return gate.lock() + note
 
     @mcp.tool(annotations={"title": "Move or click the mouse", "destructiveHint": True})
     def mouse(
@@ -973,7 +995,10 @@ def register(
             raw=raw or None,
             forced=force or None,
         )
-        return f"{done}.\nSonucu dogrulamadan bir sonraki adima gecmeyin."
+        return (
+            f"{done}.\nSonucu dogrulamadan bir sonraki adima gecmeyin."
+            + _held_note()
+        )
 
     # ------------------------------------------------------- ekran goruntusu
     @mcp.tool(annotations={"title": "Describe the screens", "readOnlyHint": True})

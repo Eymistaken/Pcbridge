@@ -77,6 +77,11 @@ MOVE_MIN_MS = 60.0
 DEFAULT_POINTER_SPEED = 5000     # px/s; 0 = isinla (eski davranis)
 DEFAULT_POINTER_MAX_MS = 500     # tek hareket bundan uzun surmez
 
+# Basili birakilan tus/dugme bu sureden sonra kendiliginden birakilir.
+# 0 = birakma. Bkz. `InputBackend` docstring'i: unutulan bir Ctrl makineyi
+# kullanilamaz hale getiriyor ve ajanin bunu gorecegi bir kanal yok.
+DEFAULT_HOLD_MAX_SECONDS = 120.0
+
 # `drag` yumusakligi AYARDAN BAGIMSIZ: tek sicrayista birakilan hareketi cogu
 # uygulama surukleme saymiyor. `pointer_speed = 0` verilse bile bu kadar ara
 # nokta uretilir.
@@ -222,8 +227,36 @@ def parse_combo(combo: str) -> list[int]:
 
 def key_name(code: int) -> str:
     """Keycode -> insana okunur ad. Bilinmeyen kod ham sayi olarak doner."""
+    if e is None:
+        return str(code)
     for name, ident in KEY_NAMES.items():
-        if e is not None and e.ecodes.get(ident) == code:
+        if e.ecodes.get(ident) == code:
+            return name
+    return str(code)
+
+
+# Dugme adlari da KEY_NAMES gibi STRING tanimlayici tutuyor: `evdev` kurulu
+# degilse modul yuklenirken `e.BTN_LEFT` okunamaz ve butun masaustu katmani
+# import edilemez hale gelir.
+BUTTON_IDENTS = {"left": "BTN_LEFT", "right": "BTN_RIGHT", "middle": "BTN_MIDDLE"}
+
+
+def button_code(button: str) -> int:
+    """Dugme adi -> kod. Bilinmeyen ad InputError."""
+    key = str(button).strip().lower()
+    ident = BUTTON_IDENTS.get(key)
+    if ident is None:
+        raise InputError(
+            f"Bilinmeyen dugme: '{button}'. Gecerli: left, right, middle"
+        )
+    return e.ecodes[ident]
+
+
+def _button_name(code: int) -> str:
+    if e is None:
+        return str(code)
+    for name, ident in BUTTON_IDENTS.items():
+        if e.ecodes.get(ident) == code:
             return name
     return str(code)
 
@@ -334,6 +367,15 @@ class InputBackend:
 
     `close()` cihazlari yok eder; bu ayni zamanda acil durdurma yoludur
     (`desktop_lock` bunu cagirir, servisin olmesi de ayni etkiyi yapar).
+
+    BASILI TUTMA
+        `key_down`/`mouse_down` ile basili birakilan her sey `_held_*`
+        kumelerinde takip edilir ve `hold_max_seconds` sonunda bir
+        zamanlayici hepsini birakir. Bu sus payi degil: `release` unutulan
+        bir Ctrl makineyi kullanilamaz hale getirir ve ajan bunu FARK ETMEZ
+        -- kendi gonderdigi tusun hala basili oldugunu gorecegi bir kanal
+        yok. Tembel kontrol (bir sonraki cagrida bak) da yetmez, cunku
+        "bir sonraki cagri" hic gelmeyebilir.
     """
 
     def __init__(
@@ -341,6 +383,7 @@ class InputBackend:
         settle_seconds: float = SETTLE_SECONDS,
         pointer_speed: float = DEFAULT_POINTER_SPEED,
         pointer_max_ms: float = DEFAULT_POINTER_MAX_MS,
+        hold_max_seconds: float = DEFAULT_HOLD_MAX_SECONDS,
     ) -> None:
         self._kbd: "UInput | None" = None
         self._ptr: "UInput | None" = None
@@ -349,6 +392,14 @@ class InputBackend:
         self._settle = settle_seconds
         self._speed = float(pointer_speed)
         self._max_ms = float(pointer_max_ms)
+        self._hold_max = float(hold_max_seconds)
+        self._held_keys: set[int] = set()
+        self._held_buttons: set[int] = set()
+        self._timer: "threading.Timer | None" = None
+        self._lock = threading.RLock()
+        # Zamanlayici bir sey biraktiysa burada durur; bir sonraki arac
+        # cagrisi bunu kullaniciya bildirsin diye (sessizce olmasin).
+        self.auto_released: list[str] = []
 
     # ------------------------------------------------------------- yasam dongu
     def available(self) -> tuple[bool, str]:
@@ -453,6 +504,11 @@ class InputBackend:
         return self._ptr
 
     def close(self) -> None:
+        # Once ACIKCA birak. Cihaz yok edilince kernel'in basili tuslari
+        # birakip birakmadigi bu makinede OLCULEMEDI (cihazin event node'u
+        # destroy ile birlikte kayboluyor, olay okunamiyor). Olculmemis bir
+        # davranisa guvenmek yerine kendimiz birakiyoruz -- maliyeti yok.
+        self.release_all()
         for dev in (self._kbd, self._ptr):
             try:
                 if dev is not None:
@@ -461,6 +517,75 @@ class InputBackend:
                 pass
         self._kbd = self._ptr = None
         self._canvas = self._pos = None
+
+    # -------------------------------------------------------- basili tutma
+    def held(self) -> list[str]:
+        """Su an basili tutulan tus ve dugmelerin adlari."""
+        with self._lock:
+            names = [key_name(c) for c in sorted(self._held_keys)]
+            names += [_button_name(c) for c in sorted(self._held_buttons)]
+        return names
+
+    def release_all(self) -> list[str]:
+        """Basili olan her seyi birak. Birakilanlarin adini doner.
+
+        Cihazlar kapaliysa bir sey yapmaz: cihaz yoksa basili tus da yok.
+        """
+        with self._lock:
+            self._cancel_timer()
+            freed: list[str] = []
+            if self._kbd is not None and self._held_keys:
+                for code in sorted(self._held_keys, reverse=True):
+                    try:
+                        self._kbd.write(e.EV_KEY, code, 0)
+                        freed.append(key_name(code))
+                    except Exception:  # noqa: BLE001
+                        pass
+                try:
+                    self._kbd.syn()
+                except Exception:  # noqa: BLE001
+                    pass
+            if self._ptr is not None and self._held_buttons:
+                for code in sorted(self._held_buttons):
+                    try:
+                        self._ptr.write(e.EV_KEY, code, 0)
+                        freed.append(_button_name(code))
+                    except Exception:  # noqa: BLE001
+                        pass
+                try:
+                    self._ptr.syn()
+                except Exception:  # noqa: BLE001
+                    pass
+            self._held_keys.clear()
+            self._held_buttons.clear()
+        return freed
+
+    def _cancel_timer(self) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+
+    def _arm_timer(self) -> None:
+        """Basili bir sey varsa geri sayimi (yeniden) kur, yoksa iptal et."""
+        self._cancel_timer()
+        if self._hold_max <= 0:
+            return
+        if not (self._held_keys or self._held_buttons):
+            return
+        self._timer = threading.Timer(self._hold_max, self._auto_release)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def _auto_release(self) -> None:
+        freed = self.release_all()
+        if freed:
+            # Sessizce olmasin: bir sonraki arac cagrisi bunu bildirir.
+            self.auto_released = freed
+
+    def take_auto_released(self) -> list[str]:
+        """Zamanlayicinin biraktiklarini OKU VE TEMIZLE (bir kez bildirilir)."""
+        freed, self.auto_released = self.auto_released, []
+        return freed
 
     @property
     def position(self) -> tuple[int, int] | None:
@@ -512,21 +637,26 @@ class InputBackend:
         return (cx, cy)
 
     def _button(self, button: str) -> int:
-        key = str(button).strip().lower()
-        codes = {"left": e.BTN_LEFT, "right": e.BTN_RIGHT, "middle": e.BTN_MIDDLE}
-        if key not in codes:
-            raise InputError(f"Bilinmeyen dugme: '{button}'. Gecerli: left, right, middle")
-        return codes[key]
+        return button_code(button)
 
     def mouse_down(self, button: str = "left") -> None:
+        """Dugmeyi basili tut. `mouse_up` gelmezse zamanlayici birakir."""
         ptr = self._pointer()
-        ptr.write(e.EV_KEY, self._button(button), 1)
+        code = self._button(button)
+        ptr.write(e.EV_KEY, code, 1)
         ptr.syn()
+        with self._lock:
+            self._held_buttons.add(code)
+            self._arm_timer()
 
     def mouse_up(self, button: str = "left") -> None:
         ptr = self._pointer()
-        ptr.write(e.EV_KEY, self._button(button), 0)
+        code = self._button(button)
+        ptr.write(e.EV_KEY, code, 0)
         ptr.syn()
+        with self._lock:
+            self._held_buttons.discard(code)
+            self._arm_timer()
 
     def click(self, button: str = "left", count: int = 1) -> None:
         if count < 1 or count > 3:
@@ -579,28 +709,48 @@ class InputBackend:
 
     # ----------------------------------------------------------------- klavye
     def key(self, combo: str) -> None:
-        """'ctrl+shift+t' gibi bir kombinasyonu bas ve birak."""
+        """'ctrl+shift+t' gibi bir kombinasyonu bas ve birak.
+
+        `hold` ile basili tutulan bir tus kombinasyonda da geciyorsa BIRAKILMAZ:
+        yoksa `hold("shift")` + `key("shift+home")` dizisi shift'i dusurur ve
+        takip kumesi gercekle ayrisirdi (`held()` yalan soylerdi).
+        """
         codes = parse_combo(combo)
         kbd = self._keyboard()
         for c in codes:
             kbd.write(e.EV_KEY, c, 1)
         kbd.syn()
         time.sleep(0.03)
+        with self._lock:
+            held = set(self._held_keys)
         for c in reversed(codes):
+            if c in held:
+                continue
             kbd.write(e.EV_KEY, c, 0)
         kbd.syn()
 
     def key_down(self, combo: str) -> None:
+        """Tus(lari) basili tut. Kac tus oldugu onemsiz: sanal cihazda gercek
+        klavyelerin "ghosting" kisiti yok. `key_up` gelmezse zamanlayici
+        birakir (bkz. sinif docstring'i)."""
         kbd = self._keyboard()
-        for c in parse_combo(combo):
+        codes = parse_combo(combo)
+        for c in codes:
             kbd.write(e.EV_KEY, c, 1)
         kbd.syn()
+        with self._lock:
+            self._held_keys.update(codes)
+            self._arm_timer()
 
     def key_up(self, combo: str) -> None:
         kbd = self._keyboard()
-        for c in reversed(parse_combo(combo)):
+        codes = parse_combo(combo)
+        for c in reversed(codes):
             kbd.write(e.EV_KEY, c, 0)
         kbd.syn()
+        with self._lock:
+            self._held_keys.difference_update(codes)
+            self._arm_timer()
 
     # ------------------------------------------------------------ metin girisi
     def type_text(
