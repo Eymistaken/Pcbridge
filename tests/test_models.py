@@ -27,6 +27,7 @@ sys.path.insert(0, str(ROOT))
 from pcbridge import jobs as J  # noqa: E402
 from pcbridge import models as M  # noqa: E402
 from pcbridge.config import AgentSpec, Config, load_config  # noqa: E402
+from pcbridge.tools import _want_inline  # noqa: E402
 
 IN_PYTEST = "pytest" in sys.modules
 ok_count = 0
@@ -406,6 +407,134 @@ def test_claude_stream_parser() -> None:
     check("basarisiz sonuc is_error yapiyor", p3["is_error"] is True, str(p3["is_error"]))
 
 
+def test_want_inline() -> None:
+    """`_want_inline` — goruntu blogu gonderilsin mi (faz H).
+
+    `models.resolve` gibi SAF: sunucu da, ekran da, istemci de gerekmiyor.
+    Buradaki asil kazanim "auto" satiri: Spark HTTP'den geliyor ve goruntu
+    blogu gelince BOZULUYOR, o yuzden HTTP'de kapali kalmasi bir tercih degil
+    sart. Bu tablo bozulursa Spark sessizce calismaz hale gelir.
+    """
+    section("12. inline_images cozumu")
+
+    table = [
+        # (ayar, tasima, beklenen)
+        ("auto", "http", False),
+        ("auto", "stdio", True),
+        ("true", "http", True),
+        ("true", "stdio", True),
+        ("false", "http", False),
+        ("false", "stdio", False),
+    ]
+    for setting, transport, want in table:
+        got = _want_inline(setting, transport)
+        check(f"{setting} + {transport} -> {want}", got is want, str(got))
+
+    # config.py degeri kucultup veriyor ama arac katmani da saglam olsun:
+    # TOML'daki `true` bool'u str()'den "True" olarak geciyor.
+    check("buyuk harf tolere ediliyor", _want_inline("AUTO", "stdio") is True)
+    check("TOML bool'u ('True') tanınıyor", _want_inline("True", "http") is True)
+    # Bilinmeyen deger config.py'de zaten SystemExit; burada "auto" gibi
+    # davranmasi guvenli taraf (goruntu gorebilen istemciye gonder, digerine yok).
+    check("bilinmeyen deger auto gibi", _want_inline("saçma", "http") is False)
+    check("bos deger auto gibi", _want_inline("", "stdio") is True)
+
+    # Yukleme dogrulamasi: gecersiz deger servisi ACILISTA durdurmali.
+    import tempfile
+
+    base = (ROOT / "config.example.toml").read_text(encoding="utf-8")
+    bad = base.replace('inline_images = "auto"', 'inline_images = "belki"')
+    bad = bad.replace(
+        'public_url = "https://DEGISTIR.tailXXXX.ts.net"',
+        'public_url = "http://localhost:8765"',
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as fh:
+        fh.write(bad)
+        bad_path = fh.name
+    try:
+        load_config(bad_path)
+        check("gecersiz inline_images yuklemede durduruyor", False, "hata vermedi")
+    except SystemExit as exc:
+        check(
+            "gecersiz inline_images yuklemede durduruyor",
+            "inline_images" in str(exc),
+            str(exc)[:80],
+        )
+    finally:
+        Path(bad_path).unlink(missing_ok=True)
+
+
+def test_computer_task_consistency() -> None:
+    """`computer_task` uclusu (ajan, model, effort) birbirine ait mi (faz H).
+
+    Gercek bir hatanin karsiligi: `computer_task(agent="claude")` cagrisi,
+    yapilandirilan model agy'ye ait oldugu icin cozumlemede patliyordu.
+    """
+    section("13. computer_task ajan/model tutarliligi")
+
+    path = ROOT / "config.toml"
+    if not path.exists():
+        print("  (config.toml yok, atlandi)")
+        return
+    cfg = load_config(str(path))
+    d = cfg.desktop
+
+    check("varsayilan surucu claude", d.computer_task_agent == "claude",
+          d.computer_task_agent)
+
+    def sim(agent=None, model=None, effort=None):
+        """tools.computer_task'teki cozumleme mantiginin aynisi."""
+        changed = bool(agent) and agent.strip() != d.computer_task_agent
+        return M.resolve(
+            cfg,
+            agent=agent or d.computer_task_agent,
+            model=model or (None if changed else d.computer_task_model),
+            effort=effort or (None if changed else d.computer_task_effort),
+        )
+
+    res = sim()
+    check("ajansiz cagri cozuluyor", res.ok, res.error or "")
+    res = sim(agent="claude")
+    check("agent='claude' cozuluyor", res.ok, res.error or "")
+    # ESKIDEN BURASI PATLIYORDU: config'in modeli (agy'ninki) claude'a tasiniyordu.
+    res = sim(agent="antigravity")
+    check("agent='antigravity' cozuluyor", res.ok, res.error or "")
+    check(
+        "baska ajana gecince o ajanin modeli seciliyor",
+        res.ok and res.model == "gemini-3.6-flash",
+        str(res.model),
+    )
+    res = sim(agent="claude", model="opus", effort="xhigh")
+    check("acik model+effort geciyor",
+          res.ok and res.model == "opus" and res.effort == "xhigh",
+          f"{res.model}/{res.effort}" if res.ok else (res.error or ""))
+
+    # Yapilandirma tuzagi: ajan claude, model agy'ninki -> YUKLEMEDE patlamali.
+    import tempfile
+
+    raw = path.read_text(encoding="utf-8")
+    bad = raw.replace(
+        "[desktop]",
+        '[desktop]\ncomputer_task_agent = "claude"\n'
+        'computer_task_model = "gemini-3.6-flash"',
+        1,
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as fh:
+        fh.write(bad)
+        bad_path = fh.name
+    try:
+        load_config(bad_path)
+        check("tutarsiz uclu yuklemede durduruyor", False, "hata vermedi")
+    except SystemExit as exc:
+        check(
+            "tutarsiz uclu yuklemede durduruyor",
+            "computer_task_model" in str(exc),
+            str(exc)[:90],
+        )
+    finally:
+        Path(bad_path).unlink(missing_ok=True)
+
+
 def main() -> int:
     for fn in (
         test_normalize,
@@ -419,6 +548,8 @@ def main() -> int:
         test_backward_compatible,
         test_live_config_policy,
         test_claude_stream_parser,
+        test_want_inline,
+        test_computer_task_consistency,
     ):
         fn()
     print(f"\n\033[1mSonuc:\033[0m {ok_count} gecti, {fail_count} kaldi")

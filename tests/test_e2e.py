@@ -24,6 +24,7 @@ import base64
 import hashlib
 import json
 import os
+import pathlib
 import secrets
 import sys
 import time
@@ -64,6 +65,136 @@ def skip(name: str, why: str = "") -> None:
 
 def section(title: str) -> None:
     print(f"\n\033[1m{title}\033[0m")
+
+
+def _stdio_session(timeout: float = 45.0):
+    """stdio sunucusunu baslat, initialize et, (gonder, oku, kapat) ver.
+
+    YANIT SATIR SATIR OKUNUYOR. `communicate()` ile hepsini birden gondermek
+    stdin'i hemen kapatiyor, sunucu EOF gorup `tools/list` yanitini YAZMADAN
+    kapaniyor ve test "sunucu bozuk" diyor -- bu tam olarak yasandi, kalibi
+    boyle sabitledik.
+    """
+    import subprocess
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    proc = subprocess.Popen(
+        [str(root / ".venv/bin/python"), "-m", "pcbridge.server", "--stdio"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        # Banner ve loglar stderr'e gidiyor; testin isine yaramiyor ama
+        # stdout'a KARISMAMALARI kontrol edilen seylerden biri.
+        stderr=subprocess.DEVNULL,
+        text=True,
+        bufsize=1,
+        # Kasten repo DISINDA: venv'deki pcbridge.pth sayesinde modul her
+        # dizinden bulunmali. Istemciler sunucuyu kendi cwd'lerinden baslatiyor.
+        cwd="/",
+    )
+
+    def send(msg: dict) -> None:
+        proc.stdin.write(json.dumps(msg) + "\n")
+        proc.stdin.flush()
+
+    def read_id(want: int) -> dict | None:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            line = proc.stdout.readline()
+            if not line:
+                return None
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                # stdout'a JSON olmayan bir sey dustu: kanal kirli demektir.
+                return {"_junk": line}
+            if msg.get("id") == want:
+                return msg
+        return None
+
+    def close() -> None:
+        try:
+            proc.stdin.close()
+            proc.wait(timeout=10)
+        except Exception:
+            proc.kill()
+
+    send({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                   "clientInfo": {"name": "test_e2e", "version": "0"}},
+    })
+    first = read_id(1)
+    send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    return proc, send, read_id, close, first
+
+
+def _test_stdio() -> None:
+    """stdio ile baslayan sunucu: el sikismasi, arac listesi, sema.
+
+    Bu bolum SUNUCUNUN AYAKTA OLMASINI GEREKTIRMEZ -- kendi surecini baslatiyor.
+    """
+    proc, send, read_id, close, first = _stdio_session()
+    try:
+        if first is None or "_junk" in first:
+            check("stdio initialize yanit veriyor", False,
+                  first.get("_junk", "yanit yok")[:80] if first else "yanit yok")
+            return
+        info = first.get("result", {}).get("serverInfo", {})
+        check("stdio initialize yanit veriyor", info.get("name") == "pcbridge",
+              str(info))
+        # OAuth'suz calisiyor: HTTP'de bu istek 401 alirdi.
+        check("stdio'da OAuth istenmiyor", "error" not in first,
+              str(first.get("error")))
+
+        send({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        res = read_id(2)
+        if res is None or "_junk" in res:
+            check("stdio tools/list calisiyor", False,
+                  res.get("_junk", "yanit yok")[:80] if res else "yanit yok")
+            return
+        tools = res.get("result", {}).get("tools", [])
+        check("stdio tools/list calisiyor", len(tools) >= 30, f"{len(tools)} arac")
+        names = {t["name"] for t in tools}
+        for name in ("screen_capture", "computer_batch", "agent_run", "ui_dump"):
+            check(f"stdio araci var: {name}", name in names)
+
+        # Goruntu donebilen araclarda outputSchema OLMAMALI: FastMCP sema
+        # uretirse cagri "outputSchema defined but no structured output" ile
+        # patliyor (H0'da fiilen uretildi).
+        for name in ("screen_capture", "computer_batch"):
+            tool = next((t for t in tools if t["name"] == name), {})
+            check(f"{name} sema uretmiyor (goruntu donebilsin)",
+                  tool.get("outputSchema") is None, str(tool.get("outputSchema")))
+
+        # Arac aciklamalari Ingilizce olmali: istemci arac secerken bunlari
+        # okuyor. Turkce karakter kacaksa yakala.
+        tr = set("çğıöşüÇĞİÖŞÜ")
+        bad = [t["name"] for t in tools if tr & set(t.get("description", ""))]
+        check("arac aciklamalari Ingilizce", not bad, ", ".join(bad[:4]))
+    finally:
+        close()
+
+    check("stdio surec temiz kapandi", proc.returncode == 0, str(proc.returncode))
+
+
+def _test_inline_setting() -> None:
+    """`inline_images` iki tasimada ne yapiyor (saf cozum + canli config)."""
+    root = pathlib.Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(root))
+    from pcbridge.config import load_config as _load  # noqa: PLC0415
+    from pcbridge.tools import _want_inline as _wi  # noqa: PLC0415
+
+    cfg = _load()
+    check("inline_images gecerli deger", cfg.inline_images in ("auto", "true", "false"),
+          cfg.inline_images)
+    # SPARK KORUMASI: HTTP'de goruntu blogu gitmemeli, yoksa Spark bozulur.
+    if cfg.inline_images == "auto":
+        check("auto: HTTP'de goruntu KAPALI (Spark korunuyor)",
+              _wi(cfg.inline_images, "http") is False)
+        check("auto: stdio'da goruntu ACIK",
+              _wi(cfg.inline_images, "stdio") is True)
+    else:
+        skip("inline_images auto degil", f"deger: {cfg.inline_images}")
 
 
 def main() -> int:
@@ -390,16 +521,35 @@ def main() -> int:
             ann.get("destructiveHint") is not True,
             str(ann),
         )
-    cap_desc = str(by_name.get("screen_capture", {}).get("description", ""))
+    # Docstring'ler satir kaydiriliyor: "the global\ncoordinate space" aranan
+    # ifadeyi ikiye boluyor ve kontrol bosuna kaliyor. Bosluklari tekillestir.
+    cap_desc = " ".join(
+        str(by_name.get("screen_capture", {}).get("description", "")).split()
+    )
     check(
         "screen_capture aciklamasi 'ne zaman kullanilir' iceriyor",
         "Use when" in cap_desc,
         cap_desc[:160],
     )
+    # FAZ H'DE DEGISTI. Eskiden aciklama "goruntuyu goremezsin, baglanti
+    # kullanici icin" diyordu -- Spark'a giden kanal metin-only oldugu icin
+    # DOGRUYDU. Claude Code goruyor (olculdu), yani o cumle artik yanlis olurdu.
+    # Yerine gecen sart: aciklama iki durumu da anlatsin ve koordinat
+    # donusumunun goruntuyle birlikte geldigini soylesin.
     check(
-        "screen_capture aciklamasi goruntuyu modelin GOREMEDIGINI soyluyor",
-        "cannot see" in cap_desc,
+        "screen_capture aciklamasi goren/gormeyen istemciyi ayiriyor",
+        "can display images" in cap_desc,
         cap_desc[:200],
+    )
+    check(
+        "screen_capture aciklamasi koordinat uzayini soyluyor",
+        "global coordinate space" in cap_desc,
+        cap_desc[:260],
+    )
+    check(
+        "screen_capture aciklamasi once ui_dump'i oneriyor",
+        "ui_dump" in cap_desc,
+        cap_desc[:400],
     )
 
     # Erisilebilirlik araclari: ui_dump okuma, digerleri gercek eylem.
@@ -480,13 +630,16 @@ def main() -> int:
     check("computer_task destructiveHint isaretli",
           (ct.get("annotations") or {}).get("destructiveHint") is True,
           str(ct.get("annotations")))
-    ct_desc = str(ct.get("description", ""))
+    ct_desc = " ".join(str(ct.get("description", "")).split())
     check("computer_task aciklamasi 'ne zaman kullanilir' iceriyor",
-          "Use this when" in ct_desc, ct_desc[:200])
-    # Ucuz yolu once denemesi soylensin: computer_task pahali (ayri ajan
-    # oturumu, ekran goruntusu basina ~40k jeton).
+          "Reach for this one when" in ct_desc, ct_desc[:200])
+    # Ucuz yolu once denemesi soylensin. FAZ H: gerekce degisti -- artik
+    # "sen goremiyorsun" degil, "goruyorsan buna gerek yok". Aciklama gorebilen
+    # istemciye bunu ACIKCA soylemeli, yoksa gereksiz yere ajan oturumu acar.
     check("computer_task aciklamasi once computer_batch'i oneriyor",
           "computer_batch" in ct_desc, ct_desc[:400])
+    check("computer_task aciklamasi goren istemciye gerekmedigini soyluyor",
+          "do NOT need this" in ct_desc, ct_desc[:400])
     check("computer_task aciklamasi job_status'u soyluyor",
           "job_status" in ct_desc, ct_desc[:400])
     # `max_steps` DISARIDAN ZORLANAMAZ; aciklama garanti ima etmemeli.
@@ -809,6 +962,12 @@ def main() -> int:
         all(not s.endswith("/") for s in pr.get("authorization_servers", [])),
         str(pr.get("authorization_servers")),
     )
+
+    section("18. stdio tasimasi (faz H)")
+    _test_stdio()
+
+    section("19. inline_images (faz H)")
+    _test_inline_setting()
 
     tail = f", {skip_count} atlandi" if skip_count else ""
     print(f"\n\033[1mSonuc: {ok_count} basarili, {fail_count} basarisiz{tail}\033[0m")
