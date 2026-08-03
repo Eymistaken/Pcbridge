@@ -308,7 +308,50 @@ masaüstünün kendi aramasından geçmek zorunda (AT-SPI'nin pencere öne alma
 
 ---
 
-## 9. Makine durumu ve bildirim
+## 9. Ekrana bakması gereken işler — `computer_task`
+
+Buraya kadarki her şey Gemini'nin **metin** dünyasında çalışıyor: `ui_dump`
+ekranı metne çeviriyor, `ui_click` düğmeye koordinat kullanmadan basıyor. Ama
+bu zincirin bir kör noktası var — erişilebilirlik ağacını **yayınlamayan**
+uygulamalar. Ölçüldü: Vesktop'ta (Discord) `ui_dump` **sıfır düğüm** döndürüyor.
+VS Code, Discord, oyunlar, tuval üzerine çizen her şey aynı durumda.
+
+`computer_task` bu işi makinendeki bir ajana veriyor — çünkü o ajan **PNG
+okuyabiliyor**, yani gözü var:
+
+```
+"Vesktop'u aç, oneaura'ya 'geliyorum' yaz"
+```
+
+Arka planda ajan şunu döndürüyor: `pcb-shot` ile ekranı çeker → PNG'ye bakar →
+`pcb-do` ile tıklar → tekrar bakıp doğrular. Gemini görüntüyü hiç görmez.
+
+Bir `job_id` döner, `job_status` ile izlersin. GUI işi dakikalar sürebilir.
+
+```
+computer_task(goal="...", app="Vesktop", max_steps=25)
+```
+
+- `app` verirsen uygulama **sunucu tarafında** açılıp öne alınır; ajan bilinen
+  bir ekranla başlar
+- `max_steps` bir **bütçe**, garanti değil — dışarıdan zorlanamaz. Arkasında
+  işin `timeout`'u ve `pcb-do`'nun hız sınırı var
+- Ortasında durdurmak için **`desktop_lock`**: izin diskten okunduğu için
+  ajanın elleri bir sonraki eylemde durur. `job_cancel` de işi bitirir
+
+**Ne zaman kullanmamalı:** hangi düğmeye basacağını zaten biliyorsan
+`computer_batch` çok daha ucuz. `computer_task` ayrı bir ajan oturumu açıyor ve
+her ekran görüntüsü ~40 bin jeton.
+
+Ajanın her tıklaması `audit.log`'a görev kimliğiyle yazılıyor:
+
+```bash
+grep '"job": "20260803-100033-b46bae"' ~/.local/state/pcbridge/audit.log
+```
+
+---
+
+## 10. Makine durumu ve bildirim
 
 > bilgisayarımın durumunu göster
 
@@ -358,50 +401,7 @@ ya da bir işin bittiğini fark etmek için.
 | `computer_batch` | Bir eylem listesini tek onayda sırayla çalıştırır |
 | `window_list` | Açık pencereler, odaktaki işaretli |
 | `window_focus` | Bir pencereyi öne getirir |
-| `computer_task` | Görsel işi makinendeki bir ajana devreder (aşağıda) |
-
----
-
-## 9. Ekrana bakması gereken işler — `computer_task`
-
-Buraya kadarki her şey Gemini'nin **metin** dünyasında çalışıyor: `ui_dump`
-ekranı metne çeviriyor, `ui_click` düğmeye koordinat kullanmadan basıyor. Ama
-bu zincirin bir kör noktası var — erişilebilirlik ağacını **yayınlamayan**
-uygulamalar. Ölçüldü: Vesktop'ta (Discord) `ui_dump` **sıfır düğüm** döndürüyor.
-VS Code, Discord, oyunlar, tuval üzerine çizen her şey aynı durumda.
-
-`computer_task` bu işi makinendeki bir ajana veriyor — çünkü o ajan **PNG
-okuyabiliyor**, yani gözü var:
-
-```
-"Vesktop'u aç, oneaura'ya 'geliyorum' yaz"
-```
-
-Arka planda ajan şunu döndürüyor: `pcb-shot` ile ekranı çeker → PNG'ye bakar →
-`pcb-do` ile tıklar → tekrar bakıp doğrular. Gemini görüntüyü hiç görmez.
-
-Bir `job_id` döner, `job_status` ile izlersin. GUI işi dakikalar sürebilir.
-
-```
-computer_task(goal="...", app="Vesktop", max_steps=25)
-```
-
-- `app` verirsen uygulama **sunucu tarafında** açılıp öne alınır; ajan bilinen
-  bir ekranla başlar
-- `max_steps` bir **bütçe**, garanti değil — dışarıdan zorlanamaz. Arkasında
-  işin `timeout`'u ve `pcb-do`'nun hız sınırı var
-- Ortasında durdurmak için **`desktop_lock`**: izin diskten okunduğu için
-  ajanın elleri bir sonraki eylemde durur. `job_cancel` de işi bitirir
-
-**Ne zaman kullanmamalı:** hangi düğmeye basacağını zaten biliyorsan
-`computer_batch` çok daha ucuz. `computer_task` ayrı bir ajan oturumu açıyor ve
-her ekran görüntüsü ~40 bin jeton.
-
-Ajanın her tıklaması `audit.log`'a görev kimliğiyle yazılıyor:
-
-```bash
-grep '"job": "20260803-100033-b46bae"' ~/.local/state/pcbridge/audit.log
-```
+| `computer_task` | Görsel işi makinendeki bir ajana devreder (9. bölüm) |
 
 ---
 

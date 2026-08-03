@@ -1,5 +1,32 @@
 # UYGULAMA.md — computer use'u pcbridge'e ekleme rehberi
 
+> # ⛔ BU DOSYA ARTIK ŞARTNAME DEĞİL — TARİHÎ KAYIT
+>
+> A–F bölümleri **tamamlandı** (`93e3be7`). Bu dosya o işin *başlangıçtaki
+> niyetini* saklıyor; **uygulanacak talimat listesi değil.** Güncel yönerge
+> `YAPILACAKLAR.md`'de ve o dosya kendi kendine yetiyor.
+>
+> **Buradaki bazı talimatlar ölçümle ÇÜRÜTÜLDÜ.** Uygulamadan önce bil:
+>
+> | bu dosya diyor ki | gerçek (ölçüldü) |
+> |---|---|
+> | "`Shell.Introspect.GetWindows()` deneyeceksin" (F bölümü) | **Kapalı** — GNOME 46'da "Access denied". Pencere listesi AT-SPI'dan geliyor |
+> | `pcb-shot` PNG'leri `/tmp/pcb/`'ye yazar | `$XDG_RUNTIME_DIR/pcbridge/shots` (mod 700). `/tmp` 775, ekran görüntüsü en gizlilik-hassas çıktı |
+> | `computer_task` varsayılanı `opus` + `high` | Değer koda gömülmedi, `config.toml`'a taşındı (`[desktop] computer_task_*`) |
+> | `ocr.py` + tesseract + `screen_find_text` | **Hiç yazılmadı**, bilinçli olarak ertelendi — AT-SPI'ın kör olduğu yerler için `computer_task` daha iyi cevap |
+> | `computer_batch` 110 sn'yi aşarsa job'a çevir | Job'a devir **yapılmadı**; `jm.start()` ayrı süreç istiyor. Yerine kısmi çalıştırma + rapor |
+> | `Component.grab_focus` ile pencere öne alma | **Ölü** — GTK'da hata, Electron'da `False`. Tek yol GNOME araması (~6,5 sn) |
+>
+> Ayrıca **temel varsayımı değişti**: bu dosya "Gemini görsel göremiyor, o yüzden
+> her şeyi metne çevir" üzerine kurulu. Sınır Gemini'nin *kanalıydı*; Claude Code
+> ve Codex'te o kısıt yok, MCP görüntü taşıyabiliyor. `YAPILACAKLAR.md`'deki H
+> bölümü tam olarak bunu ele alıyor.
+>
+> Ölçüm sonuçlarının tamamı `PLAN.md`'de ("Faz N sonuçları" başlıkları).
+> Çelişki görürsen **ölçüm kazanır**, bu dosya değil.
+
+---
+
 Bu dosya sana **ne inşa edeceğini ve neden** anlatıyor. Yapılacaklar listesini
 kendin çıkar; burada kutucuk yok, çünkü işin şeklini okuduktan sonra kendi
 sıralaman benim tahminimden iyi olacak.
