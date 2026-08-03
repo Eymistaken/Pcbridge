@@ -1,4 +1,6 @@
 config.toml
+config.toml.*
+*.yedek-*
 .venv/
 __pycache__/
 *.pyc
