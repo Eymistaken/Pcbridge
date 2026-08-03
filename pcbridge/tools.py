@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Annotated, Any
@@ -753,18 +754,38 @@ def register(
                 "Ekran görüntüsü gnome-screenshot ile alınacak — her çekimde "
                 "beyaz flaş ve ses olur."
             )
+        _arm_screencast_timer()
         return (
             "📷 Ekran yayını açık: görüntüler sessizce alınacak (flaş yok). "
             "Üst çubuktaki paylaşım göstergesi izin kapanınca kaybolur."
         )
 
-    def _close_screencast_if_locked() -> None:
-        """Izin suresi dolduysa yayini da kapat.
+    # Izin suresi dolunca yayini kapatan zamanlayici. Tembel kontrol (bir
+    # sonraki arac cagrisinda bak) TEK BASINA YETMEZ: cagri hic gelmeyebilir
+    # ve o zaman ust cubuktaki paylasim gostergesi izin kapandigi halde
+    # durmaya devam eder -- yani kullaniciya YALAN soyler. Gosterge bu
+    # projede "ajan su an masaustune erisebiliyor" demek; yanlis olmamali.
+    _sc_timer: dict[str, "threading.Timer | None"] = {"t": None}
 
-        `SafetyGate` sureyi diskte tutuyor ve kendiliginden bir olay
-        uretmiyor; yayinin kapanmasi icin birinin FARK ETMESI gerek. Her
-        masaustu cagrisinin basinda bakiyoruz -- boylece gosterge izinle
-        birlikte sonuyor.
+    def _arm_screencast_timer() -> None:
+        eski = _sc_timer["t"]
+        if eski is not None:
+            eski.cancel()
+        _sc_timer["t"] = None
+        kalan = gate.remaining_seconds()
+        if kalan <= 0:
+            return
+        # +2 sn: kapinin kendi sure hesabiyla yarismayalim.
+        timer = threading.Timer(kalan + 2, _close_screencast_if_locked)
+        timer.daemon = True
+        timer.start()
+        _sc_timer["t"] = timer
+
+    def _close_screencast_if_locked() -> None:
+        """Izin kapandiysa yayini da kapat.
+
+        Iki yerden cagriliyor: her masaustu cagrisinin basinda (ucuz kontrol)
+        ve izin suresi dolunca zamanlayicidan (cagri hic gelmezse diye).
         """
         if screencast.is_open() and not gate.is_unlocked():
             screencast.close()
@@ -875,6 +896,10 @@ def register(
         freed = backend.release_all()
         backend.close()
         yayin = screencast.is_open()
+        timer = _sc_timer["t"]
+        if timer is not None:
+            timer.cancel()
+            _sc_timer["t"] = None
         screencast.close()
         note = f"\n· bırakılan: {', '.join(freed)}" if freed else ""
         if yayin:
