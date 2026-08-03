@@ -118,10 +118,10 @@ if command -v codex >/dev/null; then
   cmd "codex mcp add pcbridge --url $MCP_URL"
   cmd "codex mcp login pcbridge"
   echo
-  warn "Codex tarafi BU MAKINEDE DENENMEDI. Yukaridaki komutlar yapilandirma"
-  dim "dosyasina dogru yaziyor (codex mcp get pcbridge ile dogrulanabilir), ama"
-  dim "gercek bir oturum acilip araclarin geldigi ve GORUNTU BLOGUNUN islendigi"
-  dim "olculemedi — bu makinede Codex aboneligi yok. Deneyen sonucu bildirsin."
+  dim "Codex 2026-08-03'te BAGLANDI ve araclari cagirdi (olculdu: desktop_unlock,"
+  dim "computer_task, computer_batch audit.log'da). Henuz olculmeyen tek sey"
+  dim "GORUNTU BLOGUNU isleyip islemedigi -- o denemede gorsel isi computer_task"
+  dim "ile claude'a devretti, screen_capture hic cagirmadi."
 else
   warn "codex PATH'te yok"
 fi

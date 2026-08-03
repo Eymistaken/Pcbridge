@@ -20,6 +20,7 @@ bagimsiz kalir.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import time
@@ -1571,6 +1572,88 @@ def test_computer_task_prompt() -> None:
     check("hazirlik yoksa satir da yok", "hazirlandi" not in p2)
 
 
+def test_session_env() -> None:
+    """Oturum ortami onarimi (`desktop/session.py`).
+
+    GERCEK BIR ARIZANIN karsiligi: Codex'in baslattigi pcbridge surecinde
+    `DBUS_SESSION_BUS_ADDRESS` genisletilmemis bir literal (`"$DBUS_..."`)
+    olarak geliyordu; `busctl --user` baglanamiyor, monitor tablosu okunamiyor
+    ve masaustu araclarinin TAMAMI cokuyordu.
+
+    Testler duz sozluk uzerinde kosuyor -- `os.environ`'a dokunulmuyor.
+    """
+    from pcbridge.desktop import session as SESS
+
+    section("37. Oturum ortami onarimi")
+
+    uid = os.getuid()
+    runtime = f"/run/user/{uid}"
+    has_bus = Path(f"{runtime}/bus").exists()
+
+    # 1) Literal genisletilmemis deger -> ONARILMALI
+    env = {"XDG_RUNTIME_DIR": runtime,
+           "DBUS_SESSION_BUS_ADDRESS": "$DBUS_SESSION_BUS_ADDRESS"}
+    fixed = SESS.ensure_session_env(env)
+    if has_bus:
+        check("literal $DBUS degeri onarildi",
+              "DBUS_SESSION_BUS_ADDRESS" in fixed, str(fixed))
+        check("onarilan deger soketi gosteriyor",
+              env["DBUS_SESSION_BUS_ADDRESS"] == f"unix:path={runtime}/bus",
+              env["DBUS_SESSION_BUS_ADDRESS"])
+    else:
+        skip("bus soketi yok", runtime)
+
+    # 2) Degisken HIC yok -> doldurulmali
+    env = {"XDG_RUNTIME_DIR": runtime}
+    fixed = SESS.ensure_session_env(env)
+    if has_bus:
+        check("eksik DBUS dolduruldu",
+              env.get("DBUS_SESSION_BUS_ADDRESS", "").startswith("unix:path="),
+              str(env.get("DBUS_SESSION_BUS_ADDRESS")))
+
+    # 3) GECERLI bir degere DOKUNULMAMALI. Kullanici bilincli olarak baska bir
+    #    bus verdiyse (ic ice oturum, test duzenegi) onu ezmek sessiz hata olur.
+    if has_bus:
+        env = {"XDG_RUNTIME_DIR": runtime,
+               "DBUS_SESSION_BUS_ADDRESS": f"unix:path={runtime}/bus"}
+        fixed = SESS.ensure_session_env(env)
+        check("gecerli DBUS degeri korundu",
+              "DBUS_SESSION_BUS_ADDRESS" not in fixed, str(fixed))
+
+    # 4) Dogrulayamadigimiz tasima (tcp:) korunmali -- bozmayalim.
+    env = {"XDG_RUNTIME_DIR": runtime,
+           "DBUS_SESSION_BUS_ADDRESS": "tcp:host=127.0.0.1,port=1234"}
+    SESS.ensure_session_env(env)
+    check("tcp: bus adresine karisilmadi",
+          env["DBUS_SESSION_BUS_ADDRESS"] == "tcp:host=127.0.0.1,port=1234",
+          env["DBUS_SESSION_BUS_ADDRESS"])
+
+    # 5) XDG_RUNTIME_DIR bozuksa standart yerden turetilmeli
+    env = {"XDG_RUNTIME_DIR": "$XDG_RUNTIME_DIR"}
+    SESS.ensure_session_env(env)
+    check("bozuk XDG_RUNTIME_DIR turetildi",
+          env.get("XDG_RUNTIME_DIR") == runtime, str(env.get("XDG_RUNTIME_DIR")))
+
+    # 6) WAYLAND_DISPLAY eksikse soketten bulunmali
+    env = {"XDG_RUNTIME_DIR": runtime}
+    SESS.ensure_session_env(env)
+    wl = sorted(Path(runtime).glob("wayland-[0-9]"))
+    if wl:
+        check("WAYLAND_DISPLAY soketten bulundu",
+              env.get("WAYLAND_DISPLAY") == wl[0].name, str(env.get("WAYLAND_DISPLAY")))
+    else:
+        skip("wayland soketi yok", runtime)
+
+    # 7) describe() tani icin okunur bir satir versin
+    line = SESS.describe({"XDG_RUNTIME_DIR": runtime, "DBUS_SESSION_BUS_ADDRESS": "$X"})
+    check("describe() GECERSIZ durumu bildiriyor", "GECERSIZ" in line, line)
+
+    # 8) Onarim SAF degil ama YAN ETKISI SINIRLI: verilen sozluk disina cikmaz.
+    before = dict(os.environ)
+    SESS.ensure_session_env({"XDG_RUNTIME_DIR": runtime})
+    check("os.environ'a dokunulmadi", dict(os.environ) == before)
+
+
 def test_real_batch() -> None:
     """Gercek batch. Varsayilan olarak KOSMAZ: uinput'a fiilen yazar."""
     import os
@@ -1639,6 +1722,7 @@ def main() -> int:
     test_cli_shot_dir()
     test_cli_stale_shot()
     test_computer_task_prompt()
+    test_session_env()
     test_real_batch()
     print(f"\n\033[1m{ok_count} gecti, {fail_count} kaldi\033[0m")
     return 1 if fail_count else 0

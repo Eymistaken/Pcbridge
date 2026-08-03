@@ -49,10 +49,15 @@ PCBRIDGE_TEST_CAPTURE=1 PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_BATCH=1 \
 Uçtan uca (sunucu ayakta olmalı; parola verilmezse OAuth adımları 401 döner ve
 testin bozulduğunu sanırsın):
 
+**⚠️ `test_e2e.py` 12. bölüm GERÇEK bir `claude -p` çalıştırır ve KOTA YAKAR.**
+Bir kere kullanıcının günlük limitini bitirdi (2026-08-03). Günlük koşumda
+`PCBRIDGE_TEST_NO_AGENT=1` verin; ajan kapsamını `test_models.py` 11. bölüm
+sunucusuz olarak zaten kontrol ediyor.
+
 ```bash
 export PCBRIDGE_TEST_PASSWORD="$(./.venv/bin/python -c 'import sys; sys.path.insert(0,"."); from pcbridge.config import load_config; print(load_config().password)')"
 export PCBRIDGE_TEST_STATIC="$(./.venv/bin/python -c 'import sys; sys.path.insert(0,"."); from pcbridge.config import load_config; print(load_config().static_token or "")')"
-./.venv/bin/python tests/test_e2e.py        # 189 gecer + 4 ATLA
+PCBRIDGE_TEST_NO_AGENT=1 ./.venv/bin/python tests/test_e2e.py   # 201 gecer + 9 ATLA
 ```
 
 Tek bir kontrolü koşturmak için dosyalar pytest ile toplanabilir yazıldı:
@@ -232,6 +237,13 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
 - **Görüntü dönen araçlarda dönüş tipi `list[ContentBlock]` olmalı.** Çıplak
   `-> list` yazılırsa FastMCP outputSchema üretir ve çağrı
   `"outputSchema defined but no structured output returned"` ile patlar.
+- **stdio'da oturum ortamı bozuk gelebilir.** Ölçüldü: Codex'in başlattığı
+  süreçte `DBUS_SESSION_BUS_ADDRESS` genişletilmemiş bir literal olarak geldi
+  (`$DBUS_SESSION_BUS_ADDRESS`) ve masaüstü araçlarının **tamamı** çöktü —
+  `busctl` bağlanamıyor, monitör tablosu okunamıyor. `desktop/session.py`
+  `ensure_session_env()` bunu `/run/user/<uid>/` altındaki soketlerden onarıyor;
+  `server.py` ve `cli/__init__.py` girişte çağırıyor. Yeni bir giriş noktası
+  eklersen **oradan da çağır**.
 - **venv'deki `pcbridge.pth` repo yolunu `sys.path`'e ekliyor**, bu yüzden
   `python -m pcbridge.server` herhangi bir dizinden çalışır; istemci kayıtları
   `cwd` istemiyor.

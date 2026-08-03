@@ -17,6 +17,7 @@ from starlette.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from . import tools as toolsmod
 from .auth import SqliteOAuthProvider, make_consent_routes
+from .desktop import session as sessionlib
 from .config import Config, load_config
 from .jobs import JobManager
 from .shots import ShotStore
@@ -419,6 +420,19 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = load_config(args.config)
     transport = "stdio" if args.stdio else "http"
+
+    # Oturum ortamini ONAR. stdio'da sunucuyu istemci baslatiyor ve onun
+    # ortamini devraliyoruz; o ortamin dogru olacaginin garantisi yok.
+    # Olculdu: Codex'in baslattigi surecte DBUS_SESSION_BUS_ADDRESS
+    # genisletilmemis bir literal olarak geliyor ve masaustu araclarinin
+    # TAMAMI sessizce cokuyor. Ayrintili gerekce `desktop/session.py`'de.
+    fixed = sessionlib.ensure_session_env()
+    if fixed:
+        log.warning(
+            "Oturum ortami eksikti, standart yollardan onarildi: %s",
+            ", ".join(fixed),
+        )
+
     mcp, _provider = build_app(cfg, transport=transport)
 
     if args.stdio:

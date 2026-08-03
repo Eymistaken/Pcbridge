@@ -141,9 +141,10 @@ uygulamayı **tamamen kapatıp** yeniden açmak gerekiyor.
 
 Üç kayıt da globaldir: hangi dizinde çalışırsan çalış pcbridge görünür.
 
-> **Codex:** komutlar üretiliyor ve yapılandırmaya doğru yazıldığı `codex mcp get
-> pcbridge` ile doğrulandı, ama **bu makinede denenmedi** — Codex aboneliği yok.
-> Gerçekten bağlanıp araçları aldığı ve görüntü bloğunu işlediği ölçülmemiştir.
+> **Codex:** 2026-08-03'te denendi — **bağlandı ve araçları çağırdı**
+> (`desktop_unlock`, `computer_task`, `computer_batch` denetim kaydında).
+> Henüz ölçülmeyen tek şey görüntü bloğunu işleyip işlemediği: o denemede
+> `screen_capture` çağırmadan görsel işi `computer_task` ile devretti.
 
 ⚠️ **stdio'da kimlik doğrulama yoktur.** Ayrıntı: [Güvenlik](#güvenlik--dürüst-değerlendirme).
 

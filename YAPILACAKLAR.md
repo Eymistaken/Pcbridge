@@ -84,36 +84,34 @@ verimli yolu önce inşa etmeye zorlamış — bu bir baypas değil, kazanç.
 | istemci | sürüm | MCP istemcisi | nasıl |
 |---|---|:---:|---|
 | **Claude Code** | 2.1.220 | ✅ | `claude mcp add` — stdio / http / sse |
-| **Codex CLI** | 0.144.1 | ✅ (aboneliği yok, bkz. aşağı) | `codex mcp add <ad> -- <komut>` (stdio) · `--url` (streamable HTTP) · `--bearer-token-env-var` · **`codex mcp login` ile OAuth** |
+| **Codex CLI** | 0.146.0 | ✅ **bağlandı, ölçüldü** | `codex mcp add <ad> -- <komut>` (stdio) · `--url` (streamable HTTP) · `--bearer-token-env-var` · **`codex mcp login` ile OAuth** |
 | **Claude Desktop** | kurulu, çalışıyor | ✅ | yapılandırma dosyası, stdio |
 | **Antigravity (`agy`)** | 1.1.10 | ❌ | `mcp` alt komutu **yok**. `plugin` var ama o Claude/Gemini eklentisi içe aktarıyor, MCP değil |
-| **Gemini Spark** | — | ✅ | bugün çalışan yol; HTTP + OAuth, **görüntü alamaz** |
+| **Gemini Spark** | — | ✅ | **artık hedef değil**; HTTP + OAuth yolu duruyor, görüntü alamaz |
 
 **Antigravity bu bölümün kapsamı dışında.** Kullanıcı kararı: MCP istemcisi
 olmadığı için ona ayrıca uğraşılmayacak. Ama `agent_run` hedefi olarak
 `config.toml`'da tanımlı ve çalışıyor — **oraya dokunma, kaldırma.** Yalnızca
 yeni iş yapılmayacak.
 
-> ### ⚠️ Codex BU MAKİNEDE ÇALIŞTIRILAMIYOR
+> ### Codex ÖLÇÜLDÜ (2026-08-03) — ama tamamı değil
 >
-> `codex` CLI kurulu ve `codex mcp --help` çıktısı yukarıdaki desteğin
-> **belgelendiğini** gösteriyor. Ama kullanıcının **Codex aboneliği yok**, yani
-> gerçek bir Codex oturumu açılamıyor. Testi kullanıcının kuzeni yapacak.
+> Codex kullanıcının planına ücretsiz geldi ve denendi: sürüm 0.146.0, model
+> `gpt-5.6-terra xhigh`. **Bağlandı ve araçları çağırdı** — `audit.log`'da
+> `desktop_unlock` (gerekçesini Türkçe yazmış), `computer_task`,
+> `computer_batch`, `desktop_lock` kayıtları var. İzni gerekçeyle aldı, iş
+> bitince kapattı: davranış doğru.
 >
-> Bunun sana iki sonucu var:
+> **Hâlâ ölçülmeyen tek şey: görüntü bloğunu işleyip işlemediği.** O denemede
+> `screen_capture` hiç çağırmadı — görsel işi `computer_task` ile claude'a
+> devretti. Yani *"Codex görüntü görüyor"* iddiası **hâlâ yazılamaz**; doğru
+> cümle *"bağlandığı ve araç çağırdığı ölçüldü, görüntü işleme ölçülmedi."*
 >
-> 1. **Codex tarafını ölçemezsin.** `codex mcp add` yapılandırma dosyasına
->    yazar (bu denenebilir), ama sunucuya gerçekten bağlanıp araç listesi
->    alması ve **görüntü bloğunu işleyip işlemediği** ölçülemez.
-> 2. **Belgelere "Codex destekleniyor" YAZMA.** Doğru cümle: *"Codex için
->    yapılandırma hazırlandı, bu makinede denenmedi."* Denenmemiş bir şeyi
->    çalışıyormuş gibi yazmak bu projenin en sevmediği şey — ölçülmemiş her
->    iddia bir sonraki kişiyi yanıltıyor.
+> Ölçmenin yolu: Codex'e "pcbridge ile ekranıma bak ve ne gördüğünü anlat" de.
+> Ekranı tarif ediyorsa görüyor; bağlantı verip "açıp bakın" diyorsa görmüyor.
 >
-> Yapabileceğin: kurulum komutlarını üret, yapılandırma dosyasına doğru
-> yazıldığını `codex mcp list` / `codex mcp get` ile doğrula, ve kuzenin
-> deneyebilmesi için `KULLANIM.md`'ye net bir "Codex ile bağlanma" adımı yaz.
-> Sonuç geldiğinde bu dosyaya işlenir.
+> **O deneme bir de gerçek bir hata ortaya çıkardı** — makine gerçeklerindeki
+> `DBUS_SESSION_BUS_ADDRESS` maddesi. Karşılığı `desktop/session.py`.
 
 Kütüphane tarafı hazır: `fastmcp 3.4.5` (`fastmcp.utilities.types.Image`),
 `mcp.types.ImageContent`, `FastMCP.run(transport=...)`.
@@ -195,6 +193,17 @@ Kütüphane tarafı hazır: `fastmcp 3.4.5` (`fastmcp.utilities.types.Image`),
 - **venv'deki `pcbridge.pth` repo yolunu `sys.path`'e ekliyor**, bu yüzden
   `python -m pcbridge.server` **herhangi bir dizinden** çalışıyor (cwd=/ ile
   ölçüldü, 33 araç). İstemci kayıtlarında `cwd` vermek gerekmiyor
+- **stdio'da oturum ortamı BOZUK gelebilir ve masaüstünün tamamını çökertir.**
+  Ölçüldü 2026-08-03: Codex'in başlattığı pcbridge sürecinde
+  `DBUS_SESSION_BUS_ADDRESS` değeri **genişletilmemiş bir literal**di —
+  birebir `$DBUS_SESSION_BUS_ADDRESS` string'i. Sonucu zincirleme:
+  `busctl --user` → "Connection refused" → `monitors` Mutter'ı okuyamıyor →
+  xrandr yedeği de Wayland'de yok → `screen_capture`, `window_list`,
+  `computer_batch launch` hepsi başarısız. systemd altındaki HTTP yolu bunu
+  yaşamıyor (birim ortamı doğru kuruluyor); sorun **yalnızca stdio'da**, yani
+  tam da yeni birincil yolda. Karşılığı `desktop/session.py`:
+  `ensure_session_env()` eksik/bozuk değişkenleri `/run/user/<uid>/` altındaki
+  standart soketlerden türetiyor, **geçerli bir değere dokunmuyor**.
 - **stdio testinde stdin'i erken kapatmak sunucuyu yanıt yazmadan kapatıyor.**
   `communicate()` ile hepsini birden göndermek `tools/list` yanıtını yutuyor ve
   test/tanı sunucuyu bozuk sanıyor. Yanıt **satır satır** okunmalı
@@ -287,10 +296,19 @@ söyle, gerekçesiyle düzelt, sonra devam et.
 > ne istendiğini ve neyin neden yapıldığını gösteriyorlar. Sonuçlar ve plandan
 > sapmalar `PLAN.md` → "9b. Faz H sonuçları" bölümünde.
 >
-> **Açık kalan tek iş:** Codex'in gerçekten bağlanıp bağlanmadığı ve görüntü
-> bloğunu işleyip işlemediği. Bu makinede ölçülemedi (abonelik yok); kullanıcının
-> kuzeni deneyecek. Sonuç gelince buraya ve `KULLANIM.md`'ye işlenecek —
-> **o güne kadar hiçbir belgede "Codex destekleniyor" yazmayın.**
+> **Codex ölçüldü (2026-08-03).** Kullanıcının planına ücretsiz geldi ve
+> denendi: `codex` 0.146.0, model `gpt-5.6-terra xhigh`. **Bağlandı ve araçları
+> çağırdı** — `audit.log`'da `desktop_unlock` (gerekçesini Türkçe yazmış),
+> `computer_task`, `computer_batch`, `desktop_lock` kayıtları var. Davranış
+> doğru: izni gerekçeyle aldı, iş bitince kapattı.
+>
+> **Hâlâ ölçülmeyen tek şey: görüntü bloğunu işleyip işlemediği.** O denemede
+> `screen_capture` hiç çağırmadı, görsel işi `computer_task` ile claude'a
+> devretti. Yani "Codex görüntü görüyor" iddiası **hâlâ yazılamaz.**
+>
+> O deneme ayrıca **gerçek bir hata ortaya çıkardı** — aşağıdaki makine
+> gerçeklerinde `DBUS_SESSION_BUS_ADDRESS` maddesi. Karşılığı
+> `desktop/session.py` olarak koda girdi.
 >
 > Sırada `G` var (ekran çerçevesi), opsiyonel.
 
@@ -417,9 +435,13 @@ PCBRIDGE_TEST_CAPTURE=1 PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_BATCH=1 \
 
 # e2e sunucu ayakta olmali VE parolayi ortamdan ister; vermezsen OAuth
 # adimlari 401 doner ve testin bozuldugunu sanirsin.
+#
+# ⚠️ 12. bolum GERCEK bir `claude -p` calistirir ve KOTA YAKAR (bir kere
+# kullanicinin gunluk limitini bitirdi). Gunluk kosumda NO_AGENT bayragini ver.
 export PCBRIDGE_TEST_PASSWORD="$(./.venv/bin/python -c 'import sys; sys.path.insert(0,"."); from pcbridge.config import load_config; print(load_config().password)')"
 export PCBRIDGE_TEST_STATIC="$(./.venv/bin/python -c 'import sys; sys.path.insert(0,"."); from pcbridge.config import load_config; print(load_config().static_token or "")')"
-./.venv/bin/python tests/test_e2e.py        # 189 gecer + 4 ATLA
+PCBRIDGE_TEST_NO_AGENT=1 \
+  ./.venv/bin/python tests/test_e2e.py   # 201 gecer + 9 ATLA
 ```
 
 Masaüstünü elle sürmek (ajan olmadan, sen bakarak):

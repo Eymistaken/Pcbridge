@@ -33,8 +33,18 @@ EXIT_BAD_INPUT = 4     # bozuk argüman ya da JSON
 
 
 def load() -> Any:
-    """`config.toml`'u yukle. Bulunamazsa net bir hata ile cik."""
+    """`config.toml`'u yukle. Bulunamazsa net bir hata ile cik.
+
+    Ayrica oturum ortamini ONARIR: bu kabuklari bir ajan Bash'ten cagiriyor ve
+    o ajanin ortami bozuk olabiliyor (olculdu: Codex'in surecinde
+    DBUS_SESSION_BUS_ADDRESS genisletilmemis bir literal). Sunucu tarafinda
+    ayni onarim `server.py`'de yapiliyor; buradaki kabuklar ayri surecler
+    oldugu icin tekrar gerekiyor.
+    """
     from ..config import load_config
+    from ..desktop import session as sessionlib
+
+    sessionlib.ensure_session_env()
 
     try:
         return load_config()

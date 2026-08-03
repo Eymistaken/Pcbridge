@@ -382,12 +382,13 @@ else
   info "claude PATH'te yok"
 fi
 
-# Codex: BURADA YALNIZCA "KAYITLI MI" DENEBILIR. Gercek bir oturum acilip
-# araclarin geldigi ve goruntu blogunun islendigi BU MAKINEDE OLCULEMEDI
-# (abonelik yok). "kayitli" ile "calisiyor" ayrimini bozma.
+# Codex: 2026-08-03'te BAGLANDIGI VE ARAC CAGIRDIGI olculdu -- audit.log'da
+# desktop_unlock + computer_task + computer_batch kayitlari var. Ama GORUNTU
+# BLOGUNU isledigi hala olculmedi: o denemede `computer_task` cagirip gorsel
+# isi claude'a devretti, `screen_capture` hic cagirmadi. Ayrimi bozma.
 if command -v codex >/dev/null; then
   if codex mcp list 2>/dev/null | grep -q "^pcbridge"; then
-    pass "Codex: yapilandirmada KAYITLI (baglanti denenmedi — abonelik yok)"
+    pass "Codex: kayitli · baglandigi ve arac cagirdigi OLCULDU (goruntu blogu olculmedi)"
   else
     warn "Codex yapilandirmasinda yok — ./connect.sh"
   fi
@@ -406,6 +407,28 @@ if [ -f "$CD_CFG" ]; then
 else
   info "Claude Desktop yapilandirmasi yok"
 fi
+
+# Oturum ortami: stdio'da sunucuyu ISTEMCI baslatiyor ve onun ortamini
+# devraliyoruz. Olculdu 2026-08-03: Codex'in surecinde DBUS_SESSION_BUS_ADDRESS
+# genisletilmemis bir literal olarak geliyordu ve masaustu araclarinin TAMAMI
+# cokuyordu. Onarim `desktop/session.py`'de; burasi onarimin ISE YARADIGINI
+# bozuk bir ortamda fiilen dogruluyor.
+SESSFIX="$(DBUS_SESSION_BUS_ADDRESS='$DBUS_SESSION_BUS_ADDRESS' \
+  ./.venv/bin/python - <<'PY' 2>&1 | tail -1
+from pcbridge.desktop import session, monitors
+session.ensure_session_env()
+try:
+    n = len(monitors.list_monitors(use_cache=False))
+    print(f"OK bozuk DBUS onarildi, monitor tablosu okundu ({n} monitor)")
+except Exception as exc:
+    print(f"HATA onarim ise yaramadi: {exc}")
+PY
+)"
+case "$SESSFIX" in
+  OK*) pass "oturum ortami onarimi calisiyor · ${SESSFIX#OK }" ;;
+  *)   fail "oturum ortami onarimi: ${SESSFIX:-cevap yok}" ;;
+esac
+info "su anki ortam: $(./.venv/bin/python -c 'from pcbridge.desktop import session; print(session.describe())' 2>&1 | tail -1)"
 
 INLINE="$(./.venv/bin/python - <<'PY' 2>&1 | tail -1
 from pcbridge.config import load_config
