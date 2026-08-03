@@ -176,6 +176,16 @@ class Config:
     max_sync_timeout: int
 
     agents: dict[str, AgentSpec]
+    # Ekran goruntusu arac sonucunda GORUNTU BLOGU olarak da gonderilsin mi.
+    # "auto" | "true" | "false" -- degerlendirme `tools._want_inline()`te.
+    #
+    # NEDEN UC DEGERLI: bir sunucu iki farkli istemci sinifina bakiyor.
+    # Gemini Spark'a giden function-response kanali yalnizca METIN tasiyor ve
+    # goruntu blogu gelince bozuluyor; Claude Code / Codex ise goruntuyu
+    # okuyabiliyor (H0.1'de olculdu: gizli deger goruntuden birebir okundu).
+    # "auto" bu ayrimi tasimaya bakarak yapiyor -- Spark HTTP'den, yerel
+    # istemciler stdio'dan geliyor.
+    inline_images: str = "auto"
     # Ajan adi verilmediginde ve model hicbir ajana ait degilse kullanilir.
     default_agent: str = "claude"
     desktop: DesktopSpec = field(default_factory=DesktopSpec)
@@ -299,6 +309,21 @@ def load_config(explicit: str | None = None) -> Config:
     auth = raw.get("auth", {})
     paths = raw.get("paths", {})
     limits = raw.get("limits", {})
+    server = raw.get("server", {})
+
+    # `[server] inline_images` asil yazim. Ama bugune kadar butun sunucu
+    # ayarlari (public_url, host, port, mcp_path) KOKTE duruyor, o yuzden kokteki
+    # yazim da kabul ediliyor -- kullanicinin dosyayi ikiye bolmesi gerekmesin.
+    # TOML'da `true` bool gelir, `"auto"` string; ikisi de ayni yoldan gecsin
+    # diye str()'ye cevrilip kucultuluyor.
+    inline_images = str(
+        server.get("inline_images", raw.get("inline_images", "auto"))
+    ).strip().lower()
+    if inline_images not in ("auto", "true", "false"):
+        raise SystemExit(
+            f"[server] ({path}): `inline_images` = {inline_images!r} gecersiz. "
+            'Gecerli degerler: "auto" (stdio\'da acik, HTTP\'de kapali), true, false.'
+        )
 
     password = os.environ.get("PCBRIDGE_PASSWORD") or auth.get("password", "")
     static_token = os.environ.get("PCBRIDGE_STATIC_TOKEN") or auth.get(
@@ -457,6 +482,7 @@ def load_config(explicit: str | None = None) -> Config:
         default_job_timeout=int(limits.get("default_job_timeout", 1800)),
         max_sync_timeout=int(limits.get("max_sync_timeout", 120)),
         audit_max_bytes=int(limits.get("audit_max_bytes", 5_000_000)),
+        inline_images=inline_images,
         agents=agents,
         default_agent=default_agent,
         desktop=desktop,

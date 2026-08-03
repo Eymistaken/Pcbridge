@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
+from fastmcp.utilities.types import Image
+from mcp.types import ContentBlock, TextContent
 from pydantic import Field
 
 from . import jobs as jobslib
@@ -75,6 +77,31 @@ def _task_prompt(instructions: str, goal: str, prepared: str, max_steps: int) ->
         goal.strip(),
     ]
     return "\n".join(parts)
+
+
+def _text(s: str) -> TextContent:
+    """Duz metni MCP metin bloguna sar (goruntu donduren araclar icin)."""
+    return TextContent(type="text", text=s)
+
+
+def _want_inline(setting: str, transport: str) -> bool:
+    """Ekran goruntusu arac sonucunda GORUNTU BLOGU olarak da gitsin mi?
+
+    Saf fonksiyon: I/O yok, `Config` bile almiyor. `models.py`'deki cozumleyici
+    gibi sunucu ayakta olmadan test edilebilsin diye.
+
+    "auto" tasimaya bakar. Gerekce bir olcume dayaniyor: Gemini Spark'a giden
+    function-response kanali yalnizca metin tasiyor ve goruntu blogu gelince
+    BOZULUYOR; Claude Code stdio'dan gelen goruntuyu okuyabiliyor (H0.1). Spark
+    HTTP'den, yerel gorebilen istemciler stdio'dan geldigi icin tasima bu ayrimin
+    en iyi vekili.
+    """
+    s = (setting or "auto").strip().lower()
+    if s == "true":
+        return True
+    if s == "false":
+        return False
+    return transport == "stdio"
 
 
 def _resolve_dir(cfg: Config, path: str | None) -> Path:
@@ -204,6 +231,9 @@ def register(
     # denetim en zayif araclardaydi; `shell_run` keyfi komut calistirmasina
     # ragmen hicbir iz birakmiyordu.
     gate = safetylib.SafetyGate(cfg)
+
+    # Bir kez hesaplanir: arac calisma anina kadar ne ayar ne tasima degisir.
+    inline_images = _want_inline(cfg.inline_images, transport)
 
     def _short(text: str, limit: int = 120) -> str:
         s = " ".join(str(text or "").split())
@@ -1011,27 +1041,31 @@ def register(
             bool | None,
             Field(description="Draw the mouse pointer into the image."),
         ] = None,
-    ) -> str:
-        """Take a screenshot of the user's screen and return a short-lived link they
-        can open on their phone. Use when the user asks what is on their screen, and
-        before clicking somewhere, to check what is actually there. You cannot see
-        the image yourself — the link is for the user. The reply also tells you each
-        image's position in the global coordinate space so you can convert a spot in
-        the picture into coordinates for the `mouse` tool."""
+    ) -> list[ContentBlock]:
+        """Take a screenshot of the user's screen. Use when the user asks what is on
+        their screen, and before clicking somewhere, to check what is actually
+        there. If your client can display images you get the picture itself and can
+        look at it; otherwise you get a short-lived link the user can open on their
+        phone. Either way the reply tells you each image's position in the global
+        coordinate space, so you can convert a spot in the picture into coordinates
+        for the `mouse` tool. For GTK applications prefer `ui_dump` — it is cheaper
+        and cannot miss, because it does not use coordinates at all."""
         # write=False: ekran goruntusu bir YAZMA eylemi degil, o yuzden "yakinda
         # klavye kullanildi" korumasina takilmiyor -- makinenin basinda olmaniz
         # ekraniniza bakmanizi engellememeli. Izin penceresi ve ekran kilidi
         # kontrolu ise aynen gecerli: goruntu en gizlilik-hassas cikti.
         denied = _guard("screen_capture", write=False, needs_input=False)
         if denied:
-            return denied
+            return _text(denied)
         if shot_store is None:
-            return "⛔ Ekran goruntusu servisi kurulu degil (sunucu eski surumde?)."
+            return _text(
+                "⛔ Ekran goruntusu servisi kurulu degil (sunucu eski surumde?)."
+            )
 
         cap_ok, cap_why = capturelib.available()
         if not cap_ok:
             gate.audit("screen_capture_unavailable", reason=cap_why[:120])
-            return f"⛔ Ekran goruntusu alinamiyor: {cap_why}"
+            return _text(f"⛔ Ekran goruntusu alinamiyor: {cap_why}")
 
         spec: int | str = monitor.strip() if isinstance(monitor, str) else monitor
         if isinstance(spec, str) and spec.isdigit():
@@ -1052,18 +1086,25 @@ def register(
             )
         except (capturelib.CaptureError, monitorslib.MonitorError) as exc:
             gate.audit("screen_capture_error", error=str(exc)[:160])
-            return f"Hata: {exc}"
+            return _text(f"Hata: {exc}")
 
+        # stdio'da HTTP sunucusu YOK -> /shot/<token>.png rotasi da yok. Orada
+        # baglanti uretmek sessizce olu bir URL vermek olurdu; onun yerine
+        # diskteki yol soyleniyor (istemci dosyayi kendi okuyabilir).
+        links = transport != "stdio"
         ttl_min = max(1, cfg.desktop.shot_ttl_seconds // 60)
         out: list[str] = []
         for shot in shots:
-            # Token denetim kaydina YAZILMAZ: audit.log'u okuyabilen birinin
-            # goruntuyu de acabilmesi anlamsiz bir yetki genislemesi olurdu.
-            _token, url = shot_store.publish(shot.path)
+            if links:
+                # Token denetim kaydina YAZILMAZ: audit.log'u okuyabilen birinin
+                # goruntuyu de acabilmesi anlamsiz bir yetki genislemesi olurdu.
+                _token, where = shot_store.publish(shot.path)
+            else:
+                where = str(shot.path)
             if shot.offset is None:
                 out.append(
                     f"**{shot.label}** · {shot.scaled[0]}x{shot.scaled[1]}\n"
-                    f"  {url}\n"
+                    f"  {where}\n"
                     "  ⚠️ Bu goruntu odaktaki pencere; ekranin neresinde oldugu "
                     "bilinmiyor, buradan koordinat turetmeyin."
                 )
@@ -1072,13 +1113,27 @@ def register(
                     f"**{shot.label}** · {shot.size[0]}x{shot.size[1]} "
                     f"@ ({shot.offset[0]}, {shot.offset[1]}) → "
                     f"{shot.scaled[0]}x{shot.scaled[1]} (olcek {shot.scale:.3f})\n"
-                    f"  {url}"
+                    f"  {where}"
                 )
 
-        gate.audit("screen_capture", monitor=str(monitor), shots=len(shots))
+        gate.audit("screen_capture", monitor=str(monitor), shots=len(shots),
+                   inline=inline_images or None)
 
         out.append("")
-        out.append(f"Baglantilar {ttl_min} dakika gecerli, sonra kapaniyor.")
+        if links:
+            out.append(f"Baglantilar {ttl_min} dakika gecerli, sonra kapaniyor.")
+        else:
+            out.append(
+                "Yollar diskteki dosyalari gosteriyor (stdio'da HTTP sunucusu "
+                "yok, bu yuzden baglanti uretilemiyor)."
+            )
+        if not inline_images:
+            # SESSIZ BOSLUK YOK: goruntu blogu gelmiyorsa sebebi soylensin,
+            # yoksa istemci "goruntu geldi ama ben goremedim" sanir.
+            out.append(
+                "Goruntu blogu KAPALI (`inline_images`); yalnizca yukaridaki "
+                "yol/baglanti donuyor."
+            )
         if any(s.offset is not None for s in shots):
             out.append(
                 "Goruntudeki bir noktayi tiklamak icin once global koordinata "
@@ -1095,7 +1150,23 @@ def register(
                     "piksel sapabilir (olculdu: ~5 px). Buton/menu icin yeterli; "
                     "daha keskin gerekiyorsa `scale=0` ile tam cozunurlukte alin."
                 )
-        return "\n".join(out)
+
+        # METIN BLOGU HER ZAMAN ILK SIRADA ve her zaman var. Monitor numarasi,
+        # global ofset ve donusum kurali goruntuyle BIRLIKTE gitmeli; yoksa
+        # istemci ikinci monitore 1920 piksel sasarak tiklar ve hata hicbir
+        # yerde gorunmez.
+        blocks: list[ContentBlock] = [_text("\n".join(out))]
+        if inline_images:
+            for shot in shots:
+                try:
+                    blocks.append(Image(path=shot.path).to_image_content())
+                except OSError as exc:
+                    # Dosya okunamadi: metin zaten yolu soyluyor, sessizce
+                    # atlamak yerine sebebi de soyle.
+                    blocks.append(
+                        _text(f"({shot.label}: goruntu okunamadi — {exc})")
+                    )
+        return blocks
 
     # ------------------------------------------------- erisilebilirlik agaci
     # Ekranin metinsel ikizi. Model goruntuyu goremedigi icin asil "goz" burasi;
@@ -1313,7 +1384,7 @@ def register(
             bool,
             Field(description="Go ahead even if the user just used the machine."),
         ] = False,
-    ) -> str:
+    ) -> list[ContentBlock]:
         """Run a whole sequence of desktop actions in a single call, then show you
         the result. Use this instead of calling `mouse`, `keyboard`, `ui_click` one
         at a time: each separate call asks the user for confirmation on their
@@ -1325,7 +1396,7 @@ def register(
             plan = batchlib.parse(actions, max_actions=cfg.desktop.batch_max_actions)
         except batchlib.BatchError as exc:
             # Kapidan ONCE: hicbir sey calistirilmiyor, yalnizca sozdizimi.
-            return f"⛔ {exc}"
+            return _text(f"⛔ {exc}")
 
         kinds = {a.a for a in plan}
         # Yalnizca erisilebilirlik eylemleri varsa /dev/uinput aranmaz --
@@ -1334,7 +1405,7 @@ def register(
         denied = _guard("computer_batch", write=True, force=force,
                         needs_input=needs_input)
         if denied:
-            return denied
+            return _text(denied)
 
         gap = 0.0
         if cfg.desktop.max_actions_per_second > 0:
@@ -1366,12 +1437,22 @@ def register(
                    seconds=round(result.elapsed, 1), stopped=result.stopped or None)
 
         out = [batchlib.describe(result)]
+        # `screen_capture` artik blok listesi donuyor: metin blogu rapora
+        # katiliyor, goruntu bloklari SONA ekleniyor. Metnin ONCE gelmesi onemli
+        # -- ofset ve olcek bilgisi goruntuden ayrilirsa koordinat hesabi
+        # yapilamaz.
+        images: list[ContentBlock] = []
         want = (final or "ui_dump").strip().lower()
         if want == "screen_capture":
-            out += ["", "---", screen_capture()]
+            out.append("\n---")
+            for block in screen_capture():
+                if isinstance(block, TextContent):
+                    out.append(block.text)
+                else:
+                    images.append(block)
         elif want != "none":
             out += ["", "---", ui_dump()]
-        return jobslib.tail_chars("\n".join(out), MAX_INLINE)
+        return [_text(jobslib.tail_chars("\n".join(out), MAX_INLINE)), *images]
 
     # ----------------------------------------------------- yerel gorsel ajan
     @mcp.tool(

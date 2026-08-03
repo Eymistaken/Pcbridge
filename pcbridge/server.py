@@ -33,14 +33,18 @@ logging.basicConfig(
 log = logging.getLogger("pcbridge")
 
 INSTRUCTIONS = """\
-This MCP server controls the user's personal Linux desktop computer (ZorinOS).
+This MCP server controls the user's personal Linux desktop computer (ZorinOS,
+GNOME on Wayland, two 1920x1080 monitors side by side).
 
 You can:
   * send prompts to terminal coding agents (Claude Code, Antigravity CLI) with
     `agent_run`, then follow them with `job_status`;
   * drive an already-open interactive terminal with `tmux_start` / `tmux_send`
     / `tmux_keys` / `tmux_capture`;
-  * run shell commands, read and write files, and check machine status.
+  * run shell commands, read and write files, and check machine status;
+  * read and drive the graphical desktop: `ui_dump` to read the screen as text,
+    `ui_click` / `ui_set_text` to act on what it lists, `screen_capture` to see
+    it, and `computer_batch` to run a whole sequence at once.
 
 Guidelines:
   * Coding agents take minutes, not seconds. `agent_run` returns a job id;
@@ -50,6 +54,14 @@ Guidelines:
     with the same agent instead of starting from scratch.
   * Prefer `agent_run` for anything that requires reasoning about code, and
     plain `shell_run` only for simple, deterministic commands.
+  * For the desktop, reach for `ui_dump` before `screen_capture`: it is far
+    cheaper, and because it acts on widgets rather than coordinates it cannot
+    miss. Fall back to the screenshot where the tree comes back empty — Electron
+    apps, canvases, games.
+  * Desktop tools need `desktop_unlock` first, and stay off entirely unless the
+    user enabled them in the configuration.
+  * Screenshots go stale. If you read coordinates off one, act on them right
+    away — do not do other work in between.
   * Always tell the user which directory you are working in.
 """
 
