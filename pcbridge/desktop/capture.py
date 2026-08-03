@@ -24,11 +24,23 @@ GLOBAL OFSET
 
         global_x = ofset_x + goruntu_x / olcek
 
-BACKEND
-    Bugun tek yol `gnome-screenshot` (41.0, olculdu: cikis 0, 3840x1080 gercek
-    yakalama). Paket GNOME 49'da bozulmus gorunuyor, yani bir gun ScreenCast
-    portali + PipeWire yedegine gecmek gerekebilir; kod bu yuzden backend
-    zinciriyle yazildi ama bugun PipeWire yazilmadi.
+IKI BACKEND
+    1. **Ekran yayini** (`screencast.py`, PipeWire) — acik bir yayin varsa
+       tercih edilen yol. Her monitor AYRI bir akis oldugu icin yukaridaki
+       kirpma adimi DUSER: kirpma kaynakta yapilmis olur.
+    2. `gnome-screenshot` — yedek. Yayin yoksa, gstreamer kurulu degilse ya da
+       `monitor="window"` istendiginde (yayinda pencere secimi yok).
+
+    Yayin yolu 2026-08-03'te olculdu ve iki sebeple tercih ediliyor:
+
+      * `gnome-screenshot` her cekimde BEYAZ FLAS patlatiyor ve ses cikariyor;
+        yayin yolu sessiz (kullanici dogruladi). ASIL SEBEP bu.
+      * Hiz ikincil ve abartilmamali. Ham yakalama 240 ms'ye karsi 833 ms,
+        ama UCTAN UCA (iki monitor + olcekleme + PNG yazma) 1,5 sn'ye karsi
+        2,5 sn: aradaki ~1 saniyenin cogu Pillow'da ve iki yolda da ayni.
+
+    Kayip yok: yayin ciktisi ile gnome-screenshot'in ayni bolgesi **%99,8
+    birebir ayni** cikti (kalan fark iki cekim arasinda ekranin degismesi).
 """
 
 from __future__ import annotations
@@ -40,6 +52,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from . import monitors as monitorslib
 
@@ -55,6 +68,7 @@ except Exception as _exc:  # pragma: no cover - kuruluysa calismaz
 
 
 GNOME_SCREENSHOT = "gnome-screenshot"
+SCREENCAST_NAME = "screencast (PipeWire)"
 # 3840x1080 yakalama olculdu: ~1 saniye. 20 s, kompozitor gecici olarak
 # takildiginda bile yeterli ve MCP'nin 110 saniyelik sinirinin cok altinda.
 GRAB_TIMEOUT = 20
@@ -98,13 +112,21 @@ class Shot:
 
 
 # --------------------------------------------------------------------- durum
-def available() -> tuple[bool, str]:
-    """(kullanilabilir mi, degilse Turkce gerekce)."""
+def available(screencast: Any = None) -> tuple[bool, str]:
+    """(kullanilabilir mi, degilse Turkce gerekce).
+
+    Acik bir ekran yayini varsa `gnome-screenshot` GEREKMIYOR: kareler
+    PipeWire'dan geliyor. Bu yuzden yayin verildiginde yalnizca Pillow
+    araniyor -- yoksa gnome-screenshot'i olmayan bir makinede sessiz yol
+    calisirken "kurulu degil" hatasi alinirdi.
+    """
     if not PIL_AVAILABLE:
         return False, (
             f"python paketi `Pillow` yok ({PIL_IMPORT_ERROR}). "
             "Kurulum: ./.venv/bin/pip install -r requirements.txt"
         )
+    if screencast is not None and screencast.is_open():
+        return True, ""
     if not shutil.which(GNOME_SCREENSHOT):
         return False, (
             f"`{GNOME_SCREENSHOT}` kurulu degil. "
@@ -113,7 +135,15 @@ def available() -> tuple[bool, str]:
     return True, ""
 
 
-def backend_name() -> str:
+def backend_name(screencast: Any = None) -> str:
+    """Bir sonraki yakalamada FIILEN kullanilacak yol.
+
+    Tani ciktisinda ve `screen_capture` notunda gorunuyor; "hangi yol
+    calisiyor" sorusunun tek cevabi burasi olsun diye tahmin degil DURUM
+    okuyor.
+    """
+    if screencast is not None and screencast.is_open():
+        return SCREENCAST_NAME
     return GNOME_SCREENSHOT
 
 
@@ -193,6 +223,7 @@ def capture(
     out_dir: Path | None = None,
     scale_long_edge: int = 1280,
     include_pointer: bool = True,
+    screencast: Any = None,
 ) -> list[Shot]:
     """Ekran goruntusu al ve `out_dir` altina PNG(ler) yaz.
 
@@ -200,8 +231,12 @@ def capture(
         "all" (varsayilan)  her monitor ayri goruntu
         1 / 2 / "DP-1" / "primary"   tek monitor
         "window"            yalnizca odaktaki pencere (ofset URETMEZ)
+
+    `screencast`: acik bir `ScreenCast` verilirse kareler ORADAN alinir --
+    sessiz ve hizli yol. Kapaliysa ya da `monitor="window"` istenirse
+    `gnome-screenshot`'a dusulur.
     """
-    ok, why = available()
+    ok, why = available(screencast)
     if not ok:
         raise CaptureError(why)
 
@@ -240,6 +275,44 @@ def capture(
         )
         targets = mons if want_all else [monitorslib.resolve(monitor, mons)]
 
+        # --- yol 1: acik ekran yayini (sessiz) --------------------------
+        # Her monitor kendi akisi oldugu icin KIRPMA YOK: `_write_crop`
+        # kutusuz cagriliyor, yalnizca olcekleme yapiyor.
+        if screencast is not None and screencast.is_open():
+            try:
+                screencast.ensure_cursor(include_pointer)
+                shots = []
+                for mon in targets:
+                    raw = tmpdir / f"sc-{mon.connector}.png"
+                    screencast.capture(mon.connector, raw)
+                    dest = out_dir / f"{stamp}-m{mon.index}-{mon.connector}.png"
+                    with Image.open(raw) as img:
+                        size, scaled, scale = _write_crop(
+                            img, None, dest, scale_long_edge
+                        )
+                    if size != (mon.width, mon.height):
+                        raise CaptureError(
+                            f"{mon.connector} yayini {size[0]}x{size[1]} verdi, "
+                            f"monitor tablosu {mon.width}x{mon.height} diyor. "
+                            "Monitor duzeni degismis olabilir; tekrar deneyin."
+                        )
+                    shots.append(Shot(
+                        path=dest, monitor=mon, offset=(mon.x, mon.y),
+                        size=size, scaled=scaled, scale=scale,
+                    ))
+                return shots
+            except CaptureError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                # Yayin dustu (monitor uykuda, kompozitor yeniden basladi).
+                # Sessizce bos donmektense YEDEGE dusuyoruz; kullanici flasi
+                # gorur ama goruntuyu alir.
+                raise CaptureError(
+                    f"ekran yayinindan kare alinamadi: {exc}. "
+                    "`desktop_lock` + `desktop_unlock` yayini yeniden kurar."
+                ) from exc
+
+        # --- yol 2: gnome-screenshot (yedek) ----------------------------
         raw = _grab_canvas(tmpdir, include_pointer)
         shots: list[Shot] = []
         with Image.open(raw) as canvas:

@@ -139,9 +139,29 @@ def main(argv: list[str] | None = None) -> int:
 
     from ..desktop import capture as capturelib
     from ..desktop import monitors as monitorslib
+    from ..desktop import screencast as screencastlib
 
-    ok, why = capturelib.available()
+    # MCP sunucusu yayini izin suresince acik tutuyor; burasi kisa omurlu bir
+    # surec, o yuzden kendi yayinini acip kapatiyor. Bedeli ~250 ms, karsiligi
+    # cekimde beyaz flas ve ses OLMAMASI. Acilamazsa gnome-screenshot'a
+    # dusuluyor -- goruntu yine aliniyor, sadece flasli.
+    screencast = None
+    if cfg.desktop.capture_backend != "gnome-screenshot":
+        try:
+            screencast = screencastlib.ScreenCast()
+            screencast.start(
+                [m.connector for m in monitorslib.list_monitors()],
+                cursor=not args.no_pointer and cfg.desktop.include_pointer,
+            )
+        except (screencastlib.ScreenCastError, monitorslib.MonitorError):
+            if screencast is not None:
+                screencast.close()
+            screencast = None
+
+    ok, why = capturelib.available(screencast)
     if not ok:
+        if screencast is not None:
+            screencast.close()
         gate.audit("pcb_shot_unavailable", reason=why[:120], job=job_id())
         fail(f"Ekran goruntusu alinamiyor: {why}", EXIT_BAD_INPUT, args.json)
 
@@ -159,11 +179,15 @@ def main(argv: list[str] | None = None) -> int:
             out_dir=out_dir,
             scale_long_edge=max(0, args.scale),
             include_pointer=not args.no_pointer and cfg.desktop.include_pointer,
+            screencast=screencast,
         )
         mons = monitorslib.list_monitors()
     except (capturelib.CaptureError, monitorslib.MonitorError) as exc:
         gate.audit("pcb_shot_error", error=str(exc)[:160], job=job_id())
         fail(str(exc), EXIT_BAD_INPUT, args.json)
+    finally:
+        if screencast is not None:
+            screencast.close()
 
     gate.audit("pcb_shot", monitor=str(args.monitor), shots=len(shots),
                swept=swept or None, job=job_id())

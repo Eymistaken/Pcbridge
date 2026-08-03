@@ -468,6 +468,44 @@ def test_want_inline() -> None:
     finally:
         Path(bad_path).unlink(missing_ok=True)
 
+    # --- J bolumu: yakalama yolu ve I bolumu: fare ayarlari ---------------
+    # Her yeni ayar `config.example.toml`'a yorumuyla eklenir VE `config.py`'de
+    # fiilen okunur. Bu bir kere atlandi (alanlar tanimliydi, config'e yazilan
+    # deger hicbir sey yapmiyordu), o yuzden ikisi de test ediliyor.
+    for anahtar, deger in (
+        ("capture_backend", '"auto"'),
+        ("pointer_speed", "5000"),
+        ("pointer_move_max_ms", "500"),
+        ("hold_max_seconds", "120"),
+    ):
+        check(f"config.example.toml `{anahtar}` iceriyor",
+              f"\n{anahtar} = {deger}" in base,
+              f"ornek dosyada `{anahtar} = {deger}` satiri yok")
+
+    gecersizler = [
+        ('capture_backend = "auto"', 'capture_backend = "sihir"', "capture_backend"),
+        ("pointer_speed = 5000", "pointer_speed = 7", "pointer_speed"),
+        ("pointer_move_max_ms = 500", "pointer_move_max_ms = 99999",
+         "pointer_move_max_ms"),
+        ("hold_max_seconds = 120", "hold_max_seconds = 2", "hold_max_seconds"),
+    ]
+    for eski, yeni, alan in gecersizler:
+        metin = base.replace(eski, yeni).replace(
+            'public_url = "https://DEGISTIR.tailXXXX.ts.net"',
+            'public_url = "http://localhost:8765"',
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as fh:
+            fh.write(metin)
+            yol = fh.name
+        try:
+            load_config(yol)
+            check(f"gecersiz {alan} yuklemede durduruyor", False, "hata vermedi")
+        except SystemExit as exc:
+            check(f"gecersiz {alan} yuklemede durduruyor", alan in str(exc),
+                  str(exc)[:90])
+        finally:
+            Path(yol).unlink(missing_ok=True)
+
 
 def test_computer_task_consistency() -> None:
     """`computer_task` uclusu (ajan, model, effort) birbirine ait mi (faz H).

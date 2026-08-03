@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -424,7 +425,7 @@ def test_capture_crop_offsets() -> None:
     tmp = Path(tempfile.mkdtemp(prefix="pcb-cap-"))
     try:
         M.list_monitors = lambda *a, **k: mons
-        C.available = lambda: (True, "")
+        C.available = lambda *a, **k: (True, "")
         C._grab_canvas = lambda td, ptr: (_synthetic_canvas(td / "c.png") or (td / "c.png"))
 
         shots = C.capture("all", out_dir=tmp, scale_long_edge=0)
@@ -1871,6 +1872,211 @@ def test_real_hold() -> None:
         b.close()
 
 
+class FakeScreenCast:
+    """`ScreenCast` yerine gecen sahte. GERCEK yayin acmaz, PipeWire'a
+    dokunmaz -- yakalama katmaninin dogru yolu sectigini test etmek icin."""
+
+    def __init__(self, open_: bool = True, fail: bool = False) -> None:
+        self._open = open_
+        self._fail = fail
+        self.cursor = True
+        self.calls: list[tuple] = []
+
+    def is_open(self) -> bool:
+        return self._open
+
+    def ensure_cursor(self, cursor: bool) -> bool:
+        degisti = bool(cursor) != self.cursor
+        self.cursor = bool(cursor)
+        self.calls.append(("ensure_cursor", cursor))
+        return degisti
+
+    def capture(self, connector, path):
+        self.calls.append(("capture", connector, str(path)))
+        if self._fail:
+            raise RuntimeError("yayin dustu (test)")
+        _synthetic_monitor_png(Path(path))
+        return {"ok": True, "path": str(path), "monitor": connector, "ms": 42}
+
+
+def _synthetic_monitor_png(dest: Path) -> None:
+    """1920x1080 sahte monitor karesi. Gercek ekrana dokunmaz."""
+    from PIL import Image
+
+    img = Image.new("RGB", (1920, 1080), (20, 40, 60))
+    img.save(dest, format="PNG")
+
+
+def test_screencast_backend() -> None:
+    """Ekran yayini yolu — CIHAZSIZ kisim.
+
+    Gercek yayin `test_real_screencast()` icinde ve varsayilan olarak atlanir.
+    """
+    from pcbridge.desktop import capture as C
+    from pcbridge.desktop import screencast as SC
+
+    section("41. Ekran yayini — yol secimi")
+
+    # 1) backend_name / available yayin DURUMUNU okumali, tahmin etmemeli.
+    acik, kapali = FakeScreenCast(True), FakeScreenCast(False)
+    check("yayin acikken backend adi yayin", C.backend_name(acik) == C.SCREENCAST_NAME,
+          C.backend_name(acik))
+    check("yayin kapaliyken backend adi gnome-screenshot",
+          C.backend_name(kapali) == C.GNOME_SCREENSHOT, C.backend_name(kapali))
+    check("yayin verilmezse gnome-screenshot",
+          C.backend_name(None) == C.GNOME_SCREENSHOT)
+
+    # 2) Acik yayin varken gnome-screenshot ARANMAMALI: kurulu olmadigi bir
+    #    makinede sessiz yol calisirken "kurulu degil" demek yanlis olurdu.
+    gercek_which = C.shutil.which
+    try:
+        C.shutil.which = lambda name: None      # hicbir sey kurulu degil
+        ok_acik, _ = C.available(acik)
+        ok_kapali, why_kapali = C.available(kapali)
+        check("yayin acikken gnome-screenshot aranmiyor", ok_acik is True)
+        check("yayin kapaliyken eksiklik bildiriliyor", ok_kapali is False)
+        check("gerekce kurulum komutu veriyor", "apt install" in why_kapali,
+              why_kapali[:80])
+    finally:
+        C.shutil.which = gercek_which
+
+    # 3) Yayin acikken KIRPMA YOK: her monitor kendi akisindan geliyor.
+    mons = M._ordered(TWO_SCREENS)
+    real_list, real_avail, real_grab = M.list_monitors, C.available, C._grab_canvas
+    tmp = Path(tempfile.mkdtemp(prefix="pcb-sc-"))
+    sahte = FakeScreenCast(True)
+    try:
+        M.list_monitors = lambda *a, **k: mons
+        C.available = lambda *a, **k: (True, "")
+        C._grab_canvas = lambda td, ptr: (_ for _ in ()).throw(
+            AssertionError("yayin acikken gnome-screenshot CAGRILMAMALI"))
+
+        shots = C.capture("all", out_dir=tmp, scale_long_edge=0, screencast=sahte)
+        check("yayindan iki monitor geldi", len(shots) == 2, str(len(shots)))
+        check("ofsetler korundu",
+              [s.offset for s in shots] == [(0, 0), (1920, 0)],
+              str([s.offset for s in shots]))
+        check("her monitor tam cozunurluk",
+              all(s.size == (1920, 1080) for s in shots),
+              str([s.size for s in shots]))
+        cagrilar = [c for c in sahte.calls if c[0] == "capture"]
+        check("her monitor icin bir yakalama", len(cagrilar) == 2, str(cagrilar))
+        check("connector adlariyla cagrildi",
+              {c[1] for c in cagrilar} == {"DP-2", "DP-1"},
+              str({c[1] for c in cagrilar}))
+
+        # 4) Imlec kipi cekim basina degil YAYIN kurulurken belirleniyor;
+        #    istek farkliysa yayin yeniden kurulmali.
+        sahte2 = FakeScreenCast(True)
+        sahte2.cursor = True
+        C.capture("all", out_dir=tmp, scale_long_edge=0, include_pointer=False,
+                  screencast=sahte2)
+        check("imlec kipi yayina bildirildi",
+              ("ensure_cursor", False) in sahte2.calls, str(sahte2.calls[:2]))
+
+        # 5) Yayin kapaliysa yedege dusmeli (gnome-screenshot cagrilir).
+        cagrildi = {"n": 0}
+
+        def sahte_grab(td, ptr):
+            cagrildi["n"] += 1
+            dest = Path(td) / "c.png"
+            _synthetic_canvas(dest)
+            return dest
+
+        C._grab_canvas = sahte_grab
+        C.capture("all", out_dir=tmp, scale_long_edge=0,
+                  screencast=FakeScreenCast(False))
+        check("yayin kapaliyken gnome-screenshot'a dusuldu", cagrildi["n"] == 1,
+              str(cagrildi))
+
+        # 6) Yayin dusen bir cekim SESSIZCE bos donmemeli.
+        try:
+            C.capture("all", out_dir=tmp, scale_long_edge=0,
+                      screencast=FakeScreenCast(True, fail=True))
+            check("dusen yayin hata veriyor", False, "hata vermedi")
+        except C.CaptureError as exc:
+            check("dusen yayin hata veriyor", "yayin" in str(exc).lower(),
+                  str(exc)[:90])
+            check("gerekce ne yapilacagini soyluyor", "desktop_unlock" in str(exc),
+                  str(exc)[:120])
+    finally:
+        M.list_monitors = real_list
+        C.available, C._grab_canvas = real_avail, real_grab
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    # 7) `available()` yardimcisi yoksa duzgun gerekce vermeli.
+    ok, why = SC.available()
+    if ok:
+        check("bu makinede ekran yayini kullanilabilir", True)
+    else:
+        check("kullanilamiyorsa gerekce kurulum komutu veriyor",
+              "apt install" in why or "python" in why, why[:90])
+
+
+def test_real_screencast() -> None:
+    """GERCEK ekran yayini. PCBRIDGE_TEST_CAPTURE=1 ile acilir.
+
+    Kullanicinin ekranini diske yazar ve ust cubukta kisa sureligine paylasim
+    gostergesi cikarir; bu yuzden varsayilan olarak atlaniyor.
+    """
+    if os.environ.get("PCBRIDGE_TEST_CAPTURE") != "1":
+        return
+    section("42. Ekran yayini — gercek yakalama")
+
+    from pcbridge.desktop import monitors as M
+    from pcbridge.desktop import screencast as SC
+
+    ok, why = SC.available()
+    check("yayin altyapisi hazir", ok, why[:110])
+    if not ok:
+        return
+
+    sc = SC.ScreenCast()
+    tmp = Path(tempfile.mkdtemp(prefix="pcb-scr-"))
+    try:
+        check("acilmadan once kapali", not sc.is_open())
+        try:
+            sc.capture("DP-1", tmp / "olmaz.png")
+            check("kapali yayindan cekim reddediliyor", False, "kabul edildi")
+        except SC.ScreenCastError as exc:
+            check("kapali yayindan cekim reddediliyor", "acik degil" in str(exc),
+                  str(exc)[:80])
+
+        connectors = [m.connector for m in M.list_monitors()]
+        sc.start(connectors, cursor=True)
+        check("yayin acildi", sc.is_open())
+        check("butun monitorler yayinda", set(sc.monitors()) == set(connectors),
+              f"{sc.monitors()} vs {connectors}")
+        check("ikinci start ayni yayini donduruyor",
+              sc.start(connectors).get("already") is True)
+
+        for conn in connectors:
+            dest = tmp / f"{conn}.png"
+            res = sc.capture(conn, dest)
+            check(f"{conn} karesi alindi", dest.exists() and dest.stat().st_size > 0,
+                  str(res))
+            from PIL import Image
+            with Image.open(dest) as im:
+                mon = next(m for m in M.list_monitors() if m.connector == conn)
+                check(f"{conn} cozunurlugu monitorle ayni",
+                      im.size == (mon.width, mon.height),
+                      f"{im.size} vs {(mon.width, mon.height)}")
+
+        try:
+            sc.capture("YOK-9", tmp / "x.png")
+            check("olmayan monitor reddediliyor", False, "kabul edildi")
+        except SC.ScreenCastError as exc:
+            check("olmayan monitor reddediliyor", "yayinda yok" in str(exc),
+                  str(exc)[:80])
+
+        sc.stop()
+        check("stop sonrasi kapali", not sc.is_open())
+    finally:
+        sc.close()
+        shutil.rmtree(tmp, ignore_errors=True)
+    check("close sonrasi kapali", not sc.is_open())
+
+
 def test_session_env() -> None:
     """Oturum ortami onarimi (`desktop/session.py`).
 
@@ -2025,6 +2231,8 @@ def main() -> int:
     test_move_path()
     test_hold_tracking()
     test_real_hold()
+    test_screencast_backend()
+    test_real_screencast()
     test_real_batch()
     print(f"\n\033[1m{ok_count} gecti, {fail_count} kaldi\033[0m")
     return 1 if fail_count else 0

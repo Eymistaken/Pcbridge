@@ -31,6 +31,7 @@ from .desktop import input as inputlib
 from .desktop import monitors as monitorslib
 from .desktop import ops as opslib
 from .desktop import safety as safetylib
+from .desktop import screencast as screencastlib
 from .desktop import uitree as uitreelib
 
 MAX_INLINE = 4000
@@ -717,6 +718,55 @@ def register(
         hold_max_seconds=cfg.desktop.hold_max_seconds,
     )
     tree = uitreelib.UiTree()
+    screencast = screencastlib.ScreenCast()
+
+    def _open_screencast() -> str:
+        """Masaustu izniyle birlikte ekran yayinini ac.
+
+        Yayin `screen_capture` cagrilmasa bile aciliyor: GNOME'un paylasim
+        gostergesi kullaniciya "ajan su an masaustune erisebiliyor" diyor ve
+        izin acikken bu her zaman dogru. Cekim beklemek gostergeyi izinden
+        daha gec baslatirdi.
+
+        Yayin acilamazsa izin YINE DE verilir -- `gnome-screenshot` yedegi
+        duruyor, yalnizca flas patlatiyor. Sebebi kullaniciya soyleniyor.
+        """
+        if cfg.desktop.capture_backend == "gnome-screenshot":
+            return ""
+        try:
+            mons = [m.connector for m in monitorslib.list_monitors()]
+        except monitorslib.MonitorError as exc:
+            return f"⚠️ Ekran yayını açılamadı (monitör tablosu okunamadı: {exc})."
+        try:
+            screencast.start(mons, cursor=cfg.desktop.include_pointer)
+        except screencastlib.ScreenCastError as exc:
+            if cfg.desktop.capture_backend == "screencast":
+                return (
+                    f"⚠️ Ekran yayını açılamadı: {exc}\n"
+                    "`capture_backend = \"screencast\"` olduğu için ekran "
+                    "görüntüsü alınamayacak; `auto` yapılırsa gnome-screenshot'a "
+                    "düşer (o flaş patlatır)."
+                )
+            return (
+                f"⚠️ Ekran yayını açılamadı: {exc}\n"
+                "Ekran görüntüsü gnome-screenshot ile alınacak — her çekimde "
+                "beyaz flaş ve ses olur."
+            )
+        return (
+            "📷 Ekran yayını açık: görüntüler sessizce alınacak (flaş yok). "
+            "Üst çubuktaki paylaşım göstergesi izin kapanınca kaybolur."
+        )
+
+    def _close_screencast_if_locked() -> None:
+        """Izin suresi dolduysa yayini da kapat.
+
+        `SafetyGate` sureyi diskte tutuyor ve kendiliginden bir olay
+        uretmiyor; yayinin kapanmasi icin birinin FARK ETMESI gerek. Her
+        masaustu cagrisinin basinda bakiyoruz -- boylece gosterge izinle
+        birlikte sonuyor.
+        """
+        if screencast.is_open() and not gate.is_unlocked():
+            screencast.close()
 
     def _held_note() -> str:
         """Basili tutulan varsa yanitin sonuna eklenecek not.
@@ -748,6 +798,7 @@ def register(
         ve erisilebilirlik araclari uinput kullanmiyor; /dev/uinput yokken
         onlari "girdi cihazi yok" diye reddetmek yanlis gerekce olurdu.
         """
+        _close_screencast_if_locked()
         decision = gate.check(tool, write=write, force=force)
         if not decision.allowed:
             gate.audit(f"{tool}_denied", reason=decision.reason[:120])
@@ -806,12 +857,13 @@ def register(
             timeout=10,
         )
         out = [msg, "", monitorslib.describe(), ""]
+        out.append(_open_screencast())
         out.append(
             "Koordinatlar **global tuval uzayinda**; sol ust (0, 0). Monitore ozel "
             "koordinat verecekseniz `monitor` parametresini de verin."
         )
         out.append("Erken kapatmak icin: desktop_lock")
-        return "\n".join(out)
+        return "\n".join(x for x in out if x)
 
     @mcp.tool(annotations={"title": "Stop desktop control"})
     def desktop_lock() -> str:
@@ -821,7 +873,11 @@ def register(
         are done, or asks you to stop touching their screen."""
         freed = backend.release_all()
         backend.close()
+        yayin = screencast.is_open()
+        screencast.close()
         note = f"\n· bırakılan: {', '.join(freed)}" if freed else ""
+        if yayin:
+            note += "\n· ekran yayını kapatıldı (paylaşım göstergesi kayboldu)"
         return gate.lock() + note
 
     @mcp.tool(annotations={"title": "Move or click the mouse", "destructiveHint": True})
@@ -1074,10 +1130,14 @@ def register(
         before clicking or capturing anything, so you know which coordinates land on
         which screen. Contains no personal data, only the hardware layout."""
         lines = [monitorslib.describe(), ""]
-        cap_ok, cap_why = capturelib.available()
+        _close_screencast_if_locked()
+        cap_ok, cap_why = capturelib.available(screencast)
         lines.append(
             f"**Ekran goruntusu:** {'hazir' if cap_ok else 'KULLANILAMIYOR'} "
-            f"(`{capturelib.backend_name()}`)" + ("" if cap_ok else f" — {cap_why}")
+            f"(`{capturelib.backend_name(screencast)}`)"
+            + ("" if cap_ok else f" — {cap_why}")
+            + ("" if screencast.is_open() else
+               " · yayın kapalı, çekimde flaş olur (`desktop_unlock` açar)")
         )
         in_ok, in_why = backend.available()
         lines.append(
@@ -1159,7 +1219,7 @@ def register(
                 "⛔ Ekran goruntusu servisi kurulu degil (sunucu eski surumde?)."
             )
 
-        cap_ok, cap_why = capturelib.available()
+        cap_ok, cap_why = capturelib.available(screencast)
         if not cap_ok:
             gate.audit("screen_capture_unavailable", reason=cap_why[:120])
             return _text(f"⛔ Ekran goruntusu alinamiyor: {cap_why}")
@@ -1180,6 +1240,7 @@ def register(
                 out_dir=shot_store.dir,
                 scale_long_edge=long_edge,
                 include_pointer=pointer,
+                screencast=screencast,
             )
         except (capturelib.CaptureError, monitorslib.MonitorError) as exc:
             gate.audit("screen_capture_error", error=str(exc)[:160])

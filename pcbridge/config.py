@@ -132,6 +132,14 @@ class DesktopSpec:
     # Imlec goruntuye dahil edilsin mi. Varsayilan true: fareyi bir yere
     # gonderip "gercekten oraya gitti mi" diye bakmanin tek yolu bu.
     include_pointer: bool = True
+    # Ekran nasil yakalansin (J bolumu):
+    #   "screencast"       PipeWire ekran yayini — SESSIZ, flas yok
+    #   "gnome-screenshot" eski yol — her cekimde beyaz flas + ses
+    #   "auto"             screencast varsa o, yoksa gnome-screenshot
+    # Yayin `desktop_unlock` ile acilir, `desktop_lock`/sure dolumu ile kapanir;
+    # acikken GNOME ust cubukta paylasim gostergesi durur (istenen: ajanin
+    # masaustune erisebildigi oradan gorunuyor).
+    capture_backend: str = "auto"
 
     # -- toplu eylem (E bolumu) ---------------------------------------------
     # computer_batch tek cagrida en fazla kac eylem alir.
@@ -469,6 +477,7 @@ def load_config(explicit: str | None = None) -> Config:
         shot_ttl_seconds=int(desktop_raw.get("shot_ttl_seconds", 300)),
         shot_keep_hours=int(desktop_raw.get("shot_keep_hours", 24)),
         include_pointer=bool(desktop_raw.get("include_pointer", True)),
+        capture_backend=str(desktop_raw.get("capture_backend", "auto")).strip().lower(),
         # Bu uc satir E bolumunde ATLANMISTI: alanlar DesktopSpec'te vardi ve
         # config.example.toml'da belgeliydi ama buradan okunmuyordu, yani
         # config.toml'a yazilan deger hicbir sey yapmiyordu. F0 sirasinda
@@ -529,6 +538,11 @@ def load_config(explicit: str | None = None) -> Config:
         raise SystemExit(
             f"[desktop] ({path}): `hold_max_seconds` ({desktop.hold_max_seconds}) "
             "ya 0 (otomatik birakma yok) ya da 5-3600 saniye arasinda olmali."
+        )
+    if desktop.capture_backend not in ("auto", "screencast", "gnome-screenshot"):
+        raise SystemExit(
+            f"[desktop] ({path}): `capture_backend` ({desktop.capture_backend!r}) "
+            "auto, screencast ya da gnome-screenshot olmali."
         )
     if desktop.computer_task_max_steps < 1:
         raise SystemExit(

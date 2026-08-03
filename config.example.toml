@@ -190,6 +190,27 @@ shot_keep_hours = 24
 # "gercekten oraya gitti mi" diye dogrulamanin tek yolu bu.
 include_pointer = true
 
+# Ekran nasil yakalansin:
+#   "auto"             ekran yayini varsa o, yoksa gnome-screenshot (varsayilan)
+#   "screencast"       yalnizca ekran yayini; kurulamazsa goruntu ALINMAZ
+#   "gnome-screenshot" eski yol
+#
+# NEDEN YAYIN: `gnome-screenshot` her cekimde BEYAZ FLAS patlatiyor ve ses
+# cikariyor (flasi kendi ciziyor). XDG portal yolu da ayni. GNOME'un ekran
+# goruntusu D-Bus arayuzu ise disaridan cagrilamiyor ("Access denied",
+# GNOME 46). Ekran PAYLASIMI yolunda flas yok: sistem bunu fotograf degil
+# video sayiyor. OLCULDU 2026-08-03, kayip da yok: yayin ciktisi ile
+# gnome-screenshot'in ayni bolgesi %99,8 birebir ayni.
+#
+# Yayin `desktop_unlock` ile acilir, `desktop_lock` ya da sure dolumuyla
+# kapanir. Acikken GNOME ust cubukta bir paylasim gostergesi durur -- bu
+# ISTENEN bir sey: ajanin su an masaustune erisebildigi oradan gorunuyor.
+# Gosterge cekilen karede de gorunur.
+#
+# Gerekenler (bu makinede kurulu): python3-gi, gstreamer1.0-pipewire,
+# gstreamer1.0-plugins-good. Yoksa kendiliginden gnome-screenshot'a duser.
+capture_backend = "auto"
+
 # computer_batch tek cagrida en fazla kac eylem alir. Listeyi bolmek her zaman
 # mumkun; bu sinir sonsuz donguye giren bir ajana karsi.
 batch_max_actions = 40
