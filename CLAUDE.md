@@ -35,7 +35,7 @@ Testler (hepsi düz betik; `.venv`'de pytest **kurulu değil**):
 
 ```bash
 ./.venv/bin/python tests/test_models.py     # cozumleyici + ajan cikti ayristiricilari, sunucu gerekmez
-./.venv/bin/python tests/test_desktop.py    # masaustu, 312 kontrol, GIRDI GONDERMEZ
+./.venv/bin/python tests/test_desktop.py    # masaustu, 392 kontrol, GIRDI GONDERMEZ
 ```
 
 Gerçek cihazlarla masaüstü testleri (uinput'a yazar, AT-SPI okur) — varsayılan
@@ -57,7 +57,7 @@ sunucusuz olarak zaten kontrol ediyor.
 ```bash
 export PCBRIDGE_TEST_PASSWORD="$(./.venv/bin/python -c 'import sys; sys.path.insert(0,"."); from pcbridge.config import load_config; print(load_config().password)')"
 export PCBRIDGE_TEST_STATIC="$(./.venv/bin/python -c 'import sys; sys.path.insert(0,"."); from pcbridge.config import load_config; print(load_config().static_token or "")')"
-PCBRIDGE_TEST_NO_AGENT=1 ./.venv/bin/python tests/test_e2e.py   # 201 gecer + 9 ATLA
+PCBRIDGE_TEST_NO_AGENT=1 ./.venv/bin/python tests/test_e2e.py   # 231 gecer + 9 ATLA
 ```
 
 Tek bir kontrolü koşturmak için dosyalar pytest ile toplanabilir yazıldı:
@@ -202,6 +202,25 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
 - **Mutlak fare cihazına `BTN_TOUCH`/`BTN_TOOL_PEN` eklenmemeli** — cihazı
   dokunmatik ekran yapar, kompozitör tek çıkışa bağlar, ikinci monitöre
   ulaşamazsın. `ABS_X + ABS_Y + BTN_LEFT` tüm tuvale eşleniyor (sapma ≤1 px).
+- **İmleç ışınlanmıyor, ara noktalardan geçiyor** (`input.move_path`). Ölçüldü:
+  48 adımlık bir hareketin **48 ABS_X + 48 ABS_Y olayının tamamı** cihazın kendi
+  event node'undan okundu, `SYN_DROPPED` yok — kernel ara noktaları
+  birleştirmiyor. `time.sleep(0.008)` fiilen 8,07 ms (sapma +0,08 ms), yani adım
+  aralığı öngörülebilir. Gerçek süreler: 960 px → 186 ms, köşegen → 498 ms
+  (tavan), 80 px → 61 ms (taban). `pointer_speed = 0` eski ışınlamayı geri
+  getirir; `drag` bundan **bağımsız** olarak ara nokta üretir.
+  Ölçerken tuzak: olayları hareket boyunca **paralel okumazsan** evdev istemci
+  kuyruğu taşar ve 96 olayın 11'i görünür — sayım yanlış çıkar, kod değil.
+- **İlk `move` kaçınılmaz olarak sıçrar.** Wayland'de imlecin gerçek konumu
+  dışarıdan sorulamıyor; yalnızca bizim gönderdiğimizi biliyoruz. Cihaz yeni
+  yaratıldığında o da boş.
+- **Basılı tutulan tuş `hold_max_seconds` sonunda kendiliğinden bırakılır.**
+  `release` unutulursa makine kullanılamaz hale gelir ve **ajanın bunu göreceği
+  bir kanal yok** — kendi gönderdiği tuşun hâlâ basılı olduğunu soramaz. Tembel
+  kontrol (bir sonraki çağrıda bak) yetmez: bir sonraki çağrı hiç gelmeyebilir.
+  Cihaz yok edilince kernel'in basılı tuşları bırakıp bırakmadığı **ölçülemedi**
+  (destroy ile event node da kayboluyor), bu yüzden `close()` önce açıkça
+  bırakıyor.
 - **`Shell.Introspect` kapalı** (GNOME 46, "Access denied"). Pencere listesi ve
   odak yalnızca AT-SPI'dan.
 - **AT-SPI `get_extents` koordinatları yanlış.** Tıklama `Action.do_action` ile

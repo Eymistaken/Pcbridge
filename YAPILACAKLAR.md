@@ -50,7 +50,41 @@ olması ve bir model çözümleme hatasının düzeltilmesi.
 
 ---
 
-## Bu bölümün hedefi — H
+## Son bölüm — I (BİTTİ, 2026-08-03)
+
+**Fare ışınlanmayı bıraktı; basılı tutma MCP'ye açıldı.**
+
+Kullanıcının isteği: *"fareyi hareket ettirdiğinde ışınlanıyor, gerçekten
+hareket ederse iyi olur"* + tut-sürükle, sağ tık, scroll, scroll'a basma,
+aynı anda çok tuşa basma ve basılı tutabilme.
+
+Kod okununca çıkan sonuç: **istenenlerin çoğu zaten vardı**, bir kısmı MCP'ye
+açılmamıştı. Gerçekten eksik olan tekti — yumuşak hareket.
+
+| istek | durum |
+|---|---|
+| Gerçek hareket | **yoktu** → `input.move_path`, smoothstep, 5000 px/s |
+| Tut-sürükle | vardı (`drag`) → artık `mouse_down`/`mouse_up` ile duraklamalı da yapılabiliyor |
+| Sağ tık, orta tık | vardı |
+| Scroll dikey | vardı; **yatay** backend'de vardı, araçta yoktu → açıldı |
+| Aynı anda çok tuş | vardı (`parse_combo` sınırsız) |
+| Klavye basılı tutma | araçta vardı, **batch'te yoktu** → açıldı |
+| Fare basılı tutma | backend'de vardı, **araçta yoktu** → açıldı |
+| `triple_click` | backend destekliyordu, açılmamıştı → açıldı |
+
+Ayrıca istekte olmayan ama zorunlu hale gelen bir iş: **sıkışma koruması.**
+`hold` MCP'ye açılıyorsa onu kapatan bir yol da olmalı — `release` unutulan bir
+Ctrl makineyi kullanılamaz yapıyor ve ajanın bunu göreceği bir kanal yok.
+`hold_max_seconds` zamanlayıcısı, `release_all()`, batch yarıda kalırsa
+otomatik bırakma ve her yanıtta "basılı tutulan: …" notu bu yüzden var.
+
+Kapsam dışı bırakılan: **bağıl fare modu** (`REL_X`/`REL_Y`). Oyunlar imleci
+yakalayıp bağıl hareket bekler, mutlak cihaz orada çalışmaz — ayrı ve daha
+büyük bir iş, kullanıcı da oyun demedi.
+
+---
+
+## Bir önceki bölüm — H
 
 **pcbridge bugüne kadar Gemini Spark için tasarlandı. Artık AI ajanlarının
 bağlandığı bir MCP sunucusu olacak.**
@@ -135,6 +169,18 @@ Kütüphane tarafı hazır: `fastmcp 3.4.5` (`fastmcp.utilities.types.Image`),
   bozulur. Metin girişinde varsayılan yol **`wl-copy` + Ctrl+V**
 - **Girdi katmanı `python-evdev`**, `dotool`/`ydotool` değil. Mutlak fare
   3840×1080 tuvale 1:1 eşleniyor
+- **İmleç ara noktalardan geçiyor, ışınlanmıyor** (I bölümü). Ölçüldü: 48
+  adımlık bir hareketin **48 ABS_X + 48 ABS_Y olayının tamamı** cihazın kendi
+  event node'undan okundu, `SYN_DROPPED` yok. `time.sleep(0.008)` fiilen
+  8,07 ms (+0,08). Süreler: 960 px → 186 ms, köşegen → 498 ms (tavan),
+  80 px → 61 ms (taban). **Ölçüm tuzağı:** olayları hareket boyunca paralel
+  okumazsan evdev istemci kuyruğu taşar ve 96 olayın 11'i görünür — o zaman
+  "interpolasyon çalışmıyor" diye yanlış sonuca varırsın
+- **İlk `move` kaçınılmaz olarak sıçrar** — Wayland'de imlecin gerçek konumu
+  dışarıdan sorulamıyor, yalnızca bizim gönderdiğimizi biliyoruz
+- **Cihaz yok edilince kernel basılı tuşları bırakıyor mu: ÖLÇÜLEMEDİ.**
+  Destroy ile event node da kayboluyor, olay okunamıyor. Bu yüzden `close()`
+  önce açıkça `release_all()` çağırıyor — ölçülmemiş davranışa güvenilmiyor
 - `gnome-screenshot` **kurulu ve çalışıyor**. Görüntü **monitör başına kırpılır,
   ölçekleme kırpmadan sonra**; her görüntü global ofsetini taşır
 - **Koordinat gidiş-dönüşü** tam çözünürlükte ~1 px, 1280'e küçültülmüşte ~5 px
@@ -393,7 +439,7 @@ Bunu omuz silkerek geçme, kullanıcıya sor.
 
 - `tests/test_e2e.py`: `inline_images` açık/kapalı şema farkı, stdio ile
   başlayan sunucudan `tools/list`
-- `tests/test_desktop.py`: mevcut 312 kontrol bozulmasın
+- `tests/test_desktop.py`: mevcut 392 kontrol bozulmasın
 - Gerçek istemci testi (H0'ın kurduğu düzenek) elle, kullanıcıya haber vererek
 
 ### H6 · Belgeler ve commit — ✅ bitti
@@ -427,7 +473,7 @@ journalctl --user -u pcbridge -f           # canli log
 ./doctor.sh                                # tani, 35 kontrol
 
 ./.venv/bin/python tests/test_models.py     # cozumleyici (sunucu gerekmez)
-./.venv/bin/python tests/test_desktop.py    # masaustu (girdi GONDERMEZ, 312 kontrol)
+./.venv/bin/python tests/test_desktop.py    # masaustu (girdi GONDERMEZ, 392 kontrol)
 
 # gercek cihazlarla (uinput'a yazar, AT-SPI okur):
 PCBRIDGE_TEST_CAPTURE=1 PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_BATCH=1 \
@@ -441,7 +487,7 @@ PCBRIDGE_TEST_CAPTURE=1 PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_BATCH=1 \
 export PCBRIDGE_TEST_PASSWORD="$(./.venv/bin/python -c 'import sys; sys.path.insert(0,"."); from pcbridge.config import load_config; print(load_config().password)')"
 export PCBRIDGE_TEST_STATIC="$(./.venv/bin/python -c 'import sys; sys.path.insert(0,"."); from pcbridge.config import load_config; print(load_config().static_token or "")')"
 PCBRIDGE_TEST_NO_AGENT=1 \
-  ./.venv/bin/python tests/test_e2e.py   # 201 gecer + 9 ATLA
+  ./.venv/bin/python tests/test_e2e.py   # 231 gecer + 9 ATLA
 ```
 
 Masaüstünü elle sürmek (ajan olmadan, sen bakarak):

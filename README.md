@@ -440,6 +440,13 @@ Süreç ölünce sanal klavye/fare cihazı da yok olur. Geri almak için:
 `sudo rm /etc/udev/rules.d/60-pcbridge-uinput.rules` (geri alma komutlarının
 tamamı `setup_uinput.sh` dosyasının başında).
 
+**Basılı kalan tuş.** Ajan bir tuşu ya da fare düğmesini basılı tutup
+(`hold`) bırakmayı unutursa makine kullanılamaz hale gelir. Üç güvenlik ağı
+var: `desktop_lock` hepsini bırakır, toplu eylem dizisi yarıda kalırsa
+kendiliğinden bırakılır, ve hiçbiri olmazsa
+`[desktop] hold_max_seconds` (varsayılan 120 sn) sonunda sunucu bırakır ve
+bunu bir sonraki yanıtta söyler. Elle: `bridgekilit`.
+
 ---
 
 ## Sorun giderme

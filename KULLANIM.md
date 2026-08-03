@@ -321,8 +321,15 @@ onay, dört tur gecikme. Bir menü seçimi için kabul edilemez.
  {"a": "ui_click", "id": "3c1a"}]
 ```
 
-Eylemler: `key`, `type`, `wait`, `move`, `click`, `double_click`, `right_click`,
-`middle_click`, `drag`, `scroll`, `ui_click`, `ui_set_text`, `launch`, `focus`.
+Eylemler: `key`, `type`, `hold`, `release`, `wait`, `move`, `click`,
+`double_click`, `triple_click`, `right_click`, `middle_click`, `mouse_down`,
+`mouse_up`, `drag`, `scroll`, `ui_click`, `ui_set_text`, `launch`, `focus`.
+
+`hold` / `mouse_down` sonraki eylemlere **taşar**: ara duraklaması olan bir
+sürükleme (kaydırıcı, seçim dikdörtgeni) `mouse_down` → `move` → `move` →
+`mouse_up` ile yapılır; `drag` bunun tek atışlık hâli. Dizi yarıda kalırsa
+basılı kalanlar bırakılır, düzgün biterse bırakılmaz — rapor hangisi olduğunu
+söyler.
 
 **Üç durumda kendiliğinden durur** ve nerede kaldığını söyler:
 
@@ -446,8 +453,8 @@ ya da bir işin bittiğini fark etmek için.
 | `notify` | Masaüstünde bildirim çıkarır |
 | `desktop_unlock` | Klavye/fare kontrolüne süreli izin verir (varsayılan 15 dk) |
 | `desktop_lock` | İzni erken kapatır, sanal cihazları yok eder |
-| `mouse` | Fareyi hareket ettirir, tıklar, sürükler, kaydırır |
-| `keyboard` | Metin yazar (pano yoluyla) veya tuş kombinasyonu gönderir |
+| `mouse` | Fareyi hareket ettirir (ışınlamaz, ara noktalardan geçer), tıklar (tek/çift/üçlü, sağ/orta), sürükler, kaydırır (dikey + yatay), düğmeyi basılı tutar |
+| `keyboard` | Metin yazar (pano yoluyla) veya tuş kombinasyonu gönderir; `hold`/`release` ile istenen sayıda tuşu basılı tutar |
 | `screen_info` | Monitör tablosu, koordinat uzayı, odaktaki pencere |
 | `screen_capture` | Ekran görüntüsü alır: görüntünün kendisi, uzaktan bağlıysan ayrıca 5 dakikalık bağlantı |
 | `ui_dump` | Ekrandaki düğme/menü/kutuları metin olarak listeler |

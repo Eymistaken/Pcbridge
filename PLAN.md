@@ -1474,6 +1474,55 @@ Faz 0'ı beklemeden ondan başlanabilir.)
 
 ---
 
+## 9c. Faz I sonuçları — yumuşak fare ve basılı tutma (2026-08-03)
+
+Kullanıcının isteği: *"fareyi hareket ettirdiğinde ışınlanıyor, gerçekten
+hareket ederse iyi olur"*, ayrıca tut-sürükle / sağ tık / scroll / scroll'a
+basma / çok tuşa aynı anda basma ve basılı tutabilme.
+
+### Plandan sapan bulgu: istenenin çoğu zaten vardı
+
+Kod okunmadan yazılan bir plan yedi yeni yetenek eklerdi. Gerçekte `input.py`
+sağ tık, orta tık, `drag`, yatay scroll, `mouse_down`/`mouse_up`,
+`key_down`/`key_up` ve sınırsız tuş kombinasyonunu **zaten yapıyordu** — bir
+kısmı MCP araçlarına ve toplu eylem motoruna bağlanmamıştı. Gerçekten eksik
+olan tek şey yumuşak hareketti. Bu yüzden bölüm çoğunlukla *yeni kod* değil
+*var olanı dışarı açma* işi oldu ve `mouse` aracı genişledi; **yeni araç
+eklenmedi** (33'te kaldı).
+
+### Ölçümler
+
+| ölçüm | sonuç |
+|---|---|
+| `time.sleep(0.008)` gerçek süresi | **8,07 ms** (sapma +0,08 ms) |
+| 48 adımlık hareketin geçen olayları | **48 ABS_X + 48 ABS_Y, tamamı**; `SYN_DROPPED` yok |
+| 48×8 ms toplam / 24×16 ms toplam | 388 ms / 387 ms — tutarlı |
+| Gerçek hareket süreleri | 960 px → 186 ms · köşegen → 498 ms (tavan) · 80 px → 61 ms (taban) |
+| Cihaz yok edilince tuş bırakılıyor mu | **ölçülemedi** — destroy ile event node kayboluyor |
+
+**Ölçüm tuzağı (kaydedilmeye değer):** ilk sayımda 96 olayın 11'i göründü ve
+bir an "kernel ara noktaları birleştiriyor" sanıldı. Sebep koddaki bir şey
+değil, ölçüm yöntemiydi: olaylar hareket boyunca okunmayınca evdev istemci
+kuyruğu taşıyor. Paralel okuyucuyla tekrarlandığında kayıp sıfır çıktı.
+
+### Kararlar
+
+- **Yumuşak hareket varsayılan**, `pointer_speed = 0` ile ışınlamaya dönülüyor.
+  Hız 5000 px/s (kullanıcı seçti), tavan 500 ms.
+- **`drag` bu ayardan bağımsız** ara nokta üretiyor (`min_steps`): sıçrayan bir
+  hareketi çoğu uygulama sürükleme saymıyor, yani `pointer_speed = 0` sürüklemeyi
+  bozardı.
+- **Sıkışma koruması istekte yoktu ama zorunluydu.** `hold`'u MCP'ye açmak, onu
+  kapatan bir yol açmadan yapılamaz: `release` unutulan bir Ctrl makineyi
+  kullanılamaz yapıyor ve ajanın bunu göreceği bir kanal yok. Zamanlayıcı +
+  `release_all()` + batch yarıda kalırsa otomatik bırakma + her yanıtta görünür
+  not. Tembel kontrol (bir sonraki çağrıda bak) yetmez — o çağrı hiç gelmeyebilir.
+- **Bağıl fare modu (`REL_X`/`REL_Y`) kapsam dışı.** Oyunlar imleci yakalayıp
+  bağıl hareket bekler; mutlak cihaz orada çalışmaz. Ayrı ve daha büyük iş,
+  kullanıcı da oyun demedi.
+
+---
+
 ## 10. Kaynaklar
 
 - [XDG RemoteDesktop portalı](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.RemoteDesktop.html) — portal tabanlı girdi enjeksiyonu

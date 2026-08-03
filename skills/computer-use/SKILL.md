@@ -70,21 +70,40 @@ eylemden sonra doğrula, ama aynı ekranı iki kez okuma.
 ## Eylemler
 
 ```
-{"a":"key",          "keys":"ctrl+s"}          tuş / kombinasyon
+{"a":"key",          "keys":"ctrl+s"}          tuş / kombinasyon (kaç tuş olursa)
+{"a":"hold",         "keys":"shift"}           BASILI TUT — release'e kadar
+{"a":"release",      "keys":"shift"}           bırak
 {"a":"type",         "text":"...", "raw":false} metin yaz
 {"a":"wait",         "ms":400}                  bekle (en fazla 30000)
 {"a":"move",         "x":.., "y":..}            imleci taşı
 {"a":"click",        "x":.., "y":..}            sol tık (x/y yoksa yerinde)
 {"a":"double_click", "x":.., "y":..}
+{"a":"triple_click", "x":.., "y":..}            satırın tamamını seçer
 {"a":"right_click",  "x":.., "y":..}
 {"a":"middle_click", "x":.., "y":..}
-{"a":"drag",         "x":.., "y":.., "to_x":.., "to_y":..}
-{"a":"scroll",       "amount":-3}               eksi = aşağı
+{"a":"mouse_down",   "button":"left", "x":.., "y":..}   BASILI TUT
+{"a":"mouse_up",     "button":"left"}                    bırak
+{"a":"drag",         "x":.., "y":.., "to_x":.., "to_y":.., "button":"left"}
+{"a":"scroll",       "amount":-3, "horizontal":false}   eksi = aşağı / sola
 {"a":"launch",       "app":"Vesktop"}           uygulama başlat
 {"a":"focus",        "window":"Metin Düzenleyici"}  pencereyi öne al (~6,5 s)
 {"a":"ui_click",     "id":"90e6"}               erişilebilirlik düğümü
 {"a":"ui_set_text",  "id":"1b72", "text":"..."} metin kutusunu doğrudan doldur
 ```
+
+**İmleç ışınlanmıyor**, hedefe ara noktalardan geçerek gidiyor (~5000 px/s,
+ekranın bir ucundan diğerine 0,4 sn). Bir `move` anlık dönmez; "takıldı" sanıp
+çağrıyı tekrarlarsanız iki hareket üst üste biner.
+
+**`hold` / `mouse_down` sonraki eylemlere taşar.** Ara duraklaması olan bir
+sürükleme — kaydırıcı, seçim dikdörtgeni, dosyayı klasöre bırakma — böyle
+yapılır: `mouse_down`, `move`, `move`, `mouse_up`. `drag` bunun tek atışlık hâli.
+
+Bıraktığınızdan emin olun. Dizi yarıda kalırsa (hata, bütçe, odak kayması)
+basılı kalanlar kendiliğinden bırakılır; düzgün biterse **bırakılmaz** —
+"tut, sonraki çağrıda tıkla" meşru bir kullanım. Rapor her iki durumda da ne
+olduğunu söyler. Son çare olarak sunucu bir süre sonra (varsayılan 120 sn)
+hepsini bırakır, ama o zamana kadar kullanıcı makinesini kullanamaz.
 
 `ui_click` / `ui_set_text` koordinat gerektirmiyor ve **çok daha güvenilir** —
 ama yalnızca GTK/GNOME uygulamalarında çalışıyor. Electron uygulamalarında
