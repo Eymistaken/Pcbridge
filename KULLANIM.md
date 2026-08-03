@@ -239,6 +239,21 @@ Bunu `[server] inline_images` ayarı belirliyor; varsayılan `true`, yani her
 istemciye görüntü gider. Görüntü işleyemeyen bir istemciyle karşılaşırsan
 `false` (hiç gönderme) ya da `"auto"` (yalnızca stdio'ya gönder) yapılabilir.
 
+### Çekim sessiz
+
+Eskiden her ekran görüntüsü **beyaz bir flaş** patlatıyor ve deklanşör sesi
+çıkarıyordu. Artık çıkarmıyor: görüntüler GNOME'un ekran *paylaşımı* yolundan
+alınıyor, sistem bunu fotoğraf değil video saydığı için flaş çizmiyor.
+
+Karşılığında bir şey görüyorsun: masaüstü izni açıkken **üst çubukta turuncu
+bir paylaşım göstergesi** duruyor. Bu kasıtlı — ajanın şu an ekranına
+erişebildiğini oradan anlıyorsun. `desktop_lock` dediğinde ya da izin süresi
+dolduğunda gösterge kayboluyor. Gösterge çekilen görüntüde de görünür.
+
+Gerektiğinde eski yola dönülebilir: `[desktop] capture_backend =
+"gnome-screenshot"` (flaş geri gelir). Yayın kurulamayan bir makinede
+kendiliğinden zaten oraya düşer.
+
 Bilmen gereken üç şey:
 
 - **Ekranda ne olduğunu öğrenmenin ucuz yolu görüntü değil, `ui_dump`.** Ölçüldü:
@@ -456,7 +471,7 @@ ya da bir işin bittiğini fark etmek için.
 | `mouse` | Fareyi hareket ettirir (ışınlamaz, ara noktalardan geçer), tıklar (tek/çift/üçlü, sağ/orta), sürükler, kaydırır (dikey + yatay), düğmeyi basılı tutar |
 | `keyboard` | Metin yazar (pano yoluyla) veya tuş kombinasyonu gönderir; `hold`/`release` ile istenen sayıda tuşu basılı tutar |
 | `screen_info` | Monitör tablosu, koordinat uzayı, odaktaki pencere |
-| `screen_capture` | Ekran görüntüsü alır: görüntünün kendisi, uzaktan bağlıysan ayrıca 5 dakikalık bağlantı |
+| `screen_capture` | Ekran görüntüsü alır (sessiz — flaş/ses yok): görüntünün kendisi, uzaktan bağlıysan ayrıca 5 dakikalık bağlantı |
 | `ui_dump` | Ekrandaki düğme/menü/kutuları metin olarak listeler |
 | `ui_click` | Listedeki bir öğeye tıklar (koordinat kullanmadan) |
 | `ui_set_text` | Metin kutusunu doğrudan doldurur (klavye taklidi yok) |

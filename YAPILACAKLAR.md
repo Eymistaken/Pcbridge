@@ -50,7 +50,45 @@ olması ve bir model çözümleme hatasının düzeltilmesi.
 
 ---
 
-## Son bölüm — I (BİTTİ, 2026-08-03)
+## Son bölüm — J (BİTTİ, 2026-08-03)
+
+**Ekran görüntüsü sessizleşti.** Kullanıcının sorusu: *"gnome-screenshot her
+çekimde beyaz flaş patlatıyor ve ses çıkarıyor, sessizce alamaz mı?"*
+
+Denenen ve **elenen** yollar — hepsi ölçüldü:
+
+| yol | sonuç |
+|---|---|
+| `gnome-screenshot --no-flash` | **bayrak yok** (eski sürümlerde vardı, kaldırılmış) |
+| `org.gnome.Shell.Screenshot` D-Bus, `flash=false` | **"Access denied"** — GNOME 46 çağıranı süzüyor |
+| XDG portal | çalışıyor ama **yine flaş**, üstelik `~/Resimler`'i kirletiyor |
+| **Mutter ScreenCast (PipeWire)** | **sessiz** ✔ |
+
+Flaşın `gnome-screenshot`'ın *kendi* kodundan geldiği de ölçüldü (ikilikte
+`cheese_flash_fire`) — yani D-Bus'a `flash=false` geçirmek zaten yetmezdi.
+
+Ekran *paylaşımı* yolunda flaş yok çünkü sistem bunu fotoğraf değil **video**
+sayıyor. Kullanıcı dört ardışık çekimde "hiçbir şey olmadı" diye doğruladı.
+
+**Kayıp yok:** yayın çıktısı ile `gnome-screenshot`'ın aynı bölgesi **%99,8
+birebir aynı** (2.070.172 / 2.073.600 piksel); kalan fark iki çekim arasında
+ekranın kendisinin değişmesi.
+
+**Hız ikincil, abartılmamalı:** ham yakalamada 240 ms'ye karşı 833 ms, ama uçtan
+uca (iki monitör + ölçekleme + PNG) 1,5 sn'ye karşı 2,5 sn — aradaki farkın
+çoğu Pillow'da ve iki yolda da aynı.
+
+**Yayın `desktop_unlock` ile açılıyor, `desktop_lock`/süre dolumuyla kapanıyor.**
+Açıkken üst çubukta paylaşım göstergesi duruyor; kullanıcı bunu *istedi* —
+"ajan aktif mi anlamış olurum" (ileride GNOME eklentisiyle ekran etrafına çerçeve
+çizilecek, o bunun üstüne oturacak).
+
+Kapsam dışı bırakılan: `RecordWindow` (pencere yayını). `monitor="window"` hâlâ
+`gnome-screenshot`'a düşüyor, yani orada flaş var.
+
+---
+
+## Bir önceki bölüm — I (BİTTİ, 2026-08-03)
 
 **Fare ışınlanmayı bıraktı; basılı tutma MCP'ye açıldı.**
 
@@ -180,6 +218,21 @@ Kütüphane tarafı hazır: `fastmcp 3.4.5` (`fastmcp.utilities.types.Image`),
   bozulur. Metin girişinde varsayılan yol **`wl-copy` + Ctrl+V**
 - **Girdi katmanı `python-evdev`**, `dotool`/`ydotool` değil. Mutlak fare
   3840×1080 tuvale 1:1 eşleniyor
+- **`gnome-screenshot` her çekimde beyaz flaş + ses çıkarıyor** ve flaşı KENDİ
+  çiziyor (ikilikte `cheese_flash_fire`). XDG portal da flaş patlatıyor.
+  `org.gnome.Shell.Screenshot` D-Bus arayüzü **"Access denied"** (GNOME 46
+  çağıranı süzüyor, `Shell.Introspect` gibi). Çözüm ekran *paylaşımı*:
+  `org.gnome.Mutter.ScreenCast` **erişilebilir** ve orada flaş yok.
+  Ölçüldü: 833 / 497 / **240 ms**. Yayın çıktısı gnome-screenshot ile **%99,8
+  birebir aynı** — kayıp yok.
+- **Açık duran yayın bedava**: gnome-shell CPU %35,2 → %35,2. Kimse kare
+  tüketmezken PipeWire üretmiyor.
+- **Yayın açıkken çekim süresi monitöre göre değişiyor**: DP-1 tutarlı
+  ~315 ms, DP-2 tutarlı ~80 ms. Rastgele değil, her çekimde aynı.
+  **Sebebi bilinmiyor**, ikisi de mevcut yoldan hızlı olduğu için üzerine
+  gidilmedi.
+- **`gi`/`Gst` venv'de YOK**, sistem `python3`'ünde var — `atspi_helper.py` ile
+  aynı durum. Ama bu yardımcı **kalıcı**: yayın açık kalmalı.
 - **İmleç ara noktalardan geçiyor, ışınlanmıyor** (I bölümü). Ölçüldü: 48
   adımlık bir hareketin **48 ABS_X + 48 ABS_Y olayının tamamı** cihazın kendi
   event node'undan okundu, `SYN_DROPPED` yok. `time.sleep(0.008)` fiilen

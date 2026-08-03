@@ -164,8 +164,23 @@ command -v wl-copy >/dev/null && pass "wl-copy var (pano yoluyla metin girisi)" 
   || fail "wl-clipboard yok: sudo apt install wl-clipboard"
 
 # --- ekran goruntusu ---
-command -v gnome-screenshot >/dev/null && pass "gnome-screenshot var (ekran goruntusu)" \
-  || fail "gnome-screenshot yok: sudo apt install gnome-screenshot"
+# Iki yol var. Yayin SESSIZ (varsayilan), gnome-screenshot her cekimde beyaz
+# flas + ses -- yedek olarak duruyor.
+SC_OUT="$(./.venv/bin/python - <<'PYEOF' 2>/dev/null
+from pcbridge.desktop import screencast as SC
+ok, why = SC.available()
+print("OK" if ok else f"NO {why}")
+PYEOF
+)"
+if [ "${SC_OUT%% *}" = "OK" ]; then
+  pass "ekran yayini hazir (SESSIZ yakalama, flas yok)"
+else
+  warn "ekran yayini kullanilamiyor: ${SC_OUT#NO }"
+  info "    gnome-screenshot'a dusulur; o her cekimde beyaz flas + ses yapar."
+  info "    Kurulum: sudo apt install python3-gi gstreamer1.0-pipewire gstreamer1.0-plugins-good"
+fi
+command -v gnome-screenshot >/dev/null && pass "gnome-screenshot var (yedek yol)" \
+  || warn "gnome-screenshot yok: yayin calismazsa goruntu alinamaz (sudo apt install gnome-screenshot)"
 if ./.venv/bin/python -c "import PIL" 2>/dev/null; then
   pass "python paketi Pillow kurulu (kirpma/olcekleme)"
 else

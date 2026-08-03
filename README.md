@@ -347,6 +347,12 @@ komut çalıştırma"dan daha geniş bir yetki — çünkü komut çalıştırma
   yakalar: açık mesajlar, e-posta, ekranda görünen parolalar. O yüzden o da
   `desktop_unlock` istiyor. Tek gevşetme, "makinenin başındasın" korumasının
   ekran görüntüsüne uygulanmaması — başında olman ekranına bakmanı engellememeli.
+- **Görüntüler sessizce alınıyor ve bunun görünür bir karşılığı var.** Çekim
+  GNOME'un ekran paylaşımı yolundan geçtiği için flaş ve ses yok; buna karşılık
+  masaüstü izni açıkken **üst çubukta turuncu bir paylaşım göstergesi duruyor.**
+  Bu bilinçli: sessizleşen bir yeteneğin görünür bir işareti olmalı. Gösterge
+  `desktop_lock` ile ya da izin süresi dolunca kayboluyor, ve yayın yardımcı
+  süreçte yaşadığı için pcbridge çökerse paylaşım da kapanıyor.
 - **`ui_dump` ekranı metin olarak okuyor** — düğme etiketleri, menü öğeleri,
   metin kutularının içeriği. Görüntü kadar açık edici, o yüzden aynı kapıdan
   geçiyor. `ui_set_text` ise metin kutularına doğrudan yazıyor; yazılan metnin
@@ -549,7 +555,9 @@ Pcbridge/
     └── desktop/
         ├── monitors.py     monitör tablosu — koordinat uzayının tek kaynağı
         ├── input.py        sanal klavye + mutlak fare (/dev/uinput)
-        ├── capture.py      ekran görüntüsü: yakala, kırp, ölçekle
+        ├── capture.py      ekran görüntüsü: iki backend, kırp, ölçekle
+        ├── screencast.py   PipeWire ekran yayını — SESSİZ yakalama
+        ├── screencast_helper.py  yayın + kare — SİSTEM python3'ü, kalıcı süreç
         ├── uitree.py       erişilebilirlik ağacı → metin, kararlı #id'ler
         ├── atspi_helper.py AT-SPI yardımcısı — SİSTEM python3'ü, ayrı süreç
         └── safety.py       süreli izin, kilit/idle kontrolü, denetim kaydı

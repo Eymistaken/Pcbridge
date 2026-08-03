@@ -43,8 +43,12 @@ olarak atlanırlar:
 
 ```bash
 PCBRIDGE_TEST_CAPTURE=1 PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_BATCH=1 \
-  ./.venv/bin/python tests/test_desktop.py
+  ./.venv/bin/python tests/test_desktop.py   # 421 kontrol
 ```
+
+`PCBRIDGE_TEST_CAPTURE=1` ekranı diske yazar **ve** kısa süreliğine ekran
+yayını açar (üst çubukta paylaşım göstergesi belirir); `PCBRIDGE_TEST_BATCH=1`
+gerçek tıklama gönderir.
 
 Uçtan uca (sunucu ayakta olmalı; parola verilmezse OAuth adımları 401 döner ve
 testin bozulduğunu sanırsın):
@@ -111,7 +115,9 @@ taşır; yeni bir CLI eklemek için Python dosyasına dokunulmaz.
 ```
 monitors.py   monitor tablosu -- KOORDINAT UZAYININ TEK KAYNAGI
 input.py      uinput sanal klavye + mutlak fare
-capture.py    ekran goruntusu: yakala -> monitor basina KIRP -> sonra olcekle
+capture.py    ekran goruntusu: iki backend -- yayin (sessiz) / gnome-screenshot
+screencast.py PipeWire ekran yayini; yardimci sureci surer, omrunu yonetir
+screencast_helper.py  yayin + kare: SISTEM python3 (gi/Gst yok venv'de), KALICI
 uitree.py     erisilebilirlik agaci -> metin, kararli #id'ler
 atspi_helper.py  AT-SPI yardimcisi: SISTEM python3'u, ayri surec, JSON protokolu
 apps.py       uygulama baslatma, pencere one alma
@@ -241,6 +247,22 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
 - **`[desktop] enabled = false` yalnızca masaüstü araçlarını kapatır.**
   `shell_run`, `agent_run`, `fs_*`, `tmux_*` bu kapıdan geçmez. Bilinçli:
   koruma engelleme değil, `audit.log`'a iz bırakma.
+- **Ekran görüntüsü artık sessiz alınıyor: Mutter ScreenCast (PipeWire).**
+  `gnome-screenshot` her çekimde **beyaz flaş + ses** çıkarıyor ve flaşı kendi
+  çiziyor (ikilikte `cheese_flash_fire`), yani `flash=false` geçirmek çözmezdi.
+  XDG portal da flaş patlatıyor. `org.gnome.Shell.Screenshot` D-Bus arayüzü
+  **"Access denied"** — GNOME 46 çağıranı süzüyor. Ekran *paylaşımı* yolunda
+  flaş yok: sistem bunu fotoğraf değil video sayıyor.
+  Ölçüldü: 833 ms (gnome-screenshot) · 497 ms (portal) · **240 ms (yayın)**.
+  Uçtan uca fark daha küçük (2,5 sn → 1,5 sn); kalanı Pillow'da, iki yolda da
+  aynı. **Asıl kazanç sessizlik, hız ikincil.**
+  Kayıp yok: yayın çıktısı ile `gnome-screenshot`'ın aynı bölgesi **%99,8
+  birebir aynı**.
+- **Yayın `desktop_unlock` ile açılır, `desktop_lock`/süre dolumuyla kapanır.**
+  Açıkken GNOME üst çubukta paylaşım göstergesi durur — bu istenen bir şey
+  (kullanıcı ajanın masaüstüne erişebildiğini oradan görüyor) ve **çekilen
+  karede de görünür**. Yayın `screencast_helper.py` sürecinde yaşıyor: süreç
+  ölünce paylaşım da ölüyor.
 - **Ekran görüntüsünün maliyeti sürücüye göre 20–30 kat değişiyor** — `agy`'de
   tek görüntü ~40 bin girdi jetonu, **Claude'da ~1200–1900**. `ui_dump` yine de
   daha ucuz (~0,1 sn, birkaç yüz jeton) ve koordinat kullanmadığı için

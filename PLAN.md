@@ -1523,6 +1523,66 @@ kuyruğu taşıyor. Paralel okuyucuyla tekrarlandığında kayıp sıfır çıkt
 
 ---
 
+## 9d. Faz J sonuçları — sessiz ekran görüntüsü (2026-08-03)
+
+Kullanıcının sorusu: *"gnome-screenshot ekran görüntüsü alırken beyaz bir flaş
+patlatıyor. Acaba o flaş ve sesi patlatmadan sessizce alabilir mi?"*
+
+### Elenen yollar (hepsi denendi, hepsi ölçüldü)
+
+| yol | sonuç |
+|---|---|
+| `gnome-screenshot --no-flash` | Bayrak **yok** — eski sürümlerde vardı, kaldırılmış |
+| `gsettings` ile flaş kapatma | Şemada **flaşla ilgili anahtar yok** |
+| `org.gnome.Shell.Screenshot` D-Bus, `flash=false` | **"Access denied"** — GNOME 46 çağıranı süzüyor, yalnızca kendi uygulamalarına izin veriyor |
+| XDG portal (`org.freedesktop.portal.Screenshot`) | Çalışıyor (497 ms) ama **yine flaş**; ayrıca çıktıyı `~/Resimler`'e yazıp klasörü kirletiyor |
+| **`org.gnome.Mutter.ScreenCast`** | **Erişilebilir ve sessiz** ✔ |
+
+Yol boyunca bir yanlış varsayım düzeltildi: flaşı GNOME Shell'in çizdiği
+sanılmıştı. Ölçüm tersini söyledi — `gnome-screenshot` ikilisinde
+`cheese_flash_fire` var, yani flaşı **istemci kendi çiziyor**. Bu, D-Bus'a
+`flash=false` geçirmenin neden yetmeyeceğini de açıklıyor.
+
+### Kabul edilen çözüm ve ölçümleri
+
+Ekran *paylaşımı* yolunda flaş yok çünkü sistem bunu fotoğraf değil **video**
+sayıyor.
+
+| ölçüm | sonuç |
+|---|---|
+| Ham yakalama | gnome-screenshot 833 ms · portal 497 ms · **ScreenCast 240 ms** |
+| Uçtan uca (2 monitör + ölçekleme + PNG) | 2497 ms → **1462 ms** |
+| Piksel karşılaştırması | **%99,8 birebir aynı** (2.070.172 / 2.073.600) |
+| Açık yayının maliyeti | gnome-shell CPU %35,2 → **%35,2** (değişmedi) |
+| Çekim süresi dağılımı | DP-1 ~315 ms · DP-2 ~80 ms — **sebebi bilinmiyor** |
+
+**Hız iddiası bilinçli olarak küçültüldü.** Ham yakalamada 3,5 kat fark var ama
+uçtan uca 1,7 kat: aradaki farkın çoğu Pillow'un ölçekleme/PNG yazma maliyeti ve
+iki yolda da aynı. Asıl kazanç sessizlik.
+
+### Ölçüm hatası (kaydedilmeye değer)
+
+İlk sayımda 96 olayın 11'i göründü ve bir an "kernel ara noktaları
+birleştiriyor" sanıldı. Sebep kodda değil, ölçüm yöntemindeydi: olaylar hareket
+boyunca okunmayınca evdev istemci kuyruğu taşıyor. Paralel okuyucuyla
+tekrarlandığında kayıp sıfır çıktı. (Bu aslında I bölümünün ölçümü ama aynı
+oturumda ve aynı dersi veriyor: **ölçüm aracının kendisi de yanılabilir.**)
+
+### Kararlar
+
+- **Yayın `desktop_unlock` ile açılıyor**, `screen_capture` beklenmiyor. Sebep
+  kullanıcının isteği: üst çubuktaki paylaşım göstergesi "ajan şu an masaüstüne
+  erişebiliyor" demek ve bu izin açıldığı anda doğru.
+- **Gösterge bir yan etki değil, özellik.** Sessizleşen bir yeteneğin görünür
+  bir işareti olmalı. Çekilen karede de göründüğü bilerek kabul edildi.
+- **Yayın yardımcı süreçte yaşıyor**, ana süreçte değil: pcbridge çökerse
+  paylaşım da kapanıyor.
+- **`gnome-screenshot` silinmedi.** `monitor="window"` (yayında pencere seçimi
+  yok), gstreamer kurulu olmayan makineler ve yayın kurulamadığı durumlar için
+  yedek. `capture_backend` ayarıyla zorlanabiliyor.
+
+---
+
 ## 10. Kaynaklar
 
 - [XDG RemoteDesktop portalı](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.RemoteDesktop.html) — portal tabanlı girdi enjeksiyonu
