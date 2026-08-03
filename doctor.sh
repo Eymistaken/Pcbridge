@@ -388,7 +388,7 @@ fi
 # isi claude'a devretti, `screen_capture` hic cagirmadi. Ayrimi bozma.
 if command -v codex >/dev/null; then
   if codex mcp list 2>/dev/null | grep -q "^pcbridge"; then
-    pass "Codex: kayitli · baglandigi ve arac cagirdigi OLCULDU (goruntu blogu olculmedi)"
+    pass "Codex: kayitli · baglandigi, arac cagirdigi ve GORUNTU ISLEDIGI olculdu"
   else
     warn "Codex yapilandirmasinda yok — ./connect.sh"
   fi

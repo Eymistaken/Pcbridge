@@ -141,10 +141,11 @@ uygulamayı **tamamen kapatıp** yeniden açmak gerekiyor.
 
 Üç kayıt da globaldir: hangi dizinde çalışırsan çalış pcbridge görünür.
 
-> **Codex:** 2026-08-03'te denendi — **bağlandı ve araçları çağırdı**
-> (`desktop_unlock`, `computer_task`, `computer_batch` denetim kaydında).
-> Henüz ölçülmeyen tek şey görüntü bloğunu işleyip işlemediği: o denemede
-> `screen_capture` çağırmadan görsel işi `computer_task` ile devretti.
+> **Codex:** 2026-08-03'te ölçüldü — bağlandı, araçları çağırdı ve **görüntü
+> bloğunu işliyor.** Kanıt denetim kaydında: Chrome'da `ui_dump` **0 düğüm**
+> dönerken (AT-SPI orada kör) koordinatla isabetli tıklayıp sürükledi, bir
+> tuval oyununu oynadı; 25 `screen_capture` çağrısının hepsi `inline`. Ağaç
+> boşken o koordinatları bilmenin başka yolu yok.
 
 ⚠️ **stdio'da kimlik doğrulama yoktur.** Ayrıntı: [Güvenlik](#güvenlik--dürüst-değerlendirme).
 

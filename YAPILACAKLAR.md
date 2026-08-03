@@ -136,13 +136,24 @@ yeni iş yapılmayacak.
 > `computer_batch`, `desktop_lock` kayıtları var. İzni gerekçeyle aldı, iş
 > bitince kapattı: davranış doğru.
 >
-> **Hâlâ ölçülmeyen tek şey: görüntü bloğunu işleyip işlemediği.** O denemede
-> `screen_capture` hiç çağırmadı — görsel işi `computer_task` ile claude'a
-> devretti. Yani *"Codex görüntü görüyor"* iddiası **hâlâ yazılamaz**; doğru
-> cümle *"bağlandığı ve araç çağırdığı ölçüldü, görüntü işleme ölçülmedi."*
+> **Görüntü işleme de ölçüldü (2026-08-03, 15:00–15:22): Codex görüntü
+> bloğunu İŞLİYOR.** Kanıt denetim kaydında ve çıkarım tek yönlü:
 >
-> Ölçmenin yolu: Codex'e "pcbridge ile ekranıma bak ve ne gördüğünü anlat" de.
-> Ekranı tarif ediyorsa görüyor; bağlantı verip "açıp bakın" diyorsa görmüyor.
+> - Chrome'da `ui_dump` **`nodes: 0`** döndü — AT-SPI orada tamamen kör.
+> - Buna rağmen `click (950, 830)`, ardından sekiz ardışık `drag (410, 998)`,
+>   `drag (853, 998)`… yaptı ve bir **tuval oyununu** (Design The Next iPhone)
+>   oynadı.
+> - 25 `screen_capture` çağrısının **hepsi `inline: true`**.
+>
+> Erişilebilirlik ağacı boşken o koordinatları bilmenin başka yolu yok.
+> Vesktop'ta da aynı: `ui_dump` 8 düğüm (yalnızca pencere çerçevesi) dönerken
+> mesaj kutusunu `click (2820, 989)` ile buldu ve yarım saat süren bir sohbeti
+> kullanıcı adına yürüttü.
+>
+> Aynı oturumda **odak koruması bir kez ateşlendi** (`stopped: "focus"`,
+> 15:01:42) ve **`launch 'vesktop'` başarısız oldu**; Codex ikisini de kendi
+> başına toparladı (ALT+TAB'a geçti). Yani koruma yanlış pozitif değil, ama
+> `launch` Vesktop'ta çalışmıyor — bakılmayı bekleyen bir iş.
 >
 > **O deneme bir de gerçek bir hata ortaya çıkardı** — makine gerçeklerindeki
 > `DBUS_SESSION_BUS_ADDRESS` maddesi. Karşılığı `desktop/session.py`.

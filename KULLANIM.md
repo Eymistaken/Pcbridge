@@ -21,7 +21,7 @@ pcbridge'e iki yoldan bağlanılır. Kurulum komutlarını `./connect.sh` basar.
 |---|---|---|
 | **Claude Code** | `./connect.sh --apply`, ya da `claude mcp add -s user pcbridge -- <venv>/bin/python -m pcbridge.server --stdio` | görüntünün **kendisi** gelir, ajan bakar |
 | **Claude Desktop** | `./connect.sh --apply` (yedekleyip birleştirir), sonra uygulamayı **tamamen kapatıp** aç | aynı |
-| **Codex CLI** | `codex mcp add pcbridge -- <venv>/bin/python -m pcbridge.server --stdio` | görüntü işleme **ölçülmedi**, aşağıya bak |
+| **Codex CLI** | `codex mcp add pcbridge -- <venv>/bin/python -m pcbridge.server --stdio` | ölçüldü: bağlanıyor, araç çağırıyor, **ekranı görüyor** |
 | **Uzaktan** (telefon, başka makine) | `./remote.sh start`, sonra istemciye `public_url` + `/mcp` ver | görüntü **ve** `/shot` bağlantısı |
 
 Üç yerel kayıt da **global**: hangi dizinde çalışırsan çalış pcbridge görünür.
@@ -36,12 +36,12 @@ başlatır. Bunun bedeli var — stdio'da **parola sorulmaz**; bu komutu
 önünde `[desktop] enabled` ve `desktop_unlock` durmaya devam ediyor,
 `shell_run` / `agent_run` / `fs_*` önünde durmuyor.
 
-> **Codex bağlandı ve çalışıyor** (ölçüldü 2026-08-03, sürüm 0.146.0).
-> `desktop_unlock`'u gerekçesiyle çağırdı, `computer_task` başlattı, iş bitince
-> kilidi kapattı — davranış doğru. **Ölçülmeyen tek şey görüntü bloğunu işleyip
-> işlemediği:** o denemede `screen_capture` hiç çağırmadı, görsel işi claude'a
-> devretti. Denemek istersen "pcbridge ile ekranıma bak ve ne gördüğünü anlat"
-> de; ekranı tarif ediyorsa görüyor demektir.
+> **Codex bağlandı, çalışıyor ve ekranı görüyor** (ölçüldü 2026-08-03, sürüm
+> 0.146.0). `desktop_unlock`'u gerekçesiyle çağırdı, iş bitince kilidi kapattı.
+> Görüntü işlediğinin kanıtı: Chrome'da `ui_dump` **0 düğüm** dönerken — yani
+> erişilebilirlik ağacı orada tamamen körken — koordinatla isabetli tıklayıp
+> sürükledi ve bir tuval oyununu oynadı. Vesktop'ta (Electron, ağaç yine boş)
+> mesaj kutusunu bulup yarım saatlik bir sohbeti yürüttü.
 
 ---
 

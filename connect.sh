@@ -118,10 +118,10 @@ if command -v codex >/dev/null; then
   cmd "codex mcp add pcbridge --url $MCP_URL"
   cmd "codex mcp login pcbridge"
   echo
-  dim "Codex 2026-08-03'te BAGLANDI ve araclari cagirdi (olculdu: desktop_unlock,"
-  dim "computer_task, computer_batch audit.log'da). Henuz olculmeyen tek sey"
-  dim "GORUNTU BLOGUNU isleyip islemedigi -- o denemede gorsel isi computer_task"
-  dim "ile claude'a devretti, screen_capture hic cagirmadi."
+  dim "Codex 2026-08-03'te olculdu: BAGLANDI, araclari cagirdi ve GORUNTU"
+  dim "BLOGUNU ISLIYOR. Kanit: Chrome'da ui_dump 0 dugum donerken (AT-SPI"
+  dim "orada kor) koordinatla isabetli tikladi ve surukledi -- 25 screen_capture,"
+  dim "hepsi inline. Agac bosken koordinati bilmenin baska yolu yok."
 else
   warn "codex PATH'te yok"
 fi
