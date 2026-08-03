@@ -136,9 +136,13 @@ class DesktopSpec:
     # `computer_task` gorsel isi makinedeki bir ajana devrediyor. Varsayilanlar
     # KODA gomulu degil, buradan geliyor: yeni bir CLI eklendiginde ya da kota
     # dengesi degistiginde tek satirla degistirilebilsin.
-    computer_task_agent: str = "antigravity"
-    computer_task_model: str = "gemini-3.6-flash"
-    computer_task_effort: str = "high"
+    #
+    # Bu UCLU BIRBIRINE AIT: model adi secilen ajanin listesinden gelmeli.
+    # `_check_computer_task()` bunu YUKLEMEDE dogruluyor -- tutarsizlik cagri
+    # aninda degil, servis acilirken patlasin.
+    computer_task_agent: str = "claude"
+    computer_task_model: str = ""
+    computer_task_effort: str = ""
     # Ajana verilen adim butcesi. DISARIDAN ZORLANAMAZ: prompt'ta bir butce
     # olarak gider, arkasinda isin timeout'u ve pcb-do'nun hiz siniri durur.
     computer_task_max_steps: int = 25
@@ -301,6 +305,51 @@ def _check_agents(agents: dict[str, AgentSpec], path: Path) -> None:
                 )
 
 
+def _check_computer_task(
+    desktop: "DesktopSpec", agents: dict[str, AgentSpec], path: Path
+) -> None:
+    """`[desktop] computer_task_*` uclusu birbiriyle tutarli mi?
+
+    NEDEN YUKLEMEDE: bu uclu (ajan, model, effort) bir butun. Ajan degistirilip
+    model eski ajanınkinde birakilirsa hata yalnizca `computer_task` CAGRILINCA
+    ciktiya dusuyordu -- yani aylar sonra, bir GUI isi tam baslarken. `_check_agents`
+    ile ayni felsefe: yapilandirma tuzagi servisi ACILISTA durdursun.
+    """
+    where = f"[desktop] ({path})"
+    name = desktop.computer_task_agent
+    if not name:
+        return
+    spec = agents.get(name)
+    if spec is None:
+        raise SystemExit(
+            f"{where}: `computer_task_agent = \"{name}\"` ama boyle bir "
+            f"[agents.*] blogu yok. Tanimli: {', '.join(agents) or '-'}"
+        )
+    if not spec.enabled:
+        raise SystemExit(
+            f"{where}: `computer_task_agent = \"{name}\"` devre disi "
+            "(`enabled = false`). computer_task hicbir zaman calisamaz."
+        )
+
+    model = desktop.computer_task_model
+    if model and model not in spec.known_models:
+        raise SystemExit(
+            f"{where}: `computer_task_model = \"{model}\"` `{name}` ajaninin "
+            f"modeli degil. Secilebilir: {', '.join(spec.selectable_models) or '-'}. "
+            "Ajani degistirdiyseniz modeli de degistirin (ya da bos birakin, "
+            "ajanin kendi varsayilani kullanilir)."
+        )
+
+    effort = desktop.computer_task_effort
+    if effort:
+        allowed = spec.efforts_for(model or spec.default_model or None)
+        if allowed and effort not in allowed:
+            raise SystemExit(
+                f"{where}: `computer_task_effort = \"{effort}\"` bu model icin "
+                f"gecersiz. Kabul edilenler: {', '.join(allowed)}"
+            )
+
+
 def load_config(explicit: str | None = None) -> Config:
     path = find_config(explicit)
     with path.open("rb") as fh:
@@ -408,11 +457,9 @@ def load_config(explicit: str | None = None) -> Config:
         batch_max_actions=int(desktop_raw.get("batch_max_actions", 40)),
         batch_budget_seconds=int(desktop_raw.get("batch_budget_seconds", 90)),
         batch_check_focus=bool(desktop_raw.get("batch_check_focus", True)),
-        computer_task_agent=str(desktop_raw.get("computer_task_agent", "antigravity")),
-        computer_task_model=str(
-            desktop_raw.get("computer_task_model", "gemini-3.6-flash")
-        ),
-        computer_task_effort=str(desktop_raw.get("computer_task_effort", "high")),
+        computer_task_agent=str(desktop_raw.get("computer_task_agent", "claude")),
+        computer_task_model=str(desktop_raw.get("computer_task_model", "")),
+        computer_task_effort=str(desktop_raw.get("computer_task_effort", "")),
         computer_task_max_steps=int(desktop_raw.get("computer_task_max_steps", 25)),
         agent_shot_dir=str(desktop_raw.get("agent_shot_dir", "")),
         agent_shot_max_age_seconds=int(
@@ -449,6 +496,7 @@ def load_config(explicit: str | None = None) -> Config:
         raise SystemExit(
             f"[desktop] ({path}): `computer_task_max_steps` en az 1 olmali."
         )
+    _check_computer_task(desktop, agents, path)
     if desktop.shot_ttl_seconds < 10:
         raise SystemExit(
             f"[desktop] ({path}): `shot_ttl_seconds` "

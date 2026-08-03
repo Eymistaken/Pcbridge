@@ -11,8 +11,31 @@ public_url = "https://DEGISTIR.tailXXXX.ts.net"
 host = "127.0.0.1"
 port = 8765
 
-# MCP endpoint yolu (Spark'a girecegin adres: public_url + bu yol)
+# MCP endpoint yolu (uzak istemciye girecegin adres: public_url + bu yol)
 mcp_path = "/mcp"
+
+
+[server]
+# Ekran goruntusu arac SONUCUNDA goruntu blogu olarak da gonderilsin mi?
+#
+#   "auto"  (varsayilan) tasimaya bakar: stdio'da ACIK, HTTP'de KAPALI
+#   true    her istemciye goruntu gider
+#   false   hicbir istemciye gitmez, yalnizca /shot/<token>.png baglantisi
+#
+# NEDEN UC DEGERLI: tek sunucu iki farkli istemci sinifina bakiyor.
+#  - Gemini Spark'a giden function-response kanali yalnizca METIN tasiyor ve
+#    goruntu blogu gelince BOZULUYOR. Spark HTTP + OAuth ile geliyor.
+#  - Claude Code / Codex goruntuyu okuyabiliyor ve stdio ile geliyor.
+#    OLCULDU (2026-08-03): bilinen icerikli bir PNG'ye yazilan gizli deger
+#    Claude Code'dan birebir geri geldi; uctan uca `screen_capture` cagiran
+#    gercek bir oturum ekrani dogru tarif etti.
+# Yani tasima, "bu istemci goruyor mu" sorusunun en iyi vekili.
+#
+# Goruntunun maliyeti (olculdu, Claude): 1920x1080 ~12976, 1280x720 ~11712
+# cache_creation jeton. `agy`'de olculen ~40 bin BURADA GECERLI DEGIL.
+# Yine de metin yolu (`ui_dump`) hala hem daha ucuz hem ISKALAMIYOR --
+# koordinat kullanmadigi icin.
+inline_images = "auto"
 
 
 [auth]
@@ -162,26 +185,37 @@ batch_check_focus = true
 # --- yerel gorsel ajan (computer_task) --------------------------------------
 # computer_task gorsel isi MAKINEDEKI bir ajana devreder: ajan `pcb-shot` ile
 # ekrani ceker, PNG'yi kendi gozuyle okur, `pcb-do` ile tiklar, tekrar bakar.
-# Spark'a giden MCP kanali yalnizca metin tasidigi icin bu is oraya yaptirilmaz.
 #
-# Asil kullanim alani: erisilebilirlik agacinin BOS geldigi uygulamalar.
-# Olculdu 2026-08-02 -> Vesktop'ta ui_dump 0 dugum donuyor (Electron), yani
-# ui_click/ui_set_text ise yaramiyor; goz sart.
+# GEREKCESI DEGISTI (faz H). Eskiden bu aracin varlik sebebi Spark'in goruntu
+# GOREMEMESIYDI. Claude Code ve Codex goruyor (olculdu: bilinen icerikli bir
+# PNG'deki gizli deger modelden birebir geri geldi), yani goren bir istemci
+# `screen_capture` + `computer_batch` ile isi kendisi yapabilir.
+# Bugunku gerekcesi: UZUN SUREN bir GUI isini arka plana atmak, ana ajan
+# bloke olmasin diye. Ikinci gerekce hala gecerli: erisilebilirlik agacinin
+# BOS geldigi uygulamalar (olculdu 2026-08-02 -> Vesktop'ta ui_dump 0 dugum).
 
-# Hangi ajan surer. Antigravity secildi cunku kotasi Claude Code'unkinden AYRI:
-# uzun GUI dongulerinin kullanicinin kendi Claude Code kullanimini yememesi
-# icin. Bedeli: agy_json ayristiricisi ADIM LISTESI vermiyor, yalnizca son
-# cevabi -- o yuzden pcb-do her eylemi audit.log'a job kimligiyle yaziyor ve
-# denetim kaydi fiilen adim listesinin yerine geciyor.
-computer_task_agent = "antigravity"
+# Hangi ajan surer.
+#
+# Antigravity'den claude'a GECILDI (faz H, kullanici karari). Iki sebep:
+# (1) agy'nin MCP istemcisi yok, proje kapsamindan cikti; (2) F canli
+# denemesinde gorevi iki kez tamamlayamadi. `[agents.antigravity]` blogu
+# duruyor ve `agent_run` hedefi olarak calisiyor -- yalnizca gorsel surucu
+# degisti. Geri almak icin: burayi "antigravity", modeli "gemini-3.6-flash",
+# effort'u "high" yapin (uclu birbirine ait, birlikte degistirin).
+#
+# Bedeli: uzun GUI dongusu artik kullanicinin kendi Claude Code kotasindan
+# yiyor (agy'nin kotasi ayriydi).
+computer_task_agent = "claude"
 
-# Model + effort. agy'de effort model kimliginin PARCASI ve Gemini
-# modellerinde zorunlu, bu yuzden ikisi birlikte veriliyor.
-# `gemini-3.1-pro` BILINCLI OLARAK KULLANILMIYOR (kullanici karari).
-# Not: bu, agy'nin kendi varsayilaniyla ayni. Yani computer_task modeli
-# YUKSELTMIYOR; gorsel surucu takilirsa ilk bakilacak yer burasi.
-computer_task_model  = "gemini-3.6-flash"
-computer_task_effort = "high"
+# Model + effort. BOS BIRAKILIRSA secilen ajanin kendi varsayilani kullanilir
+# -- claude icin `sonnet` + effort `medium`. Gorsel is icin bilincli secim:
+# bak-eyle dongusu cok tur suruyor, opus her turda pahali.
+#
+# ⚠️ BU UCLU BIRBIRINE AIT. Model adi, yukarida secilen ajanin listesinden
+# gelmeli. Tutarsizlik ACILISTA yakalanir ve servis baslamaz (eskiden hata
+# yalnizca computer_task cagrilinca, yani bir GUI isi tam baslarken cikiyordu).
+computer_task_model  = ""
+computer_task_effort = ""
 
 # Ajana verilen bak-eyle turu butcesi. DISARIDAN ZORLANAMAZ: prompt'a bir
 # butce olarak yaziliyor, arkasinda isin timeout'u ve pcb-do'nun hiz siniri

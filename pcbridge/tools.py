@@ -1504,15 +1504,17 @@ def register(
             Field(description="Go ahead even if the user just used the machine."),
         ] = False,
     ) -> str:
-        """Hand a graphical task to an agent running on the user's own machine —
-        one that can actually see the screen. Use this when the job needs eyes:
-        an app whose buttons `ui_dump` cannot list (Electron apps like Discord,
-        VS Code, games, anything drawn on a canvas), or a multi-step flow where
-        you would otherwise be clicking blind. The local agent takes screenshots,
-        looks at them, clicks, and checks the result, repeating until the goal is
-        met. Returns a job id immediately; poll it with job_status. Prefer
-        `computer_batch` when you already know exactly which widgets to touch —
-        it is far cheaper."""
+        """Hand a long-running graphical task to an agent on the user's own machine
+        and get a job id back, so you are not blocked while it works. The local
+        agent takes a screenshot, looks at it, clicks, checks the result, and
+        repeats until the goal is met; poll it with `job_status`.
+
+        If you can see images yourself, you usually do NOT need this: call
+        `screen_capture`, look, then `computer_batch`. Reach for this one when the
+        work is long enough that you would rather not sit through it — a
+        many-step flow, an install wizard, a slow app. Reach for `ui_dump` +
+        `ui_click` first for anything the accessibility tree lists; that path is
+        cheaper than both and cannot miss."""
         # Kapi BIR KEZ, burada. `pcb-do` her cagrida izin penceresini ve ekran
         # kilidini yeniden okuyor ama BOSTA kontrolunu okumuyor: uinput idle'i
         # sifirladigi icin ajan ikinci eylemde kendi tusunu "kullanici geldi"
@@ -1530,11 +1532,19 @@ def register(
         instructions = skill.read_text(encoding="utf-8")
 
         spec = cfg.desktop
+        # Config'teki uclu (agent, model, effort) BIRBIRINE AIT: model adi o
+        # ajanin listesinden geliyor. Cagrida BASKA bir ajan istendiginde
+        # config'in modelini ona tasimak sessiz bir hata degil, gurultulu bir
+        # hata uretiyordu: `computer_task(agent="claude")` cozumlemede
+        # "'gemini-3.6-flash' claude icin gecerli bir model degil" ile patliyordu
+        # (fiilen uretildi). Ajan acikca degistirildiyse model/effort da o ajanin
+        # kendi varsayilanina birakiliyor.
+        agent_changed = bool(agent) and agent.strip() != spec.computer_task_agent
         res = modelslib.resolve(
             cfg,
             agent=agent or spec.computer_task_agent,
-            model=model or spec.computer_task_model,
-            effort=effort or spec.computer_task_effort,
+            model=model or (None if agent_changed else spec.computer_task_model),
+            effort=effort or (None if agent_changed else spec.computer_task_effort),
         )
         if res.error:
             return res.error
