@@ -41,13 +41,22 @@ from typing import Any, Callable, Protocol
 COST_MS: dict[str, float] = {
     "key": 30.0,
     "type": 650.0,        # pano yolu; uzunluktan bagimsiz olctuk (12 kr ~ 200 kr)
-    "move": 30.0,
-    "click": 120.0,       # move + yerlesme + tik
-    "double_click": 150.0,
-    "right_click": 120.0,
-    "middle_click": 120.0,
-    "drag": 300.0,
+    # Imlec artik isinlanmiyor, ara noktalardan geciyor (I bolumu). Sure
+    # mesafeye bagli ve mesafe burada BILINMIYOR (baslangic konumu motorun
+    # disinda), o yuzden orta bir deger: 5000 px/s'de ~1000 piksel. Olculdu
+    # 2026-08-03: 960 px -> 186 ms, kosegen -> 498 ms (tavan), 80 px -> 61 ms.
+    "move": 200.0,
+    "click": 290.0,       # move + yerlesme + tik
+    "double_click": 320.0,
+    "triple_click": 350.0,
+    "right_click": 290.0,
+    "middle_click": 290.0,
+    "drag": 600.0,        # iki hareket + basma/birakma
     "scroll": 60.0,
+    "mouse_down": 30.0,
+    "mouse_up": 30.0,
+    "hold": 30.0,
+    "release": 30.0,
     "ui_click": 400.0,    # yardimci surec baslatma dahil
     "ui_set_text": 400.0,
     "launch": 300.0,
@@ -61,12 +70,18 @@ FIRST_INPUT_MS = 1350.0
 FOCUS_CHECK_MS = 120.0
 
 # Odagi kaydirabilen eylemler. Bunlardan sonra odak dogrulanir.
-POINTER_ACTIONS = {"click", "double_click", "right_click", "middle_click", "drag"}
+# `mouse_down` de buraya ait: basma anında odak zaten kayiyor, birakmayi
+# beklemeye gerek yok.
+POINTER_ACTIONS = {
+    "click", "double_click", "triple_click", "right_click", "middle_click",
+    "drag", "mouse_down",
+}
 # Odagi KASITLI degistiren eylemler. Bunlardan sonra beklenen odak guncellenir.
 FOCUS_CHANGING = {"launch", "focus"}
 INPUT_ACTIONS = {
-    "key", "type", "move", "click", "double_click", "right_click",
-    "middle_click", "drag", "scroll",
+    "key", "type", "move", "click", "double_click", "triple_click",
+    "right_click", "middle_click", "drag", "scroll", "mouse_down", "mouse_up",
+    "hold", "release",
 }
 
 MAX_WAIT_MS = 30_000
@@ -84,8 +99,10 @@ class Action:
     def describe(self) -> str:
         if self.a == "wait":
             return f"wait {self.args.get('ms', 0)} ms"
-        if self.a == "key":
-            return f"key {self.args.get('keys')!r}"
+        if self.a in ("key", "hold", "release"):
+            return f"{self.a} {self.args.get('keys')!r}"
+        if self.a == "mouse_up":
+            return f"mouse_up {self.args.get('button')}"
         if self.a == "type":
             n = len(self.args.get("text") or "")
             return f"type ({n} karakter)"
@@ -121,6 +138,9 @@ class Result:
     detail: str = ""
     focus_start: str = ""
     focus_now: str = ""
+    # Liste bittiginde hala basili olanlar. Bos degilse raporda gorunur:
+    # `hold` edip `release` etmeyi unutmak sessiz kalmamali.
+    held: list[str] = field(default_factory=list)
 
     @property
     def done(self) -> int:
@@ -132,13 +152,20 @@ class Ops(Protocol):
 
     def key(self, keys: str) -> str: ...
     def type(self, text: str, raw: bool) -> str: ...
+    def hold(self, keys: str) -> str: ...
+    def release(self, keys: str) -> str: ...
     def move(self, x: int, y: int, monitor: int | None) -> str: ...
     def click(self, button: str, count: int, x: int | None, y: int | None,
               monitor: int | None) -> str: ...
-    def drag(self, x: int, y: int, to_x: int, to_y: int,
+    def mouse_down(self, button: str, x: int | None, y: int | None,
+                   monitor: int | None) -> str: ...
+    def mouse_up(self, button: str) -> str: ...
+    def drag(self, x: int, y: int, to_x: int, to_y: int, button: str,
              monitor: int | None) -> str: ...
     def scroll(self, amount: int, x: int | None, y: int | None,
-               monitor: int | None) -> str: ...
+               monitor: int | None, horizontal: bool) -> str: ...
+    def held(self) -> list[str]: ...
+    def release_all(self) -> list[str]: ...
     def ui_click(self, node_id: str) -> str: ...
     def ui_set_text(self, node_id: str, text: str) -> str: ...
     def launch(self, app: str) -> str: ...
@@ -174,6 +201,18 @@ def _text(raw: dict, key: str) -> str:
     return str(val)
 
 
+def _button(raw: dict) -> str:
+    """Fare dugmesi adi. Motor cihazi tanimadigi icin dogrulama BURADA:
+    liste bastan reddedilsin, yarisinda patlamasin."""
+    val = str(raw.get("button") or "left").strip().lower()
+    if val not in ("left", "right", "middle"):
+        raise BatchError(
+            f"`{raw.get('a')}` eyleminde `button` left, right ya da middle "
+            f"olmali ({val!r} verildi)."
+        )
+    return val
+
+
 def _one(raw: Any, index: int) -> Action:
     if not isinstance(raw, dict):
         raise BatchError(
@@ -193,19 +232,28 @@ def _one(raw: Any, index: int) -> Action:
         if "text" not in raw:
             raise BatchError("`type` eyleminde `text` zorunlu.")
         return Action(a, {"text": str(raw["text"]), "raw": bool(raw.get("raw", False))})
-    if a in ("move", "click", "double_click", "right_click", "middle_click"):
+    if a in ("hold", "release"):
+        return Action(a, {"keys": _text(raw, "keys")})
+    if a in ("move", "click", "double_click", "triple_click", "right_click",
+             "middle_click", "mouse_down"):
         need = a in ("move",)
-        return Action(a, {
+        args = {
             "x": _int(raw, "x", required=need),
             "y": _int(raw, "y", required=need),
             "monitor": _int(raw, "monitor"),
-        })
+        }
+        if a == "mouse_down":
+            args["button"] = _button(raw)
+        return Action(a, args)
+    if a == "mouse_up":
+        return Action(a, {"button": _button(raw)})
     if a == "drag":
         return Action(a, {
             "x": _int(raw, "x", required=True),
             "y": _int(raw, "y", required=True),
             "to_x": _int(raw, "to_x", required=True),
             "to_y": _int(raw, "to_y", required=True),
+            "button": _button(raw),
             "monitor": _int(raw, "monitor"),
         })
     if a == "scroll":
@@ -214,6 +262,7 @@ def _one(raw: Any, index: int) -> Action:
             "x": _int(raw, "x"),
             "y": _int(raw, "y"),
             "monitor": _int(raw, "monitor"),
+            "horizontal": bool(raw.get("horizontal", False)),
         })
     if a == "ui_click":
         return Action(a, {"id": _text(raw, "id").lstrip("#")})
@@ -227,9 +276,10 @@ def _one(raw: Any, index: int) -> Action:
         return Action(a, {"window": _text(raw, "window")})
 
     raise BatchError(
-        f"Bilinmeyen eylem: {a!r}. Gecerli olanlar: key, type, wait, move, "
-        "click, double_click, right_click, middle_click, drag, scroll, "
-        "ui_click, ui_set_text, launch, focus"
+        f"Bilinmeyen eylem: {a!r}. Gecerli olanlar: key, type, hold, release, "
+        "wait, move, click, double_click, triple_click, right_click, "
+        "middle_click, mouse_down, mouse_up, drag, scroll, ui_click, "
+        "ui_set_text, launch, focus"
     )
 
 
@@ -316,14 +366,22 @@ def _dispatch(ops: Ops, act: Action, sleep: Callable[[float], None],
         return note
     if a == "move":
         return ops.move(kw["x"], kw["y"], kw.get("monitor"))
-    if a in ("click", "double_click", "right_click", "middle_click"):
+    if a in ("hold", "release"):
+        return ops.hold(kw["keys"]) if a == "hold" else ops.release(kw["keys"])
+    if a in ("click", "double_click", "triple_click", "right_click", "middle_click"):
         button = {"right_click": "right", "middle_click": "middle"}.get(a, "left")
-        count = 2 if a == "double_click" else 1
+        count = {"double_click": 2, "triple_click": 3}.get(a, 1)
         return ops.click(button, count, kw.get("x"), kw.get("y"), kw.get("monitor"))
+    if a == "mouse_down":
+        return ops.mouse_down(kw["button"], kw.get("x"), kw.get("y"), kw.get("monitor"))
+    if a == "mouse_up":
+        return ops.mouse_up(kw["button"])
     if a == "drag":
-        return ops.drag(kw["x"], kw["y"], kw["to_x"], kw["to_y"], kw.get("monitor"))
+        return ops.drag(kw["x"], kw["y"], kw["to_x"], kw["to_y"], kw["button"],
+                        kw.get("monitor"))
     if a == "scroll":
-        return ops.scroll(kw["amount"], kw.get("x"), kw.get("y"), kw.get("monitor"))
+        return ops.scroll(kw["amount"], kw.get("x"), kw.get("y"), kw.get("monitor"),
+                          bool(kw.get("horizontal")))
     if a == "ui_click":
         return ops.ui_click(kw["id"])
     if a == "ui_set_text":
@@ -456,6 +514,23 @@ def run(
     else:
         i = len(actions)
 
+    # Basili kalan var mi? Liste DUZGUN bittiyse birakilmaz -- "tut, sonraki
+    # cagrida tikla" mesru bir kullanim. Ama dizi yarida kaldiysa (hata,
+    # butce, odak kaymasi) basili kalan bir tus artik plansizdir: kimse onu
+    # birakmayi ustlenmemis olur.
+    held: list[str] = []
+    try:
+        held = list(ops.held())
+    except Exception:  # noqa: BLE001 — durum sorgusu sonucu bozmasin
+        held = []
+    if held and stopped:
+        try:
+            ops.release_all()
+            detail += f" · basili kalanlar birakildi ({', '.join(held)})"
+            held = []
+        except Exception:  # noqa: BLE001
+            pass
+
     return Result(
         steps=steps,
         total=len(actions),
@@ -465,6 +540,7 @@ def run(
         detail=detail,
         focus_start=focus_start,
         focus_now=focus_now,
+        held=held,
     )
 
 
@@ -488,6 +564,15 @@ def describe(result: Result) -> str:
             "focus": "⚠️ Odak kaydi",
         }.get(result.stopped, result.stopped)
         lines.append(f"{reason}: {result.detail}")
+
+    if result.held:
+        lines.append("")
+        lines.append(
+            f"⌨️ HALA BASILI: {', '.join(result.held)} — isiniz bitince "
+            "`release` / `mouse_up` gonderin. Gonderilmezse sunucu bir sure "
+            "sonra kendisi birakir, ama o zamana kadar kullanici makinesini "
+            "kullanamaz."
+        )
 
     if result.remaining:
         lines.append("")

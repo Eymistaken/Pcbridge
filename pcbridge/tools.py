@@ -1452,11 +1452,15 @@ def register(
                 description=(
                     'JSON array of actions, run in order. Each item is '
                     '{"a": "<kind>", ...}. Kinds: key {keys}, type {text, raw?}, '
-                    'wait {ms}, move/click/double_click/right_click/middle_click '
-                    '{x?, y?, monitor?}, drag {x, y, to_x, to_y}, scroll {amount}, '
-                    'ui_click {id}, ui_set_text {id, text}, launch {app}, '
-                    'focus {window}. Example: '
-                    '[{"a":"ui_click","id":"90e6"},{"a":"wait","ms":400},'
+                    'hold {keys}, release {keys}, wait {ms}, '
+                    'move/click/double_click/triple_click/right_click/middle_click '
+                    '{x?, y?, monitor?}, mouse_down {button?, x?, y?}, '
+                    'mouse_up {button?}, drag {x, y, to_x, to_y, button?}, '
+                    'scroll {amount, horizontal?}, ui_click {id}, '
+                    'ui_set_text {id, text}, launch {app}, focus {window}. '
+                    'hold/mouse_down stay down across later actions, so a drag '
+                    'with stops along the way is mouse_down, move, move, mouse_up. '
+                    'Example: [{"a":"ui_click","id":"90e6"},{"a":"wait","ms":400},'
                     '{"a":"type","text":"hello"}]'
                 )
             ),

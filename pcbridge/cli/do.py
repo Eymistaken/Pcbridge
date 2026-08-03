@@ -48,8 +48,8 @@ from . import (
 # Koordinatla calisan eylemler. YALNIZCA bunlar bir ekran goruntusune dayanir;
 # `key`, `type`, `ui_click`, `ui_set_text` koordinat kullanmadigi icin
 # goruntunun yasiyla ilgileri yok.
-COORD_ACTIONS = {"move", "click", "double_click", "right_click", "middle_click",
-                 "drag", "scroll"}
+COORD_ACTIONS = {"move", "click", "double_click", "triple_click", "right_click",
+                 "middle_click", "mouse_down", "drag", "scroll"}
 
 
 def coord_actions(plan) -> list:

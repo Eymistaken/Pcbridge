@@ -26,7 +26,12 @@ MOVE_SETTLE = 0.08
 
 # Klavye cihazi gerektiren eylemler. `type` ve `key` disinda `ui_*` eylemleri
 # AT-SPI uzerinden gidiyor, uinput'a hic dokunmuyor.
-KEYBOARD_ACTIONS = {"key", "type"}
+KEYBOARD_ACTIONS = {"key", "type", "hold", "release"}
+
+# Fare cihazi gerektirenler. POINTER_ACTIONS "odagi kaydirabilir" kumesi;
+# burasi "cihaz lazim" kumesi ve ikisi ayni degil: `move`/`scroll`/`mouse_up`
+# odagi kaydirmaz ama fare cihazi ister.
+MOUSE_ACTIONS = POINTER_ACTIONS | {"move", "scroll", "mouse_up"}
 
 
 def devices_needed(actions: list[Action]) -> tuple[bool, bool]:
@@ -39,7 +44,7 @@ def devices_needed(actions: list[Action]) -> tuple[bool, bool]:
     """
     kinds = {a.a for a in actions}
     keyboard = bool(kinds & KEYBOARD_ACTIONS)
-    pointer = bool(kinds & POINTER_ACTIONS) or "move" in kinds or "scroll" in kinds
+    pointer = bool(kinds & MOUSE_ACTIONS)
     if "focus" in kinds:
         # `focus` GNOME aramasini kullaniyor: super + ad + Return -> klavye.
         keyboard = True
@@ -64,6 +69,14 @@ class DeviceOps:
             text, raw=raw, restore_clipboard=self.cfg.desktop.restore_clipboard
         )
 
+    def hold(self, keys: str) -> str:
+        self.backend.key_down(keys)
+        return f"`{keys}` BASILI TUTULUYOR"
+
+    def release(self, keys: str) -> str:
+        self.backend.key_up(keys)
+        return f"`{keys}` birakildi"
+
     # ---------------------------------------------------------------- fare
     def move(self, x: int, y: int, monitor: int | None) -> str:
         gx, gy = monitorslib.to_global(x, y, monitor)
@@ -71,29 +84,53 @@ class DeviceOps:
 
     def click(self, button: str, count: int, x: int | None, y: int | None,
               monitor: int | None) -> str:
-        where = ""
-        if x is not None and y is not None:
-            gx, gy = monitorslib.to_global(x, y, monitor)
-            self.backend.move(gx, gy)
-            time.sleep(MOVE_SETTLE)
-            where = f" ({gx}, {gy})"
+        where = self._goto(x, y, monitor)
         self.backend.click(button, count)
-        return f"{button} tiklama{where}" + (" (cift)" if count > 1 else "")
+        kind = {2: " (cift)", 3: " (uclu)"}.get(count, "")
+        return f"{button} tiklama{where}{kind}"
 
-    def drag(self, x: int, y: int, to_x: int, to_y: int,
+    def mouse_down(self, button: str, x: int | None, y: int | None,
+                   monitor: int | None) -> str:
+        where = self._goto(x, y, monitor)
+        self.backend.mouse_down(button)
+        return f"{button} dugmesi{where} BASILI TUTULUYOR"
+
+    def mouse_up(self, button: str) -> str:
+        self.backend.mouse_up(button)
+        return f"{button} dugmesi birakildi"
+
+    def drag(self, x: int, y: int, to_x: int, to_y: int, button: str,
              monitor: int | None) -> str:
         gx, gy = monitorslib.to_global(x, y, monitor)
         ex, ey = monitorslib.to_global(to_x, to_y, monitor)
-        self.backend.drag(gx, gy, ex, ey)
-        return f"({gx}, {gy}) -> ({ex}, {ey}) suruklendi"
+        self.backend.drag(gx, gy, ex, ey, button=button)
+        return f"({gx}, {gy}) -> ({ex}, {ey}) {button} ile suruklendi"
 
     def scroll(self, amount: int, x: int | None, y: int | None,
-               monitor: int | None) -> str:
-        if x is not None and y is not None:
-            self.backend.move(*monitorslib.to_global(x, y, monitor))
-            time.sleep(MOVE_SETTLE)
-        self.backend.scroll(amount)
-        return f"{amount} tik kaydirildi"
+               monitor: int | None, horizontal: bool = False) -> str:
+        self._goto(x, y, monitor)
+        self.backend.scroll(amount, horizontal=horizontal)
+        return f"{amount} tik {'yatay' if horizontal else 'dikey'} kaydirildi"
+
+    def _goto(self, x: int | None, y: int | None, monitor: int | None) -> str:
+        """Koordinat verilmisse oraya git ve yerlesmesini bekle.
+
+        Imlec artik ara noktalardan gectigi icin `move` kendi suresini
+        harciyor; MOVE_SETTLE onun USTUNE binen kompozitor payi.
+        """
+        if x is None or y is None:
+            return ""
+        gx, gy = monitorslib.to_global(x, y, monitor)
+        self.backend.move(gx, gy)
+        time.sleep(MOVE_SETTLE)
+        return f" ({gx}, {gy})"
+
+    # ------------------------------------------------------- basili tutma
+    def held(self) -> list[str]:
+        return self.backend.held()
+
+    def release_all(self) -> list[str]:
+        return self.backend.release_all()
 
     # ------------------------------------------------- erisilebilirlik agaci
     def ui_click(self, node_id: str) -> str:
