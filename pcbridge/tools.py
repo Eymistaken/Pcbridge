@@ -178,6 +178,7 @@ def register(
     cfg: Config,
     jm: jobslib.JobManager,
     shot_store: "shotslib.ShotStore | None" = None,
+    transport: str = "http",
 ) -> None:
     global _DESC_AGENT, _DESC_MODEL, _DESC_EFFORT
     _DESC_AGENT = (

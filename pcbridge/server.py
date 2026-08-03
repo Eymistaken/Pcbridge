@@ -21,9 +21,14 @@ from .config import Config, load_config
 from .jobs import JobManager
 from .shots import ShotStore
 
+# stream=sys.stderr ACIKCA veriliyor. Varsayilan zaten stderr ama stdio
+# tasimasinda stdout JSON-RPC kanalinin KENDISI: oraya dusen tek bir log satiri
+# istemcinin cozumleyicisini bozar ve hata "sunucu bozuk" gibi gorunur.
+# Olculdu (H0.3): bu haliyle stdout'ta JSON disi satir yok.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+    stream=sys.stderr,
 )
 log = logging.getLogger("pcbridge")
 
@@ -248,7 +253,18 @@ class BasicAuthFormShim:
         await self.app(new_scope, new_receive, logging_send)
 
 
-def build_app(cfg: Config):
+def build_app(cfg: Config, transport: str = "http"):
+    """FastMCP orneğini kur.
+
+    `transport` araclara kadar iniyor cunku iki tasima arasinda GERCEK bir fark
+    var: stdio'da HTTP sunucusu yok, yani `@mcp.custom_route` ile eklenen
+    `/shot/<token>.png`, `/healthz`, `/consent` ve `/.well-known/*` rotalari
+    servis EDILMEZ. `screen_capture`'in urettigi baglanti orada olu olur; bunu
+    bilen tek yer araclarin kendisi.
+
+    Ayrica stdio'da OAuth uygulanmaz -- fastmcp bunu kendi yapiyor (STDIO
+    tasimasinda auth kontrolleri atlanir). Yetki surec sinirinin kendisi.
+    """
     provider = SqliteOAuthProvider(cfg)
     mcp = FastMCP(
         name="pcbridge",
@@ -258,7 +274,7 @@ def build_app(cfg: Config):
 
     jm = JobManager(cfg.jobs_dir, default_timeout=cfg.default_job_timeout)
     shot_store = ShotStore(cfg)
-    toolsmod.register(mcp, cfg, jm, shot_store)
+    toolsmod.register(mcp, cfg, jm, shot_store, transport=transport)
 
     consent_get, consent_post = make_consent_routes(provider)
 
@@ -380,27 +396,55 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="pcbridge")
     parser.add_argument("-c", "--config", help="config.toml yolu")
     parser.add_argument("--check", action="store_true", help="sadece dogrula ve cik")
+    parser.add_argument(
+        "--stdio",
+        action="store_true",
+        help="HTTP yerine stdio tasimasi (yerel istemciler: Claude Code, Codex, "
+        "Claude Desktop). DIKKAT: stdio'da OAuth YOK, yetki surec sinirinin "
+        "kendisi.",
+    )
     args = parser.parse_args(argv)
 
     cfg = load_config(args.config)
-    mcp, _provider = build_app(cfg)
+    transport = "stdio" if args.stdio else "http"
+    mcp, _provider = build_app(cfg, transport=transport)
 
-    banner = [
-        "",
-        "  pcbridge hazir",
-        f"  yapilandirma : {cfg.source_path}",
-        f"  yerel adres  : http://{cfg.host}:{cfg.port}{cfg.mcp_path}",
-        f"  dis adres    : {cfg.mcp_url}   <-- Gemini Spark'a BUNU gir",
-        f"  onay sayfasi : {cfg.public_url}/consent",
-        f"  durum        : {cfg.public_url}/healthz",
-        f"  ajanlar      : {', '.join(k for k, v in cfg.agents.items() if v.enabled)}",
-        f"  is kayitlari : {cfg.jobs_dir}",
-        "",
-    ]
+    if args.stdio:
+        banner = [
+            "",
+            "  pcbridge (stdio)",
+            f"  yapilandirma : {cfg.source_path}",
+            f"  ajanlar      : {', '.join(k for k, v in cfg.agents.items() if v.enabled)}",
+            f"  is kayitlari : {cfg.jobs_dir}",
+            f"  masaustu     : {'acik' if cfg.desktop.enabled else 'KAPALI ([desktop] enabled = false)'}",
+            "  UYARI: stdio'da OAuth yok. Bu sureci baslatabilen her yerel",
+            "         program masaustune erisir; onunde yalnizca desktop_unlock var.",
+            "",
+        ]
+    else:
+        banner = [
+            "",
+            "  pcbridge hazir",
+            f"  yapilandirma : {cfg.source_path}",
+            f"  yerel adres  : http://{cfg.host}:{cfg.port}{cfg.mcp_path}",
+            f"  dis adres    : {cfg.mcp_url}   <-- uzak istemciye BUNU gir",
+            f"  onay sayfasi : {cfg.public_url}/consent",
+            f"  durum        : {cfg.public_url}/healthz",
+            f"  ajanlar      : {', '.join(k for k, v in cfg.agents.items() if v.enabled)}",
+            f"  is kayitlari : {cfg.jobs_dir}",
+            "",
+        ]
+    # stderr SART: stdio'da stdout JSON-RPC kanalinin kendisi.
     print("\n".join(banner), file=sys.stderr, flush=True)
 
     if args.check:
         print("Yapilandirma gecerli.", file=sys.stderr)
+        return 0
+
+    if args.stdio:
+        # HTTP sunucusu yok -> /shot, /healthz, /consent, /.well-known/* de yok.
+        # `screen_capture` bunu biliyor ve baglanti yerine dosya yolu doner.
+        mcp.run(transport="stdio", show_banner=False)
         return 0
 
     mcp.run(
