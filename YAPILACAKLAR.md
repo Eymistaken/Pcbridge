@@ -80,7 +80,7 @@ verimli yolu önce inşa etmeye zorlamış — bu bir baypas değil, kazanç.
 | istemci | sürüm | MCP istemcisi | nasıl |
 |---|---|:---:|---|
 | **Claude Code** | 2.1.220 | ✅ | `claude mcp add` — stdio / http / sse |
-| **Codex CLI** | 0.144.1 | ✅ | `codex mcp add <ad> -- <komut>` (stdio) · `--url` (streamable HTTP) · `--bearer-token-env-var` · **`codex mcp login` ile OAuth** |
+| **Codex CLI** | 0.144.1 | ✅ (aboneliği yok, bkz. aşağı) | `codex mcp add <ad> -- <komut>` (stdio) · `--url` (streamable HTTP) · `--bearer-token-env-var` · **`codex mcp login` ile OAuth** |
 | **Claude Desktop** | kurulu, çalışıyor | ✅ | yapılandırma dosyası, stdio |
 | **Antigravity (`agy`)** | 1.1.10 | ❌ | `mcp` alt komutu **yok**. `plugin` var ama o Claude/Gemini eklentisi içe aktarıyor, MCP değil |
 | **Gemini Spark** | — | ✅ | bugün çalışan yol; HTTP + OAuth, **görüntü alamaz** |
@@ -89,6 +89,27 @@ verimli yolu önce inşa etmeye zorlamış — bu bir baypas değil, kazanç.
 olmadığı için ona ayrıca uğraşılmayacak. Ama `agent_run` hedefi olarak
 `config.toml`'da tanımlı ve çalışıyor — **oraya dokunma, kaldırma.** Yalnızca
 yeni iş yapılmayacak.
+
+> ### ⚠️ Codex BU MAKİNEDE ÇALIŞTIRILAMIYOR
+>
+> `codex` CLI kurulu ve `codex mcp --help` çıktısı yukarıdaki desteğin
+> **belgelendiğini** gösteriyor. Ama kullanıcının **Codex aboneliği yok**, yani
+> gerçek bir Codex oturumu açılamıyor. Testi kullanıcının kuzeni yapacak.
+>
+> Bunun sana iki sonucu var:
+>
+> 1. **Codex tarafını ölçemezsin.** `codex mcp add` yapılandırma dosyasına
+>    yazar (bu denenebilir), ama sunucuya gerçekten bağlanıp araç listesi
+>    alması ve **görüntü bloğunu işleyip işlemediği** ölçülemez.
+> 2. **Belgelere "Codex destekleniyor" YAZMA.** Doğru cümle: *"Codex için
+>    yapılandırma hazırlandı, bu makinede denenmedi."* Denenmemiş bir şeyi
+>    çalışıyormuş gibi yazmak bu projenin en sevmediği şey — ölçülmemiş her
+>    iddia bir sonraki kişiyi yanıltıyor.
+>
+> Yapabileceğin: kurulum komutlarını üret, yapılandırma dosyasına doğru
+> yazıldığını `codex mcp list` / `codex mcp get` ile doğrula, ve kuzenin
+> deneyebilmesi için `KULLANIM.md`'ye net bir "Codex ile bağlanma" adımı yaz.
+> Sonuç geldiğinde bu dosyaya işlenir.
 
 Kütüphane tarafı hazır: `fastmcp 3.4.5` (`fastmcp.utilities.types.Image`),
 `mcp.types.ImageContent`, `FastMCP.run(transport=...)`.
@@ -242,7 +263,10 @@ plan varsayımını çürüttü; atlama.
    sunucusu yaz), bilinen içerikli bir PNG döndür, `claude mcp add` ile bağla ve
    `claude -p "o aracı çağır ve gördüğünü söyle"` ile içeriği tarif ettir.
    **Bilinen içerik şart** — "evet görüyorum" demesi kanıt değil.
-2. **Codex için aynı soru.** `codex mcp add pcbridge -- <komut>` ile bağla.
+2. ~~**Codex için aynı soru.**~~ **YAPILAMIYOR** — abonelik yok (yukarıdaki
+   uyarı). Onun yerine: `codex mcp add` ile yapılandırmanın doğru yazıldığını
+   `codex mcp get pcbridge` ile doğrula, orada bırak. Tasarımı **Claude'un
+   ölçümüne** göre kur; Codex'i sonradan gelen bir doğrulama say.
 3. **Görüntünün jeton maliyeti.** 1920×1080 tam çözünürlük kaç jeton, 1280'e
    küçültülmüş kaç? `agy`'de 40 bin ölçülmüştü. H2'deki ölçek kararı buna bağlı.
 4. **stdio taşıması mevcut `server.py` yapısıyla çalışıyor mu?**
@@ -289,6 +313,8 @@ Bunu omuz silkerek geçme, kullanıcıya sor.
   - uzaktan: `codex mcp add pcbridge --url https://<host>/mcp` + `codex mcp login pcbridge`
 - `doctor.sh`'e başlık: hangi istemcilerde kayıtlı (`claude mcp list`,
   `codex mcp list`), stdio başlatılabiliyor mu
+- **Codex satırları "kayıtlı mı" der, "çalışıyor mu" DEMEZ.** Burada yalnızca
+  yapılandırma doğrulanabiliyor; gerçek bağlantı denenmedi
 
 ### H4 · `computer_task`'in yeni yeri
 
@@ -316,7 +342,9 @@ Bunu omuz silkerek geçme, kullanıcıya sor.
 - `README.md`: konumlandırma değişiyor — "Gemini Spark için MCP" değil,
   "ajanların bağlandığı MCP". Güvenlik bölümüne **stdio'nun ağ katmanını
   kaldırdığı** açıkça yazılsın
-- `KULLANIM.md`: istemci kurulum bölümü, `computer_task`'in yeni yeri
+- `KULLANIM.md`: istemci kurulum bölümü, `computer_task`'in yeni yeri.
+  Codex adımları **"denenmedi"** notuyla yazılsın — kullanıcının kuzeni
+  deneyecek, sonucu geri gelecek
 - `config.example.toml`: yeni ayarlar yorumuyla
 - `PLAN.md`'ye "Faz 7 sonuçları" — ölçümler ve sapmalar
 - Bu dosyaya H0'dan çıkan makine gerçekleri
