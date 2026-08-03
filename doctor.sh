@@ -251,13 +251,24 @@ else
   fail "skills/computer-use/SKILL.md YOK — computer_task calismaz"
 fi
 
-TASKCFG="$(./.venv/bin/python -c '
+# Model/effort BOS BIRAKILABILIR: o zaman secilen ajanin kendi varsayilani
+# kullaniliyor. Bos stringi oldugu gibi basmak "claude /  / " gibi bir satir
+# uretiyordu; hangi modelin fiilen secilecegi cozumleyiciye sorulup yaziliyor.
+TASKCFG="$(./.venv/bin/python - <<'PY' 2>&1 | tail -1
 from pcbridge.config import load_config
-d = load_config().desktop
-print(d.computer_task_agent + " / " + d.computer_task_model
-      + " / " + (d.computer_task_effort or "(varsayilan)")
-      + " · " + str(d.computer_task_max_steps) + " adim")
-' 2>&1 | tail -1)"
+from pcbridge import models
+cfg = load_config()
+d = cfg.desktop
+res = models.resolve(cfg, agent=d.computer_task_agent,
+                     model=d.computer_task_model or None,
+                     effort=d.computer_task_effort or None)
+if res.error:
+    print("COZUMLENEMEDI: " + res.error.splitlines()[0])
+else:
+    src = "config" if d.computer_task_model else "ajanin varsayilani"
+    print(f"{res.headline()} ({src}) · {d.computer_task_max_steps} adim")
+PY
+)"
 if printf '%s' "$TASKCFG" | grep -q "adim"; then
   pass "computer_task ayarlari · $TASKCFG"
 else
