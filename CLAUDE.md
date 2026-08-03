@@ -18,8 +18,12 @@ Proje Gemini Spark için başlamıştı; **artık hedef değil.** Mimarinin
 "görüntü yerine metin" tercihleri (`ui_dump`, `/shot` bağlantıları) o çağdan
 kalma ve **kazanç oldukları için duruyorlar** — daha ucuz ve ıskalamıyorlar.
 
-**Aktif çalışma yönergesi [YAPILACAKLAR.md](YAPILACAKLAR.md).** Görev listesi,
-onaylanmış kararlar ve son ölçümler orada; bir işe başlamadan önce oku.
+**Sıradaki iş [YAPILACAKLAR.md](YAPILACAKLAR.md).** Şu an orada duran görev:
+ajanın makineyi kullandığını gösteren **görsel bir GNOME 46 eklentisi**
+(ekran kenarlarında çerçeve efekti, değişen ve yöne dönen imleç).
+
+Ölçülmüş makine gerçekleri **bu dosyada**, aşağıda. Faz H/I/J'nin sonuçları ve
+neyin neden böyle yapıldığı `PLAN.md` 9b–9d bölümlerinde.
 
 ## Komutlar
 
@@ -341,7 +345,7 @@ ve o değişken `--effort` bayrağını sessizce etkisiz kılıyor.
 
 | Dosya | Ne |
 |---|---|
-| `YAPILACAKLAR.md` | **Aktif çalışma yönergesi** — görev listesi, kararlar, son ölçümler |
+| `YAPILACAKLAR.md` | **Sıradaki iş** — şu an: görsel GNOME 46 eklentisi |
 | `KULLANIM.md` | Kullanıcıya dönük araç kataloğu + izin haritası — **güncel tutulmalı** |
 | `config.example.toml` | Ayarların belgelenmiş hâli; projenin asıl referansı |
 | `README.md` | Kurulum, istemcilere bağlanma, güvenlik değerlendirmesi, sorun giderme |

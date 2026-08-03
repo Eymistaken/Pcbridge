@@ -1,586 +1,112 @@
-# YAPILACAKLAR.md — pcbridge çalışma yönergesi
+# YAPILACAKLAR.md — GNOME eklentisi: ajan görünür olsun
 
 ## Başla
 
-Kullanıcı "YAPILACAKLAR.md'dekileri yap" dediyse sırayla şunu yap:
+Kullanıcı "YAPILACAKLAR.md'yi uygula" dediyse:
 
-1. **Bu dosyanın tamamını oku.** İhtiyacın olan her şey burada; başka belge
-   okumana gerek yok
-2. **H0 bölümü** için kendi görev listeni çıkar, kullanıcıya göster
-3. Onay gelmeden kod yazma
-4. Onaydan sonra adım adım ilerle, **her adımı fiilen test et**
-5. Bölüm bitince commit at
+1. Bu dosyanın tamamını oku
+2. `CLAUDE.md`'yi oku — proje bağlamı ve değişmez kurallar orada
+3. Kendi görev listeni çıkar, **kullanıcıya onaylat**
+4. Onay gelmeden kod yazma
+5. Adım adım ilerle, **her adımı fiilen test et** ("hata vermedi" kanıt değil)
+6. Bölüm bitince commit at
 
-> `PLAN.md`, `UYGULAMA.md`, `GELISTIRME.md`, `KULLANIM.md` **geçmiş kayıt**.
-> Okuman gerekmiyor, ama silme — neyin neden böyle yapıldığı orada yazıyor.
-> `KULLANIM.md` kullanıcıya dönük araç kataloğu, güncel tutulmalı.
-
----
-
-## Proje
-
-pcbridge, kullanıcının Linux masaüstünü **uzaktan sürülebilir** hale getiren
-kişisel bir MCP sunucusu. Bugün çalışan şeyler (33 araç):
-
-| grup | araçlar |
-|---|---|
-| ajan | `list_agents`, `agent_run`, `computer_task` |
-| iş | `job_status`, `job_output`, `job_list`, `job_cancel` |
-| terminal | `tmux_list/start/send/keys/capture/kill` |
-| kabuk & dosya | `shell_run`, `shell_run_background`, `fs_list/read/write/search` |
-| masaüstü izni | `desktop_unlock`, `desktop_lock` |
-| girdi | `mouse`, `keyboard`, `computer_batch` |
-| ekran | `screen_info`, `screen_capture` |
-| erişilebilirlik | `ui_dump`, `ui_click`, `ui_set_text` |
-| pencere | `window_list`, `window_focus` |
-| sistem | `system_status`, `notify` |
-
-Ayrıca MCP'den **bağımsız** iki CLI kabuğu: `bin/pcb-shot` (ekranı PNG yazar,
-global ofsetini söyler) ve `bin/pcb-do` (eylem listesi çalıştırır). Bunlar
-`~/.local/bin`'e bağlı ve makinede çalışan herhangi bir ajan Bash'ten
-çağırabiliyor. Yönerge dosyası `skills/computer-use/SKILL.md`, oradan
-`~/.claude/skills/computer-use`'a symlink.
-
-**Son durum:** A→H bölümleri bitti. `[desktop] enabled = false` (doğru hâli).
-
-Faz H'de eklenenler: `--stdio` taşıması, `screen_capture`'ın görüntüyü araç
-sonucunda döndürmesi (`[server] inline_images`), `connect.sh`, `doctor.sh`'e
-istemci kayıtları başlığı, `computer_task`'in varsayılan sürücüsünün `claude`
-olması ve bir model çözümleme hatasının düzeltilmesi.
+**Teknik tasarım sana ait.** Bu dosya *ne olması gerektiğini* söylüyor, *nasıl
+yapılacağını* değil. Araştırmayı, mimariyi ve yol seçimini sen yapacaksın;
+kararlarını gerekçesiyle kullanıcıya sunacaksın.
 
 ---
 
-## Son bölüm — J (BİTTİ, 2026-08-03)
+## İş
 
-**Ekran görüntüsü sessizleşti.** Kullanıcının sorusu: *"gnome-screenshot her
-çekimde beyaz flaş patlatıyor ve ses çıkarıyor, sessizce alamaz mı?"*
+**GNOME 46 (Wayland) için görsel bir kabuk eklentisi yaz.**
 
-Denenen ve **elenen** yollar — hepsi ölçüldü:
+pcbridge bir ajana klavye, fare ve ekran erişimi verebiliyor. Bugün bunun tek
+görünür işareti GNOME'un kendi ekran paylaşımı göstergesi — üst çubukta küçük
+turuncu bir simge. Yeterince belirgin değil.
 
-| yol | sonuç |
-|---|---|
-| `gnome-screenshot --no-flash` | **bayrak yok** (eski sürümlerde vardı, kaldırılmış) |
-| `org.gnome.Shell.Screenshot` D-Bus, `flash=false` | **"Access denied"** — GNOME 46 çağıranı süzüyor |
-| XDG portal | çalışıyor ama **yine flaş**, üstelik `~/Resimler`'i kirletiyor |
-| **Mutter ScreenCast (PipeWire)** | **sessiz** ✔ |
-
-Flaşın `gnome-screenshot`'ın *kendi* kodundan geldiği de ölçüldü (ikilikte
-`cheese_flash_fire`) — yani D-Bus'a `flash=false` geçirmek zaten yetmezdi.
-
-Ekran *paylaşımı* yolunda flaş yok çünkü sistem bunu fotoğraf değil **video**
-sayıyor. Kullanıcı dört ardışık çekimde "hiçbir şey olmadı" diye doğruladı.
-
-**Kayıp yok:** yayın çıktısı ile `gnome-screenshot`'ın aynı bölgesi **%99,8
-birebir aynı** (2.070.172 / 2.073.600 piksel); kalan fark iki çekim arasında
-ekranın kendisinin değişmesi.
-
-**Hız ikincil, abartılmamalı:** ham yakalamada 240 ms'ye karşı 833 ms, ama uçtan
-uca (iki monitör + ölçekleme + PNG) 1,5 sn'ye karşı 2,5 sn — aradaki farkın
-çoğu Pillow'da ve iki yolda da aynı.
-
-**Yayın `desktop_unlock` ile açılıyor, `desktop_lock`/süre dolumuyla kapanıyor.**
-Açıkken üst çubukta paylaşım göstergesi duruyor; kullanıcı bunu *istedi* —
-"ajan aktif mi anlamış olurum" (ileride GNOME eklentisiyle ekran etrafına çerçeve
-çizilecek, o bunun üstüne oturacak).
-
-Kapsam dışı bırakılan: `RecordWindow` (pencere yayını). `monitor="window"` hâlâ
-`gnome-screenshot`'a düşüyor, yani orada flaş var.
+İstenen: **ajan makineyi kullanırken bunu bakar bakmaz anlamak.**
 
 ---
 
-## Bir önceki bölüm — I (BİTTİ, 2026-08-03)
+## Ne yapacak
 
-**Fare ışınlanmayı bıraktı; basılı tutma MCP'ye açıldı.**
+### 1. Ekran kenarlarında çerçeve efekti
 
-Kullanıcının isteği: *"fareyi hareket ettirdiğinde ışınlanıyor, gerçekten
-hareket ederse iyi olur"* + tut-sürükle, sağ tık, scroll, scroll'a basma,
-aynı anda çok tuşa basma ve basılı tutabilme.
+Ekran yayını açıkken her monitörün kenarlarında **hafif, beyaz, gradyanlı bir
+çerçeve** belirsin. Kenardan içeri doğru yumuşakça sönen bir parlaklık — keskin
+çizgi değil.
 
-Kod okununca çıkan sonuç: **istenenlerin çoğu zaten vardı**, bir kısmı MCP'ye
-açılmamıştı. Gerçekten eksik olan tekti — yumuşak hareket.
+- Yayın açılınca **yumuşakça belirsin**, kapanınca **yumuşakça kaybolsun**
+- İki monitörde de görünsün
+- Altındaki pencerelere tıklamayı engellemesin, dikkat dağıtmasın
 
-| istek | durum |
-|---|---|
-| Gerçek hareket | **yoktu** → `input.move_path`, smoothstep, 5000 px/s |
-| Tut-sürükle | vardı (`drag`) → artık `mouse_down`/`mouse_up` ile duraklamalı da yapılabiliyor |
-| Sağ tık, orta tık | vardı |
-| Scroll dikey | vardı; **yatay** backend'de vardı, araçta yoktu → açıldı |
-| Aynı anda çok tuş | vardı (`parse_combo` sınırsız) |
-| Klavye basılı tutma | araçta vardı, **batch'te yoktu** → açıldı |
-| Fare basılı tutma | backend'de vardı, **araçta yoktu** → açıldı |
-| `triple_click` | backend destekliyordu, açılmamıştı → açıldı |
+### 2. Değişen fare imleci
 
-Ayrıca istekte olmayan ama zorunlu hale gelen bir iş: **sıkışma koruması.**
-`hold` MCP'ye açılıyorsa onu kapatan bir yol da olmalı — `release` unutulan bir
-Ctrl makineyi kullanılamaz yapıyor ve ajanın bunu göreceği bir kanal yok.
-`hold_max_seconds` zamanlayıcısı, `release_all()`, batch yarıda kalırsa
-otomatik bırakma ve her yanıtta "basılı tutulan: …" notu bu yüzden var.
+Ajan makineyi kullanırken imleç, **yumuşak köşeli, hafif parlayan** bir imlece
+dönüşsün. Normal ok imleci gibi sert değil; yumuşak, hafif ışıldayan.
 
-Kapsam dışı bırakılan: **bağıl fare modu** (`REL_X`/`REL_Y`). Oyunlar imleci
-yakalayıp bağıl hareket bekler, mutlak cihaz orada çalışmaz — ayrı ve daha
-büyük bir iş, kullanıcı da oyun demedi.
+Ajan bıraktığında normal imlece geri dönsün.
+
+### 3. İmleç yöne dönsün
+
+İmleç hareket ederken **ucu gittiği yöne baksın**. Sol üste gidiyorsa ucu sol
+üste, sağ alta gidiyorsa sağ alta. Dönüş ani olmasın — takip etsin, yumuşakça
+dönsün.
 
 ---
 
-## Bir önceki bölüm — H
+## Kısıtlar
 
-**pcbridge bugüne kadar Gemini Spark için tasarlandı. Artık AI ajanlarının
-bağlandığı bir MCP sunucusu olacak.**
+Bunlar tartışmaya kapalı:
 
-Sebebi tek bir teknik gerçek. Bugüne kadarki bütün mimariyi belirleyen kısıt
-şuydu: *Spark'a giden MCP function-response kanalı araç sonucunda yalnızca
-metin taşıyor.* Ekranı modele anlatmak için `ui_dump` (metinsel ağaç) yazıldı,
-görüntüler `/shot/<token>.png` bağlantısına dönüştürüldü, ve `computer_task`
-görsel işi PNG okuyabilen yerel bir ajana devretmek için var edildi.
-
-**Claude Code ve Codex'te bu kısıt yok.** MCP protokolü araç sonucunda görüntü
-taşıyabiliyor (`ImageContent`), FastMCP'de `Image` sınıfı hazır. Yani istemci
-ekran görüntüsüne **kendisi** bakabilir.
-
-Bunun dürüst sonucu: **F bölümünün (`computer_task`) asıl gerekçesi ortadan
-kalkıyor.** Gören bir istemci görüntüye bakar ve `computer_batch` çağırır,
-arada ajan olmasına gerek kalmaz. `computer_task` ölmüyor ama gerekçesi
-değişiyor: "uzun süren bir GUI işini arka plana at, ana ajan bloke olmasın".
-
-**Metin yolu kalıyor ve gerekçesi güçleniyor.** Ölçüldü: bir ekran görüntüsü
-ajana ~40 bin girdi jetonu, `ui_dump` ise ~0,1 saniye ve birkaç yüz jeton.
-Üstelik `ui_click` koordinat kullanmadığı için **ıskalayamaz**. Yani GTK
-uygulamalarında metin ağacı hem ucuz hem isabetli yol; görüntü, erişilebilirlik
-ağacının boş geldiği yerler (Electron, tuval, oyun) için yedek. Gemini bizi
-verimli yolu önce inşa etmeye zorlamış — bu bir baypas değil, kazanç.
+- **Tamamen görsel.** Eklenti hiçbir şeye tıklamaz, hiçbir şey yazmaz, hiçbir
+  şeyi değiştirmez. Yalnızca gösterir.
+- **Yer kaplamayacak.** Animasyonlar akıcı olacak ama makineyi yormayacak.
+  CPU/GPU maliyeti ölçülecek ve rapor edilecek — "hafif görünüyor" yetmez.
+- **Yumuşak ve tatlı.** Ani geçiş, titreme, göze batan hareket yok. Efektler
+  şık olacak, rahatsız etmeyecek.
+- **GNOME 46 / Wayland.** Bu makinede çalışacak (Zorin OS 18.1). X11 hedef
+  değil.
 
 ---
 
-## İstemci gerçekleri (ölçüldü 2026-08-03, tahmin etme)
+## Bilmen gerekenler
 
-| istemci | sürüm | MCP istemcisi | nasıl |
-|---|---|:---:|---|
-| **Claude Code** | 2.1.220 | ✅ | `claude mcp add` — stdio / http / sse |
-| **Codex CLI** | 0.146.0 | ✅ **bağlandı, ölçüldü** | `codex mcp add <ad> -- <komut>` (stdio) · `--url` (streamable HTTP) · `--bearer-token-env-var` · **`codex mcp login` ile OAuth** |
-| **Claude Desktop** | kurulu, çalışıyor | ✅ | yapılandırma dosyası, stdio |
-| **Antigravity (`agy`)** | 1.1.10 | ❌ | `mcp` alt komutu **yok**. `plugin` var ama o Claude/Gemini eklentisi içe aktarıyor, MCP değil |
-| **Gemini Spark** | — | ✅ | **artık hedef değil**; HTTP + OAuth yolu duruyor, görüntü alamaz |
+Bu makine hakkında ölçülmüş gerçekler `CLAUDE.md`'de. Bu iş için önemli olanlar:
 
-**Antigravity bu bölümün kapsamı dışında.** Kullanıcı kararı: MCP istemcisi
-olmadığı için ona ayrıca uğraşılmayacak. Ama `agent_run` hedefi olarak
-`config.toml`'da tanımlı ve çalışıyor — **oraya dokunma, kaldırma.** Yalnızca
-yeni iş yapılmayacak.
-
-> ### Codex ÖLÇÜLDÜ (2026-08-03) — ama tamamı değil
->
-> Codex kullanıcının planına ücretsiz geldi ve denendi: sürüm 0.146.0, model
-> `gpt-5.6-terra xhigh`. **Bağlandı ve araçları çağırdı** — `audit.log`'da
-> `desktop_unlock` (gerekçesini Türkçe yazmış), `computer_task`,
-> `computer_batch`, `desktop_lock` kayıtları var. İzni gerekçeyle aldı, iş
-> bitince kapattı: davranış doğru.
->
-> **Görüntü işleme de ölçüldü (2026-08-03, 15:00–15:22): Codex görüntü
-> bloğunu İŞLİYOR.** Kanıt denetim kaydında ve çıkarım tek yönlü:
->
-> - Chrome'da `ui_dump` **`nodes: 0`** döndü — AT-SPI orada tamamen kör.
-> - Buna rağmen `click (950, 830)`, ardından sekiz ardışık `drag (410, 998)`,
->   `drag (853, 998)`… yaptı ve bir **tuval oyununu** (Design The Next iPhone)
->   oynadı.
-> - 25 `screen_capture` çağrısının **hepsi `inline: true`**.
->
-> Erişilebilirlik ağacı boşken o koordinatları bilmenin başka yolu yok.
-> Vesktop'ta da aynı: `ui_dump` 8 düğüm (yalnızca pencere çerçevesi) dönerken
-> mesaj kutusunu `click (2820, 989)` ile buldu ve yarım saat süren bir sohbeti
-> kullanıcı adına yürüttü.
->
-> Aynı oturumda **odak koruması bir kez ateşlendi** (`stopped: "focus"`,
-> 15:01:42) ve **`launch 'vesktop'` başarısız oldu**; Codex ikisini de kendi
-> başına toparladı (ALT+TAB'a geçti). Yani koruma yanlış pozitif değil, ama
-> `launch` Vesktop'ta çalışmıyor — bakılmayı bekleyen bir iş.
->
-> **O deneme bir de gerçek bir hata ortaya çıkardı** — makine gerçeklerindeki
-> `DBUS_SESSION_BUS_ADDRESS` maddesi. Karşılığı `desktop/session.py`.
-
-Kütüphane tarafı hazır: `fastmcp 3.4.5` (`fastmcp.utilities.types.Image`),
-`mcp.types.ImageContent`, `FastMCP.run(transport=...)`.
-
----
-
-## Makine gerçekleri (ölçüldü, tahmin etme)
-
-- **Zorin OS 18.1 Core** = Ubuntu 24.04 LTS + **GNOME Shell 46**, **Wayland**
-  (X11'e geçmek seçenek değil, önerme)
-- **İki monitör**, ikisi de 1920×1080, **ölçek 1.0**:
-
-  | Bağlantı | Konum | Kırpma kutusu | Not |
-  |---|---|---|---|
-  | DP-2 | x=0 | `(0, 0, 1920, 1080)` | **sol** → `monitor=1` |
-  | DP-1 | x=1920 | `(1920, 0, 3840, 1080)` | **sağ**, **birincil** → `monitor=2` |
-
-  GNOME üst çubuğu ve `Super` menüsü **sağdaki** monitörde. Numaralandırma her
-  zaman **x konumuna göre soldan sağa**, "birincil önce" değil.
-- **Klavye düzeni Türkçe** (`tr+intl`). uinput ham keycode gönderir → ASCII
-  bozulur. Metin girişinde varsayılan yol **`wl-copy` + Ctrl+V**
-- **Girdi katmanı `python-evdev`**, `dotool`/`ydotool` değil. Mutlak fare
-  3840×1080 tuvale 1:1 eşleniyor
-- **`gnome-screenshot` her çekimde beyaz flaş + ses çıkarıyor** ve flaşı KENDİ
-  çiziyor (ikilikte `cheese_flash_fire`). XDG portal da flaş patlatıyor.
-  `org.gnome.Shell.Screenshot` D-Bus arayüzü **"Access denied"** (GNOME 46
-  çağıranı süzüyor, `Shell.Introspect` gibi). Çözüm ekran *paylaşımı*:
-  `org.gnome.Mutter.ScreenCast` **erişilebilir** ve orada flaş yok.
-  Ölçüldü: 833 / 497 / **240 ms**. Yayın çıktısı gnome-screenshot ile **%99,8
-  birebir aynı** — kayıp yok.
-- **Açık duran yayın bedava**: gnome-shell CPU %35,2 → %35,2. Kimse kare
-  tüketmezken PipeWire üretmiyor.
-- **Yayın açıkken çekim süresi monitöre göre değişiyor**: DP-1 tutarlı
-  ~315 ms, DP-2 tutarlı ~80 ms. Rastgele değil, her çekimde aynı.
-  **Sebebi bilinmiyor**, ikisi de mevcut yoldan hızlı olduğu için üzerine
-  gidilmedi.
-- **`gi`/`Gst` venv'de YOK**, sistem `python3`'ünde var — `atspi_helper.py` ile
-  aynı durum. Ama bu yardımcı **kalıcı**: yayın açık kalmalı.
-- **İmleç ara noktalardan geçiyor, ışınlanmıyor** (I bölümü). Ölçüldü: 48
-  adımlık bir hareketin **48 ABS_X + 48 ABS_Y olayının tamamı** cihazın kendi
-  event node'undan okundu, `SYN_DROPPED` yok. `time.sleep(0.008)` fiilen
-  8,07 ms (+0,08). Süreler: 960 px → 186 ms, köşegen → 498 ms (tavan),
-  80 px → 61 ms (taban). **Ölçüm tuzağı:** olayları hareket boyunca paralel
-  okumazsan evdev istemci kuyruğu taşar ve 96 olayın 11'i görünür — o zaman
-  "interpolasyon çalışmıyor" diye yanlış sonuca varırsın
-- **Son imleç konumu diske yazılıyor** (`state_dir/pointer.json`). `pcb-do`'nun
-  her çağrısı yeni bir süreç; yazılmazsa **her** hareket ışınlanır. Bu gerçekten
-  yaşandı — kullanıcı "yumuşak gitmedi, ışınlandı" dedi ve haklıydı.
-  **İlk düzeltme yetmedi:** `_pointer()`/`ensure()` cihazı açtıktan sonra
-  `_pos = None` yapıyordu, `move()` de ilk iş cihazı açıyor → diskten okunan
-  konum hemen siliniyordu. Cihaz yaratmak imleci oynatmaz, o yüzden artık
-  `_read_pos()` çağrılıyor.
-- **İlk hareket yine sıçrayabilir** — Wayland'de imlecin gerçek konumu
-  dışarıdan sorulamıyor: kayıt yoksa, 5 dakikadan eskiyse ya da kullanıcı
-  arada fareyi eliyle oynattıysa başlangıç yanlış bilinir
-- **Cihaz yok edilince kernel basılı tuşları bırakıyor mu: ÖLÇÜLEMEDİ.**
-  Destroy ile event node da kayboluyor, olay okunamıyor. Bu yüzden `close()`
-  önce açıkça `release_all()` çağırıyor — ölçülmemiş davranışa güvenilmiyor
-- `gnome-screenshot` **kurulu ve çalışıyor**. Görüntü **monitör başına kırpılır,
-  ölçekleme kırpmadan sonra**; her görüntü global ofsetini taşır
-- **Koordinat gidiş-dönüşü** tam çözünürlükte ~1 px, 1280'e küçültülmüşte ~5 px
-- **`Shell.Introspect` kapalı** — `GetWindows` "Access denied" (GNOME 46).
-  Pencere listesi ve odak yalnızca AT-SPI'dan okunuyor
-- **Erişilebilirlik ağacı dolu ve kullanılabilir**: GTK4'te rol/etiket/durum
-  eksiksiz, `Action` ve `EditableText` var. Ama `get_extents` **koordinatları
-  yanlış** — tıklama `Action.do_action` ile yapılır. `gi` venv'de yok, AT-SPI
-  ayrı bir süreçte (sistem `python3`) çalışır
-- **AT-SPI Electron'un PENCERESİNİ görüyor ama İÇİNİ görmüyor.** Vesktop'ta
-  `windows()` pencereyi listeliyor (yani odak takibi çalışıyor) ama
-  `dump(target='vesktop.bin')` **0 düğüm**
-- **uinput olayı `IdleMonitor`'ü SIFIRLIYOR** — 104227 ms → 151 ms. "Kullanıcı
-  makinede mi" kontrolü bir eylem dizisinin **içinde** yapılamaz; dizi kendi
-  tuşunu kullanıcı sanar. Kontrol yalnızca dizi/görev başında
-- **GNOME overview açıkken (`super` sonrası) Wayland panosu bloklanıyor** —
-  `wl-paste` 5 sn'de cevap vermedi. Overview'da ham tuş yolu (`raw=true`) şart
-- **Pencere öne alma: AT-SPI ve D-Bus yolları KAPALI.** `Component.grab_focus`
-  GTK'da hata, Electron'da `False`; `org.freedesktop.Application.Activate`
-  `exit=0` dönüp hiçbir şey yapmıyor (sessiz başarısızlık). Çalışan tek yol
-  GNOME'un kendi araması (`super` + ad + `Return`), **~6,5 saniye**
-- **Taze süreçte uinput maliyeti:** klavye 1,301 s + fare 1,306 s = **2,607 s**;
-  ikisi önce yaratılıp **tek bekleme** paylaşılırsa **1,41 s**
-  (`InputBackend.ensure`). Gerçek tuş basımı 0,030 s
-- **`systemctl --user stop/restart pcbridge` ÇALIŞAN İŞLERİ DE ÖLDÜRÜR.**
-  `start_new_session` oturum grubunu ayırıyor ama **cgroup'u değil**; iş
-  servisin cgroup'unda kalıyor ve `KillMode=control-group` hepsini alıyor.
-  İkisi birden doğru: acil durdurma gerçekten çalışıyor **ve** kod
-  değişikliğinden sonraki restart uzun bir ajan işini keser
-- **`[desktop] enabled = false` yalnızca masaüstü araçlarını kapatır.**
-  `shell_run`, `agent_run`, `fs_*`, `tmux_*` bu kapıdan geçmez — kapalıyken de
-  komut çalışır, uygulama açılır, `config.toml` okunabilir. Bu bilinçli; koruma
-  engelleme değil, `audit.log`'a **iz bırakma**
-- **Ekran görüntüsünün maliyeti sürücüye göre 20–30 kat değişiyor.** `agy`'de
-  tek görüntü ~40 bin girdi jetonu; **Claude'da ~1200–1900** (ölçüldü
-  2026-08-03: 1920×1080 → ~12976, 1280×720 → ~11712 cache_creation, fark ~1264).
-  Yani `computer_task`'i pahalı yapan şey görüntü değil, **ayrı oturum ve
-  tekrar eden turlar**
-- **Anthropic API görüntünün uzun kenarını 1568'e indiriyor.** Bu yüzden
-  `screenshot_scale_long_edge = 1280` korunuyor: o sınırın altında kalınca
-  modelin gördüğü piksel ile bizim raporladığımız ölçek aynı kalıyor. 1920
-  gönderilseydi "ölçek 1.0" bilgisi **sessizce yalan** olurdu
-- **Claude Code araç sonucundaki görüntüyü GERÇEKTEN okuyor.** Ölçüm yolu:
-  bilinen içerikli PNG (`KELIME-1234`), model değeri birebir söyledi. "Evet
-  görüyorum" demesi kanıt sayılmadı. Uçtan uca da doğrulandı — `--stdio` ile
-  bağlanan gerçek bir oturum `screen_capture` çağırıp ekranı doğru tarif etti
-- **stdio'da fastmcp auth'u kendisi atlıyor** (`fastmcp/server/server.py:196`:
-  "skip_auth=True means auth checks should be skipped (STDIO transport)").
-  Yani `build_app()`'in ürettiği aynı örnek stdio'da OAuth'suz çalışıyor
-- **stdio'da HİÇBİR `@mcp.custom_route` rotası servis edilmiyor** — HTTP
-  sunucusu yok. `/shot/<token>.png`, `/healthz`, `/consent`, `/.well-known/*`
-  orada yok; `screen_capture` bu yüzden bağlantı yerine dosya yolu döner
-- **FastMCP'de dönüş tipi `-> list` (çıplak) yazılırsa araç patlıyor:**
-  outputSchema üretiliyor ve çağrı `"outputSchema defined but no structured
-  output returned"` diyor. Görüntü dönen araçlarda tip **`list[ContentBlock]`**
-- **venv'deki `pcbridge.pth` repo yolunu `sys.path`'e ekliyor**, bu yüzden
-  `python -m pcbridge.server` **herhangi bir dizinden** çalışıyor (cwd=/ ile
-  ölçüldü, 33 araç). İstemci kayıtlarında `cwd` vermek gerekmiyor
-- **stdio'da oturum ortamı BOZUK gelebilir ve masaüstünün tamamını çökertir.**
-  Ölçüldü 2026-08-03: Codex'in başlattığı pcbridge sürecinde
-  `DBUS_SESSION_BUS_ADDRESS` değeri **genişletilmemiş bir literal**di —
-  birebir `$DBUS_SESSION_BUS_ADDRESS` string'i. Sonucu zincirleme:
-  `busctl --user` → "Connection refused" → `monitors` Mutter'ı okuyamıyor →
-  xrandr yedeği de Wayland'de yok → `screen_capture`, `window_list`,
-  `computer_batch launch` hepsi başarısız. systemd altındaki HTTP yolu bunu
-  yaşamıyor (birim ortamı doğru kuruluyor); sorun **yalnızca stdio'da**, yani
-  tam da yeni birincil yolda. Karşılığı `desktop/session.py`:
-  `ensure_session_env()` eksik/bozuk değişkenleri `/run/user/<uid>/` altındaki
-  standart soketlerden türetiyor, **geçerli bir değere dokunmuyor**.
-- **stdio testinde stdin'i erken kapatmak sunucuyu yanıt yazmadan kapatıyor.**
-  `communicate()` ile hepsini birden göndermek `tools/list` yanıtını yutuyor ve
-  test/tanı sunucuyu bozuk sanıyor. Yanıt **satır satır** okunmalı
-
----
-
-## ⚠️ Bu makinede test etmenin tehlikesi
-
-**Sen pcbridge'in kontrol edeceği makinenin üzerinde çalışıyorsun.** uinput
-tıklaması/tuşu odaktan bağımsız gider — bir `type` testi **senin çalıştığın
-terminale** yazabilir ve Enter'a basabilir.
-
-Girdi testlerinde kural:
-
-1. Önce `gnome-text-editor` gibi bir boş pencere aç, testi **oraya** yap
-2. Fare testinde önce `mousemove`, sonra ekran görüntüsü alıp konumu
-   **doğrula**, ancak ondan sonra `click`
-3. Kaçak döngüye karşı acil durdurma: **`systemctl --user stop pcbridge`**
-   (sanal cihazlar pcbridge sürecinin içinde yaşıyor; ayrı bir daemon yok)
-4. Uzun/tekrarlı girdi denemelerini kullanıcıya haber vermeden başlatma
-5. **Tıklamadan sonra odağın kaydığını varsay**
-6. **Ekran görüntün BAYATLAR.** Görüntüye bakıp koordinat çıkardıktan sonra
-   araya iş sokma
-
-> **Kaza 1 — 2026-08-02.** `move(920, 520)` + `click` yapıldı, oranın metin
-> düzenleyici olduğu **varsayıldı, doğrulanmadı**. Tıklama masaüstüne düştü,
-> odak oraya kaydı, ardından temizlik için gönderilen `ctrl+a` + `Delete`
-> masaüstündeki **23 öğeyi çöpe gönderdi**. (Hepsi geri alındı.) Karşılığı:
-> `computer_batch` artık tıklamadan sonra odağı doğruluyor ve kaymışsa duruyor
-> (`[desktop] batch_check_focus`), beklenen pencere `expect_focus` ile
-> bildirilebiliyor.
-
-> **Kaza 2 — 2026-08-03.** Ekran görüntüsü alındı, hedef pencere öndeydi,
-> koordinat okundu. Sonra araya **69 saniye** kod düzenlemesi girdi ve o sırada
-> başka bir pencere öne geldi. Tıklama ona düştü. **Odak koruması ötmedi** —
-> odak zaten o pencereydeydi, *değişen* bir şey yoktu. Karşılığı: `pcb-shot`
-> çıktısında zaman damgası, `pcb-do`'da koordinatlı eylemler için yaş kontrolü
-> (`[desktop] agent_shot_max_age_seconds`, varsayılan 60 sn).
-
-İki kaza da aynı kökten: **doğrulanmamış bir varsayıma göre tıklamak.**
-
----
-
-## Değişmez kurallar
-
-**MCP araçları**
-
-- Docstring ve `Field(description=…)` **İngilizce** — istemci araç seçerken
-  bunları okuyor. Kullanıcıya dönen metinler Türkçe
-- Docstring "ne zaman kullanılır"ı söylesin, sadece "ne yapar"ı değil
-- Çıktıyı `jobslib.tail_chars(metin, 4000)` ile kırp
-- `readOnlyHint` / `destructiveHint` doğru işaretlensin
-- **110 saniyeden uzun bloklama yok** — uzun işler `jm.start()` ile arka plana
-- Yol parametreleri `_resolve_dir` / `_resolve_file` ile çözülsün
-
-**Dokunma**
-
-- `server.py` içindeki `MetadataNormalizer` ve `BasicAuthFormShim` — Google
-  OAuth akışının çalışmasının tek sebebi bunlar. Diğer istemcilerde etkisizler,
-  **dursunlar**
-- `auth.py`'ın OAuth mantığı — görev açıkça istemedikçe
-- `config.toml`'daki `[agents.antigravity]` bloğu — `agent_run` hedefi olarak
-  çalışıyor
-
-**Güvenlik**
-
-- `config.toml` parola ve statik token içeriyor. `.gitignore`'da, öyle kalsın.
-  İçeriğini **loglama, ekrana basma, commit etme**
-- Masaüstü yetenekleri `[desktop] enabled = false` ile gelir. **Varsayılanı
-  değiştirme**
-- Her yeni ayar `config.example.toml`'a **yorumuyla** eklenir
-- Denetim kaydı kuralı: **ne yapıldığı yazılır, İÇERİK yazılmaz** — komut evet
-  çıktısı hayır, dosya yolu evet içeriği hayır, metin uzunluğu evet metnin
-  kendisi hayır
-- Sudo isteyen kurulum adımları **kullanıcıya söylenerek** yapılır, sessizce
-  çalıştırılmaz
-
-**Etrafından dolaşma**
-
-X11'e geçmek, `--dangerously-skip-permissions`'ı kaldırmak, `config.toml`
-sırlarını loga basmak, `[desktop] enabled`'ı varsayılan açık yapmak — bunlar
-çözüm değil. Planla çelişen bir gerçekle karşılaşırsan **uydurma**: kullanıcıya
-söyle, gerekçesiyle düzelt, sonra devam et.
-
----
-
-## Görev listesi
-
-> **H0–H6 BİTTİ (2026-08-03).** Aşağıdaki maddeler geçmiş kayıt olarak duruyor;
-> ne istendiğini ve neyin neden yapıldığını gösteriyorlar. Sonuçlar ve plandan
-> sapmalar `PLAN.md` → "9b. Faz H sonuçları" bölümünde.
->
-> **Codex ölçüldü (2026-08-03).** Kullanıcının planına ücretsiz geldi ve
-> denendi: `codex` 0.146.0, model `gpt-5.6-terra xhigh`. **Bağlandı ve araçları
-> çağırdı** — `audit.log`'da `desktop_unlock` (gerekçesini Türkçe yazmış),
-> `computer_task`, `computer_batch`, `desktop_lock` kayıtları var. Davranış
-> doğru: izni gerekçeyle aldı, iş bitince kapattı.
->
-> **Hâlâ ölçülmeyen tek şey: görüntü bloğunu işleyip işlemediği.** O denemede
-> `screen_capture` hiç çağırmadı, görsel işi `computer_task` ile claude'a
-> devretti. Yani "Codex görüntü görüyor" iddiası **hâlâ yazılamaz.**
->
-> O deneme ayrıca **gerçek bir hata ortaya çıkardı** — aşağıdaki makine
-> gerçeklerinde `DBUS_SESSION_BUS_ADDRESS` maddesi. Karşılığı
-> `desktop/session.py` olarak koda girdi.
->
-> Sırada `G` var (ekran çerçevesi), opsiyonel.
-
-### H0 · Ölçüm (kod yazmadan) — ✅ bitti
-
-Hepsi "yanlışsa tasarım değişir" sorusu. Bu projede A–F boyunca ölçüm üç kez
-plan varsayımını çürüttü; atlama.
-
-1. **Claude Code MCP araç sonucunda GÖRÜNTÜ alabiliyor mu?** H2'nin tamamı buna
-   dayanıyor. Ölçme yolu: pcbridge'e geçici bir araç ekle (ya da küçük bir test
-   sunucusu yaz), bilinen içerikli bir PNG döndür, `claude mcp add` ile bağla ve
-   `claude -p "o aracı çağır ve gördüğünü söyle"` ile içeriği tarif ettir.
-   **Bilinen içerik şart** — "evet görüyorum" demesi kanıt değil.
-2. ~~**Codex için aynı soru.**~~ **YAPILAMIYOR** — abonelik yok (yukarıdaki
-   uyarı). Onun yerine: `codex mcp add` ile yapılandırmanın doğru yazıldığını
-   `codex mcp get pcbridge` ile doğrula, orada bırak. Tasarımı **Claude'un
-   ölçümüne** göre kur; Codex'i sonradan gelen bir doğrulama say.
-3. **Görüntünün jeton maliyeti.** 1920×1080 tam çözünürlük kaç jeton, 1280'e
-   küçültülmüş kaç? `agy`'de 40 bin ölçülmüştü. H2'deki ölçek kararı buna bağlı.
-4. **stdio taşıması mevcut `server.py` yapısıyla çalışıyor mu?**
-   `mcp.run(transport="stdio")` denenecek. Dikkat: `/shot/<token>.png`,
-   `/healthz` ve OAuth rotaları Starlette uygulamasında; stdio'da HTTP sunucusu
-   **yok**, yani o rotalar da yok. Ne bozuluyor, çıkar.
-5. **Claude Desktop** yapılandırma dosyasının yeri ve biçimi (bu makinede
-   kurulu ve çalışıyor).
-
-### H1 · stdio taşıması — ✅ bitti
-
-- `python -m pcbridge.server --stdio` çalışsın. HTTP yolu **aynen kalsın** —
-  Spark ve uzaktan erişim onun üstünde
-- stdio'da **OAuth yok**: yetki süreç sınırının kendisi. Bu bir güvenlik
-  gerilemesi ve belgede açıkça yazmalı (aşağıda)
-- systemd birimi değişmiyor; stdio'yu istemci başlatır, servis değil
-- `screen_capture`'ın `/shot` bağlantısı stdio'da üretilemez → H2'ye bağlı;
-  H2 bitmeden stdio'da o araç ne dönecek, karar ver ve **sessizce boş dönme**
-
-**Güvenlik kararı — kullanıcıya doğrulat:** bugün kapı üç katlı (Tailscale ağı +
-OAuth + `desktop_unlock`). stdio ilk ikisini kaldırıyor; sunucuyu başlatabilen
-her yerel süreç masaüstüne erişir, önünde yalnızca `desktop_unlock` kalır.
-Bunu omuz silkerek geçme, kullanıcıya sor.
-
-### H2 · Inline görüntü — ✅ bitti
-
-- `screen_capture` görüntüyü **`Image` bloğu olarak** döndürsün
-- **Metin kısmı KALSIN.** Monitör numarası, global ofset ve dönüşüm kuralı
-  görüntüyle birlikte gitmeli; yoksa istemci koordinat hesabını yapamaz ve
-  ikinci monitöre yapılan her tıklama 1920 piksel şaşar
-- Ayar: `[server] inline_images`. **Spark görüntü bloğu gelince bozulur**, o
-  yüzden tek sunucuda iki istemciyi barındırmanın yolu bu bayrak
-- Ölçek kararı H0.3'e göre: tam çözünürlük doğruluk verir (ölçek 1:1 → koordinat
-  hesabı sadece toplama), küçültme jeton kazandırır
-- `/shot/<token>.png` yolu **kalsın** — insan için hâlâ değerli, telefondan
-  bakmanın tek yolu
-
-### H3 · İstemci kurulumu ve tanı — ✅ bitti (`connect.sh`)
-
-- Kurulum komutlarını üreten bir yol: `install.sh`'e ekle ya da `connect.sh`
-  yaz. Kullanıcı kopyalayıp yapıştırabilsin:
-  - `claude mcp add pcbridge -- <DIR>/.venv/bin/python -m pcbridge.server --stdio`
-  - `codex mcp add pcbridge -- <DIR>/.venv/bin/python -m pcbridge.server --stdio`
-  - uzaktan: `codex mcp add pcbridge --url https://<host>/mcp` + `codex mcp login pcbridge`
-- `doctor.sh`'e başlık: hangi istemcilerde kayıtlı (`claude mcp list`,
-  `codex mcp list`), stdio başlatılabiliyor mu
-- **Codex satırları "kayıtlı mı" der, "çalışıyor mu" DEMEZ.** Burada yalnızca
-  yapılandırma doğrulanabiliyor; gerçek bağlantı denenmedi
-
-### H4 · `computer_task`'in yeni yeri — ✅ bitti
-
-- Docstring **dürüstleşsin**: gören bir istemci için gerekli değil. "Ekranı
-  kendin görebiliyorsan `screen_capture` + `computer_batch` kullan; bunu uzun
-  süren bir GUI işini arka plana atmak için kullan"
-- Varsayılan sürücü bugün `antigravity` (`[desktop] computer_task_agent`).
-  Antigravity artık kapsam dışı **ve** F canlı denemesinde görevi iki kez
-  tamamlayamadı. **Öneri: `claude`.** Bu bir davranış değişikliği, kullanıcıya
-  doğrulat
-- `computer_task_model` / `computer_task_effort` de ajana göre; `claude`
-  seçilirse agy'ye özel model adı (`gemini-3.6-flash`) geçersiz kalır.
-  **Bu bugün bir hata:** `computer_task(agent="claude")` çağrısı, yapılandırılan
-  model agy'ye ait olduğu için çözümlemede patlar. Düzelt
-
-### H5 · Testler — ✅ bitti (206 + 97 + 312)
-
-- `tests/test_e2e.py`: `inline_images` açık/kapalı şema farkı, stdio ile
-  başlayan sunucudan `tools/list`
-- `tests/test_desktop.py`: mevcut 398 kontrol bozulmasın
-- Gerçek istemci testi (H0'ın kurduğu düzenek) elle, kullanıcıya haber vererek
-
-### H6 · Belgeler ve commit — ✅ bitti
-
-- `README.md`: konumlandırma değişiyor — "Gemini Spark için MCP" değil,
-  "ajanların bağlandığı MCP". Güvenlik bölümüne **stdio'nun ağ katmanını
-  kaldırdığı** açıkça yazılsın
-- `KULLANIM.md`: istemci kurulum bölümü, `computer_task`'in yeni yeri.
-  Codex adımları **"denenmedi"** notuyla yazılsın — kullanıcının kuzeni
-  deneyecek, sonucu geri gelecek
-- `config.example.toml`: yeni ayarlar yorumuyla
-- `PLAN.md`'ye "Faz 7 sonuçları" — ölçümler ve sapmalar
-- Bu dosyaya H0'dan çıkan makine gerçekleri
-- Commit `faz H: ajan-bagimsiz MCP`, staged diff sırlara karşı taranır, push
-
-### G · Ekran çerçevesi — opsiyonel, ertelendi
-
-Kontrol açıkken ekran kenarında ince mavi-mor çerçeve (GNOME Shell eklentisi).
-Görsel geri bildirim ve güvenlik göstergesi. **Yapılmadı ve acil değil**;
-H bittikten sonra kullanıcı isterse.
-
----
-
-## Komutlar
-
-```bash
-cd ~/Belgeler/Pcbridge
-
-systemctl --user restart pcbridge          # kod degistiyse sart (CALISAN ISLERI OLDURUR)
-journalctl --user -u pcbridge -f           # canli log
-./doctor.sh                                # tani, 35 kontrol
-
-./.venv/bin/python tests/test_models.py     # cozumleyici (sunucu gerekmez)
-./.venv/bin/python tests/test_desktop.py    # masaustu (girdi GONDERMEZ, 398 kontrol)
-
-# gercek cihazlarla (uinput'a yazar, AT-SPI okur):
-PCBRIDGE_TEST_CAPTURE=1 PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_BATCH=1 \
-  ./.venv/bin/python tests/test_desktop.py
-
-# e2e sunucu ayakta olmali VE parolayi ortamdan ister; vermezsen OAuth
-# adimlari 401 doner ve testin bozuldugunu sanirsin.
-#
-# ⚠️ 12. bolum GERCEK bir `claude -p` calistirir ve KOTA YAKAR (bir kere
-# kullanicinin gunluk limitini bitirdi). Gunluk kosumda NO_AGENT bayragini ver.
-export PCBRIDGE_TEST_PASSWORD="$(./.venv/bin/python -c 'import sys; sys.path.insert(0,"."); from pcbridge.config import load_config; print(load_config().password)')"
-export PCBRIDGE_TEST_STATIC="$(./.venv/bin/python -c 'import sys; sys.path.insert(0,"."); from pcbridge.config import load_config; print(load_config().static_token or "")')"
-PCBRIDGE_TEST_NO_AGENT=1 \
-  ./.venv/bin/python tests/test_e2e.py   # 231 gecer + 9 ATLA
-```
-
-Masaüstünü elle sürmek (ajan olmadan, sen bakarak):
-
-```bash
-./bin/pcb-shot --monitor 2          # PNG yazar, ofseti soyler -> Read ile BAK
-./bin/pcb-do --dry-run '<json>'     # ayristirir, calistirmaz
-./bin/pcb-do --force '[{"a":"click","x":2081,"y":357}]'
-./.venv/bin/python -m pcbridge.cli.lock   # masaustu iznini kapat
-```
-
-Dosya düzenleme komutu önerirken `nano` **kullanma**; kullanıcının `edit` takma
-adı var (`gnome-text-editor`), root için `edit admin:///yol`.
+- **İki monitör**, 1920×1080, yan yana. Tuval 3840×1080. Numaralandırma soldan
+  sağa: DP-2 (x=0) → monitör 1, DP-1 (x=1920, **birincil**) → monitör 2. GNOME
+  üst çubuğu sağdaki monitörde.
+- **Ekran yayını** `desktop_unlock` ile açılıyor, `desktop_lock` ya da izin
+  süresi dolunca kapanıyor. Yayın `pcbridge/desktop/screencast.py` ve
+  `screencast_helper.py` tarafından yönetiliyor.
+- **GNOME 46 bazı D-Bus arayüzlerini dışarıya kapatmış** (`Shell.Introspect`,
+  `Shell.Screenshot` — ikisi de "Access denied"). Eklentinin pcbridge'in
+  durumunu nasıl öğreneceği bir tasarım sorusu; hazır bir yol olduğunu varsayma,
+  önce ölç.
+- **`Shell.Eval` kapalı** (GNOME 41+ unsafe mode). Eklenti gerçekten kurulacak,
+  kabuğa kod enjekte edilmeyecek.
 
 ---
 
 ## Çalışma tarzı
 
-- Kendi görev listeni çıkar, kullanıcıya onaylat, sonra başla
-- **Her adımdan sonra fiilen test et.** Çalıştığını görmeden sonrakine geçme
-- Ölçmediğin şeyi "çalışıyor" diye yazma. Bu projede "hata vermedi" kanıt
-  sayılmıyor — `IdleMonitor`, ekran görüntüsü ya da pencere başlığıyla doğrula
-- Bölüm bitince commit at
-- Kullanıcı Türkçe konuşuyor; sen de Türkçe yanıtla
+- **Ölçmeden yazma.** GNOME 46'da neyin mümkün olduğunu tahmin etme; dene, gör,
+  sonra karar ver. Bu projede "hata vermedi" kanıt sayılmıyor.
+- **Bu makinede test ediyorsun.** Eklenti kullanıcının kendi masaüstünde
+  çalışacak. Bozuk bir eklenti GNOME kabuğunu düşürebilir — Wayland'de bu bütün
+  pencereleri kapatır. Yükleme ve etkinleştirme adımlarını kullanıcıya söyleyerek
+  yap, geri alma yolunu önce hazırla.
+- **Kullanıcı görsel sonucu kendisi onaylayacak.** Efektin "yumuşak" ya da
+  "tatlı" olup olmadığını ölçemezsin; göster, sor, düzelt.
+- Bölüm bitince commit at, push için onay iste.
+
+---
+
+## Kapsam dışı
+
+- Eklentinin ayar arayüzü (gerekirse sonra)
+- extensions.gnome.org'a yayımlama
+- GNOME 46 dışındaki sürümler
+- pcbridge'in kendi davranışını değiştirmek — bu iş **yalnızca görsel katman**
