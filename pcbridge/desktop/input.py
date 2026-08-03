@@ -35,10 +35,12 @@ IMLEC ISINLANMAZ
 
 from __future__ import annotations
 
+import json
 import math
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 from . import monitors as monitorslib
 
@@ -86,6 +88,10 @@ DEFAULT_HOLD_MAX_SECONDS = 120.0
 # uygulama surukleme saymiyor. `pointer_speed = 0` verilse bile bu kadar ara
 # nokta uretilir.
 DRAG_MIN_STEPS = 10
+
+# Diske yazilan son imlec konumu bu kadar eskiyse guvenilmez sayilir. Uzun
+# aradan sonra kullanicinin fareyi eliyle oynatmis olmasi kuvvetle muhtemel.
+POS_MAX_AGE_SECONDS = 300.0
 
 
 class InputError(RuntimeError):
@@ -384,11 +390,13 @@ class InputBackend:
         pointer_speed: float = DEFAULT_POINTER_SPEED,
         pointer_max_ms: float = DEFAULT_POINTER_MAX_MS,
         hold_max_seconds: float = DEFAULT_HOLD_MAX_SECONDS,
+        pos_file: "Path | str | None" = None,
     ) -> None:
         self._kbd: "UInput | None" = None
         self._ptr: "UInput | None" = None
         self._canvas: tuple[int, int] | None = None
-        self._pos: tuple[int, int] | None = None
+        self._pos_file = Path(pos_file) if pos_file else None
+        self._pos: tuple[int, int] | None = self._read_pos()
         self._settle = settle_seconds
         self._speed = float(pointer_speed)
         self._max_ms = float(pointer_max_ms)
@@ -479,7 +487,7 @@ class InputBackend:
             self._kbd = self._make_keyboard()
         if need_p:
             self._ptr, self._canvas = self._make_pointer()
-            self._pos = None
+            self._pos = self._read_pos()
         time.sleep(self._settle)
         return self._settle
 
@@ -499,7 +507,11 @@ class InputBackend:
         if self._ptr is None:
             self._require()
             self._ptr, self._canvas = self._make_pointer()
-            self._pos = None
+            # DISKTEN oku, sifirlama. Cihaz yeni ama imlec yerinde duruyor:
+            # sanal cihazi yok etmek kompozitorun imlecini oynatmiyor.
+            # Sifirlanirsa `pcb-do`'nun her cagrisi (yeni surec -> yeni cihaz)
+            # yine isinlanir -- bu tam olarak yasandi, kullanici fark etti.
+            self._pos = self._read_pos()
             time.sleep(self._settle)
         return self._ptr
 
@@ -593,6 +605,42 @@ class InputBackend:
         bu yuzden yalnizca BIZIM gonderdigimiz konumu biliyoruz."""
         return self._pos
 
+    # ------------------------------------------------- konumun surec omru
+    # Son konum DISKE yaziliyor. Sebebi `pcb-do`: her cagrisi yeni bir surec
+    # ve yeni bir surec son konumu bilmiyor -> her hareket isinlanirdi.
+    # GERCEKTEN YASANDI: kullanici "fare yumusak gitmedi, isinlandi" dedi ve
+    # hakliydi -- MCP sunucusunda (uzun omurlu) ikinci hareketten itibaren
+    # yumusakti, `pcb-do`'da hicbir zaman.
+    #
+    # Kayit YANILABILIR: kullanici arada fareyi eliyle oynatmis olabilir ve
+    # Wayland'de bunu ogrenmenin yolu yok. O durumda hareket yanlis yerden
+    # baslar (imlec bir kez sicrar, sonra yumusak gider) -- yani en kotu
+    # ihtimalle bugunku davranisa donuyoruz, daha kotusune degil.
+    def _read_pos(self) -> tuple[int, int] | None:
+        if self._pos_file is None:
+            return None
+        try:
+            data = json.loads(self._pos_file.read_text(encoding="utf-8"))
+            if time.time() - float(data["t"]) > POS_MAX_AGE_SECONDS:
+                return None
+            return (int(data["x"]), int(data["y"]))
+        except Exception:  # noqa: BLE001 - bozuk/eksik kayit onemsiz
+            return None
+
+    def _write_pos(self) -> None:
+        if self._pos_file is None or self._pos is None:
+            return
+        try:
+            self._pos_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._pos_file.with_suffix(".tmp")
+            tmp.write_text(
+                json.dumps({"x": self._pos[0], "y": self._pos[1], "t": time.time()}),
+                encoding="utf-8",
+            )
+            tmp.replace(self._pos_file)   # atomik: yarim dosya okunmasin
+        except Exception:  # noqa: BLE001 - yazamamak hareketi bozmamali
+            pass
+
     # ------------------------------------------------------------------- fare
     def _clamp(self, x: int, y: int) -> tuple[int, int]:
         w, h = monitorslib.canvas_size()
@@ -634,6 +682,7 @@ class InputBackend:
             if i < last:
                 time.sleep(MOVE_STEP_SECONDS)
         self._pos = (cx, cy)
+        self._write_pos()
         return (cx, cy)
 
     def _button(self, button: str) -> int:

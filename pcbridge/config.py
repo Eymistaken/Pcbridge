@@ -236,6 +236,13 @@ class Config:
         return self.state_dir / "oauth.db"
 
     @property
+    def pointer_pos_file(self) -> Path:
+        """Son imlec konumu. SURECLER ARASI paylasiliyor: `pcb-do` her
+        cagrisinda yeni bir surec ve son konumu bilmeyen bir surec hareketi
+        isinlatmak zorunda kalir."""
+        return self.state_dir / "pointer.json"
+
+    @property
     def audit_log(self) -> Path:
         return self.state_dir / "audit.log"
 

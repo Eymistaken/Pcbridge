@@ -35,7 +35,7 @@ Testler (hepsi düz betik; `.venv`'de pytest **kurulu değil**):
 
 ```bash
 ./.venv/bin/python tests/test_models.py     # cozumleyici + ajan cikti ayristiricilari, sunucu gerekmez
-./.venv/bin/python tests/test_desktop.py    # masaustu, 392 kontrol, GIRDI GONDERMEZ
+./.venv/bin/python tests/test_desktop.py    # masaustu, 398 kontrol, GIRDI GONDERMEZ
 ```
 
 Gerçek cihazlarla masaüstü testleri (uinput'a yazar, AT-SPI okur) — varsayılan
@@ -43,7 +43,7 @@ olarak atlanırlar:
 
 ```bash
 PCBRIDGE_TEST_CAPTURE=1 PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_BATCH=1 \
-  ./.venv/bin/python tests/test_desktop.py   # 421 kontrol
+  ./.venv/bin/python tests/test_desktop.py   # 431 kontrol
 ```
 
 `PCBRIDGE_TEST_CAPTURE=1` ekranı diske yazar **ve** kısa süreliğine ekran
@@ -217,9 +217,16 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   getirir; `drag` bundan **bağımsız** olarak ara nokta üretir.
   Ölçerken tuzak: olayları hareket boyunca **paralel okumazsan** evdev istemci
   kuyruğu taşar ve 96 olayın 11'i görünür — sayım yanlış çıkar, kod değil.
-- **İlk `move` kaçınılmaz olarak sıçrar.** Wayland'de imlecin gerçek konumu
-  dışarıdan sorulamıyor; yalnızca bizim gönderdiğimizi biliyoruz. Cihaz yeni
-  yaratıldığında o da boş.
+- **Son imleç konumu DİSKE yazılıyor** (`state_dir/pointer.json`), çünkü
+  `pcb-do`'nun her çağrısı yeni bir süreç. Yazılmazsa her `pcb-do` hareketi
+  ışınlanır — **gerçekten yaşandı, kullanıcı fark etti.** İlk düzeltme de
+  yetmedi: `_pointer()` cihazı açtıktan sonra `_pos = None` yapıyordu ve
+  `move()` ilk iş cihazı açıyor, yani diskten okunan konum hemen siliniyordu.
+  Cihaz yaratmak imleci oynatmaz; o satırlar artık `_read_pos()` çağırıyor.
+- **İlk hareket yine de sıçrayabilir.** Wayland'de imlecin gerçek konumu
+  dışarıdan sorulamıyor: disk kaydı yoksa, 5 dakikadan eskiyse ya da kullanıcı
+  arada fareyi eliyle oynattıysa başlangıç yanlış bilinir. En kötü ihtimalle
+  bir sıçrama olur, hedef yine doğrudur.
 - **Basılı tutulan tuş `hold_max_seconds` sonunda kendiliğinden bırakılır.**
   `release` unutulursa makine kullanılamaz hale gelir ve **ajanın bunu göreceği
   bir kanal yok** — kendi gönderdiği tuşun hâlâ basılı olduğunu soramaz. Tembel

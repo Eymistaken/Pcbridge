@@ -716,6 +716,7 @@ def register(
         pointer_speed=cfg.desktop.pointer_speed,
         pointer_max_ms=cfg.desktop.pointer_move_max_ms,
         hold_max_seconds=cfg.desktop.hold_max_seconds,
+        pos_file=cfg.pointer_pos_file,
     )
     tree = uitreelib.UiTree()
     screencast = screencastlib.ScreenCast()

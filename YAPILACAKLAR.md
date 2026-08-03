@@ -240,8 +240,16 @@ Kütüphane tarafı hazır: `fastmcp 3.4.5` (`fastmcp.utilities.types.Image`),
   80 px → 61 ms (taban). **Ölçüm tuzağı:** olayları hareket boyunca paralel
   okumazsan evdev istemci kuyruğu taşar ve 96 olayın 11'i görünür — o zaman
   "interpolasyon çalışmıyor" diye yanlış sonuca varırsın
-- **İlk `move` kaçınılmaz olarak sıçrar** — Wayland'de imlecin gerçek konumu
-  dışarıdan sorulamıyor, yalnızca bizim gönderdiğimizi biliyoruz
+- **Son imleç konumu diske yazılıyor** (`state_dir/pointer.json`). `pcb-do`'nun
+  her çağrısı yeni bir süreç; yazılmazsa **her** hareket ışınlanır. Bu gerçekten
+  yaşandı — kullanıcı "yumuşak gitmedi, ışınlandı" dedi ve haklıydı.
+  **İlk düzeltme yetmedi:** `_pointer()`/`ensure()` cihazı açtıktan sonra
+  `_pos = None` yapıyordu, `move()` de ilk iş cihazı açıyor → diskten okunan
+  konum hemen siliniyordu. Cihaz yaratmak imleci oynatmaz, o yüzden artık
+  `_read_pos()` çağrılıyor.
+- **İlk hareket yine sıçrayabilir** — Wayland'de imlecin gerçek konumu
+  dışarıdan sorulamıyor: kayıt yoksa, 5 dakikadan eskiyse ya da kullanıcı
+  arada fareyi eliyle oynattıysa başlangıç yanlış bilinir
 - **Cihaz yok edilince kernel basılı tuşları bırakıyor mu: ÖLÇÜLEMEDİ.**
   Destroy ile event node da kayboluyor, olay okunamıyor. Bu yüzden `close()`
   önce açıkça `release_all()` çağırıyor — ölçülmemiş davranışa güvenilmiyor
@@ -503,7 +511,7 @@ Bunu omuz silkerek geçme, kullanıcıya sor.
 
 - `tests/test_e2e.py`: `inline_images` açık/kapalı şema farkı, stdio ile
   başlayan sunucudan `tools/list`
-- `tests/test_desktop.py`: mevcut 392 kontrol bozulmasın
+- `tests/test_desktop.py`: mevcut 398 kontrol bozulmasın
 - Gerçek istemci testi (H0'ın kurduğu düzenek) elle, kullanıcıya haber vererek
 
 ### H6 · Belgeler ve commit — ✅ bitti
@@ -537,7 +545,7 @@ journalctl --user -u pcbridge -f           # canli log
 ./doctor.sh                                # tani, 35 kontrol
 
 ./.venv/bin/python tests/test_models.py     # cozumleyici (sunucu gerekmez)
-./.venv/bin/python tests/test_desktop.py    # masaustu (girdi GONDERMEZ, 392 kontrol)
+./.venv/bin/python tests/test_desktop.py    # masaustu (girdi GONDERMEZ, 398 kontrol)
 
 # gercek cihazlarla (uinput'a yazar, AT-SPI okur):
 PCBRIDGE_TEST_CAPTURE=1 PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_BATCH=1 \

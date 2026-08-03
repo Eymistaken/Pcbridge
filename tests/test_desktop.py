@@ -1798,6 +1798,44 @@ def test_hold_tracking() -> None:
     check("pointer_max_ms backend'e gecti", b2._max_ms == 321.0)
     check("hold_max_seconds backend'e gecti", b2._hold_max == 7.0)
 
+    # Son konum SURECLER ARASI paylasiliyor. Olmazsa `pcb-do`'nun her cagrisi
+    # (yeni surec) baslangici bilmez ve hareket ISINLANIR -- kullanici bunu
+    # fark etti, bu kontrol o hatanin geri gelmemesi icin.
+    tmpdir = Path(tempfile.mkdtemp(prefix="pcb-pos-"))
+    try:
+        pos_file = tmpdir / "pointer.json"
+        yazan = I.InputBackend(pos_file=pos_file)
+        check("kayit yokken konum bos", yazan._pos is None)
+
+        yazan._pos = (1234, 567)
+        yazan._write_pos()
+        check("konum diske yazildi", pos_file.exists())
+
+        okuyan = I.InputBackend(pos_file=pos_file)
+        check("baska bir ornek konumu okudu", okuyan._pos == (1234, 567),
+              str(okuyan._pos))
+
+        # Cok eski kayit guvenilmez: kullanici arada fareyi eliyle oynatmis
+        # olabilir ve Wayland'de bunu ogrenmenin yolu yok.
+        pos_file.write_text(json.dumps({
+            "x": 10, "y": 20, "t": time.time() - I.POS_MAX_AGE_SECONDS - 30,
+        }), encoding="utf-8")
+        check("bayat kayit yok sayiliyor",
+              I.InputBackend(pos_file=pos_file)._pos is None)
+
+        # Bozuk dosya hareketi bozmamali.
+        pos_file.write_text("{bozuk", encoding="utf-8")
+        check("bozuk kayit yok sayiliyor",
+              I.InputBackend(pos_file=pos_file)._pos is None)
+
+        # pos_file verilmezse dosya sistemine hic dokunulmamali.
+        dosyasiz = I.InputBackend()
+        dosyasiz._pos = (5, 5)
+        dosyasiz._write_pos()          # patlamamali
+        check("pos_file yoksa sessizce gecilir", dosyasiz._pos_file is None)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 def _raises(fn, exc_type) -> bool:
     try:
@@ -1838,6 +1876,32 @@ def test_real_hold() -> None:
         b.ensure(keyboard=True, pointer=True)
         watch = InputDevice(b._kbd.device.path)
         ctrl = I.key_code("ctrl")
+
+        # Cihaz yaratilirken diskteki konum SILINMEMELI. Silinirse `pcb-do`nun
+        # her cagrisi (yeni surec -> yeni cihaz) hareketi isinlatir. GERCEKTEN
+        # OLDU: ilk duzeltme ise yaramadi cunku `_pointer()` cihazi actiktan
+        # sonra `_pos = None` yapiyordu ve `move()` ilk is cihazi aciyor.
+        posdir = Path(tempfile.mkdtemp(prefix="pcb-posdev-"))
+        try:
+            pos_file = posdir / "pointer.json"
+            once = I.InputBackend(pos_file=pos_file)
+            once.ensure(pointer=True)
+            once.move(1000, 500)
+            once.close()
+            check("hareket diske yazildi", pos_file.exists())
+
+            sonra = I.InputBackend(pos_file=pos_file)
+            check("yeni ornek konumu okudu (cihaz ACILMADAN)",
+                  sonra._pos == (1000, 500), str(sonra._pos))
+            sonra.ensure(pointer=True)
+            check("cihaz acilinca konum KORUNUYOR",
+                  sonra._pos == (1000, 500), str(sonra._pos))
+            sonra._pointer()
+            check("_pointer() konumu silmiyor", sonra._pos == (1000, 500),
+                  str(sonra._pos))
+            sonra.close()
+        finally:
+            shutil.rmtree(posdir, ignore_errors=True)
 
         b.key_down("ctrl")
         time.sleep(0.2)
