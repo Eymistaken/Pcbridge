@@ -31,6 +31,23 @@ Environment=DISPLAY=:0
 # kiliyor -- A bolumundeki model/effort secimi bosa giderdi.
 StandardOutput=journal
 StandardError=journal
+# Servis durunca masaustu iznini SIL. Izin durumu diskte tutuluyor
+# (state_dir/desktop_unlock.json) ve sunucudan bagimsiz calisan `bin/pcb-do`
+# de oradan okuyor -- yani pcbridge oldukten sonra elle calistirilan bir
+# pcb-do'yu hala yetkilendirebilirdi. Dosyayi silmek izni kapatiyor
+# (_read_state bos donunce "until" 0 sayiliyor).
+#
+# OLCULDU 2026-08-02: `systemctl --user stop` ZATEN calisan ajan islerini de
+# olduruyor. Isler `start_new_session` ile kendi oturum grubunda ama servisin
+# CGROUP'unda kaliyor ve KillMode=control-group hepsini aliyor. Yani acil
+# durdurma bugun de calisiyor; asagidaki satir onun yerine gecmiyor, diskte
+# unutulmus bir izne karsi ikinci kat.
+#
+# Dosya yolu BURAYA YAZILMIYOR: `state_dir` yapilandirilabilir, sabitlenirse
+# ayari degistiren kullanicida sessizce yanlis dosyayi siler. Modul kendi
+# config'ini okuyor. Bastaki `-` : basarisiz olursa servis durdurma
+# engellenmesin.
+ExecStopPost=-__DIR__/.venv/bin/python -m pcbridge.cli.lock
 
 [Install]
 WantedBy=default.target

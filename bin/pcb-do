@@ -1,0 +1,7 @@
+#!/bin/sh
+# pcbridge eylem kabugu -- yerel gorsel ajan bunu Bash'ten cagirir.
+# Mantik `pcbridge/cli/do.py`'de; burasi yalnizca venv'i bulan sarmalayici.
+set -eu
+SELF=$(readlink -f "$0")
+ROOT=$(dirname "$(dirname "$SELF")")
+exec "$ROOT/.venv/bin/python" -m pcbridge.cli.do "$@"

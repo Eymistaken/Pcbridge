@@ -1194,6 +1194,78 @@ ve **PNG dosyalarını okuyabiliyor** — yani gözü var. `computer_task`:
 Sonuç: telefondan *"Ayarlar'ı aç, gece modunu 22:00'ye kur"* diyebilirsin;
 Gemini görüntüyü hiç görmez, işi gören yerel ajandır.
 
+### Faz 5 sonuçları ✅ tamamlandı 2026-08-03
+
+**Plandan sapmalar — hepsi ölçümle gerekçelendi.**
+
+**1. Sürücü Claude Code değil Antigravity oldu** (kullanıcı kararı: kotası ayrı,
+Claude Code kullanımını yemiyor). Model `gemini-3.6-flash` + `high`;
+`gemini-3.1-pro` açıkça dışarıda bırakıldı. Yani yukarıdaki *"varsayılan `opus`
++ `xhigh` mantıklı"* maddesi geçersiz — **model yükseltme ilkesi bu bölümde
+uygulanmadı.** Ayarlar koda değil `config.toml`'a gömüldü
+(`[desktop] computer_task_*`), tek satırla değişir.
+
+Seçimin bedeli ölçüldü: `agy_json` ayrıştırıcısı adım listesi vermiyor, yalnızca
+son cevabı. Karşılığı `pcb-do`'nun her eylemi `audit.log`'a **görev kimliğiyle**
+yazması — denetim kaydı fiilen adım listesinin yerine geçiyor. Canlı koşuda
+işe yaradı: ajanın 15 adımı satır satır okunabildi.
+
+**2. Ölçümler (F0):**
+
+| ölçüm | sonuç | etkisi |
+|---|---|---|
+| taze süreçte uinput | klavye 1,301 s + fare 1,306 s = **2,607 s** | `pcb-do` liste alıyor |
+| iki cihaz tek bekleme | **1,41 s** (idle 57694→404 ms ile doğrulandı) | `InputBackend.ensure()` eklendi |
+| gerçek tuş basımı | 0,030 s | cihaz kurulumu baskın maliyet |
+| `systemctl stop/restart` | çalışan işleri **öldürüyor** | `jobs.py` docstring'i yanlıştı, düzeltildi |
+| `agy` PNG okuma | 4,2 s, doğru cevap | varsayılan sürücü doğrulandı |
+| `agy --print-timeout` | varsayılan **5 dk**, GUI işi 239 s'de tostladı | `30m` eklendi |
+| AT-SPI + Vesktop | pencere **görünüyor**, iç ağaç **0 düğüm** | F'nin varlık sebebi kanıtlandı |
+| ekran görüntüsü maliyeti | ~40 bin jeton/görüntü | skill'de "gereksiz görüntü alma" |
+
+**3. `[desktop] enabled` → `false` her zaman ölçülüyor sanılıyordu ama
+`batch_max_actions`, `batch_budget_seconds` ve `batch_check_focus`
+`load_config()` tarafından **hiç okunmuyordu** (E bölümünde atlanmış).
+`config.example.toml`'da belgeliydi, `DesktopSpec`'te vardı, ama dosyaya
+yazılan değer hiçbir şey yapmıyordu. F0 sırasında fark edildi, düzeltildi.
+
+**4. `apps.launch` Flatpak'te sahte hata veriyordu.** `capture_output=True`
+boru yaratıyor, `flatpak run` çocuğu onu miras alıyor ve `communicate()`
+gtk-launch'ın bitmesini değil **borunun kapanmasını** bekliyor. Vesktop soğuk
+başlatmada 15 s'de "başlamadı" hatası veriyordu — oysa uygulama açılıyordu.
+`Popen` + `wait()` + çıktı dosyaya: **0,12 s**.
+
+**5. Odak koruması yeniden tasarlandı.** Canlı ajan koşusunda iki kez ateşledi
+ve ikisinde de doğru davrandı — ama ajanın planı "editöre tıkla, sonra yaz"dı,
+yani odağın değişmesi *istenen* şeydi. Kör bir çağıran (`computer_batch`) için
+durmak doğru; gözü olan bir ajan için her pencereye tıklama tuzağa basıyordu.
+Çözüm korumayı kapatmak değil **niyeti söyletmek** oldu: `expect_focus`.
+Beklenen pencereye gidilirse dizi sürüyor, başka yere giderse yine duruyor.
+
+**6. Yeni bir tehlike sınıfı bulundu: bayat ekran görüntüsü.** Odak koruması
+"tıkladıktan *sonra* odak değişti mi" diye bakıyor. Görüntü bayatladıysa odak
+zaten hedef pencerede olmaz, tıklama oraya düşer ve **değişen bir şey olmadığı
+için koruma hiç ötmez**. Canlı doğrulamada tam bu yaşandı (69 sn). Karşılığı:
+`pcb-shot` çıktısına zaman damgası, `pcb-do`'ya koordinatlı eylemler için yaş
+kontrolü (`agent_shot_max_age_seconds`, varsayılan 60).
+
+**7. Ekran görüntüleri `/tmp/pcb` yerine `$XDG_RUNTIME_DIR/pcbridge/shots`**
+(mod 700, oturumla silinir). `UYGULAMA.md` `/tmp/pcb` diyor; `/tmp` 775 ve
+ekran görüntüsü bu projenin en gizlilik-hassas çıktısı.
+
+**Canlı doğrulama sonucu:** Vesktop'ta `oneaura`'ya mesaj — `ui_dump` orada
+sıfır düğüm döndürdüğü için `ui_click`/`ui_set_text` kullanılamadı; iş yalnızca
+ekrana bakıp koordinatla tıklayarak yapıldı. Metin birebir düştü (40 karakter,
+Türkçe harfler bozulmadan), gönderilmeden önce doğru sohbette olunduğu ekran
+görüntüsüyle doğrulandı.
+
+**Yapılmadı:** otonom ajanın (`agy`) görevi uçtan uca kendi başına tamamlaması.
+İki denemede de tamamlayamadı — birincisinde `--print-timeout` duvarına
+tosladı, ikincisinde odak koruması niyeti beyan edilmediği için durdurdu.
+İkisinin de karşılığı koda girdi ama **`computer_task` ile tam otonom bir GUI
+görevinin başarıyla bittiği görülmedi**; `pcb-shot`/`pcb-do` döngüsü ise elle
+sürülerek uçtan uca doğrulandı.
+
 ### Faz 6 — Belge, test, güvenlik gözden geçirmesi (~0.5 gün)
 
 - [ ] `tests/test_desktop.py`: `weston --backend=headless` (veya Xvfb) içinde gerçek tıklama testleri; CI'da gerçek masaüstüne dokunmadan

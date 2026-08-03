@@ -159,6 +159,55 @@ batch_budget_seconds = 90
 # ogeyi copa gonderdi. Kontrol acikken batch o noktada durur. Kapatmayin.
 batch_check_focus = true
 
+# --- yerel gorsel ajan (computer_task) --------------------------------------
+# computer_task gorsel isi MAKINEDEKI bir ajana devreder: ajan `pcb-shot` ile
+# ekrani ceker, PNG'yi kendi gozuyle okur, `pcb-do` ile tiklar, tekrar bakar.
+# Spark'a giden MCP kanali yalnizca metin tasidigi icin bu is oraya yaptirilmaz.
+#
+# Asil kullanim alani: erisilebilirlik agacinin BOS geldigi uygulamalar.
+# Olculdu 2026-08-02 -> Vesktop'ta ui_dump 0 dugum donuyor (Electron), yani
+# ui_click/ui_set_text ise yaramiyor; goz sart.
+
+# Hangi ajan surer. Antigravity secildi cunku kotasi Claude Code'unkinden AYRI:
+# uzun GUI dongulerinin kullanicinin kendi Claude Code kullanimini yememesi
+# icin. Bedeli: agy_json ayristiricisi ADIM LISTESI vermiyor, yalnizca son
+# cevabi -- o yuzden pcb-do her eylemi audit.log'a job kimligiyle yaziyor ve
+# denetim kaydi fiilen adim listesinin yerine geciyor.
+computer_task_agent = "antigravity"
+
+# Model + effort. agy'de effort model kimliginin PARCASI ve Gemini
+# modellerinde zorunlu, bu yuzden ikisi birlikte veriliyor.
+# `gemini-3.1-pro` BILINCLI OLARAK KULLANILMIYOR (kullanici karari).
+# Not: bu, agy'nin kendi varsayilaniyla ayni. Yani computer_task modeli
+# YUKSELTMIYOR; gorsel surucu takilirsa ilk bakilacak yer burasi.
+computer_task_model  = "gemini-3.6-flash"
+computer_task_effort = "high"
+
+# Ajana verilen bak-eyle turu butcesi. DISARIDAN ZORLANAMAZ: prompt'a bir
+# butce olarak yaziliyor, arkasinda isin timeout'u ve pcb-do'nun hiz siniri
+# duruyor. Arac aciklamasi da bunu garanti diye sunmuyor.
+computer_task_max_steps = 25
+
+# pcb-shot'un PNG yazdigi dizin. Bos = $XDG_RUNTIME_DIR/pcbridge/shots
+# (mod 700, tmpfs, oturum kapaninca silinir), o da yoksa /tmp/pcb.
+# UYGULAMA.md /tmp/pcb diyor; sapma bilincli: /tmp mod 775 yani herkese
+# okunur, ekran goruntusu ise bu projenin en gizlilik-hassas ciktisi.
+agent_shot_dir = ""
+
+# KOORDINATLI bir pcb-do eylemi gonderilirken en yeni ekran goruntusu en fazla
+# bu kadar saniye eski olabilir. 0 = kontrol kapali.
+#
+# batch_check_focus'tan FARKLI bir tehlikeye bakiyor. O, "tikladiktan SONRA
+# odak degisti mi" diyor. Bu ise goruntunun bayatlamasi: goruntuyu aldiktan
+# sonra kullanici baska pencereye gecerse odak zaten orada olur, tiklama da
+# oraya duser ve DEGISEN bir sey olmadigi icin odak korumasi hic otmez.
+#
+# OLCULDU 2026-08-03: 69 saniyelik bir goruntuye gore tiklandi; Vesktop
+# sanilan yerde Claude uygulamasi vardi, tiklama oraya dustu, hicbir koruma
+# calismadi. 2 Agustos'taki kazayla ayni sinif hata -- dogrulanmamis bir
+# varsayima gore tiklamak.
+agent_shot_max_age_seconds = 60
+
 
 # ---------------------------------------------------------------------------
 # AJANLAR
@@ -258,10 +307,18 @@ haiku  = "medium"
 # saglam; `parser = "agy_json"` bunu okur.
 enabled = true
 description = "Antigravity CLI (agy) - Google's terminal coding agent"
+#
+# --print-timeout: agy'nin print modundaki varsayilani 5 DAKIKA ve doldugunda
+# yaptigi isi atip `status: ERROR, error: timeout waiting for response`
+# donuyor. OLCULDU 2026-08-03: bir computer_task GUI gorevi 239 saniyede bu
+# duvara tosladi -- ajan ekrani okuyup tikliyordu, hicbir seyi yanlis
+# yapmiyordu, yalnizca GUI isi yavas. 30 dakika `default_job_timeout` ile ayni;
+# gercek ust sinir orasi kalsin.
 command = [
   "agy", "-p", "{prompt}",
   "--dangerously-skip-permissions",
   "--output-format", "json",
+  "--print-timeout", "30m",
 ]
 # Onceki konusmaya donmek icin; kimlik JSON ciktisindaki conversation_id.
 resume_args = ["--conversation", "{session_id}"]

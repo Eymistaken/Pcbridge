@@ -132,6 +132,25 @@ class DesktopSpec:
     # sirasinda masaustundeki 23 oge boyle copa gitti. Kapatmayin.
     batch_check_focus: bool = True
 
+    # -- yerel gorsel ajan (F bolumu) ---------------------------------------
+    # `computer_task` gorsel isi makinedeki bir ajana devrediyor. Varsayilanlar
+    # KODA gomulu degil, buradan geliyor: yeni bir CLI eklendiginde ya da kota
+    # dengesi degistiginde tek satirla degistirilebilsin.
+    computer_task_agent: str = "antigravity"
+    computer_task_model: str = "gemini-3.6-flash"
+    computer_task_effort: str = "high"
+    # Ajana verilen adim butcesi. DISARIDAN ZORLANAMAZ: prompt'ta bir butce
+    # olarak gider, arkasinda isin timeout'u ve pcb-do'nun hiz siniri durur.
+    computer_task_max_steps: int = 25
+    # `pcb-shot`un PNG yazdigi dizin. Bos ise $XDG_RUNTIME_DIR/pcbridge/shots
+    # (mod 700, oturum kapaninca silinir), o da yoksa /tmp/pcb.
+    agent_shot_dir: str = ""
+    # KOORDINATLI bir eylem gonderilirken en yeni ekran goruntusu en fazla bu
+    # kadar eski olabilir. 0 = kontrol kapali. Odak korumasindan FARKLI bir
+    # tehlikeye bakiyor: goruntu bayatladiysa odak zaten hedef pencerede olmaz,
+    # tiklama oraya duser ve "odak degisti" diye bir sey olmaz.
+    agent_shot_max_age_seconds: int = 60
+
 
 @dataclass
 class Config:
@@ -357,6 +376,23 @@ def load_config(explicit: str | None = None) -> Config:
         shot_ttl_seconds=int(desktop_raw.get("shot_ttl_seconds", 300)),
         shot_keep_hours=int(desktop_raw.get("shot_keep_hours", 24)),
         include_pointer=bool(desktop_raw.get("include_pointer", True)),
+        # Bu uc satir E bolumunde ATLANMISTI: alanlar DesktopSpec'te vardi ve
+        # config.example.toml'da belgeliydi ama buradan okunmuyordu, yani
+        # config.toml'a yazilan deger hicbir sey yapmiyordu. F0 sirasinda
+        # fark edildi.
+        batch_max_actions=int(desktop_raw.get("batch_max_actions", 40)),
+        batch_budget_seconds=int(desktop_raw.get("batch_budget_seconds", 90)),
+        batch_check_focus=bool(desktop_raw.get("batch_check_focus", True)),
+        computer_task_agent=str(desktop_raw.get("computer_task_agent", "antigravity")),
+        computer_task_model=str(
+            desktop_raw.get("computer_task_model", "gemini-3.6-flash")
+        ),
+        computer_task_effort=str(desktop_raw.get("computer_task_effort", "high")),
+        computer_task_max_steps=int(desktop_raw.get("computer_task_max_steps", 25)),
+        agent_shot_dir=str(desktop_raw.get("agent_shot_dir", "")),
+        agent_shot_max_age_seconds=int(
+            desktop_raw.get("agent_shot_max_age_seconds", 60)
+        ),
     )
     if desktop.unlock_default_minutes > desktop.unlock_max_minutes:
         raise SystemExit(
@@ -371,6 +407,22 @@ def load_config(explicit: str | None = None) -> Config:
             f"[desktop] ({path}): `screenshot_scale_long_edge` "
             f"({desktop.screenshot_scale_long_edge}) ya 0 (olcekleme yok) ya da "
             "en az 320 olmali."
+        )
+    # Bir MCP cagrisi 110 saniyeyi asamaz; butce ondan buyuk olursa arac
+    # cevabini hazirlayamadan kesilir. Sessizce kirpmak yerine soyluyoruz.
+    if not 1 <= desktop.batch_budget_seconds <= 105:
+        raise SystemExit(
+            f"[desktop] ({path}): `batch_budget_seconds` "
+            f"({desktop.batch_budget_seconds}) 1-105 arasinda olmali "
+            "(MCP cagrisi 110 saniyeyi asamiyor, gerisi cevap icin pay)."
+        )
+    if desktop.batch_max_actions < 1:
+        raise SystemExit(
+            f"[desktop] ({path}): `batch_max_actions` en az 1 olmali."
+        )
+    if desktop.computer_task_max_steps < 1:
+        raise SystemExit(
+            f"[desktop] ({path}): `computer_task_max_steps` en az 1 olmali."
         )
     if desktop.shot_ttl_seconds < 10:
         raise SystemExit(

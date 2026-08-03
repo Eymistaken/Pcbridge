@@ -1,8 +1,21 @@
 """Arka plan is (job) yoneticisi.
 
-Her is ayri bir oturum grubunda (`start_new_session`) calisir; bu sayede
-pcbridge yeniden baslasa bile isler devam eder. Durum bilgisi diske yazilir,
-dolayisiyla servis restart'i sonrasi da sorgulanabilir.
+Her is ayri bir oturum grubunda (`start_new_session`) calisir. Durum bilgisi
+diske yazilir, dolayisiyla servis restart'i sonrasi da sorgulanabilir.
+
+ONEMLI -- ISLER SERVIS RESTART'INI ATLATMAZ. Bu dosya uzun sure "bu sayede
+pcbridge yeniden baslasa bile isler devam eder" diye yaziyordu; OLCULDU
+2026-08-03 ve YANLIS oldugu gorüldü. `start_new_session` yalnizca oturum/surec
+grubunu ayiriyor, CGROUP'u degil: is pcbridge.service'in cgroup'unda kaliyor ve
+systemd'nin varsayilan `KillMode=control-group` degeri `stop`/`restart`'ta onu
+da olduruyor. Yani `systemctl --user restart pcbridge` calisan bir ajan isini
+KESER.
+
+Bunun iki sonucu var:
+  1. Kod degistirip restart ederken uzun suren bir ajan isi varsa once
+     `job_list` ile bakin.
+  2. `systemctl --user stop pcbridge` gercek bir ACIL DURDURMA: gorsel ajanin
+     elleri de durur (`computer_task` -> `bin/pcb-do`).
 
     <state_dir>/jobs/<job_id>/
         meta.json    -> is hakkinda bilgi

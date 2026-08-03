@@ -252,8 +252,14 @@ def parse(raw: Any, max_actions: int = 40) -> list[Action]:
                 '[{"a": "key", "keys": "super"}, {"a": "wait", "ms": 400}]'
             ) from None
     if isinstance(raw, dict):
-        # {"actions": [...]} sarmalini da kabul et; UYGULAMA.md ornegi boyle.
-        raw = raw.get("actions", raw)
+        if "actions" in raw:
+            # {"actions": [...]} sarmali; UYGULAMA.md'nin computer_batch ornegi.
+            raw = raw["actions"]
+        elif "a" in raw:
+            # TEK eylem: `pcb-do '{"a":"click","x":2760,"y":312}'`. UYGULAMA.md'nin
+            # pcb-do ornegi tam olarak boyle ve ajanin en dogal yazacagi bicim
+            # bu -- "bir dizi olmali" diye reddetmek gereksiz surtunmeydi.
+            raw = [raw]
     if not isinstance(raw, list):
         raise BatchError(
             f"Eylem listesi bir dizi olmali, {type(raw).__name__} verildi."
@@ -336,6 +342,7 @@ def run(
     budget: float = 90.0,
     min_gap: float = 0.0,
     check_focus: bool = True,
+    expect_focus: str = "",
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> Result:
@@ -343,7 +350,20 @@ def run(
 
     Butce bitince eyleme BASLAMAZ -- yarim tiklama diye bir sey yok. Kalan
     liste `Result.remaining`'de doner, model nerede kaldigini gorur.
+
+    `expect_focus`: cagiran "bu tiklamayla su pencereye gececegim" diyorsa
+    buraya o pencerenin adindan bir parca yazar; odak oraya giderse dizi
+    SURER, baska bir yere giderse yine durur.
+
+    OLCULDU 2026-08-03, gercek gorsel ajanla: odak korumasi iki kez ateslendi
+    ve ikisinde de dogru davrandi -- ama ajanin plani "editore tikla, sonra
+    yaz"di, yani odagin degismesi ISTENEN seydi. Kor bir cagiran icin
+    (computer_batch, ekrani yalnizca `ui_dump` ile goruyor) durmak dogru;
+    gozu olan bir ajan icin her pencereye tiklama tuzaga basiyordu.
+    Cozum korumayi kapatmak DEGIL, niyeti soyletmek: kaza tam da beyan
+    edilmemis bir niyetten cikmisti.
     """
+    want_focus = (expect_focus or "").strip().lower()
     started = clock()
     steps: list[Step] = []
     stopped = ""
@@ -409,14 +429,27 @@ def run(
             except Exception:
                 focus_now = focus_start
             if focus_now != focus_start:
-                stopped = "focus"
-                detail = (
-                    f"tiklama sonrasi odak degisti: {focus_start!r} -> "
-                    f"{focus_now!r}. Sonraki tuslar yanlis pencereye giderdi, "
-                    "durduruldu"
-                )
-                i += 1
-                break
+                if want_focus and want_focus in focus_now.lower():
+                    # Beklenen pencereye gecildi: niyet onceden beyan edilmisti.
+                    # Yeni odak taban aliniyor ki bir SONRAKI kayma yine yakalansin.
+                    focus_start = focus_now
+                else:
+                    stopped = "focus"
+                    detail = (
+                        f"tiklama sonrasi odak degisti: {focus_start!r} -> "
+                        f"{focus_now!r}. Sonraki tuslar yanlis pencereye giderdi, "
+                        "durduruldu"
+                    )
+                    if want_focus:
+                        detail += f" (beklenen: {expect_focus!r})"
+                    else:
+                        detail += (
+                            ". Bu tiklamayla pencere degistirmek ISTIYORDUYSANIZ "
+                            "hedef pencerenin adini `expect_focus` ile onceden "
+                            "bildirin"
+                        )
+                    i += 1
+                    break
 
         if min_gap:
             sleep(min_gap)

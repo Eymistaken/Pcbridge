@@ -1,0 +1,8 @@
+#!/bin/sh
+# pcbridge ekran goruntusu kabugu -- yerel gorsel ajan bunu Bash'ten cagirir.
+# Mantik `pcbridge/cli/shot.py`'de; burasi yalnizca venv'i bulan sarmalayici
+# (venv'de Pillow ve evdev var, sistem python'unda yok).
+set -eu
+SELF=$(readlink -f "$0")
+ROOT=$(dirname "$(dirname "$SELF")")
+exec "$ROOT/.venv/bin/python" -m pcbridge.cli.shot "$@"

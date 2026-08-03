@@ -95,6 +95,27 @@ kontrolü — gerçek anlamda computer use.
   GTK'da `atspi_error`, Electron'da `False`; `org.freedesktop.Application.Activate`
   `exit=0` dönüp hiçbir şey yapmıyor (sessiz başarısızlık). Çalışan tek yol
   GNOME'un kendi araması (`super` + ad + `Return`), **~6,5 saniye**
+- **`systemctl --user stop/restart pcbridge` çalışan işleri de ÖLDÜRÜR.**
+  `jobs.py` uzun süre tersini yazıyordu; ölçüldü 2026-08-03 ve yanlış çıktı.
+  `start_new_session` oturum grubunu ayırıyor ama **cgroup'u değil**; iş
+  servisin cgroup'unda kalıyor, `KillMode=control-group` hepsini alıyor.
+  İkisi birden doğru: acil durdurma gerçekten çalışıyor **ve** kod
+  değişikliğinden sonraki restart uzun bir ajan işini keser
+- **Taze süreçte uinput maliyeti:** klavye 1,301 s + fare 1,306 s = **2,607 s**;
+  ikisi önce yaratılıp **tek bekleme** paylaşılırsa **1,41 s** (fare olayının
+  gerçekten geçtiği `IdleMonitor` ile doğrulandı: 57694 → 404 ms). Gerçek tuş
+  basımı 0,030 s. `pcb-do` bu yüzden liste alıyor, tek eylem değil
+- **AT-SPI Vesktop'un PENCERESİNİ görüyor ama İÇİNİ görmüyor.** `windows()`
+  `'vesktop.bin' | '(41) Discord | Arkadaşlar'` döndürüyor (yani odak takibi ve
+  `batch_check_focus` orada çalışıyor), ama `dump(target='vesktop.bin')`
+  **0 düğüm**. Electron'un durumu bu; `computer_task`'in varlık sebebi
+- **`agy` görebiliyor ve iş bağlamında çalışıyor:** sentetik bir PNG'deki kodu
+  4,2 saniyede doğru okudu (`-p --output-format json`, TTY yok, `TERM=dumb`).
+  Ama **`--print-timeout` varsayılanı 5 dakika** ve dolduğunda yaptığı işi atıp
+  `status: ERROR` dönüyor — bir GUI görevi 239 saniyede buna tosladı. Komuta
+  `--print-timeout 30m` eklendi
+- **Ekran görüntüsü ajana pahalı:** tek görüntü ~40 bin girdi jetonu. Dört
+  görüntülük bir tur 198 bin jetona çıktı
 
 ---
 
@@ -116,6 +137,9 @@ Girdi testlerinde kural:
 5. **Tıklamadan sonra odağın kaydığını varsay.** Sonraki tuşlar artık başka bir
    pencereye gider
 
+6. **Ekran görüntüsü BAYATLAR.** Görüntüye bakıp koordinat çıkardıktan sonra
+   araya iş sokma; kullanıcı o sırada pencere değiştirmiş olabilir
+
 > **Bu gerçekten oldu — 2026-08-02, E bölümü ölçümleri.** `move(920, 520)` +
 > `click` yapıldı, oranın metin düzenleyici penceresi olduğu **varsayıldı,
 > doğrulanmadı**. Tıklama masaüstüne düştü, odak oraya kaydı, ardından temizlik
@@ -123,6 +147,15 @@ Girdi testlerinde kural:
 > (Hepsi çöpten geri alındı, kalıcı kayıp yok.) İhlal edilen kural 2'ydi.
 > Karşılığı koda girdi: `computer_batch` artık fare tıklamalarından sonra odağı
 > doğruluyor ve kaymışsa **duruyor** (`[desktop] batch_check_focus`).
+
+> **İkincisi — 2026-08-03, F bölümü canlı doğrulaması.** Ekran görüntüsü alındı,
+> Vesktop öndeydi, `oneaura` sohbetinin koordinatı okundu. Sonra araya **69
+> saniye** kod düzenlemesi girdi ve o sırada başka bir pencere öne geldi.
+> Tıklama Vesktop'a değil ona düştü. **Odak koruması ötmedi** — çünkü odak
+> zaten o pencereydeydi, *değişen* bir şey yoktu. Kural 2'nin daha sinsi hali:
+> görüntü alınmıştı ama artık geçerli değildi. Karşılığı: `pcb-shot` çıktısına
+> zaman damgası, `pcb-do`'ya koordinatlı eylemler için yaş kontrolü
+> (`[desktop] agent_shot_max_age_seconds`, varsayılan 60 sn).
 
 ---
 

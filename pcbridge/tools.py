@@ -27,6 +27,7 @@ from .desktop import batch as batchlib
 from .desktop import capture as capturelib
 from .desktop import input as inputlib
 from .desktop import monitors as monitorslib
+from .desktop import ops as opslib
 from .desktop import safety as safetylib
 from .desktop import uitree as uitreelib
 
@@ -41,6 +42,39 @@ MAX_INLINE = 4000
 _DESC_AGENT = "Agent name, e.g. 'claude' or 'antigravity'."
 _DESC_MODEL = "Model to run with."
 _DESC_EFFORT = "Reasoning effort level."
+
+
+# Gorsel ajan yonergesi. TEK KAYNAK: depodaki dosya. `install.sh` bunu
+# `~/.claude/skills/computer-use`'a symlink'liyor (kullanici Claude Code'u elle
+# surerken lazim), ama `computer_task` symlink'e GUVENMIYOR ve metni dogrudan
+# okuyup prompt'a koyuyor: varsayilan surucu `agy` ve onda Claude-skill
+# kavrami yok. Tek dosya, tek kod yolu, ajandan bagimsiz.
+_SKILL_PATH = Path(__file__).resolve().parent.parent / "skills" / "computer-use" / "SKILL.md"
+
+
+def _task_prompt(instructions: str, goal: str, prepared: str, max_steps: int) -> str:
+    """Gorsel ajanin alacagi tam prompt.
+
+    Yonerge ONCE geliyor, hedef SONRA: ajan once nasil calisacagini, sonra ne
+    yapacagini okusun. Hedef en sonda kaliyor ki uzun yonergenin icinde
+    kaybolmasin.
+    """
+    parts = [instructions.strip(), "", "---", ""]
+    if prepared:
+        parts += [f"Uygulama senin icin hazirlandi: {prepared}", ""]
+    parts += [
+        f"Adim butcen yaklasik {max_steps} bak-eyle turu. Asacak gibiyse dur ve "
+        "nerede kaldigini yaz.",
+        "",
+        "Isin bittiginde SON CEVABINDA sunu yaz: ne yaptin, ekranda ne "
+        "gorunuyor, ve hedefe ulasildi mi (evet/hayir). Ulasilmadiysa sebebini "
+        "yaz -- basarili gibi gorunen basarisiz bir is en kotu sonuc.",
+        "",
+        "## Görev",
+        "",
+        goal.strip(),
+    ]
+    return "\n".join(parts)
 
 
 def _resolve_dir(cfg: Config, path: str | None) -> Path:
@@ -1234,72 +1268,10 @@ def register(
         return note
 
     # ------------------------------------------------------------ toplu eylem
-    class _BatchOps:
-        """`batch.Ops` uygulamasi: motoru gercek cihazlara baglar.
-
-        Motorun kendisi bunlari tanimiyor; boylece gercek tiklama gondermeden
-        test edilebiliyor.
-        """
-
-        def key(self, keys: str) -> str:
-            backend.key(keys)
-            return f"`{keys}` basildi"
-
-        def type(self, text: str, raw: bool) -> str:
-            return backend.type_text(
-                text, raw=raw, restore_clipboard=cfg.desktop.restore_clipboard
-            )
-
-        def move(self, x: int, y: int, monitor: int | None) -> str:
-            gx, gy = monitorslib.to_global(x, y, monitor)
-            return f"imlec {backend.move(gx, gy)} konumuna tasindi"
-
-        def click(self, button: str, count: int, x: int | None, y: int | None,
-                  monitor: int | None) -> str:
-            where = ""
-            if x is not None and y is not None:
-                gx, gy = monitorslib.to_global(x, y, monitor)
-                backend.move(gx, gy)
-                time.sleep(0.08)
-                where = f" ({gx}, {gy})"
-            backend.click(button, count)
-            return f"{button} tiklama{where}" + (" (cift)" if count > 1 else "")
-
-        def drag(self, x: int, y: int, to_x: int, to_y: int,
-                 monitor: int | None) -> str:
-            gx, gy = monitorslib.to_global(x, y, monitor)
-            ex, ey = monitorslib.to_global(to_x, to_y, monitor)
-            backend.drag(gx, gy, ex, ey)
-            return f"({gx}, {gy}) -> ({ex}, {ey}) suruklendi"
-
-        def scroll(self, amount: int, x: int | None, y: int | None,
-                   monitor: int | None) -> str:
-            if x is not None and y is not None:
-                backend.move(*monitorslib.to_global(x, y, monitor))
-                time.sleep(0.08)
-            backend.scroll(amount)
-            return f"{amount} tik kaydirildi"
-
-        def ui_click(self, node_id: str) -> str:
-            res = tree.click(node_id)
-            return f"{res.get('role', '?')} \"{res.get('name', '')}\" tiklandi"
-
-        def ui_set_text(self, node_id: str, text: str) -> str:
-            res = tree.set_text(node_id, text)
-            return (
-                f"{res.get('role', '?')} icine {len(text)} karakter yazildi "
-                f"(silinen: {res.get('replaced_chars', 0)})"
-            )
-
-        def launch(self, app: str) -> str:
-            return appslib.launch(app)
-
-        def focus(self, window: str) -> str:
-            return appslib.focus(window, backend, tree.focused_window)
-
-        def focused(self) -> str:
-            app, win = tree.focused_window()
-            return f"{app} | {win}"
+    # `DeviceOps` artik `desktop/ops.py`'de: ayni uygulamayi `bin/pcb-do`
+    # kabugu da kullaniyor (F bolumu, yerel gorsel ajan). Burada bir kopya
+    # dursaydi iki davranis zamanla ayrisirdi.
+    batch_ops = opslib.DeviceOps(backend, tree, cfg)
 
     @mcp.tool(
         annotations={"title": "Run several actions in one go", "destructiveHint": True}
@@ -1327,6 +1299,15 @@ def register(
                 "'ui_dump' (default), 'screen_capture', or 'none'."
             ),
         ] = "ui_dump",
+        expect_focus: Annotated[
+            str,
+            Field(
+                description="If a click in this sequence is meant to switch to a "
+                "different window, name that window here (a fragment is enough). "
+                "Without it, any focus change after a click stops the sequence, "
+                "because the following keystrokes would land somewhere unintended."
+            ),
+        ] = "",
         force: Annotated[
             bool,
             Field(description="Go ahead even if the user just used the machine."),
@@ -1363,12 +1344,18 @@ def register(
 
         gate.audit("computer_batch_start", count=len(plan),
                    kinds=",".join(sorted(kinds)), forced=force or None)
+        # Cihazlari bastan ac: iki cihaz gerekiyorsa bekleme tek sefere iner
+        # (olculdu 2,61 s -> 1,41 s). Gerekmiyorsa hicbir cihaz acilmaz.
+        want_kbd, want_ptr = opslib.devices_needed(plan)
+        if want_kbd or want_ptr:
+            backend.ensure(keyboard=want_kbd, pointer=want_ptr)
         result = batchlib.run(
             plan,
-            _BatchOps(),
+            batch_ops,
             budget=float(cfg.desktop.batch_budget_seconds),
             min_gap=gap,
             check_focus=cfg.desktop.batch_check_focus,
+            expect_focus=expect_focus or "",
         )
         for step in result.steps:
             # Metin ICERIGI yazilmaz -- `ui_set_text`teki kural aynen gecerli.
@@ -1384,6 +1371,162 @@ def register(
         elif want != "none":
             out += ["", "---", ui_dump()]
         return jobslib.tail_chars("\n".join(out), MAX_INLINE)
+
+    # ----------------------------------------------------- yerel gorsel ajan
+    @mcp.tool(
+        annotations={"title": "Let a local agent drive the screen",
+                     "destructiveHint": True}
+    )
+    def computer_task(
+        goal: Annotated[
+            str,
+            Field(
+                description="What should end up being true on screen, in plain "
+                "language. Be specific about the target: which app, which "
+                "conversation, which file. Example: 'In Vesktop, open the DM "
+                "with oneaura and send: hello'."
+            ),
+        ],
+        app: Annotated[
+            str | None,
+            Field(
+                description="Application to open and bring to the front first, "
+                "e.g. 'Vesktop' or 'Text Editor'. Leave empty to work with "
+                "whatever is already on screen."
+            ),
+        ] = None,
+        agent: Annotated[str | None, Field(description=_DESC_AGENT)] = None,
+        model: Annotated[str | None, Field(description=_DESC_MODEL)] = None,
+        effort: Annotated[str | None, Field(description=_DESC_EFFORT)] = None,
+        max_steps: Annotated[
+            int | None,
+            Field(
+                ge=1, le=200,
+                description="Roughly how many look-act rounds the agent may "
+                "spend. This is a budget in its instructions, not a hard cap.",
+            ),
+        ] = None,
+        wait_seconds: Annotated[
+            int,
+            Field(ge=0, le=110,
+                  description="Block this long waiting for it to finish. GUI "
+                  "work takes minutes, so 0 and polling with job_status is "
+                  "usually right."),
+        ] = 0,
+        timeout: Annotated[
+            int | None,
+            Field(description="Kill the agent after this many seconds."),
+        ] = None,
+        force: Annotated[
+            bool,
+            Field(description="Go ahead even if the user just used the machine."),
+        ] = False,
+    ) -> str:
+        """Hand a graphical task to an agent running on the user's own machine —
+        one that can actually see the screen. Use this when the job needs eyes:
+        an app whose buttons `ui_dump` cannot list (Electron apps like Discord,
+        VS Code, games, anything drawn on a canvas), or a multi-step flow where
+        you would otherwise be clicking blind. The local agent takes screenshots,
+        looks at them, clicks, and checks the result, repeating until the goal is
+        met. Returns a job id immediately; poll it with job_status. Prefer
+        `computer_batch` when you already know exactly which widgets to touch —
+        it is far cheaper."""
+        # Kapi BIR KEZ, burada. `pcb-do` her cagrida izin penceresini ve ekran
+        # kilidini yeniden okuyor ama BOSTA kontrolunu okumuyor: uinput idle'i
+        # sifirladigi icin ajan ikinci eylemde kendi tusunu "kullanici geldi"
+        # sanardi (olculdu 104227 ms -> 151 ms). Kontrol gorev basina.
+        denied = _guard("computer_task", write=True, force=force)
+        if denied:
+            return denied
+
+        skill = _SKILL_PATH
+        if not skill.is_file():
+            return (
+                f"⛔ Gorsel ajan yonergesi yok: {skill}. Depodaki "
+                "`skills/computer-use/SKILL.md` silinmis ya da tasinmis."
+            )
+        instructions = skill.read_text(encoding="utf-8")
+
+        spec = cfg.desktop
+        res = modelslib.resolve(
+            cfg,
+            agent=agent or spec.computer_task_agent,
+            model=model or spec.computer_task_model,
+            effort=effort or spec.computer_task_effort,
+        )
+        if res.error:
+            return res.error
+        agent_spec = cfg.agents[res.agent]
+
+        opened = ""
+        if app:
+            # Uygulamayi SUNUCU aciyor, ajan degil: boylece ajan bilinen bir
+            # ekranla basliyor ve "hangi pencere" belirsizligi bir tur once
+            # cozuluyor. Basarisiz olursa is hic baslatilmiyor.
+            try:
+                opened = appslib.launch(str(app))
+                time.sleep(1.5)
+                opened += " · " + appslib.focus(
+                    str(app), backend, tree.focused_window
+                )
+            except appslib.AppError as exc:
+                gate.audit("computer_task_app_error", app=str(app)[:60],
+                           error=str(exc)[:160])
+                return f"⛔ `{app}` hazirlanamadi: {exc}"
+
+        steps = int(max_steps or spec.computer_task_max_steps)
+        prompt = _task_prompt(instructions, str(goal), opened, steps)
+
+        job_id = jm.start(
+            kind=f"computer_task:{res.agent}",
+            argv=[
+                a.replace("{prompt}", prompt) if "{prompt}" in a else a
+                for a in agent_spec.command
+            ] + modelslib.build_args(agent_spec, res),
+            cwd=cfg.default_workdir,
+            label=jobslib._short(goal, 90),
+            parser=agent_spec.parser,
+            timeout=timeout,
+            pty=agent_spec.pty,
+            # `pcb-do` bunu gorup BOSTA kontrolunu atlar -- ve YALNIZCA onu.
+            # Ekran kilidi, izin penceresi ve hiz siniri aynen isler.
+            env={"PCBRIDGE_TASK_FORCE": "1"},
+            extra={
+                "agent": res.agent,
+                "model": res.model,
+                "effort": res.effort,
+                "model_notes": res.notes,
+                "goal": str(goal),
+                "app": app,
+                "max_steps": steps,
+            },
+        )
+        # Hedef METNI kaydedilmez, uzunlugu kaydedilir: ekranda ne yapilacagi
+        # ozel bilgi icerebilir. Tam metin jobs/<id>/meta.json'da.
+        gate.audit("computer_task", agent=res.agent, model=res.model,
+                   effort=res.effort, job=job_id, goal_chars=len(str(goal)),
+                   app=str(app)[:60] if app else None, steps=steps,
+                   forced=force or None)
+
+        if wait_seconds > 0:
+            jm.wait(job_id, wait_seconds)
+
+        head = [
+            f"**{job_id}** — gorsel ajan basladi ({res.headline()})",
+            f"hedef: {_short(goal, 160)}",
+        ]
+        if opened:
+            head.append(f"hazirlik: {opened}")
+        head.append(
+            f"adim butcesi: {steps} · `job_status(\"{job_id}\")` ile izleyin"
+        )
+        head.append(
+            "Durdurmak icin: `desktop_lock` (ajanin elleri bir sonraki eylemde "
+            f"durur) ya da `job_cancel(\"{job_id}\")`."
+        )
+        if wait_seconds > 0:
+            return "\n".join(head) + "\n\n---\n" + _fmt_job_summary(cfg, jm, job_id)
+        return "\n".join(head)
 
     # ================================================================== SISTEM
     @mcp.tool(annotations={"title": "Computer status", "readOnlyHint": True})

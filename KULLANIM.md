@@ -358,6 +358,50 @@ ya da bir işin bittiğini fark etmek için.
 | `computer_batch` | Bir eylem listesini tek onayda sırayla çalıştırır |
 | `window_list` | Açık pencereler, odaktaki işaretli |
 | `window_focus` | Bir pencereyi öne getirir |
+| `computer_task` | Görsel işi makinendeki bir ajana devreder (aşağıda) |
+
+---
+
+## 9. Ekrana bakması gereken işler — `computer_task`
+
+Buraya kadarki her şey Gemini'nin **metin** dünyasında çalışıyor: `ui_dump`
+ekranı metne çeviriyor, `ui_click` düğmeye koordinat kullanmadan basıyor. Ama
+bu zincirin bir kör noktası var — erişilebilirlik ağacını **yayınlamayan**
+uygulamalar. Ölçüldü: Vesktop'ta (Discord) `ui_dump` **sıfır düğüm** döndürüyor.
+VS Code, Discord, oyunlar, tuval üzerine çizen her şey aynı durumda.
+
+`computer_task` bu işi makinendeki bir ajana veriyor — çünkü o ajan **PNG
+okuyabiliyor**, yani gözü var:
+
+```
+"Vesktop'u aç, oneaura'ya 'geliyorum' yaz"
+```
+
+Arka planda ajan şunu döndürüyor: `pcb-shot` ile ekranı çeker → PNG'ye bakar →
+`pcb-do` ile tıklar → tekrar bakıp doğrular. Gemini görüntüyü hiç görmez.
+
+Bir `job_id` döner, `job_status` ile izlersin. GUI işi dakikalar sürebilir.
+
+```
+computer_task(goal="...", app="Vesktop", max_steps=25)
+```
+
+- `app` verirsen uygulama **sunucu tarafında** açılıp öne alınır; ajan bilinen
+  bir ekranla başlar
+- `max_steps` bir **bütçe**, garanti değil — dışarıdan zorlanamaz. Arkasında
+  işin `timeout`'u ve `pcb-do`'nun hız sınırı var
+- Ortasında durdurmak için **`desktop_lock`**: izin diskten okunduğu için
+  ajanın elleri bir sonraki eylemde durur. `job_cancel` de işi bitirir
+
+**Ne zaman kullanmamalı:** hangi düğmeye basacağını zaten biliyorsan
+`computer_batch` çok daha ucuz. `computer_task` ayrı bir ajan oturumu açıyor ve
+her ekran görüntüsü ~40 bin jeton.
+
+Ajanın her tıklaması `audit.log`'a görev kimliğiyle yazılıyor:
+
+```bash
+grep '"job": "20260803-100033-b46bae"' ~/.local/state/pcbridge/audit.log
+```
 
 ---
 
@@ -371,9 +415,20 @@ gider ve o yol açıktır — projenin amacı zaten bu.
 | Araç grubu | `[desktop] enabled` | `desktop_unlock` | "kullanıcı makinede" koruması |
 |---|:---:|:---:|:---:|
 | `mouse`, `keyboard`, `ui_click`, `ui_set_text`, `computer_batch`, `window_focus` | gerekli | gerekli | var (`force` ile geçilir) |
+| `computer_task` | gerekli | gerekli | **görev başında bir kez** (aşağıya bak) |
 | `screen_capture`, `ui_dump`, `window_list` | gerekli | gerekli | yok (okuma) |
 | `screen_info` | — | — | — |
 | `shell_run`, `shell_run_background`, `agent_run`, `fs_*`, `tmux_*`, `job_*`, `notify` | — | — | — |
+
+`computer_task`'in ikinci satırda ayrı durmasının sebebi ölçülmüş bir gerçek:
+**pcbridge'in gönderdiği tuş, "kullanıcı makinede mi" sayacını sıfırlıyor**
+(104227 ms → 151 ms). Yani ajan ikinci eylemine geldiğinde kendi ilk tuşunu
+"kullanıcı geldi" sanıp reddedilirdi. Bu yüzden kontrol eylem başına değil
+**görev başına** yapılıyor: `computer_task` başlarken bir kez bakıyor.
+
+Diğer üç koruma ajanın **her** eyleminde geçerli: `[desktop] enabled`, ekran
+kilidi ve süreli izin. İzin diskten okunduğu için `desktop_lock` görev
+ortasında da işe yarıyor.
 
 Son satır önemli: **`shell_run` masaüstü kapısından geçmez.** Masaüstü kontrolü
 kapalıyken bile Gemini komut çalıştırabilir, uygulama açabilir, dosya

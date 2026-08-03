@@ -27,6 +27,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -202,17 +203,40 @@ def launch(name: str, timeout: int = 15) -> str:
         )
     if not shutil.which("gtk-launch"):
         raise AppError("`gtk-launch` kurulu degil (paket: libgtk-3-bin).")
-    try:
-        proc = subprocess.run(
+
+    # Cikti BORUYA degil DOSYAYA gidiyor ve `wait()` kullaniliyor -- `run()`
+    # degil. Sebebi olculdu 2026-08-02: `capture_output=True` boru yaratir,
+    # Flatpak uygulamalarinda `gtk-launch`in baslattigi `flatpak run` cocugu o
+    # boruyu MIRAS ALIR ve `communicate()` gtk-launch'in bitmesini degil borunun
+    # KAPANMASINI bekler. Soguk baslatmada Vesktop 15 sn'de zaman asimina
+    # ugrayip "baslamadi" hatasi verdi -- oysa uygulama aciliyordu. Sessizce
+    # yanlis hata dondurmek en kotu sonuc.
+    #   olculdu: ayni komut, capture_output = 1,56 s (sicak) / timeout (soguk),
+    #            Popen + wait(dosya) = 0,06 s
+    # D-Bus ile etkinlesen normal GTK uygulamalari (org.gnome.TextEditor) her
+    # iki yolda da hizli; fark yalnizca gercek cocuk baslatan uygulamalarda.
+    with tempfile.TemporaryFile() as errf:
+        proc = subprocess.Popen(
             ["gtk-launch", entry.entry_id],
-            capture_output=True, text=True, timeout=timeout, check=False,
             stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=errf,
+            start_new_session=True,
         )
-    except subprocess.TimeoutExpired as exc:
-        raise AppError(f"{entry.name} {timeout} saniyede baslamadi.") from exc
-    if proc.returncode != 0:
-        err = (proc.stderr or "").strip().splitlines()
-        raise AppError(f"{entry.name} baslatilamadi: {err[-1] if err else 'bilinmiyor'}")
+        try:
+            code = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            # gtk-launch OLDURULMEZ: uygulama onun cocugu olabilir ve
+            # oldurmek yeni acilan pencereyi de goturur.
+            raise AppError(f"{entry.name} {timeout} saniyede baslamadi.") from exc
+        errf.seek(0)
+        err_text = errf.read().decode("utf-8", "replace").strip()
+
+    if code != 0:
+        lines = err_text.splitlines()
+        raise AppError(
+            f"{entry.name} baslatilamadi: {lines[-1] if lines else 'bilinmiyor'}"
+        )
     return f"{entry.name} baslatildi ({entry.entry_id})"
 
 

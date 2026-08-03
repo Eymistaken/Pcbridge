@@ -1073,6 +1073,64 @@ def test_batch_stops() -> None:
                  sleep=lambda s: None)
     check("odak okunamayinca batch yine calisiyor", res5.done == 1, res5.stopped)
 
+    # 6. BEYAN EDILMIS niyet. OLCULDU 2026-08-03: gercek gorsel ajanin plani
+    #    "editore tikla, sonra yaz"di ve koruma her seferinde durduruyordu --
+    #    odagin degismesi ISTENEN seydi. `expect_focus` niyeti soyletiyor.
+    plan6 = B.parse('[{"a":"click","x":900,"y":500},{"a":"type","text":"selam"}]')
+    ops6 = FakeOps()
+    ops6.focus_after_click = "gnome-text-editor | Yeni Belge - Metin Duzenleyici"
+    res6 = B.run(plan6, ops6, budget=90, expect_focus="Metin Duzenleyici",
+                 sleep=lambda s: None)
+    check("beklenen pencereye gecince SURUYOR", res6.done == 2,
+          f"{res6.done} {res6.stopped} {res6.detail}")
+    check("beyan edilince metin gonderildi",
+          any(x[0] == "type" for x in ops6.log), str(ops6.log))
+
+    # Beyan var ama odak BASKA yere gitti -> yine durmali. Koruma kalkmiyor.
+    ops7 = FakeOps()
+    ops7.focus_after_click = "masaustu | Desktop Icons 2"
+    res7 = B.run(plan6, ops7, budget=90, expect_focus="Metin Duzenleyici",
+                 sleep=lambda s: None)
+    check("yanlis pencereye gidince yine duruyor", res7.stopped == "focus",
+          res7.stopped)
+    check("metin GONDERILMEDI", not any(x[0] == "type" for x in ops7.log),
+          str(ops7.log))
+    check("beklenen pencere gerekcede yaziyor",
+          "beklenen" in res7.detail, res7.detail[:160])
+
+    # Beyan yokken gerekce ne yapilmasi gerektigini soylemeli: ajan bunu
+    # okuyup `expect_focus` ile tekrar deneyebilsin.
+    res8 = B.run(plan6, FakeOps(focus="a | b"), budget=90, sleep=lambda s: None)
+    _ = res8
+    ops9 = FakeOps()
+    ops9.focus_after_click = "baska | pencere"
+    res9 = B.run(plan6, ops9, budget=90, sleep=lambda s: None)
+    check("beyan yoksa gerekce yol gosteriyor",
+          "expect_focus" in res9.detail, res9.detail[:200])
+
+    # Beyan edilen pencereye gectikten SONRA ikinci bir kayma yine yakalanmali.
+    class TwoHops(FakeOps):
+        def __init__(self):
+            super().__init__()
+            self._n = 0
+
+        def click(self, button, count, x, y, monitor):
+            out = self._rec("click", button, x, y)
+            self._n += 1
+            self._focus = ("editor | Metin Duzenleyici" if self._n == 1
+                           else "masaustu | Desktop Icons 2")
+            return out
+
+    plan10 = B.parse('[{"a":"click","x":1,"y":1},{"a":"click","x":2,"y":2},'
+                     '{"a":"key","keys":"ctrl+a"}]')
+    ops10 = TwoHops()
+    res10 = B.run(plan10, ops10, budget=90, expect_focus="Metin Duzenleyici",
+                  sleep=lambda s: None)
+    check("beyandan sonraki ikinci kayma yakalandi", res10.stopped == "focus",
+          f"{res10.stopped} {res10.detail[:80]}")
+    check("ikinci kaymada ctrl+a gitmedi",
+          not any(x[0] == "key" for x in ops10.log), str(ops10.log))
+
 
 def test_batch_super_clipboard() -> None:
     section("27. Toplu eylem — overview'da pano tuzagi")
@@ -1234,6 +1292,285 @@ def test_audit_secrets() -> None:
               not (Path(d) / "audit.log.1").exists())
 
 
+# ================================================== YEREL GORSEL AJAN (F)
+def _run_cli(module: str, argv: list[str], env: dict | None = None) -> tuple[int, str, str]:
+    """CLI'yi AYRI BIR SURECTE calistir ve (kod, stdout, stderr) dondur.
+
+    Ayri surec sart: `pcb-do` gercekte de oyle calisiyor ve test edilmesi
+    gereken sey tam olarak surec sinirindaki davranis -- cikis kodu, ortam
+    degiskeni, kapinin diskten okunmasi.
+    """
+    import os as _os
+    import subprocess as _sp
+
+    run_env = _os.environ.copy()
+    run_env.pop("PCBRIDGE_TASK_FORCE", None)
+    run_env.pop("PCBRIDGE_JOB_ID", None)
+    if env:
+        run_env.update(env)
+    proc = _sp.run(
+        [sys.executable, "-m", module, *argv],
+        cwd=str(ROOT), capture_output=True, text=True, timeout=120, env=run_env,
+    )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def test_cli_parse() -> None:
+    section("31. pcb-do — ayristirma ve cikis kodlari")
+    from pcbridge import cli as C
+
+    # Tek NESNE de liste de kabul edilmeli: ajan ikisini de yaziyor.
+    code, out, _ = _run_cli("pcbridge.cli.do",
+                            ["--dry-run", '{"a":"key","keys":"ctrl+s"}'])
+    check("tek nesne kabul edildi", code == C.EXIT_OK and "1 eylem" in out, out[:80])
+
+    code, out, _ = _run_cli(
+        "pcbridge.cli.do",
+        ["--dry-run", '[{"a":"click","x":10,"y":20},{"a":"wait","ms":50}]'])
+    check("liste kabul edildi", code == C.EXIT_OK and "2 eylem" in out, out[:80])
+
+    # Bozuk girdinin uc bicimi de EXIT_BAD_INPUT vermeli -- "izin yok" degil.
+    for label, arg in (
+        ("bilinmeyen eylem", '[{"a":"ucmak"}]'),
+        ("gecersiz JSON", "bu json degil"),
+        ("bos liste", "[]"),
+    ):
+        code, _, err = _run_cli("pcbridge.cli.do", ["--dry-run", arg])
+        check(f"{label} -> cikis 4", code == C.EXIT_BAD_INPUT, f"kod={code}")
+        check(f"{label} gerekcesi var", "HATA" in err, err[:60])
+
+    code, _, err = _run_cli("pcbridge.cli.do", [])
+    check("arguman yok -> cikis 4", code == C.EXIT_BAD_INPUT, f"kod={code}")
+
+    # --dry-run METIN ICERIGINI basmamali: ekranda parola yaziliyor olabilir.
+    code, out, _ = _run_cli(
+        "pcbridge.cli.do",
+        ["--dry-run", '[{"a":"type","text":"cok-gizli-parola"}]'])
+    check("dry-run metni gizliyor", "cok-gizli-parola" not in out, out[:120])
+    check("dry-run uzunlugu veriyor", "text_chars" in out, out[:120])
+
+    # JSON cikti makine okunur olmali
+    code, out, _ = _run_cli(
+        "pcbridge.cli.do",
+        ["--dry-run", "--json", '[{"a":"ui_click","id":"90e6"}]'])
+    data = json.loads(out)
+    check("json dry-run", data["dry_run"] and data["count"] == 1, out[:80])
+    check("ui_click cihaz istemiyor",
+          not data["needs_keyboard"] and not data["needs_pointer"],
+          str(data))
+
+
+def test_cli_gate() -> None:
+    section("32. pcb-do — guvenlik kapisi ayri surecte de isliyor")
+    from pcbridge import cli as C
+    from pcbridge.desktop import ops as O
+
+    # Kapi ayri surecte de isliyor. Redden GEREKCE bekleniyor ama metnin
+    # kendisi makinenin o anki ayarina bagli ("kapali" mi "kilitli" mi), o
+    # yuzden testin dayanagi degil: dayanak, gerekcenin masaustu kapisindan
+    # geldigi ve TASK_FORCE ile DEGISMEDIGI.
+    code, _, err = _run_cli("pcbridge.cli.do", ['[{"a":"key","keys":"Escape"}]'])
+    check("izinsiz -> cikis 3", code == C.EXIT_DENIED, f"kod={code}")
+    check("gerekce masaustu kapisindan", "Masaustu kontrolu" in err, err[:100])
+
+    # PCBRIDGE_TASK_FORCE YALNIZCA bosta kontrolunu atlatir. Ekran kilidi,
+    # kapali masaustu ve izin penceresi gibi sert reddedislere etkisi
+    # OLMAMALI -- yoksa `computer_task` kapiyi tamamen delerdi.
+    code2, _, err2 = _run_cli("pcbridge.cli.do", ['[{"a":"key","keys":"Escape"}]'],
+                              env={"PCBRIDGE_TASK_FORCE": "1"})
+    check("TASK_FORCE kapiyi ACMIYOR", code2 == C.EXIT_DENIED, f"kod={code2}")
+    check("TASK_FORCE gerekceyi DEGISTIRMIYOR", err2.strip() == err.strip(),
+          f"{err[:60]!r} != {err2[:60]!r}")
+
+    # pcb-shot da ayni kapidan geciyor
+    code, _, err = _run_cli("pcbridge.cli.shot", ["--monitor", "1"])
+    check("pcb-shot izinsiz -> cikis 3", code == C.EXIT_DENIED, f"kod={code}")
+
+    # --dry-run KAPIYA HIC VARMIYOR: masaustu kapaliyken de ayristirmali,
+    # yoksa ajan kendi JSON'unu dogrulayamazdi.
+    code, out, _ = _run_cli("pcbridge.cli.do",
+                            ["--dry-run", '[{"a":"key","keys":"a"}]'])
+    check("dry-run kapiya takilmiyor", code == C.EXIT_OK, f"kod={code}")
+
+    # Hangi cihazin gerektigi eylem listesinden turetiliyor: yalnizca ui_*
+    # olan bir liste /dev/uinput ARAMAMALI (C bolumunde duzeltilen hata).
+    from pcbridge.desktop import batch as B
+
+    only_ui = B.parse('[{"a":"ui_click","id":"aa"},{"a":"wait","ms":10}]')
+    check("ui_* cihaz istemiyor", O.devices_needed(only_ui) == (False, False))
+    check("type klavye istiyor",
+          O.devices_needed(B.parse('[{"a":"type","text":"x"}]')) == (True, False))
+    check("click fare istiyor",
+          O.devices_needed(B.parse('[{"a":"click","x":1,"y":2}]')) == (False, True))
+    check("focus klavye istiyor (GNOME aramasi)",
+          O.devices_needed(B.parse('[{"a":"focus","window":"X"}]')) == (True, False))
+    check("karisik liste ikisini de istiyor",
+          O.devices_needed(
+              B.parse('[{"a":"click","x":1,"y":2},{"a":"type","text":"x"}]')
+          ) == (True, True))
+
+
+def test_cli_shot_text() -> None:
+    section("33. pcb-shot — ofset ve donusum kurali metinde")
+    from pcbridge.cli import shot as SH
+
+    class FakeMon:
+        def __init__(self, index, connector, primary):
+            self.index, self.connector, self.primary = index, connector, primary
+
+    class FakeShot:
+        def __init__(self, monitor, offset, size, scaled, scale):
+            self.path = Path("/tmp/x.png")
+            self.monitor, self.offset = monitor, offset
+            self.size, self.scaled, self.scale = size, scaled, scale
+
+    mons = [FakeMon(1, "DP-2", False), FakeMon(2, "DP-1", True)]
+    shots = [
+        FakeShot(mons[0], (0, 0), (1920, 1080), (1920, 1080), 1.0),
+        FakeShot(mons[1], (1920, 0), (1920, 1080), (1920, 1080), 1.0),
+    ]
+    text = "\n".join(SH.describe(shots, mons))
+    check("monitor numarasi var", "monitor 1" in text and "monitor 2" in text)
+    check("ofset var", "(1920, 0)" in text, text[:120])
+    check("1:1 formulu toplama", "1920 + goruntu_x" in text, text[:200])
+    # Bu bilgi kaybolursa ikinci monitore yapilan her tiklama 1920 px sasar.
+    check("ust cubugun yeri yaziyor",
+          "ust cubugu" in text and "monitor 2" in text, text[-200:])
+
+    # Olceklenmis goruntude bolme formulu gelmeli
+    small = [FakeShot(mons[1], (1920, 0), (1920, 1080), (1280, 720), 0.667)]
+    stext = "\n".join(SH.describe(small, mons))
+    check("olcekli formul bolme", "/ 0.667" in stext, stext[:200])
+
+    # Ofsetsiz goruntu (window) koordinat uretmemeli
+    win = [FakeShot(None, None, (800, 600), (800, 600), 1.0)]
+    wtext = "\n".join(SH.describe(win, mons))
+    check("ofsetsiz goruntu uyariyor", "NEREDE" in wtext, wtext[:160])
+
+
+def test_cli_shot_dir() -> None:
+    section("34. pcb-shot — dizin secimi ve temizlik")
+    import os as _os
+    import tempfile as _tf
+
+    from pcbridge.cli import shot as SH
+
+    class Cfg:
+        def __init__(self, **kw):
+            self.desktop = DesktopSpec(**kw)
+
+    with _tf.TemporaryDirectory() as d:
+        # Acikca verilen dizin her seyi ezer
+        cfg = Cfg(agent_shot_dir=d)
+        check("yapilandirilan dizin kullanildi", SH.shot_dir(cfg) == Path(d))
+
+        # XDG_RUNTIME_DIR varsa oraya (mod 700, oturumla silinir)
+        old = _os.environ.get("XDG_RUNTIME_DIR")
+        try:
+            _os.environ["XDG_RUNTIME_DIR"] = d
+            got = SH.shot_dir(Cfg())
+            check("XDG_RUNTIME_DIR tercih edildi",
+                  got == Path(d) / "pcbridge" / "shots", str(got))
+            check("dizin yalnizca kullaniciya acik",
+                  (got.stat().st_mode & 0o777) == 0o700,
+                  oct(got.stat().st_mode & 0o777))
+            _os.environ.pop("XDG_RUNTIME_DIR")
+            check("XDG yoksa /tmp/pcb", SH.shot_dir(Cfg()) == Path("/tmp/pcb"))
+        finally:
+            if old is None:
+                _os.environ.pop("XDG_RUNTIME_DIR", None)
+            else:
+                _os.environ["XDG_RUNTIME_DIR"] = old
+
+    with _tf.TemporaryDirectory() as d:
+        base = Path(d)
+        fresh, stale = base / "a.png", base / "b.png"
+        fresh.write_bytes(b"x")
+        stale.write_bytes(b"x")
+        _os.utime(stale, (time.time() - 90000, time.time() - 90000))
+        removed = SH.sweep(base, keep_hours=24)
+        check("eski goruntu silindi", removed == 1 and not stale.exists())
+        check("yeni goruntu duruyor", fresh.exists())
+        check("keep_hours=0 iken temizlik yok", SH.sweep(base, 0) == 0)
+
+
+def test_cli_stale_shot() -> None:
+    section("35. pcb-do — bayat ekran goruntusu korumasi")
+    import os as _os
+    import tempfile as _tf
+
+    from pcbridge import cli as C
+    from pcbridge.cli import do as D
+    from pcbridge.desktop import batch as B
+
+    # Yalnizca ACIKCA koordinat verilen eylemler goruntuye dayanir.
+    check("koordinatli tiklama sayiliyor",
+          len(D.coord_actions(B.parse('[{"a":"click","x":10,"y":20}]'))) == 1)
+    check("koordinatsiz tiklama sayilmiyor",
+          D.coord_actions(B.parse('[{"a":"click"}]')) == [])
+    for arg in ('[{"a":"key","keys":"a"}]', '[{"a":"type","text":"x"}]',
+                '[{"a":"ui_click","id":"aa"}]', '[{"a":"wait","ms":10}]'):
+        check(f"{json.loads(arg)[0]['a']} goruntuye dayanmiyor",
+              D.coord_actions(B.parse(arg)) == [], arg)
+
+    with _tf.TemporaryDirectory() as d:
+        base = Path(d)
+        check("goruntu yokken yas None", C.newest_shot_age(base) is None)
+
+        png = base / "a.png"
+        png.write_bytes(b"x")
+        age = C.newest_shot_age(base)
+        check("taze goruntu ~0 saniyelik", age is not None and age < 5, str(age))
+
+        _os.utime(png, (time.time() - 300, time.time() - 300))
+        age = C.newest_shot_age(base)
+        check("eski goruntunun yasi olculuyor",
+              age is not None and 290 < age < 310, str(age))
+
+        # DAHA YENI bir goruntu varsa yas ona gore: ajan yeni bir tane almistir.
+        (base / "b.png").write_bytes(b"x")
+        age = C.newest_shot_age(base)
+        check("en yeni goruntu esas aliniyor", age is not None and age < 5, str(age))
+
+    # Ucdan uca: dizin bos -> koordinatli eylem REDDEDILMELI (kor tiklama).
+    with _tf.TemporaryDirectory() as d:
+        env = {"PCBRIDGE_TEST_SHOTDIR": d}
+        code, _, err = _run_cli(
+            "pcbridge.cli.do", ['[{"a":"click","x":10,"y":20}]'],
+            env={**env, "XDG_RUNTIME_DIR": d})
+        # Masaustu kapali oldugu icin kapi da reddeder; onemli olan
+        # KOORDINAT kontrolunun ONCE gelmesi ve gerekcesinin ayri olmasi.
+        check("kor tiklama reddedildi", code == C.EXIT_DENIED, f"kod={code}")
+        check("gerekce goruntu almayi soyluyor",
+              "pcb-shot" in err or "Masaustu kontrolu" in err, err[:120])
+
+
+def test_computer_task_prompt() -> None:
+    section("36. computer_task — prompt ve yonerge")
+    from pcbridge import tools as T
+
+    check("SKILL.md depoda", T._SKILL_PATH.is_file(), str(T._SKILL_PATH))
+    skill = T._SKILL_PATH.read_text(encoding="utf-8")
+    # Yonergenin icindekiler tesadufe birakilmiyor: her biri bir olcumun ya da
+    # bir kazanin karsiligi.
+    check("ust cubugun yeri yaziyor", "monitör 2" in skill or "monitor 2" in skill)
+    check("kor tiklama yasagi var", "Kör tıklama" in skill)
+    check("kazanin hikayesi var", "23 öğeyi" in skill)
+    check("cikis kodlari yaziyor", "pcb-do --dry-run" in skill and "| 3 |" in skill)
+    check("eylemleri gruplama gerekcesi", "1,4 s" in skill)
+
+    p = T._task_prompt("YONERGE", "hedef metni", "Vesktop acildi", 12)
+    check("yonerge basta", p.startswith("YONERGE"), p[:40])
+    check("hedef sonda", p.rstrip().endswith("hedef metni"), p[-60:])
+    check("hazirlik bilgisi gecti", "Vesktop acildi" in p)
+    check("adim butcesi gecti", "12" in p)
+    # "basarili gibi gorunen basarisiz is" bu projenin tekrarlayan endisesi
+    check("dogru rapor istendi", "hedefe ulasildi mi" in p)
+
+    p2 = T._task_prompt("YONERGE", "hedef", "", 5)
+    check("hazirlik yoksa satir da yok", "hazirlandi" not in p2)
+
+
 def test_real_batch() -> None:
     """Gercek batch. Varsayilan olarak KOSMAZ: uinput'a fiilen yazar."""
     import os
@@ -1296,6 +1633,12 @@ def main() -> int:
     test_window_list()
     test_apps_lookup()
     test_audit_secrets()
+    test_cli_parse()
+    test_cli_gate()
+    test_cli_shot_text()
+    test_cli_shot_dir()
+    test_cli_stale_shot()
+    test_computer_task_prompt()
     test_real_batch()
     print(f"\n\033[1m{ok_count} gecti, {fail_count} kaldi\033[0m")
     return 1 if fail_count else 0

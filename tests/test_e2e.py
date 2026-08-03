@@ -334,6 +334,7 @@ def main() -> int:
         "computer_batch",
         "window_list",
         "window_focus",
+        "computer_task",
     ):
         check(f"arac mevcut: {expected}", expected in names, str(sorted(names)))
 
@@ -466,6 +467,33 @@ def main() -> int:
     check("window_focus aciklamasi ui_click'i oneriyor",
           "ui_click" in wf_desc, wf_desc[:240])
 
+    # computer_task: gorsel isi yerel ajana devreden arac
+    ct = by_name.get("computer_task", {})
+    ct_props = ct.get("inputSchema", {}).get("properties", {})
+    for field_ in ("goal", "app", "agent", "model", "effort", "max_steps",
+                   "wait_seconds", "timeout", "force"):
+        check(f"computer_task.{field_} parametresi var", field_ in ct_props,
+              str(sorted(ct_props)))
+    ct_req = ct.get("inputSchema", {}).get("required", [])
+    check("computer_task.goal zorunlu", "goal" in ct_req, str(ct_req))
+    check("computer_task.app zorunlu DEGIL", "app" not in ct_req, str(ct_req))
+    check("computer_task destructiveHint isaretli",
+          (ct.get("annotations") or {}).get("destructiveHint") is True,
+          str(ct.get("annotations")))
+    ct_desc = str(ct.get("description", ""))
+    check("computer_task aciklamasi 'ne zaman kullanilir' iceriyor",
+          "Use this when" in ct_desc, ct_desc[:200])
+    # Ucuz yolu once denemesi soylensin: computer_task pahali (ayri ajan
+    # oturumu, ekran goruntusu basina ~40k jeton).
+    check("computer_task aciklamasi once computer_batch'i oneriyor",
+          "computer_batch" in ct_desc, ct_desc[:400])
+    check("computer_task aciklamasi job_status'u soyluyor",
+          "job_status" in ct_desc, ct_desc[:400])
+    # `max_steps` DISARIDAN ZORLANAMAZ; aciklama garanti ima etmemeli.
+    steps_desc = str(ct_props.get("max_steps", {}).get("description", ""))
+    check("computer_task.max_steps garanti vaat etmiyor",
+          "not a hard cap" in steps_desc, steps_desc[:200])
+
     # agent_run'in model/effort semasi -- Gemini bu alanlari gorebilmeli
     schema = next(
         (t.get("inputSchema", {}) for t in tools if t["name"] == "agent_run"), {}
@@ -558,6 +586,12 @@ def main() -> int:
     check("window_list kapaliyken reddediyor", "⛔" in out, out[:200])
     out = call("window_focus", {"window": "Terminal"})
     check("window_focus kapaliyken reddediyor", "⛔" in out, out[:200])
+    # computer_task masaustu kapisinin ARKASINDA: `agent_run` gibi serbestce
+    # ajan baslatabilseydi kapiyi tamamen delerdi (ajan pcb-do'yu cagiriyor).
+    out = call("computer_task", {"goal": "bir sey yap", "app": "Vesktop"})
+    check("computer_task kapaliyken reddediyor", "⛔" in out, out[:200])
+    check("computer_task reddinde is BASLATILMADI",
+          "job_status" not in out and "gorsel ajan basladi" not in out, out[:200])
 
     section("12. Ajan calistirma ve is takibi")
     out = call(

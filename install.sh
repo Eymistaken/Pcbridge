@@ -123,6 +123,23 @@ else
 fi
 echo "  Araclar ayrica config.toml'da [desktop] enabled = true ister (varsayilan false)."
 
+# --- yerel gorsel ajan (F bolumu) -------------------------------------------
+# `computer_task` makinedeki ajani baslatiyor, ajan da bu iki kabugu Bash'ten
+# cagiriyor. Servisin PATH'i ~/.local/bin ile basliyor, symlink oraya.
+chmod +x bin/pcb-shot bin/pcb-do 2>/dev/null || true
+mkdir -p "$HOME/.local/bin"
+for tool in pcb-shot pcb-do; do
+  ln -sfn "$DIR/bin/$tool" "$HOME/.local/bin/$tool"
+done
+ok "pcb-shot / pcb-do -> ~/.local/bin"
+
+# Skill DEPODA duruyor (surum kontrolunde), buraya yalnizca symlink. Kullanici
+# Claude Code'u elle surerken lazim; `computer_task` metni zaten dogrudan
+# dosyadan okuyup prompt'a koyuyor, symlink'e bagimli DEGIL.
+mkdir -p "$HOME/.claude/skills"
+ln -sfn "$DIR/skills/computer-use" "$HOME/.claude/skills/computer-use"
+ok "computer-use skill'i ~/.claude/skills'e baglandi."
+
 blue "==> 7/7  Alias'lar (~/.bashrc)"
 chmod +x spark.sh run.sh doctor.sh 2>/dev/null || true
 BRC="$HOME/.bashrc"

@@ -221,6 +221,56 @@ else
   fail "computer_batch kurulamadi: $BATCH"
 fi
 
+# --- yerel gorsel ajan (computer_task / pcb-shot / pcb-do) ---
+for tool in pcb-shot pcb-do; do
+  WHERE="$(command -v "$tool" 2>/dev/null || true)"
+  if [ -n "$WHERE" ]; then
+    pass "$tool PATH'te · $WHERE"
+  else
+    warn "$tool PATH'te yok — ajan onu Bash'ten cagiramaz. Cozum: ./install.sh"
+  fi
+done
+
+# --dry-run hicbir sey calistirmaz, kapiya da varmaz: saf sozdizimi kontrolu,
+# yani masaustu kapali olsa bile burada calismasi gerekir.
+DRY="$(./bin/pcb-do --dry-run '[{"a":"key","keys":"Escape"},{"a":"wait","ms":50}]' 2>&1 | head -1)"
+if printf '%s' "$DRY" | grep -q "2 eylem"; then
+  pass "pcb-do ayristirici calisiyor · $DRY"
+else
+  fail "pcb-do calismadi: $DRY"
+fi
+
+SKILL_SRC="$DIR/skills/computer-use/SKILL.md"
+SKILL_LINK="$HOME/.claude/skills/computer-use"
+if [ -f "$SKILL_SRC" ]; then
+  # computer_task metni DOGRUDAN depodan okuyor; symlink yalnizca kullanici
+  # Claude Code'u elle surerken lazim, o yuzden eksikligi uyari.
+  pass "computer-use yonergesi var ($(wc -l < "$SKILL_SRC") satir)"
+  [ -e "$SKILL_LINK" ] || warn "~/.claude/skills/computer-use baglantisi yok (./install.sh)"
+else
+  fail "skills/computer-use/SKILL.md YOK — computer_task calismaz"
+fi
+
+TASKCFG="$(./.venv/bin/python -c '
+from pcbridge.config import load_config
+d = load_config().desktop
+print(d.computer_task_agent + " / " + d.computer_task_model
+      + " / " + (d.computer_task_effort or "(varsayilan)")
+      + " · " + str(d.computer_task_max_steps) + " adim")
+' 2>&1 | tail -1)"
+if printf '%s' "$TASKCFG" | grep -q "adim"; then
+  pass "computer_task ayarlari · $TASKCFG"
+else
+  fail "computer_task ayarlari okunamadi: $TASKCFG"
+fi
+
+# Acil durdurma: servis durunca izin dosyasi siliniyor mu (ExecStopPost).
+if systemctl --user cat pcbridge 2>/dev/null | grep -q "ExecStopPost.*pcbridge.cli.lock"; then
+  pass "servis durunca masaustu izni kapaniyor (ExecStopPost)"
+else
+  warn "ExecStopPost yok: pcbridge oldukten sonra diskte kalan izin elle calistirilan pcb-do'yu yetkilendirebilir (./install.sh)"
+fi
+
 MONS="$(./.venv/bin/python -c 'from pcbridge.desktop import monitors as m; print(m.describe())' 2>&1)"
 if printf '%s' "$MONS" | grep -q '^tuval:'; then
   printf '%s\n' "$MONS" | sed 's/^/  · /'

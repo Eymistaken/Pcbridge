@@ -292,10 +292,53 @@ ile **süreli** izin verilir. İzin kendiliğinden kapanır.
 > `agent_run`, `tmux_send` çağrısı `audit.log`'a düşüyor (ne yapıldığı yazılır,
 > içerik yazılmaz). Araç-izin haritasının tamamı `KULLANIM.md`'de.
 
+### `computer_task` — en büyük yetki artışı
+
+Yukarıdaki her şeyde **komutu Gemini veriyor**: nereye tıklanacağını,
+ne yazılacağını o söylüyor, pcbridge uyguluyor. `computer_task` bu zinciri
+kırıyor — görevi makinendeki bir ajana devrediyor ve **kararı o veriyor**.
+Ekran görüntüsüne bakıp nereye tıklayacağını kendisi seçiyor, sonucu kendisi
+değerlendiriyor, gerekirse tekrar deniyor. Yani gözü ve elleri olan, kendi
+kararıyla hareket eden bir süreç, senin açık oturumunun içinde.
+
+Bunu yumuşatmanın anlamı yok: bir hedef cümlesi veriyorsun ("şu kişiye şunu
+yaz") ve aradaki bütün adımları başka bir model seçiyor. Yanlış pencereye
+tıklaması, yanlış kişiye yazması, yanlış düğmeye basması mümkün. Geliştirme
+sırasında ikisi de yaşandı: doğrulanmamış bir tıklama masaüstündeki 23 öğeyi
+çöpe gönderdi (2 Ağustos), bayatlamış bir ekran görüntüsüne göre yapılan bir
+tıklama başka uygulamaya düştü (3 Ağustos). Her ikisinin de karşılığı koda
+girdi, ama koruma **hasarı sınırlamak** için; hatayı sıfırlamıyor.
+
+Karşılığında aldığın şey gerçek: erişilebilirlik ağacını yayınlamayan
+uygulamalarda (Discord, VS Code, oyunlar) başka yol yok. Ölçüldü — Vesktop'ta
+`ui_dump` sıfır düğüm döndürüyor.
+
+Aynı beş kat koruma burada da geçerli, bir farkla: "kullanıcı makinede"
+kontrolü **görev başına** yapılıyor, eylem başına değil. Sebebi ölçülmüş —
+pcbridge'in kendi tuşu o sayacı sıfırlıyor, dolayısıyla eylem başına kontrol
+ajanı kendi ilk tuşu yüzünden durdururdu. Ekran kilidi, `[desktop] enabled` ve
+süreli izin ajanın **her** eyleminde okunuyor; bu yüzden `desktop_lock`
+telefondan verilince ajanın elleri bir sonraki eylemde duruyor.
+
+Ajanın attığı her tıklama `audit.log`'a görev kimliğiyle yazılıyor. Bu süs
+değil: varsayılan sürücü olan `agy` çıktısında adım listesi vermiyor, yani
+"ajan ne yaptı" sorusunun tek dürüst cevabı denetim kaydı.
+
 Acil durdurma (kaçak bir döngü ihtimaline karşı):
 
 ```bash
 systemctl --user stop pcbridge
+```
+
+Bu komut **çalışan ajan işlerini de öldürüyor** — ölçüldü 2026-08-03. İşler
+`start_new_session` ile ayrı oturum grubunda başlasa da servisin cgroup'unda
+kalıyor ve systemd hepsini alıyor. Aynı sebeple `restart` de öldürür: kod
+değiştirip yeniden başlatmadan önce `job_list` ile bakmakta fayda var.
+
+Yalnızca izni kapatmak (işler devam etsin, elleri dursun):
+
+```bash
+desktop_lock
 ```
 
 Süreç ölünce sanal klavye/fare cihazı da yok olur. Geri almak için:

@@ -289,11 +289,60 @@ class InputBackend:
         if not ok:
             raise InputError(why)
 
+    def _make_keyboard(self) -> "UInput":
+        """Cihazi yarat, BEKLEME. Bekleme cagirana ait (bkz. `ensure`)."""
+        caps = {e.EV_KEY: sorted({e.ecodes[v] for v in KEY_NAMES.values()})}
+        return UInput(caps, name="pcbridge-keyboard", version=1)
+
+    def _make_pointer(self) -> tuple["UInput", tuple[int, int]]:
+        """Cihazi yarat, BEKLEME. Tuval boyutuyla birlikte doner."""
+        canvas = monitorslib.canvas_size()
+        w, h = canvas
+        caps = {
+            e.EV_KEY: [e.BTN_LEFT, e.BTN_RIGHT, e.BTN_MIDDLE],
+            e.EV_ABS: [
+                (e.ABS_X, AbsInfo(0, 0, w - 1, 0, 0, 0)),
+                (e.ABS_Y, AbsInfo(0, 0, h - 1, 0, 0, 0)),
+            ],
+            e.EV_REL: [e.REL_WHEEL, e.REL_HWHEEL],
+        }
+        return UInput(caps, name="pcbridge-pointer", version=1), canvas
+
+    def ensure(self, keyboard: bool = False, pointer: bool = False) -> float:
+        """Istenen cihazlari onceden yarat ve beklemeyi TEK SEFER paylastir.
+
+        Cihazlar normalde tembel aciliyor ve her biri kendi `settle`'ini
+        oduyor. Tek surecte hem fare hem klavye gerekince bu iki kat maliyet
+        demek -- OLCULDU 2026-08-02: 1,301 + 1,306 = **2,607 s**. Ikisini once
+        yaratip sonra bir kez beklemek ayni isi **1,41 s**'de yapiyor
+        (yaratma 0,21 s + tek bekleme 1,2 s) ve her iki cihaz da >= settle
+        kadar bekletilmis oluyor.
+
+        Fare olayinin gercekten gectigi `IdleMonitor` ile dogrulandi:
+        57694 ms -> 404 ms. "Hata vermedi" yeterli kanit sayilmadi.
+
+        `pcb-do` gibi kisa omurlu sureclerde bu maliyet TOPLAM surenin
+        cogunlugu; o yuzden eylem listesine bakip bastan cagrilmali.
+
+        Doner: fiilen beklenen saniye (hicbir sey yaratilmadiysa 0).
+        """
+        need_k = keyboard and self._kbd is None
+        need_p = pointer and self._ptr is None
+        if not (need_k or need_p):
+            return 0.0
+        self._require()
+        if need_k:
+            self._kbd = self._make_keyboard()
+        if need_p:
+            self._ptr, self._canvas = self._make_pointer()
+            self._pos = None
+        time.sleep(self._settle)
+        return self._settle
+
     def _keyboard(self) -> "UInput":
         if self._kbd is None:
             self._require()
-            caps = {e.EV_KEY: sorted({e.ecodes[v] for v in KEY_NAMES.values()})}
-            self._kbd = UInput(caps, name="pcbridge-keyboard", version=1)
+            self._kbd = self._make_keyboard()
             time.sleep(self._settle)
         return self._kbd
 
@@ -305,17 +354,7 @@ class InputBackend:
             self._ptr = None
         if self._ptr is None:
             self._require()
-            w, h = canvas
-            caps = {
-                e.EV_KEY: [e.BTN_LEFT, e.BTN_RIGHT, e.BTN_MIDDLE],
-                e.EV_ABS: [
-                    (e.ABS_X, AbsInfo(0, 0, w - 1, 0, 0, 0)),
-                    (e.ABS_Y, AbsInfo(0, 0, h - 1, 0, 0, 0)),
-                ],
-                e.EV_REL: [e.REL_WHEEL, e.REL_HWHEEL],
-            }
-            self._ptr = UInput(caps, name="pcbridge-pointer", version=1)
-            self._canvas = canvas
+            self._ptr, self._canvas = self._make_pointer()
             self._pos = None
             time.sleep(self._settle)
         return self._ptr
