@@ -51,8 +51,13 @@ fi
 # Tunel ayri bir karar ve BILINCLI olarak otomatik degil: servis yalnizca
 # 127.0.0.1'i dinler, makineyi INTERNETE acan sey Funnel. Acilista servis
 # baslar, tunel BASLAMAZ.
+if grep -q "alias bridgeac=" "$HOME/.bashrc" 2>/dev/null; then
+  pass "bridgeac / bridgekapat / bridgedurum / bridgekilit alias'lari kurulu"
+else
+  warn "alias'lar yok — ./install.sh calistir (sonra: source ~/.bashrc)"
+fi
 if grep -q "alias sparkac=" "$HOME/.bashrc" 2>/dev/null; then
-  warn "~/.bashrc'de eski 'sparkac' alias'lari duruyor — ./install.sh temizler"
+  warn "~/.bashrc'de eski 'sparkac' alias'lari da duruyor — ./install.sh temizler"
 fi
 
 head_ "3. Yerel erisim"

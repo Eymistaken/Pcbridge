@@ -67,7 +67,10 @@ Masaüstünü elle sürmek (MCP'den bağımsız kabuklar):
 ```
 
 Yerel istemci kaydı: `./connect.sh` (yazdırır) / `./connect.sh --apply` (yapar).
-Uzaktan erişim: `./remote.sh start|stop|status` (Tailscale Funnel tüneli).
+Uzaktan erişim: `bridgeac` / `bridgekapat` / `bridgedurum`
+(= `./remote.sh start|stop|status`). Masaüstü izni acil kapatma: `bridgekilit`.
+**`bridgekapat` stdio istemcilerini durdurmaz** — onlar sunucuyu kendileri
+başlatıyor.
 
 **Servis açılışta başlıyor** (`systemctl --user enable`), ama **tünel
 başlamıyor**. Ayrım bilinçli: servis yalnızca `127.0.0.1`'i dinliyor, makineyi

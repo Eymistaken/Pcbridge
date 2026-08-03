@@ -154,11 +154,17 @@ systemctl --user enable pcbridge >/dev/null 2>&1 \
   && ok "pcbridge acilista basliyor (yalnizca 127.0.0.1; tunel elle acilir)" \
   || warn "systemctl --user enable pcbridge basarisiz — elle calistirin"
 
-# ESKI ALIAS'LARI TEMIZLE. `sparkac`/`sparkkapat`/`sparkdurum` Gemini Spark
-# caginin kalintisi; artik ne isim dogru ne de gerekliler.
+# Alias'lar. Adlar `spark*` DEGIL `bridge*`: eskiler Gemini Spark caginin
+# kalintisiydi. Blok isaretlerle sarili, guncellemede eskisi silinip yenisi
+# yaziliyor -- boylece ad degisince ~/.bashrc'de olu alias kalmiyor.
+#
+# UYARI: bu komutlar UZAKTAN ERISIMI yonetiyor, pcbridge'in kendisini degil.
+# Kodlama ajanlari stdio kullaniyor ve sunucuyu kendileri baslatiyor;
+# `bridgekapat` onlari ETKILEMEZ.
 BRC="$HOME/.bashrc"
 MARK_START="# >>> pcbridge >>>"
 MARK_END="# <<< pcbridge <<<"
+
 if grep -q "$MARK_START" "$BRC" 2>/dev/null; then
   python3 - "$BRC" "$MARK_START" "$MARK_END" <<'PY'
 import sys, pathlib
@@ -172,8 +178,18 @@ for ln in lines:
     if not skip: out.append(ln)
 p.write_text("".join(out), encoding="utf-8")
 PY
-  ok "eski spark alias'lari ~/.bashrc'den kaldirildi"
 fi
+
+cat >> "$BRC" <<EOF
+$MARK_START
+alias bridgeac='$DIR/remote.sh start'
+alias bridgekapat='$DIR/remote.sh stop'
+alias bridgedurum='$DIR/remote.sh status'
+# Masaustu iznini ANINDA kapatir (acil durdurma). Servisi durdurmaz.
+alias bridgekilit='$DIR/.venv/bin/python -m pcbridge.cli.lock'
+$MARK_END
+EOF
+ok "bridgeac / bridgekapat / bridgedurum / bridgekilit eklendi"
 
 echo
 echo "------------------------------------------------------------------"

@@ -530,7 +530,20 @@ ve Claude Code'un varsayılan izin kipi) dosya yazma ve komut çalıştırma iç
 onay soruyor. Can sıkıcı ama iyi bir güvenlik ağı.
 
 **Yerel ajanlar için sunucu açmana gerek yok** — istemci kendi başlatıyor.
-Yalnızca uzaktan bağlanacaksan `./remote.sh start` gerekiyor.
+Yalnızca uzaktan bağlanacaksan `bridgeac` gerekiyor.
+
+Terminalden dört komutun var:
+
+| komut | ne yapar |
+|---|---|
+| `bridgeac` | uzaktan erişimi açar (servis + tünel) |
+| `bridgekapat` | uzaktan erişimi kapatır |
+| `bridgedurum` | durum özeti |
+| `bridgekilit` | **masaüstü iznini anında kapatır** — acil durdurma |
+
+`bridgekapat` pcbridge'i kapatmaz, yalnızca dışarıya açık yolu; Claude Code ve
+Codex çalışmaya devam eder. Ajanın elini kolunu bağlamak istiyorsan komut
+`bridgekilit` — izin dosyası silinir ve bir sonraki eylemde durur.
 
 **Uzun çıktılar kırpılır.** Telefonda okunabilirlik için yanıtlar
 ~12.000 karakterle sınırlı (`config.toml` → `max_output_chars`). Daha fazlası

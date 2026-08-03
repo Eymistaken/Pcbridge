@@ -167,7 +167,7 @@ case "${1:-start}" in
   # ------------------------------------------------------------------- STOP
   stop)
     echo
-    g "▸ pcbridge kapatiliyor"
+    g "▸ Uzaktan erisim kapatiliyor"
 
     if funnel_is_open; then
       printf "  tunel kapatiliyor... "
@@ -190,7 +190,12 @@ case "${1:-start}" in
 
     RUNNING="$(ls -1 "${XDG_STATE_HOME:-$HOME/.local/state}/pcbridge/jobs" 2>/dev/null | wc -l)"
     echo
-    g "✔ Kapandi. Disaridan erisim yok."
+    g "✔ Disaridan erisim yok."
+    # ONEMLI AYRIM: bu komut pcbridge'i "kapatmiyor". Kodlama ajanlari stdio
+    # kullaniyor ve sunucuyu KENDILERI baslatiyor -- servis dursa da calisirlar.
+    # Burada kapanan sey yalnizca HTTP yolu (tunel + systemd servisi).
+    d "  Claude Code / Codex / Claude Desktop ETKILENMEDI — onlar sunucuyu"
+    d "  kendileri baslatiyor. Onlari durdurmak icin ajani kapatmak gerekir."
     [ "$RUNNING" -gt 0 ] && d "  (arka plandaki isler etkilenmez, kayitlar duruyor)"
     echo
     ;;

@@ -104,12 +104,14 @@ sudo tailscale set --operator=$USER      # tünel komutları sudo istemesin
 cd ~/Belgeler/Pcbridge
 chmod +x *.sh
 ./install.sh
+source ~/.bashrc
 ```
 
 `install.sh` şunları yapar: sanal ortamı kurar, rastgele bir **parola** üretip
 ekrana basar (kaydet — yalnızca uzaktan erişimde gerekiyor), Tailscale adını
 okuyup `public_url`'i doldurur, systemd birimini tanımlar ve **açılışta
-başlayacak şekilde etkinleştirir** (yalnızca `127.0.0.1`; tünel açılmaz).
+başlayacak şekilde etkinleştirir** (yalnızca `127.0.0.1`; tünel açılmaz),
+`bridge*` alias'larını `~/.bashrc`'ye ekler.
 
 ### 3. İstemcilere bağla — asıl adım
 
@@ -150,12 +152,12 @@ uygulamayı **tamamen kapatıp** yeniden açmak gerekiyor.
 Telefondan bağlanmak ya da başka bir makinedeki ajanı bağlamak istiyorsanız:
 
 ```bash
-./remote.sh start
+bridgeac        # = ./remote.sh start
 ```
 
 Tüneli açar, dışarıdan erişilebilir mi diye kontrol eder ve uzak istemciye
-gireceğiniz adresi yazar. Kapatmak için `./remote.sh stop`, durum için
-`./remote.sh status`.
+gireceğiniz adresi yazar. Kapatmak için `bridgekapat`, durum için
+`bridgedurum`.
 
 ---
 
@@ -166,10 +168,18 @@ açıldığında pcbridge oradadır; kapanınca süreç ölür.
 
 | Komut | Ne yapar |
 |---|---|
+| `bridgeac` | Uzaktan erişimi açar (servis + tünel) |
+| `bridgekapat` | Uzaktan erişimi kapatır |
+| `bridgedurum` | Sunucu / tünel / dışarıdan erişim durumu |
+| `bridgekilit` | **Masaüstü iznini anında kapatır** — acil durdurma |
 | `./doctor.sh` | Bir şey çalışmıyorsa ayrıntılı tanı |
-| `journalctl --user -u pcbridge -f` | Canlı log (HTTP servisi) |
-| `./remote.sh start` / `stop` / `status` | Uzaktan erişim tüneli |
 | `./connect.sh` | İstemci kurulum komutları |
+| `journalctl --user -u pcbridge -f` | Canlı log (HTTP servisi) |
+
+> `bridgekapat` pcbridge'i **kapatmaz** — yalnızca HTTP yolunu. Claude Code,
+> Codex ve Claude Desktop stdio kullanıyor ve sunucuyu kendileri başlatıyor;
+> onları durdurmak için ajanın kendisini kapatmak gerekir.
+> Masaüstü erişimini kesmek istiyorsanız aradığınız komut `bridgekilit`.
 
 HTTP servisi açılışta kendiliğinden başlıyor ama yalnızca `127.0.0.1`'i dinliyor
 — makineyi internete açan şey **tünel** ve o otomatik açılmıyor. Bu ayrım
