@@ -350,15 +350,22 @@ case "$STDIO" in
   *)   fail "stdio baslatilamadi: ${STDIO:-cevap yok}" ;;
 esac
 
-# Claude Code: kayitli mi VE baglanabiliyor mu (bunu `claude mcp list` soyluyor).
+# Claude Code: kayitli mi, BAGLANIYOR mu, ve HANGI KAPSAMDA.
+# Kapsam onemli: varsayilan `local` yalnizca eklendigi projede gecerli, yani
+# baska bir dizinde acilan oturum pcbridge'i hic gormez. Bu sessiz bir tuzak --
+# "kayitli" gorunur ama calismaz.
 if command -v claude >/dev/null; then
   CL="$(claude mcp list 2>/dev/null | grep '^pcbridge' || true)"
+  SCOPE="$(claude mcp get pcbridge 2>/dev/null | grep -i 'Scope:' | head -1)"
   if [ -z "$CL" ]; then
-    warn "Claude Code'a kayitli degil — ./connect.sh"
-  elif printf '%s' "$CL" | grep -q "Connected"; then
-    pass "Claude Code: kayitli ve BAGLANIYOR"
-  else
+    warn "Claude Code'a kayitli degil — ./connect.sh --apply"
+  elif ! printf '%s' "$CL" | grep -q "Connected"; then
     fail "Claude Code: kayitli ama baglanamiyor · $CL"
+  elif printf '%s' "$SCOPE" | grep -qi "user"; then
+    pass "Claude Code: BAGLANIYOR · her dizinde gecerli (user kapsami)"
+  else
+    warn "Claude Code: baglaniyor ama YALNIZCA bir projede (${SCOPE#*: })"
+    info "her dizinde olmasi icin: ./connect.sh --apply"
   fi
 else
   info "claude PATH'te yok"

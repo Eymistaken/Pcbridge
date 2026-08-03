@@ -2,11 +2,17 @@
 # pcbridge'i bir MCP istemcisine baglama komutlarini uretir.
 #
 # Varsayilan davranis: KOMUTLARI YAZDIRIR, calistirmaz. Kullanici okuyup
-# kopyalasin diye. `--apply` verilirse claude/codex kayitlarini fiilen yapar.
+# kopyalasin diye. `--apply` verilirse kayitlari fiilen yapar.
 #
-# Claude Desktop hicbir zaman otomatik yazilmaz: yapilandirma dosyasi
-# kullanicinin baska sunucularini da tasiyor ve bir betigin JSON'u yeniden
-# yazmasi onlari kaybettirebilir. Oraya eklenecek parca basiliyor, o kadar.
+# UC KAYIT DA GLOBAL: hangi dizinde calisirsan calis pcbridge gorunur.
+#   claude  -> `-s user` (varsayilan `local` OLURDU ve yalnizca o projede
+#              gecerli olurdu; bu tam olarak yasandi, bu yuzden acikca yaziliyor)
+#   codex   -> ~/.codex/config.toml zaten global
+#   desktop -> ~/.config/Claude/claude_desktop_config.json zaten global
+#
+# Claude Desktop yapilandirmasi JSON BIRLESTIRILEREK yaziliyor, ustune
+# yazilarak degil: dosyada kullanicinin baska ayarlari duruyor. Once zaman
+# damgali bir yedek aliniyor, sonra yalnizca mcpServers.pcbridge ekleniyor.
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -53,21 +59,38 @@ EOF
 blue "1. Claude Code"
 if command -v claude >/dev/null; then
   dim "surum: $(claude --version 2>/dev/null | head -1)"
-  if claude mcp list 2>/dev/null | grep -q "^pcbridge"; then
-    ok "zaten kayitli"
+  SCOPE="$(claude mcp get pcbridge 2>/dev/null | grep -i 'Scope:' | head -1)"
+  if printf '%s' "$SCOPE" | grep -qi "user"; then
+    ok "kayitli · her dizinde gecerli"
+  elif [ -n "$SCOPE" ]; then
+    # `-s user` verilmeden eklenmis: yalnizca eklendigi projede gorunur.
+    warn "kayitli ama YALNIZCA bir projede geçerli (${SCOPE#*: })"
+    if [ "$APPLY" = "1" ]; then
+      claude mcp remove pcbridge -s local >/dev/null 2>&1
+      claude mcp remove pcbridge -s project >/dev/null 2>&1
+      if claude mcp add -s user pcbridge -- $STDIO_CMD >/dev/null 2>&1; then
+        ok "user kapsamina tasindi — artik her dizinde"
+      else
+        fail "tasinamadi, elle: claude mcp add -s user pcbridge -- $STDIO_CMD"
+      fi
+    else
+      dim "Her dizinde gecerli olmasi icin:"
+      cmd "claude mcp remove pcbridge -s local"
+      cmd "claude mcp add -s user pcbridge -- $STDIO_CMD"
+    fi
   elif [ "$APPLY" = "1" ]; then
-    if claude mcp add pcbridge -- $STDIO_CMD >/dev/null 2>&1; then
-      ok "kaydedildi"
+    if claude mcp add -s user pcbridge -- $STDIO_CMD >/dev/null 2>&1; then
+      ok "kaydedildi · her dizinde gecerli"
     else
       fail "kayit basarisiz — komutu elle dene:"
-      cmd "claude mcp add pcbridge -- $STDIO_CMD"
+      cmd "claude mcp add -s user pcbridge -- $STDIO_CMD"
     fi
   else
-    dim "kayitli degil. Komut:"
-    cmd "claude mcp add pcbridge -- $STDIO_CMD"
+    dim "kayitli degil. Komut (-s user SART, yoksa yalnizca bu projede olur):"
+    cmd "claude mcp add -s user pcbridge -- $STDIO_CMD"
   fi
   dim "Uzaktan (HTTP + OAuth) baglanmak istersen:"
-  cmd "claude mcp add --transport http pcbridge $MCP_URL"
+  cmd "claude mcp add -s user --transport http pcbridge $MCP_URL"
 else
   warn "claude PATH'te yok"
 fi
@@ -108,21 +131,52 @@ if [ -f "$CD_CFG" ]; then
   ok "yapilandirma dosyasi: $CD_CFG"
   if grep -q '"pcbridge"' "$CD_CFG" 2>/dev/null; then
     ok "zaten kayitli"
+  elif [ "$APPLY" = "1" ]; then
+    # JSON BIRLESTIRILIYOR, ustune yazilmiyor: dosyada kullanicinin baska
+    # ayarlari duruyor (pencere tercihleri, cowork yollari...). Once yedek,
+    # sonra ekleme, sonra "eski anahtarlarin hepsi duruyor mu" kontrolu.
+    "$PY" - "$PY" "$CD_CFG" <<'PYEOF'
+import json, pathlib, shutil, sys, datetime
+py, cfg = sys.argv[1], pathlib.Path(sys.argv[2])
+backup = cfg.with_suffix(f".json.yedek-{datetime.datetime.now():%Y%m%d-%H%M%S}")
+shutil.copy2(cfg, backup)
+try:
+    data = json.loads(cfg.read_text(encoding="utf-8"))
+except ValueError as exc:
+    print(f"  BOZUK JSON, dokunulmadi: {exc}")
+    sys.exit(1)
+before = sorted(data)
+data.setdefault("mcpServers", {})["pcbridge"] = {
+    "command": py, "args": ["-m", "pcbridge.server", "--stdio"],
+}
+cfg.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+after = json.loads(cfg.read_text(encoding="utf-8"))
+missing = [k for k in before if k not in after]
+if missing:
+    shutil.copy2(backup, cfg)
+    print(f"  ANAHTAR KAYBI ({missing}) — yedekten geri alindi.")
+    sys.exit(1)
+print(f"  yedek: {backup.name}")
+PYEOF
+    if [ $? -eq 0 ]; then
+      ok "eklendi (mevcut ayarlar korundu)"
+      warn "Claude Desktop'i TAMAMEN kapatip yeniden ac — yoksa gormez."
+    else
+      fail "eklenemedi; dosyaya elle bak: edit $CD_CFG"
+    fi
   else
     dim "Dosyaya BU parcayi ekle (varsa mevcut mcpServers'in icine):"
     echo
-    "$PY" - "$PY" "$DIR" <<'PYEOF'
+    "$PY" - "$PY" <<'PYEOF'
 import json, sys
-py, d = sys.argv[1], sys.argv[2]
 print(json.dumps({"mcpServers": {"pcbridge": {
-    "command": py, "args": ["-m", "pcbridge.server", "--stdio"], "cwd": d,
+    "command": sys.argv[1], "args": ["-m", "pcbridge.server", "--stdio"],
 }}}, indent=2))
 PYEOF
     echo
     dim "Duzenlemek icin:  edit $CD_CFG"
-    dim "Sonra Claude Desktop'i tamamen kapatip yeniden ac."
-    warn "Dosyayi bu betik YAZMIYOR: icinde baska ayarlarin var, ustune yazmak"
-    dim "onlari kaybettirebilir."
+    dim "Ya da `./connect.sh --apply` yedekleyip birlestirerek ekler."
+    dim "Sonra Claude Desktop'i TAMAMEN kapatip yeniden ac."
   fi
 else
   warn "Claude Desktop yapilandirmasi yok ($CD_CFG) — kurulu mu?"

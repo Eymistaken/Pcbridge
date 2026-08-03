@@ -143,12 +143,21 @@ Yerel istemciler sunucuya **stdio** ile bağlanır: tünel yok, `sparkac` gerekm
 sunucuyu istemcinin kendisi başlatır. Claude Code için tek komut:
 
 ```bash
-claude mcp add pcbridge -- /YOL/Pcbridge/.venv/bin/python -m pcbridge.server --stdio
+claude mcp add -s user pcbridge -- /YOL/Pcbridge/.venv/bin/python -m pcbridge.server --stdio
 ```
 
-Claude Desktop'ın yapılandırma dosyası (`~/.config/Claude/claude_desktop_config.json`)
-**elle** düzenlenir — `connect.sh` eklenecek JSON parçasını basar ama dosyanın
-üstüne yazmaz, içinde başka ayarların var.
+> **`-s user` atlanmasın.** `claude mcp add`in varsayılan kapsamı `local` ve o
+> kayıt **yalnızca eklendiği dizinde** geçerli — başka bir klasörde açtığın
+> oturum pcbridge'i hiç görmez. Sessiz bir tuzak, çünkü `claude mcp list`
+> "kayıtlı" der. `doctor.sh` bu durumu ayrıca uyarır.
+
+Claude Desktop'ın yapılandırma dosyasına (`~/.config/Claude/claude_desktop_config.json`)
+`connect.sh --apply` **birleştirerek** yazar: önce zaman damgalı yedek alır,
+sonra yalnızca `mcpServers.pcbridge` ekler, sonra eski anahtarların hepsinin
+durduğunu doğrular — biri kaybolduysa yedekten geri alır. Eklendikten sonra
+uygulamayı **tamamen kapatıp** yeniden açmak gerekiyor.
+
+Üç kayıt da globaldir: hangi dizinde çalışırsan çalış pcbridge görünür.
 
 > **Codex:** komutlar üretiliyor ve yapılandırmaya doğru yazıldığı `codex mcp get
 > pcbridge` ile doğrulandı, ama **bu makinede denenmedi** — Codex aboneliği yok.

@@ -19,10 +19,16 @@ pcbridge'e iki yoldan bağlanılır. Kurulum komutlarını `./connect.sh` basar.
 
 | | nasıl | ekran görüntüsü |
 |---|---|---|
-| **Claude Code** | `./connect.sh --apply`, ya da `claude mcp add pcbridge -- <venv>/bin/python -m pcbridge.server --stdio` | görüntünün **kendisi** gelir, ajan bakar |
-| **Claude Desktop** | `connect.sh`'in bastığı JSON parçasını `~/.config/Claude/claude_desktop_config.json`'a ekle, uygulamayı yeniden başlat | aynı |
+| **Claude Code** | `./connect.sh --apply`, ya da `claude mcp add -s user pcbridge -- <venv>/bin/python -m pcbridge.server --stdio` | görüntünün **kendisi** gelir, ajan bakar |
+| **Claude Desktop** | `./connect.sh --apply` (yedekleyip birleştirir), sonra uygulamayı **tamamen kapatıp** aç | aynı |
 | **Codex CLI** | `codex mcp add pcbridge -- <venv>/bin/python -m pcbridge.server --stdio` | **denenmedi**, aşağıya bak |
 | **Gemini Spark** | `sparkac`, sonra Connected Apps → Add a custom app | bağlantı gelir, **sen** bakarsın |
+
+Üç yerel kayıt da **global**: hangi dizinde çalışırsan çalış pcbridge görünür.
+Claude Code'da bunun şartı `-s user` — atlanırsa kayıt yalnızca eklendiği
+dizinde geçerli olur ve başka klasörde açtığın oturum pcbridge'i **hiç görmez**.
+`claude mcp list` yine "kayıtlı" dediği için sessiz bir tuzak; `./doctor.sh`
+bu durumu ayrıca uyarıyor.
 
 İlk üçü **stdio** kullanır: tünel yok, `sparkac` gerekmez, sunucuyu istemci
 başlatır. Bunun bedeli var — stdio'da **parola sorulmaz**; bu komutu
