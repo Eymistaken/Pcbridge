@@ -105,6 +105,19 @@ class DesktopSpec:
     # yorumlanacagini soyler. Girdi gonderimini DEGISTIRMEZ.
     keyboard_layout: str = "tr+intl"
 
+    # -- fare hareketi (I bolumu) -------------------------------------------
+    # Imlec hedefe ISINLANMAK yerine ara noktalardan gecerek gider. Piksel/sn.
+    # 0 = isinla (eski davranis). `drag` bu ayardan bagimsiz olarak her zaman
+    # ara noktalardan gecer -- sicrayan bir hareketi cogu uygulama surukleme
+    # saymiyor.
+    pointer_speed: int = 5000
+    # Tek bir hareket en fazla bu kadar surer (ms); uzun mesafede hizi artirir.
+    pointer_move_max_ms: int = 500
+    # `hold` ile basili birakilan tus/dugme bu sureden sonra KENDILIGINDEN
+    # birakilir. 0 = birakma (onerilmez: unutulan bir tus makineyi
+    # kullanilamaz hale getirir ve ajan bunu fark etmez).
+    hold_max_seconds: int = 120
+
     # -- ekran goruntusu (C bolumu) -----------------------------------------
     # Kirpma SONRASI uzun kenar. 3840x1080 tuval tek parca kuculturse her
     # monitor ~640x180 kaliyor ve buton yazilari okunmaz oluyor; bu yuzden once
@@ -447,6 +460,9 @@ def load_config(explicit: str | None = None) -> Config:
         default_monitor=int(desktop_raw.get("default_monitor", 1)),
         restore_clipboard=bool(desktop_raw.get("restore_clipboard", True)),
         keyboard_layout=str(desktop_raw.get("keyboard_layout", "tr+intl")),
+        pointer_speed=int(desktop_raw.get("pointer_speed", 5000)),
+        pointer_move_max_ms=int(desktop_raw.get("pointer_move_max_ms", 500)),
+        hold_max_seconds=int(desktop_raw.get("hold_max_seconds", 120)),
         screenshot_scale_long_edge=int(
             desktop_raw.get("screenshot_scale_long_edge", 1280)
         ),
@@ -494,6 +510,25 @@ def load_config(explicit: str | None = None) -> Config:
     if desktop.batch_max_actions < 1:
         raise SystemExit(
             f"[desktop] ({path}): `batch_max_actions` en az 1 olmali."
+        )
+    # 0 = isinlama. Cok dusuk bir hiz ekranin bir ucundan digerine gitmeyi
+    # dakikalara cikarir ve bir MCP cagrisi 110 saniyeyi asamaz.
+    if desktop.pointer_speed and not 200 <= desktop.pointer_speed <= 100_000:
+        raise SystemExit(
+            f"[desktop] ({path}): `pointer_speed` ({desktop.pointer_speed}) ya 0 "
+            "(isinlama) ya da 200-100000 px/s arasinda olmali."
+        )
+    if not 20 <= desktop.pointer_move_max_ms <= 5000:
+        raise SystemExit(
+            f"[desktop] ({path}): `pointer_move_max_ms` "
+            f"({desktop.pointer_move_max_ms}) 20-5000 ms arasinda olmali."
+        )
+    # 0 kapatir; cok kisa bir sure `hold`u kullanilamaz yapar (tut, sonra ayri
+    # bir cagriyla tikla arasinda ag gecikmesi var).
+    if desktop.hold_max_seconds and not 5 <= desktop.hold_max_seconds <= 3600:
+        raise SystemExit(
+            f"[desktop] ({path}): `hold_max_seconds` ({desktop.hold_max_seconds}) "
+            "ya 0 (otomatik birakma yok) ya da 5-3600 saniye arasinda olmali."
         )
     if desktop.computer_task_max_steps < 1:
         raise SystemExit(

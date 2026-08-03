@@ -176,7 +176,10 @@ def main(argv: list[str] | None = None) -> int:
     from ..desktop.input import InputBackend
     from ..desktop.uitree import UiTree
 
-    backend = InputBackend()
+    backend = InputBackend(
+        pointer_speed=cfg.desktop.pointer_speed,
+        pointer_max_ms=cfg.desktop.pointer_move_max_ms,
+    )
     tree = UiTree()
 
     # Cihazlari bastan ac: ikisi de gerekiyorsa bekleme tek sefere iner.

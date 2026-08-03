@@ -141,6 +141,29 @@ restore_clipboard = true
 # isaretleri bozar (`@` yerine `"`), bu yuzden varsayilan yol PANO.
 keyboard_layout = "tr+intl"
 
+# --- fare hareketi ---------------------------------------------------------
+# Imlec hedefe ISINLANMAK yerine ara noktalardan gecerek gider; piksel/saniye.
+# 0 = isinla (eski davranis, en hizlisi). 5000 -> ekranin bir ucundan digerine
+# (1920 piksel) yaklasik 0,4 saniye.
+#
+# Ara noktalarin fiilen gittigi OLCULDU (2026-08-03): 48 adimlik bir hareketin
+# 48 ABS_X + 48 ABS_Y olayinin tamami cihazin event node'undan okundu, kernel
+# hicbirini birlestirmedi.
+#
+# `drag` bu ayardan BAGIMSIZ: 0 verilse bile sürükleme ara noktalardan gecer,
+# cunku tek sicrayista birakilan hareketi cogu uygulama surukleme saymiyor.
+pointer_speed = 5000
+
+# Tek bir hareket en fazla bu kadar surer (ms). Cok uzun mesafede hizi artirir;
+# tuvalin kosegeni (~3900 px) bu tavana takilir.
+pointer_move_max_ms = 500
+
+# `mouse(action = "hold")` / `keyboard(action = "hold")` ile basili birakilan
+# tus ve dugmeler bu sureden sonra KENDILIGINDEN birakilir (saniye).
+# 0 = otomatik birakma yok. ONERILMEZ: `release` unutulursa tus sonsuza kadar
+# basili kalir, ajan bunu fark etmez ve makine kullanilamaz hale gelir.
+hold_max_seconds = 120
+
 # --- ekran goruntusu -------------------------------------------------------
 # screen_capture DE desktop_unlock ister: ekranda ne varsa (parolalar,
 # mesajlar) hepsini gosterdigi icin en gizlilik-hassas arac. Yalnizca "yakinda

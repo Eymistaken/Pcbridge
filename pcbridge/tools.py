@@ -711,7 +711,10 @@ def register(
     # =============================================================== MASAUSTU
     # Klavye/fare kontrolu. Her cagri once SafetyGate'ten gecer: [desktop]
     # enabled, ekran kilidi, sureli izin, kullanici cakismasi, hiz siniri.
-    backend = inputlib.InputBackend()
+    backend = inputlib.InputBackend(
+        pointer_speed=cfg.desktop.pointer_speed,
+        pointer_max_ms=cfg.desktop.pointer_move_max_ms,
+    )
     tree = uitreelib.UiTree()
 
     def _guard(

@@ -26,11 +26,18 @@ TURKCE KLAVYE
     varsayilan yolu **pano + Ctrl+V**: duzenden tamamen bagimsiz, uzun
     metinlerde ayrica cok daha hizli. Ham tus yolu (`raw=True`) durur ama
     varsayilan degildir.
+
+IMLEC ISINLANMAZ
+    `move()` hedefe tek bir ABS yazmasiyla atlamak yerine ara noktalardan
+    gecer. Yol hesabi `move_path()` icinde ve **saf**: cihaz gormez, uyumaz,
+    boylece gercek tiklama gondermeden test edilebiliyor.
 """
 
 from __future__ import annotations
 
+import math
 import subprocess
+import threading
 import time
 
 from . import monitors as monitorslib
@@ -54,6 +61,26 @@ BUTTONS = ("left", "right", "middle")
 # Cihaz yaratildiktan sonra libinput/udev onu gorup kompozitore tanitana kadar
 # gecen sure. Olculdu: 1.5 s fazlasiyla yetiyor, 0.5 s'de ilk olay kayboluyor.
 SETTLE_SECONDS = 1.2
+
+# --------------------------------------------------------------- fare hareketi
+# Ara nokta araligi. Gercek farelerin bildirim hizi 125 Hz; 8 ms onu tutturuyor.
+# OLCULDU 2026-08-03: `time.sleep(0.008)` fiilen 8,07 ms suruyor (sapma
+# +0,08 ms) ve 48 adimlik bir hareketin **48 ABS_X + 48 ABS_Y olayinin tamami**
+# cihazin kendi event node'undan okundu -- kernel ara noktalari birlestirmiyor,
+# SYN_DROPPED yok. (Ilk olcumde 96 yerine 11 olay gorunmustu; sebep okuyucunun
+# hareket boyunca hic okumayip evdev istemci kuyrugunu tasirmasiydi.)
+MOVE_STEP_SECONDS = 0.008
+
+# Cok kisa mesafelerde bile hareketin gorulebilmesi icin taban sure.
+MOVE_MIN_MS = 60.0
+
+DEFAULT_POINTER_SPEED = 5000     # px/s; 0 = isinla (eski davranis)
+DEFAULT_POINTER_MAX_MS = 500     # tek hareket bundan uzun surmez
+
+# `drag` yumusakligi AYARDAN BAGIMSIZ: tek sicrayista birakilan hareketi cogu
+# uygulama surukleme saymiyor. `pointer_speed = 0` verilse bile bu kadar ara
+# nokta uretilir.
+DRAG_MIN_STEPS = 10
 
 
 class InputError(RuntimeError):
@@ -182,11 +209,70 @@ def key_code(name: str) -> int:
 
 
 def parse_combo(combo: str) -> list[int]:
-    """'ctrl+shift+t' -> [KEY_LEFTCTRL, KEY_LEFTSHIFT, KEY_T] (basma sirasi)."""
+    """'ctrl+shift+t' -> [KEY_LEFTCTRL, KEY_LEFTSHIFT, KEY_T] (basma sirasi).
+
+    Tus SAYISI sinirsiz: sanal cihazda gercek klavyelerin "ghosting" kisiti
+    yok, 'ctrl+shift+alt+a' gibi bir kombinasyon oldugu gibi gider.
+    """
     parts = [p for p in str(combo).replace(" ", "").split("+") if p]
     if not parts:
         raise InputError("Bos tus kombinasyonu")
     return [key_code(p) for p in parts]
+
+
+def key_name(code: int) -> str:
+    """Keycode -> insana okunur ad. Bilinmeyen kod ham sayi olarak doner."""
+    for name, ident in KEY_NAMES.items():
+        if e is not None and e.ecodes.get(ident) == code:
+            return name
+    return str(code)
+
+
+# --------------------------------------------------------------- fare hareketi
+def move_path(
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    speed: float = DEFAULT_POINTER_SPEED,
+    max_ms: float = DEFAULT_POINTER_MAX_MS,
+    step_seconds: float = MOVE_STEP_SECONDS,
+    min_steps: int = 1,
+) -> list[tuple[int, int]]:
+    """(x1,y1) -> (x2,y2) yolundaki ara noktalar. BASLANGIC DAHIL DEGIL.
+
+    SAF: cihaz gormez, uyumaz, kuresel duruma bakmaz. Bu yuzden `batch.py`
+    ile ayni gerekcede -- gercek tiklama gondermeden test edilebilsin diye --
+    burada duruyor.
+
+    Hiz egrisi **smoothstep** (`t²(3-2t)`): sabit hizla baslayip duran bir
+    imlec robotik gorunuyor, smoothstep hizlanma-yavaslama veriyor.
+
+    `speed <= 0` -> tek nokta (isinlama). `min_steps` bunu bile ezer; `drag`
+    oradan gecer, cunku sicrayan bir hareketi cogu uygulama surukleme saymaz.
+    """
+    target = (int(x2), int(y2))
+    dist = math.hypot(x2 - x1, y2 - y1)
+    if dist < 1:
+        return [target]
+
+    if speed > 0:
+        duration_ms = min(max(dist / speed * 1000.0, MOVE_MIN_MS), max(1.0, max_ms))
+        steps = max(min_steps, int(round(duration_ms / (step_seconds * 1000.0))), 1)
+    else:
+        steps = max(min_steps, 1)
+
+    points: list[tuple[int, int]] = []
+    for i in range(1, steps + 1):
+        t = i / steps
+        s = t * t * (3 - 2 * t)
+        point = (round(x1 + (x2 - x1) * s), round(y1 + (y2 - y1) * s))
+        # Ayni pikseli iki kez yazmak bedava degil: her nokta bir syn() demek.
+        if not points or points[-1] != point:
+            points.append(point)
+    if points[-1] != target:
+        points.append(target)
+    return points
 
 
 # ------------------------------------------------------------------- pano yolu
@@ -250,12 +336,19 @@ class InputBackend:
     (`desktop_lock` bunu cagirir, servisin olmesi de ayni etkiyi yapar).
     """
 
-    def __init__(self, settle_seconds: float = SETTLE_SECONDS) -> None:
+    def __init__(
+        self,
+        settle_seconds: float = SETTLE_SECONDS,
+        pointer_speed: float = DEFAULT_POINTER_SPEED,
+        pointer_max_ms: float = DEFAULT_POINTER_MAX_MS,
+    ) -> None:
         self._kbd: "UInput | None" = None
         self._ptr: "UInput | None" = None
         self._canvas: tuple[int, int] | None = None
         self._pos: tuple[int, int] | None = None
         self._settle = settle_seconds
+        self._speed = float(pointer_speed)
+        self._max_ms = float(pointer_max_ms)
 
     # ------------------------------------------------------------- yasam dongu
     def available(self) -> tuple[bool, str]:
@@ -380,13 +473,41 @@ class InputBackend:
         w, h = monitorslib.canvas_size()
         return (max(0, min(int(x), w - 1)), max(0, min(int(y), h - 1)))
 
-    def move(self, x: int, y: int) -> tuple[int, int]:
-        """Imleci global tuval koordinatina tasi. Tuval disi deger kirpilir."""
+    def move(
+        self, x: int, y: int, smooth: bool | None = None, min_steps: int = 1
+    ) -> tuple[int, int]:
+        """Imleci global tuval koordinatina tasi. Tuval disi deger kirpilir.
+
+        Varsayilan olarak ISINLAMAZ: ara noktalardan gecer (bkz. `move_path`).
+        `smooth=False` tek sicrayista gonderir.
+
+        **Ilk hareket kacinilmaz olarak sicrar**: Wayland'de imlecin gercek
+        konumu disaridan sorulamiyor, yalnizca BIZIM gonderdigimiz konumu
+        biliyoruz (`self._pos`). Cihaz yeni yaratildiginda o da bos.
+        """
         ptr = self._pointer()
         cx, cy = self._clamp(x, y)
-        ptr.write(e.EV_ABS, e.ABS_X, cx)
-        ptr.write(e.EV_ABS, e.ABS_Y, cy)
-        ptr.syn()
+        start = self._pos
+        want = self._speed > 0 if smooth is None else bool(smooth)
+
+        if start is not None and (want or min_steps > 1):
+            path = move_path(
+                start[0], start[1], cx, cy,
+                speed=self._speed if want else 0.0,
+                max_ms=self._max_ms,
+                min_steps=min_steps,
+            )
+        else:
+            path = [(cx, cy)]
+
+        last = len(path) - 1
+        for i, (px, py) in enumerate(path):
+            ptr.write(e.EV_ABS, e.ABS_X, px)
+            ptr.write(e.EV_ABS, e.ABS_Y, py)
+            ptr.syn()
+            self._pos = (px, py)
+            if i < last:
+                time.sleep(MOVE_STEP_SECONDS)
         self._pos = (cx, cy)
         return (cx, cy)
 
@@ -423,20 +544,26 @@ class InputBackend:
                 time.sleep(0.08)
 
     def drag(
-        self, x1: int, y1: int, x2: int, y2: int, button: str = "left", steps: int = 12
+        self,
+        x1: int,
+        y1: int,
+        x2: int,
+        y2: int,
+        button: str = "left",
+        steps: int = DRAG_MIN_STEPS,
     ) -> None:
-        """Basili tutarak surukle. Ara adimlar sart: tek sicrayista birakilan
-        hareketi cogu uygulama surukleme saymiyor."""
+        """Basili tutarak surukle.
+
+        Ara adimlar SART: tek sicrayista birakilan hareketi cogu uygulama
+        surukleme saymiyor. Bu yuzden `pointer_speed = 0` (isinlama) ayarinda
+        bile en az `steps` ara nokta uretilir -- yol hesabi `move_path` ile
+        ortak, ayri bir interpolasyon kopyasi tutulmuyor.
+        """
         self.move(x1, y1)
         time.sleep(0.05)
         self.mouse_down(button)
         time.sleep(0.05)
-        sx, sy = self._clamp(x1, y1)
-        ex, ey = self._clamp(x2, y2)
-        for i in range(1, max(1, steps) + 1):
-            t = i / max(1, steps)
-            self.move(round(sx + (ex - sx) * t), round(sy + (ey - sy) * t))
-            time.sleep(0.02)
+        self.move(x2, y2, min_steps=max(1, steps))
         time.sleep(0.05)
         self.mouse_up(button)
 
