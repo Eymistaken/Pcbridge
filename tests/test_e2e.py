@@ -612,9 +612,47 @@ def main() -> int:
     actions_desc = str(batch_props.get("actions", {}).get("description", ""))
     check("actions aciklamasi ornek JSON veriyor", '{"a":' in actions_desc,
           actions_desc[:200])
-    for kind in ("key", "type", "wait", "ui_click", "launch", "focus"):
+    for kind in ("key", "type", "wait", "ui_click", "launch", "focus",
+                 "hold", "release", "mouse_down", "mouse_up", "triple_click"):
         check(f"actions aciklamasi '{kind}' eylemini sayiyor",
-              kind in actions_desc, actions_desc[:300])
+              kind in actions_desc, actions_desc[:400])
+    # Ayri cagrilarla da yapilabilen bir sey; ajanin BUNU tek listede
+    # yapabilecegini bilmesi lazim, yoksa hold'u hic kullanmaz.
+    check("actions aciklamasi duraklamali suruklemeyi anlatiyor",
+          "mouse_down, move" in actions_desc, actions_desc[:500])
+
+    # -- I bolumu: mouse/keyboard genisledi -------------------------------
+    mouse_props = by_name.get("mouse", {}).get("inputSchema", {}).get("properties", {})
+    for field_ in ("action", "x", "y", "to_x", "to_y", "scroll_amount",
+                   "horizontal", "button", "smooth", "monitor", "force"):
+        check(f"mouse.{field_} parametresi var", field_ in mouse_props,
+              str(sorted(mouse_props)))
+    mouse_act = " ".join(str(mouse_props.get("action", {}).get("description", "")).split())
+    for act in ("triple_click", "right_click", "middle_click", "drag", "scroll",
+                "hold", "release"):
+        check(f"mouse.action '{act}' eylemini sayiyor", act in mouse_act,
+              mouse_act[:300])
+    mouse_desc = " ".join(str(by_name.get("mouse", {}).get("description", "")).split())
+    # Imlec artik yol aliyor: ajan bunu bilmezse "takildi" sanip cagriyi
+    # tekrarlar ve iki hareket ust uste biner.
+    check("mouse aciklamasi imlecin isinlanmadigini soyluyor",
+          "glides" in mouse_desc, mouse_desc[:400])
+    check("mouse aciklamasi duraklamali suruklemeyi anlatiyor",
+          "hold, then move, then release" in mouse_desc, mouse_desc[:400])
+
+    kb_desc = " ".join(str(by_name.get("keyboard", {}).get("description", "")).split())
+    check("keyboard aciklamasi hold'un kalici oldugunu soyluyor",
+          "keeps keys down across later calls" in kb_desc, kb_desc[:400])
+    check("keyboard aciklamasi birakmayi zorunlu kiliyor",
+          "Always release what you hold" in kb_desc, kb_desc[:500])
+    # Otomatik birakma bir GUVENLIK AGI; ajan onu normal yol sanmamali.
+    check("keyboard aciklamasi otomatik birakmayi yedek olarak anlatiyor",
+          "damage control" in kb_desc, kb_desc[:600])
+    kb_keys = " ".join(str(by_name.get("keyboard", {}).get("inputSchema", {})
+                           .get("properties", {}).get("keys", {})
+                           .get("description", "")).split())
+    check("keyboard.keys sinirsiz tus birlesimini soyluyor",
+          "Any number of keys" in kb_keys, kb_keys[:300])
 
     check("window_list readOnlyHint isaretli",
           (by_name.get("window_list", {}).get("annotations") or {})

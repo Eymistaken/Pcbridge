@@ -864,6 +864,7 @@ class FakeOps:
         self._focus = focus
         self.focus_after_click: str | None = None
         self.fail_at: str | None = None
+        self._held: list[str] = []
 
     def _rec(self, *args) -> str:
         self.log.append(args)
@@ -886,11 +887,40 @@ class FakeOps:
             self._focus = self.focus_after_click
         return out
 
-    def drag(self, x, y, to_x, to_y, monitor):
-        return self._rec("drag", x, y, to_x, to_y)
+    def mouse_down(self, button, x, y, monitor):
+        out = self._rec("mouse_down", button, x, y)
+        self._held.append(button)
+        if self.focus_after_click:
+            self._focus = self.focus_after_click
+        return out
 
-    def scroll(self, amount, x, y, monitor):
-        return self._rec("scroll", amount)
+    def mouse_up(self, button):
+        if button in self._held:
+            self._held.remove(button)
+        return self._rec("mouse_up", button)
+
+    def hold(self, keys):
+        self._held.append(keys)
+        return self._rec("hold", keys)
+
+    def release(self, keys):
+        if keys in self._held:
+            self._held.remove(keys)
+        return self._rec("release", keys)
+
+    def held(self):
+        return list(self._held)
+
+    def release_all(self):
+        freed, self._held = list(self._held), []
+        self.log.append(("release_all",))
+        return freed
+
+    def drag(self, x, y, to_x, to_y, button, monitor):
+        return self._rec("drag", x, y, to_x, to_y, button)
+
+    def scroll(self, amount, x, y, monitor, horizontal=False):
+        return self._rec("scroll", amount, horizontal)
 
     def ui_click(self, node_id):
         return self._rec("ui_click", node_id)
@@ -962,6 +992,53 @@ def test_batch_parse() -> None:
     except B.BatchError:
         pass
     check("hatali listede hicbir eylem calismadi", ops.log == [], str(ops.log))
+
+    # -- I bolumu: basili tutma ve yeni dugmeler ---------------------------
+    yeni = B.parse(
+        '[{"a":"hold","keys":"ctrl"},'
+        '{"a":"triple_click","x":10,"y":20},'
+        '{"a":"mouse_down","button":"middle","x":1,"y":2},'
+        '{"a":"mouse_up","button":"middle"},'
+        '{"a":"scroll","amount":-5,"horizontal":true},'
+        '{"a":"drag","x":1,"y":2,"to_x":3,"to_y":4,"button":"right"},'
+        '{"a":"release","keys":"ctrl"}]'
+    )
+    check("yeni eylemler ayrisiyor",
+          [a.a for a in yeni] == ["hold", "triple_click", "mouse_down", "mouse_up",
+                                  "scroll", "drag", "release"],
+          str([a.a for a in yeni]))
+    check("mouse_down dugmeyi tasiyor", yeni[2].args["button"] == "middle")
+    check("mouse_up dugmeyi tasiyor", yeni[3].args["button"] == "middle")
+    check("scroll yatay bayragi tasiyor", yeni[4].args["horizontal"] is True)
+    check("drag dugmeyi tasiyor", yeni[5].args["button"] == "right")
+    check("drag varsayilan dugmesi left",
+          B.parse('[{"a":"drag","x":1,"y":2,"to_x":3,"to_y":4}]')[0].args["button"]
+          == "left")
+    check("scroll varsayilani dikey",
+          B.parse('[{"a":"scroll","amount":3}]')[0].args["horizontal"] is False)
+
+    check("gecersiz dugme reddediliyor",
+          fails('[{"a":"mouse_down","button":"ucuncu"}]', "dugme"))
+    check("hold keys istiyor", fails('[{"a":"hold"}]', "keys yok"))
+    check("release keys istiyor", fails('[{"a":"release"}]', "keys yok"))
+
+    # describe() raporda gorunuyor; yanlis eylem adi yanlis tesise yol acar.
+    check("hold describe'i okunur", yeni[0].describe() == "hold 'ctrl'",
+          yeni[0].describe())
+    check("mouse_up describe'i dugmeyi soyluyor",
+          yeni[3].describe() == "mouse_up middle", yeni[3].describe())
+
+    # Cihaz secimi: `hold` klavye ister, `mouse_up` fare ister. Yalnizca
+    # `ui_*` iceren bir liste HICBIR cihaz actirmamali (C bolumu hatasi).
+    from pcbridge.desktop import ops as O
+    check("hold klavye istiyor", O.devices_needed(B.parse('[{"a":"hold","keys":"a"}]'))
+          == (True, False))
+    check("mouse_up fare istiyor",
+          O.devices_needed(B.parse('[{"a":"mouse_up"}]')) == (False, True))
+    check("mouse_down fare istiyor",
+          O.devices_needed(B.parse('[{"a":"mouse_down"}]')) == (False, True))
+    check("ui_click hicbir cihaz istemiyor",
+          O.devices_needed(B.parse('[{"a":"ui_click","id":"a1"}]')) == (False, False))
 
 
 def test_batch_budget() -> None:
@@ -1131,6 +1208,31 @@ def test_batch_stops() -> None:
           f"{res10.stopped} {res10.detail[:80]}")
     check("ikinci kaymada ctrl+a gitmedi",
           not any(x[0] == "key" for x in ops10.log), str(ops10.log))
+
+    # -- I bolumu: yarim kalan `hold` --------------------------------------
+    # Dizi DUZGUN bittiyse basili birakilan durur ("tut, sonraki cagrida
+    # tikla" mesru), ama YARIDA kaldiysa birakilir: o noktadan sonra kimse
+    # birakmayi ustlenmemis olur.
+    plan11 = B.parse('[{"a":"hold","keys":"shift"},{"a":"mouse_down"}]')
+    ops11 = FakeOps()
+    res11 = B.run(plan11, ops11, budget=90, check_focus=False, sleep=lambda s: None)
+    check("duzgun biten dizide basili kalan DURUYOR",
+          set(res11.held) == {"shift", "left"}, str(res11.held))
+    check("duzgun bitiste release_all cagrilmadi",
+          ("release_all",) not in ops11.log, str(ops11.log))
+    check("rapor basili kalani soyluyor", "HALA BASILI" in B.describe(res11))
+
+    plan12 = B.parse('[{"a":"hold","keys":"shift"},{"a":"mouse_down"},'
+                     '{"a":"ui_click","id":"x"}]')
+    ops12 = FakeOps()
+    ops12.fail_at = "ui_click"
+    res12 = B.run(plan12, ops12, budget=90, check_focus=False, sleep=lambda s: None)
+    check("yarida kalan dizide basili kalan BIRAKILDI", res12.held == [],
+          str(res12.held))
+    check("yarida kalinca release_all cagrildi",
+          ("release_all",) in ops12.log, str(ops12.log))
+    check("gerekce raporda", "basili kalanlar birakildi" in res12.detail,
+          res12.detail[:120])
 
 
 def test_batch_super_clipboard() -> None:
@@ -1572,6 +1674,203 @@ def test_computer_task_prompt() -> None:
     check("hazirlik yoksa satir da yok", "hazirlandi" not in p2)
 
 
+def test_move_path() -> None:
+    """Yumusak fare hareketinin yol hesabi (`input.move_path`).
+
+    Fonksiyon SAF: cihaz gormez, uyumaz. Bu yuzden burada gercek klavye/fare
+    olmadan kosuyor -- `models.py`'nin saf tutulmasiyla ayni gerekce.
+    """
+    from pcbridge.desktop.input import (
+        DEFAULT_POINTER_MAX_MS,
+        DEFAULT_POINTER_SPEED,
+        MOVE_MIN_MS,
+        MOVE_STEP_SECONDS,
+        move_path,
+    )
+
+    section("38. Yumusak fare hareketi — yol hesabi")
+
+    step_ms = MOVE_STEP_SECONDS * 1000
+
+    # 1) Hedef her zaman TAM tutturulur. Bir piksel sapma ikinci monitorde
+    #    yanlis widget'a tiklamak demek.
+    for (x1, y1, x2, y2) in [(0, 0, 1920, 0), (37, 11, 3839, 1079),
+                             (3000, 900, 5, 5), (100, 100, 101, 100)]:
+        path = move_path(x1, y1, x2, y2)
+        check(f"son nokta tam hedef ({x2}, {y2})", path[-1] == (x2, y2), str(path[-1]))
+
+    # 2) Baslangic noktasi YOK: oradan zaten geliyoruz, tekrar yazmak bedava degil.
+    path = move_path(0, 0, 1920, 0)
+    check("baslangic noktasi yolda degil", path[0] != (0, 0), str(path[0]))
+
+    # 3) Sure = mesafe / hiz, taban ve tavanla sinirli.
+    uzun = move_path(0, 0, 1920, 0, speed=5000, max_ms=500)
+    beklenen = round(1920 / 5000 * 1000 / step_ms)
+    check("1920 px -> beklenen adim sayisi", len(uzun) == beklenen,
+          f"{len(uzun)} nokta, beklenen {beklenen}")
+
+    kisa = move_path(0, 0, 20, 0, speed=5000)
+    check("cok kisa mesafe TABAN suresine cikiyor",
+          len(kisa) == round(MOVE_MIN_MS / step_ms), f"{len(kisa)} nokta")
+
+    kosegen = move_path(0, 0, 3839, 1079, speed=5000, max_ms=500)
+    check("cok uzun mesafe TAVANA takiliyor",
+          len(kosegen) <= round(500 / step_ms) + 1, f"{len(kosegen)} nokta")
+
+    check("mesafe artinca nokta sayisi artiyor",
+          len(move_path(0, 0, 200, 0)) < len(move_path(0, 0, 1500, 0)))
+
+    # 4) speed = 0 -> isinlama (eski davranis geri geliyor).
+    check("speed=0 tek nokta (isinlama)",
+          move_path(0, 0, 1920, 0, speed=0) == [(1920, 0)])
+    check("ayni noktaya hareket tek nokta",
+          move_path(500, 500, 500, 500) == [(500, 500)])
+
+    # 5) `drag` ayardan BAGIMSIZ ara nokta uretmeli: sicrayan bir hareketi
+    #    cogu uygulama surukleme saymiyor.
+    surukle = move_path(0, 0, 900, 0, speed=0, min_steps=10)
+    check("min_steps speed=0'i eziyor (drag yolu)", len(surukle) == 10,
+          f"{len(surukle)} nokta")
+
+    # 6) Yol monoton: geri donen bir imlec titriyor demektir.
+    yol = move_path(100, 100, 1000, 800)
+    xs = [p[0] for p in yol]
+    ys = [p[1] for p in yol]
+    check("x monoton artiyor", all(b >= a for a, b in zip(xs, xs[1:])))
+    check("y monoton artiyor", all(b >= a for a, b in zip(ys, ys[1:])))
+    geri = move_path(1000, 800, 100, 100)
+    gxs = [p[0] for p in geri]
+    check("ters yonde monoton azaliyor", all(b <= a for a, b in zip(gxs, gxs[1:])))
+
+    # 7) Ayni piksel iki kez yazilmaz (her nokta bir syn() maliyeti).
+    tekrar = move_path(0, 0, 3, 0, speed=200, max_ms=500)
+    check("ardisik ayni nokta elenmis", len(tekrar) == len(set(tekrar)), str(tekrar))
+
+    # 8) Smoothstep: ortada hizli, uclarda yavas. Ilk adim mesafesi ortadaki
+    #    adim mesafesinden KUCUK olmali, yoksa egri duz demektir.
+    yol = move_path(0, 0, 2000, 0, speed=5000)
+    ilk = yol[0][0]
+    orta = yol[len(yol) // 2][0] - yol[len(yol) // 2 - 1][0]
+    check("hiz egrisi var (ilk adim ortadakinden kucuk)", ilk < orta,
+          f"ilk={ilk} px, orta={orta} px")
+
+    # 9) Varsayilanlar config'le ayni hikayeyi anlatiyor mu.
+    check("varsayilan hiz 5000 px/s", DEFAULT_POINTER_SPEED == 5000)
+    check("varsayilan tavan 500 ms", DEFAULT_POINTER_MAX_MS == 500)
+
+
+def test_hold_tracking() -> None:
+    """Basili tutma takibi -- CIHAZSIZ kisim.
+
+    Gercek cihazli tur `test_real_hold()` icinde ve varsayilan olarak atlanir.
+    """
+    from pcbridge.desktop import input as I
+
+    section("39. Basili tutma — takip ve cozumleme")
+
+    b = I.InputBackend(hold_max_seconds=0)
+    check("cihaz acilmadan held() bos", b.held() == [])
+    check("cihaz acilmadan release_all() bos", b.release_all() == [])
+    check("otomatik birakma bildirimi bos", b.take_auto_released() == [])
+
+    # Ad <-> kod donusumu: `held()` ciktisi kullaniciya gosteriliyor.
+    check("key_name(ctrl kodu) = ctrl", I.key_name(I.key_code("ctrl")) == "ctrl")
+    check("key_name bilinmeyen kodu ham dondurur", I.key_name(999999) == "999999")
+    check("button_code(middle) calisiyor", isinstance(I.button_code("middle"), int))
+    for bad in ("ucuncu", "", "sol"):
+        try:
+            I.button_code(bad)
+            check(f"gecersiz dugme reddedildi: {bad!r}", False, "kabul edildi")
+        except I.InputError as exc:
+            check(f"gecersiz dugme reddedildi: {bad!r}", "left, right, middle" in str(exc))
+
+    # Kac tus olursa olsun: sanal cihazda ghosting yok.
+    check("6 tuslu kombinasyon cozuluyor",
+          len(I.parse_combo("ctrl+shift+alt+super+a+b")) == 6)
+    check("bos kombinasyon reddediliyor",
+          _raises(lambda: I.parse_combo("+++"), I.InputError))
+
+    # Ayarlar backend'e GERCEKTEN geciyor mu (bir kere atlanmisti: alanlar
+    # tanimliydi, config'e yazilan deger hicbir sey yapmiyordu).
+    b2 = I.InputBackend(pointer_speed=1234, pointer_max_ms=321, hold_max_seconds=7)
+    check("pointer_speed backend'e gecti", b2._speed == 1234.0)
+    check("pointer_max_ms backend'e gecti", b2._max_ms == 321.0)
+    check("hold_max_seconds backend'e gecti", b2._hold_max == 7.0)
+
+
+def _raises(fn, exc_type) -> bool:
+    try:
+        fn()
+    except exc_type:
+        return True
+    except Exception:
+        return False
+    return False
+
+
+def test_real_hold() -> None:
+    """GERCEK cihazla basili tutma turu. PCBRIDGE_TEST_CAPTURE=1 ile acilir.
+
+    Ctrl'yi kisa sureligine basili tutar; hicbir sey YAZMAZ, TIKLAMAZ.
+    Dogrulama cihazin KENDI event node'undan `active_keys()` ile yapiliyor --
+    "hata vermedi" bu projede kanit sayilmiyor.
+    """
+    if os.environ.get("PCBRIDGE_TEST_CAPTURE") != "1":
+        return
+    section("40. Basili tutma — gercek cihaz")
+
+    from pcbridge.desktop import input as I
+
+    try:
+        from evdev import InputDevice
+    except Exception as exc:  # noqa: BLE001
+        check("evdev var", False, str(exc)[:80])
+        return
+
+    b = I.InputBackend(hold_max_seconds=2.0)
+    ok, why = b.available()
+    check("uinput hazir", ok, why[:100])
+    if not ok:
+        return
+
+    try:
+        b.ensure(keyboard=True, pointer=True)
+        watch = InputDevice(b._kbd.device.path)
+        ctrl = I.key_code("ctrl")
+
+        b.key_down("ctrl")
+        time.sleep(0.2)
+        check("held() ctrl diyor", b.held() == ["ctrl"], str(b.held()))
+        check("cihazda GERCEKTEN basili", ctrl in watch.active_keys(),
+              str(watch.active_keys()))
+
+        # `key()` basili tutulani DUSURMEMELI, yoksa held() yalan soylerdi.
+        b.key("ctrl+a")
+        time.sleep(0.2)
+        check("key() basili tusu dusurmedi", ctrl in watch.active_keys(),
+              str(watch.active_keys()))
+
+        b.key_up("ctrl")
+        time.sleep(0.2)
+        check("elle birakma calisti", ctrl not in watch.active_keys(),
+              str(watch.active_keys()))
+
+        # Zamanlayici: kimse `release` cagirmazsa sunucu kendisi birakmali.
+        b.key_down("ctrl")
+        b.mouse_down("left")
+        time.sleep(0.3)
+        check("ikisi de basili", set(b.held()) == {"ctrl", "left"}, str(b.held()))
+        time.sleep(2.4)
+        check("zamanlayici birakti", b.held() == [], str(b.held()))
+        check("cihazda da birakildi", ctrl not in watch.active_keys(),
+              str(watch.active_keys()))
+        freed = b.take_auto_released()
+        check("otomatik birakma bildirildi", set(freed) == {"ctrl", "left"}, str(freed))
+        check("bildirim bir kez okunuyor", b.take_auto_released() == [])
+    finally:
+        b.close()
+
+
 def test_session_env() -> None:
     """Oturum ortami onarimi (`desktop/session.py`).
 
@@ -1723,6 +2022,9 @@ def main() -> int:
     test_cli_stale_shot()
     test_computer_task_prompt()
     test_session_env()
+    test_move_path()
+    test_hold_tracking()
+    test_real_hold()
     test_real_batch()
     print(f"\n\033[1m{ok_count} gecti, {fail_count} kaldi\033[0m")
     return 1 if fail_count else 0
