@@ -829,8 +829,11 @@ def register(
         action: Annotated[
             str,
             Field(
-                description="One of: move, click, double_click, right_click, "
-                "middle_click, drag, scroll."
+                description="One of: move, click, double_click, triple_click, "
+                "right_click, middle_click, drag, scroll, hold, release. "
+                "hold presses a button down and leaves it down (for free-form "
+                "drag: hold, then move, then release); triple_click selects a "
+                "whole line in most text widgets."
             ),
         ],
         x: Annotated[
@@ -852,6 +855,29 @@ def register(
                 description="For scroll: wheel clicks. Positive scrolls up, negative down.",
             ),
         ] = 3,
+        horizontal: Annotated[
+            bool,
+            Field(
+                description="For scroll: use the horizontal wheel instead of the "
+                "vertical one. Positive scroll_amount goes right, negative left."
+            ),
+        ] = False,
+        button: Annotated[
+            str,
+            Field(
+                description="For hold/release: which button. One of left, right, "
+                "middle. Ignored by the click actions, which imply their own button."
+            ),
+        ] = "left",
+        smooth: Annotated[
+            bool | None,
+            Field(
+                description="Override how the pointer travels for this call. The "
+                "server default glides through intermediate points so the motion "
+                "looks natural; pass false to jump straight to the target, which is "
+                "faster but skips hover and drag-start events some applications need."
+            ),
+        ] = None,
         monitor: Annotated[
             int | None,
             Field(
@@ -867,66 +893,96 @@ def register(
             ),
         ] = False,
     ) -> str:
-        """Move the mouse pointer, click, drag or scroll on the user's Linux
-        desktop. Requires desktop_unlock first. Use when the user asks you to
-        press a button, open a menu or otherwise operate a graphical application.
-        Coordinates are global desktop pixels unless you pass monitor. Take a
-        screenshot or check the result after acting — never click blind."""
+        """Move the mouse pointer, click, drag, scroll or hold a button down on the
+        user's Linux desktop. Requires desktop_unlock first. Use when the user asks
+        you to press a button, open a menu or otherwise operate a graphical
+        application. Coordinates are global desktop pixels unless you pass monitor.
+        The pointer glides to its target rather than teleporting, so a move takes a
+        moment. For a drag that needs stops along the way — a slider, a selection
+        rectangle, a file onto a folder — use hold, then move, then release; the
+        drag action is the single-shot version. Take a screenshot or check the
+        result after acting — never click blind."""
         err = _guard("mouse", write=True, force=force)
         if err:
             return err
 
         act = (action or "").strip().lower()
+        needs_xy = ("move", "click", "double_click", "triple_click", "right_click",
+                    "middle_click", "drag")
+        clicks = {"click": 1, "double_click": 2, "triple_click": 3,
+                  "right_click": 1, "middle_click": 1}
         try:
-            if act in ("move", "click", "double_click", "right_click", "middle_click", "drag"):
+            if act in needs_xy:
                 if x is None or y is None:
                     return "x ve y zorunlu (drag icin ayrica to_x/to_y)."
                 gx, gy = monitorslib.to_global(x, y, monitor)
             if act == "move":
-                pos = backend.move(gx, gy)
+                pos = backend.move(gx, gy, smooth=smooth)
                 done = f"imlec {pos} konumuna tasindi"
-            elif act in ("click", "double_click", "right_click", "middle_click"):
-                pos = backend.move(gx, gy)
+            elif act in clicks:
+                pos = backend.move(gx, gy, smooth=smooth)
                 time.sleep(0.08)
-                button = {"right_click": "right", "middle_click": "middle"}.get(act, "left")
-                backend.click(button, 2 if act == "double_click" else 1)
-                done = f"{pos} konumuna {button} tiklama" + (
-                    " (cift)" if act == "double_click" else ""
-                )
+                btn = {"right_click": "right", "middle_click": "middle"}.get(act, "left")
+                backend.click(btn, clicks[act])
+                kind = {2: " (cift)", 3: " (uclu)"}.get(clicks[act], "")
+                done = f"{pos} konumuna {btn} tiklama{kind}"
             elif act == "drag":
                 if to_x is None or to_y is None:
                     return "drag icin to_x ve to_y zorunlu."
                 ex, ey = monitorslib.to_global(to_x, to_y, monitor)
-                backend.drag(gx, gy, ex, ey)
-                done = f"({gx}, {gy}) -> ({ex}, {ey}) suruklendi"
+                backend.drag(gx, gy, ex, ey, button=button)
+                done = f"({gx}, {gy}) -> ({ex}, {ey}) {button} ile suruklendi"
             elif act == "scroll":
                 if x is not None and y is not None:
-                    backend.move(*monitorslib.to_global(x, y, monitor))
+                    backend.move(*monitorslib.to_global(x, y, monitor), smooth=smooth)
                     time.sleep(0.08)
-                backend.scroll(scroll_amount)
-                done = f"{scroll_amount} tik kaydirildi"
+                backend.scroll(scroll_amount, horizontal=horizontal)
+                yon = "yatay" if horizontal else "dikey"
+                done = f"{scroll_amount} tik {yon} kaydirildi"
+            elif act == "hold":
+                backend.mouse_down(button)
+                done = (
+                    f"{button} dugmesi BASILI TUTULUYOR — imleci tasiyip "
+                    f"`release` ile birakin"
+                )
+            elif act == "release":
+                backend.mouse_up(button)
+                done = f"{button} dugmesi birakildi"
             else:
                 return (
                     f"Bilinmeyen eylem: '{action}'. Gecerli: move, click, "
-                    "double_click, right_click, middle_click, drag, scroll"
+                    "double_click, triple_click, right_click, middle_click, drag, "
+                    "scroll, hold, release"
                 )
         except (inputlib.InputError, monitorslib.MonitorError) as exc:
             gate.audit("mouse_error", action=act, error=str(exc)[:160])
             return f"Hata: {exc}"
 
-        gate.audit("mouse", action=act, x=x, y=y, monitor=monitor, forced=force or None)
+        gate.audit(
+            "mouse", action=act, x=x, y=y, monitor=monitor,
+            button=button if act in ("hold", "release", "drag") else None,
+            forced=force or None,
+        )
         where = backend.position
         note = ""
         if where:
             m = monitorslib.find_monitor(*where)
             if m:
                 note = f" · monitor {m.index} ({m.connector})"
-        return f"{done}{note}.\nSonucu dogrulamadan bir sonraki adima gecmeyin."
+        return (
+            f"{done}{note}.\nSonucu dogrulamadan bir sonraki adima gecmeyin."
+            + _held_note()
+        )
 
     @mcp.tool(annotations={"title": "Type text or press keys", "destructiveHint": True})
     def keyboard(
         action: Annotated[
-            str, Field(description="One of: type, key, hold, release.")
+            str,
+            Field(
+                description="One of: type, key, hold, release. key presses a "
+                "combination and lets go; hold presses and leaves it down until "
+                "you call release."
+            ),
         ],
         text: Annotated[
             str | None, Field(description="For type: the text to enter.")
@@ -935,7 +991,10 @@ def register(
             str | None,
             Field(
                 description="For key/hold/release: a combination like 'ctrl+v', "
-                "'super', 'alt+tab', 'Return', 'Escape', 'f5', 'down'."
+                "'super', 'alt+tab', 'Return', 'Escape', 'f5', 'down'. Any number "
+                "of keys may be combined with '+' and they all go down together — "
+                "the virtual keyboard has none of the ghosting limits of real "
+                "hardware."
             ),
         ] = None,
         raw: Annotated[
@@ -957,7 +1016,14 @@ def register(
         Requires desktop_unlock first. Use when the user asks you to fill in a
         field, confirm a dialog with Enter, or trigger a shortcut. Text is entered
         through the clipboard, so accented and non-English characters come out
-        correctly; the previous clipboard contents are restored afterwards."""
+        correctly; the previous clipboard contents are restored afterwards.
+
+        hold keeps keys down across later calls, which is how you build gestures
+        the shortcut syntax cannot express — hold shift, click twice to extend a
+        selection, release. Always release what you hold: a key left down makes
+        the machine unusable for the user. As a backstop the server releases
+        everything by itself after a timeout and says so in the next reply, but
+        that is damage control, not a substitute for releasing."""
         err = _guard("keyboard", write=True, force=force)
         if err:
             return err
