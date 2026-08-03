@@ -54,6 +54,29 @@ Ajan bıraktığında normal imlece geri dönsün.
 üste, sağ alta gidiyorsa sağ alta. Dönüş ani olmasın — takip etsin, yumuşakça
 dönsün.
 
+### İmleç işinin riski ve yedek planı
+
+2 ve 3 tek bir soruya bağlı: **gerçek imleci gizleyebiliyor muyuz?** Wayland'de
+imleci uygulamalar değil kompozitör çiziyor. Kendi imlecimizi çizmek kolay
+kısım; gizleyemezsek iki imleç birden görünür ve efekt çöpe gider.
+
+GNOME'un kendi ekran büyüteci imleci kendi çizebiliyor, yani kabuğun içinde bir
+yol var. Eklentiden erişilebilir mi — **ölç, varsayma.** GNOME 46 bu makinede
+beklenenden çok kapı kapatmış (`Shell.Introspect`, `Shell.Screenshot`,
+`Shell.Eval` hepsi kapalı).
+
+**Yedek plan (kullanıcının fikri):** kendi imleç temamızı hazırla, ajan
+çalışırken devreye al, iş bitince eski temaya dön. Kesin çalışır ve
+kompozitörle uğraşmaz. Bedeli: **yön dönmesi (madde 3) düşer** — tema statik
+dosyalardan oluşuyor, harekete göre dönemez.
+
+Bu yol seçilirse **geri dönüş garanti altına alınmalı.** Tema değiştirip geri
+almak, tuşu basılı tutup bırakmakla aynı desen: eklenti çökerse, GNOME yeniden
+başlarsa ya da oturum beklenmedik kapanırsa kullanıcıda garip bir imleç kalır.
+pcbridge'de bunun karşılığı `hold_max_seconds` zamanlayıcısı; burada da eski
+tema adı diske yazılmalı ve eklenti **her açılışta** yarım kalmış bir değişiklik
+olup olmadığına bakıp geri almalı.
+
 ---
 
 ## Kısıtlar
