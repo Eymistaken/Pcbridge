@@ -1,11 +1,39 @@
 # Neler yapabilirsin
 
-Telefondan ya da tarayıcıdan Gemini'ye yazdığın cümleler. Gemini hangi aracı
-çağıracağına kendi karar veriyor — komut ezberlemene gerek yok, ama ne
-istediğini net söylemek sonucu belirgin şekilde iyileştiriyor.
+Bağlandığın ajana yazdığın cümleler. Ajan hangi aracı çağıracağına kendi karar
+veriyor — komut ezberlemene gerek yok, ama ne istediğini net söylemek sonucu
+belirgin şekilde iyileştiriyor.
 
-Cümlelerin başına **"pcbridge ile"** eklemek Gemini'nin doğru aracı seçme
-olasılığını artırıyor. Bir süre sonra gerek kalmıyor.
+Cümlelerin başına **"pcbridge ile"** eklemek doğru aracın seçilme olasılığını
+artırıyor. Bir süre sonra gerek kalmıyor.
+
+> Bu belge Gemini Spark ağzıyla yazıldı ve öyle kalıyor — örnekler oradan.
+> Claude Code / Codex / Claude Desktop'tan da aynı araçlar aynı şekilde
+> çağrılıyor; **tek fark ekran görüntüsünde** ve o fark 6. bölümde anlatılıyor.
+
+---
+
+## 0. Hangi istemciden bağlanıyorsun
+
+pcbridge'e iki yoldan bağlanılır. Kurulum komutlarını `./connect.sh` basar.
+
+| | nasıl | ekran görüntüsü |
+|---|---|---|
+| **Claude Code** | `./connect.sh --apply`, ya da `claude mcp add pcbridge -- <venv>/bin/python -m pcbridge.server --stdio` | görüntünün **kendisi** gelir, ajan bakar |
+| **Claude Desktop** | `connect.sh`'in bastığı JSON parçasını `~/.config/Claude/claude_desktop_config.json`'a ekle, uygulamayı yeniden başlat | aynı |
+| **Codex CLI** | `codex mcp add pcbridge -- <venv>/bin/python -m pcbridge.server --stdio` | **denenmedi**, aşağıya bak |
+| **Gemini Spark** | `sparkac`, sonra Connected Apps → Add a custom app | bağlantı gelir, **sen** bakarsın |
+
+İlk üçü **stdio** kullanır: tünel yok, `sparkac` gerekmez, sunucuyu istemci
+başlatır. Bunun bedeli var — stdio'da **parola sorulmaz**; bu komutu
+çalıştırabilen her yerel program bütün araçlara erişir. Masaüstü araçlarının
+önünde `[desktop] enabled` ve `desktop_unlock` durmaya devam ediyor,
+`shell_run` / `agent_run` / `fs_*` önünde durmuyor.
+
+> **Codex bu makinede denenmedi.** Kurulum komutu yapılandırma dosyasına doğru
+> yazıyor (`codex mcp get pcbridge` ile doğrulandı), ama gerçek bir oturumun
+> bağlanıp araçları aldığı ve **görüntü bloğunu işlediği ölçülmedi** — bu
+> makinede Codex aboneliği yok. Deneyen sonucu bildirsin, buraya işlenecek.
 
 ---
 
@@ -188,19 +216,28 @@ Acil durdurma, makine başındaysan: `systemctl --user stop pcbridge`.
 
 > sağ ekranın görüntüsünü al
 
-Karşılığında **tıklanabilir bir bağlantı** gelir; telefondan açınca ekranını
-görürsün. Varsayılan olarak her monitör **ayrı bir görüntü** — hangisine
-baktığını tahmin etmen gerekmiyor.
+Varsayılan olarak her monitör **ayrı bir görüntü** — hangisine baktığını tahmin
+etmen gerekmiyor. Ne aldığın bağlandığın istemciye göre değişiyor:
+
+**Claude Code / Claude Desktop (stdio):** görüntünün **kendisi** araç sonucunda
+geliyor, ajan ekrana bakıyor. Yanında metin de var (monitör, ofset, ölçek) —
+ajan "şuraya tıkla" derken onu kullanıyor. Ayrıca PNG'nin disk yolu veriliyor,
+istersen sen de açabilirsin.
+
+**Gemini Spark (HTTP):** **tıklanabilir bir bağlantı** geliyor; telefondan
+açınca ekranını görürsün. Görüntü Spark'a geçmiyor, çünkü Spark'a giden MCP
+kanalı araç sonucunda yalnızca metin taşıyor. (Gemini kör değil — kısıt kanalın.)
+Spark bu kanaldan yalnızca ofset ve ölçeği okuyor.
+
+Bunu `[server] inline_images` ayarı belirliyor; varsayılan `"auto"` iki tarafı
+da doğru yapıyor, elleşmene gerek yok.
 
 Bilmen gereken üç şey:
 
-- **Görüntü Spark'a geçmiyor, sen görüyorsun.** Bağlantı senin için. Sebep
-  Gemini'nin kör olması değil — Spark'a giden MCP kanalı araç sonucunda
-  yalnızca metin taşıyor. (Gemini'nin gözü var; Antigravity içindeki Gemini
-  görüntü okuyabiliyor.) Gemini bu kanaldan yalnızca görüntünün ekranın
-  neresine denk geldiğini (ofset ve ölçek) okuyor; "şuraya tıkla" derken onu
-  kullanıyor. Ekranda ne olduğunu **metin olarak** öğrenmesinin yolu ise
-  `ui_dump` — aşağıdaki bölüm.
+- **Ekranda ne olduğunu öğrenmenin ucuz yolu görüntü değil, `ui_dump`.** Ölçüldü:
+  Claude'da bir görüntü ~1200–1900 jeton, `ui_dump` birkaç yüz jeton ve ~0,1
+  saniye. Üstelik `ui_click` koordinat kullanmadığı için **ıskalayamaz**.
+  Görüntü, ağacın boş geldiği yerler için (Electron, tuval, oyun) yedek.
 - **Bağlantı 5 dakika yaşıyor ve OAuth'tan bağımsız.** Yani bağlantıyı alan
   herkes görüntüyü açabilir — **paylaşma.** Süre dolunca kendiliğinden ölür,
   dosyalar da 24 saat sonra silinir.
@@ -308,23 +345,32 @@ masaüstünün kendi aramasından geçmek zorunda (AT-SPI'nin pencere öne alma
 
 ---
 
-## 9. Ekrana bakması gereken işler — `computer_task`
+## 9. Uzun süren GUI işleri — `computer_task`
 
-Buraya kadarki her şey Gemini'nin **metin** dünyasında çalışıyor: `ui_dump`
-ekranı metne çeviriyor, `ui_click` düğmeye koordinat kullanmadan basıyor. Ama
-bu zincirin bir kör noktası var — erişilebilirlik ağacını **yayınlamayan**
-uygulamalar. Ölçüldü: Vesktop'ta (Discord) `ui_dump` **sıfır düğüm** döndürüyor.
-VS Code, Discord, oyunlar, tuval üzerine çizen her şey aynı durumda.
+Buraya kadarki her şey **metin** dünyasında çalışıyor: `ui_dump` ekranı metne
+çeviriyor, `ui_click` düğmeye koordinat kullanmadan basıyor. Bu zincirin bir kör
+noktası var — erişilebilirlik ağacını **yayınlamayan** uygulamalar. Ölçüldü:
+Vesktop'ta (Discord) `ui_dump` **sıfır düğüm** döndürüyor. VS Code, oyunlar,
+tuval üzerine çizen her şey aynı durumda.
 
-`computer_task` bu işi makinendeki bir ajana veriyor — çünkü o ajan **PNG
-okuyabiliyor**, yani gözü var:
+`computer_task` işi makinendeki bir ajana veriyor; o ajan `pcb-shot` ile ekranı
+çekip PNG'ye kendi bakıyor.
+
+> **Bu aracın gerekçesi daraldı.** Eskiden tek sebebi Spark'ın görüntüyü
+> görememesiydi. Claude Code görüyor, yani oradan bağlandıysan `screen_capture`
+> + `computer_batch` ile işi ajan kendisi yapabilir — arada ikinci bir model
+> olmadan, daha ucuza. Geriye kalan gerekçe: **iş uzunsa** arka plana atmak,
+> ana ajan bloke olmasın diye.
+>
+> Sürücü de değişti: varsayılan artık `claude` (eskiden `antigravity`).
+> `computer_task(agent="antigravity", ...)` diyerek eskisini seçebilirsin.
 
 ```
 "Vesktop'u aç, oneaura'ya 'geliyorum' yaz"
 ```
 
 Arka planda ajan şunu döndürüyor: `pcb-shot` ile ekranı çeker → PNG'ye bakar →
-`pcb-do` ile tıklar → tekrar bakıp doğrular. Gemini görüntüyü hiç görmez.
+`pcb-do` ile tıklar → tekrar bakıp doğrular.
 
 Bir `job_id` döner, `job_status` ile izlersin. GUI işi dakikalar sürebilir.
 
@@ -340,8 +386,10 @@ computer_task(goal="...", app="Vesktop", max_steps=25)
   ajanın elleri bir sonraki eylemde durur. `job_cancel` de işi bitirir
 
 **Ne zaman kullanmamalı:** hangi düğmeye basacağını zaten biliyorsan
-`computer_batch` çok daha ucuz. `computer_task` ayrı bir ajan oturumu açıyor ve
-her ekran görüntüsü ~40 bin jeton.
+`computer_batch` çok daha ucuz — `computer_task` ayrı bir ajan oturumu açıyor.
+Görüntü maliyeti ajana göre çok değişiyor: `agy`'de bir görüntü ~40 bin jeton
+ölçülmüştü, Claude'da ~1200–1900. Yani asıl pahalı olan görüntü değil, **ayrı
+oturum ve tekrar eden turlar.**
 
 Ajanın her tıklaması `audit.log`'a görev kimliğiyle yazılıyor:
 
@@ -394,14 +442,14 @@ ya da bir işin bittiğini fark etmek için.
 | `mouse` | Fareyi hareket ettirir, tıklar, sürükler, kaydırır |
 | `keyboard` | Metin yazar (pano yoluyla) veya tuş kombinasyonu gönderir |
 | `screen_info` | Monitör tablosu, koordinat uzayı, odaktaki pencere |
-| `screen_capture` | Ekran görüntüsü alır, 5 dakikalık bağlantı döner |
+| `screen_capture` | Ekran görüntüsü alır: gören istemciye görüntünün kendisi, Spark'a 5 dakikalık bağlantı |
 | `ui_dump` | Ekrandaki düğme/menü/kutuları metin olarak listeler |
 | `ui_click` | Listedeki bir öğeye tıklar (koordinat kullanmadan) |
 | `ui_set_text` | Metin kutusunu doğrudan doldurur (klavye taklidi yok) |
 | `computer_batch` | Bir eylem listesini tek onayda sırayla çalıştırır |
 | `window_list` | Açık pencereler, odaktaki işaretli |
 | `window_focus` | Bir pencereyi öne getirir |
-| `computer_task` | Görsel işi makinendeki bir ajana devreder (9. bölüm) |
+| `computer_task` | Uzun süren bir GUI işini makinendeki bir ajana devreder (9. bölüm) |
 
 ---
 
@@ -431,9 +479,25 @@ kilidi ve süreli izin. İzin diskten okunduğu için `desktop_lock` görev
 ortasında da işe yarıyor.
 
 Son satır önemli: **`shell_run` masaüstü kapısından geçmez.** Masaüstü kontrolü
-kapalıyken bile Gemini komut çalıştırabilir, uygulama açabilir, dosya
-okuyabilir. Nitekim ekranı da okuyabiliyor — `agent_run` ile makinedeki bir
-ajanı çalıştırıp ona ekran görüntüsü aldırarak (ölçüldü, 2026-08-02).
+kapalıyken bile ajan komut çalıştırabilir, uygulama açabilir, dosya okuyabilir.
+Nitekim ekranı da okuyabiliyor — `agent_run` ile makinedeki bir ajanı çalıştırıp
+ona ekran görüntüsü aldırarak (ölçüldü, 2026-08-02).
+
+### stdio'da bir kat eksik
+
+Yukarıdaki tablo **araç kapılarını** anlatıyor; onların önünde bir de sunucuya
+ulaşma kapısı var ve o kapı taşımaya göre değişiyor:
+
+| | HTTP (Spark) | stdio (yerel istemci) |
+|---|---|---|
+| Ağa girmek | Tailscale gerekli | — |
+| Kimlik doğrulama | OAuth 2.1 + parola | **yok** |
+| Yukarıdaki tablo | aynen geçerli | aynen geçerli |
+
+stdio'da yetki, süreci başlatabilmenin kendisi. Bu bilinçli kabul edildi: senin
+kullanıcınla kod çalıştırabilen biri zaten `claude -p` çağırabilir. Ama farkı
+bilerek kullan — `[desktop] enabled = false` bırakmak yerel bir istemcinin
+masaüstünü sürmesini engeller, `shell_run` çalıştırmasını engellemez.
 
 Bunun bir sonucu var: **`config.toml` okunabilir**, yani parolan ve statik
 token'ın. `fs_read` ile de olur, `shell_run` ile de. Engellemedik, çünkü

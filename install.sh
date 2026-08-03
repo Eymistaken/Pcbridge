@@ -182,11 +182,23 @@ cat <<EOF
 Sirada:
 
   1) Alias'lar aktif olsun:      source ~/.bashrc
-  2) Sunucuyu ac:                sparkac
-  3) Her sey yolunda mi:         $DIR/doctor.sh
+  2) Her sey yolunda mi:         $DIR/doctor.sh
 
-  Sonra gemini.google.com > Settings & help > Connected Apps >
-  "Add a custom app" alanina su adresi gir:
+YEREL istemciler (Claude Code, Codex, Claude Desktop) -- tunel gerekmez,
+sunucuyu istemci baslatir:
+
+      $DIR/connect.sh           # komutlari yazdirir
+      $DIR/connect.sh --apply   # claude/codex kayitlarini yapar
+
+  UYARI: yerel yolda (stdio) parola SORULMAZ. Yetki, sureci baslatabilmenin
+  kendisi. Masaustu araclarinin onunde [desktop] enabled + desktop_unlock
+  durmaya devam eder; shell_run / agent_run / fs_* onunde durmaz.
+
+UZAKTAN (Gemini Spark, telefon):
+
+  3) Sunucuyu ac:                sparkac
+  4) gemini.google.com > Settings & help > Connected Apps >
+     "Add a custom app" alanina su adresi gir:
 
       $( [ -n "$TS_DNS" ] && echo "https://$TS_DNS/mcp" || echo "https://<makinen>.<tailnet>.ts.net/mcp" )
 

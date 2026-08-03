@@ -1419,6 +1419,61 @@ Faz 0'ı beklemeden ondan başlanabilir.)
 
 ---
 
+## 9b. Faz H sonuçları — ajan-bağımsız MCP (2026-08-03)
+
+> Bu plan Gemini Spark varsayımıyla yazıldı. Faz H o varsayımı kaldırdı.
+> Aşağıdakiler **ölçüldü**; planla çelişenler ayrıca işaretli.
+
+### Ölçümler
+
+| soru | sonuç | nasıl |
+|---|---|---|
+| Claude Code araç sonucunda görüntü alıyor mu? | **Evet** | Bilinen içerikli PNG'ye yazılan gizli değer (`KELIME-1234`) modelden birebir geri geldi |
+| Uçtan uca çalışıyor mu? | **Evet** | `--stdio` ile bağlanan gerçek Claude Code oturumu `desktop_unlock` + `screen_capture` çağırıp ekranı doğru tarif etti |
+| Görüntünün jeton maliyeti | 1920×1080 ~12976 · 1280×720 ~11712 cache_creation (fark ~1264) | `claude -p --output-format json` |
+| stdio mevcut `build_app()` ile çalışıyor mu? | **Evet**, 33 araç, stdout temiz | el JSON-RPC ile `initialize` + `tools/list` |
+| stdio'da OAuth | fastmcp kendisi atlıyor (`server.py:196`, "skip_auth ... STDIO transport") | kaynak + ölçüm |
+| Codex | **ölçülemedi** — abonelik yok. Yalnızca `codex mcp get pcbridge` ile yapılandırmanın doğru yazıldığı doğrulandı | — |
+| Claude Desktop | `~/.config/Claude/claude_desktop_config.json` var, `mcpServers` anahtarı **yok** | dosya şeması okundu (değerler okunmadı) |
+
+### Plandan sapmalar
+
+1. **`agy`'de ölçülen ~40 bin jeton Claude'da geçerli değil.** Burada bir görüntü
+   ~1200–1900 jeton — 20–30 kat ucuz. "Görüntü ajana pahalı" varsayımı sürücüye
+   bağlıymış; `computer_task`'i pahalı yapan şey görüntü değil, **ayrı oturum ve
+   tekrar eden turlar.**
+2. **`screenshot_scale_long_edge = 1280` korundu ama gerekçesi değişti.** Artık
+   jeton tasarrufu için değil: Anthropic API uzun kenarı **1568'e indiriyor**.
+   1280 o sınırın altında kaldığı için modelin gördüğü piksel ile bizim
+   raporladığımız ölçek aynı kalıyor. 1920 gönderilseydi "ölçek 1.0" bilgisi
+   sessizce yalan olurdu — ve bu, koordinat hesabını bozan türden bir yalan.
+3. **`[server]` diye bir bölüm yoktu.** Bütün sunucu ayarları kökte duruyordu.
+   `inline_images` her iki yazımdan da okunuyor; belgelerde `[server]` gösteriliyor.
+4. **`computer_task`'te gerçek bir hata bulundu.** `agent="claude"` çağrısı,
+   yapılandırılan model agy'ye ait olduğu için çözümlemede patlıyordu. Aynı tuzak
+   yapılandırmada da vardı ve **çağrı anına kadar görünmüyordu**; artık
+   `_check_computer_task()` yüklemede yakalıyor.
+5. **stdio'da `/shot` rotası yok.** HTTP sunucusu olmayınca `@mcp.custom_route`
+   ile eklenen hiçbir rota servis edilmiyor. Orada bağlantı yerine diskteki
+   dosya yolu dönüyor — sessizce ölü bir URL vermek yerine.
+
+### Tasarım kararları
+
+- **`[server] inline_images = "auto"`** — taşımaya bakıyor: stdio'da açık,
+  HTTP'de kapalı. Spark görüntü bloğu gelince bozulduğu için HTTP yolunun
+  dokunulmadan kalması şart; taşıma, "bu istemci görüyor mu" sorusunun en iyi
+  vekili çünkü Spark HTTP'den, gören istemciler stdio'dan geliyor.
+- **Metin bloğu her zaman ilk sırada.** Monitör numarası, global ofset ve
+  dönüşüm kuralı görüntüden ayrılırsa ikinci monitöre yapılan her tıklama
+  1920 px şaşar ve hata hiçbir yerde görünmez.
+- **Dönüş tipi `list[ContentBlock]`.** `-> list` (çıplak) yazılırsa FastMCP
+  outputSchema üretiyor ve çağrı `"outputSchema defined but no structured output
+  returned"` ile patlıyor (fiilen üretildi).
+- **stdio bir güvenlik gerilemesi ve kullanıcı onayıyla kabul edildi.** Ağ
+  katmanı ve OAuth kalkıyor, önde yalnızca `desktop_unlock` kalıyor.
+
+---
+
 ## 10. Kaynaklar
 
 - [XDG RemoteDesktop portalı](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.RemoteDesktop.html) — portal tabanlı girdi enjeksiyonu

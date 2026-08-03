@@ -1,23 +1,36 @@
 # pcbridge
 
-Telefonundan Gemini Spark'a yazarsın, Spark bu MCP sunucusuna bağlanır, sunucu da
-ZorinOS makinendeki **Claude Code** / **Antigravity CLI** terminaline prompt'u iletir.
-İş bitince sonucu telefonuna geri döner.
+Bu ZorinOS makinesini **bir MCP sunucusu olarak** dışarı açar: bağlanan ajan
+terminaldeki kodlama ajanlarına iş verebilir, tmux oturumuna yazabilir, kabuk
+komutu çalıştırabilir, dosya okuyup yazabilir ve — izin verilirse — masaüstünü
+fiilen sürebilir (klavye, fare, ekran okuma).
+
+İki bağlanma yolu var ve **ikisi de aynı sunucu**:
 
 ```
-  Telefon (Gemini uygulaması)
-        │
-        ▼
-  Gemini Spark  ──── OAuth 2.1 + HTTPS ────►  Tailscale Funnel
-  (Google bulutu)                                    │
-                                                     ▼
-                                        127.0.0.1:8765  pcbridge
-                                                     │
-                          ┌──────────────────────────┼──────────────────────┐
-                          ▼                          ▼                      ▼
-                   claude -p "..."           tmux oturumu            shell / dosyalar
-                   (arka plan işi)          (canlı terminal)
+  YEREL (stdio)                          UZAK (HTTP + OAuth)
+  Claude Code · Codex · Claude Desktop   Gemini Spark · telefon
+        │                                        │
+        │ sunucuyu istemci başlatır              │ OAuth 2.1 + HTTPS
+        │ ağ yok, OAuth yok                      ▼
+        │                                 Tailscale Funnel
+        │                                        │
+        ▼                                        ▼
+   python -m pcbridge.server --stdio     127.0.0.1:8765  pcbridge (systemd)
+        └────────────────┬───────────────────────┘
+                         │
+      ┌──────────────────┼──────────────────┬───────────────────┐
+      ▼                  ▼                  ▼                   ▼
+ claude -p "..."   tmux oturumu    shell / dosyalar     masaüstü (uinput,
+ (arka plan işi)  (canlı terminal)                       AT-SPI, ekran)
 ```
+
+Kurulum komutlarını `./connect.sh` üretir.
+
+**Proje Gemini Spark için tasarlandı ve o yol hâlâ birinci sınıf.** Ama artık
+tek istemci o değil: Claude Code ve Codex MCP araç sonucundaki **görüntüyü
+okuyabiliyor**, Spark okuyamıyor. Bu fark mimaride birkaç yerde görünür —
+aşağıda geçtikçe belirtiliyor.
 
 ---
 
@@ -28,14 +41,15 @@ protokolü**. Sunucu "bende şu araçlar var, şu parametreleri alır" diye bir 
 yayınlar (`tools/list`), model uygun olanı seçip çağırır (`tools/call`), sunucu bir
 metin döner. Hepsi bu. Sihir yok — asıl iş senin yazdığın araç fonksiyonlarında.
 
-Buradaki araçlar üç gruba ayrılıyor:
+Buradaki 33 araç şu gruplara ayrılıyor:
 
 | Grup | Ne yapar |
 |---|---|
-| **Ajan** | `list_agents`, `agent_run` — Claude Code / Antigravity'ye prompt gönderir |
+| **Ajan** | `list_agents`, `agent_run`, `computer_task` — Claude Code / Antigravity'ye prompt gönderir |
 | **İş takibi** | `job_status`, `job_output`, `job_list`, `job_cancel` — uzun işleri izler |
 | **Canlı terminal** | `tmux_start/send/keys/capture/list/kill` — açık bir terminale yazar |
 | **Sistem** | `shell_run`, `shell_run_background`, `fs_list/read/write/search`, `system_status`, `notify` |
+| **Masaüstü** | `desktop_unlock/lock`, `mouse`, `keyboard`, `computer_batch`, `screen_info`, `screen_capture`, `ui_dump/click/set_text`, `window_list/focus` |
 
 Ajan çağrıları senkron değil: `agent_run` işi başlatır ve bir `job_id` döner
 (istersen `wait_seconds` kadar bekler). Bu önemli, çünkü Claude Code bir görevde
@@ -117,6 +131,30 @@ Bu adım **sadece bilgisayardaki web arayüzünden** yapılabiliyor (telefondan 
 
 Bağlandıktan sonra telefondaki Gemini uygulamasında da kullanılabilir hale gelir.
 Bu adımı **bir kez** yaparsın; sonrasında sadece `sparkac` / `sparkkapat`.
+
+### 5. Yerel istemcilere bağla (Claude Code, Codex, Claude Desktop)
+
+```bash
+./connect.sh            # komutları yazdırır
+./connect.sh --apply    # claude / codex kayıtlarını yapar
+```
+
+Yerel istemciler sunucuya **stdio** ile bağlanır: tünel yok, `sparkac` gerekmez,
+sunucuyu istemcinin kendisi başlatır. Claude Code için tek komut:
+
+```bash
+claude mcp add pcbridge -- /YOL/Pcbridge/.venv/bin/python -m pcbridge.server --stdio
+```
+
+Claude Desktop'ın yapılandırma dosyası (`~/.config/Claude/claude_desktop_config.json`)
+**elle** düzenlenir — `connect.sh` eklenecek JSON parçasını basar ama dosyanın
+üstüne yazmaz, içinde başka ayarların var.
+
+> **Codex:** komutlar üretiliyor ve yapılandırmaya doğru yazıldığı `codex mcp get
+> pcbridge` ile doğrulandı, ama **bu makinede denenmedi** — Codex aboneliği yok.
+> Gerçekten bağlanıp araçları aldığı ve görüntü bloğunu işlediği ölçülmemiştir.
+
+⚠️ **stdio'da kimlik doğrulama yoktur.** Ayrıntı: [Güvenlik](#güvenlik--dürüst-değerlendirme).
 
 ---
 
@@ -228,7 +266,37 @@ yutan bir CLI'ya denk gelirsen `pty = true` yeter.
 ## Güvenlik — dürüst değerlendirme
 
 Bu sunucu **kısıtsız**: verdiğin yetkiyle her komut çalışır, her dosya okunup
-yazılır. Onu koruyan tek şey OAuth parolası. Dolayısıyla:
+yazılır. Kapı, hangi yoldan bağlandığına göre değişiyor.
+
+### stdio bir güvenlik gerilemesidir — bilinçli
+
+HTTP yolunda üç kat var: **Tailscale ağı** (makineye ulaşabilmek) + **OAuth 2.1**
+(parola) + masaüstü için **`desktop_unlock`**. stdio **ilk ikisini kaldırır.**
+
+Orada yetki, süreci başlatabilmenin kendisidir: `python -m pcbridge.server --stdio`
+komutunu çalıştırabilen her yerel program pcbridge'in bütün araçlarına erişir.
+Parola sorulmaz, token istenmez, `audit.log` yazılır ama kimse durdurmaz.
+
+Bunu kabul etmenin gerekçesi şu: **o eşiği zaten geçmiş birinin pcbridge'e
+ihtiyacı yok.** Senin kullanıcınla kod çalıştırabilen biri `claude -p` de
+çağırabilir, `~/.ssh`'i de okuyabilir. stdio yeni bir kapı açmıyor, var olan
+kapının arkasındakini daha kullanışlı hale getiriyor. Yine de fark gerçek ve
+bilinerek kabul edildi:
+
+| | HTTP (Spark, uzak) | stdio (yerel istemci) |
+|---|---|---|
+| Ağ katmanı | Tailscale Funnel | **yok** |
+| Kimlik doğrulama | OAuth 2.1 + parola | **yok** |
+| Masaüstü kapısı | `[desktop] enabled` + `desktop_unlock` | aynen geçerli |
+| Denetim kaydı | `audit.log` | aynen geçerli |
+| Ekran görüntüsü | `/shot/<token>.png` bağlantısı | araç sonucunda **görüntünün kendisi** |
+
+Yerel istemciyi kısıtlamak istersen `[desktop] enabled = false` bırakmak
+masaüstünü kapatır ama **`shell_run`, `agent_run`, `fs_*` ve `tmux_*` o kapıdan
+geçmez** — onlar masaüstü kapalıyken de çalışır. Bu bilinçli: koruma engelleme
+değil, iz bırakma.
+
+### HTTP yolunda geçerli olanlar
 
 - **Adresin gizli değil.** `*.ts.net` adresleri sertifika şeffaflık günlüklerinde
   (CT logs) herkese açık listelenir. "Beni bulamazlar" varsayımına güvenme —
@@ -313,6 +381,16 @@ Karşılığında aldığın şey gerçek: erişilebilirlik ağacını yayınlam
 uygulamalarda (Discord, VS Code, oyunlar) başka yol yok. Ölçüldü — Vesktop'ta
 `ui_dump` sıfır düğüm döndürüyor.
 
+> **Bu aracın gerekçesi daraldı.** Var oluş sebebi, Spark'ın araç sonucundaki
+> görüntüyü görememesiydi: birinin ekrana bakması gerekiyorsa o biri makinedeki
+> ajan olmalıydı. Claude Code görüyor (ölçüldü), yani gören bir istemci
+> `screen_capture` + `computer_batch` ile işi kendisi yapabilir — arada ikinci
+> bir model olmadan, daha ucuza, daha denetlenebilir şekilde.
+>
+> Bugün geriye kalan gerekçesi: **uzun süren** bir GUI işini arka plana atmak.
+> Ana ajan bloke olmasın diye. Gören bir istemcideysen ve iş kısaysa bu araca
+> ihtiyacın yok.
+
 Aynı beş kat koruma burada da geçerli, bir farkla: "kullanıcı makinede"
 kontrolü **görev başına** yapılıyor, eylem başına değil. Sebebi ölçülmüş —
 pcbridge'in kendi tuşu o sayacı sıfırlıyor, dolayısıyla eylem başına kontrol
@@ -321,8 +399,9 @@ süreli izin ajanın **her** eyleminde okunuyor; bu yüzden `desktop_lock`
 telefondan verilince ajanın elleri bir sonraki eylemde duruyor.
 
 Ajanın attığı her tıklama `audit.log`'a görev kimliğiyle yazılıyor. Bu süs
-değil: varsayılan sürücü olan `agy` çıktısında adım listesi vermiyor, yani
-"ajan ne yaptı" sorusunun tek dürüst cevabı denetim kaydı.
+değil: `agy` çıktısında adım listesi vermiyor, yani o sürücüyle "ajan ne yaptı"
+sorusunun tek dürüst cevabı denetim kaydı. (Varsayılan sürücü artık `claude`;
+`agy` isteyerek seçilebilir, `[agents.antigravity]` bloğu duruyor.)
 
 Acil durdurma (kaçak bir döngü ihtimaline karşı):
 

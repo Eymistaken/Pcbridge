@@ -5,10 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Proje
 
 pcbridge, kullanıcının Linux masaüstünü (Zorin OS / GNOME 46 / Wayland) uzaktan
-sürülebilir hale getiren kişisel bir MCP sunucusu. Bugüne kadar Gemini Spark
-için tasarlandı (HTTPS + OAuth 2.1 + Tailscale Funnel); şimdi genel bir MCP
-sunucusuna dönüşüyor. 33 araç: kodlama ajanlarına iş verme, arka plan işleri,
-tmux, kabuk/dosya, ve `[desktop]` altında sanal klavye/fare + ekran okuma.
+sürülebilir hale getiren kişisel bir MCP sunucusu. 33 araç: kodlama ajanlarına
+iş verme, arka plan işleri, tmux, kabuk/dosya, ve `[desktop]` altında sanal
+klavye/fare + ekran okuma.
+
+**İki taşıma, tek sunucu:** HTTP (Gemini Spark, uzaktan — HTTPS + OAuth 2.1 +
+Tailscale Funnel) ve stdio (`--stdio`; Claude Code, Codex, Claude Desktop —
+**ağ yok, OAuth yok**). Kurulum komutlarını `./connect.sh` üretir.
 
 **Aktif çalışma yönergesi [YAPILACAKLAR.md](YAPILACAKLAR.md).** Görev listesi,
 onaylanmış kararlar ve son ölçümler orada; bir işe başlamadan önce oku.
@@ -61,6 +64,7 @@ Masaüstünü elle sürmek (MCP'den bağımsız kabuklar):
 Sunucuyu dışarıya açma: `sparkac` / `sparkkapat` / `sparkdurum`
 (= `./spark.sh start|stop|status`). `./install.sh` venv + config + systemd +
 alias'ları kurar; **açılışta otomatik başlatmayı bilinçle reddediyor.**
+Yerel istemci kaydı: `./connect.sh` (yazdırır) / `./connect.sh --apply` (yapar).
 
 ## Mimari
 
@@ -200,10 +204,24 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
 - **`[desktop] enabled = false` yalnızca masaüstü araçlarını kapatır.**
   `shell_run`, `agent_run`, `fs_*`, `tmux_*` bu kapıdan geçmez. Bilinçli:
   koruma engelleme değil, `audit.log`'a iz bırakma.
-- **Ekran görüntüsü ajana pahalı** — `agy`'de tek görüntü ~40 bin girdi jetonu.
-  `ui_dump` ~0,1 sn ve birkaç yüz jeton, üstelik koordinat kullanmadığı için
-  ıskalayamaz. GTK'da metin yolu tercih edilir; görüntü, ağacın boş geldiği
+- **Ekran görüntüsünün maliyeti sürücüye göre 20–30 kat değişiyor** — `agy`'de
+  tek görüntü ~40 bin girdi jetonu, **Claude'da ~1200–1900**. `ui_dump` yine de
+  daha ucuz (~0,1 sn, birkaç yüz jeton) ve koordinat kullanmadığı için
+  **ıskalayamaz**. GTK'da metin yolu tercih edilir; görüntü, ağacın boş geldiği
   yerler için yedek.
+- **Claude Code araç sonucundaki görüntüyü gerçekten okuyor** (ölçüldü: bilinen
+  içerikli PNG'deki gizli değer birebir geri geldi). Anthropic API uzun kenarı
+  1568'e indirdiği için `screenshot_scale_long_edge = 1280` korunuyor — o
+  sınırın altında modelin gördüğü piksel ile raporlanan ölçek aynı kalıyor.
+- **stdio'da hiçbir `@mcp.custom_route` rotası yok** (HTTP sunucusu yok):
+  `/shot/<token>.png`, `/healthz`, `/consent`, `/.well-known/*`. `screen_capture`
+  orada bağlantı yerine dosya yolu döner. OAuth'u da fastmcp kendisi atlıyor.
+- **Görüntü dönen araçlarda dönüş tipi `list[ContentBlock]` olmalı.** Çıplak
+  `-> list` yazılırsa FastMCP outputSchema üretir ve çağrı
+  `"outputSchema defined but no structured output returned"` ile patlar.
+- **venv'deki `pcbridge.pth` repo yolunu `sys.path`'e ekliyor**, bu yüzden
+  `python -m pcbridge.server` herhangi bir dizinden çalışır; istemci kayıtları
+  `cwd` istemiyor.
 
 ## ⚠️ Bu makinede test etmenin tehlikesi
 

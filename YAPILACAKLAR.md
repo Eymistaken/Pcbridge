@@ -41,8 +41,12 @@ global ofsetini söyler) ve `bin/pcb-do` (eylem listesi çalıştırır). Bunlar
 çağırabiliyor. Yönerge dosyası `skills/computer-use/SKILL.md`, oradan
 `~/.claude/skills/computer-use`'a symlink.
 
-**Son durum:** A→F bölümleri bitti ve `93e3be7` olarak push edildi. Çalışma
-ağacı temiz, `config.toml`'da `[desktop] enabled = false` (doğru hâli).
+**Son durum:** A→H bölümleri bitti. `[desktop] enabled = false` (doğru hâli).
+
+Faz H'de eklenenler: `--stdio` taşıması, `screen_capture`'ın görüntüyü araç
+sonucunda döndürmesi (`[server] inline_images`), `connect.sh`, `doctor.sh`'e
+istemci kayıtları başlığı, `computer_task`'in varsayılan sürücüsünün `claude`
+olması ve bir model çözümleme hatasının düzeltilmesi.
 
 ---
 
@@ -166,8 +170,34 @@ Kütüphane tarafı hazır: `fastmcp 3.4.5` (`fastmcp.utilities.types.Image`),
   `shell_run`, `agent_run`, `fs_*`, `tmux_*` bu kapıdan geçmez — kapalıyken de
   komut çalışır, uygulama açılır, `config.toml` okunabilir. Bu bilinçli; koruma
   engelleme değil, `audit.log`'a **iz bırakma**
-- **Ekran görüntüsü ajana pahalı:** `agy`'de ölçüldü, tek görüntü ~40 bin girdi
-  jetonu. Claude/Codex tarafında **ölçülmedi** (H0'ın işi)
+- **Ekran görüntüsünün maliyeti sürücüye göre 20–30 kat değişiyor.** `agy`'de
+  tek görüntü ~40 bin girdi jetonu; **Claude'da ~1200–1900** (ölçüldü
+  2026-08-03: 1920×1080 → ~12976, 1280×720 → ~11712 cache_creation, fark ~1264).
+  Yani `computer_task`'i pahalı yapan şey görüntü değil, **ayrı oturum ve
+  tekrar eden turlar**
+- **Anthropic API görüntünün uzun kenarını 1568'e indiriyor.** Bu yüzden
+  `screenshot_scale_long_edge = 1280` korunuyor: o sınırın altında kalınca
+  modelin gördüğü piksel ile bizim raporladığımız ölçek aynı kalıyor. 1920
+  gönderilseydi "ölçek 1.0" bilgisi **sessizce yalan** olurdu
+- **Claude Code araç sonucundaki görüntüyü GERÇEKTEN okuyor.** Ölçüm yolu:
+  bilinen içerikli PNG (`KELIME-1234`), model değeri birebir söyledi. "Evet
+  görüyorum" demesi kanıt sayılmadı. Uçtan uca da doğrulandı — `--stdio` ile
+  bağlanan gerçek bir oturum `screen_capture` çağırıp ekranı doğru tarif etti
+- **stdio'da fastmcp auth'u kendisi atlıyor** (`fastmcp/server/server.py:196`:
+  "skip_auth=True means auth checks should be skipped (STDIO transport)").
+  Yani `build_app()`'in ürettiği aynı örnek stdio'da OAuth'suz çalışıyor
+- **stdio'da HİÇBİR `@mcp.custom_route` rotası servis edilmiyor** — HTTP
+  sunucusu yok. `/shot/<token>.png`, `/healthz`, `/consent`, `/.well-known/*`
+  orada yok; `screen_capture` bu yüzden bağlantı yerine dosya yolu döner
+- **FastMCP'de dönüş tipi `-> list` (çıplak) yazılırsa araç patlıyor:**
+  outputSchema üretiliyor ve çağrı `"outputSchema defined but no structured
+  output returned"` diyor. Görüntü dönen araçlarda tip **`list[ContentBlock]`**
+- **venv'deki `pcbridge.pth` repo yolunu `sys.path`'e ekliyor**, bu yüzden
+  `python -m pcbridge.server` **herhangi bir dizinden** çalışıyor (cwd=/ ile
+  ölçüldü, 33 araç). İstemci kayıtlarında `cwd` vermek gerekmiyor
+- **stdio testinde stdin'i erken kapatmak sunucuyu yanıt yazmadan kapatıyor.**
+  `communicate()` ile hepsini birden göndermek `tools/list` yanıtını yutuyor ve
+  test/tanı sunucuyu bozuk sanıyor. Yanıt **satır satır** okunmalı
 
 ---
 
@@ -253,7 +283,18 @@ söyle, gerekçesiyle düzelt, sonra devam et.
 
 ## Görev listesi
 
-### H0 · Ölçüm (kod yazmadan)
+> **H0–H6 BİTTİ (2026-08-03).** Aşağıdaki maddeler geçmiş kayıt olarak duruyor;
+> ne istendiğini ve neyin neden yapıldığını gösteriyorlar. Sonuçlar ve plandan
+> sapmalar `PLAN.md` → "9b. Faz H sonuçları" bölümünde.
+>
+> **Açık kalan tek iş:** Codex'in gerçekten bağlanıp bağlanmadığı ve görüntü
+> bloğunu işleyip işlemediği. Bu makinede ölçülemedi (abonelik yok); kullanıcının
+> kuzeni deneyecek. Sonuç gelince buraya ve `KULLANIM.md`'ye işlenecek —
+> **o güne kadar hiçbir belgede "Codex destekleniyor" yazmayın.**
+>
+> Sırada `G` var (ekran çerçevesi), opsiyonel.
+
+### H0 · Ölçüm (kod yazmadan) — ✅ bitti
 
 Hepsi "yanlışsa tasarım değişir" sorusu. Bu projede A–F boyunca ölçüm üç kez
 plan varsayımını çürüttü; atlama.
@@ -276,7 +317,7 @@ plan varsayımını çürüttü; atlama.
 5. **Claude Desktop** yapılandırma dosyasının yeri ve biçimi (bu makinede
    kurulu ve çalışıyor).
 
-### H1 · stdio taşıması
+### H1 · stdio taşıması — ✅ bitti
 
 - `python -m pcbridge.server --stdio` çalışsın. HTTP yolu **aynen kalsın** —
   Spark ve uzaktan erişim onun üstünde
@@ -291,7 +332,7 @@ OAuth + `desktop_unlock`). stdio ilk ikisini kaldırıyor; sunucuyu başlatabile
 her yerel süreç masaüstüne erişir, önünde yalnızca `desktop_unlock` kalır.
 Bunu omuz silkerek geçme, kullanıcıya sor.
 
-### H2 · Inline görüntü
+### H2 · Inline görüntü — ✅ bitti
 
 - `screen_capture` görüntüyü **`Image` bloğu olarak** döndürsün
 - **Metin kısmı KALSIN.** Monitör numarası, global ofset ve dönüşüm kuralı
@@ -304,7 +345,7 @@ Bunu omuz silkerek geçme, kullanıcıya sor.
 - `/shot/<token>.png` yolu **kalsın** — insan için hâlâ değerli, telefondan
   bakmanın tek yolu
 
-### H3 · İstemci kurulumu ve tanı
+### H3 · İstemci kurulumu ve tanı — ✅ bitti (`connect.sh`)
 
 - Kurulum komutlarını üreten bir yol: `install.sh`'e ekle ya da `connect.sh`
   yaz. Kullanıcı kopyalayıp yapıştırabilsin:
@@ -316,7 +357,7 @@ Bunu omuz silkerek geçme, kullanıcıya sor.
 - **Codex satırları "kayıtlı mı" der, "çalışıyor mu" DEMEZ.** Burada yalnızca
   yapılandırma doğrulanabiliyor; gerçek bağlantı denenmedi
 
-### H4 · `computer_task`'in yeni yeri
+### H4 · `computer_task`'in yeni yeri — ✅ bitti
 
 - Docstring **dürüstleşsin**: gören bir istemci için gerekli değil. "Ekranı
   kendin görebiliyorsan `screen_capture` + `computer_batch` kullan; bunu uzun
@@ -330,14 +371,14 @@ Bunu omuz silkerek geçme, kullanıcıya sor.
   **Bu bugün bir hata:** `computer_task(agent="claude")` çağrısı, yapılandırılan
   model agy'ye ait olduğu için çözümlemede patlar. Düzelt
 
-### H5 · Testler
+### H5 · Testler — ✅ bitti (206 + 97 + 312)
 
 - `tests/test_e2e.py`: `inline_images` açık/kapalı şema farkı, stdio ile
   başlayan sunucudan `tools/list`
 - `tests/test_desktop.py`: mevcut 312 kontrol bozulmasın
 - Gerçek istemci testi (H0'ın kurduğu düzenek) elle, kullanıcıya haber vererek
 
-### H6 · Belgeler ve commit
+### H6 · Belgeler ve commit — ✅ bitti
 
 - `README.md`: konumlandırma değişiyor — "Gemini Spark için MCP" değil,
   "ajanların bağlandığı MCP". Güvenlik bölümüne **stdio'nun ağ katmanını
