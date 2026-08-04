@@ -1603,3 +1603,93 @@ Model ve effort (5. bölüm):
 - [Claude Code — Model configuration](https://code.claude.com/docs/en/model-config) — öncelik sırası, `/model`'in ayara yazılması, effort seviyeleri, `modelUsage`
 - [Claude Code — CLI reference](https://code.claude.com/docs/en/cli-reference) — `--model`, `--effort`
 - [Antigravity CLI komut listesi](https://toolsbase.dev/en/reference/antigravity-cli-commands) ve [agy rehberi](https://www.codeagentswarm.com/en/guides/how-to-use-antigravity-cli) — `agy --model`, sürüme bağlı TUI-only davranış
+
+---
+
+# 10. GNOME 46 kabuk eklentisi — "ajan görünür olsun" (2026-08-04)
+
+`YAPILACAKLAR.md`'nin o günkü görevi: masaüstü izni açıkken bunu **bakar bakmaz**
+anlamak. Üç madde istenmişti — ekran kenarlarında çerçeve, değişen imleç, imlecin
+yöne dönmesi. İkisi yapıldı, üçüncüsü (imleç) geri alındı.
+
+## 10a. Neden ayrı bir eklenti, neden pcbridge'e dokunulmadı
+
+İş açıkça "yalnızca görsel katman" diye tanımlanmıştı. Eklenti pcbridge'in
+durumunu **dosyadan okuyor** (`state_dir/desktop_unlock.json`), pcbridge'e tek
+satır eklenmedi.
+
+D-Bus düşünülüp elendi: GNOME 46 bu makinede `Shell.Introspect` ve
+`Shell.Screenshot`'ı dışarıya kapatmış, pcbridge'in kendisi de bir arayüz
+sunmuyor ve sunması kapsam dışıydı. Dosya zaten var, zaten yazılıyor, tek yönlü.
+
+**Süre dolumu ayrıca zamanlayıcı istiyor.** pcbridge izin bitince dosyayı
+yeniden yazmıyor — `until` sadece geçmişte kalıyor. Yalnızca dosya olaylarını
+dinleyen bir izleyici izin bittiğini hiç duymaz ve çerçeve sonsuza kadar ekranda
+kalırdı.
+
+## 10b. Ölçüm altyapısı: `selftest.js`
+
+Eklentinin iki iddiası dışarıdan doğrulanamıyor — çerçevenin tıklamayı
+engellemediği ve kabuğun ana döngüsünü tıkamadığı. `Shell.Eval` GNOME 41+ ile
+kapalı, yani kabuğa dışarıdan kod sokulamıyor. Ölçümü yapabilecek tek yer
+kabuğun içinde zaten çalışan eklentinin kendisi. `PCBRIDGE_GORUNUR_SELFTEST=1`
+ya da bir işaret dosyası ile açılıyor; kapalıyken maliyeti tek bir `getenv`.
+
+Ana döngü gözcüsü ("fare donuyor" şikâyeti) bu işin en faydalı parçası çıktı:
+sabit aralıklı bir zamanlayıcı kurup **gerçekte** ne zaman uyandığına bakıyor.
+CPU yüzdesi bunu göstermez — donma toplam yükten değil tek bir uzun işten de
+gelebilir.
+
+## 10c. Çerçeve: neden dört şerit, tek tam ekran aktör değil
+
+Tam ekran bir `St.DrawingArea` monitör başına ~8 MB doku ayırır ve her karede
+1920×1080 saydam bir dörtgen harmanlatır. Dört kenar şeridi aynı görüntüyü
+**~4 kat az piksel** harmanlayarak veriyor (552 bin px yerine 2,07 milyon).
+
+Köşeler: yatay şeritler tam genişlik, dikey şeritler tam yükseklik; köşede ikisi
+üst üste biniyor ve saydamlıklar OVER ile birleşiyor. Köşe biraz daha parlak
+çıkıyor — kusur değil, cam kenarındaki ışık böyle davranır.
+
+Çizim **bir kez**: şeritler yalnızca boyut değişince yeniden çiziliyor,
+belirme/kaybolma `opacity` üzerinden GPU'da oluyor. Animasyon boyunca tek bir
+Cairo çağrısı yok. Ölçülen sonuç: boşta maliyet ölçüm gürültüsünün altında.
+
+`Clutter.Canvas` mutter çatalında yok; çizim yolu `St.DrawingArea` + Cairo.
+
+## 10d. İmleç: soru çözüldü, özellik geri alındı
+
+`YAPILACAKLAR` "2 ve 3 tek bir soruya bağlı: gerçek imleci gizleyebiliyor muyuz?"
+diyordu ve gizleyemezsek tema değiştirme yedeğine düşmeyi öneriyordu (yön
+dönmesi düşerdi).
+
+**Cevap evet.** `Meta.CursorTracker.set_pointer_visible(false)` gerçek oturumda,
+gerçek donanımda imleci gizliyor ve gizli kalıyor. Görsel kanıt: gizli/görünür
+kareleri arasındaki fark tam olarak imlecin bulunduğu noktada, 13×21 px, başka
+hiçbir piksel değişmedi. Kendi imlecimiz çizildi, yöne döndü, kullanıcının
+verdiği referans görsele göre yeniden tasarlandı.
+
+Sonra gerçek kullanımda **fiziksel fareyle** tıklamalar basmadı ve fare dondu.
+Üç hipotez test edildi (girdi bölgesi fırtınası, basılıyken takibin durması,
+tıklamaların yutulması) ve **üçü de yanlış çıktı** — ölçümleri
+`YAPILACAKLAR.md`'de. Bütün testlerin ortak kusuru sentetik fare kullanmalarıydı;
+ölçülmemiş tek fark olay hızı. Kullanıcı çerçeveyle yetinmeyi seçti, imleç
+kodu çıkarıldı (git: `2cac1b3`, `3b15559`).
+
+**Buradan çıkan ders:** sentetik girdiyle yapılan bir ölçüm, fiziksel girdiyle
+aynı şey değil. pcbridge'in kendi `mouse` aracı 8 ms adımlarla ~125 Hz üretiyor;
+bir oyuncu faresi 1000 Hz üretebiliyor ve aradaki fark bir tasarımı çökertmeye
+yetiyor.
+
+## 10e. Yol boyunca çıkan iki tuzak
+
+**`rm` çalışan eklentiyi durdurmuyor.** GNOME 45+ ESM modüllerini önbellekte
+tutuyor; diskteki dosyayı silmek ancak kabuk yeniden başlayınca etki ediyor.
+Kullanıcıya önce yalnızca `rm` söylendi, hiçbir şey değişmedi ve makineyi
+yeniden başlatmak zorunda kaldı. Doğrusu `gnome-extensions disable <uuid>`.
+
+**Nested kabuk oturum servisi sızdırıyor.** Her koşum ~13 servis bırakıyor;
+~20 koşumda 298 yetim süreç birikti ve `fs.inotify.max_user_instances` (128)
+doldu. O noktada `Gio.FileMonitor` yeni izleyici yaratamıyor ve bunu **sessizce**
+yapıyor. Belirtisi yanlış yorumlandı: eklentinin durum izleyicisi öldü sanıldı ve
+kodda hata arandı; `test_state.js` 23/23 iken 11/23'e düştü — hem yeni hem
+commit'teki kodla, yani kod değişmemişti. Temizlikten sonra tekrar 23/23.

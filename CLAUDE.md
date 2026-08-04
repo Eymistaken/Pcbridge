@@ -18,9 +18,13 @@ Proje Gemini Spark için başlamıştı; **artık hedef değil.** Mimarinin
 "görüntü yerine metin" tercihleri (`ui_dump`, `/shot` bağlantıları) o çağdan
 kalma ve **kazanç oldukları için duruyorlar** — daha ucuz ve ıskalamıyorlar.
 
-**Sıradaki iş [YAPILACAKLAR.md](YAPILACAKLAR.md).** Şu an orada duran görev:
-ajanın makineyi kullandığını gösteren **görsel bir GNOME 46 eklentisi**
-(ekran kenarlarında çerçeve efekti, değişen ve yöne dönen imleç).
+**Sıradaki iş [YAPILACAKLAR.md](YAPILACAKLAR.md).** Şu an sırada bekleyen görev
+yok; orada yarım kalan tek konu **imleç katmanı** (aşağıda).
+
+`gnome-extension/` altında isteğe bağlı bir **GNOME 46 kabuk eklentisi** var:
+masaüstü izni açıkken her monitörün kenarlarında yumuşak beyaz bir çerçeve
+gösteriyor. Tamamen görsel, `desktop_unlock.json`'ı yalnızca **okuyor**.
+pcbridge koduna hiç dokunmuyor.
 
 Ölçülmüş makine gerçekleri **bu dosyada**, aşağıda. Faz H/I/J'nin sonuçları ve
 neyin neden böyle yapıldığı `PLAN.md` 9b–9d bölümlerinde.
@@ -300,6 +304,42 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   `python -m pcbridge.server` herhangi bir dizinden çalışır; istemci kayıtları
   `cwd` istemiyor.
 
+### GNOME kabuk eklentisi tarafı (ölçüldü 2026-08-04)
+
+- **GNOME 45+ eklenti kodunu ESM önbelleğinde tutuyor.** `gnome-extensions
+  disable/enable` JS'i **yeniden okumaz**; kabuğun yeniden başlaması gerekir ve
+  Wayland'de bu **çıkış/giriş** demek. Geliştirme bu yüzden nested kabukta:
+  `gnome-extension/nested.sh`.
+- **`rm ~/.local/share/gnome-shell/extensions/<uuid>` çalışan eklentiyi
+  DURDURMAZ** — aynı sebep. Acil geri alma `gnome-extensions disable <uuid>`;
+  o anında etki ediyor. Bir kez yanlış söylendi ve kullanıcı makineyi yeniden
+  başlatmak zorunda kaldı.
+- **Her nested kabuk koşumu ~13 oturum servisi bırakıyor** (gvfsd,
+  tracker-miner, dconf-service, at-spi…). `dbus-run-session`'ın kurduğu veriyolu
+  başlatıyor, kabuk ölünce onlar yaşamaya devam ediyor. ~20 koşumda 298 yetim
+  süreç birikti ve **`fs.inotify.max_user_instances` (128) DOLDU**. O noktada
+  `Gio.FileMonitor` yeni izleyici yaratamıyor ve bunu **sessizce** yapıyor —
+  belirtisi "eklentinin durum izleyicisi öldü" ve `test_state.js` 23/23 iken
+  11/23'e düşmesi oldu, kod hiç değişmemişti. `nested.sh` artık her koşumda
+  topluyor; ayırt etme ölçütü güvenli: nested oturumlar `/tmp/dbus-*`, gerçek
+  oturum `/run/user/<uid>/bus`.
+- **`Meta.CursorTracker.set_pointer_visible(false)` gerçek imleci gizliyor ve
+  gizli kalıyor** (gerçek oturum, gerçek donanım). Görsel kanıt: gizli/görünür
+  kareleri arasındaki fark tam olarak imlecin bulunduğu noktada, 13×21 px.
+  Ama imleç katmanı fiziksel fareyle tıklamayı bozdu — ayrıntı ve devam yolu
+  `YAPILACAKLAR.md`'de.
+- **`Clutter.Canvas` mutter çatalında YOK**; çizim `St.DrawingArea` + Cairo.
+  GJS'de Cairo bağlamı `cr.$dispose()` ile bırakılmazsa sızıyor.
+- **GNOME'un monitör sırası pcbridge'inkiyle aynı değil.** `Main.layoutManager.monitors`
+  bu makinede `#0` = birincil (x=1920), `#1` = x=0; pcbridge soldan sağa
+  numaralıyor. Eklenti indeks değil **geometri** kullanıyor, o yüzden etkilenmiyor.
+- **`Gio.FileMonitor`'ün varsayılan hız sınırı 800 ms** — o pencere içindeki
+  ardışık dosya değişiklikleri birleşiyor. Durum dosyasının hızlı açılıp
+  kapanması tek olay olarak görünür.
+- **Çerçevenin maliyeti ölçüm gürültüsünün altında**: boşta CPU kapalı %0,55 /
+  açık %0,45–0,50, RSS farkı +0,08 MB. `top` örneklemesi nested kabukta çok
+  gürültülü; ölçüm `/proc/<pid>/stat`'tan CPU zamanı farkıyla yapılmalı.
+
 ## ⚠️ Bu makinede test etmenin tehlikesi
 
 **Bu depoda çalışırken pcbridge'in kontrol edeceği makinenin üzerindesin.**
@@ -345,10 +385,12 @@ ve o değişken `--effort` bayrağını sessizce etkisiz kılıyor.
 
 | Dosya | Ne |
 |---|---|
-| `YAPILACAKLAR.md` | **Sıradaki iş** — şu an: görsel GNOME 46 eklentisi |
+| `YAPILACAKLAR.md` | **Sıradaki iş** + yarım kalan imleç katmanının bulguları |
 | `KULLANIM.md` | Kullanıcıya dönük araç kataloğu + izin haritası — **güncel tutulmalı** |
 | `config.example.toml` | Ayarların belgelenmiş hâli; projenin asıl referansı |
-| `README.md` | Kurulum, istemcilere bağlanma, güvenlik değerlendirmesi, sorun giderme |
+| `README.md` | **İngilizce**, GitHub vitrini: genel bakış, mimari, güvenlik özeti |
+| `KURULUM.md` | Türkçe elkitabı: kurulum, istemcilere bağlanma, güvenlik değerlendirmesi, sorun giderme |
+| `gnome-extension/README.md` | Kabuk eklentisi: kurulum, acil geri alma, nested geliştirme döngüsü |
 | `GELISTIRME.md` | Yeni araç eklemenin uzun anlatımı + protokol tuzakları — geçmiş kayıt |
 | `PLAN.md`, `UYGULAMA.md` | Geçmiş kayıt: neyin neden böyle yapıldığı. Okuma zorunlu değil, **silme** |
 

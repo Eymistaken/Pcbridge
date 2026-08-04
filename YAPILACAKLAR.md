@@ -1,135 +1,110 @@
-# YAPILACAKLAR.md — GNOME eklentisi: ajan görünür olsun
+# YAPILACAKLAR.md
 
-## Başla
+## Sıradaki iş
 
-Kullanıcı "YAPILACAKLAR.md'yi uygula" dediyse:
-
-1. Bu dosyanın tamamını oku
-2. `CLAUDE.md`'yi oku — proje bağlamı ve değişmez kurallar orada
-3. Kendi görev listeni çıkar, **kullanıcıya onaylat**
-4. Onay gelmeden kod yazma
-5. Adım adım ilerle, **her adımı fiilen test et** ("hata vermedi" kanıt değil)
-6. Bölüm bitince commit at
-
-**Teknik tasarım sana ait.** Bu dosya *ne olması gerektiğini* söylüyor, *nasıl
-yapılacağını* değil. Araştırmayı, mimariyi ve yol seçimini sen yapacaksın;
-kararlarını gerekçesiyle kullanıcıya sunacaksın.
+**Şu an sırada bekleyen bir görev yok.** Aşağıdaki "yarım kalan" başlığı
+devam etmek isteyene hazır bir zemin bırakıyor.
 
 ---
 
-## İş
+## Biten: GNOME 46 eklentisi — ajan görünür olsun
 
-**GNOME 46 (Wayland) için görsel bir kabuk eklentisi yaz.**
+`gnome-extension/pcbridge-gorunur@eymistaken.local`
 
-pcbridge bir ajana klavye, fare ve ekran erişimi verebiliyor. Bugün bunun tek
-görünür işareti GNOME'un kendi ekran paylaşımı göstergesi — üst çubukta küçük
-turuncu bir simge. Yeterince belirgin değil.
+Masaüstü izni açıkken her monitörün kenarlarında yumuşak beyaz bir çerçeve
+beliriyor, izin kapanınca yumuşakça kayboluyor. Tamamen görsel; eklenti
+hiçbir şeye tıklamıyor, hiçbir şey yazmıyor, pcbridge'in davranışını
+değiştirmiyor — yalnızca `desktop_unlock.json`'ı okuyor.
 
-İstenen: **ajan makineyi kullanırken bunu bakar bakmaz anlamak.**
+Kurulum ve geliştirme döngüsü: [gnome-extension/README.md](gnome-extension/README.md).
 
----
+### Ölçülenler (tahmin değil)
 
-## Ne yapacak
-
-### 1. Ekran kenarlarında çerçeve efekti
-
-Ekran yayını açıkken her monitörün kenarlarında **hafif, beyaz, gradyanlı bir
-çerçeve** belirsin. Kenardan içeri doğru yumuşakça sönen bir parlaklık — keskin
-çizgi değil.
-
-- Yayın açılınca **yumuşakça belirsin**, kapanınca **yumuşakça kaybolsun**
-- İki monitörde de görünsün
-- Altındaki pencerelere tıklamayı engellemesin, dikkat dağıtmasın
-
-### 2. Değişen fare imleci
-
-Ajan makineyi kullanırken imleç, **yumuşak köşeli, hafif parlayan** bir imlece
-dönüşsün. Normal ok imleci gibi sert değil; yumuşak, hafif ışıldayan.
-
-Ajan bıraktığında normal imlece geri dönsün.
-
-### 3. İmleç yöne dönsün
-
-İmleç hareket ederken **ucu gittiği yöne baksın**. Sol üste gidiyorsa ucu sol
-üste, sağ alta gidiyorsa sağ alta. Dönüş ani olmasın — takip etsin, yumuşakça
-dönsün.
-
-### İmleç işinin riski ve yedek planı
-
-2 ve 3 tek bir soruya bağlı: **gerçek imleci gizleyebiliyor muyuz?** Wayland'de
-imleci uygulamalar değil kompozitör çiziyor. Kendi imlecimizi çizmek kolay
-kısım; gizleyemezsek iki imleç birden görünür ve efekt çöpe gider.
-
-GNOME'un kendi ekran büyüteci imleci kendi çizebiliyor, yani kabuğun içinde bir
-yol var. Eklentiden erişilebilir mi — **ölç, varsayma.** GNOME 46 bu makinede
-beklenenden çok kapı kapatmış (`Shell.Introspect`, `Shell.Screenshot`,
-`Shell.Eval` hepsi kapalı).
-
-**Yedek plan (kullanıcının fikri):** kendi imleç temamızı hazırla, ajan
-çalışırken devreye al, iş bitince eski temaya dön. Kesin çalışır ve
-kompozitörle uğraşmaz. Bedeli: **yön dönmesi (madde 3) düşer** — tema statik
-dosyalardan oluşuyor, harekete göre dönemez.
-
-Bu yol seçilirse **geri dönüş garanti altına alınmalı.** Tema değiştirip geri
-almak, tuşu basılı tutup bırakmakla aynı desen: eklenti çökerse, GNOME yeniden
-başlarsa ya da oturum beklenmedik kapanırsa kullanıcıda garip bir imleç kalır.
-pcbridge'de bunun karşılığı `hold_max_seconds` zamanlayıcısı; burada da eski
-tema adı diske yazılmalı ve eklenti **her açılışta** yarım kalmış bir değişiklik
-olup olmadığına bakıp geri almalı.
+| Ne | Sonuç |
+|---|---|
+| Tıklamayı engelliyor mu | **Hayır.** Bant içindeki Chrome sekmesine tıklandı, sekme değişti (gerçek oturum). Ayrıca `get_actor_at_pos(REACTIVE)` 8/8 noktada bizim aktörümüzü döndürmedi |
+| Boşta CPU maliyeti | Ölçüm gürültüsünün altında: kapalı %0,55 · açık %0,45–0,50 (`/proc`'tan CPU zamanı farkı) |
+| Bellek | +0,08 MB (370,0 → 370,1 MB RSS) |
+| Kabuğun ana döngüsü | 5350 tıkta 2 gecikme, en kötü 0 ms |
+| İki monitörde | Evet — GNOME'un monitör sırası pcbridge'inkiyle aynı DEĞİL (GNOME #0 = birincil), `frame.js` indeks değil geometri kullandığı için etkilenmiyor |
 
 ---
 
-## Kısıtlar
+## Yarım kalan: değişen fare imleci
 
-Bunlar tartışmaya kapalı:
+**Durum: çalışıyordu, ama gerçek kullanımda bozdu ve geri alındı.**
+Kod git geçmişinde: `2cac1b3` (ilk hâli) ve `3b15559` (son tasarım).
 
-- **Tamamen görsel.** Eklenti hiçbir şeye tıklamaz, hiçbir şey yazmaz, hiçbir
-  şeyi değiştirmez. Yalnızca gösterir.
-- **Yer kaplamayacak.** Animasyonlar akıcı olacak ama makineyi yormayacak.
-  CPU/GPU maliyeti ölçülecek ve rapor edilecek — "hafif görünüyor" yetmez.
-- **Yumuşak ve tatlı.** Ani geçiş, titreme, göze batan hareket yok. Efektler
-  şık olacak, rahatsız etmeyecek.
-- **GNOME 46 / Wayland.** Bu makinede çalışacak (Zorin OS 18.1). X11 hedef
-  değil.
+### Zor kısım çözüldü — bu bilgi saklansın
 
----
+YAPILACAKLAR'ın eski hâli "imleç işi tek bir soruya bağlı: gerçek imleci
+gizleyebiliyor muyuz?" diyordu. **Cevap: evet.**
 
-## Bilmen gerekenler
+`Meta.CursorTracker.get_for_display(global.display).set_pointer_visible(false)`
+gerçek oturumda, gerçek donanımda imleci gizliyor ve **gizli kalıyor** —
+çağrıdan 6 saniye sonra hâlâ `false`, kompozitörden tek bir geri açma gelmedi.
+Görsel kanıt: imleç durağan bir monitöre konup gizli/görünür kareleri
+karşılaştırıldı; fark tam olarak imlecin bulunduğu noktada, **13×21 px**,
+ekranda başka hiçbir piksel değişmedi.
 
-Bu makine hakkında ölçülmüş gerçekler `CLAUDE.md`'de. Bu iş için önemli olanlar:
+Yani tema değiştirme yedeğine (statik dosyalar, yön dönmesi yok) düşmeye
+**gerek yok**. Kendi imlecimizi çizip yöne döndürmek yapıldı ve çalıştı.
 
-- **İki monitör**, 1920×1080, yan yana. Tuval 3840×1080. Numaralandırma soldan
-  sağa: DP-2 (x=0) → monitör 1, DP-1 (x=1920, **birincil**) → monitör 2. GNOME
-  üst çubuğu sağdaki monitörde.
-- **Ekran yayını** `desktop_unlock` ile açılıyor, `desktop_lock` ya da izin
-  süresi dolunca kapanıyor. Yayın `pcbridge/desktop/screencast.py` ve
-  `screencast_helper.py` tarafından yönetiliyor.
-- **GNOME 46 bazı D-Bus arayüzlerini dışarıya kapatmış** (`Shell.Introspect`,
-  `Shell.Screenshot` — ikisi de "Access denied"). Eklentinin pcbridge'in
-  durumunu nasıl öğreneceği bir tasarım sorusu; hazır bir yol olduğunu varsayma,
-  önce ölç.
-- **`Shell.Eval` kapalı** (GNOME 41+ unsafe mode). Eklenti gerçekten kurulacak,
-  kabuğa kod enjekte edilmeyecek.
+### Neden geri alındı
 
----
+Gerçek makinede, **fiziksel fareyle**: tıklamalar basmıyor ve fare donuyor.
+Ajanın sentetik faresiyle hiç görülmedi.
 
-## Çalışma tarzı
+Üç hipotez test edildi, üçü de **yanlış** çıktı:
 
-- **Ölçmeden yazma.** GNOME 46'da neyin mümkün olduğunu tahmin etme; dene, gör,
-  sonra karar ver. Bu projede "hata vermedi" kanıt sayılmıyor.
-- **Bu makinede test ediyorsun.** Eklenti kullanıcının kendi masaüstünde
-  çalışacak. Bozuk bir eklenti GNOME kabuğunu düşürebilir — Wayland'de bu bütün
-  pencereleri kapatır. Yükleme ve etkinleştirme adımlarını kullanıcıya söyleyerek
-  yap, geri alma yolunu önce hazırla.
-- **Kullanıcı görsel sonucu kendisi onaylayacak.** Efektin "yumuşak" ya da
-  "tatlı" olup olmadığını ölçemezsin; göster, sor, düzelt.
-- Bölüm bitince commit at, push için onay iste.
+1. *"`addTopChrome` ile izlenen aktör her harekette girdi bölgesini yeniden
+   hesaplatıyor, kabuk tıkanıyor"* → kabuğun içine konan ana döngü gözcüsü
+   yoğun harekette 1600 tıkta **0 gecikme** gösterdi.
+2. *"Düğme basılıyken imleç takibi duruyor"* → tut + 3 hareket + kare: imleç
+   son konumda (891 parlak piksel), basma noktasında 0. **Takip ediyor.**
+3. *"Tıklamalar yutuluyor"* → `BUTTON_PRESS=2 · BUTTON_RELEASE=2` görüldü ve
+   gerçek oturumda Chrome sekmesi tıklamayla değişti.
+
+### Devam edilecekse buradan başlanmalı
+
+Bütün testlerin ortak kusuru: hepsi **sentetik** fare ile yapıldı. Fiziksel
+fareyle ölçülmemiş tek fark **olay hızı**. Kod aktörü *her* fare olayında
+yeniden konumlandırıyordu; 1000 Hz'lik bir fare saniyede 1000 yeniden çizim
+demek, sentetik testte ise ~50 ölçüldü.
+
+Yapılacak ilk şey — sırayla:
+
+1. **Farenin gerçek olay hızını ölç** (`/dev/input/eventN`'den saniyedeki olay
+   sayısı). 1000 Hz çıkarsa hipotez güçlenir, 125 Hz çıkarsa çürür ve başka
+   yere bakmak gerekir.
+2. Hipotez tutarsa **konumu kare saatinde bir kez uygula** — her olayda değil.
+   Yaklaşık 15 satır; en son konumu sakla, kare başına bir kez `set_position`.
+3. Bir de `Main.layoutManager.addTopChrome` yerine doğrudan `Main.uiGroup`
+   denenmeli: saniyede yüz kez yer değiştiren bir aktörü LayoutManager'a
+   izletmek her hâlükârda yanlış (GNOME'un kendi büyüteci de imlecini
+   `uiGroup`'a koyuyor). Ölçüm bunu suçlamadı, ama tasarım olarak doğrusu bu.
+
+### Tasarım kararları (tekrar sorulmasın diye)
+
+- Şekil: uç + geriye süpürülmüş iki kanat + arka çentik (kâğıt uçak / gönder
+  oku). Dört aday arasından kullanıcı seçti.
+- Renk: **içi koyu gri→siyah gradyan, etrafı ince beyaz şerit** — kullanıcının
+  kendi imleci de böyle. Düz beyaz gövde beyaz zeminde kayboluyor.
+- Parıltı: **şeklin çevresini** sarıyor, ucun etrafını değil. Cairo'da
+  bulanıklık yok; giderek genişleyen eş saydamlıkta halkalarla yapılıyor ve
+  katman başına saydamlık **birikime göre** hesaplanmalı (sabit alfa verilince
+  şeklin dibinde beyaz bir yığın oluşuyor). Seçilen değerler: yayılım 12 px,
+  tepe saydamlık 0,26.
+- Basma hissi (tıklamada küçülüp büyüme) istendi, sonra iptal edildi. Ama
+  **yapılabilir olduğu ölçüldü**: `global.stage` `captured-event` düğme
+  olaylarını görüyor (`BUTTON_PRESS=2 · BUTTON_RELEASE=2`). Kural: asla
+  `Clutter.EVENT_STOP` dönme, olayı tüketmek masaüstünü kilitler.
 
 ---
 
 ## Kapsam dışı
 
-- Eklentinin ayar arayüzü (gerekirse sonra)
+- Eklentinin ayar arayüzü
 - extensions.gnome.org'a yayımlama
 - GNOME 46 dışındaki sürümler
-- pcbridge'in kendi davranışını değiştirmek — bu iş **yalnızca görsel katman**
+- pcbridge'in kendi davranışını değiştirmek — eklenti **yalnızca görsel katman**

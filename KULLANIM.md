@@ -547,6 +547,46 @@ Yani soru "Gemini ne yapabilir" değil, "kim Gemini'ye ulaşabilir".
 
 ---
 
+## Ajanın makineyi kullandığını görmek — GNOME eklentisi
+
+Masaüstü izni açıkken bunun tek görünür işareti GNOME'un üst çubuğundaki küçük
+turuncu paylaşım simgesiydi. `gnome-extension/` altındaki isteğe bağlı eklenti
+aynı durumu **göz kaçırmayacak** hâle getiriyor: izin açıkken her monitörün
+kenarlarında yumuşak beyaz bir çerçeve beliriyor, izin kapanınca yumuşakça
+kayboluyor.
+
+```bash
+./gnome-extension/install.sh      # symlink kurar + etkinleştirir
+# sonra ÇIKIŞ YAPIP YENİDEN GİRİN (GNOME eklenti kodunu önbelleğe alıyor)
+```
+
+Kapatmak — **`rm` tek başına yetmez**, çalışan eklentiyi durdurmaz:
+
+```bash
+gnome-extensions disable pcbridge-gorunur@eymistaken.local
+```
+
+Bilmeniz gerekenler:
+
+- **Tamamen görsel.** Eklenti hiçbir şeye tıklamaz, hiçbir şey yazmaz,
+  pcbridge'in davranışını değiştirmez. Yaptığı tek şey
+  `~/.local/state/pcbridge/desktop_unlock.json` dosyasını **okumak**.
+- **Tıklamayı engellemez.** Çerçeve bandının altındaki pencerelere tıklama
+  geçer — gerçek bir tıklamayla ölçüldü (bandın içindeki bir Chrome sekmesine
+  tıklandı, sekme değişti).
+- **Çerçeve izin penceresini gösterir, ekran yayınını değil.** İkisi normalde
+  aynı anda açılıp kapanıyor, ama yayın açılamazsa (GStreamer eksikse) izin
+  yine verilir ve çerçeve yine görünür. Kullanıcıya asıl söylenmesi gereken
+  "ajanın masaüstü izni var" olduğu için bu bilinçli.
+- **Maliyeti ölçüm gürültüsünün altında**: boşta CPU farkı ölçülemedi, bellek
+  +0,08 MB.
+- Ayrıntı ve geliştirme döngüsü: [gnome-extension/README.md](gnome-extension/README.md).
+
+İmleci değiştirme fikri denendi ve **şimdilik bırakıldı** — gerekçesi
+[YAPILACAKLAR.md](YAPILACAKLAR.md)'de.
+
+---
+
 ## Bilmen gereken sınırlar
 
 **Yazma işlemlerinde onay çıkabilir.** Bazı istemciler (bulut tabanlı olanlar
