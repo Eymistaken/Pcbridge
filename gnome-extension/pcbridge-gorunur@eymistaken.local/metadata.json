@@ -1,0 +1,8 @@
+{
+  "uuid": "pcbridge-gorunur@eymistaken.local",
+  "name": "pcbridge — Ajan Görünür",
+  "description": "pcbridge masaüstü izni açıkken ekranın kenarlarında yumuşak bir çerçeve gösterir ve imleci değiştirir. Böylece bir ajanın klavye/fareye eriştiği bakar bakmaz anlaşılır. Tamamen görsel: hiçbir şeye tıklamaz, hiçbir şey yazmaz.",
+  "shell-version": ["46"],
+  "session-modes": ["user"],
+  "version-name": "0.1.0"
+}
