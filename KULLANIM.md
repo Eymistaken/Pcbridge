@@ -585,6 +585,20 @@ Bilmeniz gerekenler:
 İmleci değiştirme fikri denendi ve **şimdilik bırakıldı** — gerekçesi
 [YAPILACAKLAR.md](YAPILACAKLAR.md)'de.
 
+### Açılış bildirimi
+
+`desktop_unlock` varsayılan olarak masaüstüne bir bildirim düşürüyor. Çerçeve
+eklentisi kuruluysa bu gereksiz tekrar oluyor; kapatmak için `config.toml`:
+
+```toml
+[desktop]
+unlock_notification = false
+```
+
+**İkisini birden kapatmayın.** O zaman iznin açıldığını gösteren tek şey
+GNOME'un üst çubuktaki küçük paylaşım simgesi kalır — ki bu eklentinin var
+olma sebebi tam olarak onun yeterince belirgin olmamasıydı.
+
 ---
 
 ## Bilmen gereken sınırlar

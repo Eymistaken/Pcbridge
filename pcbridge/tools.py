@@ -865,19 +865,26 @@ def register(
             return f"⛔ Sanal girdi cihazi kullanilamiyor: {why}"
 
         msg = gate.unlock(minutes, reason or "")
-        subprocess.run(
-            [
-                "notify-send",
-                "-a",
-                "pcbridge",
-                "-u",
-                "critical",
-                "Masaüstü kontrolü açıldı",
-                f"{minutes} dakika · {reason or 'gerekçe belirtilmedi'}",
-            ],
-            capture_output=True,
-            timeout=10,
-        )
+        # Izin acildiginin KULLANICIYA gorunmesi onemli, ama tek yolu bu
+        # bildirim degil: `gnome-extension/` altindaki kabuk eklentisi ayni
+        # durumu ekran kenarlarindaki cerceveyle gosteriyor ve o surekli
+        # duruyor -- bildirim birkac saniye sonra kayboluyor. Eklenti
+        # kuruluysa bildirim gereksiz tekrar oluyor, o yuzden kapatilabilir.
+        # Ikisini birden kapatmak izni GORUNMEZ yapar; bilerek yapilmali.
+        if cfg.desktop.unlock_notification:
+            subprocess.run(
+                [
+                    "notify-send",
+                    "-a",
+                    "pcbridge",
+                    "-u",
+                    "critical",
+                    "Masaüstü kontrolü açıldı",
+                    f"{minutes} dakika · {reason or 'gerekçe belirtilmedi'}",
+                ],
+                capture_output=True,
+                timeout=10,
+            )
         out = [msg, "", monitorslib.describe(), ""]
         out.append(_open_screencast())
         out.append(

@@ -90,6 +90,7 @@ class DesktopSpec:
     # desktop_unlock(dakika) verilmezse bu kadar; tavan da asagida.
     unlock_default_minutes: int = 15
     unlock_max_minutes: int = 120
+    unlock_notification: bool = True
     # Kullanici son girdisinden bu kadar saniye gecmediyse yazma eylemleri
     # reddedilir (telefon ile kullanicinin faresi kavga etmesin). force=true
     # ile bilincli olarak gecilebilir. 0 = kontrol kapali.
@@ -470,6 +471,7 @@ def load_config(explicit: str | None = None) -> Config:
         enabled=bool(desktop_raw.get("enabled", False)),
         unlock_default_minutes=int(desktop_raw.get("unlock_default_minutes", 15)),
         unlock_max_minutes=int(desktop_raw.get("unlock_max_minutes", 120)),
+        unlock_notification=bool(desktop_raw.get("unlock_notification", True)),
         idle_guard_seconds=int(desktop_raw.get("idle_guard_seconds", 60)),
         max_actions_per_second=int(desktop_raw.get("max_actions_per_second", 10)),
         default_monitor=int(desktop_raw.get("default_monitor", 1)),

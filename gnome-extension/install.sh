@@ -58,14 +58,14 @@ geri_alma_yolu() {
     echo
     echo "    $BURASI/install.sh --kaldir"
     echo
-    sari "DIKKAT: `rm` TEK BASINA YETMEZ."
+    sari 'DIKKAT: rm TEK BASINA YETMEZ.'
     echo "Diskteki dosyayi silmek CALISAN eklentiyi durdurmuyor; kabuk onu"
     echo "zaten bellege almis oluyor. Etkisi ancak kabuk yeniden baslayinca"
     echo "(cikis/giris ya da yeniden baslatma) goruluyor. Bir kere yasandi:"
-    echo "kullanici `rm` yazdi, hicbir sey degismedi, makineyi restart etti."
+    echo 'kullanici rm yazdi, hicbir sey degismedi, makineyi restart etti.'
     echo
     echo "Kabuk tamamen kilitliyse Ctrl+Alt+F3 ile TTY'ye gecip yukaridaki"
-    echo "`gnome-extensions disable` komutunu oradan calistir."
+    echo 'gnome-extensions disable komutunu oradan calistir.'
     sari "──────────────────────────────────────────────────────────────────"
 }
 

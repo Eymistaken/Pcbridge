@@ -116,6 +116,19 @@ enabled = false
 unlock_default_minutes = 15
 unlock_max_minutes = 120
 
+# `desktop_unlock` calisinca masaustune bir bildirim dusurulsun mu.
+#
+# Iznin acildiginin KULLANICIYA gorunmesi onemli -- ajanin klavye/fareye
+# eristigini fark etmediginiz bir an olmamali. Ama bunun tek yolu bildirim
+# degil: `gnome-extension/` altindaki GNOME kabuk eklentisi ayni durumu
+# ekran kenarlarindaki cerceveyle gosteriyor ve o SUREKLI duruyor, bildirim
+# ise birkac saniyede kayboluyor.
+#
+# Eklenti kuruluysa bildirim gereksiz tekrar olur; false yapabilirsiniz.
+# IKISINI BIRDEN kapatmayin: o zaman izin gorunmez olur ve geriye yalnizca
+# GNOME'un ust cubuktaki kucuk paylasim simgesi kalir.
+unlock_notification = true
+
 # Kullanicinin son klavye/fare hareketinden bu kadar saniye gecmediyse YAZMA
 # eylemleri reddedilir: makinenin basindaysaniz telefondan gelen fare ile
 # sizinki kavga etmesin. Arac cagrisinda force = true ile bilincli olarak
