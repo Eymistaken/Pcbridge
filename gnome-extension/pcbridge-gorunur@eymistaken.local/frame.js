@@ -40,6 +40,22 @@ const DEPTH_MAX = 150;
 const FADE_IN_MS = 700;
 const FADE_OUT_MS = 500;
 
+/* Nefes alma: bant çok yavaşça incelip eski kalınlığına dönüyor.
+ *
+ * KALINLAŞMA YOK: ölçek tavanı 1.0, yani şerit hiçbir zaman çizildiğinden
+ * kalın olmuyor. Aşağı doğru %12 inceliyor, o kadar.
+ *
+ * NASIL: şeridi DIŞ KENARINA doğru ölçekliyoruz (`pivot_point`). Dış kenar
+ * yerinde sabit kalıyor, iç kenar geri çekiliyor — yani gradyan mekânsal
+ * olarak daralıyor, gerçekten "incelme" oluyor. Yeniden çizim yok; ölçek bir
+ * GPU dönüşümü, Cairo'ya hiç dönülmüyor.
+ *
+ * Saydamlık kullanılmadı bilerek: belirme/kaybolma zaten `opacity` üzerinden
+ * gidiyor, ikisi aynı özelliği çekiştirirse animasyonlar birbirini eziyor.
+ */
+const BREATH_SCALE = 0.88;
+const BREATH_MS = 5500;   // yarım çevrim; tam nefes 11 saniye
+
 /* Kenardan içeri sönüş eğrisi. Düz doğrusal bir rampa göze "bant" gibi
  * görünüyor; bu duraklar üstel bir sönüşe yaklaşıyor ve ışık gibi okunuyor.
  * [oran, saydamlık çarpanı] */
@@ -61,6 +77,11 @@ export class FrameOverlay {
         this._actors = [];
         this._monitorsId = 0;
         this._visible = false;
+    }
+
+    /** Ölçüm için: kurulu şerit aktörleri. */
+    get actors() {
+        return this._actors;
     }
 
     /** Aktörleri kur ve monitör değişikliklerini izlemeye başla. */
@@ -93,7 +114,9 @@ export class FrameOverlay {
                     duration: FADE_IN_MS,
                     mode: Clutter.AnimationMode.EASE_OUT_QUAD,
                 });
+                this._startBreathing(actor);
             } else {
+                this._stopBreathing(actor);
                 actor.ease({
                     opacity: 0,
                     duration: FADE_OUT_MS,
@@ -104,6 +127,42 @@ export class FrameOverlay {
                 });
             }
         }
+    }
+
+    /** Sonsuz nefes: incel → eski kalınlığa dön → incel …
+     *
+     * `Clutter.PropertyTransition` + `auto_reverse` denendi ve ÇALIŞMADI:
+     * aktöre eklenmeden önce `set_from`/`set_to` çağrılınca geçiş özelliğin
+     * tipini bilmiyor, aralık boş kalıyor ve ölçek 0'a düşüyor (ölçüldü:
+     * 15 örneğin hepsi 0.000). `ease()` zincirlemesi doğrulanmış yol.
+     *
+     * Bedeli yarım çevrimde bir JS geri çağrısı — şerit başına 5,5 saniyede
+     * bir, yani saniyede ~1,5 çağrı. Ölçülemeyecek kadar az. */
+    _startBreathing(actor) {
+        if (actor._pcbNefes)
+            return;
+        actor._pcbNefes = true;
+        this._breathStep(actor, BREATH_SCALE);
+    }
+
+    _breathStep(actor, hedef) {
+        if (!actor._pcbNefes)
+            return;
+        const ozellik = actor._pcbYatay ? 'scale_y' : 'scale_x';
+        actor.ease({
+            [ozellik]: hedef,
+            duration: BREATH_MS,
+            mode: Clutter.AnimationMode.EASE_IN_OUT_SINE,
+            onComplete: () => this._breathStep(actor, hedef === 1 ? BREATH_SCALE : 1),
+        });
+    }
+
+    _stopBreathing(actor) {
+        actor._pcbNefes = false;
+        actor.remove_transition('scale-x');
+        actor.remove_transition('scale-y');
+        // Ölçeği geri al: kaybolma tam kalınlıktan başlasın.
+        actor.set_scale(1, 1);
     }
 
     // ------------------------------------------------------------------ iç
@@ -132,6 +191,7 @@ export class FrameOverlay {
             for (const actor of this._actors) {
                 actor.show();
                 actor.opacity = 255;
+                this._startBreathing(actor);
             }
         }
     }
@@ -155,6 +215,12 @@ export class FrameOverlay {
             x,
             y,
         });
+        // Nefes ölçeği DIŞ KENARA sabitleniyor: dış kenar yerinde kalsın,
+        // iç kenar geri çekilsin. Pivot normalleştirilmiş (0-1).
+        area._pcbYatay = yatay;
+        area.set_pivot_point(
+            kenar === 'sag' ? 1 : (kenar === 'sol' ? 0 : 0.5),
+            kenar === 'alt' ? 1 : (kenar === 'ust' ? 0 : 0.5));
         area.connect('repaint', () => this._paint(area, kenar));
 
         // affectsInputRegion: false -> altındaki pencerelere tıklamayı

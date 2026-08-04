@@ -336,9 +336,20 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
 - **`Gio.FileMonitor`'ün varsayılan hız sınırı 800 ms** — o pencere içindeki
   ardışık dosya değişiklikleri birleşiyor. Durum dosyasının hızlı açılıp
   kapanması tek olay olarak görünür.
-- **Çerçevenin maliyeti ölçüm gürültüsünün altında**: boşta CPU kapalı %0,55 /
-  açık %0,45–0,50, RSS farkı +0,08 MB. `top` örneklemesi nested kabukta çok
-  gürültülü; ölçüm `/proc/<pid>/stat`'tan CPU zamanı farkıyla yapılmalı.
+- **STATİK çerçevenin maliyeti ölçüm gürültüsünün altında**: boşta CPU kapalı
+  %0,55 / açık %0,45–0,50, RSS farkı +0,08 MB. `top` örneklemesi nested kabukta
+  çok gürültülü; ölçüm `/proc/<pid>/stat`'tan CPU zamanı farkıyla yapılmalı.
+- **SÜREKLİ animasyon o bedavalığı bitiriyor.** Nefes animasyonu (şeritleri
+  yavaşça inceltip geri açan) nested kabukta **%19** CPU yaktı. Sebep seçilen
+  özellik DEĞİL: aynı animasyon saydamlıkla denendi, **%23,7** çıktı. Maliyet
+  büyük saydam şeritlerin 60 fps yeniden harmanlanmasından geliyor; statik
+  çerçevenin bedava olmasının sebebi de tam olarak hiçbir şeyin değişmemesiydi.
+  Nested bu sayıyı abartıyor olabilir (nested bir pencereye çiziyor, gerçek
+  kabuk onu bir kez daha kompozitliyor) — gerçek oturumda ÖLÇÜLMEDİ.
+- **`Clutter.PropertyTransition`'a aktöre eklenmeden `set_from`/`set_to` verme.**
+  Geçiş o anda özelliğin tipini bilmiyor, aralık boş kalıyor ve özellik **0'a**
+  düşüyor (ölçüldü: 15 ölçek örneğinin hepsi 0.000, şerit görünmez oldu).
+  `actor.ease()` zincirlemesi doğrulanmış yol.
 
 ## ⚠️ Bu makinede test etmenin tehlikesi
 

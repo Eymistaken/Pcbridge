@@ -83,6 +83,41 @@ export function startLoopWatchdog(aralikMs = 100, esikMs = 60) {
     return id;
 }
 
+/** Nefes animasyonu gerçekten koşuyor mu, ve aralığı doğru mu?
+ *
+ * Ekran görüntüsünden ölçmek zor: bant zaten ince, değişim birkaç piksel ve
+ * nested pencereyi ekranda bulmak gerekiyor. Aktörün ölçeğini doğrudan
+ * örneklemek hem kesin hem ucuz. Beklenen: 1.0 ile BREATH_SCALE arasında
+ * gidip gelmesi ve 1.0'ı ASLA aşmaması (kullanıcı kısıtı: kalınlaşma yok).
+ */
+export function reportBreathing(actorlar, sureSn = 13, aralikMs = 900) {
+    if (!actorlar.length) {
+        sonuc('nefes: aktör var', false);
+        return;
+    }
+    const a = actorlar[0];
+    const yatay = a._pcbYatay;
+    const oku = () => (yatay ? a.scale_y : a.scale_x);
+    const ornekler = [];
+    const bitis = GLib.get_monotonic_time() + sureSn * 1e6;
+
+    GLib.timeout_add(GLib.PRIORITY_DEFAULT, aralikMs, () => {
+        ornekler.push(oku());
+        if (GLib.get_monotonic_time() < bitis)
+            return GLib.SOURCE_CONTINUE;
+
+        const enAz = Math.min(...ornekler);
+        const enCok = Math.max(...ornekler);
+        yaz(`nefes örnekleri: ${ornekler.map(v => v.toFixed(3)).join(' ')}`);
+        sonuc('nefes çalışıyor (ölçek değişiyor)', enCok - enAz > 0.02,
+            `aralık ${enAz.toFixed(3)} – ${enCok.toFixed(3)}`);
+        sonuc('KALINLAŞMA YOK (ölçek 1.0 üstüne çıkmıyor)', enCok <= 1.0001,
+            `en yüksek ${enCok.toFixed(4)}`);
+        return GLib.SOURCE_REMOVE;
+    });
+    yaz(`nefes ölçümü başladı (${sureSn} sn, ${aralikMs} ms aralık)`);
+}
+
 /** Monitör tablosu — koordinatların beklenen yerde olduğunu görmek için. */
 export function reportMonitors() {
     const ms = Main.layoutManager.monitors;

@@ -78,6 +78,7 @@ export default class PcbridgeGorunurExtension extends Extension {
             this._selfTestId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1500, () => {
                 this._selfTestId = 0;
                 SelfTest.checkClickThrough();
+                SelfTest.reportBreathing(this._frame?.actors ?? []);
                 return GLib.SOURCE_REMOVE;
             });
         }

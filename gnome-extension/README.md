@@ -5,9 +5,9 @@ işareti bugüne kadar GNOME'un üst çubuktaki küçük turuncu paylaşım simg
 Bu eklenti aynı durumu **göz kaçırmayacak** biçimde gösteriyor.
 
 - **Ekran kenarlarında yumuşak beyaz çerçeve** — masaüstü izni açıkken belirir,
-  kapanınca yumuşakça kaybolur, iki monitörde de görünür.
-- **Değişen imleç** — ajan makineyi kullanırken imleç yumuşak köşeli, hafif
-  parlayan bir imlece dönüşür; iş bitince eskisine döner.
+  kapanınca yumuşakça kaybolur, iki monitörde de görünür. Bant çok yavaş bir
+  nefes alıyor: 11 saniyede bir, en fazla çizildiği kalınlıkta kalarak %12
+  inceliyor ve geri dönüyor.
 
 **Tamamen görsel.** Eklenti hiçbir şeye tıklamaz, hiçbir şey yazmaz, pcbridge'in
 davranışını değiştirmez. Yaptığı tek şey `~/.local/state/pcbridge/desktop_unlock.json`
@@ -64,9 +64,10 @@ Bu yüzden geliştirme iç içe (nested) bir kabukta yapılıyor:
 ```
 
 Nested kabuk sizin oturumunuza dokunmaz; bozuk bir eklenti yalnızca o pencereyi
-düşürür. **Ama nested her şeyi ölçemez:** monitörler sanal, ve imleç orada bir
-Wayland *istemcisi* olarak çiziliyor — donanım imleç düzlemi yok. İmlecle ilgili
-her şey gerçek oturumda ayrıca doğrulanmalı.
+düşürür. **Ama nested her şeyi ölçemez:** monitörler sanal ve kompozitleme iki
+kat (nested bir pencereye çiziyor, gerçek kabuk onu bir kez daha
+kompozitliyor) — yani buradan çıkan maliyet sayıları gerçek oturumu abartıyor
+olabilir.
 
 Nested kabuk **sahte** bir durum dosyası okur (`PCBRIDGE_GORUNUR_STATE`).
 Gerçek `desktop_unlock.json`'a `{"until": …}` yazmak pcbridge'e **fiilen
@@ -98,10 +99,11 @@ gjs -m gnome-extension/tests/test_state.js
 
 ### Kabuğun içinden ölçüm
 
-İki iddia dışarıdan doğrulanamıyor — çerçevenin tıklamayı engellemediği ve
-gerçek imlecin gizlenebildiği. `Shell.Eval` GNOME 41+ ile kapalı olduğu için
-kabuğa dışarıdan kod sokmak da mümkün değil. Ölçümü yapabilecek tek yer kabuğun
-içinde zaten çalışan eklentinin kendisi:
+Eklentinin iddiaları dışarıdan doğrulanamıyor — çerçevenin tıklamayı
+engellemediği, ana döngüyü tıkamadığı, nefesin doğru aralıkta kaldığı.
+`Shell.Eval` GNOME 41+ ile kapalı olduğu için kabuğa dışarıdan kod sokmak da
+mümkün değil. Ölçümü yapabilecek tek yer kabuğun içinde zaten çalışan
+eklentinin kendisi:
 
 ```bash
 PCBRIDGE_GORUNUR_SELFTEST=1 ./gnome-extension/nested.sh
@@ -109,15 +111,28 @@ PCBRIDGE_GORUNUR_SELFTEST=1 ./gnome-extension/nested.sh
 ./gnome-extension/nested.sh --log | grep SELFTEST
 ```
 
-Kapalıyken maliyeti tek bir `getenv`. İmleç ölçümü ne olursa olsun 8 saniye
-sonra imleci geri açan bir emniyet zamanlayıcısı kuruyor — **gizlemeden önce**.
+Kapalıyken maliyeti tek bir `getenv`.
+
+## Maliyet
+
+Statik çerçeve ölçüm gürültüsünün altında (kapalı %0,55 · açık %0,45–0,50 CPU,
++0,08 MB RSS). **Nefes animasyonu bunu değiştiriyor:** nested kabukta %19 CPU
+ölçüldü. Sebep seçilen özellik değil — aynı animasyon saydamlıkla denendiğinde
+%23,7 çıktı, yani maliyet büyük saydam şeritlerin 60 fps yeniden
+harmanlanmasından geliyor.
+
+Nested bu sayıyı abartıyor olabilir: nested bir pencereye çiziyor ve gerçek
+kabuk onu bir kez daha kompozitliyor. **Gerçek oturumda ölçülmedi.** Rahatsız
+edici bulursanız `frame.js` içindeki `_startBreathing` çağrılarını kaldırmak
+yeterli; çerçeve yine çalışır ve tekrar bedava olur.
 
 ## Ölçülmüş gerçekler
 
 - GNOME Shell 46.0, Wayland, Zorin OS 18.1.
-- `Meta.CursorTracker.set_pointer_visible()` Meta-14 typelib'inde **var**
-  (GNOME büyütecinin kullandığı yol).
-- `Meta.CursorTracker` sinyalleri: `cursor-changed`, `cursor-updated`,
-  `position-invalidated`, `visibility-changed`. **`cursor-moved` yok** — imleç
-  konumu `global.get_pointer()` ile alınıyor.
 - `Clutter.Canvas` mutter çatalında **yok**; çizim `St.DrawingArea` + Cairo ile.
+- `Clutter.PropertyTransition`'a aktöre eklenmeden `set_from`/`set_to` verilirse
+  geçiş özelliğin tipini bilmiyor, aralık boş kalıyor ve özellik **0'a** düşüyor
+  (ölçüldü: 15 ölçek örneğinin hepsi 0.000). `actor.ease()` zincirlemesi
+  doğrulanmış yol.
+- İmleci değiştirme denendi ve geri alındı — gerekçesi ve devam yolu
+  [YAPILACAKLAR.md](../YAPILACAKLAR.md)'de.
