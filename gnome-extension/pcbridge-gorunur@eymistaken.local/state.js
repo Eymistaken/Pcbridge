@@ -87,8 +87,14 @@ export class UnlockState {
             console.warn(`[pcbridge-gorunur] dosya izleyici kurulamadı: ${error}`);
         }
 
+        this._sweeps = 0;
         this._sweepId = GLib.timeout_add_seconds(
             GLib.PRIORITY_DEFAULT, SWEEP_SECONDS, () => {
+                this._sweeps++;
+                if (GLib.getenv('PCBRIDGE_GORUNUR_SELFTEST') === '1') {
+                    console.log(`[pcbridge-gorunur][SELFTEST] tarama #${this._sweeps} ` +
+                        `· until=${this._until} · aktif=${this._active}`);
+                }
                 this._reread();
                 return GLib.SOURCE_CONTINUE;
             });

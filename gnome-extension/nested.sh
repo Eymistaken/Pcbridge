@@ -31,6 +31,46 @@ export MUTTER_DEBUG_NUM_DUMMY_MONITORS MUTTER_DEBUG_DUMMY_MODE_SPECS
 : "${PCBRIDGE_GORUNUR_STATE:=${TMPDIR:-/tmp}/pcbridge-gorunur-test-state.json}"
 export PCBRIDGE_GORUNUR_STATE
 
+# Nested oturumun ARDINDA BIRAKTIGI servisleri de topla.
+#
+# OLCULDU 2026-08-04 (aci sekilde): gnome-shell'i oldurmek YETMIYOR.
+# `dbus-run-session` ozel bir veriyolu kuruyor ve o veriyolu gvfsd,
+# tracker-miner, dconf-service, at-spi, evolution... diye ~13 servis
+# baslatiyor. Kabuk olunce bunlar YASAMAYA DEVAM EDIYOR.
+#
+# Bedeli teorik degil: 20 kadar kosumdan sonra 298 yetim surec birikti ve
+# `fs.inotify.max_user_instances` (128) DOLDU. O noktada Gio.FileMonitor
+# artik yeni izleyici yaratamiyor -- sessizce. Belirtisi: eklentinin durum
+# izleyicisi cevap vermez oldu ve `tests/test_state.js` 23/23 iken 11/23'e
+# dustu. Kodda hicbir sey degismemisti. Temizlikten sonra tekrar 23/23.
+#
+# Ayirt etme olcutu kesin: nested oturumlar `/tmp/dbus-*`, gercek oturum
+# `/run/user/<uid>/bus` kullaniyor. Yani gercek oturumun servislerine
+# dokunmak mumkun degil.
+oturum_temizle() {
+    local liste="" p adr
+    for p in $(ls /proc 2>/dev/null | grep -E '^[0-9]+$'); do
+        # Dosyayi KABUGA DEGIL grep'e actiriyoruz. `< /proc/$p/environ`
+        # yazilirsa okuma izni olmayan yuzlerce surec icin hatayi BASH
+        # basiyor ve komut icindeki `2>/dev/null` onu susturmuyor.
+        # `|| true` de sart: `set -e` altinda ilk basarisiz okuma betigi
+        # komple dusuruyor -- belirtisi "nested hic baslamadi" oluyor.
+        adr=$(grep -azm1 '^DBUS_SESSION_BUS_ADDRESS=' "/proc/$p/environ" 2>/dev/null | tr -d '\0' || true)
+        case "$adr" in *"/tmp/dbus-"*) liste="$liste $p";; esac
+    done
+    [[ -z "${liste// }" ]] && return 0
+    echo "nested oturumdan kalan $(echo $liste | wc -w) servis kapatiliyor"
+    kill -TERM $liste 2>/dev/null || true
+    sleep 2
+    local kalan="" q
+    for q in $liste; do [[ -d /proc/$q ]] && kalan="$kalan $q"; done
+    [[ -n "${kalan// }" ]] && kill -KILL $kalan 2>/dev/null || true
+}
+
+inotify_durum() {
+    echo "inotify ornegi: $(ls -l /proc/*/fd/* 2>/dev/null | grep -c inotify)/$(cat /proc/sys/fs/inotify/max_user_instances)"
+}
+
 # DIKKAT: `pkill -f 'gnome-shell --nested'` KULLANMA. Desen tam komut satirina
 # bakiyor, yani bu betigi calistiran kabugun kendi komut satirina da uyuyor ve
 # pkill CAGIRANI olduruyor. Bir kere yasandi. Bu yuzden PID dosyasi; yedek yol
@@ -51,11 +91,20 @@ oldur() {
         echo "onceki nested kabuk kapatildi"
         sleep 1
     fi
+    # Kabuk olsun olmasin: yetim servisler her zaman toplanir. Bir onceki
+    # kosumdan kalmis olabilirler.
+    oturum_temizle
 }
 
 case "${1:-}" in
     --oldur|--kapat)
         oldur
+        inotify_durum
+        exit 0
+        ;;
+    --temizle)
+        oturum_temizle
+        inotify_durum
         exit 0
         ;;
     --log)
@@ -66,11 +115,17 @@ case "${1:-}" in
 Kullanim: nested.sh [secenek]
 
   (bos)         onceki nested kabugu oldur, yenisini baslat, logu izle
-  --oldur       yalnizca kapat
+  --oldur       kabugu VE ardinda kalan oturum servislerini kapat
+  --temizle     yalnizca yetim servisleri topla (kabuga dokunmaz)
   --log         calisan kabugun logunu izle
 
 Log dosyasi: $LOG
 Cevre degiskenleri: MUTTER_DEBUG_NUM_DUMMY_MONITORS, MUTTER_DEBUG_DUMMY_MODE_SPECS
+
+NOT: her nested kosumu ~13 oturum servisi (gvfsd, tracker-miner, dconf,
+at-spi...) baslatiyor ve kabuk olunce bunlar YASAMAYA DEVAM EDIYOR.
+Toplanmazlarsa fs.inotify.max_user_instances (128) doluyor ve o noktada
+Gio.FileMonitor SESSIZCE calismaz oluyor. Bu betik her kosumda topluyor.
 EOF
         exit 0
         ;;
@@ -85,6 +140,7 @@ dbus-run-session -- gnome-shell --nested --wayland >"$LOG" 2>&1 &
 echo "$!" > "$PIDF"
 echo "nested kabuk basladi (pid $!) · monitor: $MUTTER_DEBUG_DUMMY_MODE_SPECS"
 echo "log  : $LOG"
+inotify_durum
 echo "durum: $PCBRIDGE_GORUNUR_STATE  (SAHTE -- gercek pcbridge izni degil)"
 sleep 8
 
