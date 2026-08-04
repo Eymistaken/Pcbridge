@@ -44,10 +44,11 @@ import {selfTestEnabled} from './selftest.js';
  * konumunda sabit kalıyor, gövde arkada savruluyor.
  *
  * Kutu neden gövdeden çok daha büyük: aktör ucun ETRAFINDA dönüyor, yani
- * gövdenin en uzak noktası bir daire çiziyor. Yarıçap (38² + 11²)^½ ≈ 39,6 <
- * 44 olmalı; küçük kutuda köşeler dönerken KIRPILIYOR (64 px ile denendi,
- * şekil çapraz açılarda kesildi). Kalanı parıltıya kalıyor. */
-const SIZE = 88;
+ * gövdenin en uzak noktası bir daire çiziyor. Gereken yarıçap
+ *     (34² + 16²)^½ ≈ 37,6   +  köşe 2  +  şerit 1,5  +  parıltı 12  ≈ 53
+ * Küçük kutuda köşeler dönerken KIRPILIYOR — 64 px ile denendi, şekil çapraz
+ * açılarda kesildi. */
+const SIZE = 112;
 const TIP = SIZE / 2;
 
 /** Yumuşatma katsayısı: her tıkta hedefe kalan farkın bu kadarı kapatılır. */
@@ -61,6 +62,26 @@ const MIN_MOVE_PX = 3;
 
 /** Hiç hareket görmeden önceki duruş: alışıldık ok gibi sol yukarı. */
 const DEFAULT_ANGLE = -135;
+
+/* Şekil: uç + geriye süpürülmüş iki kanat + arka çentik (kâğıt uçak / gönder
+ * oku). Kullanıcının verdiği görselden çıkarıldı. Uçtan (0,0) göreli, +X
+ * yönünü gösteriyor; dönüş bunun üstüne `rotation_angle_z` ile geliyor. */
+const SHAPE = [[0, 0], [-34, -16], [-24, 0], [-34, 16]];
+
+/** Köşe yuvarlatma yarıçapı — yuvarlak birleşimli strokla elde ediliyor. */
+const CORNER_R = 2.0;
+/** Beyaz şeridin gövdeden dışarı taştığı miktar (px). İNCE olmalı. */
+const RIM = 1.5;
+
+/* Parıltı: şeridin dışına doğru ne kadar yayıldığı (px), kenardaki en yüksek
+ * saydamlık, ve kaç halka ile çizildiği.
+ *
+ * Dört varyant (20/0,45 · 11/0,45 · 20/0,19 · 12/0,26) yan yana çizilip
+ * kullanıcıya gösterildi; "dar ve sönük" olan seçildi. İlk hâli (20/0,45)
+ * "fazla geniş" bulundu — şeklin çevresinde beyaz bir yığın gibi duruyordu. */
+const GLOW_SPREAD = 12;
+const GLOW_PEAK = 0.26;
+const GLOW_LAYERS = 16;
 
 /** Belirme/kaybolma. */
 const FADE_IN_MS = 260;
@@ -411,52 +432,58 @@ export class CursorOverlay {
         });
     }
 
-    /** Yumuşak köşeli, hafif parlayan bir damla. BİR KEZ çizilir. */
+    /** İçi siyah, ince beyaz şeritli, beyaz parıltılı ok. BİR KEZ çizilir. */
     _paint() {
         const cr = this._actor.get_context();
         try {
             const t = TIP;
 
-            // 1) Parıltı: uçtan dışarı sönen beyaz hale.
-            const halo = new Cairo.RadialGradient(t, t, 1, t, t, 32);
-            halo.addColorStopRGBA(0.00, 1, 1, 1, 0.30);
-            halo.addColorStopRGBA(0.35, 1, 1, 1, 0.14);
-            halo.addColorStopRGBA(0.70, 1, 1, 1, 0.04);
-            halo.addColorStopRGBA(1.00, 1, 1, 1, 0.0);
-            cr.setSource(halo);
-            cr.arc(t, t, 32, 0, 2 * Math.PI);
-            cr.fill();
-
-            // Uzun damla, +X yönünü gösterecek şekilde çiziliyor (açı 0 = sağ).
-            // Dönüş bunun üstüne rotation_angle_z ile geliyor.
-            // Şekil dört aday arasından kullanıcı tarafından seçildi: yumuşak
-            // ve köşesiz kalırken yönü okunabilen tek aday buydu (kısa damla
-            // yönsüz, çentikli ok tarifteki "sert değil"e ters düşüyordu).
-            const govde = () => {
-                cr.moveTo(t, t);                                  // uç
-                cr.curveTo(t - 9, t - 4, t - 19, t - 8, t - 27, t - 10);
-                cr.curveTo(t - 35, t - 11, t - 35, t + 11, t - 27, t + 10);
-                cr.curveTo(t - 19, t + 8, t - 9, t + 4, t, t);
+            /** Şekli yola koyar; `r` köşe yuvarlatma yarıçapı (stroke ile). */
+            const yol = (r) => {
+                cr.moveTo(t + SHAPE[0][0], t + SHAPE[0][1]);
+                for (let i = 1; i < SHAPE.length; i++)
+                    cr.lineTo(t + SHAPE[i][0], t + SHAPE[i][1]);
                 cr.closePath();
+                cr.setLineJoin(Cairo.LineJoin.ROUND);
+                cr.setLineCap(Cairo.LineCap.ROUND);
+                cr.setLineWidth(r * 2);
             };
 
-            // 2) Koyu yumuşak kenarlık. Beyaz bir imleç beyaz zeminde
-            //    KAYBOLUR; gerçek imleçlerin siyah konturu tam da bunun için.
-            //    Sert bir çizgi yerine yarı saydam, kalın ve yuvarlak uçlu.
-            govde();
-            cr.setLineWidth(3.0);
-            cr.setLineJoin(Cairo.LineJoin.ROUND);
-            cr.setLineCap(Cairo.LineCap.ROUND);
-            cr.setSourceRGBA(0, 0, 0, 0.42);
-            cr.stroke();
+            // 1) Beyaz parıltı — çerçeveyle aynı dil: renksiz, yumuşak.
+            //
+            // ŞEKLİN ETRAFINI sarıyor, ucun etrafını değil. İlk sürüm uca
+            // merkezli bir daireydi ve kuyruk sönük kalıyordu.
+            //
+            // Cairo'da bulanıklık yok; giderek genişleyen eş saydamlıkta
+            // halkalarla yapıyoruz. Şekilden d kadar uzaktaki bir nokta,
+            // yarım genişliği d'yi aşan HER halkanın altında kalıyor; yani
+            // birikmiş saydamlık 1-(1-a)^n(d) oluyor ve dışarı doğru
+            // kendiliğinden üstel sönüyor. Katman başına saydamlığı bu
+            // birikime göre seçiyoruz, yoksa şeklin dibinde beyaz bir yığın
+            // oluşuyor (ölçüldü, ilk denemede oldu).
+            const kat = 1 - Math.pow(1 - GLOW_PEAK, 1 / GLOW_LAYERS);
+            for (let i = GLOW_LAYERS; i >= 1; i--) {
+                yol(CORNER_R + RIM + GLOW_SPREAD * (i / GLOW_LAYERS));
+                cr.setSourceRGBA(1, 1, 1, kat);
+                cr.stroke();
+            }
 
-            // 3) Gövde: uçta parlak, kuyrukta hafif saydam.
-            const dolgu = new Cairo.LinearGradient(t, t, t - 38, t);
-            dolgu.addColorStopRGBA(0.0, 1, 1, 1, 0.98);
-            dolgu.addColorStopRGBA(0.6, 1, 1, 1, 0.90);
-            dolgu.addColorStopRGBA(1.0, 1, 1, 1, 0.72);
-            govde();
+            // 2) İnce beyaz şerit. Gövdeden `RIM` kadar geniş çizilip altta
+            //    bırakılıyor, üstüne gövde geliyor: kalan fark şerit oluyor.
+            yol(CORNER_R + RIM);
+            cr.setSourceRGBA(1, 1, 1, 0.95);
+            cr.strokePreserve();
+            cr.fill();
+
+            // 3) Gövde: koyu gri → siyah, çapraz gradyan. TAM OPAK olmalı:
+            //    yarı saydam bırakılırsa alttaki beyaz şerit içeriden sızıp
+            //    kenar boyunca gri bir çizgi bırakıyor (ölçüldü).
+            const dolgu = new Cairo.LinearGradient(t, t - 16, t - 34, t + 16);
+            dolgu.addColorStopRGBA(0.0, 0.27, 0.28, 0.31, 1);
+            dolgu.addColorStopRGBA(1.0, 0.05, 0.05, 0.06, 1);
+            yol(CORNER_R);
             cr.setSource(dolgu);
+            cr.strokePreserve();
             cr.fill();
         } finally {
             cr.$dispose();
