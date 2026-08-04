@@ -30,14 +30,26 @@ etkinleştirir. Sonra **çıkış yapıp yeniden girin** — GNOME 45+ eklenti k
 
 ## Acil geri alma
 
-Eklenti kabuğu bozarsa: **Ctrl+Alt+F3** ile bir TTY'ye geçip
+**Önce bunu çalıştırın — anında etki eder:**
 
 ```bash
-rm ~/.local/share/gnome-shell/extensions/pcbridge-gorunur@eymistaken.local
+gnome-extensions disable pcbridge-gorunur@eymistaken.local
 ```
 
-Symlink silindiğinde bir sonraki girişte eklenti hiç yüklenmez ve depodaki
-dosyalara dokunulmaz. `install.sh` bu komutu her çalışmasında ekrana basıyor.
+Sonra kalıcılaştırın:
+
+```bash
+./gnome-extension/install.sh --kaldir
+```
+
+> **`rm` tek başına yetmez.** Diskteki dosyayı silmek *çalışan* eklentiyi
+> durdurmuyor — kabuk onu zaten belleğe almış oluyor, GNOME 45+ ESM modüllerini
+> önbellekte tutuyor. Etkisi ancak kabuk yeniden başlayınca görülüyor. Bu bir
+> kez yaşandı: kullanıcıya yalnızca `rm` söylendi, hiçbir şey değişmedi ve
+> makineyi yeniden başlatmak zorunda kaldı.
+
+Kabuk tamamen kilitliyse **Ctrl+Alt+F3** ile bir TTY'ye geçip yukarıdaki
+`gnome-extensions disable` komutunu oradan çalıştırın.
 
 ## Geliştirme
 

@@ -50,14 +50,22 @@ PY
 geri_alma_yolu() {
     echo
     sari "─── ACIL GERI ALMA ───────────────────────────────────────────────"
-    echo "Eklenti kabugu bozarsa (Ctrl+Alt+F3 ile bir TTY'ye gecip) sunu calistir:"
+    kirmizi "ONCE BUNU CALISTIR — ANINDA etki eder:"
     echo
-    echo "    rm '$HEDEF'"
-    echo "    gsettings set org.gnome.shell enabled-extensions \"\$(gsettings get org.gnome.shell enabled-extensions | sed \"s/'$UUID', //;s/, '$UUID'//;s/'$UUID'//\")\""
+    echo "    gnome-extensions disable $UUID"
     echo
-    echo "Ya da depodan:  $BURASI/install.sh --kaldir"
-    echo "Symlink silindiginde bir sonraki giriste eklenti HIC yuklenmez;"
-    echo "depodaki dosyalara dokunulmaz."
+    echo "Sonra kalicilastir:"
+    echo
+    echo "    $BURASI/install.sh --kaldir"
+    echo
+    sari "DIKKAT: `rm` TEK BASINA YETMEZ."
+    echo "Diskteki dosyayi silmek CALISAN eklentiyi durdurmuyor; kabuk onu"
+    echo "zaten bellege almis oluyor. Etkisi ancak kabuk yeniden baslayinca"
+    echo "(cikis/giris ya da yeniden baslatma) goruluyor. Bir kere yasandi:"
+    echo "kullanici `rm` yazdi, hicbir sey degismedi, makineyi restart etti."
+    echo
+    echo "Kabuk tamamen kilitliyse Ctrl+Alt+F3 ile TTY'ye gecip yukaridaki"
+    echo "`gnome-extensions disable` komutunu oradan calistir."
     sari "──────────────────────────────────────────────────────────────────"
 }
 

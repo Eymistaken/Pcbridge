@@ -1,12 +1,11 @@
 /* Kabuğun İÇİNDEN ölçüm. `PCBRIDGE_GORUNUR_SELFTEST=1` ile açılır.
  *
  * NEDEN VAR
- *     Bu eklentinin iki iddiası dışarıdan doğrulanamıyor:
- *       1. çerçeve altındaki pencerelere tıklamayı ENGELLEMİYOR
- *       2. gerçek imleç gizlenebiliyor ve gizli KALIYOR
- *     `Shell.Eval` GNOME 41+ ile kapalı, yani kabuğa dışarıdan kod
- *     sokulamıyor. Ölçümü yapabilecek tek yer kabuğun içinde zaten çalışan
- *     bu eklenti.
+ *     Eklentinin iddiaları dışarıdan doğrulanamıyor: çerçevenin altındaki
+ *     pencerelere tıklamayı engellemediği, ve kabuğun ana döngüsünü
+ *     tıkamadığı. `Shell.Eval` GNOME 41+ ile kapalı, yani kabuğa dışarıdan
+ *     kod sokulamıyor. Ölçümü yapabilecek tek yer kabuğun içinde zaten
+ *     çalışan bu eklenti.
  *
  *     "Hata vermedi" bu projede kanıt sayılmıyor; buradaki çıktılar
  *     `journalctl`/nested logunda okunabilir gerçek ölçümler.
@@ -16,19 +15,17 @@
 
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
-import Meta from 'gi://Meta';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 const ETIKET = '[pcbridge-gorunur][SELFTEST]';
 
-/** Ölçümü tetikleyen işaret dosyası.
+/** Ölçüm kipini açan işaret dosyası.
  *
  * Neden env değişkeni YETMİYOR: gerçek oturumda gnome-shell'in ortamını
  * değiştirmek `~/.config/environment.d/` altına kalıcı bir dosya koymak ve
- * bir çıkış/giriş daha demek. İşaret dosyası hiçbir yapılandırmaya dokunmuyor
- * ve `touch` ile ölçüm İSTENDİĞİ AN yeniden koşturulabiliyor — imleç
- * gizlenmişken ekran görüntüsü almak için bu şart.
+ * bir çıkış/giriş daha demek. İşaret dosyası hiçbir yapılandırmaya dokunmuyor;
+ * `touch` yeter, silmek de kapatır.
  */
 export function selfTestMarkerPath() {
     return GLib.build_filenamev([
@@ -48,6 +45,42 @@ function yaz(satir) {
 
 function sonuc(ad, gecti, ayrinti = '') {
     console.log(`${ETIKET} ${gecti ? 'PASS' : 'FAIL'}  ${ad}${ayrinti ? `  ${ayrinti}` : ''}`);
+}
+
+/** Kabuğun ANA DÖNGÜSÜ tıkanıyor mu?
+ *
+ * "Fare donuyor, tıklama basmıyor" şikâyeti ancak böyle ölçülür: sabit
+ * aralıklı bir zamanlayıcı kurup GERÇEKTE ne zaman uyandığına bakıyoruz.
+ * Ana döngü meşgulse zamanlayıcı geç uyanır ve gecikme doğrudan okunur.
+ * CPU yüzdesi bunu göstermez — donma, toplam yükten değil tek bir uzun
+ * işten de gelebilir.
+ */
+export function startLoopWatchdog(aralikMs = 100, esikMs = 60) {
+    let son = GLib.get_monotonic_time();
+    let enKotu = 0;
+    let gec = 0;
+    let tik = 0;
+
+    const id = GLib.timeout_add(GLib.PRIORITY_DEFAULT, aralikMs, () => {
+        const simdi = GLib.get_monotonic_time();
+        const gecikme = (simdi - son) / 1000 - aralikMs;   // ms
+        son = simdi;
+        tik++;
+        if (gecikme > esikMs) {
+            gec++;
+            if (gecikme > enKotu)
+                enKotu = gecikme;
+        }
+        if (tik % 50 === 0) {
+            yaz(`ana döngü: ${tik} tık · ${gec} gecikmeli (>${esikMs} ms) · ` +
+                `en kötü ${enKotu.toFixed(0)} ms`);
+            enKotu = 0;
+            gec = 0;
+        }
+        return GLib.SOURCE_CONTINUE;
+    });
+    yaz(`ana döngü gözcüsü açıldı (${aralikMs} ms aralık)`);
+    return id;
 }
 
 /** Monitör tablosu — koordinatların beklenen yerde olduğunu görmek için. */
@@ -92,82 +125,4 @@ export function checkClickThrough() {
     // gerçek bir tıklamayla ölçülür — gerçek oturum kontrol listesinde var.
     sonuc('ÖZET: çerçeve aktörleri tıklama hedefi değil', hepsiGecti);
     return hepsiGecti;
-}
-
-/**
- * Gerçek imleci gizleyebiliyor muyuz, ve gizli KALIYOR mu?
- *
- * Bu, YAPILACAKLAR.md'nin "2 ve 3 tek bir soruya bağlı" dediği soru.
- * Gizleyemezsek kendi imlecimizi çizmek iki imleçle sonuçlanır.
- *
- * EMNİYET: ne olursa olsun `SURE_SN` sonunda imleç geri açılır. Ölçüm
- * sırasında kabuk çökse bile kullanıcıda imleçsiz bir makine kalmasın.
- */
-export function probeCursorHiding(sureSn = 8) {
-    let tracker;
-    try {
-        tracker = Meta.CursorTracker.get_for_display(global.display);
-    } catch (error) {
-        sonuc('CursorTracker alınabildi', false, `${error}`);
-        return;
-    }
-    sonuc('CursorTracker alınabildi', true);
-
-    const oncesi = tracker.get_pointer_visible();
-    yaz(`başlangıçta görünür: ${oncesi}`);
-
-    // EMNİYET ÖNCE: gizlemeden ÖNCE geri açma zamanlayıcısını kur.
-    const emniyet = GLib.timeout_add_seconds(GLib.PRIORITY_HIGH, sureSn, () => {
-        try {
-            tracker.set_pointer_visible(true);
-            yaz(`emniyet: imleç geri açıldı (${sureSn} sn doldu)`);
-        } catch (error) {
-            console.error(`${ETIKET} emniyet BAŞARISIZ: ${error}`);
-        }
-        return GLib.SOURCE_REMOVE;
-    });
-
-    let gorunurlukOlaylari = 0;
-    let id = 0;
-    try {
-        id = tracker.connect('visibility-changed', () => {
-            gorunurlukOlaylari++;
-            yaz(`visibility-changed → ${tracker.get_pointer_visible()}`);
-        });
-    } catch (error) {
-        yaz(`visibility-changed bağlanamadı: ${error}`);
-    }
-
-    try {
-        tracker.set_pointer_visible(false);
-    } catch (error) {
-        sonuc('set_pointer_visible(false) çağrıldı', false, `${error}`);
-        GLib.Source.remove(emniyet);
-        return;
-    }
-    sonuc('set_pointer_visible(false) çağrıldı', true);
-
-    const hemen = tracker.get_pointer_visible();
-    sonuc('çağrıdan hemen sonra gizli', hemen === false, `get_pointer_visible()=${hemen}`);
-
-    // Bir süre sonra hâlâ gizli mi? Kompozitör kendiliğinden geri açıyorsa
-    // (imleç teması değişimi, odak, overview) burada yakalanır.
-    GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, Math.max(1, sureSn - 3), () => {
-        const sonra = tracker.get_pointer_visible();
-        sonuc('birkaç saniye sonra HÂLÂ gizli', sonra === false,
-            `get_pointer_visible()=${sonra} · visibility-changed olayı: ${gorunurlukOlaylari}`);
-        return GLib.SOURCE_REMOVE;
-    });
-
-    // Ölçüm bitince temizlik: emniyet zamanlayıcısı zaten geri açacak.
-    GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, sureSn + 2, () => {
-        if (id) {
-            try {
-                tracker.disconnect(id);
-            } catch { /* kabuk kapanıyorsa önemsiz */ }
-        }
-        const son = tracker.get_pointer_visible();
-        sonuc('ÖLÇÜM SONRASI imleç geri açıldı', son === true, `get_pointer_visible()=${son}`);
-        return GLib.SOURCE_REMOVE;
-    });
 }
