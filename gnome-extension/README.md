@@ -56,10 +56,21 @@ düşürür. **Ama nested her şeyi ölçemez:** monitörler sanal, ve imleç or
 Wayland *istemcisi* olarak çiziliyor — donanım imleç düzlemi yok. İmlecle ilgili
 her şey gerçek oturumda ayrıca doğrulanmalı.
 
-Kabuk gerekmeyen testler doğrudan `gjs` ile koşuyor:
+Nested kabuk **sahte** bir durum dosyası okur (`PCBRIDGE_GORUNUR_STATE`).
+Gerçek `desktop_unlock.json`'a `{"until": …}` yazmak pcbridge'e **fiilen
+masaüstü izni vermek** olurdu — `SafetyGate` aynı dosyayı okuyor. Efekti
+denemek için:
 
 ```bash
-gjs gnome-extension/tests/test_state.js
+echo "{\"until\": $(( $(date +%s) + 120 ))}" > /tmp/pcbridge-gorunur-test-state.json
+echo '{"until": 0}' > /tmp/pcbridge-gorunur-test-state.json
+```
+
+Kabuk gerekmeyen testler doğrudan `gjs` ile koşuyor (`-m` şart, dosya bir ESM
+modülü):
+
+```bash
+gjs -m gnome-extension/tests/test_state.js
 ```
 
 ## Dosyalar

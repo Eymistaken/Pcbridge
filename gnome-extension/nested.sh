@@ -22,6 +22,15 @@ PIDF="$LOG.pid"
 : "${MUTTER_DEBUG_DUMMY_MODE_SPECS:=960x540:960x540}"
 export MUTTER_DEBUG_NUM_DUMMY_MONITORS MUTTER_DEBUG_DUMMY_MODE_SPECS
 
+# Nested kabuk SAHTE bir durum dosyasi okur.
+#
+# ONEMLI: gercek `~/.local/state/pcbridge/desktop_unlock.json`'a
+# `{"until": ...}` yazmak pcbridge'e FIILEN masaustu izni vermek demek --
+# `SafetyGate` ayni dosyayi okuyor. Efekti denemek icin kimseye gercek izin
+# vermeye gerek yok.
+: "${PCBRIDGE_GORUNUR_STATE:=${TMPDIR:-/tmp}/pcbridge-gorunur-test-state.json}"
+export PCBRIDGE_GORUNUR_STATE
+
 # DIKKAT: `pkill -f 'gnome-shell --nested'` KULLANMA. Desen tam komut satirina
 # bakiyor, yani bu betigi calistiran kabugun kendi komut satirina da uyuyor ve
 # pkill CAGIRANI olduruyor. Bir kere yasandi. Bu yuzden PID dosyasi; yedek yol
@@ -75,8 +84,14 @@ oldur
 dbus-run-session -- gnome-shell --nested --wayland >"$LOG" 2>&1 &
 echo "$!" > "$PIDF"
 echo "nested kabuk basladi (pid $!) · monitor: $MUTTER_DEBUG_DUMMY_MODE_SPECS"
-echo "log: $LOG"
+echo "log  : $LOG"
+echo "durum: $PCBRIDGE_GORUNUR_STATE  (SAHTE -- gercek pcbridge izni degil)"
 sleep 8
 
 echo "--- eklenti satirlari ---"
 grep -E 'pcbridge-gorunur' "$LOG" || echo "(henuz cikti yok)"
+echo
+echo "Izni ACMAK icin:"
+echo "    echo \"{\\\"until\\\": \$(( \$(date +%s) + 120 ))}\" > '$PCBRIDGE_GORUNUR_STATE'"
+echo "KAPATMAK icin:"
+echo "    echo '{\"until\": 0}' > '$PCBRIDGE_GORUNUR_STATE'"

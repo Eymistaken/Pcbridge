@@ -8,26 +8,24 @@
  * davranışını değiştirmez. Yalnızca `desktop_unlock.json`'ı OKUR.
  *
  * GNOME 46 / Wayland. Kod değişince kabuk yeniden başlamalı (ESM önbelleği):
- * geliştirme için `dbus-run-session -- gnome-shell --nested --wayland`.
+ * geliştirme için `./nested.sh`.
  */
-
-import GLib from 'gi://GLib';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
-export const LOG = '[pcbridge-gorunur]';
+import {UnlockState, defaultStatePath} from './state.js';
 
-/** pcbridge'in izin durumunu yazdığı dosya (`pcbridge/desktop/safety.py`). */
-export function statePath() {
-    // pcbridge `~/.local/state/pcbridge` kullanıyor; XDG_STATE_HOME'a saygılı
-    // olmak için sabit yol yerine GLib'den soruyoruz.
-    return GLib.build_filenamev([GLib.get_user_state_dir(), 'pcbridge', 'desktop_unlock.json']);
-}
+export const LOG = '[pcbridge-gorunur]';
 
 export default class PcbridgeGorunurExtension extends Extension {
     enable() {
+        this._state = null;
         try {
-            console.log(`${LOG} etkin · durum dosyası: ${statePath()}`);
+            const yol = defaultStatePath();
+            this._state = new UnlockState(yol, (aktif, until) => this._onState(aktif, until));
+            this._state.start();
+            console.log(`${LOG} etkin · durum dosyası: ${yol} · başlangıç: ` +
+                `${this._state.active ? 'AKTİF' : 'pasif'}`);
         } catch (error) {
             console.error(`${LOG} enable: ${error}`);
         }
@@ -35,9 +33,17 @@ export default class PcbridgeGorunurExtension extends Extension {
 
     disable() {
         try {
+            this._state?.stop();
+            this._state = null;
             console.log(`${LOG} kapatıldı`);
         } catch (error) {
             console.error(`${LOG} disable: ${error}`);
         }
+    }
+
+    /** pcbridge'in masaüstü izni açıldı/kapandı. */
+    _onState(aktif, until) {
+        const kalan = Math.max(0, Math.round(until - Date.now() / 1000));
+        console.log(`${LOG} durum: ${aktif ? `AKTİF (${kalan} sn kaldı)` : 'pasif'}`);
     }
 }
