@@ -12,6 +12,7 @@
  */
 
 import GLib from 'gi://GLib';
+import Gio from 'gi://Gio';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
@@ -26,12 +27,17 @@ export default class PcbridgeGorunurExtension extends Extension {
         this._state = null;
         this._frame = null;
         this._selfTestId = 0;
+        this._markerMonitor = null;
+        this._markerId = 0;
+        this._markerDebounce = 0;
         try {
             this._frame = new FrameOverlay();
             this._frame.start();
 
-            if (SelfTest.selfTestEnabled())
+            if (SelfTest.selfTestEnabled()) {
                 SelfTest.reportMonitors();
+                this._watchSelfTestMarker();
+            }
 
             const yol = defaultStatePath();
             this._state = new UnlockState(yol, (aktif, until) => this._onState(aktif, until));
@@ -45,11 +51,45 @@ export default class PcbridgeGorunurExtension extends Extension {
         }
     }
 
+    /** İşaret dosyasına her dokunulduğunda ölçümü yeniden koştur.
+     *
+     * Bir kere koşan ölçüm yetmiyor: imleç gizliyken ekran görüntüsü almak
+     * için ölçümün İSTENDİĞİ AN başlaması gerekiyor. `touch` yeter. */
+    _watchSelfTestMarker() {
+        const yol = SelfTest.selfTestMarkerPath();
+        try {
+            this._markerMonitor = Gio.File.new_for_path(yol).monitor_file(
+                Gio.FileMonitorFlags.NONE, null);
+            this._markerId = this._markerMonitor.connect('changed', () => {
+                if (this._markerDebounce)
+                    return;
+                this._markerDebounce = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 250, () => {
+                    this._markerDebounce = 0;
+                    console.log(`${LOG} işaret dosyasına dokunuldu → ölçüm`);
+                    SelfTest.probeCursorHiding();
+                    return GLib.SOURCE_REMOVE;
+                });
+            });
+            console.log(`${LOG} ölçüm işaret dosyası izleniyor: ${yol}`);
+        } catch (error) {
+            console.warn(`${LOG} işaret dosyası izlenemedi: ${error}`);
+        }
+    }
+
     disable() {
         try {
-            if (this._selfTestId) {
-                GLib.Source.remove(this._selfTestId);
-                this._selfTestId = 0;
+            for (const alan of ['_selfTestId', '_markerDebounce']) {
+                if (this[alan]) {
+                    GLib.Source.remove(this[alan]);
+                    this[alan] = 0;
+                }
+            }
+            if (this._markerMonitor) {
+                if (this._markerId)
+                    this._markerMonitor.disconnect(this._markerId);
+                this._markerMonitor.cancel();
+                this._markerMonitor = null;
+                this._markerId = 0;
             }
             this._state?.stop();
             this._state = null;

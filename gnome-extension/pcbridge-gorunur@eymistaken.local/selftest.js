@@ -22,8 +22,24 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 const ETIKET = '[pcbridge-gorunur][SELFTEST]';
 
+/** Ölçümü tetikleyen işaret dosyası.
+ *
+ * Neden env değişkeni YETMİYOR: gerçek oturumda gnome-shell'in ortamını
+ * değiştirmek `~/.config/environment.d/` altına kalıcı bir dosya koymak ve
+ * bir çıkış/giriş daha demek. İşaret dosyası hiçbir yapılandırmaya dokunmuyor
+ * ve `touch` ile ölçüm İSTENDİĞİ AN yeniden koşturulabiliyor — imleç
+ * gizlenmişken ekran görüntüsü almak için bu şart.
+ */
+export function selfTestMarkerPath() {
+    return GLib.build_filenamev([
+        GLib.get_user_state_dir(), 'pcbridge', 'gorunur-selftest',
+    ]);
+}
+
 export function selfTestEnabled() {
-    return GLib.getenv('PCBRIDGE_GORUNUR_SELFTEST') === '1';
+    if (GLib.getenv('PCBRIDGE_GORUNUR_SELFTEST') === '1')
+        return true;
+    return GLib.file_test(selfTestMarkerPath(), GLib.FileTest.EXISTS);
 }
 
 function yaz(satir) {
@@ -71,7 +87,10 @@ export function checkClickThrough() {
                 !bizimki, `→ ${ad}`);
         }
     }
-    sonuc('ÖZET: çerçeve tıklamayı engellemiyor', hepsiGecti);
+    // DİKKAT: bu `reactive = false`'un çalıştığını kanıtlıyor, `affectsInputRegion`
+    // = false'u DEĞİL. İkincisi kabuğun Wayland girdi bölgesiyle ilgili ve ancak
+    // gerçek bir tıklamayla ölçülür — gerçek oturum kontrol listesinde var.
+    sonuc('ÖZET: çerçeve aktörleri tıklama hedefi değil', hepsiGecti);
     return hepsiGecti;
 }
 
