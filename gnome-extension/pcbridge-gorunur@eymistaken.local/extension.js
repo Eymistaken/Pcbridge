@@ -11,8 +11,12 @@
  * geliştirme için `./nested.sh`.
  */
 
+import GLib from 'gi://GLib';
+
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
+import {FrameOverlay} from './frame.js';
+import * as SelfTest from './selftest.js';
 import {UnlockState, defaultStatePath} from './state.js';
 
 export const LOG = '[pcbridge-gorunur]';
@@ -20,7 +24,15 @@ export const LOG = '[pcbridge-gorunur]';
 export default class PcbridgeGorunurExtension extends Extension {
     enable() {
         this._state = null;
+        this._frame = null;
+        this._selfTestId = 0;
         try {
+            this._frame = new FrameOverlay();
+            this._frame.start();
+
+            if (SelfTest.selfTestEnabled())
+                SelfTest.reportMonitors();
+
             const yol = defaultStatePath();
             this._state = new UnlockState(yol, (aktif, until) => this._onState(aktif, until));
             this._state.start();
@@ -28,13 +40,21 @@ export default class PcbridgeGorunurExtension extends Extension {
                 `${this._state.active ? 'AKTİF' : 'pasif'}`);
         } catch (error) {
             console.error(`${LOG} enable: ${error}`);
+            // Yarım kurulmuş bir eklenti bırakma: ne kurulduysa geri al.
+            this.disable();
         }
     }
 
     disable() {
         try {
+            if (this._selfTestId) {
+                GLib.Source.remove(this._selfTestId);
+                this._selfTestId = 0;
+            }
             this._state?.stop();
             this._state = null;
+            this._frame?.stop();
+            this._frame = null;
             console.log(`${LOG} kapatıldı`);
         } catch (error) {
             console.error(`${LOG} disable: ${error}`);
@@ -45,5 +65,17 @@ export default class PcbridgeGorunurExtension extends Extension {
     _onState(aktif, until) {
         const kalan = Math.max(0, Math.round(until - Date.now() / 1000));
         console.log(`${LOG} durum: ${aktif ? `AKTİF (${kalan} sn kaldı)` : 'pasif'}`);
+        this._frame?.setVisible(aktif);
+
+        // Ölçüm çerçeve GÖRÜNÜRKEN yapılmalı: tıklama testi görünmeyen bir
+        // aktörle anlamsız olurdu. Belirme animasyonunun bitmesini bekliyoruz.
+        if (aktif && SelfTest.selfTestEnabled() && !this._selfTestId) {
+            this._selfTestId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1500, () => {
+                this._selfTestId = 0;
+                SelfTest.checkClickThrough();
+                SelfTest.probeCursorHiding();
+                return GLib.SOURCE_REMOVE;
+            });
+        }
     }
 }

@@ -80,8 +80,25 @@ gjs -m gnome-extension/tests/test_state.js
 | `pcbridge-gorunur@eymistaken.local/extension.js` | giriş noktası, durum makinesi |
 | `pcbridge-gorunur@eymistaken.local/state.js` | `desktop_unlock.json` izleyici |
 | `pcbridge-gorunur@eymistaken.local/frame.js` | kenar çerçevesi |
+| `pcbridge-gorunur@eymistaken.local/selftest.js` | kabuğun içinden ölçüm (aşağıda) |
 | `install.sh` / `nested.sh` | kurulum / geliştirme döngüsü |
 | `tests/test_state.js` | durum izleyici testi (kabuk gerekmez) |
+
+### Kabuğun içinden ölçüm
+
+İki iddia dışarıdan doğrulanamıyor — çerçevenin tıklamayı engellemediği ve
+gerçek imlecin gizlenebildiği. `Shell.Eval` GNOME 41+ ile kapalı olduğu için
+kabuğa dışarıdan kod sokmak da mümkün değil. Ölçümü yapabilecek tek yer kabuğun
+içinde zaten çalışan eklentinin kendisi:
+
+```bash
+PCBRIDGE_GORUNUR_SELFTEST=1 ./gnome-extension/nested.sh
+# izni açın, sonra:
+./gnome-extension/nested.sh --log | grep SELFTEST
+```
+
+Kapalıyken maliyeti tek bir `getenv`. İmleç ölçümü ne olursa olsun 8 saniye
+sonra imleci geri açan bir emniyet zamanlayıcısı kuruyor — **gizlemeden önce**.
 
 ## Ölçülmüş gerçekler
 
