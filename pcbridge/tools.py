@@ -7,6 +7,7 @@ yapiyor. Kullaniciya donen metinler Turkce.
 
 from __future__ import annotations
 
+import logging
 import os
 import shlex
 import subprocess
@@ -34,6 +35,8 @@ from .desktop import ops as opslib
 from .desktop import safety as safetylib
 from .desktop import screencast as screencastlib
 from .desktop import uitree as uitreelib
+
+logger = logging.getLogger("pcbridge.tools")
 
 MAX_INLINE = 4000
 
@@ -549,6 +552,41 @@ def register(
         return out
 
     # ================================================================== SHELL
+    def _gui_launch_block(command: str) -> str | None:
+        """Kabuktan GUI uygulamasi baslatma denemesi mi? Gerekce ya da None.
+
+        Kapi YALNIZCA masaustu izni acikken isliyor: masaustu kapaliyken
+        kabuk normal kabuktur ve pcbridge'in kullaniciya "su uygulamayi
+        boyle acma" demesi icin bir sebebi yok.
+        """
+        spec = cfg.desktop
+        if not spec.enabled or not spec.block_gui_launch_in_shell:
+            return None
+        if not spec.gui_launch_blocklist:
+            return None          # bos liste = hicbir sey engellenmez
+        if not gate.is_unlocked():
+            return None
+        try:
+            hit = appslib.looks_like_gui_launch(
+                command, spec.gui_launch_blocklist
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Tespit CALISMAZSA kabuk calismaya devam etsin: bu kapi bir
+            # kolaylik, guvenlik siniri degil. Sessiz kalmiyoruz ama.
+            logger.warning("gui_launch tespiti basarisiz: %s", exc)
+            return None
+        if not hit:
+            return None
+        gate.audit("shell_run_denied", reason="gui_launch", app=hit[:60])
+        return (
+            f"⛔ `{hit}` bir masaüstü uygulaması; kabuktan başlatılmıyor.\n"
+            "Kabuktan açılan uygulama bu sunucunun çocuğu olur ve "
+            "`systemctl --user restart pcbridge` onu kapatır; ayrıca çoğu "
+            "zaman uygulama kimliği oluşmadığı için `window_list` ve "
+            "`window_focus` pencereyi sonradan bulamaz.\n"
+            f"Bunun yerine: window_focus(\"{hit}\")"
+        )
+
     @mcp.tool(annotations={"title": "Run a shell command", "destructiveHint": True})
     def shell_run(
         command: Annotated[str, Field(description="Shell command line to execute.")],
@@ -557,9 +595,19 @@ def register(
     ) -> str:
         """Run a short shell command on the user's Linux desktop and return its
         output. For anything that may take longer than a minute use
-        shell_run_background instead."""
+        shell_run_background instead. Do NOT use this to open a graphical
+        application — that is what `window_focus` is for."""
+        denied = _gui_launch_block(command)
+        if denied:
+            return denied
         cwd = _resolve_dir(cfg, workdir)
         if not cwd.is_dir():
+            # Reddi de KAYDEDIYORUZ. Eskiden bu dal sessizce donuyordu ve
+            # `audit.log`'da hic iz birakmiyordu: reddedilen bir cagri hic
+            # olmamis gibi gorunuyordu. 2026-08-21'de bir test hatasinin
+            # gorunmez kalmasinin sebebi tam olarak buydu.
+            gate.audit("shell_run_denied", reason="no_workdir",
+                       path=str(cwd)[:200])
             return f"Dizin yok: {cwd}"
         limit = min(timeout, cfg.max_sync_timeout)
         started = time.monotonic()
@@ -597,9 +645,17 @@ def register(
         timeout: int | None = None,
     ) -> str:
         """Start a long-running shell command in the background (builds, installs,
-        downloads). Returns a job id to poll with job_status."""
+        downloads). Returns a job id to poll with job_status. Do NOT use this to
+        open a graphical application — that is what `window_focus` is for."""
+        # Kapi BURADA DA duruyor. Yalnizca `shell_run` kapatilsaydi ajan
+        # digerine duser ve kural hicbir sey yapmamis olurdu.
+        denied = _gui_launch_block(command)
+        if denied:
+            return denied
         cwd = _resolve_dir(cfg, workdir)
         if not cwd.is_dir():
+            gate.audit("shell_run_background_denied", reason="no_workdir",
+                       path=str(cwd)[:200])
             return f"Dizin yok: {cwd}"
         job_id = jm.start(
             kind="shell",

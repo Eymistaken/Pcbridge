@@ -97,6 +97,15 @@ class DesktopSpec:
     # olayi olmadigi icin `desktop_lock`u unutmasi yapisal; bu onu kodda
     # cozuyor. 0 = kapali (eski davranis: sabit son tarih).
     unlock_idle_seconds: int = 90
+    # Masaustu izni ACIKKEN `shell_run`/`shell_run_background` engel
+    # listesindeki bir GUI uygulamasini baslatmaya calisirsa reddedilsin mi.
+    # Liste BOSSA hicbir sey engellenmez; masaustu izni kapaliyken kapi hic
+    # devreye girmez (masaustu kapaliyken kabuk normal kabuktur).
+    block_gui_launch_in_shell: bool = True
+    # Kabuktan baslatilmasi engellenecek uygulamalar. Adlar `.desktop`
+    # tablosunda aranir, yani "Text Editor" yazmak `gnome-text-editor`i de
+    # yakalar.
+    gui_launch_blocklist: list[str] = field(default_factory=list)
     # Kullanici son girdisinden bu kadar saniye gecmediyse yazma eylemleri
     # reddedilir (telefon ile kullanicinin faresi kavga etmesin). force=true
     # ile bilincli olarak gecilebilir. 0 = kontrol kapali.
@@ -479,6 +488,14 @@ def load_config(explicit: str | None = None) -> Config:
         unlock_max_minutes=int(desktop_raw.get("unlock_max_minutes", 120)),
         unlock_notification=bool(desktop_raw.get("unlock_notification", True)),
         unlock_idle_seconds=int(desktop_raw.get("unlock_idle_seconds", 90)),
+        block_gui_launch_in_shell=bool(
+            desktop_raw.get("block_gui_launch_in_shell", True)
+        ),
+        gui_launch_blocklist=[
+            str(x).strip()
+            for x in (desktop_raw.get("gui_launch_blocklist") or [])
+            if str(x).strip()
+        ],
         idle_guard_seconds=int(desktop_raw.get("idle_guard_seconds", 60)),
         max_actions_per_second=int(desktop_raw.get("max_actions_per_second", 10)),
         default_monitor=int(desktop_raw.get("default_monitor", 1)),

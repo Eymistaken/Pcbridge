@@ -521,6 +521,28 @@ kapalıyken bile ajan komut çalıştırabilir, uygulama açabilir, dosya okuyab
 Nitekim ekranı da okuyabiliyor — `agent_run` ile makinedeki bir ajanı çalıştırıp
 ona ekran görüntüsü aldırarak (ölçüldü, 2026-08-02).
 
+### `shell_run`'ın tek istisnası: GUI uygulaması açmak
+
+`shell_run` ve `shell_run_background`, masaüstü izni **açıkken**,
+`[desktop] gui_launch_blocklist` listesindeki bir uygulamayı başlatmayı
+reddeder ve `window_focus` önerir. **Liste varsayılan olarak boş, yani
+hiçbir şey engellenmez** — sürtünme yaratan adı sen eklersin:
+
+```toml
+[desktop]
+gui_launch_blocklist = ["Vesktop", "Text Editor"]
+```
+
+Adlar `.desktop` tablosunda aranıyor, yani `"Text Editor"` yazmak
+`gnome-text-editor ~/not.md` komutunu da yakalar; `gtk-launch`, `gio launch`,
+`xdg-open` ve `flatpak run <kimlik>` biçimleri de tanınıyor.
+
+Neden: kabuktan açılan uygulama pcbridge'in **çocuğu** olur ve
+`systemctl --user restart pcbridge` onu kapatır; ayrıca çoğu zaman uygulama
+kimliği oluşmadığı için `window_list` ve `window_focus` pencereyi sonradan
+**bulamaz** — ajan kendi açtığı pencereyi kaybeder. Masaüstü izni kapalıyken
+bu kapı hiç devreye girmez: masaüstü kapalıyken kabuk normal kabuktur.
+
 ### stdio'da bir kat eksik
 
 Yukarıdaki tablo **araç kapılarını** anlatıyor; onların önünde bir de sunucuya

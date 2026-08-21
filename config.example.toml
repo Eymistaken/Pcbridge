@@ -149,6 +149,33 @@ unlock_idle_seconds = 90
 # GNOME'un ust cubuktaki kucuk paylasim simgesi kalir.
 unlock_notification = true
 
+# --- kabuktan GUI uygulamasi baslatma ---------------------------------------
+# Masaustu izni ACIKKEN `shell_run` / `shell_run_background` asagidaki listede
+# olan bir uygulamayi baslatmaya calisirsa REDDEDILIR ve `window_focus`
+# onerilir.
+#
+# NEDEN: kabuktan acilan uygulama pcbridge'in COCUGU oluyor ve
+# `systemctl --user restart pcbridge` onu kapatiyor (start_new_session oturum
+# grubunu ayiriyor ama cgroup'u degil). Ayrica cogu zaman uygulama kimligi
+# olusmuyor, yani `window_list` ve `window_focus` pencereyi sonradan
+# BULAMIYOR -- ajan kendi actigi pencereyi kaybediyor. `window_focus`
+# masaustunun kendi aramasindan gectigi icin ikisi de olmuyor.
+#
+# LISTE BOS: varsayilan olarak HICBIR SEY ENGELLENMEZ. Bilincli, cunku yanlis
+# pozitif riski tasiyan tek kural bu. Sürtünme yaratan adi siz ekleyin:
+#
+#   gui_launch_blocklist = ["Vesktop", "Text Editor", "code"]
+#
+# Adlar `.desktop` tablosunda ARANIYOR (tahmin degil veri): "Text Editor"
+# yazmak `gnome-text-editor x.md` komutunu da yakalar, cunku girdinin
+# `Exec=` ikilisi de anahtar oluyor. Flatpak uygulamalarinda
+# `flatpak run <kimlik>` bicimi de taniniyor.
+#
+# Masaustu izni KAPALIYKEN bu kapi hic devreye girmez: masaustu kapaliyken
+# kabuk normal kabuktur.
+block_gui_launch_in_shell = true
+gui_launch_blocklist = []
+
 # Kullanicinin son klavye/fare hareketinden bu kadar saniye gecmediyse YAZMA
 # eylemleri reddedilir: makinenin basindaysaniz telefondan gelen fare ile
 # sizinki kavga etmesin. Arac cagrisinda force = true ile bilincli olarak

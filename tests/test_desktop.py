@@ -1513,6 +1513,112 @@ def test_apps_lookup() -> None:
         A.entries = orig
 
 
+def test_gui_launch_block() -> None:
+    section("44. Kabuktan GUI uygulamasi baslatma tespiti")
+    from pcbridge.desktop import apps as A
+
+    # Sahte .desktop havuzu: gercek tablo gerekmesin, test her makinede ayni
+    # sonucu versin.
+    havuz = [
+        A.Entry("org.gnome.TextEditor", "Text Editor", False,
+                ("Text Editor", "Metin Duzenleyici"), (), "gnome-text-editor"),
+        A.Entry("code", "Visual Studio Code", False,
+                ("Visual Studio Code",), ("Text Editor",), "code"),
+        A.Entry("org.gnome.Nautilus", "Files", False,
+                ("Files", "Dosyalar"), (), "nautilus"),
+        # Flatpak: exec_name BOS (Exec'i `flatpak run ...`), eslesme girdi
+        # kimliginden gelmeli.
+        A.Entry("dev.vencord.Vesktop", "Vesktop", False, ("Vesktop",), (), ""),
+    ]
+
+    def bak(cmd, liste=("Vesktop", "Text Editor")):
+        return A.looks_like_gui_launch(cmd, list(liste), pool=havuz)
+
+    # --- bos liste = hicbir sey engellenmez ---------------------------------
+    check("bos liste hicbir seyi engellemiyor",
+          A.looks_like_gui_launch("gnome-text-editor", [], pool=havuz) is None)
+    check("bos komut sorun cikarmiyor",
+          A.looks_like_gui_launch("", ["Vesktop"], pool=havuz) is None)
+
+    # --- dogrudan ikili adi -------------------------------------------------
+    check("Exec ikilisi yakalaniyor (Text Editor -> gnome-text-editor)",
+          bak("gnome-text-editor") == "Text Editor", str(bak("gnome-text-editor")))
+    check("arguman komutu bozmuyor",
+          bak("gnome-text-editor ~/notlar.md") == "Text Editor")
+    check("tam yol yakalaniyor",
+          bak("/usr/bin/gnome-text-editor") == "Text Editor")
+    check("listede olmayan uygulama SERBEST", bak("nautilus") is None)
+    check("siradan komut serbest", bak("ls -la /tmp") is None)
+    check("derleme komutu serbest", bak("make -j8 && ./run.sh --check") is None)
+
+    # --- sarmalayicilar -----------------------------------------------------
+    check("nohup ile gizlenemiyor", bak("nohup gnome-text-editor &") == "Text Editor")
+    check("setsid ile gizlenemiyor", bak("setsid gnome-text-editor") == "Text Editor")
+    check("ortam atamasi ile gizlenemiyor",
+          bak("GDK_BACKEND=x11 gnome-text-editor") == "Text Editor")
+    check("env ile gizlenemiyor",
+          bak("env GDK_BACKEND=x11 gnome-text-editor") == "Text Editor")
+
+    # --- zincirin ICINDE ----------------------------------------------------
+    check("&& zincirinin ikinci halkasi yakalaniyor",
+          bak("cd /tmp && gnome-text-editor") == "Text Editor")
+    check("; ile ayrilan yakalaniyor",
+          bak("echo merhaba; gnome-text-editor") == "Text Editor")
+    check("boru sonrasi yakalaniyor",
+          bak("echo x | gnome-text-editor") == "Text Editor")
+
+    # --- acik baslaticilar --------------------------------------------------
+    check("gtk-launch argumani yakalaniyor",
+          bak("gtk-launch org.gnome.TextEditor") == "Text Editor")
+    check("gtk-launch .desktop uzantisiyla da yakalaniyor",
+          bak("gtk-launch org.gnome.TextEditor.desktop") == "Text Editor")
+    check("gio launch yakalaniyor",
+          bak("gio launch /usr/share/applications/org.gnome.TextEditor.desktop")
+          == "Text Editor")
+    check("flatpak run kimligi yakalaniyor",
+          bak("flatpak run dev.vencord.Vesktop") == "Vesktop")
+    check("flatpak run bayrakli da yakalaniyor",
+          bak("flatpak run --branch=stable --arch=x86_64 dev.vencord.Vesktop")
+          == "Vesktop")
+    check("BASKA bir flatpak uygulamasi serbest (flatpak'in kendisi anahtar degil)",
+          bak("flatpak run org.gimp.GIMP") is None)
+
+    # --- ad cozumleme -------------------------------------------------------
+    check("kullanici ikili adiyla da yazabilir",
+          A.looks_like_gui_launch("gnome-text-editor", ["gnome-text-editor"],
+                                  pool=havuz) == "Text Editor")
+    check("kullanici girdi kimligiyle de yazabilir",
+          A.looks_like_gui_launch("gnome-text-editor", ["org.gnome.TextEditor"],
+                                  pool=havuz) == "Text Editor")
+    check("Turkce ad da cozuluyor",
+          A.looks_like_gui_launch("gnome-text-editor", ["Metin Duzenleyici"],
+                                  pool=havuz) == "Text Editor")
+    check("cozulemeyen ad duz simge olarak calisiyor",
+          A.looks_like_gui_launch("boyle-bir-sey-yok --flag",
+                                  ["boyle-bir-sey-yok"], pool=havuz)
+          == "boyle-bir-sey-yok")
+    check("cozulemeyen ad baska komutu yakalamiyor",
+          A.looks_like_gui_launch("ls", ["boyle-bir-sey-yok"], pool=havuz) is None)
+
+    # --- exec_name cozumleme ------------------------------------------------
+    check("Exec: alan kodlari atiliyor",
+          A._exec_binary("gnome-text-editor %U") == "gnome-text-editor")
+    check("Exec: tam yolun dosya adi",
+          A._exec_binary("/usr/share/code/code --unity-launch %F") == "code")
+    check("Exec: env ve atama atiliyor",
+          A._exec_binary("env GDK_BACKEND=x11 vesktop %U") == "vesktop")
+    check("Exec: flatpak COK GENEL sayiliyor (bos donuyor)",
+          A._exec_binary("/usr/bin/flatpak run --branch=stable dev.x.Y @@u %U @@")
+          == "")
+    check("Exec: sh/bash cok genel", A._exec_binary("sh -c 'foo'") == "")
+
+    # --- config -------------------------------------------------------------
+    d = DesktopSpec()
+    check("varsayilan: kapi acik", d.block_gui_launch_in_shell is True)
+    check("varsayilan: engel listesi BOS (hicbir sey engellenmiyor)",
+          d.gui_launch_blocklist == [], str(d.gui_launch_blocklist))
+
+
 def test_audit_secrets() -> None:
     section("30. Denetim kaydi — icerik sizmiyor")
     import tempfile as _tf
@@ -2460,6 +2566,7 @@ def main() -> int:
     test_window_list()
     test_apps_lookup()
     test_audit_secrets()
+    test_gui_launch_block()
     test_cli_parse()
     test_cli_gate()
     test_cli_shot_text()
