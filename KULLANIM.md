@@ -367,10 +367,19 @@ edilir**: düğümün kendisine gider, odağın nerede olduğu fark etmez.
 `focus` açık bir pencereyi öne alır.
 
 **`window_list`** açık pencereleri gösterir, odaktaki `▸` ile işaretli.
-**`window_focus`** bir pencereyi öne getirir — ama birkaç saniye sürer, çünkü
-masaüstünün kendi aramasından geçmek zorunda (AT-SPI'nin pencere öne alma
-çağrıları bu sistemde çalışmıyor, ölçüldü). Sadece bir düğmeye basacaksan
-`ui_click` daha hızlı: pencerenin önde olmasını gerektirmiyor.
+**`window_focus`** bir uygulamayı öne getirir — **kapalıysa açar da.**
+Masaüstünün kendi aramasından geçiyor (`super` + ad + Return), yani senin
+elinle yaptığının aynısı; bu yüzden birkaç saniye sürüyor. AT-SPI'nin ve
+D-Bus'ın pencere öne alma çağrıları bu sistemde çalışmıyor (ölçüldü), tek yol
+bu.
+
+**Grafik uygulama açmanın doğru yolu budur, `shell_run` değil.** Kabuktan
+açılan uygulama bu sunucunun çocuğu olur ve `systemctl --user restart
+pcbridge` onu öldürür; ayrıca çoğu zaman `app_id` almadığı için `window_list`
+ve `window_focus` onu sonradan bulamaz. Ajanın yönergesine bu kural yazılı.
+
+Sadece bir düğmeye basacaksan `ui_click` daha hızlı: pencerenin önde olmasını
+gerektirmiyor.
 
 ---
 
@@ -473,11 +482,11 @@ ya da bir işin bittiğini fark etmek için.
 | `screen_info` | Monitör tablosu, koordinat uzayı, odaktaki pencere |
 | `screen_capture` | Ekran görüntüsü alır (sessiz — flaş/ses yok): görüntünün kendisi, uzaktan bağlıysan ayrıca 5 dakikalık bağlantı |
 | `ui_dump` | Ekrandaki düğme/menü/kutuları metin olarak listeler |
-| `ui_click` | Listedeki bir öğeye tıklar (koordinat kullanmadan) |
+| `ui_click` | Listedeki bir öğeye tıklar (koordinat kullanmadan; **imleç kıpırdamaz**, tıklama uygulamaya doğrudan gider) |
 | `ui_set_text` | Metin kutusunu doğrudan doldurur (klavye taklidi yok) |
 | `computer_batch` | Bir eylem listesini tek onayda sırayla çalıştırır |
 | `window_list` | Açık pencereler, odaktaki işaretli |
-| `window_focus` | Bir pencereyi öne getirir |
+| `window_focus` | Bir uygulamayı öne getirir, kapalıysa açar (grafik uygulama açmanın tek doğru yolu) |
 | `computer_task` | Uzun süren bir GUI işini makinendeki bir ajana devreder (9. bölüm) |
 
 ---

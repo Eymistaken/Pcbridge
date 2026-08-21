@@ -64,6 +64,19 @@ Guidelines:
   * Screenshots go stale. If you read coordinates off one, act on them right
     away — do not do other work in between.
   * Always tell the user which directory you are working in.
+
+Desktop rules — these are not preferences:
+  * To open a graphical application, use `window_focus`. It goes through the
+    desktop's own search and launches the app if it is closed. NEVER launch a
+    graphical application with `shell_run`: it becomes a child of this server,
+    dies when the server restarts, and often has no app id, which means you
+    will not find the window again.
+  * `shell_run` stays for non-graphical work: builds, file operations, queries.
+  * `ui_click` does not move the mouse pointer — it asks the application
+    directly. That is intended; do not "fix" it with the `mouse` tool.
+  * After `desktop_unlock`, call `desktop_lock` when the graphical work is
+    done. The permission also expires on its own, but leaving it open keeps
+    the on-screen indicator running and worries the user.
 """
 
 

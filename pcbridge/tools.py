@@ -1420,7 +1420,13 @@ def register(
         the application to activate that item directly, so it works regardless of
         where the window sits or what has focus. Use it whenever the thing you want
         appears in `ui_dump`; fall back to the `mouse` tool only for things the
-        application does not publish, like canvases and games."""
+        application does not publish, like canvases and games.
+
+        The mouse pointer does NOT move when you use this — the click never goes
+        through the virtual mouse. That is intended and it is why this tool cannot
+        miss. Do not "correct" it by moving the pointer with the `mouse` tool
+        first: the accessibility tree's coordinates are wrong on this system, so
+        you would only put the pointer somewhere the click is not happening."""
         denied = _guard("ui_click", force=force, needs_input=False)
         if denied:
             return denied
@@ -1504,8 +1510,10 @@ def register(
         window: Annotated[
             str,
             Field(
-                description="Application or window name, e.g. 'Text Editor' or "
-                "'Firefox'. Names from `window_list` work best."
+                description="Application or window name as a human would say it, "
+                "e.g. 'Text Editor', 'Firefox', 'Vesktop'. The application does "
+                "NOT have to be running — anything the desktop's own search can "
+                "find works, so do not restrict yourself to `window_list`."
             ),
         ],
         force: Annotated[
@@ -1513,11 +1521,21 @@ def register(
             Field(description="Go ahead even if the user just used the machine."),
         ] = False,
     ) -> str:
-        """Bring an application's window to the front so the next keystrokes go
-        there. Takes a few seconds because it goes through the desktop's own
-        search. If you only need to press a button or fill a field, prefer
-        `ui_click` / `ui_set_text` — those reach the widget directly and do not
-        require the window to be in front at all."""
+        """Open a graphical application and bring it to the front, launching it
+        first if it is not already running. This goes through the desktop's own
+        search — exactly what the user would do by hand — and then verifies with
+        the accessibility tree that the right window really came forward.
+
+        This is the ONLY correct way to open a graphical application. Never use
+        `shell_run` for that: an app started from the shell becomes a child of
+        this server and dies when the service restarts, and it usually gets no
+        application id, which means `window_list` and this tool cannot find its
+        window afterwards.
+
+        Takes a few seconds. If the app is already up and you only need to press
+        a button or fill a field, prefer `ui_click` / `ui_set_text` — those reach
+        the widget directly and do not require the window to be in front at
+        all."""
         denied = _guard("window_focus", write=True, force=force)
         if denied:
             return denied
