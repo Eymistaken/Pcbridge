@@ -300,6 +300,18 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   `ensure_session_env()` bunu `/run/user/<uid>/` altındaki soketlerden onarıyor;
   `server.py` ve `cli/__init__.py` girişte çağırıyor. Yeni bir giriş noktası
   eklersen **oradan da çağır**.
+- **`systemctl --user restart pcbridge` senin MCP araclarini GUNCELLEMEZ.**
+  Olculdu 2026-08-21: kod degistirilip servis yeniden baslatildiktan sonra
+  `desktop_unlock` cagrisi hala ESKI bicimde durum dosyasi yazdi
+  (`hard_until` yok). Sebep: bu oturumun MCP baglantisi `--stdio` ile
+  baslatilmis AYRI bir surece gidiyor (o gun 5 tane vardi, en eskisi bir
+  onceki gunden) ve o surec kendisini baslatan istemci kapanana kadar
+  yasiyor. Ayni anda systemd birimi yeni kodu kosturuyordu — yani iki farkli
+  surum ayni durum dosyasina yaziyordu. `ps -eo pid,ppid,lstart,args | grep
+  pcbridge` ikisini de gosteriyor; `--stdio` argumani olan satirlar servis
+  DEGIL. Kod degisikligini kendi arac cagrilarinla dogrulamaya calisma:
+  ya istemciyi yeniden baslat, ya da servise HTTP + statik token ile git
+  (`tests/test_e2e.py`'nin kalibi).
 - **venv'deki `pcbridge.pth` repo yolunu `sys.path`'e ekliyor**, bu yüzden
   `python -m pcbridge.server` herhangi bir dizinden çalışır; istemci kayıtları
   `cwd` istemiyor.
