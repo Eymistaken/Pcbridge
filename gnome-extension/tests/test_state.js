@@ -196,6 +196,64 @@ adimlar([
 
     // ---------------------------------------------------------------------
     [50, () => {
+        section('11. Kayan kira — pcbridge\'in YENİ dosya biçimi');
+        // pcbridge artık `hard_until` ve `granted_by` da yazıyor ve `until`
+        // her masaüstü eyleminde ileri KAYIYOR. Eklenti kodu bu yüzden
+        // değişmedi — yalnızca `until` okuduğu için etkilenmemesi gerekiyor.
+        // "Gerekiyor" ölçüm değil; sözleşme burada fiilen sınanıyor.
+        state = new UnlockState(tmpFile, (aktif, until) => olaylar.push([aktif, until]));
+        olaylar.length = 0;
+        yaz(JSON.stringify({
+            until: simdi() + 90,
+            hard_until: simdi() + 900,
+            reason: 'olcum',
+            granted: simdi(),
+            granted_by: 'desktop_unlock',
+        }));
+        state.start();
+        check('yeni biçim aktif okundu', state.active === true, `active=${state.active}`);
+        check('bilinmeyen alanlar (hard_until, granted_by) sorun çıkarmadı',
+            olaylar.length === 1 && olaylar[0][0] === true, JSON.stringify(olaylar));
+
+        // Kira kaydı: `until` küçüldü ama izin hâlâ açık. Bu SIK oluyor
+        // (her eylemde) ve DEĞİŞİM olayı üretmemeli, yoksa çerçeve titrer.
+        yaz(JSON.stringify({
+            until: simdi() + 12, hard_until: simdi() + 900,
+            granted_by: 'desktop_unlock',
+        }));
+        state._reread();
+        check('kayan until sonrası hâlâ aktif', state.active === true);
+        check('kayma değişim olayı üretmedi (çerçeve titremiyor)',
+            olaylar.length === 1, JSON.stringify(olaylar));
+
+        // Kritik durum: kira bitti ama SERT TAVAN hâlâ gelecekte. Eklenti
+        // yalnızca `until`e baktığı için pasif görmeli; `hard_until`e
+        // bakılsaydı çerçeve izin kapandığı hâlde ekranda kalırdı.
+        yaz(JSON.stringify({
+            until: simdi() - 1, hard_until: simdi() + 800,
+            granted_by: 'desktop_unlock',
+        }));
+        state._reread();
+        check('kira düştü -> pasif (hard_until gelecekte olsa bile)',
+            state.active === false, `active=${state.active}`);
+        check('pasife geçiş olayı yayınlandı',
+            olaylar.length === 2 && olaylar[1][0] === false, JSON.stringify(olaylar));
+
+        // desktop_lock artık iki alanı da sıfırlıyor.
+        yaz(JSON.stringify({until: 0, hard_until: 0}));
+        state._reread();
+        check('lock biçimi ({until:0, hard_until:0}) pasif', state.active === false);
+
+        // Geriye dönük: diskte hard_until içermeyen ESKİ bir dosya olabilir.
+        yaz(JSON.stringify({until: simdi() + 60, reason: 'eski', granted: simdi()}));
+        state._reread();
+        check('eski biçim (hard_until YOK) hâlâ aktif okunuyor',
+            state.active === true, `active=${state.active}`);
+        state.stop();
+    }],
+
+    // ---------------------------------------------------------------------
+    [50, () => {
         section('10. Varsayılan yol pcbridge ile aynı yeri gösteriyor');
         const yol = defaultStatePath();
         check('yol pcbridge/desktop_unlock.json ile bitiyor',

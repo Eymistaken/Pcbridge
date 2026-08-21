@@ -113,29 +113,111 @@ class SafetyGate:
     def is_unlocked(self) -> bool:
         return self.remaining_seconds() > 0
 
-    def unlock(self, minutes: int | None = None, reason: str = "") -> str:
+    def hard_until(self) -> float:
+        """Sert tavan: `until` kaysa da bunun otesine gecemez.
+
+        Eski bicimli bir durum dosyasinda (yalnizca `until`) 0 doner.
+        """
+        return float(self._read_state().get("hard_until", 0) or 0)
+
+    def hard_remaining_seconds(self) -> int:
+        return max(0, int(self.hard_until() - time.time()))
+
+    def unlock(
+        self,
+        minutes: int | None = None,
+        reason: str = "",
+        granted_by: str = "desktop_unlock",
+    ) -> str:
         # Yalnizca None "varsayilani kullan" demektir. Verilen 0 ya da negatif
         # bir deger sessizce 15 dakikaya donmemeli -- istenenden UZUN izin
         # vermek, kisa vermekten kotu.
         mins = self.spec.unlock_default_minutes if minutes is None else int(minutes)
         mins = max(1, min(mins, self.spec.unlock_max_minutes))
         until = time.time() + mins * 60
-        self._write_state({"until": until, "reason": reason, "granted": time.time()})
-        self.audit("desktop_unlock", minutes=mins, reason=reason or None)
-        return (
+        # `until` TAVANDAN basliyor, `now + unlock_idle_seconds`ten degil:
+        # unlock'tan sonra hic eylem gelmezse eski davranis aynen korunsun.
+        # Kayma ILK EYLEMLE basliyor (`touch`).
+        #
+        # `granted_by` izni KIMIN actigini soyluyor. Bugun tek deger
+        # "desktop_unlock", cunku `gate.unlock()`u baska cagiran yok --
+        # `computer_batch`/`computer_task` izin acmiyor, acilmis izni
+        # kullaniyor. Alan yine de yaziliyor: denetim kaydinda ve
+        # `status_line`da anlami var, ve bir gun bir arac kendi izni acarsa
+        # "acan kapatir" kurali icin gereken bilgi hazir olur.
+        self._write_state({
+            "until": until,
+            "hard_until": until,
+            "reason": reason,
+            "granted": time.time(),
+            "granted_by": granted_by,
+        })
+        self.audit("desktop_unlock", minutes=mins, reason=reason or None,
+                   granted_by=granted_by)
+        msg = (
             f"Masaustu kontrolu {mins} dakika acildi "
             f"(bitis {time.strftime('%H:%M', time.localtime(until))})."
         )
+        idle = int(getattr(self.spec, "unlock_idle_seconds", 0) or 0)
+        if idle > 0:
+            msg += (
+                f" Son masaustu eyleminden {idle} saniye sonra kendiliginden "
+                f"dusuyor; {mins} dakika bunun sert tavani."
+            )
+        return msg
 
     def lock(self) -> str:
         was = self.remaining_seconds()
-        self._write_state({"until": 0})
+        self._write_state({"until": 0, "hard_until": 0})
         self.audit("desktop_lock", was_remaining=was)
         return (
             "Masaustu kontrolu kapatildi."
             if was
             else "Masaustu kontrolu zaten kapaliydi."
         )
+
+    def touch(self) -> None:
+        """Kayan kira: izni son eylemden `unlock_idle_seconds` sonrasina cek.
+
+        NEDEN SON TARIH DEGIL SON EYLEM: ajanin "isim bitti" diye bir olayi
+        yok -- son arac cagrisindan sonra ne oldugunu bilmiyor, o yuzden
+        `desktop_lock`u unutmasi dikkatsizlik degil YAPISAL. Sabit son tarihte
+        izin (ve ekran kenarindaki cerceve) dakikalarca acik kaliyordu.
+
+        Dort sey YAPILMAZ, hepsi bilincli:
+          * `unlock_idle_seconds = 0` ise hicbir sey -- eski davranis.
+          * `hard_until` yoksa hicbir sey. Diskte bu alani icermeyen ESKI
+            bir dosya olabilir; onu kaymis gibi yorumlamak izni sessizce
+            kisaltirdi.
+          * `hard_until` gecmisteyse hicbir sey. Sert tavan asilmaz.
+          * `until` gecmisteyse hicbir sey. Olmus bir izin DIRILTILMEZ.
+
+        Cagiran: yalnizca izin VERILEN `check()` (reddedilen cagri kirayi
+        uzatmamali) ve `computer_task` kalp atisi.
+        """
+        idle = int(getattr(self.spec, "unlock_idle_seconds", 0) or 0)
+        if idle <= 0:
+            return
+        # Oku-degistir-yaz SART: `_write_state` dosyayi komple uzerine
+        # yaziyor, sozluk yeniden kurulursa `hard_until` ilk eylemde kaybolur.
+        st = self._read_state()
+        hard = float(st.get("hard_until", 0) or 0)
+        if hard <= 0:
+            return
+        now = time.time()
+        if hard <= now:
+            return
+        until = float(st.get("until", 0) or 0)
+        if until <= now:
+            return
+        yeni = min(hard, now + idle)
+        # Saniyenin altindaki degisiklikler yazilmiyor: hiz siniri saniyede 10
+        # eyleme izin veriyor ve her biri diske yazsaydi eklentinin dosya
+        # izleyicisi bosuna calisirdi. Fark BIRIKIYOR, yani kira gerilemiyor.
+        if abs(yeni - until) < 1.0:
+            return
+        st["until"] = yeni
+        self._write_state(st)
 
     # ------------------------------------------------------------- hiz siniri
     def _rate_ok(self) -> bool:
@@ -196,6 +278,10 @@ class SafetyGate:
                 "eylem. Bir sonraki saniyede tekrar deneyin.",
             )
 
+        # Kayan kira YALNIZCA burada damgalaniyor: bes katin hepsinden gecmis,
+        # yani fiilen calisacak bir cagri. Yukaridaki her `return Decision(False)`
+        # damgalamadan cikiyor -- reddedilen bir cagri izni uzatmamali.
+        self.touch()
         return Decision(True)
 
     # ---------------------------------------------------------- denetim kaydi
@@ -245,4 +331,14 @@ class SafetyGate:
             return "masaustu kontrolu: acik ama kilitli (desktop_unlock bekliyor)"
         locked = screen_locked()
         extra = " · EKRAN KILITLI" if locked else ""
-        return f"masaustu kontrolu: izinli, {rem // 60} dk {rem % 60} sn kaldi{extra}"
+        # Kayan kira acikken TEK bir sayi yaniltici olurdu: "1 dk 30 sn kaldi"
+        # goren kullanici izni 15 dakika actigini hatirlayip kafasi karisir.
+        # Iki sayi birden: kayan kalan ve onun tavani.
+        tavan = ""
+        hard = self.hard_remaining_seconds()
+        if hard > rem:
+            tavan = f" · sert tavan {hard // 60} dk {hard % 60} sn"
+        return (
+            f"masaustu kontrolu: izinli, {rem // 60} dk {rem % 60} sn kaldi"
+            f"{tavan}{extra}"
+        )

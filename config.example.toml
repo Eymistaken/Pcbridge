@@ -116,6 +116,26 @@ enabled = false
 unlock_default_minutes = 15
 unlock_max_minutes = 120
 
+# KAYAN KIRA: izin son TARIHE degil son EYLEME bagli olsun. Basarili her
+# masaustu cagrisi izni "simdi + bu deger"e ceker; ajan durunca izin bu kadar
+# saniye sonra kendiliginden duser ve ekran kenarindaki cerceve soner.
+#
+# NEDEN: ajanin "isim bitti" diye bir olayi YOK -- son arac cagrisindan sonra
+# ne oldugunu bilmiyor. Bu yuzden `desktop_lock`u unutmasi dikkatsizlik degil
+# YAPISAL, ve cozumun ajanda degil kodda olmasi gerekiyor. Sabit son tarihte
+# izin (ve cerceve) dakikalarca acik kaliyordu.
+#
+# `unlock_default_minutes` SERT TAVAN olarak durmaya devam ediyor: kayan kira
+# ondan once devreye giren yumusak sinir, izni asla onun otesine uzatamaz.
+# Reddedilen bir cagri damgalamaz; suresi dolmus bir izni de diriltmez.
+#
+# Yerel gorsel ajan (`computer_task`) icin ayrica bir kalp atisi var: is
+# kostugu surece sunucu izni tazeliyor, cunku ajanin DUSUNME suresi bu
+# esikten uzun olabilir. Sert tavan orada da gecerli.
+#
+# 0 = kapali (eski davranis: sabit son tarih). 0 disinda en az 10.
+unlock_idle_seconds = 90
+
 # `desktop_unlock` calisinca masaustune bir bildirim dusurulsun mu.
 #
 # Iznin acildiginin KULLANICIYA gorunmesi onemli -- ajanin klavye/fareye

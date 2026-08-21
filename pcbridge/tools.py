@@ -768,10 +768,24 @@ def register(
     _sc_timer: dict[str, "threading.Timer | None"] = {"t": None}
 
     def _arm_screencast_timer() -> None:
+        """Zamanlayiciyi izin suresinin GUNCEL haline gore kur.
+
+        KAYAN KIRA YUZUNDEN HER EYLEMDE YENIDEN KURULUYOR. Eskiden bir kez,
+        `unlock` aninda kuruluyordu ve o yeterliydi cunku `until` sabitti.
+        Artik `until` her eylemde `simdi + unlock_idle_seconds`e kayiyor: 15
+        dakikalik bir izinde zamanlayici 900 saniyeye kurulsaydi izin 90
+        saniyede duser ama ust cubuktaki paylasim gostergesi 13 dakika daha
+        DURURDU -- yani kullaniciya "ajan hala masaustune erisebiliyor" diye
+        YALAN soylerdi. Bu projede gosterge yalan soylememeli.
+
+        Yayin kapaliyken bedava: hicbir zamanlayici kurulmuyor.
+        """
         eski = _sc_timer["t"]
         if eski is not None:
             eski.cancel()
         _sc_timer["t"] = None
+        if not screencast.is_open():
+            return
         kalan = gate.remaining_seconds()
         if kalan <= 0:
             return
@@ -786,9 +800,20 @@ def register(
 
         Iki yerden cagriliyor: her masaustu cagrisinin basinda (ucuz kontrol)
         ve izin suresi dolunca zamanlayicidan (cagri hic gelmezse diye).
+
+        Zamanlayicidan gelindiginde izin HALA acik olabilir: kirayi bu surecin
+        disindan kaydiran biri vardir (`bin/pcb-do`, `bin/pcb-shot` -- yerel
+        gorsel ajan onlari Bash'ten cagiriyor ve ikisi de ayri surec). O
+        durumda yayini kapatmak yanlis olur; onun yerine zamanlayici yeni
+        sureye gore YENIDEN kuruluyor. Aksi halde tek bir erken uyanma
+        gostergeyi zamanlayicisiz birakirdi.
         """
-        if screencast.is_open() and not gate.is_unlocked():
-            screencast.close()
+        if not screencast.is_open():
+            return
+        if gate.is_unlocked():
+            _arm_screencast_timer()
+            return
+        screencast.close()
 
     def _held_note() -> str:
         """Basili tutulan varsa yanitin sonuna eklenecek not.
@@ -808,6 +833,57 @@ def register(
             parts.append(f"basılı tutulan: {', '.join(still)}")
         return ("\n· " + "\n· ".join(parts)) if parts else ""
 
+    # ------------------------------------------- kayan kira: computer_task
+    # Yerel gorsel ajan ekrani `pcb-shot` ile okuyup `pcb-do` ile suruyor ve
+    # IKISI DE `gate.check()`ten geciyor, yani ajanin EYLEMLERI kirayi zaten
+    # kaydiriyor. Kapatilmayan tek bosluk ajanin DUSUNME suresi: bir ekran
+    # goruntusune bakip karar vermek `unlock_idle_seconds`i asabilir ve izin
+    # gorevin ORTASINDA duserdi -- bir sonraki `pcb-do` reddedilir, gorev
+    # yarim kalir.
+    #
+    # Sert tavan (`unlock_default_minutes`) burada da gecerli: `gate.touch()`
+    # `hard_until`i asamiyor, yani kalp atisi izni sonsuza uzatamaz. Isin
+    # kendisi olunce kayit bosalir ve is parcacigi CIKAR; boste kalan bir
+    # zamanlayici birakmiyoruz.
+    _hb_jobs: set[str] = set()
+    _hb_lock = threading.Lock()
+    _hb_thread: dict[str, "threading.Thread | None"] = {"t": None}
+
+    def _heartbeat_loop() -> None:
+        # Esigin ucte biri: bir tur kacirilsa bile izin dusmeden once ikinci
+        # bir sans var.
+        period = max(5, int(cfg.desktop.unlock_idle_seconds or 0) // 3)
+        while True:
+            time.sleep(period)
+            with _hb_lock:
+                for jid in list(_hb_jobs):
+                    try:
+                        if jm.status(jid).get("status") != "running":
+                            _hb_jobs.discard(jid)
+                    except Exception:  # noqa: BLE001 — is kaybolduysa da birak
+                        _hb_jobs.discard(jid)
+                if not _hb_jobs:
+                    # Cikis ve slot temizligi AYNI kilit altinda: aksi halde
+                    # tam bu arada eklenen bir is, olmek uzere olan bu is
+                    # parcacigina guvenip kalp atissiz kalirdi.
+                    _hb_thread["t"] = None
+                    return
+            gate.touch()
+
+    def _heartbeat_add(job_id: str) -> None:
+        if int(cfg.desktop.unlock_idle_seconds or 0) <= 0:
+            return
+        with _hb_lock:
+            _hb_jobs.add(job_id)
+            if _hb_thread["t"] is not None:
+                return
+            t = threading.Thread(
+                target=_heartbeat_loop, daemon=True,
+                name="pcbridge-unlock-heartbeat",
+            )
+            _hb_thread["t"] = t
+        t.start()
+
     def _guard(
         tool: str,
         write: bool = True,
@@ -825,6 +901,8 @@ def register(
         if not decision.allowed:
             gate.audit(f"{tool}_denied", reason=decision.reason[:120])
             return f"⛔ {decision.reason}"
+        # `check()` kirayi kaydirdi; gosterge de onunla birlikte kaysin.
+        _arm_screencast_timer()
         if needs_input:
             ok, why = backend.available()
             if not ok:
@@ -1806,6 +1884,9 @@ def register(
                 "max_steps": steps,
             },
         )
+        # Kayan kira gorevin ortasinda dusmesin: is kostugu surece izni
+        # tazele. Ayrinti `_heartbeat_loop`ta.
+        _heartbeat_add(job_id)
         # Hedef METNI kaydedilmez, uzunlugu kaydedilir: ekranda ne yapilacagi
         # ozel bilgi icerebilir. Tam metin jobs/<id>/meta.json'da.
         gate.audit("computer_task", agent=res.agent, model=res.model,

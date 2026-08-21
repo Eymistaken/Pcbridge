@@ -91,6 +91,12 @@ class DesktopSpec:
     unlock_default_minutes: int = 15
     unlock_max_minutes: int = 120
     unlock_notification: bool = True
+    # KAYAN KIRA: izin son TARIHE degil son EYLEME bagli. Basarili her
+    # masaustu cagrisi `until`i `simdi + bu deger`e cekiyor,
+    # `unlock_default_minutes` sert tavan olarak duruyor. Ajanin "isim bitti"
+    # olayi olmadigi icin `desktop_lock`u unutmasi yapisal; bu onu kodda
+    # cozuyor. 0 = kapali (eski davranis: sabit son tarih).
+    unlock_idle_seconds: int = 90
     # Kullanici son girdisinden bu kadar saniye gecmediyse yazma eylemleri
     # reddedilir (telefon ile kullanicinin faresi kavga etmesin). force=true
     # ile bilincli olarak gecilebilir. 0 = kontrol kapali.
@@ -472,6 +478,7 @@ def load_config(explicit: str | None = None) -> Config:
         unlock_default_minutes=int(desktop_raw.get("unlock_default_minutes", 15)),
         unlock_max_minutes=int(desktop_raw.get("unlock_max_minutes", 120)),
         unlock_notification=bool(desktop_raw.get("unlock_notification", True)),
+        unlock_idle_seconds=int(desktop_raw.get("unlock_idle_seconds", 90)),
         idle_guard_seconds=int(desktop_raw.get("idle_guard_seconds", 60)),
         max_actions_per_second=int(desktop_raw.get("max_actions_per_second", 10)),
         default_monitor=int(desktop_raw.get("default_monitor", 1)),
@@ -508,6 +515,15 @@ def load_config(explicit: str | None = None) -> Config:
             f"[desktop] ({path}): `unlock_default_minutes` "
             f"({desktop.unlock_default_minutes}) `unlock_max_minutes` "
             f"({desktop.unlock_max_minutes}) degerini asamaz."
+        )
+    # 0 = kayan kira kapali. Cok kucuk bir deger izni ajan daha ikinci
+    # cagrisini yapamadan dusururdu: `window_focus` tek basina ~6,5 saniye,
+    # ekran goruntusu ~1,5 saniye suruyor (bu makinede olculdu).
+    if desktop.unlock_idle_seconds and desktop.unlock_idle_seconds < 10:
+        raise SystemExit(
+            f"[desktop] ({path}): `unlock_idle_seconds` "
+            f"({desktop.unlock_idle_seconds}) ya 0 (kayan kira kapali) ya da "
+            "en az 10 olmali."
         )
     # 0 = olcekleme yok; negatif ya da minicik bir deger sessizce okunmaz
     # goruntu uretmesin.

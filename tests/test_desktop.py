@@ -288,6 +288,180 @@ def test_gate_permission_window() -> None:
         check("suresi dolan izin gecersiz", not g.is_unlocked())
 
 
+def test_gate_sliding_lease() -> None:
+    section("43. Kayan kira — izin son EYLEME bagli")
+    real_lock, real_idle = S.screen_locked, S.idle_ms
+    S.screen_locked = lambda: False  # type: ignore[assignment]
+    S.idle_ms = lambda: 999_000  # type: ignore[assignment]
+    try:
+        # --- 1. unlock iki alani da yaziyor -------------------------------
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            g = _gate(tmp, enabled=True, idle_guard_seconds=0,
+                      unlock_idle_seconds=90)
+            g.unlock(10)
+            st = g._read_state()
+            check("unlock `hard_until` yaziyor", "hard_until" in st, str(st.keys()))
+            check("until ve hard_until esit basliyor",
+                  abs(float(st["until"]) - float(st["hard_until"])) < 0.01)
+            check("granted_by yazildi", st.get("granted_by") == "desktop_unlock",
+                  str(st.get("granted_by")))
+            check("ilk eylemden ONCE tavan bozulmadi (eski davranis)",
+                  590 <= g.remaining_seconds() <= 600, str(g.remaining_seconds()))
+            check("unlock mesaji kayma payini soyluyor",
+                  "90 saniye" in g.unlock(10), g.unlock(10))
+
+        # --- 2. izinli cagri kirayi kaydiriyor ----------------------------
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            g = _gate(tmp, enabled=True, idle_guard_seconds=0,
+                      unlock_idle_seconds=90)
+            g.unlock(10)
+            hard_once = g.hard_until()
+            check("izinli cagri geciyor", g.check("mouse").allowed)
+            check("until 90 saniyeye kaydi",
+                  85 <= g.remaining_seconds() <= 90, str(g.remaining_seconds()))
+            check("hard_until DEGISMEDI (tavan sabit)",
+                  abs(g.hard_until() - hard_once) < 0.01)
+            check("sert tavan hala ~10 dk",
+                  590 <= g.hard_remaining_seconds() <= 600,
+                  str(g.hard_remaining_seconds()))
+            check("status_line iki sayiyi birden veriyor",
+                  "sert tavan" in g.status_line(), g.status_line())
+
+        # --- 3. tavan asilmiyor -------------------------------------------
+        with tempfile.TemporaryDirectory() as td:
+            # 1 dakikalik izin + 90 saniyelik kayma: kayma tavani ASAMAZ.
+            g = _gate(Path(td), enabled=True, idle_guard_seconds=0,
+                      unlock_idle_seconds=90)
+            g.unlock(1)
+            g.check("mouse")
+            check("kayma sert tavani asmiyor",
+                  g.remaining_seconds() <= 60, str(g.remaining_seconds()))
+            check("until tavana yapisti",
+                  abs(g.unlocked_until() - g.hard_until()) < 1.0)
+
+        # --- 4. REDDEDILEN cagri uzatmiyor --------------------------------
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            g = _gate(tmp, enabled=True, idle_guard_seconds=60,
+                      unlock_idle_seconds=90)
+            g.unlock(10)
+            st = g._read_state()
+            st["until"] = time.time() + 5      # kira nerdeyse bitmis
+            g._write_state(st)
+            S.idle_ms = lambda: 1_000          # kullanici makinenin basinda
+            d = g.check("mouse")
+            check("cakisma korumasi reddetti", not d.allowed, d.reason[:60])
+            check("REDDEDILEN cagri kirayi UZATMADI",
+                  g.remaining_seconds() <= 6, str(g.remaining_seconds()))
+            S.idle_ms = lambda: 999_000
+
+            # Hiz siniri reddi de uzatmamali.
+            g2 = _gate(tmp, enabled=True, idle_guard_seconds=0,
+                       max_actions_per_second=1, unlock_idle_seconds=90)
+            g2.unlock(10)
+            st = g2._read_state()
+            st["until"] = time.time() + 5
+            g2._write_state(st)
+            check("hiz siniri: ilk cagri geciyor", g2.check("mouse").allowed)
+            once = g2.remaining_seconds()
+            d = g2.check("mouse")
+            check("hiz siniri: ikinci cagri reddedildi", not d.allowed)
+            check("hiz siniri reddi kirayi UZATMADI",
+                  g2.remaining_seconds() <= once, str(g2.remaining_seconds()))
+
+        # --- 5. olmus izin DIRILMIYOR -------------------------------------
+        with tempfile.TemporaryDirectory() as td:
+            g = _gate(Path(td), enabled=True, idle_guard_seconds=0,
+                      unlock_idle_seconds=90)
+            now = time.time()
+            # Sert tavan gecmiste: touch hicbir sey yapmamali.
+            g._write_state({"until": now - 1, "hard_until": now - 1})
+            g.touch()
+            check("sert tavani gecmis izin dirilmiyor", not g.is_unlocked(),
+                  str(g.remaining_seconds()))
+            # until gecmiste ama tavan gelecekte: yine dirilmemeli.
+            g._write_state({"until": now - 1, "hard_until": now + 600})
+            g.touch()
+            check("kirasi bitmis izin tavan dururken de dirilmiyor",
+                  not g.is_unlocked(), str(g.remaining_seconds()))
+            check("olmus izne gelen cagri reddediliyor",
+                  not g.check("mouse").allowed)
+
+        # --- 6. ESKI dosya bicimi (hard_until yok) ------------------------
+        with tempfile.TemporaryDirectory() as td:
+            g = _gate(Path(td), enabled=True, idle_guard_seconds=0,
+                      unlock_idle_seconds=90)
+            eski = time.time() + 600
+            g._write_state({"until": eski, "reason": "eski surumden kalma"})
+            check("eski bicimli izin gecerli sayiliyor", g.check("mouse").allowed)
+            check("eski bicimde kayma YOK (sessiz kisaltma olmasin)",
+                  abs(g.unlocked_until() - eski) < 0.01,
+                  str(g.unlocked_until() - eski))
+            check("eski bicimde hard_until uydurulmuyor",
+                  "hard_until" not in g._read_state())
+
+        # --- 7. unlock_idle_seconds = 0 -> eski davranis -------------------
+        with tempfile.TemporaryDirectory() as td:
+            g = _gate(Path(td), enabled=True, idle_guard_seconds=0,
+                      unlock_idle_seconds=0)
+            msg = g.unlock(5)
+            check("kapaliyken unlock mesajinda kayma payi yok",
+                  "saniye sonra kendiliginden" not in msg, msg)
+            g.check("mouse")
+            check("kayan kira kapaliyken sure kaymiyor",
+                  290 <= g.remaining_seconds() <= 300, str(g.remaining_seconds()))
+
+        # --- 8. lock her iki alani da sifirliyor --------------------------
+        with tempfile.TemporaryDirectory() as td:
+            g = _gate(Path(td), enabled=True, idle_guard_seconds=0,
+                      unlock_idle_seconds=90)
+            g.unlock(10)
+            g.lock()
+            st = g._read_state()
+            check("lock: until sifir", float(st.get("until", -1)) == 0, str(st))
+            check("lock: hard_until sifir",
+                  float(st.get("hard_until", -1)) == 0, str(st))
+            check("lock sonrasi touch dirilmiyor",
+                  (g.touch(), not g.is_unlocked())[1])
+
+        # --- 9. touch diger alanlari KORUYOR ------------------------------
+        with tempfile.TemporaryDirectory() as td:
+            g = _gate(Path(td), enabled=True, idle_guard_seconds=0,
+                      unlock_idle_seconds=90)
+            g.unlock(10, reason="deneme gerekcesi")
+            g.check("mouse")
+            st = g._read_state()
+            check("touch sonrasi granted_by duruyor",
+                  st.get("granted_by") == "desktop_unlock", str(st))
+            check("touch sonrasi reason duruyor",
+                  st.get("reason") == "deneme gerekcesi", str(st))
+            check("touch sonrasi hard_until duruyor",
+                  float(st.get("hard_until", 0)) > time.time(), str(st))
+
+        # --- 10. GNOME eklentisinin sozlesmesi bozulmadi -------------------
+        # `state.js` YALNIZCA `until`i okuyor: JSON'un tepesinde, duz sayi.
+        # Yeni alanlar onu gormezden gelecek, ama bicim degisirse eklenti
+        # sessizce korlesir -- bu yuzden burada da kontrol ediliyor.
+        with tempfile.TemporaryDirectory() as td:
+            g = _gate(Path(td), enabled=True, idle_guard_seconds=0,
+                      unlock_idle_seconds=90)
+            g.unlock(10)
+            g.check("mouse")
+            ham = json.loads(
+                (Path(td) / S.STATE_FILE).read_text(encoding="utf-8")
+            )
+            check("until JSON'un tepesinde duz sayi",
+                  isinstance(ham.get("until"), (int, float)),
+                  str(type(ham.get("until"))))
+            check("until gelecekte (eklenti 'aktif' okuyacak)",
+                  float(ham["until"]) > time.time())
+            check("dosya adi degismedi", S.STATE_FILE == "desktop_unlock.json")
+    finally:
+        S.screen_locked, S.idle_ms = real_lock, real_idle
+
+
 def test_gate_locked_screen_and_idle() -> None:
     section("9. Ekran kilidi ve kullanici cakismasi")
     with tempfile.TemporaryDirectory() as td:
@@ -2263,6 +2437,7 @@ def main() -> int:
     test_raw_ascii_table()
     test_gate_disabled()
     test_gate_permission_window()
+    test_gate_sliding_lease()
     test_gate_locked_screen_and_idle()
     test_gate_rate_limit()
     test_audit_log()
