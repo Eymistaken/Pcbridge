@@ -722,6 +722,15 @@ def main() -> int:
         content = (d or {}).get("result", {}).get("content", [])
         return "\n".join(b.get("text", "") for b in content if isinstance(b, dict))
 
+    # Calisma dizini BURADA yaratiliyor, asagidaki `fs_write`e birakilmiyor.
+    # OLCULDU 2026-08-21: /tmp/pcb/work yokken `shell_run` "Dizin yok" donuyor
+    # ve tek basina bu kontrol patliyordu -- ama hemen ardindaki `fs_write`
+    # dizini yaratiyordu, yani AYNI koda karsi ikinci kosum geciyordu.
+    # /tmp her acilista temizlendigi icin belirtisi "yeniden baslatmadan sonra
+    # ilk kosum basarisiz" oluyordu ve titresim sanildi. Titresim degil,
+    # testin kendi sira bagimliligiydi.
+    pathlib.Path("/tmp/pcb/work").mkdir(parents=True, exist_ok=True)
+
     out = call("shell_run", {"command": "echo merhaba-dunya", "workdir": "/tmp/pcb/work"})
     check("shell_run calisti", "merhaba-dunya" in out, out[:300])
 
