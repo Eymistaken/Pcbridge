@@ -7,3 +7,9 @@ __pycache__/
 state/
 *.log
 *.db
+
+# kisisel notlar ve onaylanmamis taslaklar -- depoya girmiyor.
+# DIKKAT: "*.md" YAZMA. CLAUDE.md, README.md, PLAN.md ve digerleri izleniyor.
+JARVIS.md
+KURALLAR.md
+GOREV-kurallar.md
