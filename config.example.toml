@@ -470,10 +470,10 @@ effort_args = ["--effort", "{effort}"]
 # agy'de effort model kimliginin PARCASI: `--model X --effort Y` = `X-Y`.
 # Gemini modellerinde effort'suz cagri exit 1 verir -> zorunlu.
 effort_required_with_model = true
-default_model  = "gemini-3.6-flash"
+default_model  = "gemini-3.8-flash"
 default_effort = "high"
 efforts = ["low", "medium", "high"]
-models  = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-pro"]
+models  = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.1-pro"]
 # Yalnizca ACIKCA istenirse; varsayilan secimde asla kullanilmaz.
 # Kimlikler `agy models` ciktisindan birebir alindi -- nokta degil TIRE.
 restricted_models = [
@@ -486,16 +486,18 @@ restricted_models = [
 # gemini-3.1-pro'da MEDIUM YOK, Claude/GPT-OSS modelleri --effort KABUL ETMIYOR
 # (verilirse "Error: invalid model selection" + exit 1).
 [agents.antigravity.model_efforts]
+"gemini-3.8-flash"         = ["low", "medium", "high"]
+"gemini-3.7-flash"         = ["low", "medium", "high"]
 "gemini-3.6-flash"         = ["low", "medium", "high"]
-"gemini-3.5-flash"         = ["low", "medium", "high"]
 "gemini-3.1-pro"           = ["low", "high"]
 "claude-sonnet-4-6"        = []
 "claude-opus-4-6-thinking" = []
 "gpt-oss-120b-medium"      = []
 
 [agents.antigravity.model_effort]
+"gemini-3.8-flash" = "high"
+"gemini-3.7-flash" = "high"
 "gemini-3.6-flash" = "high"
-"gemini-3.5-flash" = "high"
 "gemini-3.1-pro"   = "high"
 
 [agents.antigravity.aliases]
