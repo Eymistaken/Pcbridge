@@ -18,8 +18,9 @@ Proje Gemini Spark için başlamıştı; **artık hedef değil.** Mimarinin
 "görüntü yerine metin" tercihleri (`ui_dump`, `/shot` bağlantıları) o çağdan
 kalma ve **kazanç oldukları için duruyorlar** — daha ucuz ve ıskalamıyorlar.
 
-**Sıradaki iş [YAPILACAKLAR.md](YAPILACAKLAR.md).** Şu an sırada bekleyen görev
-yok; orada yarım kalan tek konu **imleç katmanı** (aşağıda).
+**Sıradaki iş [YAPILACAKLAR.md](YAPILACAKLAR.md).** Sırada `window_focus`'un
+açık pencere için GNOME aramasından geçmemesi var (ölçüldü: açık pencere için
+bile ~6,6 sn). Ayrıca yarım kalan **imleç katmanı** (aşağıda).
 
 `gnome-extension/` altında isteğe bağlı bir **GNOME 46 kabuk eklentisi** var:
 masaüstü izni açıkken her monitörün kenarlarında yumuşak beyaz bir çerçeve
@@ -408,7 +409,7 @@ ve o değişken `--effort` bayrağını sessizce etkisiz kılıyor.
 
 | Dosya | Ne |
 |---|---|
-| `YAPILACAKLAR.md` | **Sıradaki iş** + yarım kalan imleç katmanının bulguları |
+| `YAPILACAKLAR.md` | **Sıradaki iş** + biten faz 1–3 kaydı + yarım kalan imleç katmanının bulguları |
 | `KULLANIM.md` | Kullanıcıya dönük araç kataloğu + izin haritası — **güncel tutulmalı** |
 | `config.example.toml` | Ayarların belgelenmiş hâli; projenin asıl referansı |
 | `README.md` | **İngilizce**, GitHub vitrini: genel bakış, mimari, güvenlik özeti |
