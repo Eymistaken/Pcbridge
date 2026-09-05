@@ -6,7 +6,7 @@ kaydı. Sıra korunuyor: **her adım bitince durulur, bildirilir, onay beklenir.
 | Adım | Konu | Durum |
 |---|---|---|
 | 1 | Koordinat dönüşümünü sunucuya taşı | ✅ bitti — `e2ac8b2` |
-| 2 | Ekran görüntüsü temizliği gerçekten uygulansın | ⬜ bekliyor |
+| 2 | Ekran görüntüsü temizliği gerçekten uygulansın | ✅ bitti — `e1a2ee7` |
 | 3 | Ölçek tutarsızlıkları | ⬜ bekliyor |
 
 Onaylanan tasarım kararları: **çekim kimliği (`shot=`)** yolu · `pcb-shot`
@@ -105,39 +105,85 @@ tests/test_desktop.py   524 geçti, 0 başarısız   (önce 462)
 tests/test_e2e.py       239 başarılı, 0 başarısız, 9 atlandı
 ```
 
-**Gerçek makine doğrulaması yapılmadı** — kullanıcı iş ortasında durdurdu,
-üç adım bitince topluca yapılacak. O ana kadar bilinenler: `pcb-do` görüntü
-koordinatı (640, 360) için global (2880, 540) raporladı (beklenen değer),
-`--out` kaydı iki dizine de yazıldı, bayat kimlik reddedildi.
+### Gerçek makine doğrulaması — 2026-09-06, ölçüldü
+
+Görüntüde seçilen bir noktaya `move` gönderildi, sonraki karede imlecin
+**hotspot'u** arandı (ağırlık merkezi değil: ok imlecinin sivri ucu sol üst
+köşede, kütlesi aşağı sağa uzanıyor, o yüzden ağırlık merkezi sistematik
+olarak ~7 px aşağı kayıyor — bu ölçüm yönteminin hatası, dönüşümün değil).
+
+| görüntü noktası | sunucunun ürettiği global | imlecin bulunduğu yer | sapma |
+|---|---|---|---|
+| (150, 620) | (2145, 930) | (150, 620) | **0 px** |
+| (1100, 200) | (3570, 300) | (1100, 200) | **0 px** |
+
+Aritmetik de doğru: `1920 + 150/0,667 = 2145`, `1920 + 1100/0,667 = 3570`.
+
+MCP tarafı gerçek stdio sunucusuyla ayrıca sınandı (bu oturumun kendi MCP
+bağlantısı eski kodu çalıştırıyor — `CLAUDE.md`, 2026-08-21 ölçümü):
+
+- `mouse(x=640, y=360, shot=…)` → `(2880, 540)` ✅
+- `computer_batch` içinde `{"a":"move","x":200,"y":150,"shot":…}` → `(2220, 225)` ✅
+- `shot` + `monitor` birlikte → reddedildi ✅
+- `shot="../../etc"` → reddedildi ✅
+- Bayat kimlik (`313 saniyelik, sınır 60`) → reddedildi ✅
+- `--out` ile alınan çekimin kaydı iki dizine de yazıldı ✅
 
 ---
 
-## ADIM 2 — Ekran görüntüsü temizliği ⬜
+## ADIM 2 — Ekran görüntüsü temizliği ✅
 
 ### Sorun
 
-`ShotStore.sweep()` kod tabanında yalnızca `publish()` içinden çağrılıyor,
-`publish()` ise sadece `transport != "stdio"` iken çalışıyor. Yani stdio ile
-bağlanıldığında — asıl kullanılan yol — `shots/` klasörü **hiç**
-temizlenmiyor. `shot_keep_hours = 24` yazıyor ama hiçbir zaman uygulanmıyor.
+`ShotStore.sweep()` yalnızca `publish()` içinden çağrılıyordu, `publish()` ise
+yalnızca `transport != "stdio"` iken. Yani stdio ile bağlanıldığında — asıl
+kullanılan yol — `shots/` klasörü **hiç** temizlenmiyordu.
+`shot_keep_hours = 24` yazıyor ama hiçbir zaman uygulanmıyordu.
 
-### Yapılacaklar
+### Yapılanlar
 
-24 saat politikası aynen kalacak, ama gerçekten uygulanacak:
+24 saat politikası aynen kaldı, artık gerçekten uygulanıyor:
 
 - `ShotStore.__init__` içinde bir kez `sweep()` — uzun süre çekim yapılmayan
   dönemden sonra birikenler için.
 - `screen_capture` her çekimden **önce** `sweep()` — taşımadan bağımsız.
-- `publish()` içindeki mevcut çağrı **duracak**; HTTP yolunun davranışı
-  değişmesin.
-- `sweep()` eşleşen `<id>.json` çekim kayıtlarını da temizleyecek.
-  (`cli/shot.py` tarafındaki `sweep()` bunu Adım 1'de zaten yapar hale geldi.)
+  Silinen dosya sayısı `audit.log`'a `swept=` olarak yazılıyor.
+- `publish()` içindeki çağrı **duruyor**; HTTP yolunun davranışı değişmedi.
+  Docstring artık bunun tek tetikleyici olmadığını söylüyor.
+- `sweep()` eşleşen `<id>.json` çekim kayıtlarını da temizliyor ve kaç dosya
+  sildiğini döndürüyor. (Tek başına kalan bir kayıt `shot=` ile bulunur ama
+  arkasında görüntü olmaz — ajan olmayan bir görüntüye tıklamaya çalışırdı.)
 
-### Test
+### Testin gerçekten bir şey ölçtüğü doğrulandı
 
-`ShotStore(cfg)` kurulumu eski PNG'yi siliyor mu · JSON da siliniyor mu ·
-`shot_keep_hours = 0` iken hiçbir şey silinmiyor (mevcut test korunur) ·
-stdio yolunda çekim öncesi sweep tetikleniyor mu.
+Yeni bölüm 47 aracın **kendisini** çağırıyor (`FastMCP.get_tool(...).fn`),
+çünkü "sweep çağrılıyor mu" sorusunun başka türlü cevabı yok:
+`ShotStore.sweep()`in doğru çalışması zaten test ediliyordu, eksik olan onu
+**kimin** çağırdığıydı.
+
+Düzeltme geçici olarak geri alınıp koşulduğunda test **hatanın tam tarifini**
+veriyor:
+
+```
+stdio: cekim eski PNG'yi supurdu     FAIL
+stdio: cekim eski kaydi supurdu      FAIL
+http:  cekim eski PNG'yi supurdu     PASS      <- publish() supuruyordu
+```
+
+### Gerçek makine doğrulaması — 2026-09-06
+
+`state_dir/shots` içine 25 saatlik iki PNG + bir `<id>.json` ve bir de taze
+PNG kondu, sonra **gerçek `--stdio` sunucusu** el JSON-RPC ile sürüldü
+(`desktop_unlock` → `screen_capture`):
+
+| dosya | yaş | sonuç |
+|---|---|---|
+| `eski-test-1.png`, `eski-test-2.png` | 25 saat | silindi ✅ |
+| `m1-000001.json` | 25 saat | silindi ✅ |
+| `taze-test.png` | taze | **duruyor** ✅ |
+
+Aynı çağrının metin bloğu Adım 1'i de doğruladı: ilk sırada, `shot: m2-a2f8ef`
+kimliğiyle ve "ofseti ve ölçeği pcbridge kendisi uyguluyor" talimatıyla.
 
 ---
 

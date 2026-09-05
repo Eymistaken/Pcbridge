@@ -19,6 +19,14 @@ GUVENLIK
     Kayit BELLEKTE tutuluyor: sunucu yeniden baslarsa butun baglantilar oluyor.
     Bu da dogru davranis, diske yazilan bir token listesi yalnizca sizma yuzeyi
     olurdu.
+
+DISK TEMIZLIGI TASIMADAN BAGIMSIZ
+    `sweep()` eskiden yalnizca `publish()` icinden cagriliyordu, `publish()` de
+    yalnizca HTTP tasimasinda calisiyor. Yani **stdio ile baglanildiginda
+    `shots/` klasoru hic temizlenmiyordu**: `shot_keep_hours = 24` ayari
+    yaziyor ama hicbir zaman uygulanmiyordu. Artik `screen_capture` her
+    cekimden ONCE ve `ShotStore` kurulurken bir kez suporuyor; `publish`teki
+    cagri HTTP yolunun davranisi degismesin diye duruyor.
 """
 
 from __future__ import annotations
@@ -50,12 +58,21 @@ class ShotStore:
         self.dir.mkdir(parents=True, exist_ok=True)
         self._entries: dict[str, _Entry] = {}
         self._lock = threading.Lock()
+        # Kurulumda BIR KEZ: uzun sure cekim yapilmayan bir donemden sonra
+        # birikmis dosyalar, ilk cekim gelene kadar diskte oturuyordu.
+        self.sweep()
 
     # ---------------------------------------------------------------- yazma
     def publish(self, path: Path) -> tuple[str, str]:
         """Dosyayi yayimla -> (token, tam URL).
 
         `path` zaten `self.dir` altinda olmali (capture dogrudan oraya yaziyor).
+
+        Buradaki `sweep()` cagrisi TEK tetikleyici DEGIL: `publish` yalnizca
+        HTTP tasimasinda cagriliyor, yani stdio'da dosya temizligi hic
+        calismazdi (`shot_keep_hours` yaziyordu ama uygulanmiyordu). Asil
+        tetikleyici artik `screen_capture`, cekimden once. Bu satir HTTP
+        yolunun davranisini degistirmemek icin duruyor.
         """
         path = Path(path)
         if not path.exists():
@@ -89,8 +106,15 @@ class ShotStore:
         return entry.path if entry.path.exists() else None
 
     # -------------------------------------------------------------- temizlik
-    def sweep(self) -> None:
-        """Suresi gecmis token'lari dusur, eski PNG'leri sil."""
+    def sweep(self) -> int:
+        """Suresi gecmis token'lari dusur, eski PNG ve cekim kayitlarini sil.
+
+        -> silinen dosya sayisi (tani icin; cagiranlarin cogu yok sayiyor).
+
+        `<id>.json` kayitlari PNG ile ayni yasa tabi: kayit tek basina kalirsa
+        `shot=` ile bulunur ama arkasinda goruntu olmaz, yani ajan olmayan bir
+        goruntuye tiklamaya calisir.
+        """
         now = time.time()
         with self._lock:
             dead = [t for t, e in self._entries.items() if e.expires_at <= now]
@@ -99,17 +123,20 @@ class ShotStore:
 
         keep = max(0, int(self.cfg.desktop.shot_keep_hours)) * 3600
         if keep <= 0:
-            return
+            return 0
         cutoff = now - keep
+        removed = 0
         try:
-            for f in self.dir.glob("*.png"):
+            for f in (*self.dir.glob("*.png"), *self.dir.glob("*.json")):
                 try:
                     if f.stat().st_mtime < cutoff:
                         f.unlink()
+                        removed += 1
                 except OSError:
                     continue
         except OSError:
             pass
+        return removed
 
     # ------------------------------------------------------------------ tani
     def stats(self) -> tuple[int, int]:

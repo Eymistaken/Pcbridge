@@ -898,9 +898,19 @@ def test_shot_store() -> None:
         os.utime(old, (0, 0))
         fresh = store.dir / "yeni.png"
         fresh.write_bytes(b"x")
-        store.sweep()
+        # Cekim kaydi PNG ile ayni yasa tabi: tek basina kalan bir `<id>.json`
+        # `shot=` ile bulunur ama arkasinda goruntu olmaz.
+        old_meta = store.dir / "m1-aabbcc.json"
+        old_meta.write_text("{}")
+        os.utime(old_meta, (0, 0))
+        fresh_meta = store.dir / "m2-ddeeff.json"
+        fresh_meta.write_text("{}")
+        removed = store.sweep()
         check("sweep eski PNG'yi sildi", not old.exists())
+        check("sweep eski cekim kaydini da sildi", not old_meta.exists())
         check("sweep yeni PNG'ye dokunmadi", fresh.exists())
+        check("sweep yeni cekim kaydina dokunmadi", fresh_meta.exists())
+        check("sweep kac dosya sildigini soyluyor", removed == 2, str(removed))
 
         # shot_keep_hours = 0 -> dosya temizligi kapali
         cfg0 = FakeCfg(tmp, shot_keep_hours=0)
@@ -909,9 +919,110 @@ def test_shot_store() -> None:
         old2 = store0.dir / "eski2.png"
         old2.write_bytes(b"x")
         os.utime(old2, (0, 0))
-        store0.sweep()
-        check("keep_hours = 0 iken dosya silinmiyor", old2.exists())
+        check("keep_hours = 0 iken dosya silinmiyor", store0.sweep() == 0)
+        check("keep_hours = 0 iken dosya duruyor", old2.exists())
+
+        # KURULUMDA SUPURULUYOR. Eskiden temizligin tek tetikleyicisi
+        # `publish()`ti ve o da yalnizca HTTP tasimasinda cagriliyor: stdio ile
+        # baglanildiginda `shots/` HIC temizlenmiyordu.
+        eski3 = store.dir / "eski3.png"
+        eski3.write_bytes(b"x")
+        os.utime(eski3, (0, 0))
+        eski3_meta = store.dir / "m1-bbccdd.json"
+        eski3_meta.write_text("{}")
+        os.utime(eski3_meta, (0, 0))
+        ShotStore(cfg)  # hicbir cagri yapilmadan, yalnizca kurulum
+        check("kurulum eski PNG'yi supurdu", not eski3.exists())
+        check("kurulum eski kaydi supurdu", not eski3_meta.exists())
     finally:
+        import shutil as _sh
+
+        _sh.rmtree(tmp, ignore_errors=True)
+
+
+def test_capture_sweeps() -> None:
+    """`screen_capture` temizligi TASIMADAN BAGIMSIZ tetikliyor mu.
+
+    Eskiden temizligin tek tetikleyicisi `ShotStore.publish()`ti, o da yalnizca
+    `transport != "stdio"` iken cagriliyor. Yani stdio ile baglanildiginda --
+    asil kullanilan yol -- `shots/` klasoru HIC temizlenmiyordu:
+    `shot_keep_hours = 24` ayari yaziyor ama hicbir zaman uygulanmiyordu.
+
+    Bu bolum aracin kendisini cagiriyor (kayitli fonksiyona `get_tool` ile
+    ulasarak), cunku "sweep cagriliyor mu" sorusunun baska turlu cevabi yok:
+    `ShotStore.sweep()`in dogru calismasi zaten test edildi, eksik olan onu
+    KIMIN cagirdigiydi.
+    """
+    section("47. Ekran goruntusu — temizlik tasimadan bagimsiz")
+    import asyncio
+    import os
+
+    from pcbridge import jobs as jobslib
+    from pcbridge import tools as toolslib
+    from pcbridge.config import load_config
+    from pcbridge.desktop import capture as C
+    from pcbridge.desktop import safety as safetylib
+    from pcbridge.shots import ShotStore
+
+    from fastmcp import FastMCP
+
+    tmp = Path(tempfile.mkdtemp(prefix="pcb-sweep-"))
+    real_gate, real_capture = safetylib.SafetyGate, toolslib.capturelib.capture
+    try:
+        cfg = load_config(str(ROOT / "config.example.toml"))
+        object.__setattr__(cfg, "state_dir", tmp)
+
+        class OpenGate:
+            """Kapiyi acik tutan sahte gecit: burada olculen sey temizlik."""
+
+            def __init__(self, *a, **k):
+                pass
+
+            def check(self, *a, **k):
+                return type("D", (), {"allowed": True, "reason": ""})()
+
+            def audit(self, *a, **k):
+                pass
+
+            def status_line(self):
+                return "test"
+
+            def is_unlocked(self):
+                return True
+
+        def fake_capture(spec, out_dir=None, **kw):
+            dest = Path(out_dir) / "yeni-cekim.png"
+            dest.write_bytes(b"\x89PNG")
+            return [C.Shot(path=dest, monitor=None, offset=None,
+                           size=(8, 8), scaled=(8, 8), scale=1.0,
+                           id="win-aabbcc", taken_at=time.time())]
+
+        safetylib.SafetyGate = OpenGate
+        toolslib.capturelib.capture = fake_capture
+
+        for transport in ("stdio", "http"):
+            store = ShotStore(cfg)
+            eski_png = store.dir / f"eski-{transport}.png"
+            eski_png.write_bytes(b"x")
+            eski_meta = store.dir / "m1-ccddee.json"
+            eski_meta.write_text("{}")
+            for f in (eski_png, eski_meta):
+                os.utime(f, (0, 0))
+
+            mcp = FastMCP("test")
+            toolslib.register(mcp, cfg, jobslib.JobManager(cfg.jobs_dir), store,
+                              transport=transport)
+            fn = asyncio.run(mcp.get_tool("screen_capture")).fn
+            fn()
+
+            check(f"{transport}: cekim eski PNG'yi supurdu", not eski_png.exists())
+            check(f"{transport}: cekim eski kaydi supurdu", not eski_meta.exists())
+            check(f"{transport}: yeni cekim duruyor",
+                  (store.dir / "yeni-cekim.png").exists())
+            (store.dir / "yeni-cekim.png").unlink()
+    finally:
+        safetylib.SafetyGate = real_gate
+        toolslib.capturelib.capture = real_capture
         import shutil as _sh
 
         _sh.rmtree(tmp, ignore_errors=True)
@@ -2866,6 +2977,7 @@ def main() -> int:
     test_shot_lookup()
     test_shot_ops_wiring()
     test_shot_store()
+    test_capture_sweeps()
     test_capture_config_defaults()
     test_real_capture()
     test_uitree_describe()

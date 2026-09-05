@@ -1460,6 +1460,12 @@ def register(
             cfg.desktop.include_pointer if include_pointer is None else include_pointer
         )
 
+        # Cekimden ONCE supur, TASIMADAN BAGIMSIZ. Eskiden temizligin tek
+        # tetikleyicisi `shot_store.publish()`ti, o da yalnizca HTTP'de
+        # cagriliyor: stdio ile baglanildiginda `shots/` hic temizlenmiyor,
+        # `shot_keep_hours` yaziyor ama uygulanmiyordu.
+        swept = shot_store.sweep()
+
         try:
             shots = capturelib.capture(
                 spec,
@@ -1502,7 +1508,7 @@ def register(
                 )
 
         gate.audit("screen_capture", monitor=str(monitor), shots=len(shots),
-                   inline=inline_images or None)
+                   swept=swept or None, inline=inline_images or None)
 
         out.append("")
         if links:
