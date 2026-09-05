@@ -125,6 +125,7 @@ taşır; yeni bir CLI eklemek için Python dosyasına dokunulmaz.
 monitors.py   monitor tablosu -- KOORDINAT UZAYININ TEK KAYNAGI
 input.py      uinput sanal klavye + mutlak fare
 capture.py    ekran goruntusu: iki backend -- yayin (sessiz) / gnome-screenshot
+              + cekim kaydi (`<id>.json`) ve KOORDINAT DONUSUMUNUN TEK GECIDI
 screencast.py PipeWire ekran yayini; yardimci sureci surer, omrunu yonetir
 screencast_helper.py  yayin + kare: SISTEM python3 (gi/Gst yok venv'de), KALICI
 uitree.py     erisilebilirlik agaci -> metin, kararli #id'ler
@@ -138,9 +139,13 @@ safety.py     GUVENLIK KAPISI -- her GUI araci buradan gecer
 İki tasarım kararı ısrarla korunuyor:
 
 - **Bütün iç API global tuval koordinatı kullanır** (bu makinede 0–3839 ×
-  0–1079). `monitor=` ofseti yalnızca `monitors.to_global()` içinde eklenir ve
-  yalnızca `tools.py` sınırında çağrılır. İki yerde yapılırsa biri unutulur ve
-  **sessizce 1920 piksel sola tıklanır** — hata hiçbir yerde görünmez.
+  0–1079). Dışarıdan gelen koordinatın hangi uzayda olduğunu çözen **tek yer**
+  `capture.to_global()`: `monitor=` verilmişse monitör ofsetini ekler (tam
+  çözünürlük), `shot=` verilmişse o çekimin ofsetini **ve ölçeğini** uygular,
+  ikisi de yoksa koordinat zaten globaldir. `tools.py` ve `ops.py` yalnızca
+  oraya dizin listesini bağlar; ikisi birlikte verilirse çağrı reddedilir.
+  Dönüşüm iki yerde yapılırsa biri unutulur ve **sessizce 1920 piksel sola
+  tıklanır** — hata hiçbir yerde görünmez.
 - **`batch.py` gerçek cihazları tanımaz.** Bağımlılık tek yönlü (`ops` →
   `batch`), böylece bütçe/durma mantığı gerçek tıklama göndermeden test
   edilebiliyor ve aynı uygulama hem `computer_batch` hem `bin/pcb-do`
@@ -284,6 +289,24 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   daha ucuz (~0,1 sn, birkaç yüz jeton) ve koordinat kullanmadığı için
   **ıskalayamaz**. GTK'da metin yolu tercih edilir; görüntü, ağacın boş geldiği
   yerler için yedek.
+- **Görüntü koordinatını artık model çevirmiyor.** Her çekim PNG'nin yanına
+  `<id>.json` olarak kaydediliyor (`m2-a1b2c3`), ve `mouse` / `computer_batch`
+  / `pcb-do` bir `shot=` alıp ofseti **ve** ölçeği kendisi uyguluyor. Eskiden
+  metinde formül veriliyordu (`ofset + görüntü_x / ölçek`) ve zayıf modeller
+  bunu tutturamıyordu: sistematik olarak hedefin kenarına tıklıyor, bazen
+  ofset/ölçek bilgisini tamamen kaybediyorlardı. Kayıt **diskte**, çünkü
+  `pcb-do`'nun her çağrısı yeni bir süreç (`pointer.json` ile aynı sebep);
+  iki dizin de aranıyor (`state_dir/shots` + `pcb-shot`'ınki), yani MCP'den
+  çekilen görüntüye kabuktan tıklanabiliyor. Kimlik doğrudan dosya adına
+  dönüştüğü için biçimi **süzülüyor** (`SHOT_ID_RE`) — süzülmeseydi
+  `shot="../.."` dizin dışına çıkardı. `shot` ile `monitor` birlikte
+  verilemez: farklı uzaylar, sessizce birini seçmek tam da bu katmanın
+  önlemeye çalıştığı hata olurdu.
+- **`--out` ile alınan çekimin kaydı arama dizinine de yazılıyor.** `pcb-do`
+  ayrı bir süreç ve `--out`u bilemez; kopyalanmasaydı `pcb-shot --out /baska`
+  ile alınan görüntünün kimliği "böyle bir çekim yok" derdi (fiilen yaşandı).
+  Kayıtta PNG'nin **mutlak** yolu duruyor, yani görüntü nerede olursa olsun
+  bulunuyor.
 - **Claude Code araç sonucundaki görüntüyü gerçekten okuyor** (ölçüldü: bilinen
   içerikli PNG'deki gizli değer birebir geri geldi). Anthropic API uzun kenarı
   1568'e indirdiği için `screenshot_scale_long_edge = 1280` korunuyor — o

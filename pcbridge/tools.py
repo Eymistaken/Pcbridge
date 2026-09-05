@@ -243,6 +243,41 @@ def register(
     # Bir kez hesaplanir: arac calisma anina kadar ne ayar ne tasima degisir.
     inline_images = _want_inline(cfg.inline_images, transport)
 
+    # `shot="m2-a1b2c3"` kimliginin aranacagi dizinler (MCP'nin yazdigi yer +
+    # `pcb-shot`unki). Ikisi de arandigi icin ajan hangi yoldan bakmis
+    # oldugunu hatirlamak zorunda degil.
+    shot_dirs = list(cfg.shot_search_dirs)
+
+    def _to_global(x: int, y: int, monitor: int | None, shot: str | None):
+        """Koordinati global uzaya cevir — TEK GECIT (`capture.to_global`).
+
+        Donusum burada YAZILMIYOR, yalnizca dizin listesi baglaniyor. Ikinci
+        bir kopya cikarsa gunun birinde biri guncellenmez ve sessizce 1920
+        piksel sola tiklanir.
+        """
+        return capturelib.to_global(
+            x, y, monitor=monitor, shot=shot, dirs=shot_dirs
+        )
+
+    def _stale_note(shot: str | None) -> str:
+        """Cekim bayatladiysa uyari. REDDETME degil: `mouse` bugune kadar yas
+        kontrolu yapmiyordu, yeni bir kapi eklemek geriye donuk bir kirilma
+        olurdu. `pcb-do` tarafinda reddetme aynen duruyor."""
+        limit = cfg.desktop.agent_shot_max_age_seconds
+        if not shot or limit <= 0:
+            return ""
+        try:
+            age = capturelib.load_shot(shot, shot_dirs).age
+        except capturelib.CaptureError:
+            return ""
+        if age <= limit:
+            return ""
+        return (
+            f"\n⚠️ `{shot}` {int(age)} saniyelik (sinir {limit} sn). Aradan "
+            "gecen surede pencereler degismis olabilir; tiklamadan once TAZE "
+            "bir goruntu alin."
+        )
+
     def _short(text: str, limit: int = 120) -> str:
         s = " ".join(str(text or "").split())
         return s if len(s) <= limit else s[: limit - 1] + "…"
@@ -1061,9 +1096,13 @@ def register(
         ],
         x: Annotated[
             int | None,
-            Field(description="Target X. Global desktop coordinate unless monitor is given."),
+            Field(
+                description="Target X. A global desktop coordinate, unless you "
+                "pass shot (then it is the pixel you see in that screenshot) or "
+                "monitor (then it is a full-resolution coordinate inside it)."
+            ),
         ] = None,
-        y: Annotated[int | None, Field(description="Target Y.")] = None,
+        y: Annotated[int | None, Field(description="Target Y, in the same space as x.")] = None,
         to_x: Annotated[
             int | None, Field(description="For drag: X where the drag ends.")
         ] = None,
@@ -1101,11 +1140,24 @@ def register(
                 "faster but skips hover and drag-start events some applications need."
             ),
         ] = None,
+        shot: Annotated[
+            str | None,
+            Field(
+                description="The id of the screenshot you read the coordinates off, "
+                "as printed next to that image by screen_capture (for example "
+                "'m2-a1b2c3'). Pass it and give x/y exactly as you see them in that "
+                "picture: the server knows where the image sits on the desktop and "
+                "how much it was scaled down, and does the conversion itself. Do not "
+                "combine it with monitor."
+            ),
+        ] = None,
         monitor: Annotated[
             int | None,
             Field(
-                description="Treat x/y as coordinates inside this monitor instead of "
-                "the whole desktop. Monitors are numbered left to right starting at 1."
+                description="Treat x/y as full-resolution coordinates inside this "
+                "monitor instead of the whole desktop. Monitors are numbered left to "
+                "right starting at 1. Use shot instead when the coordinates come off "
+                "a screenshot, because a screenshot may be scaled down."
             ),
         ] = None,
         force: Annotated[
@@ -1119,12 +1171,15 @@ def register(
         """Move the mouse pointer, click, drag, scroll or hold a button down on the
         user's Linux desktop. Requires desktop_unlock first. Use when the user asks
         you to press a button, open a menu or otherwise operate a graphical
-        application. Coordinates are global desktop pixels unless you pass monitor.
-        The pointer glides to its target rather than teleporting, so a move takes a
-        moment. For a drag that needs stops along the way — a slider, a selection
-        rectangle, a file onto a folder — use hold, then move, then release; the
-        drag action is the single-shot version. Take a screenshot or check the
-        result after acting — never click blind."""
+        application. When you took the coordinates off a screenshot, pass that
+        image's shot id and give x/y as you see them — the server converts them for
+        you, so you never do the offset and scale arithmetic yourself. Without a
+        shot, coordinates are global desktop pixels. The pointer glides to its
+        target rather than teleporting, so a move takes a moment. For a drag that
+        needs stops along the way — a slider, a selection rectangle, a file onto a
+        folder — use hold, then move, then release; the drag action is the
+        single-shot version. Take a screenshot or check the result after acting —
+        never click blind."""
         err = _guard("mouse", write=True, force=force)
         if err:
             return err
@@ -1138,7 +1193,7 @@ def register(
             if act in needs_xy:
                 if x is None or y is None:
                     return "x ve y zorunlu (drag icin ayrica to_x/to_y)."
-                gx, gy = monitorslib.to_global(x, y, monitor)
+                gx, gy = _to_global(x, y, monitor, shot)
             if act == "move":
                 pos = backend.move(gx, gy, smooth=smooth)
                 done = f"imlec {pos} konumuna tasindi"
@@ -1152,12 +1207,12 @@ def register(
             elif act == "drag":
                 if to_x is None or to_y is None:
                     return "drag icin to_x ve to_y zorunlu."
-                ex, ey = monitorslib.to_global(to_x, to_y, monitor)
+                ex, ey = _to_global(to_x, to_y, monitor, shot)
                 backend.drag(gx, gy, ex, ey, button=button)
                 done = f"({gx}, {gy}) -> ({ex}, {ey}) {button} ile suruklendi"
             elif act == "scroll":
                 if x is not None and y is not None:
-                    backend.move(*monitorslib.to_global(x, y, monitor), smooth=smooth)
+                    backend.move(*_to_global(x, y, monitor, shot), smooth=smooth)
                     time.sleep(0.08)
                 backend.scroll(scroll_amount, horizontal=horizontal)
                 yon = "yatay" if horizontal else "dikey"
@@ -1177,12 +1232,13 @@ def register(
                     "double_click, triple_click, right_click, middle_click, drag, "
                     "scroll, hold, release"
                 )
-        except (inputlib.InputError, monitorslib.MonitorError) as exc:
+        except (inputlib.InputError, monitorslib.MonitorError,
+                capturelib.CaptureError) as exc:
             gate.audit("mouse_error", action=act, error=str(exc)[:160])
             return f"Hata: {exc}"
 
         gate.audit(
-            "mouse", action=act, x=x, y=y, monitor=monitor,
+            "mouse", action=act, x=x, y=y, monitor=monitor, shot=shot,
             button=button if act in ("hold", "release", "drag") else None,
             forced=force or None,
         )
@@ -1194,6 +1250,7 @@ def register(
                 note = f" · monitor {m.index} ({m.connector})"
         return (
             f"{done}{note}.\nSonucu dogrulamadan bir sonraki adima gecmeyin."
+            + _stale_note(shot)
             + _held_note()
         )
 
@@ -1370,10 +1427,12 @@ def register(
         their screen, and before clicking somewhere, to check what is actually
         there. If your client can display images you get the picture itself and can
         look at it; otherwise you get a short-lived link the user can open on their
-        phone. Either way the reply tells you each image's position in the global
-        coordinate space, so you can convert a spot in the picture into coordinates
-        for the `mouse` tool. For GTK applications prefer `ui_dump` — it is cheaper
-        and cannot miss, because it does not use coordinates at all."""
+        phone. Every image comes with a short id, and to act on something you see
+        you pass that id as `shot` to `mouse` or `computer_batch` together with the
+        pixel coordinates exactly as they appear in the picture — the server knows
+        where the image sits and how far it was scaled down, so you never convert
+        anything yourself. For GTK applications prefer `ui_dump` — it is cheaper and
+        cannot miss, because it does not use coordinates at all."""
         # write=False: ekran goruntusu bir YAZMA eylemi degil, o yuzden "yakinda
         # klavye kullanildi" korumasina takilmiyor -- makinenin basinda olmaniz
         # ekraniniza bakmanizi engellememeli. Izin penceresi ve ekran kilidi
@@ -1438,6 +1497,7 @@ def register(
                     f"**{shot.label}** · {shot.size[0]}x{shot.size[1]} "
                     f"@ ({shot.offset[0]}, {shot.offset[1]}) → "
                     f"{shot.scaled[0]}x{shot.scaled[1]} (olcek {shot.scale:.3f})\n"
+                    f"  shot: `{shot.id}`\n"
                     f"  {where}"
                 )
 
@@ -1459,21 +1519,31 @@ def register(
                 "Goruntu blogu KAPALI (`inline_images`); yalnizca yukaridaki "
                 "yol/baglanti donuyor."
             )
-        if any(s.offset is not None for s in shots):
+        example = next((s for s in shots if s.offset is not None), None)
+        if example is not None:
+            # ARITMETIK YOK. Ofset ve olcegi sunucu uyguluyor; modelin tek isi
+            # gordugu pikseli ve o goruntunun kimligini yazmak. Once boyle
+            # degildi ve zayif modeller bolmeyi tutturamayip hedefin kenarina
+            # tikliyordu.
             out.append(
-                "Goruntudeki bir noktayi tiklamak icin once global koordinata "
-                "cevirin:  `global_x = ofset_x + goruntu_x / olcek`  "
-                "(y icin de ayni). Sonra `mouse` aracina **global** koordinati "
-                "verin, `monitor` parametresi olmadan."
+                "Bu goruntudeki bir noktaya tiklamak icin koordinati **gordugunuz "
+                "gibi** verin ve yanina o goruntunun kimligini ekleyin: "
+                "`mouse(action=\"click\", x=…, y=…, shot=\"" + example.id + "\")` "
+                "ya da toplu eylemde `{\"a\":\"click\",\"x\":…,\"y\":…,"
+                "\"shot\":\"" + example.id + "\"}`. Ofseti ve olcegi pcbridge "
+                "kendisi uyguluyor — siz cevirmeyin. (Yukaridaki ofset/olcek "
+                "degerleri yalnizca bilgi icindir.)"
             )
             if any(s.scale < 1.0 for s in shots):
                 # Olculdu: tam cozunurlukte gidis-donus sapmasi 1 px, 1280'e
-                # kucultulmusde ~5 px. Buton icin sorun degil, ama modelin
-                # koordinati birebir sanmamasi lazim.
+                # kucultulmusde ~5 px. Bu sapma DONUSUMDEN degil kucultmenin
+                # kendisinden geliyor -- donusumu sunucunun yapmasi onu
+                # ortadan kaldirmiyor, o yuzden uyari duruyor.
                 out.append(
-                    "Goruntu kucultuldugu icin geri cevrilen koordinat birkac "
-                    "piksel sapabilir (olculdu: ~5 px). Buton/menu icin yeterli; "
-                    "daha keskin gerekiyorsa `scale=0` ile tam cozunurlukte alin."
+                    "Goruntu kucultuldugu icin hedefiniz birkac piksel sapabilir "
+                    "(olculdu: ~5 px) — bu kucultmenin kendisinden, hesaptan "
+                    "degil. Buton/menu icin yeterli; daha keskin gerekiyorsa "
+                    "`scale=0` ile tam cozunurlukte alin."
                 )
 
         # METIN BLOGU HER ZAMAN ILK SIRADA ve her zaman var. Monitor numarasi,
@@ -1700,14 +1770,18 @@ def register(
                     '{"a": "<kind>", ...}. Kinds: key {keys}, type {text, raw?}, '
                     'hold {keys}, release {keys}, wait {ms}, '
                     'move/click/double_click/triple_click/right_click/middle_click '
-                    '{x?, y?, monitor?}, mouse_down {button?, x?, y?}, '
-                    'mouse_up {button?}, drag {x, y, to_x, to_y, button?}, '
-                    'scroll {amount, horizontal?}, ui_click {id}, '
+                    '{x?, y?, shot?, monitor?}, mouse_down {button?, x?, y?, shot?}, '
+                    'mouse_up {button?}, drag {x, y, to_x, to_y, button?, shot?}, '
+                    'scroll {amount, horizontal?, shot?}, ui_click {id}, '
                     'ui_set_text {id, text}, launch {app}, focus {window}. '
-                    'hold/mouse_down stay down across later actions, so a drag '
-                    'with stops along the way is mouse_down, move, move, mouse_up. '
-                    'Example: [{"a":"ui_click","id":"90e6"},{"a":"wait","ms":400},'
-                    '{"a":"type","text":"hello"}]'
+                    'shot is the id of the screenshot you read the coordinates off '
+                    "(screen_capture prints it, e.g. 'm2-a1b2c3'): pass it and give "
+                    'x/y exactly as you see them in that picture, and the server '
+                    'converts them for you. hold/mouse_down stay down across later '
+                    'actions, so a drag with stops along the way is mouse_down, '
+                    'move, move, mouse_up. '
+                    'Example: [{"a":"click","x":640,"y":360,"shot":"m2-a1b2c3"},'
+                    '{"a":"wait","ms":400},{"a":"type","text":"hello"}]'
                 )
             ),
         ],

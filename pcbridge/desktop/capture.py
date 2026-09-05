@@ -17,12 +17,24 @@ VARSAYILAN monitor="all"
     (GNOME 46 arayuzu izin listesindeki uygulamalara kapatmis). Odak bilgisi
     ileride AT-SPI'dan gelebilir (D bolumu).
 
-GLOBAL OFSET
+GLOBAL OFSET VE CEKIM KIMLIGI
     Her `Shot` kirpildigi kutunun **global ofsetini** tasir. Bu bilgi
     kaybolursa ikinci monitore yapilan her tiklama 1920 piksel sasar ve hata
     hicbir yerde gorunmez. Goruntudeki bir noktadan global koordinata donus:
 
         global_x = ofset_x + goruntu_x / olcek
+
+    BU HESABI ARTIK MODEL YAPMIYOR. Her cekim PNG'nin yaninda `<id>.json`
+    olarak kaydediliyor; `mouse`, `computer_batch` ve `pcb-do` bir
+    `shot="m2-a1b2c3"` alip donusumu kendileri yapiyor. Sebep: zayif modeller
+    bu bolmeyi tutturamiyor, hedefin kenarina tikliyor ve bazen ofset/olcek
+    bilgisini tamamen kaybediyor. Donusumun TEK yeri asagidaki `to_global()`
+    -- ikinci bir kopya cikarsa biri gunun birinde guncellenmez ve sessizce
+    1920 piksel sola tiklanir.
+
+    `monitor=` yolu DURUYOR ve anlami degismedi: monitore ozel ama TAM
+    COZUNURLUK koordinati. `shot=` ondan farkli, cunku olcegi de biliyor;
+    ikisi birlikte verilemez.
 
 IKI BACKEND
     1. **Ekran yayini** (`screencast.py`, PipeWire) — acik bir yayin varsa
@@ -45,11 +57,14 @@ IKI BACKEND
 
 from __future__ import annotations
 
+import json
+import re
 import secrets
 import shutil
 import subprocess
 import tempfile
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -69,6 +84,16 @@ except Exception as _exc:  # pragma: no cover - kuruluysa calismaz
 
 GNOME_SCREENSHOT = "gnome-screenshot"
 SCREENCAST_NAME = "screencast (PipeWire)"
+
+# Cekim kimligi: "m2-a1b2c3" (monitor 2) ya da "win-a1b2c3" (pencere cekimi).
+# Hex kismi dosya adi damgasindaki rastgele son ekle AYNI -- ikinci bir
+# rastgelelik kaynagi yok, yani PNG adina bakip kimligi okuyabiliyorsun.
+#
+# DOGRULAMA ZORUNLU, sus degil: kimlik modelden geliyor ve dogrudan dosya
+# adina donusuyor. Suzulmezse `shot="../../.ssh/id_rsa"` diye bir sey
+# `<dizin>/<id>.json` yolunun disina cikardi.
+SHOT_ID_RE = re.compile(r"^(?:m\d{1,2}|win)-[0-9a-f]{6}$")
+META_SUFFIX = ".json"
 # 3840x1080 yakalama olculdu: ~1 saniye. 20 s, kompozitor gecici olarak
 # takildiginda bile yeterli ve MCP'nin 110 saniyelik sinirinin cok altinda.
 GRAB_TIMEOUT = 20
@@ -93,6 +118,8 @@ class Shot:
     size: tuple[int, int]  # kirpilmis, olceklenmemis
     scaled: tuple[int, int]  # dosyaya yazilan
     scale: float  # scaled / size
+    id: str = ""  # "m2-a1b2c3" — `shot=` ile geri bulunan kimlik
+    taken_at: float = 0.0  # time.time(); bayatlik uyarisi buradan
 
     @property
     def label(self) -> str:
@@ -109,6 +136,145 @@ class Shot:
             self.offset[0] + round(x / self.scale),
             self.offset[1] + round(y / self.scale),
         )
+
+    @property
+    def age(self) -> float:
+        """Cekimin uzerinden gecen saniye. `taken_at` yoksa 0."""
+        return max(0.0, time.time() - self.taken_at) if self.taken_at else 0.0
+
+    # ------------------------------------------------------------ kayit
+    def meta(self) -> dict:
+        """Diske yazilan kayit. Dosya ADI kimlik, icerik donusum verisi."""
+        return {
+            "id": self.id,
+            # MUTLAK yol: kayit PNG'den BASKA bir dizinde durabiliyor
+            # (`pcb-shot --out`). Yalnizca dosya adi yazilsaydi o durumda
+            # goruntunun yeri kaybolurdu.
+            "png": str(self.path),
+            "monitor": None if self.monitor is None else self.monitor.index,
+            "connector": None if self.monitor is None else self.monitor.connector,
+            "primary": None if self.monitor is None else self.monitor.primary,
+            "offset": list(self.offset) if self.offset else None,
+            "size": list(self.size),
+            "scaled": list(self.scaled),
+            "scale": self.scale,
+            "taken_at": self.taken_at,
+        }
+
+
+# ------------------------------------------------------------- cekim kaydi
+# NEDEN DISKTE
+#     `pcb-do`nun her cagrisi YENI BIR SUREC (imlec konumunun `pointer.json`e
+#     yazilmasiyla ayni sebep). Kayit bellekte tutulsaydi MCP sunucusunun
+#     cektigi goruntuye kabuktan tiklanamaz, `pcb-shot` cekimine de `mouse`
+#     ile dokunulamazdi. Diskte tek kayit var, iki yol da ayni yerden okuyor.
+def _meta_path(shot_id: str, directory: Path) -> Path:
+    if not SHOT_ID_RE.match(shot_id or ""):
+        raise CaptureError(
+            f"Gecersiz cekim kimligi: {shot_id!r}. Beklenen bicim `m2-a1b2c3` "
+            "(ekran goruntusu ciktisindaki `shot:` satiri)."
+        )
+    return Path(directory) / f"{shot_id}{META_SUFFIX}"
+
+
+def save_meta(shot: Shot, out_dir: Path | None = None) -> Path | None:
+    """Cekim kaydini PNG'nin yanina yaz. Kimliksiz cekim kaydedilmez."""
+    if not shot.id:
+        return None
+    dest = _meta_path(shot.id, out_dir or shot.path.parent)
+    dest.write_text(json.dumps(shot.meta(), ensure_ascii=False), encoding="utf-8")
+    return dest
+
+
+def load_shot(shot_id: str, dirs: Sequence[Path]) -> Shot:
+    """Kimlikten cekimi geri oku. Bulunamazsa `CaptureError`.
+
+    Monitor nesnesi CEKIM ANINDAKI geometriyle kuruluyor, canli tablodan
+    degil: aradan gecen surede monitor duzeni degistiyse bile o goruntunun
+    koordinat donusumu dogru kalir.
+    """
+    tried: list[str] = []
+    for directory in dirs or ():
+        meta = _meta_path(shot_id, directory)
+        tried.append(str(directory))
+        if not meta.exists():
+            continue
+        try:
+            data = json.loads(meta.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise CaptureError(f"Cekim kaydi okunamadi ({meta}): {exc}") from exc
+        offset = tuple(data["offset"]) if data.get("offset") else None
+        size = tuple(data["size"])
+        mon = None
+        if data.get("monitor") is not None and offset is not None:
+            mon = monitorslib.Monitor(
+                index=int(data["monitor"]),
+                connector=str(data.get("connector") or "?"),
+                x=offset[0], y=offset[1],
+                width=size[0], height=size[1],
+                scale=1.0,
+                primary=bool(data.get("primary")),
+            )
+        png = Path(str(data.get("png") or ""))
+        return Shot(
+            # Eski kayitlar yalnizca dosya adi tasiyordu; goreli ad kaydin
+            # yanindaki PNG demektir.
+            path=png if png.is_absolute() else meta.parent / png,
+            monitor=mon,
+            offset=offset,
+            size=size,
+            scaled=tuple(data["scaled"]),
+            scale=float(data["scale"]),
+            id=str(data.get("id") or shot_id),
+            taken_at=float(data.get("taken_at") or 0.0),
+        )
+    raise CaptureError(
+        f"`{shot_id}` diye bir ekran goruntusu yok (bakilan yerler: "
+        f"{', '.join(tried) or 'hicbiri'}). Kimlik cekim ciktisindaki `shot:` "
+        "satirindan aynen kopyalanmali; eski cekimler 24 saat sonra siliniyor. "
+        "Taze bir goruntu alin."
+    )
+
+
+def to_global(
+    x: int,
+    y: int,
+    *,
+    monitor: int | str | None = None,
+    shot: str | None = None,
+    dirs: Sequence[Path] | None = None,
+) -> tuple[int, int]:
+    """Verilen koordinati global tuval koordinatina cevir. TEK GECIT.
+
+    `mouse`, `computer_batch` ve `pcb-do` koordinat donusumu icin YALNIZCA
+    burayi cagirir. Uc kabul edilen uzay var:
+
+        ikisi de yok  -> koordinat zaten global, oldugu gibi doner
+        monitor=N     -> monitore ozel, TAM COZUNURLUK (eski davranis)
+        shot="m2-.."  -> o goruntudeki piksel; ofset VE olcek uygulanir
+
+    `monitor` ile `shot` birlikte verilemez: ikisi farkli uzaylar ve hangisinin
+    kastedildigi belirsiz kalirdi. Belirsizligi sessizce cozmek, tam da bu
+    dosyanin onlemeye calistigi sinifta bir hata olurdu.
+    """
+    if shot:
+        if monitor is not None:
+            raise CaptureError(
+                "`shot` ile `monitor` birlikte verilemez: `shot` zaten hangi "
+                "monitor oldugunu VE olcegi biliyor. Goruntudeki koordinati "
+                "kullaniyorsaniz yalnizca `shot`, monitore ozel tam cozunurluk "
+                "koordinati kullaniyorsaniz yalnizca `monitor` verin."
+            )
+        found = load_shot(shot, dirs or ())
+        point = found.to_global(x, y)
+        if point is None:
+            raise CaptureError(
+                f"`{shot}` odaktaki pencerenin goruntusu; ekranin neresinde "
+                "oldugu bilinmiyor, ondan koordinat turetilemez. Monitor "
+                "goruntusu alin (`monitor='all'`) ya da `ui_click` kullanin."
+            )
+        return point
+    return monitorslib.to_global(x, y, monitor)
 
 
 # --------------------------------------------------------------------- durum
@@ -246,7 +412,11 @@ def capture(
     # saniyedeki iki yakalama ayni dosyaya yazardi. O zaman yayimlanmis eski
     # bir /shot baglantisi sessizce DAHA YENI bir ekran goruntusu gostermeye
     # baslar -- olculdu (koordinat testinde taban goruntu eziliyordu).
-    stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
+    # `suffix` hem dosya adina hem cekim kimligine giriyor: PNG adina bakip
+    # `shot:` kimligini okuyabilmek icin ikinci bir rastgelelik kaynagi yok.
+    suffix = secrets.token_hex(3)
+    stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{suffix}"
+    taken_at = time.time()
 
     want_window = isinstance(monitor, str) and monitor.strip().lower() == "window"
     with tempfile.TemporaryDirectory(prefix="pcbridge-shot-") as td:
@@ -257,16 +427,18 @@ def capture(
             with Image.open(raw) as canvas:
                 dest = out_dir / f"{stamp}-window.png"
                 size, scaled, scale = _write_crop(canvas, None, dest, scale_long_edge)
-            return [
-                Shot(
-                    path=dest,
-                    monitor=None,
-                    offset=None,
-                    size=size,
-                    scaled=scaled,
-                    scale=scale,
-                )
-            ]
+            shot = Shot(
+                path=dest,
+                monitor=None,
+                offset=None,
+                size=size,
+                scaled=scaled,
+                scale=scale,
+                id=f"win-{suffix}",
+                taken_at=taken_at,
+            )
+            save_meta(shot)
+            return [shot]
 
         # Monitor tablosu monitors.py'dan gelir; burada ikinci bir okuma YOK.
         mons = monitorslib.list_monitors()
@@ -296,10 +468,13 @@ def capture(
                             f"monitor tablosu {mon.width}x{mon.height} diyor. "
                             "Monitor duzeni degismis olabilir; tekrar deneyin."
                         )
-                    shots.append(Shot(
+                    shot = Shot(
                         path=dest, monitor=mon, offset=(mon.x, mon.y),
                         size=size, scaled=scaled, scale=scale,
-                    ))
+                        id=f"m{mon.index}-{suffix}", taken_at=taken_at,
+                    )
+                    save_meta(shot)
+                    shots.append(shot)
                 return shots
             except CaptureError:
                 raise
@@ -331,14 +506,16 @@ def capture(
                 size, scaled, scale = _write_crop(
                     canvas, mon.bbox, dest, scale_long_edge
                 )
-                shots.append(
-                    Shot(
-                        path=dest,
-                        monitor=mon,
-                        offset=(mon.x, mon.y),
-                        size=size,
-                        scaled=scaled,
-                        scale=scale,
-                    )
+                shot = Shot(
+                    path=dest,
+                    monitor=mon,
+                    offset=(mon.x, mon.y),
+                    size=size,
+                    scaled=scaled,
+                    scale=scale,
+                    id=f"m{mon.index}-{suffix}",
+                    taken_at=taken_at,
                 )
+                save_meta(shot)
+                shots.append(shot)
     return shots

@@ -152,16 +152,41 @@ def main(argv: list[str] | None = None) -> int:
              else args.max_shot_age)
     needs_shot = coord_actions(plan)
     if limit > 0 and needs_shot:
-        age = newest_shot_age(shot_dir(cfg))
-        if age is None:
-            fail("Koordinatla tiklamadan once `pcb-shot` ile ekrana BAKIN — "
-                 "hic ekran goruntusu alinmamis. Kor tiklama yapilmaz.",
-                 EXIT_DENIED, args.json)
-        if age > limit:
-            fail(f"En yeni ekran goruntusu {int(age)} saniyelik (sinir {limit}). "
-                 "Aradan gecen surede pencereler degismis olabilir ve o koordinat "
-                 "artik baska seyin ustunde olabilir. Once `pcb-shot` ile TAZE "
-                 "goruntu alin.", EXIT_DENIED, args.json)
+        # `shot=` VERILMISSE o cekimin kendi yasina bakilir, dizindeki en yeni
+        # PNG'ye degil. Aradaki fark gercek bir acik: arada taze bir cekim
+        # yapilmissa "en yeni goruntu taze" der ve gecerdi, ama tiklama BASKA,
+        # eski bir cekimin koordinatlarina gore yapilirdi -- yani korumanin
+        # engellemek icin var oldugu seyin ta kendisi.
+        from ..desktop import capture as capturelib
+
+        dirs = cfg.shot_search_dirs
+        for act in needs_shot:
+            sid = act.args.get("shot")
+            if not sid:
+                continue
+            try:
+                age = capturelib.load_shot(sid, dirs).age
+            except capturelib.CaptureError as exc:
+                fail(str(exc), EXIT_DENIED, args.json)
+            if age > limit:
+                fail(f"`{sid}` cekimi {int(age)} saniyelik (sinir {limit}). "
+                     "Aradan gecen surede pencereler degismis olabilir ve o "
+                     "koordinat artik baska seyin ustunde olabilir. Once "
+                     "`pcb-shot` ile TAZE goruntu alin.", EXIT_DENIED, args.json)
+
+        # Kimliksiz koordinat: hangi cekime dayandigi bilinmiyor, o yuzden
+        # olcut dizindeki en yeni goruntu.
+        if any(not a.args.get("shot") for a in needs_shot):
+            age = newest_shot_age(shot_dir(cfg))
+            if age is None:
+                fail("Koordinatla tiklamadan once `pcb-shot` ile ekrana BAKIN — "
+                     "hic ekran goruntusu alinmamis. Kor tiklama yapilmaz.",
+                     EXIT_DENIED, args.json)
+            if age > limit:
+                fail(f"En yeni ekran goruntusu {int(age)} saniyelik (sinir {limit}). "
+                     "Aradan gecen surede pencereler degismis olabilir ve o koordinat "
+                     "artik baska seyin ustunde olabilir. Once `pcb-shot` ile TAZE "
+                     "goruntu alin.", EXIT_DENIED, args.json)
 
     gate = gate_of(cfg)
     kinds = {a.a for a in plan}

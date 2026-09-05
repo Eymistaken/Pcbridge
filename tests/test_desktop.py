@@ -657,6 +657,202 @@ def test_capture_crop_offsets() -> None:
         _sh.rmtree(tmp, ignore_errors=True)
 
 
+def test_shot_lookup() -> None:
+    """Cekim kimligi: kayit, geri okuma ve TEK GECIT donusum.
+
+    Bu bolumun varlik sebebi: donusumu eskiden model yapiyordu
+    (`global_x = ofset_x + goruntu_x / olcek`) ve zayif modeller bolmeyi
+    tutturamayip hedefin kenarina tikliyordu. Artik sunucu ceviriyor; buradaki
+    kontroller o cevirinin dogru VE eski davranisin bozulmamis oldugunu
+    gosteriyor.
+    """
+    section("45. Cekim kimligi — kayit, arama, donusum")
+    from pcbridge.desktop import capture as C
+
+    mons = M._ordered(TWO_SCREENS)
+    real_list, real_avail, real_grab = M.list_monitors, C.available, C._grab_canvas
+    tmp = Path(tempfile.mkdtemp(prefix="pcb-shotid-"))
+    try:
+        M.list_monitors = lambda *a, **k: mons
+        C.available = lambda *a, **k: (True, "")
+        C._grab_canvas = lambda td, ptr: (_synthetic_canvas(td / "c.png") or (td / "c.png"))
+
+        shots = C.capture("all", out_dir=tmp, scale_long_edge=1280)
+        by_idx = {s.monitor.index: s for s in shots}
+        s2 = by_idx[2]
+
+        # -- kimlik ve kayit -------------------------------------------
+        check("kimlik m<monitor>-<hex6> bicimde",
+              bool(C.SHOT_ID_RE.match(s2.id)), s2.id)
+        check("ayni cekimin iki goruntusu ayni son eki paylasiyor",
+              by_idx[1].id.split("-")[1] == s2.id.split("-")[1],
+              f"{by_idx[1].id} / {s2.id}")
+        # Kimlik PNG adinin ICINDE: dosyaya bakan insan kimligi okuyabilsin.
+        check("kimlik PNG adindan turetilebiliyor",
+              s2.id.split("-")[1] in s2.path.name, s2.path.name)
+        meta = tmp / f"{s2.id}.json"
+        check("cekim kaydi PNG'nin yaninda", meta.exists(), str(meta))
+        check("cekim anı kaydedildi", s2.taken_at > 0, str(s2.taken_at))
+
+        # -- geri okuma -------------------------------------------------
+        back = C.load_shot(s2.id, [tmp])
+        check("kayittan ofset geri geldi", back.offset == (1920, 0), str(back.offset))
+        check("kayittan olcek geri geldi", abs(back.scale - 1280 / 1920) < 1e-9,
+              str(back.scale))
+        check("kayittan monitor numarasi geri geldi",
+              back.monitor is not None and back.monitor.index == 2,
+              str(back.monitor))
+        check("kayittan PNG yolu geri geldi", back.path == s2.path,
+              f"{back.path} != {s2.path}")
+
+        # -- TEK GECIT: capture.to_global --------------------------------
+        # 1280'lik goruntude (640,360) -> 1920 + 640/0.667 = 2880, 540.
+        check("shot ile goruntu koordinati global'e cevriliyor",
+              C.to_global(640, 360, shot=s2.id, dirs=[tmp]) == (2880, 540),
+              str(C.to_global(640, 360, shot=s2.id, dirs=[tmp])))
+        check("shot ile sol ust kose monitorun ofseti",
+              C.to_global(0, 0, shot=s2.id, dirs=[tmp]) == (1920, 0),
+              str(C.to_global(0, 0, shot=s2.id, dirs=[tmp])))
+
+        # GERIYE DONUK: shot verilmezse davranis birebir eskisi gibi.
+        check("shot yokken koordinat aynen global",
+              C.to_global(300, 400) == (300, 400),
+              str(C.to_global(300, 400)))
+        check("monitor= yolu degismedi (tam cozunurluk ofseti)",
+              C.to_global(300, 400, monitor=2, dirs=[tmp]) == (2220, 400),
+              str(C.to_global(300, 400, monitor=2, dirs=[tmp])))
+
+        # -- reddedilmesi gerekenler -------------------------------------
+        # Iki farkli uzay; hangisinin kastedildigini SESSIZCE secmek tam da bu
+        # dosyanin onlemeye calistigi sinifta bir hata olurdu.
+        try:
+            C.to_global(1, 1, monitor=2, shot=s2.id, dirs=[tmp])
+            check("shot + monitor birlikte reddediliyor", False, "hata yok")
+        except C.CaptureError as exc:
+            check("shot + monitor birlikte reddediliyor",
+                  "birlikte verilemez" in str(exc), str(exc)[:80])
+
+        # Kimlik dogrudan dosya adina donusuyor: suzulmezse dizin disina cikar.
+        for bad in ("../../etc/passwd", "m2-a1b2c3/../x", "m2-ZZZZZZ", "m2-a1b2c",
+                    "'; rm -rf /"):
+            try:
+                C.to_global(1, 1, shot=bad, dirs=[tmp])
+                check(f"gecersiz kimlik reddedildi ({bad!r})", False, "hata yok")
+            except C.CaptureError as exc:
+                check(f"gecersiz kimlik reddedildi ({bad!r})",
+                      "Gecersiz cekim kimligi" in str(exc), str(exc)[:60])
+
+        try:
+            C.to_global(1, 1, shot="m9-abcdef", dirs=[tmp])
+            check("bilinmeyen kimlik reddediliyor", False, "hata yok")
+        except C.CaptureError as exc:
+            check("bilinmeyen kimlik reddediliyor", "diye bir ekran" in str(exc),
+                  str(exc)[:80])
+            check("gerekce ne yapilacagini soyluyor", "TAZE" in str(exc).upper(),
+                  str(exc)[:160])
+
+        # Pencere cekiminin ekranda NEREDE oldugu bilinmiyor.
+        win = C.Shot(path=tmp / "w.png", monitor=None, offset=None,
+                     size=(800, 600), scaled=(800, 600), scale=1.0,
+                     id="win-aabbcc", taken_at=time.time())
+        C.save_meta(win, tmp)
+        try:
+            C.to_global(10, 10, shot="win-aabbcc", dirs=[tmp])
+            check("pencere cekiminden koordinat turetilmiyor", False, "hata yok")
+        except C.CaptureError as exc:
+            check("pencere cekiminden koordinat turetilmiyor",
+                  "turetilemez" in str(exc), str(exc)[:80])
+
+        # -- yas -----------------------------------------------------------
+        old = C.Shot(path=tmp / "o.png", monitor=None, offset=None,
+                     size=(1, 1), scaled=(1, 1), scale=1.0,
+                     id="win-bbccdd", taken_at=time.time() - 120)
+        check("yas hesaplaniyor", 119 < old.age < 121, str(old.age))
+        check("taken_at yoksa yas 0", C.Shot(
+            path=tmp / "n.png", monitor=None, offset=None, size=(1, 1),
+            scaled=(1, 1), scale=1.0).age == 0.0)
+
+        # -- ikinci dizin: MCP'nin cektigine kabuktan ulasilabilmeli --------
+        other = Path(tempfile.mkdtemp(prefix="pcb-shotid2-"))
+        try:
+            check("bos dizinde bulunamaz ama ikincide bulunur",
+                  C.to_global(640, 360, shot=s2.id, dirs=[other, tmp]) == (2880, 540))
+        finally:
+            import shutil as _sh2
+
+            _sh2.rmtree(other, ignore_errors=True)
+    finally:
+        M.list_monitors, C.available, C._grab_canvas = real_list, real_avail, real_grab
+        import shutil as _sh
+
+        _sh.rmtree(tmp, ignore_errors=True)
+
+
+def test_shot_ops_wiring() -> None:
+    """`DeviceOps` donusumu GERCEKTEN tek gecide baglamis mi.
+
+    Kolay hata: `capture.to_global` yazilir ama `ops.py` eski
+    `monitors.to_global`u cagirmaya devam eder. O zaman `shot` sessizce yok
+    sayilir ve 1280'lik bir goruntuden gelen tiklama 1/3 oraninda sasar --
+    hicbir yerde hata gorunmeden.
+    """
+    section("46. Cekim kimligi — toplu eylem motoruna baglanti")
+    from pcbridge.desktop import capture as C
+    from pcbridge.desktop import ops as O
+
+    tmp = Path(tempfile.mkdtemp(prefix="pcb-opsid-"))
+    try:
+        mon = M._ordered(TWO_SCREENS)[1]
+        shot = C.Shot(path=tmp / "m2.png", monitor=mon, offset=(1920, 0),
+                      size=(1920, 1080), scaled=(1280, 720), scale=1280 / 1920,
+                      id="m2-a1b2c3", taken_at=time.time())
+        C.save_meta(shot, tmp)
+
+        moves: list[tuple[int, int]] = []
+
+        class FakeBackend:
+            def move(self, x, y, **kw):
+                moves.append((x, y))
+                return (x, y)
+
+            def click(self, button, count):
+                pass
+
+            def drag(self, x, y, ex, ey, button="left"):
+                moves.append((x, y))
+                moves.append((ex, ey))
+
+            def scroll(self, amount, horizontal=False):
+                pass
+
+        class FakeCfgOps:
+            desktop = DesktopSpec()
+            shot_search_dirs = [tmp]
+
+        ops = O.DeviceOps(FakeBackend(), None, FakeCfgOps())
+        ops.click("left", 1, 640, 360, None, "m2-a1b2c3")
+        check("click shot ile cevrildi", moves[-1] == (2880, 540), str(moves[-1]))
+
+        ops.move(0, 0, None, "m2-a1b2c3")
+        check("move shot ile cevrildi", moves[-1] == (1920, 0), str(moves[-1]))
+
+        ops.drag(0, 0, 640, 360, "left", None, "m2-a1b2c3")
+        check("drag iki ucu da cevirdi", moves[-2:] == [(1920, 0), (2880, 540)],
+              str(moves[-2:]))
+
+        ops.scroll(3, 640, 360, None, False, "m2-a1b2c3")
+        check("scroll shot ile cevrildi", moves[-1] == (2880, 540), str(moves[-1]))
+
+        # GERIYE DONUK: shot yokken koordinat aynen global gitmeli.
+        ops.move(2880, 540, None, None)
+        check("shot yokken koordinat degistirilmiyor", moves[-1] == (2880, 540),
+              str(moves[-1]))
+    finally:
+        import shutil as _sh
+
+        _sh.rmtree(tmp, ignore_errors=True)
+
+
 def test_shot_store() -> None:
     """Token deposu: sure, tekrar okuma, temizlik."""
     section("15. Ekran goruntusu — baglanti token'lari")
@@ -1053,16 +1249,16 @@ class FakeOps:
     def type(self, text, raw):
         return self._rec("type", text, raw)
 
-    def move(self, x, y, monitor):
+    def move(self, x, y, monitor, shot=None):
         return self._rec("move", x, y)
 
-    def click(self, button, count, x, y, monitor):
+    def click(self, button, count, x, y, monitor, shot=None):
         out = self._rec("click", button, x, y)
         if self.focus_after_click:
             self._focus = self.focus_after_click
         return out
 
-    def mouse_down(self, button, x, y, monitor):
+    def mouse_down(self, button, x, y, monitor, shot=None):
         out = self._rec("mouse_down", button, x, y)
         self._held.append(button)
         if self.focus_after_click:
@@ -1091,10 +1287,10 @@ class FakeOps:
         self.log.append(("release_all",))
         return freed
 
-    def drag(self, x, y, to_x, to_y, button, monitor):
+    def drag(self, x, y, to_x, to_y, button, monitor, shot=None):
         return self._rec("drag", x, y, to_x, to_y, button)
 
-    def scroll(self, amount, x, y, monitor, horizontal=False):
+    def scroll(self, amount, x, y, monitor, horizontal=False, shot=None):
         return self._rec("scroll", amount, horizontal)
 
     def ui_click(self, node_id):
@@ -1196,6 +1392,35 @@ def test_batch_parse() -> None:
           fails('[{"a":"mouse_down","button":"ucuncu"}]', "dugme"))
     check("hold keys istiyor", fails('[{"a":"hold"}]', "keys yok"))
     check("release keys istiyor", fails('[{"a":"release"}]', "keys yok"))
+
+    # -- cekim kimligi (`shot`) --------------------------------------------
+    # Motor gercek cihazlari TANIMIYOR: `shot` burada yalnizca dogrulanmis bir
+    # string, koordinata cevrilmesi ops.py'nin isi. Bicim yine de burada
+    # dogrulaniyor ki bozuk bir kimlik listeyi BASTAN reddettirsin -- uc eylem
+    # yapildiktan sonra degil.
+    for kind, extra in (("click", ""), ("move", ""), ("mouse_down", ""),
+                        ("scroll", ',"amount":3'),
+                        ("drag", ',"to_x":5,"to_y":6')):
+        got = B.parse(
+            f'[{{"a":"{kind}","x":1,"y":2{extra},"shot":"m2-a1b2c3"}}]'
+        )[0]
+        check(f"{kind} shot tasiyor", got.args.get("shot") == "m2-a1b2c3",
+              str(got.args))
+    check("shot verilmezse None",
+          B.parse('[{"a":"click","x":1,"y":2}]')[0].args["shot"] is None)
+    check("bos shot None sayiliyor",
+          B.parse('[{"a":"click","x":1,"y":2,"shot":"  "}]')[0].args["shot"] is None)
+    for bad in ("../gizli", "m2-ZZZZZZ", "m2", "click"):
+        check(f"bozuk shot bastan reddediliyor ({bad!r})",
+              fails('[{"a":"click","x":1,"y":2,"shot":"%s"}]' % bad, "shot"))
+    # Rapor hangi uzayda calisildigini soylesin: bir tiklama yanlis yere
+    # dustugunde ilk sorulacak soru bu.
+    check("describe shot'i gosteriyor",
+          B.parse('[{"a":"click","x":1,"y":2,"shot":"m2-a1b2c3"}]')[0].describe()
+          == "click (1, 2) @m2-a1b2c3",
+          B.parse('[{"a":"click","x":1,"y":2,"shot":"m2-a1b2c3"}]')[0].describe())
+    check("shot yokken describe eskisi gibi",
+          B.parse('[{"a":"click","x":1,"y":2}]')[0].describe() == "click (1, 2)")
 
     # describe() raporda gorunuyor; yanlis eylem adi yanlis tesise yol acar.
     check("hold describe'i okunur", yeni[0].describe() == "hold 'ctrl'",
@@ -1367,7 +1592,7 @@ def test_batch_stops() -> None:
             super().__init__()
             self._n = 0
 
-        def click(self, button, count, x, y, monitor):
+        def click(self, button, count, x, y, monitor, shot=None):
             out = self._rec("click", button, x, y)
             self._n += 1
             self._focus = ("editor | Metin Duzenleyici" if self._n == 1
@@ -1795,7 +2020,7 @@ def test_cli_gate() -> None:
 
 
 def test_cli_shot_text() -> None:
-    section("33. pcb-shot — ofset ve donusum kurali metinde")
+    section("33. pcb-shot — cekim kimligi ve ofset metinde")
     from pcbridge.cli import shot as SH
 
     class FakeMon:
@@ -1803,33 +2028,47 @@ def test_cli_shot_text() -> None:
             self.index, self.connector, self.primary = index, connector, primary
 
     class FakeShot:
-        def __init__(self, monitor, offset, size, scaled, scale):
+        def __init__(self, monitor, offset, size, scaled, scale, sid=""):
             self.path = Path("/tmp/x.png")
             self.monitor, self.offset = monitor, offset
             self.size, self.scaled, self.scale = size, scaled, scale
+            self.id = sid
 
     mons = [FakeMon(1, "DP-2", False), FakeMon(2, "DP-1", True)]
     shots = [
-        FakeShot(mons[0], (0, 0), (1920, 1080), (1920, 1080), 1.0),
-        FakeShot(mons[1], (1920, 0), (1920, 1080), (1920, 1080), 1.0),
+        FakeShot(mons[0], (0, 0), (1920, 1080), (1920, 1080), 1.0, "m1-aabbcc"),
+        FakeShot(mons[1], (1920, 0), (1920, 1080), (1920, 1080), 1.0, "m2-aabbcc"),
     ]
     text = "\n".join(SH.describe(shots, mons))
     check("monitor numarasi var", "monitor 1" in text and "monitor 2" in text)
-    check("ofset var", "(1920, 0)" in text, text[:120])
-    check("1:1 formulu toplama", "1920 + goruntu_x" in text, text[:200])
+    check("ofset var", "(1920, 0)" in text, text[:160])
+    # Kimlik goruntunun YANINDA olmali: ajanin tasidigi tek sey bu.
+    check("her goruntunun kimligi yaziyor",
+          "shot: m1-aabbcc" in text and "shot: m2-aabbcc" in text, text[:300])
+    check("kullanim ornegi kimligi tasiyor",
+          '"shot":"m1-aabbcc"' in text, text[-300:])
+    # ARITMETIK YOK: formul metinde kalirsa ajan yine elle cevirmeye kalkar.
+    check("donusum formulu artik verilmiyor",
+          "goruntu_x /" not in text and "+ goruntu_x" not in text, text[:400])
+    check("cevirme uyarisi var", "sen cevirme" in text, text[-200:])
     # Bu bilgi kaybolursa ikinci monitore yapilan her tiklama 1920 px sasar.
     check("ust cubugun yeri yaziyor",
-          "ust cubugu" in text and "monitor 2" in text, text[-200:])
+          "ust cubugu" in text and "monitor 2" in text, text[-400:])
 
-    # Olceklenmis goruntude bolme formulu gelmeli
-    small = [FakeShot(mons[1], (1920, 0), (1920, 1080), (1280, 720), 0.667)]
+    # Olceklenmis goruntude olcek BILGI olarak duruyor (formul degil)
+    small = [FakeShot(mons[1], (1920, 0), (1920, 1080), (1280, 720), 0.667,
+                      "m2-ddeeff")]
     stext = "\n".join(SH.describe(small, mons))
-    check("olcekli formul bolme", "/ 0.667" in stext, stext[:200])
+    check("olcek bilgi olarak yaziyor", "olcek 0.667" in stext, stext[:200])
+    check("olcekli goruntude de bolme formulu yok",
+          "/ 0.667" not in stext, stext[:250])
 
     # Ofsetsiz goruntu (window) koordinat uretmemeli
-    win = [FakeShot(None, None, (800, 600), (800, 600), 1.0)]
+    win = [FakeShot(None, None, (800, 600), (800, 600), 1.0, "win-aabbcc")]
     wtext = "\n".join(SH.describe(win, mons))
     check("ofsetsiz goruntu uyariyor", "NEREDE" in wtext, wtext[:160])
+    check("ofsetsiz goruntu icin ornek verilmiyor",
+          '"shot":"win-aabbcc"' not in wtext, wtext[:300])
 
 
 def test_cli_shot_dir() -> None:
@@ -1838,10 +2077,18 @@ def test_cli_shot_dir() -> None:
     import tempfile as _tf
 
     from pcbridge.cli import shot as SH
+    from pcbridge.config import Config
 
     class Cfg:
         def __init__(self, **kw):
             self.desktop = DesktopSpec(**kw)
+            self.state_dir = Path("/tmp/pcb-state")
+
+        # Yol hesabinin GERCEK kaynagi: `cli.shot_dir` yalnizca yaratip mod
+        # veriyor. Ikinci bir kopya cikarsa MCP bir dizine, kabuk baskasina
+        # yazar ve `shot=` kimlikleri sessizce bulunamaz olur.
+        agent_shot_path = Config.agent_shot_path
+        shot_search_dirs = Config.shot_search_dirs
 
     with _tf.TemporaryDirectory() as d:
         # Acikca verilen dizin her seyi ezer
@@ -1858,6 +2105,16 @@ def test_cli_shot_dir() -> None:
             check("dizin yalnizca kullaniciya acik",
                   (got.stat().st_mode & 0o777) == 0o700,
                   oct(got.stat().st_mode & 0o777))
+            # Kimlik aramasi IKI dizine de bakmali: MCP sunucusu
+            # state_dir/shots'a, `pcb-shot` XDG altina yaziyor. Tek dizine
+            # bakilsaydi MCP'den cekilen goruntuye kabuktan tiklanamazdi.
+            dirs = Cfg().shot_search_dirs
+            check("arama state_dir/shots ile basliyor",
+                  dirs[0] == Path("/tmp/pcb-state") / "shots", str(dirs))
+            check("arama pcb-shot dizinini de kapsiyor",
+                  Path(d) / "pcbridge" / "shots" in dirs, str(dirs))
+            same = Cfg(agent_shot_dir="/tmp/pcb-state/shots").shot_search_dirs
+            check("ayni dizin iki kez aranmiyor", len(same) == 1, str(same))
             _os.environ.pop("XDG_RUNTIME_DIR")
             check("XDG yoksa /tmp/pcb", SH.shot_dir(Cfg()) == Path("/tmp/pcb"))
         finally:
@@ -1871,10 +2128,19 @@ def test_cli_shot_dir() -> None:
         fresh, stale = base / "a.png", base / "b.png"
         fresh.write_bytes(b"x")
         stale.write_bytes(b"x")
-        _os.utime(stale, (time.time() - 90000, time.time() - 90000))
+        # Cekim kaydi PNG ile ayni yasa tabi: PNG'siz kalan bir `<id>.json`
+        # `shot=` ile bulunur ama arkasinda goruntu olmaz.
+        fresh_meta, stale_meta = base / "m1-aabbcc.json", base / "m2-ddeeff.json"
+        fresh_meta.write_text("{}")
+        stale_meta.write_text("{}")
+        for old_f in (stale, stale_meta):
+            _os.utime(old_f, (time.time() - 90000, time.time() - 90000))
         removed = SH.sweep(base, keep_hours=24)
-        check("eski goruntu silindi", removed == 1 and not stale.exists())
+        check("eski goruntu silindi", not stale.exists())
+        check("eski cekim kaydi da silindi", not stale_meta.exists())
+        check("iki dosya birden sayildi", removed == 2, str(removed))
         check("yeni goruntu duruyor", fresh.exists())
+        check("yeni cekim kaydi duruyor", fresh_meta.exists())
         check("keep_hours=0 iken temizlik yok", SH.sweep(base, 0) == 0)
 
 
@@ -1927,6 +2193,53 @@ def test_cli_stale_shot() -> None:
         check("kor tiklama reddedildi", code == C.EXIT_DENIED, f"kod={code}")
         check("gerekce goruntu almayi soyluyor",
               "pcb-shot" in err or "Masaustu kontrolu" in err, err[:120])
+
+    # `shot=` VERILDIGINDE olcut o cekimin kendi yasi, dizindeki en yeni PNG
+    # DEGIL. Fark gercek bir acik: asagidaki dizinde taze bir PNG var, yani
+    # eski olcut "goruntu taze" deyip gecerdi -- ama tiklama BASKA, bayat bir
+    # cekimin koordinatlarina gore yapilacakti.
+    with _tf.TemporaryDirectory() as d:
+        base = Path(d) / "pcbridge" / "shots"
+        base.mkdir(parents=True)
+        (base / "taze.png").write_bytes(b"x")  # dizin "taze" gorunuyor
+        stale = base / "m2-a1b2c3.json"
+        stale.write_text(json.dumps({
+            "id": "m2-a1b2c3", "png": "eski.png", "monitor": 2,
+            "connector": "DP-1", "primary": True, "offset": [1920, 0],
+            "size": [1920, 1080], "scaled": [1280, 720], "scale": 0.6667,
+            "taken_at": time.time() - 3600,
+        }))
+        code, _, err = _run_cli(
+            "pcbridge.cli.do",
+            ['[{"a":"click","x":1,"y":2,"shot":"m2-a1b2c3"}]'],
+            env={"XDG_RUNTIME_DIR": d})
+        check("bayat cekim kimligi reddedildi", code == C.EXIT_DENIED, f"kod={code}")
+        check("gerekce cekimin KENDI yasini soyluyor",
+              "m2-a1b2c3" in err and "saniyelik" in err, err[:160])
+
+        # Taze bir kayit ayni dizinde kapiya kadar gelmeli: red gerekcesi artik
+        # bayatlik degil masaustu kapisi olmali.
+        (base / "m2-ddeeff.json").write_text(json.dumps({
+            "id": "m2-ddeeff", "png": "taze.png", "monitor": 2,
+            "connector": "DP-1", "primary": True, "offset": [1920, 0],
+            "size": [1920, 1080], "scaled": [1280, 720], "scale": 0.6667,
+            "taken_at": time.time(),
+        }))
+        code, _, err = _run_cli(
+            "pcbridge.cli.do",
+            ['[{"a":"click","x":1,"y":2,"shot":"m2-ddeeff"}]'],
+            env={"XDG_RUNTIME_DIR": d})
+        check("taze cekim bayatlik kontrolunu geciyor",
+              "saniyelik" not in err, err[:160])
+
+        # Var olmayan kimlik: sessizce global koordinat sanilmamali.
+        code, _, err = _run_cli(
+            "pcbridge.cli.do",
+            ['[{"a":"click","x":1,"y":2,"shot":"m9-abcdef"}]'],
+            env={"XDG_RUNTIME_DIR": d})
+        check("bilinmeyen kimlik reddedildi", code == C.EXIT_DENIED, f"kod={code}")
+        check("bilinmeyen kimligin gerekcesi net",
+              "m9-abcdef" in err, err[:160])
 
 
 def test_computer_task_prompt() -> None:
@@ -2550,6 +2863,8 @@ def main() -> int:
     test_config_defaults()
     test_capture_scaling()
     test_capture_crop_offsets()
+    test_shot_lookup()
+    test_shot_ops_wiring()
     test_shot_store()
     test_capture_config_defaults()
     test_real_capture()

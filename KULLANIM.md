@@ -228,9 +228,10 @@ Varsayılan olarak her monitör **ayrı bir görüntü** — hangisine baktığ�
 etmen gerekmiyor. Ne aldığın bağlandığın istemciye göre değişiyor:
 
 **Claude Code / Claude Desktop (stdio):** görüntünün **kendisi** araç sonucunda
-geliyor, ajan ekrana bakıyor. Yanında metin de var (monitör, ofset, ölçek) —
-ajan "şuraya tıkla" derken onu kullanıyor. Ayrıca PNG'nin disk yolu veriliyor,
-istersen sen de açabilirsin.
+geliyor, ajan ekrana bakıyor. Yanında her görüntünün kısa bir **kimliği**
+duruyor (`shot: m2-a1b2c3`) — ajan "şuraya tıkla" derken gördüğü pikseli
+olduğu gibi veriyor ve bu kimliği ekliyor, ofseti ve ölçeği pcbridge kendisi
+uyguluyor. Ayrıca PNG'nin disk yolu veriliyor, istersen sen de açabilirsin.
 
 **Uzaktan (HTTP):** görüntünün yanında **tıklanabilir bir bağlantı** da
 geliyor — telefondan açınca ekranını kendi gözünle görürsün.
@@ -270,11 +271,19 @@ Bilmen gereken üç şey:
 
 > ekrandaki Kaydet düğmesine tıkla
 
-Tipik akış şu: Gemini önce görüntüyü alır, düğmenin görüntüdeki yerini okur,
-formülle gerçek koordinata çevirir, sonra tıklar. Küçültülmüş görüntüden okunan
-koordinat birkaç piksel şaşabilir (ölçüldü: ~5 px) — düğme için sorun değil.
+Tipik akış şu: ajan önce görüntüyü alır, düğmenin **görüntüdeki** yerini okur
+ve o koordinatı görüntünün kimliğiyle birlikte gönderir. Gerçek ekran
+koordinatına çevirme işini sunucu yapıyor.
 
-`ekranımı tam çözünürlükte göster` dersen küçültme yapılmaz, sapma da kalmaz.
+Eskiden bu çeviriyi ajan yapardı (`ofset + görüntü_x / ölçek`) ve zayıf
+modeller bu aritmetiği tutturamıyordu: tıklama sistematik olarak hedefin
+kenarına düşüyor, bazen ofset bilgisi büsbütün kayboluyordu. Artık ajanın
+taşıdığı tek şey kimlik.
+
+Geriye kalan tek sapma küçültmenin kendisinden geliyor: küçültülmüş bir
+görüntüde 1 piksel ekranda 1,5 piksele denk düşüyor (ölçüldü: ~5 px) — düğme
+için sorun değil. `ekranımı tam çözünürlükte göster` dersen küçültme yapılmaz,
+o sapma da kalmaz.
 
 ---
 

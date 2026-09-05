@@ -1008,6 +1008,18 @@ Kırpma + ofset zinciri birebir doğru. Küçültmedeki sapma küçültmenin ken
 yayması). Buton/menü için fazlasıyla yeterli; araç çıktısı bunu **açıkça
 söylüyor** ve keskinlik gerekirse `scale=0` öneriyor.
 
+> **2026-09-05 — bu maddenin bir yarısı geçersizleşti.** Zincirin doğru olması
+> yetmiyormuş: zinciri **modelin kendisi** yürütüyordu. Araç çıktısı formülü
+> veriyor (`global_x = ofset_x + görüntü_x / ölçek`), model bölmeyi yapıyordu.
+> Zayıf modeller bu aritmetiği tutturamadı — sistematik olarak hedefin
+> kenarına tıklandı, bazen ofset/ölçek bilgisi büsbütün kayboldu.
+>
+> Çözüm hesabı düzeltmek değil, **hesabı modelden almak** oldu: her çekim
+> `<id>.json` olarak kaydediliyor, `mouse` / `computer_batch` / `pcb-do` bir
+> `shot="m2-a1b2c3"` alıp dönüşümü kendisi yapıyor (`capture.to_global`, tek
+> geçit). Yukarıdaki **sapma ölçümü aynen geçerli** — o sapma dönüşümden
+> değil küçültmenin kendisinden geliyordu ve hâlâ öyle.
+
 **6. Fark ölçümünde aynı tuzağa iki kez düşüldü:** tüm görüntünün farkını almak
 saati/yanıp sönen imleci de yakalıyor ve `getbbox()` alakasız bir yeri
 gösteriyor. Doğrusu B'deki gibi hedefin etrafındaki dar pencerede fark almak.

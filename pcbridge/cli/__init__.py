@@ -107,20 +107,14 @@ def check_gate(cfg: Any, gate: Any, tool: str, *, write: bool,
 
 
 def shot_dir(cfg: Any) -> Path:
-    """`pcb-shot`un PNG yazdigi dizin.
+    """`pcb-shot`un PNG yazdigi dizin — yaratilmis ve mod 700 yapilmis.
 
-    Varsayilan `$XDG_RUNTIME_DIR/pcbridge/shots`. `UYGULAMA.md` `/tmp/pcb`
-    diyor; sapma bilincli: /tmp herkese okunur (mod 775), $XDG_RUNTIME_DIR ise
-    yalnizca kullaniciya acik (mod 700) ve oturum kapaninca siliniyor. Ekran
-    goruntusu bu projenin en gizlilik-hassas ciktisi -- config.example.toml
-    bunu kendisi yaziyor. $XDG_RUNTIME_DIR yoksa /tmp/pcb'ye dusuluyor.
+    Yolun kendisi `Config.agent_shot_path`ten geliyor; burasi yalnizca
+    yaratma ve izin isini yapiyor. Ikinci bir kopya cikarsa MCP tarafi bir
+    dizine, kabuk baska bir dizine yazar ve `shot=` kimlikleri sessizce
+    bulunamaz hale gelir.
     """
-    configured = (cfg.desktop.agent_shot_dir or "").strip()
-    if configured:
-        base = Path(os.path.expandvars(os.path.expanduser(configured)))
-    else:
-        runtime = os.environ.get("XDG_RUNTIME_DIR")
-        base = Path(runtime) / "pcbridge" / "shots" if runtime else Path("/tmp/pcb")
+    base = cfg.agent_shot_path
     base.mkdir(parents=True, exist_ok=True)
     try:
         base.chmod(0o700)

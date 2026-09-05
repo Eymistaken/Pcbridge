@@ -262,6 +262,42 @@ class Config:
     def audit_log(self) -> Path:
         return self.state_dir / "audit.log"
 
+    @property
+    def shot_search_dirs(self) -> list[Path]:
+        """`shot="m2-a1b2c3"` kimligi hangi dizinlerde aranir.
+
+        IKI DIZIN VAR ve bilincli: MCP sunucusu goruntuleri
+        `state_dir/shots`a, `pcb-shot` ise `$XDG_RUNTIME_DIR/pcbridge/shots`a
+        yaziyor (mod 700, tmpfs, oturum kapaninca siliniyor). Ikisi de
+        arandigi icin MCP'den cekilen goruntuye kabuktan tiklanabiliyor ve
+        `pcb-shot` cekimine `mouse` ile dokunulabiliyor -- ajan hangi yoldan
+        baktigini hatirlamak zorunda kalmiyor.
+
+        Dizinleri YARATMAZ: burasi saf hesap, mkdir cagiranin isi.
+        """
+        seen: list[Path] = []
+        for d in (self.state_dir / "shots", self.agent_shot_path):
+            # Ayni dizin iki kez aranmasin: `agent_shot_dir` state_dir/shots'a
+            # ayarlanmis olabilir.
+            if d not in seen:
+                seen.append(d)
+        return seen
+
+    @property
+    def agent_shot_path(self) -> Path:
+        """`pcb-shot`un PNG yazdigi dizin (yaratmadan, yalnizca yol).
+
+        Varsayilan `$XDG_RUNTIME_DIR/pcbridge/shots`. `UYGULAMA.md` `/tmp/pcb`
+        diyor; sapma bilincli: /tmp herkese okunur (mod 775), $XDG_RUNTIME_DIR
+        ise yalnizca kullaniciya acik ve oturum kapaninca siliniyor. Ekran
+        goruntusu bu projenin en gizlilik-hassas ciktisi.
+        """
+        configured = (self.desktop.agent_shot_dir or "").strip()
+        if configured:
+            return _expand(configured)
+        runtime = os.environ.get("XDG_RUNTIME_DIR")
+        return Path(runtime) / "pcbridge" / "shots" if runtime else Path("/tmp/pcb")
+
 
 def find_config(explicit: str | None = None) -> Path:
     if explicit:

@@ -485,7 +485,7 @@ def main() -> int:
     # Masaustu araclarinin semasi -- Gemini bunlari dogru doldurabilmeli
     by_name = {t["name"]: t for t in tools}
     for tool_name, must_have in (
-        ("mouse", ("action", "x", "y", "monitor", "force")),
+        ("mouse", ("action", "x", "y", "shot", "monitor", "force")),
         ("keyboard", ("action", "text", "keys", "raw", "force")),
         ("desktop_unlock", ("minutes", "reason")),
     ):
@@ -554,10 +554,19 @@ def main() -> int:
         "can display images" in cap_desc,
         cap_desc[:200],
     )
+    # Eskiden burada "global coordinate space" araniyordu: ajanin ofset+olcek
+    # aritmetigini KENDISI yapmasi bekleniyordu ve zayif modeller bunu
+    # tutturamiyordu. Artik cevirmeyi sunucu yapiyor; aranan sey ajanin
+    # tasimasi gereken TEK sey, yani kimlik.
     check(
-        "screen_capture aciklamasi koordinat uzayini soyluyor",
-        "global coordinate space" in cap_desc,
-        cap_desc[:260],
+        "screen_capture aciklamasi cekim kimligini anlatiyor",
+        "shot" in cap_desc and "id" in cap_desc,
+        cap_desc[:300],
+    )
+    check(
+        "screen_capture aciklamasi cevirinin ajanda OLMADIGINI soyluyor",
+        "never convert" in cap_desc,
+        cap_desc[:400],
     )
     check(
         "screen_capture aciklamasi once ui_dump'i oneriyor",
@@ -620,11 +629,16 @@ def main() -> int:
     # yapabilecegini bilmesi lazim, yoksa hold'u hic kullanmaz.
     check("actions aciklamasi duraklamali suruklemeyi anlatiyor",
           "mouse_down, move" in actions_desc, actions_desc[:500])
+    check("actions aciklamasi shot alanini sayiyor",
+          '"shot"' in actions_desc or "shot?" in actions_desc,
+          actions_desc[:600])
+    check("actions aciklamasi shot'in ne oldugunu anlatiyor",
+          "converts them for you" in actions_desc, actions_desc[:700])
 
     # -- I bolumu: mouse/keyboard genisledi -------------------------------
     mouse_props = by_name.get("mouse", {}).get("inputSchema", {}).get("properties", {})
     for field_ in ("action", "x", "y", "to_x", "to_y", "scroll_amount",
-                   "horizontal", "button", "smooth", "monitor", "force"):
+                   "horizontal", "button", "smooth", "shot", "monitor", "force"):
         check(f"mouse.{field_} parametresi var", field_ in mouse_props,
               str(sorted(mouse_props)))
     mouse_act = " ".join(str(mouse_props.get("action", {}).get("description", "")).split())
@@ -639,6 +653,15 @@ def main() -> int:
           "glides" in mouse_desc, mouse_desc[:400])
     check("mouse aciklamasi duraklamali suruklemeyi anlatiyor",
           "hold, then move, then release" in mouse_desc, mouse_desc[:400])
+    # Ajan `shot`u kullanmazsa eski aritmetige geri doner; aciklama bunu
+    # acikca soylemeli.
+    check("mouse aciklamasi shot ile ceviriyi sunucuya birakmayi soyluyor",
+          "shot id" in mouse_desc and "arithmetic yourself" in mouse_desc,
+          mouse_desc[:500])
+    shot_desc = " ".join(str(mouse_props.get("shot", {}).get("description", "")).split())
+    check("mouse.shot ornek bir kimlik veriyor", "m2-" in shot_desc, shot_desc[:300])
+    check("mouse.shot monitor ile birlesmeyecegini soyluyor",
+          "not combine it with monitor" in shot_desc, shot_desc[:300])
 
     kb_desc = " ".join(str(by_name.get("keyboard", {}).get("description", "")).split())
     check("keyboard aciklamasi hold'un kalici oldugunu soyluyor",

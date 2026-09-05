@@ -17,8 +17,8 @@ pcb-shot --monitor 2                 # 1. bak
 Read /run/user/1000/pcbridge/shots/...png      # 2. gerçekten gör
 ```
 ```bash
-pcb-do '[{"a":"click","x":2760,"y":312}]'      # 3. eyleme geç
-pcb-shot --monitor 2                            # 4. SONUCU DOĞRULA
+pcb-do '[{"a":"click","x":840,"y":312,"shot":"m2-a1b2c3"}]'   # 3. eyleme geç
+pcb-shot --monitor 2                                           # 4. SONUCU DOĞRULA
 ```
 
 Dördüncü adım isteğe bağlı değil. Bir eylemin işe yaradığını görmeden bir
@@ -36,9 +36,14 @@ sonrakine geçme.
 - **GNOME üst çubuğu ve `Super` menüsü monitör 2'de** (sağda) beliriyor.
   Bunu bilmezsen `Super`'a basıp sol ekranda menü ararsın ve "çalışmadı"
   sanırsın.
-- **Koordinatlar her zaman global.** `pcb-shot` her görüntünün ofsetini
-  yazıyor; görüntüdeki piksele o ofseti ekle. Varsayılan ölçek 1:1 olduğu için
-  hesap sadece toplama: `global_x = ofset_x + görüntü_x`.
+- **Koordinatı çevirme — kimliği taşı.** `pcb-shot` her görüntünün yanına bir
+  `shot: m2-a1b2c3` satırı yazıyor. Gördüğün pikseli **olduğu gibi** ver ve o
+  kimliği ekle; ofseti ve ölçeği pcbridge kendisi uyguluyor:
+  `{"a":"click","x":<görüntü_x>,"y":<görüntü_y>,"shot":"m2-a1b2c3"}`.
+  Kimlik vermezsen koordinat **global tuval** koordinatı sayılır (sol üst
+  `(0,0)`, sağ ekran `x ≥ 1920`). O yol duruyor ama artık zor yol: görüntü
+  küçültülmüşse ofset **ve** ölçek hesabı sana kalır, ve o hesabın hatası
+  hiçbir yerde görünmez — tıklama sessizce hedefin kenarına düşer.
 - Klavye düzeni Türkçe (`tr+intl`). `type` eylemi bunu kendisi hallediyor
   (pano üzerinden), sen düşünme.
 - `Super`'a bastıktan **sonra** pano bloklanıyor; genel bakış açıkken metin
@@ -58,7 +63,7 @@ On eylemi tek tek göndermek ~14 saniyeyi çöpe atmak demek. Aynı listede
 gönder:
 
 ```bash
-pcb-do '[{"a":"click","x":2760,"y":900},
+pcb-do '[{"a":"click","x":840,"y":900,"shot":"m2-a1b2c3"},
          {"a":"wait","ms":300},
          {"a":"type","text":"merhaba"},
          {"a":"key","keys":"Return"}]'
@@ -154,8 +159,10 @@ yazma, düşünme molası verme, başka iş yapma. Kullanıcı o sırada başka 
 pencereye geçmiş olabilir ve senin koordinatın artık bambaşka bir şeyin
 üstündedir.
 
-`pcb-do` en yeni görüntü 60 saniyeden eskiyse koordinatlı eylemi **reddediyor**
-(kod 3). Bu bir ağ, kural değil — ağa güvenip beklemek yerine döngüyü sıkı tut:
+`pcb-do` görüntü 60 saniyeden eskiyse koordinatlı eylemi **reddediyor**
+(kod 3). `shot` verdiysen ölçüt **o çekimin kendi yaşı**, klasördeki en yeni
+PNG değil — yani arada yeni bir görüntü almış olman eski bir kimliği taze
+yapmaz. Bu bir ağ, kural değil; ağa güvenip beklemek yerine döngüyü sıkı tut:
 
 ```
 pcb-shot  →  Read  →  pcb-do        ← aralarında başka hiçbir şey yok

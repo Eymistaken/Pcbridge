@@ -36,6 +36,11 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
+# Kimlik BICIMI capture'dan geliyor, burada kopyasi yok. Motor yine gercek
+# cihazlari tanimiyor: `shot` bu dosyada yalnizca dogrulanmis bir string,
+# koordinata cevrilmesi `ops.py`nin isi.
+from .capture import SHOT_ID_RE
+
 # Olculen maliyetler (ms). Butce tahmini bunlardan kuruluyor; uydurma
 # sabitlerden degil. Olcum 2026-08-02, bu makine.
 COST_MS: dict[str, float] = {
@@ -115,7 +120,11 @@ class Action:
         if self.a in POINTER_ACTIONS or self.a == "move" or self.a == "scroll":
             x, y = self.args.get("x"), self.args.get("y")
             pos = f" ({x}, {y})" if x is not None and y is not None else ""
-            return f"{self.a}{pos}"
+            # Hangi uzayda calisildigi raporda GORUNSUN: bir tiklama yanlis
+            # yere dustugunde ilk sorulacak soru bu.
+            shot = self.args.get("shot")
+            where = f" @{shot}" if shot else ""
+            return f"{self.a}{pos}{where}"
         return self.a
 
 
@@ -154,16 +163,18 @@ class Ops(Protocol):
     def type(self, text: str, raw: bool) -> str: ...
     def hold(self, keys: str) -> str: ...
     def release(self, keys: str) -> str: ...
-    def move(self, x: int, y: int, monitor: int | None) -> str: ...
+    def move(self, x: int, y: int, monitor: int | None,
+             shot: str | None = None) -> str: ...
     def click(self, button: str, count: int, x: int | None, y: int | None,
-              monitor: int | None) -> str: ...
+              monitor: int | None, shot: str | None = None) -> str: ...
     def mouse_down(self, button: str, x: int | None, y: int | None,
-                   monitor: int | None) -> str: ...
+                   monitor: int | None, shot: str | None = None) -> str: ...
     def mouse_up(self, button: str) -> str: ...
     def drag(self, x: int, y: int, to_x: int, to_y: int, button: str,
-             monitor: int | None) -> str: ...
+             monitor: int | None, shot: str | None = None) -> str: ...
     def scroll(self, amount: int, x: int | None, y: int | None,
-               monitor: int | None, horizontal: bool) -> str: ...
+               monitor: int | None, horizontal: bool,
+               shot: str | None = None) -> str: ...
     def held(self) -> list[str]: ...
     def release_all(self) -> list[str]: ...
     def ui_click(self, node_id: str) -> str: ...
@@ -213,6 +224,22 @@ def _button(raw: dict) -> str:
     return val
 
 
+def _shot(raw: dict) -> str | None:
+    """Cekim kimligi (`shot`). Bicim BURADA dogrulanir: bozuk bir kimlik
+    listeyi bastan reddetsin, uc eylem sonra patlamasin."""
+    val = raw.get("shot")
+    if val is None or not str(val).strip():
+        return None
+    text = str(val).strip()
+    if not SHOT_ID_RE.match(text):
+        raise BatchError(
+            f"`{raw.get('a')}` eyleminde `shot` bicimi gecersiz ({text!r}). "
+            "Beklenen `m2-a1b2c3` — ekran goruntusu ciktisindaki `shot:` "
+            "satirindan aynen kopyalayin."
+        )
+    return text
+
+
 def _one(raw: Any, index: int) -> Action:
     if not isinstance(raw, dict):
         raise BatchError(
@@ -241,6 +268,7 @@ def _one(raw: Any, index: int) -> Action:
             "x": _int(raw, "x", required=need),
             "y": _int(raw, "y", required=need),
             "monitor": _int(raw, "monitor"),
+            "shot": _shot(raw),
         }
         if a == "mouse_down":
             args["button"] = _button(raw)
@@ -255,6 +283,7 @@ def _one(raw: Any, index: int) -> Action:
             "to_y": _int(raw, "to_y", required=True),
             "button": _button(raw),
             "monitor": _int(raw, "monitor"),
+            "shot": _shot(raw),
         })
     if a == "scroll":
         return Action(a, {
@@ -262,6 +291,7 @@ def _one(raw: Any, index: int) -> Action:
             "x": _int(raw, "x"),
             "y": _int(raw, "y"),
             "monitor": _int(raw, "monitor"),
+            "shot": _shot(raw),
             "horizontal": bool(raw.get("horizontal", False)),
         })
     if a == "ui_click":
@@ -365,23 +395,25 @@ def _dispatch(ops: Ops, act: Action, sleep: Callable[[float], None],
             note += " (overview acik: ham tus yoluna gecildi, pano orada bloklu)"
         return note
     if a == "move":
-        return ops.move(kw["x"], kw["y"], kw.get("monitor"))
+        return ops.move(kw["x"], kw["y"], kw.get("monitor"), kw.get("shot"))
     if a in ("hold", "release"):
         return ops.hold(kw["keys"]) if a == "hold" else ops.release(kw["keys"])
     if a in ("click", "double_click", "triple_click", "right_click", "middle_click"):
         button = {"right_click": "right", "middle_click": "middle"}.get(a, "left")
         count = {"double_click": 2, "triple_click": 3}.get(a, 1)
-        return ops.click(button, count, kw.get("x"), kw.get("y"), kw.get("monitor"))
+        return ops.click(button, count, kw.get("x"), kw.get("y"),
+                         kw.get("monitor"), kw.get("shot"))
     if a == "mouse_down":
-        return ops.mouse_down(kw["button"], kw.get("x"), kw.get("y"), kw.get("monitor"))
+        return ops.mouse_down(kw["button"], kw.get("x"), kw.get("y"),
+                              kw.get("monitor"), kw.get("shot"))
     if a == "mouse_up":
         return ops.mouse_up(kw["button"])
     if a == "drag":
         return ops.drag(kw["x"], kw["y"], kw["to_x"], kw["to_y"], kw["button"],
-                        kw.get("monitor"))
+                        kw.get("monitor"), kw.get("shot"))
     if a == "scroll":
         return ops.scroll(kw["amount"], kw.get("x"), kw.get("y"), kw.get("monitor"),
-                          bool(kw.get("horizontal")))
+                          bool(kw.get("horizontal")), kw.get("shot"))
     if a == "ui_click":
         return ops.ui_click(kw["id"])
     if a == "ui_set_text":

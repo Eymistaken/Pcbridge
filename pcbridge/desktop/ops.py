@@ -16,7 +16,7 @@ import time
 from typing import Any
 
 from . import apps as appslib
-from . import monitors as monitorslib
+from . import capture as capturelib
 from .batch import INPUT_ACTIONS, POINTER_ACTIONS, Action
 
 # Fareyi tasidiktan sonra tiklamadan once verilen soluklanma. Kompozitorun
@@ -58,6 +58,20 @@ class DeviceOps:
         self.backend = backend
         self.tree = tree
         self.cfg = cfg
+        # `shot=` kimliginin aranacagi dizinler. cfg'den BIR KEZ okunuyor;
+        # her eylemde yeniden hesaplamak bir listeyi kirk kez kurmak olurdu.
+        self.shot_dirs = list(cfg.shot_search_dirs)
+
+    def _global(self, x: int, y: int, monitor: int | None,
+                shot: str | None) -> tuple[int, int]:
+        """Koordinati global uzaya cevir. TEK GECIT: `capture.to_global`.
+
+        Burada bir kopya tutulmuyor. `monitor=` tam cozunurluk ofseti ekler,
+        `shot=` ayrica OLCEGI de uygular; ikisini de bilen tek yer orasi.
+        """
+        return capturelib.to_global(
+            x, y, monitor=monitor, shot=shot, dirs=self.shot_dirs
+        )
 
     # -------------------------------------------------------------- klavye
     def key(self, keys: str) -> str:
@@ -78,20 +92,21 @@ class DeviceOps:
         return f"`{keys}` birakildi"
 
     # ---------------------------------------------------------------- fare
-    def move(self, x: int, y: int, monitor: int | None) -> str:
-        gx, gy = monitorslib.to_global(x, y, monitor)
+    def move(self, x: int, y: int, monitor: int | None,
+             shot: str | None = None) -> str:
+        gx, gy = self._global(x, y, monitor, shot)
         return f"imlec {self.backend.move(gx, gy)} konumuna tasindi"
 
     def click(self, button: str, count: int, x: int | None, y: int | None,
-              monitor: int | None) -> str:
-        where = self._goto(x, y, monitor)
+              monitor: int | None, shot: str | None = None) -> str:
+        where = self._goto(x, y, monitor, shot)
         self.backend.click(button, count)
         kind = {2: " (cift)", 3: " (uclu)"}.get(count, "")
         return f"{button} tiklama{where}{kind}"
 
     def mouse_down(self, button: str, x: int | None, y: int | None,
-                   monitor: int | None) -> str:
-        where = self._goto(x, y, monitor)
+                   monitor: int | None, shot: str | None = None) -> str:
+        where = self._goto(x, y, monitor, shot)
         self.backend.mouse_down(button)
         return f"{button} dugmesi{where} BASILI TUTULUYOR"
 
@@ -100,19 +115,21 @@ class DeviceOps:
         return f"{button} dugmesi birakildi"
 
     def drag(self, x: int, y: int, to_x: int, to_y: int, button: str,
-             monitor: int | None) -> str:
-        gx, gy = monitorslib.to_global(x, y, monitor)
-        ex, ey = monitorslib.to_global(to_x, to_y, monitor)
+             monitor: int | None, shot: str | None = None) -> str:
+        gx, gy = self._global(x, y, monitor, shot)
+        ex, ey = self._global(to_x, to_y, monitor, shot)
         self.backend.drag(gx, gy, ex, ey, button=button)
         return f"({gx}, {gy}) -> ({ex}, {ey}) {button} ile suruklendi"
 
     def scroll(self, amount: int, x: int | None, y: int | None,
-               monitor: int | None, horizontal: bool = False) -> str:
-        self._goto(x, y, monitor)
+               monitor: int | None, horizontal: bool = False,
+               shot: str | None = None) -> str:
+        self._goto(x, y, monitor, shot)
         self.backend.scroll(amount, horizontal=horizontal)
         return f"{amount} tik {'yatay' if horizontal else 'dikey'} kaydirildi"
 
-    def _goto(self, x: int | None, y: int | None, monitor: int | None) -> str:
+    def _goto(self, x: int | None, y: int | None, monitor: int | None,
+              shot: str | None = None) -> str:
         """Koordinat verilmisse oraya git ve yerlesmesini bekle.
 
         Imlec artik ara noktalardan gectigi icin `move` kendi suresini
@@ -120,7 +137,7 @@ class DeviceOps:
         """
         if x is None or y is None:
             return ""
-        gx, gy = monitorslib.to_global(x, y, monitor)
+        gx, gy = self._global(x, y, monitor, shot)
         self.backend.move(gx, gy)
         time.sleep(MOVE_SETTLE)
         return f" ({gx}, {gy})"

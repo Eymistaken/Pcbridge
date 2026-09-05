@@ -34,15 +34,21 @@ from . import (
 
 
 def sweep(directory: Path, keep_hours: int) -> int:
-    """Eskimis PNG'leri sil. Disk temizligi; ajan her tur yeni goruntu uretiyor."""
+    """Eskimis PNG'leri ve cekim kayitlarini sil.
+
+    Disk temizligi; ajan her tur yeni goruntu uretiyor. `<id>.json` kayitlari
+    da ayni yasa tabi: PNG'siz kalan bir kayit `shot=` ile bulunur ama arkasinda
+    goruntu olmaz -- ajani olmayan bir goruntuye tiklatmaktansa kimligin de
+    kaybolmasi dogru.
+    """
     if keep_hours <= 0:
         return 0
     cutoff = time.time() - keep_hours * 3600
     removed = 0
-    for png in directory.glob("*.png"):
+    for f in (*directory.glob("*.png"), *directory.glob("*.json")):
         try:
-            if png.stat().st_mtime < cutoff:
-                png.unlink()
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
                 removed += 1
         except OSError:  # pragma: no cover
             pass
@@ -50,10 +56,12 @@ def sweep(directory: Path, keep_hours: int) -> int:
 
 
 def describe(shots, mons) -> list[str]:
-    """Ajanin okuyacagi metin. Ofset ve donusum kurali BURADA yaziyor.
+    """Ajanin okuyacagi metin. Her goruntunun KIMLIGI burada yaziyor.
 
-    Bu bilgi kaybolursa ikinci monitore yapilan her tiklama 1920 piksel sasar
-    ve hata hicbir yerde gorunmez.
+    Eskiden burada donusum FORMULU yaziyordu ve ajan bolmeyi kendisi
+    yapiyordu; zayif modeller tutturamayip hedefin kenarina tikliyordu. Artik
+    kimlik veriliyor, donusumu `pcb-do` yapiyor. Ofset ve olcek yine basiliyor
+    -- insan icin ve kimlik verilmeyen eski yol icin.
     """
     out: list[str] = []
     for s in shots:
@@ -67,21 +75,13 @@ def describe(shots, mons) -> list[str]:
             continue
         line = (
             f"{s.path}\n"
+            f"  shot: {s.id}\n"
             f"  monitor {s.monitor.index} ({s.monitor.connector}"
             f"{', birincil' if s.monitor.primary else ''}) · "
             f"{s.size[0]}x{s.size[1]} @ ofset ({s.offset[0]}, {s.offset[1]})"
         )
-        if s.scale == 1.0:
-            line += (
-                "\n  olcek 1:1 -> global_x = "
-                f"{s.offset[0]} + goruntu_x , global_y = {s.offset[1]} + goruntu_y"
-            )
-        else:
-            line += (
-                f" -> {s.scaled[0]}x{s.scaled[1]} (olcek {s.scale:.3f})"
-                f"\n  global_x = {s.offset[0]} + goruntu_x / {s.scale:.3f} "
-                f", global_y = {s.offset[1]} + goruntu_y / {s.scale:.3f}"
-            )
+        if s.scale != 1.0:
+            line += f" -> {s.scaled[0]}x{s.scaled[1]} (olcek {s.scale:.3f})"
         out.append(line)
 
     # Zaman damgasi sus degil: goruntu BAYATLAR. Aradan gecen surede kullanici
@@ -98,9 +98,14 @@ def describe(shots, mons) -> list[str]:
             f"\nGNOME ust cubugu ve `Super` menusu monitor {primary.index} "
             f"({primary.connector}, birincil) uzerinde beliriyor."
         )
-    out.append(
-        "Koordinatlar `pcb-do`'ya GLOBAL verilir; `monitor` parametresi verme."
-    )
+    first = next((s for s in shots if s.offset is not None), None)
+    if first is not None:
+        out.append(
+            "Koordinati GORDUGUN GIBI ver ve yanina o goruntunun kimligini ekle:\n"
+            f'  pcb-do \'{{"a":"click","x":<goruntu_x>,"y":<goruntu_y>,'
+            f'"shot":"{first.id}"}}\'\n'
+            "Ofseti ve olcegi pcbridge kendisi uyguluyor — sen cevirme."
+        )
     return out
 
 
@@ -189,6 +194,15 @@ def main(argv: list[str] | None = None) -> int:
         if screencast is not None:
             screencast.close()
 
+    # `--out` ile baska bir dizine yazildiysa cekim kaydi ARAMA dizinine de
+    # kopyalanir. `pcb-do` yalnizca varsayilan iki dizine bakiyor (ayri surec,
+    # `--out`u bilemez); kopyalanmasaydi `--out` ile alinan bir goruntunun
+    # kimligi "boyle bir cekim yok" derdi. Kayitta PNG'nin MUTLAK yolu var,
+    # yani goruntu nerede olursa olsun bulunuyor.
+    if out_dir != shot_dir(cfg):
+        for s in shots:
+            capturelib.save_meta(s, shot_dir(cfg))
+
     gate.audit("pcb_shot", monitor=str(args.monitor), shots=len(shots),
                swept=swept or None, job=job_id())
 
@@ -197,6 +211,7 @@ def main(argv: list[str] | None = None) -> int:
             "ok": True,
             "shots": [
                 {
+                    "id": s.id,
                     "path": str(s.path),
                     "monitor": None if s.monitor is None else s.monitor.index,
                     "connector": None if s.monitor is None else s.monitor.connector,
