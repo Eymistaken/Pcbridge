@@ -7,7 +7,8 @@ kaydı. Sıra korunuyor: **her adım bitince durulur, bildirilir, onay beklenir.
 |---|---|---|
 | 1 | Koordinat dönüşümünü sunucuya taşı | ✅ bitti — `e2ac8b2` |
 | 2 | Ekran görüntüsü temizliği gerçekten uygulansın | ✅ bitti — `e1a2ee7` |
-| 3 | Ölçek tutarsızlıkları | ⬜ bekliyor |
+| 3a | `pcb-shot` ölçeği config'ten okusun | ✅ bitti |
+| 3b | `screenshot_scale_long_edge` 1280 → 1536? | ⏸️ **kararınızı bekliyor** |
 
 Onaylanan tasarım kararları: **çekim kimliği (`shot=`)** yolu · `pcb-shot`
 ölçeği **config'ten** okusun · CLI (`pcb-shot` / `pcb-do`) Adım 1 kapsamında.
@@ -187,44 +188,96 @@ kimliğiyle ve "ofseti ve ölçeği pcbridge kendisi uyguluyor" talimatıyla.
 
 ---
 
-## ADIM 3 — Ölçek tutarsızlıkları ⬜
+## ADIM 3 — Ölçek tutarsızlıkları
 
-### (a) `pcb-shot` ile `screen_capture` ölçeğini eşitle
+### (a) `pcb-shot` ile `screen_capture` ölçeğini eşitle ✅
 
 `pcb-shot` varsayılanı `--scale 0` (tam çözünürlük), `screen_capture`
-varsayılanı 1280. Ajanın gördüğü çözünürlük hangi yoldan bağlandığına göre
-değişiyor.
+varsayılanı 1280'di. Ajanın gördüğü çözünürlük hangi yoldan bağlandığına göre
+değişiyordu: aynı ekran, iki farklı piksel uzayı.
 
-**Karar:** `pcb-shot --scale` varsayılanı `None` olacak; verilmezse
-`cfg.desktop.screenshot_scale_long_edge` kullanılacak. Tek kaynak;
-`--scale 0` elle hâlâ verilebilir.
+`pcb-shot --scale` varsayılanı artık `None`; verilmezse
+`cfg.desktop.screenshot_scale_long_edge` kullanılıyor. `--scale 0` elle hâlâ
+verilebilir.
 
 `cli/shot.py` başlığındaki *"TAM ÇÖZÜNÜRLÜK VARSAYILAN"* gerekçesi — *"ölçek
 aritmetiği hatası diye bir SINIF ortadan kalkıyor"* — Adım 1 ile
-geçersizleşti: o hata sınıfı artık modelde değil, sunucuda kapandı. Docstring
-buna göre yeniden yazılacak.
+geçersizleşti: o hata sınıfı artık modelde değil, kodda kapandı. Docstring
+yeniden yazıldı.
 
-### (b) `screenshot_scale_long_edge` 1280 → 1536 önerisi
+**Doğrulandı** (gerçek makine): `--scale` verilmeden → `1280×720`,
+`--scale 1536` → `1536×864`, `--scale 0` → `1920×1080` + uyarı.
 
-**Karar kullanıcının**, adım sonunda sorulacak.
+### (a2) 1568 sınırının anlamı değişti — uyarı eklendi ✅
 
-| | 1280 | 1536 |
-|---|---|---|
-| 1920×1080 → | 1280×720 (ölçek 0,667) | 1536×864 (ölçek 0,8) |
-| Anthropic 1568 sınırı | altında ✅ | altında ✅ (32 px pay) |
-| görüntü jetonu (≈ w·h / 750) | ~1230 | ~1770 (+%44) |
-| 1 görüntü pikseli = kaç ekran pikseli | 1,5 | 1,25 |
+Adım 3(b)'yi değerlendirirken çıktı: **1568 artık sadece bir bilgi
+tutarlılığı meselesi değil, sessiz bir hesap hatası kaynağı.**
 
-1568 gerekçesi (`PLAN.md` §9b/2) **geçersizleşmiyor**, gevşiyor: 1536 de
-sınırın altında, yani "raporlanan ölçek modelin gördüğüyle aynı" güvencesi
-duruyor. Kazanç okunabilirlik ve hedefleme keskinliği, bedel jeton. 1568'e
-tam oturmak yerine 1536: 64'ün katı, 1920×1080'i tam sayıya bölüyor, sınıra
-pay bırakıyor.
+Anthropic API uzun kenarı 1568'i aşan görüntüleri kendisi küçültüyor.
+Eskiden bunun sonucu *"raporlanan ölçek modelin gördüğünden farklı olur"*du —
+rahatsız edici ama zararsız, çünkü hesabı model yapıyordu ve gördüğü şeye
+bakıyordu. Adım 1'den sonra hesabı **sunucu** yapıyor:
 
-### Belge güncellemeleri
+- model 1568'e indirilmiş karedeki pikseli söylüyor,
+- `to_global()` kayıtlı ölçeği (`scale=1.0`) uyguluyor,
+- aradaki **1,22 kat** sessizce koordinata giriyor — ekranın sağ yarısında
+  yüzlerce piksel, ve hata hiçbir yerde görünmüyor.
 
-`config.example.toml` (`pcb-shot`'ın da bu ayarı kullandığı) ·
-`skills/computer-use/SKILL.md` ölçek notu · `KULLANIM.md`.
+`--scale 0` tavsiyesi bu yüzden tehlikeli hale gelmişti (`SKILL.md` bunu
+öneriyordu). Eklenen koruma bir **kapı değil uyarı**, çünkü kullanıcı tam
+çözünürlüğü bakmak için isteyebilir:
+
+```
+⚠️ Bu goruntunun uzun kenari 1920 px ve 1568 px'i asiyor. … `shot` ile
+verdiginiz koordinat sistematik olarak sasar (yaklasik 1.22 kat). …
+bu goruntu yalnizca BAKMAK icin.
+```
+
+Uyarı `screen_capture` ve `pcb-shot` çıktılarında, kullanım talimatının
+**sonunda** duruyor (üstünde dursaydı son okunan şey talimat olurdu).
+`SKILL.md` de düzeltildi.
+
+> Bu, ölçüm değil **çıkarım** olarak işaretli: 1568 sınırı Anthropic'in
+> belgelenmiş davranışı (`PLAN.md` §9b/2), buradaki sonuç ondan türüyor.
+> Kaymanın kendisi ölçülmedi — ölçmek için modelin ham piksel tahminini
+> yalıtmak gerekir ve o tahminin kendi hata payı bu etkiyle karışır.
+
+### (b) `screenshot_scale_long_edge` 1280 → 1536 ⏸️
+
+**Karar sizin.** Değiştirilmedi.
+
+Aynı tam çözünürlük çekimi üç ölçeğe indirilip karşılaştırıldı (ard arda
+çekimlerde ekran değiştiği için tek kareden üretmek daha adil):
+
+| uzun kenar | boyut | ölçek | dosya | jeton (≈ w·h/750) |
+|---|---|---|---|---|
+| 1280 | 1280×720 | 0,667 | 514 KB | ~1230 |
+| **1536** | 1536×864 | 0,800 | 668 KB | ~1770 |
+| tam | 1920×1080 | 1,000 | 431 KB | ~2765 ⚠️ 1568 üstü |
+
+**Okunabilirlik ölçüldü** — yoğun küçük yazılı bir ekran (Claude Code
+oturumu) iki ölçekte de okundu. Ayırt edici ölçüt **Türkçe diakritikler**:
+
+| 1280'de görünen | 1536'da görünen |
+|---|---|
+| "YAPILACAKLAR.md **degisikliklerini** ve göre…" | "YAPILACAKLAR.md **değişiklikleri** ve görev" |
+
+1280'de `ğ` ve `ş` bulanıklaşıp kayboluyor ve kelime tahmin edilerek
+okunuyor; 1536'da doğrudan okunuyor. Bu makinede arayüzün tamamı Türkçe.
+
+**Önerim: evet, 1536.** Gerekçe: 1568 garantisi korunuyor (32 px pay),
+diakritikler okunur hale geliyor, hedefleme keskinliği 1,5 px/piksel'den
+1,25'e iniyor. Bedel görüntü başına ~540 jeton (%44 göreli, ama mutlak
+olarak küçük: Claude'da bir görüntü zaten ~1200–1900 jeton). 1536 ayrıca
+64'ün katı ve 1920×1080'i tam sayıya bölüyor.
+
+Kabul ederseniz değişecek tek şey `config.example.toml` ve `config.toml`
+içindeki bir satır; kod zaten ayarı okuyor.
+
+### Belge güncellemeleri ✅
+
+`config.example.toml` (iki yolun da bu ayarı kullandığı + 1568 gerekçesi) ·
+`skills/computer-use/SKILL.md` (ölçek notu ve `--scale 0` uyarısı).
 
 ---
 

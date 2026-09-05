@@ -1540,6 +1540,14 @@ def register(
                 "kendisi uyguluyor — siz cevirmeyin. (Yukaridaki ofset/olcek "
                 "degerleri yalnizca bilgi icindir.)"
             )
+            # Istemcinin kendi kuculttugu goruntuden koordinat cikarilamaz:
+            # gordugunuz piksel ile kayitli olcek ayrisir ve `shot` hesabi
+            # sessizce sasar. `scale=0` verildiginde tam da bu oluyor.
+            for shot in shots:
+                note = capturelib.oversize_note(shot)
+                if note:
+                    out.append(note)
+                    break
             if any(s.scale < 1.0 for s in shots):
                 # Olculdu: tam cozunurlukte gidis-donus sapmasi 1 px, 1280'e
                 # kucultulmusde ~5 px. Bu sapma DONUSUMDEN degil kucultmenin

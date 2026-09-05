@@ -4,13 +4,21 @@
 kullanici** icin kisa omurlu bir baglantiya donusuyor, bu ise **makinedeki
 ajanin gozu** icin dosya olarak duruyor. Ajan `Read` ile dogrudan aciyor.
 
-TAM COZUNURLUK VARSAYILAN
-    `screen_capture` 1280'e kuculuyor (telefon ekrani, veri tasarrufu). Burada
-    varsayilan 0 = hic olcekleme. Sebebi olculdu (C bolumu): tam cozunurlukte
-    goruntudeki piksel -> global koordinat donusumunun sapmasi ~1 px, 1280'e
-    kuculmusde ~5 px. Olcek 1:1 oldugunda donusum `ofset + piksel` haline
-    geliyor ve olcek aritmetigi hatasi diye bir SINIF ortadan kalkiyor. Ajanin
-    yapacagi tek hesap toplama.
+OLCEK TEK YERDEN: `[desktop] screenshot_scale_long_edge`
+    `--scale` verilmezse `screen_capture`in kullandigi ayarin AYNISI
+    kullaniliyor. Ajanin gordugu cozunurluk hangi yoldan bagli oldugna gore
+    degismesin diye: MCP'den 1280, kabuktan 1920 gelmesi tek basina bir hata
+    kaynagiydi (ayni ekran, iki farkli piksel uzayi).
+
+    Burasi eskiden `0` (tam cozunurluk) idi ve gerekcesi suydu: "tam
+    cozunurlukte donusumun sapmasi ~1 px, 1280'e kucultulmusde ~5 px; olcek
+    1:1 oldugunda donusum `ofset + piksel` haline geliyor ve olcek aritmetigi
+    hatasi diye bir SINIF ortadan kalkiyor." O gerekce ARTIK GECERSIZ: hesabi
+    ajan yapmiyor, `capture.to_global()` yapiyor (cekim kimligi, `shot=`).
+    Aritmetik hatasi sinifi modelden degil koddan kalkti.
+
+    Kalan sapma kucultmenin KENDISINDEN geliyor (1 goruntu pikseli = 1,5 ekran
+    pikseli) ve `--scale 0` ile hala sifirlanabiliyor.
 """
 
 from __future__ import annotations
@@ -106,6 +114,16 @@ def describe(shots, mons) -> list[str]:
             f'"shot":"{first.id}"}}\'\n'
             "Ofseti ve olcegi pcbridge kendisi uyguluyor — sen cevirme."
         )
+
+    # Uyari EN SONA: kullanim talimatinin ustunde dursaydi "koordinat cikarma"
+    # ile "koordinati soyle ver" yan yana gelir, son okunan sey talimat olurdu.
+    from ..desktop import capture as _cap
+
+    for s in shots:
+        note = _cap.oversize_note(s)
+        if note:
+            out.append("\n" + note)
+            break
     return out
 
 
@@ -119,8 +137,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="all (varsayilan, her monitor ayri), 1/2, DP-1, primary, window",
     )
     p.add_argument(
-        "--scale", type=int, default=0,
-        help="Kirpma sonrasi uzun kenar. 0 (varsayilan) = TAM COZUNURLUK.",
+        "--scale", type=int, default=None,
+        help="Kirpma sonrasi uzun kenar. Verilmezse config'teki "
+             "`screenshot_scale_long_edge` (screen_capture ile ayni deger). "
+             "0 = tam cozunurluk.",
     )
     p.add_argument("--no-pointer", action="store_true",
                    help="Imleci goruntuye cizme.")
@@ -132,11 +152,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.scale and args.scale < 320:
+    if args.scale is not None and args.scale and args.scale < 320:
         fail("--scale ya 0 (tam cozunurluk) ya da en az 320 olmali",
              EXIT_BAD_INPUT, args.json)
 
     cfg = load()
+    # Verilmediyse `screen_capture`in kullandigi ayarin AYNISI. Iki yol ayri
+    # varsayilanlar tasisaydi ajanin gordugu cozunurluk baglanti bicimine gore
+    # degisirdi -- ayni ekran, iki farkli piksel uzayi.
+    scale = (cfg.desktop.screenshot_scale_long_edge if args.scale is None
+             else max(0, args.scale))
     gate = gate_of(cfg)
     # Ekran goruntusu bir YAZMA eylemi degil: "yakinda klavye kullanildi"
     # korumasina takilmiyor, ama izin penceresi ve ekran kilidi aynen gecerli.
@@ -182,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         shots = capturelib.capture(
             spec,
             out_dir=out_dir,
-            scale_long_edge=max(0, args.scale),
+            scale_long_edge=scale,
             include_pointer=not args.no_pointer and cfg.desktop.include_pointer,
             screencast=screencast,
         )

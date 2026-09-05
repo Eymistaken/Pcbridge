@@ -234,6 +234,15 @@ hold_max_seconds = 120
 # monitor ~640x180 kalir ve buton yazilari okunmaz olur. Bu yuzden once monitor
 # basina kirpilir, olcekleme ondan sonra yapilir. 0 = hic olcekleme (tam
 # cozunurluk, buyuk dosya). 0 disinda en az 320.
+#
+# HEM `screen_capture` HEM `pcb-shot` bu ayari kullanir. Ayri varsayilanlari
+# olsaydi ajanin gordugu cozunurluk hangi yoldan bagli oldugna gore degisirdi
+# (ayni ekran, iki farkli piksel uzayi); `pcb-shot --scale` ile tek seferlik
+# baskalastirilabilir.
+#
+# 1280 secilirken olcut suydu: Anthropic API uzun kenari 1568'e indiriyor, o
+# sinirin altinda kalmak modelin GORDUGU piksel ile raporlanan olcegin ayni
+# kalmasini garantiliyor. 1536'ya kadar bu garanti bozulmuyor.
 screenshot_scale_long_edge = 1280
 
 # /shot/<token>.png baglantisinin omru (saniye). Bu baglanti OAuth'tan

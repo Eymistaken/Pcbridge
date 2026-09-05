@@ -94,6 +94,50 @@ SCREENCAST_NAME = "screencast (PipeWire)"
 # `<dizin>/<id>.json` yolunun disina cikardi.
 SHOT_ID_RE = re.compile(r"^(?:m\d{1,2}|win)-[0-9a-f]{6}$")
 META_SUFFIX = ".json"
+
+# Anthropic API uzun kenari bunun ustunde olan goruntuleri KENDISI kucultuyor.
+#
+# Bu sinirin anlami cekim kimligiyle birlikte DEGISTI. Eskiden yalnizca
+# "raporlanan olcek modelin gordugunden farkli olur" demekti; simdi sunucunun
+# hesabini bozuyor: model 1568'e indirilmis karedeki pikseli soyluyor,
+# `to_global()` ise kayitli olcegi (ornegin 1.0) uyguluyor. Sonuc sistematik
+# bir kayma -- 1920 icin 1920/1568 = 1,22 kat, yani ekranin sag yarisinda
+# yuzlerce piksel, ve hicbir yerde hata gorunmuyor.
+#
+# OLCULMEDI, cikarim: sinirin kendisi Anthropic'in belgelenmis davranisi
+# (PLAN.md §9b/2'de kayitli), buradaki sonuc ondan turuyor. Bu yuzden deger
+# bir KAPI degil UYARI: kullanici tam cozunurluk isteyebilir (insan gozu
+# icin), ama koordinat cikarmak icin kullanmamali.
+CLIENT_MAX_LONG_EDGE = 1568
+
+
+def oversized(shot: "Shot") -> bool:
+    """Bu cekimden guvenle koordinat cikarilamaz mi?
+
+    Yalnizca OLCEKLENMIS boyuta bakiyor: diskteki dosya ne kadar buyukse
+    istemcinin gorecegi o kadar kucultuluyor.
+    """
+    return max(shot.scaled) > CLIENT_MAX_LONG_EDGE
+
+
+OVERSIZE_NOTE = (
+    "⚠️ Bu goruntunun uzun kenari {edge} px ve {limit} px'i asiyor. Goruntu "
+    "isleyen istemciler onu KENDILERI kuculttugu icin sizin gordugunuz piksel "
+    "ile kayitli olcek ayrisir; `shot` ile verdiginiz koordinat sistematik "
+    "olarak sasar (yaklasik {ratio:.2f} kat). Koordinat cikaracaksaniz "
+    "`scale={limit}` ya da daha kucugunu kullanin; bu goruntu yalnizca BAKMAK "
+    "icin."
+)
+
+
+def oversize_note(shot: "Shot") -> str:
+    """Buyuk cekim uyarisi (koordinat cikarilacaksa). Sorun yoksa bos."""
+    if not oversized(shot):
+        return ""
+    edge = max(shot.scaled)
+    return OVERSIZE_NOTE.format(
+        edge=edge, limit=CLIENT_MAX_LONG_EDGE, ratio=edge / CLIENT_MAX_LONG_EDGE
+    )
 # 3840x1080 yakalama olculdu: ~1 saniye. 20 s, kompozitor gecici olarak
 # takildiginda bile yeterli ve MCP'nin 110 saniyelik sinirinin cok altinda.
 GRAB_TIMEOUT = 20

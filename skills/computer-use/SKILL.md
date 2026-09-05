@@ -69,8 +69,20 @@ pcb-do '[{"a":"click","x":840,"y":900,"shot":"m2-a1b2c3"},
          {"a":"key","keys":"Return"}]'
 ```
 
-Ekran görüntüsü de bedava değil: bir görüntü ~40 bin girdi jetonu. Her
-eylemden sonra doğrula, ama aynı ekranı iki kez okuma.
+Ekran görüntüsü de bedava değil: bir görüntü ~40 bin girdi jetonu (bu sayı
+sürücüye göre 20–30 kat değişiyor; Claude'da ~1200–1900). Her eylemden sonra
+doğrula, ama aynı ekranı iki kez okuma.
+
+`pcb-shot` görüntüyü küçültüyor (`screen_capture` ile **aynı** ayar,
+`[desktop] screenshot_scale_long_edge`), yani gördüğün piksel ekrandaki
+pikselden küçük. Bunu düşünmene gerek yok — koordinatı gördüğün gibi ver,
+`shot` kimliğini ekle.
+
+**`--scale 0`'dan koordinat çıkarma.** Tam çözünürlük (1920) senin
+gördüğünden büyük: görüntüyü işleyen taraf onu kendisi 1568'e indiriyor, yani
+senin okuduğun piksel ile kayıtlı ölçek ayrışıyor ve `shot` hesabı ~1,22 kat
+şaşıyor. `pcb-shot` bu durumda zaten uyarı basıyor. Tam çözünürlük yalnızca
+**bakmak** için — küçük bir yazıyı seçemediğinde.
 
 ## Eylemler
 

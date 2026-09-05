@@ -2182,6 +2182,82 @@ def test_cli_shot_text() -> None:
           '"shot":"win-aabbcc"' not in wtext, wtext[:300])
 
 
+def test_cli_shot_scale() -> None:
+    """`pcb-shot` olcegi config'ten okuyor mu.
+
+    Iki yol ayri varsayilanlar tasiyordu (`screen_capture` 1280, `pcb-shot` 0)
+    ve ajanin gordugu cozunurluk hangi yoldan bagli oldugna gore degisiyordu:
+    ayni ekran, iki farkli piksel uzayi.
+    """
+    section("48. pcb-shot — olcek config'ten geliyor")
+    from pcbridge.cli import shot as SH
+
+    parser = SH.build_parser()
+    check("--scale verilmezse None (config'e birakiliyor)",
+          parser.parse_args([]).scale is None,
+          str(parser.parse_args([]).scale))
+    check("--scale 0 acikca tam cozunurluk",
+          parser.parse_args(["--scale", "0"]).scale == 0)
+    check("--scale 1536 aynen geciyor",
+          parser.parse_args(["--scale", "1536"]).scale == 1536)
+
+    # `main()`teki secim kurali. Kodun kendisi kapidan geciyor, o yuzden
+    # burada KURAL sinaniyor: verilmediyse config, verildiyse deger.
+    def secim(arg, ayar):
+        return ayar if arg is None else max(0, arg)
+
+    check("verilmezse config'teki deger", secim(None, 1280) == 1280)
+    check("config 1536 ise 1536", secim(None, 1536) == 1536)
+    check("--scale 0 config'i eziyor", secim(0, 1280) == 0)
+    check("--scale 800 config'i eziyor", secim(800, 1280) == 800)
+    check("negatif deger 0'a kirpiliyor", secim(-5, 1280) == 0)
+
+    # Ornek yapilandirmadaki deger ile `screen_capture` varsayilani AYNI
+    # kaynaktan geliyor -- ikisi ayrisirsa bu kontrol duser.
+    from pcbridge.config import load_config
+
+    d = load_config(str(ROOT / "config.example.toml")).desktop
+    check("ornek config'te tek deger var", d.screenshot_scale_long_edge == 1280,
+          str(d.screenshot_scale_long_edge))
+    check("1568 sinirinin altinda", d.screenshot_scale_long_edge < 1568,
+          str(d.screenshot_scale_long_edge))
+
+
+def test_oversize_warning() -> None:
+    """1568'i asan cekim uyariyor mu.
+
+    Sinirin anlami cekim kimligiyle DEGISTI. Eskiden yalnizca "raporlanan
+    olcek modelin gordugunden farkli olur"du; simdi sunucunun hesabini
+    boziyor: model 1568'e indirilmis karedeki pikseli soyluyor,
+    `to_global()` kayitli olcegi uyguluyor, aradaki 1,22 kat sessizce
+    koordinata giriyor. Bu yuzden uyari SART -- ama kapi degil: kullanici tam
+    cozunurlugu bakmak icin isteyebilir.
+    """
+    section("49. Cekim kimligi — 1568 siniri uyarisi")
+    from pcbridge.desktop import capture as C
+
+    def shot(scaled):
+        return C.Shot(path=Path("/tmp/x.png"), monitor=None, offset=(0, 0),
+                      size=(1920, 1080), scaled=scaled,
+                      scale=scaled[0] / 1920, id="m1-aabbcc")
+
+    check("1920 uzun kenar buyuk sayiliyor", C.oversized(shot((1920, 1080))))
+    check("1536 sorun degil", not C.oversized(shot((1536, 864))))
+    check("1280 sorun degil", not C.oversized(shot((1280, 720))))
+    check("tam sinirda (1568) sorun degil", not C.oversized(shot((1568, 882))),
+          "1568 dahil olmali: API bu degeri kucultmuyor")
+    check("1569 buyuk sayiliyor", C.oversized(shot((1569, 883))))
+    # Dikey goruntude olcut yine UZUN kenar
+    check("dikeyde de uzun kenara bakiliyor", C.oversized(shot((900, 1600))))
+
+    note = C.oversize_note(shot((1920, 1080)))
+    check("uyari asilan degeri soyluyor", "1920" in note and "1568" in note,
+          note[:120])
+    check("uyari kac kat sastigini soyluyor", "1.22" in note, note[:200])
+    check("uyari ne yapilacagini soyluyor", "scale=1568" in note, note[:250])
+    check("sorun yoksa uyari bos", C.oversize_note(shot((1280, 720))) == "")
+
+
 def test_cli_shot_dir() -> None:
     section("34. pcb-shot — dizin secimi ve temizlik")
     import os as _os
@@ -2997,6 +3073,8 @@ def main() -> int:
     test_cli_parse()
     test_cli_gate()
     test_cli_shot_text()
+    test_cli_shot_scale()
+    test_oversize_warning()
     test_cli_shot_dir()
     test_cli_stale_shot()
     test_computer_task_prompt()
