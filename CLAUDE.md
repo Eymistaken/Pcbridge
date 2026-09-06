@@ -302,6 +302,27 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   `shot="../.."` dizin dışına çıkardı. `shot` ile `monitor` birlikte
   verilemez: farklı uzaylar, sessizce birini seçmek tam da bu katmanın
   önlemeye çalıştığı hata olurdu.
+- **`shot` unutulursa çağrı reddediliyor, tahmin edilmiyor.** `shot` da
+  `monitor` da verilmemişse koordinat global sayılır — ama yakında
+  **küçültülmüş** bir çekim varsa ve koordinat onun kutusuna düşüyorsa bu
+  büyük olasılıkla unutulmuş bir kimliktir ve eylem sessizce yanlış ekrana
+  düşerdi (1536'lık bir görüntüden okunan (640, 360) sağdaki düğmeyi değil
+  **sol ekranın ortasını** gösterir). Belirsizlik çözülemez — (640, 360)
+  gerçekten de geçerli bir global koordinat — o yüzden `expect_focus`
+  desenindeki karar tekrarlandı: **niyeti söylet.** Red mesajı iki çıkış yolu
+  veriyor (`shot=` ya da `monitor=`), ikisi de zaten var olan parametreler.
+  Ölçüt üç koşulun kesişimi (yakın + küçültülmüş + kutu içinde), yani sağ
+  ekrana yapılan global çağrılar etkilenmiyor. `[desktop]
+  ambiguous_coord_guard = false` ile kapatılabilir.
+- **`screenshot_scale_long_edge` 1536** (2026-09-06'da 1280'den yükseltildi).
+  Ölçüldü: 1280'de küçük yazıdaki Türkçe diakritikler (ğ, ş) bulanıklaşıp
+  kayboluyor ve kelime tahmin edilerek okunuyor; 1536'da doğrudan okunuyor.
+  Bedeli görüntü başına ~540 jeton. **1568 tavanı hâlâ geçerli ve artık daha
+  sert:** API o sınırın üstünü kendisi küçültüyor, yani model indirilmiş
+  karedeki pikseli söylerken sunucu kayıtlı ölçeği uygular ve aradaki fark
+  (1920 için 1,22 kat) sessizce koordinata girer. Eskiden bu yalnızca
+  "raporlanan ölçek yanıltıcı olur" demekti; hesabı model yaptığı için
+  zararsızdı. `screen_capture` ve `pcb-shot` 1568 üstünde uyarı basıyor.
 - **`--out` ile alınan çekimin kaydı arama dizinine de yazılıyor.** `pcb-do`
   ayrı bir süreç ve `--out`u bilemez; kopyalanmasaydı `pcb-shot --out /baska`
   ile alınan görüntünün kimliği "böyle bir çekim yok" derdi (fiilen yaşandı).

@@ -63,6 +63,13 @@ Guidelines:
     user enabled them in the configuration.
   * Screenshots go stale. If you read coordinates off one, act on them right
     away — do not do other work in between.
+  * Coordinates you read off a screenshot MUST be sent with that image's
+    `shot` id (printed next to it, e.g. `m2-a1b2c3`). Give x/y exactly as you
+    see them in the picture; the server applies the offset and the scale. Do
+    not do that arithmetic yourself, and do not send such a coordinate without
+    the id — screenshots are scaled down, so a bare coordinate is read as a
+    global desktop position and the click lands somewhere else entirely. If a
+    coordinate really is a global or per-monitor one, pass `monitor` instead.
   * Always tell the user which directory you are working in.
 
 Desktop rules — these are not preferences:

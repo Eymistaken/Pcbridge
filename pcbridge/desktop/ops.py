@@ -61,6 +61,8 @@ class DeviceOps:
         # `shot=` kimliginin aranacagi dizinler. cfg'den BIR KEZ okunuyor;
         # her eylemde yeniden hesaplamak bir listeyi kirk kez kurmak olurdu.
         self.shot_dirs = list(cfg.shot_search_dirs)
+        self.guard_age = (float(cfg.desktop.agent_shot_max_age_seconds)
+                          if cfg.desktop.ambiguous_coord_guard else 0.0)
 
     def _global(self, x: int, y: int, monitor: int | None,
                 shot: str | None) -> tuple[int, int]:
@@ -70,7 +72,8 @@ class DeviceOps:
         `shot=` ayrica OLCEGI de uygular; ikisini de bilen tek yer orasi.
         """
         return capturelib.to_global(
-            x, y, monitor=monitor, shot=shot, dirs=self.shot_dirs
+            x, y, monitor=monitor, shot=shot, dirs=self.shot_dirs,
+            guard_age=self.guard_age,
         )
 
     # -------------------------------------------------------------- klavye

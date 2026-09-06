@@ -280,10 +280,15 @@ modeller bu aritmetiği tutturamıyordu: tıklama sistematik olarak hedefin
 kenarına düşüyor, bazen ofset bilgisi büsbütün kayboluyordu. Artık ajanın
 taşıdığı tek şey kimlik.
 
+Ajan kimliği vermeyi **unutursa** çağrı reddediliyor: sunucu yakında
+küçültülmüş bir çekim olduğunu görüp "bu koordinat o görüntüden mi geliyor,
+yoksa gerçekten ekranın o noktası mı" diye soruyor. Tahmin etmiyor, çünkü
+tahminin yanlış olması demek tıklamanın sessizce başka ekrana düşmesi demek.
+
 Geriye kalan tek sapma küçültmenin kendisinden geliyor: küçültülmüş bir
-görüntüde 1 piksel ekranda 1,5 piksele denk düşüyor (ölçüldü: ~5 px) — düğme
-için sorun değil. `ekranımı tam çözünürlükte göster` dersen küçültme yapılmaz,
-o sapma da kalmaz.
+görüntüde 1 piksel ekranda 1,25 piksele denk düşüyor — düğme için sorun değil.
+`ekranımı tam çözünürlükte göster` dersen küçültme yapılmaz; ama o görüntü
+**bakmak için**, koordinat çıkarmak için değil (ajan uyarısını görecek).
 
 ---
 

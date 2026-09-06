@@ -41,9 +41,10 @@ sonrakine geçme.
   kimliği ekle; ofseti ve ölçeği pcbridge kendisi uyguluyor:
   `{"a":"click","x":<görüntü_x>,"y":<görüntü_y>,"shot":"m2-a1b2c3"}`.
   Kimlik vermezsen koordinat **global tuval** koordinatı sayılır (sol üst
-  `(0,0)`, sağ ekran `x ≥ 1920`). O yol duruyor ama artık zor yol: görüntü
-  küçültülmüşse ofset **ve** ölçek hesabı sana kalır, ve o hesabın hatası
-  hiçbir yerde görünmez — tıklama sessizce hedefin kenarına düşer.
+  `(0,0)`, sağ ekran `x ≥ 1920`). Kimliği unutup görüntü koordinatı
+  gönderirsen `pcb-do` bunu fark edip **reddediyor** — hangisini kastettiğini
+  soruyor, tahmin etmiyor. Gerçekten global/monitör koordinatı veriyorsan
+  `"monitor": 1` (ya da 2) ekle; o zaman geçer.
 - Klavye düzeni Türkçe (`tr+intl`). `type` eylemi bunu kendisi hallediyor
   (pano üzerinden), sen düşünme.
 - `Super`'a bastıktan **sonra** pano bloklanıyor; genel bakış açıkken metin

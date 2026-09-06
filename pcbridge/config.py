@@ -138,7 +138,7 @@ class DesktopSpec:
     # Kirpma SONRASI uzun kenar. 3840x1080 tuval tek parca kuculturse her
     # monitor ~640x180 kaliyor ve buton yazilari okunmaz oluyor; bu yuzden once
     # monitor basina kirpiliyor, olcekleme ondan sonra. 0 = hic olcekleme.
-    screenshot_scale_long_edge: int = 1280
+    screenshot_scale_long_edge: int = 1536
     # /shot/<token>.png baglantisinin omru. Baglanti OAuth'tan BAGIMSIZ, yani
     # token'i olan herkes goruntuyu gorur -- kisa tutuluyor.
     shot_ttl_seconds: int = 300
@@ -191,6 +191,9 @@ class DesktopSpec:
     # tehlikeye bakiyor: goruntu bayatladiysa odak zaten hedef pencerede olmaz,
     # tiklama oraya duser ve "odak degisti" diye bir sey olmaz.
     agent_shot_max_age_seconds: int = 60
+    # `shot` verilmeden koordinat gonderildiginde, yakinda KUCULTULMUS bir
+    # cekim varsa ve koordinat onun icine dusuyorsa cagriyi reddet.
+    ambiguous_coord_guard: bool = True
 
 
 @dataclass
@@ -541,7 +544,7 @@ def load_config(explicit: str | None = None) -> Config:
         pointer_move_max_ms=int(desktop_raw.get("pointer_move_max_ms", 500)),
         hold_max_seconds=int(desktop_raw.get("hold_max_seconds", 120)),
         screenshot_scale_long_edge=int(
-            desktop_raw.get("screenshot_scale_long_edge", 1280)
+            desktop_raw.get("screenshot_scale_long_edge", 1536)
         ),
         shot_ttl_seconds=int(desktop_raw.get("shot_ttl_seconds", 300)),
         shot_keep_hours=int(desktop_raw.get("shot_keep_hours", 24)),
@@ -559,6 +562,9 @@ def load_config(explicit: str | None = None) -> Config:
         computer_task_effort=str(desktop_raw.get("computer_task_effort", "")),
         computer_task_max_steps=int(desktop_raw.get("computer_task_max_steps", 25)),
         agent_shot_dir=str(desktop_raw.get("agent_shot_dir", "")),
+        ambiguous_coord_guard=bool(
+            desktop_raw.get("ambiguous_coord_guard", True)
+        ),
         agent_shot_max_age_seconds=int(
             desktop_raw.get("agent_shot_max_age_seconds", 60)
         ),

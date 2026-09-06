@@ -247,6 +247,9 @@ def register(
     # `pcb-shot`unki). Ikisi de arandigi icin ajan hangi yoldan bakmis
     # oldugunu hatirlamak zorunda degil.
     shot_dirs = list(cfg.shot_search_dirs)
+    # `shot` unutuldugunda supheli koordinati reddetme penceresi. 0 = kapali.
+    guard_age = (float(cfg.desktop.agent_shot_max_age_seconds)
+                 if cfg.desktop.ambiguous_coord_guard else 0.0)
 
     def _to_global(x: int, y: int, monitor: int | None, shot: str | None):
         """Koordinati global uzaya cevir — TEK GECIT (`capture.to_global`).
@@ -256,7 +259,8 @@ def register(
         piksel sola tiklanir.
         """
         return capturelib.to_global(
-            x, y, monitor=monitor, shot=shot, dirs=shot_dirs
+            x, y, monitor=monitor, shot=shot, dirs=shot_dirs,
+            guard_age=guard_age,
         )
 
     def _stale_note(shot: str | None) -> str:

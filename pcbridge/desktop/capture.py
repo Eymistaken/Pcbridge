@@ -181,6 +181,16 @@ class Shot:
             self.offset[1] + round(y / self.scale),
         )
 
+    def covers_image_point(self, x: int, y: int) -> bool:
+        """(x, y) BU goruntunun piksel kutusunun icinde mi?
+
+        "Verilen koordinat aslinda bir goruntu koordinati olabilir mi"
+        sorusunun olcutu. Kesinlik iddiasi yok -- (640, 360) hem 1280x720
+        bir cekimin ortasi hem gecerli bir global koordinat olabilir; ayirt
+        etmenin yolu yok, o yuzden karar SORULUYOR.
+        """
+        return 0 <= x < self.scaled[0] and 0 <= y < self.scaled[1]
+
     @property
     def age(self) -> float:
         """Cekimin uzerinden gecen saniye. `taken_at` yoksa 0."""
@@ -280,6 +290,48 @@ def load_shot(shot_id: str, dirs: Sequence[Path]) -> Shot:
     )
 
 
+def newest_scaled_shot(
+    dirs: Sequence[Path], max_age: float
+) -> Shot | None:
+    """Son `max_age` saniyede alinmis, KUCULTULMUS en yeni cekim.
+
+    Olcegi 1.0 olan cekimler aranmiyor: orada goruntu koordinati ile global
+    koordinat arasindaki fark yalnizca ofset, ve ofset zaten `monitor=`in
+    isi. Belirsizligi yaratan sey kucultme.
+    """
+    best: Shot | None = None
+    for directory in dirs or ():
+        try:
+            metas = list(Path(directory).glob(f"*{META_SUFFIX}"))
+        except OSError:
+            continue
+        for meta in metas:
+            if not SHOT_ID_RE.match(meta.stem):
+                continue
+            try:
+                found = load_shot(meta.stem, [directory])
+            except CaptureError:
+                continue
+            if found.scale >= 1.0 or found.offset is None:
+                continue
+            if found.age > max_age:
+                continue
+            if best is None or found.taken_at > best.taken_at:
+                best = found
+    return best
+
+
+AMBIGUOUS_NOTE = (
+    "⛔ Koordinat ({x}, {y}) BELIRSIZ. {age} saniye once kucultulmus bir ekran "
+    "goruntusu aldiniz (`{id}`, {w}x{h}, olcek {scale:.3f}) ve bu koordinat o "
+    "goruntunun icinde kaliyor -- ama ne `shot` ne `monitor` verdiniz, yani "
+    "GLOBAL tuval koordinati sayilacak ve eylem {where} duserdi.\n"
+    '  · Koordinati o goruntuden okuduysaniz:  shot="{id}"\n'
+    "  · Gercekten global/monitor koordinatiysa: monitor=<numara>\n"
+    "Ikisinden birini secin; hangisini kastettiginizi tahmin etmiyoruz."
+)
+
+
 def to_global(
     x: int,
     y: int,
@@ -287,6 +339,7 @@ def to_global(
     monitor: int | str | None = None,
     shot: str | None = None,
     dirs: Sequence[Path] | None = None,
+    guard_age: float = 0.0,
 ) -> tuple[int, int]:
     """Verilen koordinati global tuval koordinatina cevir. TEK GECIT.
 
@@ -318,6 +371,26 @@ def to_global(
                 "goruntusu alin (`monitor='all'`) ya da `ui_click` kullanin."
             )
         return point
+
+    if monitor is None and guard_age > 0:
+        # BELIRSIZ KOORDINAT KORUMASI. `shot` da `monitor` da yoksa koordinat
+        # global sayilir -- ama yakinda kucultulmus bir cekim varsa ve
+        # koordinat onun icine dusuyorsa, bu buyuk olasilikla `shot`u unutmus
+        # bir cagridir ve sessizce YANLIS YERE tiklanir.
+        #
+        # Ayni ders `batch.py`de yaziyor: cozum korumayi kapatmak degil,
+        # NIYETI SOYLETMEK (`expect_focus`). Kaza tam da beyan edilmemis bir
+        # niyetten cikmisti.
+        recent = newest_scaled_shot(dirs or (), guard_age)
+        if recent is not None and recent.covers_image_point(x, y):
+            land = monitorslib.find_monitor(x, y)
+            where = (f"monitor {land.index} ({land.connector}) uzerine"
+                     if land else "tuvalin disina")
+            raise CaptureError(AMBIGUOUS_NOTE.format(
+                x=x, y=y, age=int(recent.age), id=recent.id,
+                w=recent.scaled[0], h=recent.scaled[1], scale=recent.scale,
+                where=where,
+            ))
     return monitorslib.to_global(x, y, monitor)
 
 

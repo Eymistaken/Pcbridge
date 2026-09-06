@@ -8,7 +8,8 @@ kaydı. Sıra korunuyor: **her adım bitince durulur, bildirilir, onay beklenir.
 | 1 | Koordinat dönüşümünü sunucuya taşı | ✅ bitti — `e2ac8b2` |
 | 2 | Ekran görüntüsü temizliği gerçekten uygulansın | ✅ bitti — `e1a2ee7` |
 | 3a | `pcb-shot` ölçeği config'ten okusun | ✅ bitti |
-| 3b | `screenshot_scale_long_edge` 1280 → 1536? | ⏸️ **kararınızı bekliyor** |
+| 3b | `screenshot_scale_long_edge` 1280 → 1536 | ✅ bitti |
+| 4 | `shot` unutulursa reddet + instructions | ✅ bitti |
 
 Onaylanan tasarım kararları: **çekim kimliği (`shot=`)** yolu · `pcb-shot`
 ölçeği **config'ten** okusun · CLI (`pcb-shot` / `pcb-do`) Adım 1 kapsamında.
@@ -242,9 +243,11 @@ Uyarı `screen_capture` ve `pcb-shot` çıktılarında, kullanım talimatının
 > Kaymanın kendisi ölçülmedi — ölçmek için modelin ham piksel tahminini
 > yalıtmak gerekir ve o tahminin kendi hata payı bu etkiyle karışır.
 
-### (b) `screenshot_scale_long_edge` 1280 → 1536 ⏸️
+### (b) `screenshot_scale_long_edge` 1280 → 1536 ✅
 
-**Karar sizin.** Değiştirilmedi.
+**Onaylandı ve uygulandı.** `config.py` varsayılanı ve `config.example.toml`
+1536 oldu; `config.toml` bu satırı taşımıyor, yani varsayılandan geliyor.
+Doğrulandı: `pcb-shot` ve `screen_capture` artık `1536×864`, ölçek 0,800.
 
 Aynı tam çözünürlük çekimi üç ölçeğe indirilip karşılaştırıldı (ard arda
 çekimlerde ekran değiştiği için tek kareden üretmek daha adil):
@@ -278,6 +281,70 @@ içindeki bir satır; kod zaten ayarı okuyor.
 
 `config.example.toml` (iki yolun da bu ayarı kullandığı + 1568 gerekçesi) ·
 `skills/computer-use/SKILL.md` (ölçek notu ve `--scale 0` uyarısı).
+
+---
+
+---
+
+## ADIM 4 — `shot` unutulursa ne olacak ✅
+
+### Sorun
+
+Adım 1'in bıraktığı kalıntı risk: model `shot` vermeyi **unutursa** koordinat
+global sayılır ve eylem sessizce yanlış yere gider. 1536'lık bir görüntüden
+okunan (640, 360) sağ ekrandaki düğmeyi değil **sol ekranın ortasını**
+gösterir — ve hiçbir yerde hata görünmez.
+
+### İki katman
+
+**1. Söyleme.** MCP `instructions` (istemcinin sistem promptuna gidiyor)
+artık koordinat kuralını açıkça yazıyor: ekran görüntüsünden okunan koordinat
+`shot` ile gönderilmeli, aritmetik yapılmamalı, çıplak koordinat global
+sayılıp tıklama başka yere düşer.
+
+**2. Reddetme.** Söylemek zorlamak değil. Dört koşul birden doğruysa çağrı
+durur:
+
+- `shot` yok, `monitor` yok
+- Son 60 saniyede **küçültülmüş** bir çekim var (`scale < 1.0`)
+- Koordinat o çekimin ölçekli kutusunun içinde
+
+Belirsizlik **çözülemez** — (640, 360) gerçekten de geçerli bir global
+koordinat. O yüzden tahmin edilmiyor, soruluyor. Bu, `batch.py`'nin
+`expect_focus` kararının aynısı: *"çözüm korumayı kapatmak değil, niyeti
+söyletmek; kaza tam da beyan edilmemiş bir niyetten çıkmıştı."*
+
+Red mesajı iki çıkış yolu veriyor, ikisi de **zaten var olan** parametreler:
+
+```
+⛔ Koordinat (640, 360) BELIRSIZ. 2 saniye once kucultulmus bir ekran
+   goruntusu aldiniz (`m2-bb424f`, 1536x864, olcek 0.800) ve bu koordinat o
+   goruntunun icinde kaliyor -- ama ne `shot` ne `monitor` verdiniz, yani
+   GLOBAL tuval koordinati sayilacak ve eylem monitor 1 (DP-4) uzerine duserdi.
+     · Koordinati o goruntuden okuduysaniz:  shot="m2-bb424f"
+     · Gercekten global/monitor koordinatiysa: monitor=<numara>
+   Ikisinden birini secin; hangisini kastettiginizi tahmin etmiyoruz.
+```
+
+Ölçüt üçünün kesişimi olduğu için dar: sağ ekrana yapılan global çağrılar
+(x ≥ 1536) hiç etkilenmiyor, ölçeksiz çekimler belirsizlik yaratmıyor, bayat
+çekimler sayılmıyor. `[desktop] ambiguous_coord_guard = false` ile kapanır.
+
+**Yanlış pozitif kabul edildi:** gerçekten global koordinat veren bir çağrı
+bir tur kaybeder ve `monitor=` ile tekrar dener. Sessiz yanlış tıklamadan iyi
+bir takas — 2026-08-02'de masaüstündeki 23 öğe tam da böyle gitti.
+
+### Gerçek makine doğrulaması — 2026-09-06
+
+| senaryo | sonuç |
+|---|---|
+| Varsayılan ölçek | `1536×864`, ölçek 0,800 ✅ |
+| `move (640,360)` — **`shot` unutulmuş** | **reddedildi**, gerekçe çekimi ve iki yolu söylüyor ✅ |
+| `move (640,360)` + `shot` | `(2720, 450)` ✅ |
+| `move (640,360)` + `monitor=1` | `(640, 360)` — niyet beyan edilmiş, geçti ✅ |
+| `move (2880,540)` — kutu dışı global | dokunulmadı ✅ |
+| MCP `instructions`'ta kural | var ✅ |
+| `mouse` ve `computer_batch`, `shot` unutulmuş | ikisi de reddetti ✅ |
 
 ---
 

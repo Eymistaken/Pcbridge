@@ -788,6 +788,100 @@ def test_shot_lookup() -> None:
         _sh.rmtree(tmp, ignore_errors=True)
 
 
+def test_ambiguous_guard() -> None:
+    """`shot` unutuldugunda supheli koordinat reddediliyor mu.
+
+    Kalan risk buydu: model kucultulmus bir goruntudeki (640, 360) noktasini
+    `shot` vermeden gonderirse koordinat GLOBAL sayilir ve tiklama sag ekran
+    yerine SOL ekranin ortasina duser -- hicbir hata gorunmeden.
+
+    Belirsizlik cozulemez ((640, 360) gercekten de gecerli bir global
+    koordinat), o yuzden tahmin edilmiyor SORULUYOR. Ayni ders `batch.py`de
+    yaziyor: cozum korumayi kapatmak degil, niyeti soyletmek.
+    """
+    section("50. Cekim kimligi — belirsiz koordinat korumasi")
+    from pcbridge.desktop import capture as C
+
+    tmp = Path(tempfile.mkdtemp(prefix="pcb-guard-"))
+    try:
+        mon = M._ordered(TWO_SCREENS)[1]
+
+        def kaydet(sid, scale, yas=0.0, scaled=(1280, 720)):
+            sh = C.Shot(path=tmp / f"{sid}.png", monitor=mon, offset=(1920, 0),
+                        size=(1920, 1080), scaled=scaled, scale=scale,
+                        id=sid, taken_at=time.time() - yas)
+            C.save_meta(sh, tmp)
+            return sh
+
+        kaydet("m2-aaaaaa", 1280 / 1920)
+
+        # -- reddedilmesi gerekenler --------------------------------------
+        try:
+            C.to_global(640, 360, dirs=[tmp], guard_age=60)
+            check("goruntu kutusundaki koordinat reddediliyor", False, "hata yok")
+        except C.CaptureError as exc:
+            check("goruntu kutusundaki koordinat reddediliyor",
+                  "BELIRSIZ" in str(exc), str(exc)[:70])
+            check("gerekce hangi cekimi kastettigini soyluyor",
+                  "m2-aaaaaa" in str(exc), str(exc)[:200])
+            check("gerekce nereye duseceğini soyluyor",
+                  "monitor 1" in str(exc), str(exc)[:300])
+            check("gerekce IKI cikis yolu veriyor",
+                  'shot="m2-aaaaaa"' in str(exc) and "monitor=" in str(exc),
+                  str(exc)[-200:])
+
+        # -- gecmesi gerekenler -------------------------------------------
+        check("shot verilince gecer",
+              C.to_global(640, 360, shot="m2-aaaaaa", dirs=[tmp],
+                          guard_age=60) == (2880, 540))
+        check("monitor verilince gecer (niyet beyan edilmis)",
+              C.to_global(640, 360, monitor=2, dirs=[tmp],
+                          guard_age=60) == (2560, 360))
+        # Goruntu kutusunun DISINDA: bu bir goruntu koordinati OLAMAZ.
+        check("kutu disindaki koordinat gecer",
+              C.to_global(2880, 540, dirs=[tmp], guard_age=60) == (2880, 540))
+        check("y kutu disinda ise gecer",
+              C.to_global(640, 900, dirs=[tmp], guard_age=60) == (640, 900))
+        check("guard kapaliyken gecer (geriye donuk)",
+              C.to_global(640, 360, dirs=[tmp], guard_age=0) == (640, 360))
+
+        # -- yas: bayat cekim supheli sayilmaz -----------------------------
+        import shutil as _sh0
+
+        _sh0.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir(parents=True, exist_ok=True)
+        kaydet("m2-bbbbbb", 1280 / 1920, yas=600)
+        check("600 sn once alinmis cekim supheli saymiyor",
+              C.to_global(640, 360, dirs=[tmp], guard_age=60) == (640, 360))
+
+        # -- olcek 1.0: belirsizlik YOK (fark yalnizca ofset) --------------
+        _sh0.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir(parents=True, exist_ok=True)
+        kaydet("m2-cccccc", 1.0, scaled=(1920, 1080))
+        check("olceklenmemis cekim supheli saymiyor",
+              C.to_global(640, 360, dirs=[tmp], guard_age=60) == (640, 360))
+
+        # -- en YENI olcekli cekim esas aliniyor ---------------------------
+        _sh0.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir(parents=True, exist_ok=True)
+        kaydet("m2-dddddd", 1280 / 1920, yas=30)
+        yeni = kaydet("m2-eeeeee", 800 / 1920, yas=1, scaled=(800, 450))
+        got = C.newest_scaled_shot([tmp], 60)
+        check("en yeni olcekli cekim seciliyor", got is not None and got.id == yeni.id,
+              got.id if got else "None")
+        # (640, 360) yeni cekimin (800x450) icinde -> yine reddedilmeli
+        try:
+            C.to_global(640, 360, dirs=[tmp], guard_age=60)
+            check("yeni cekime gore de reddediliyor", False, "hata yok")
+        except C.CaptureError as exc:
+            check("yeni cekime gore de reddediliyor", "m2-eeeeee" in str(exc),
+                  str(exc)[:120])
+    finally:
+        import shutil as _sh
+
+        _sh.rmtree(tmp, ignore_errors=True)
+
+
 def test_shot_ops_wiring() -> None:
     """`DeviceOps` donusumu GERCEKTEN tek gecide baglamis mi.
 
@@ -1033,8 +1127,13 @@ def test_capture_config_defaults() -> None:
     from pcbridge.config import load_config
 
     d = load_config(str(ROOT / "config.example.toml")).desktop
-    check("uzun kenar 1280", d.screenshot_scale_long_edge == 1280,
+    check("uzun kenar 1536", d.screenshot_scale_long_edge == 1536,
           str(d.screenshot_scale_long_edge))
+    # 1568 Anthropic'in kucultme esigi: ustune cikilirsa `shot` hesabi sessizce
+    # sasar (bkz. bolum 49). Varsayilan HER ZAMAN altinda kalmali.
+    check("varsayilan 1568 esiginin altinda",
+          d.screenshot_scale_long_edge < 1568, str(d.screenshot_scale_long_edge))
+    check("belirsiz koordinat korumasi acik", d.ambiguous_coord_guard is True)
     check("baglanti omru 5 dakika", d.shot_ttl_seconds == 300, str(d.shot_ttl_seconds))
     check("dosyalar 24 saat tutuluyor", d.shot_keep_hours == 24, str(d.shot_keep_hours))
     check("imlec varsayilan olarak dahil", d.include_pointer is True, str(d.include_pointer))
@@ -2217,7 +2316,7 @@ def test_cli_shot_scale() -> None:
     from pcbridge.config import load_config
 
     d = load_config(str(ROOT / "config.example.toml")).desktop
-    check("ornek config'te tek deger var", d.screenshot_scale_long_edge == 1280,
+    check("ornek config'te tek deger var", d.screenshot_scale_long_edge == 1536,
           str(d.screenshot_scale_long_edge))
     check("1568 sinirinin altinda", d.screenshot_scale_long_edge < 1568,
           str(d.screenshot_scale_long_edge))
@@ -3051,6 +3150,7 @@ def main() -> int:
     test_capture_scaling()
     test_capture_crop_offsets()
     test_shot_lookup()
+    test_ambiguous_guard()
     test_shot_ops_wiring()
     test_shot_store()
     test_capture_sweeps()

@@ -240,10 +240,18 @@ hold_max_seconds = 120
 # (ayni ekran, iki farkli piksel uzayi); `pcb-shot --scale` ile tek seferlik
 # baskalastirilabilir.
 #
-# 1280 secilirken olcut suydu: Anthropic API uzun kenari 1568'e indiriyor, o
-# sinirin altinda kalmak modelin GORDUGU piksel ile raporlanan olcegin ayni
-# kalmasini garantiliyor. 1536'ya kadar bu garanti bozulmuyor.
-screenshot_scale_long_edge = 1280
+# ONEMLI SINIR: Anthropic API uzun kenari 1568'i asan goruntuleri KENDISI
+# kuculturuyor. Bu sinirin ustune cikmak yalnizca "raporlanan olcek yaniltici
+# olur" demek degil: koordinat donusumunu artik sunucu yapiyor, yani model
+# 1568'e indirilmis karedeki pikseli soyler, sunucu kayitli olcegi uygular ve
+# aradaki fark (1920 icin 1,22 kat) SESSIZCE koordinata girer. 1568 ustu
+# degerlerde `screen_capture` ve `pcb-shot` bunu uyari olarak basiyor;
+# o goruntuler bakmak icindir, koordinat cikarmak icin degil.
+#
+# 1536 olculerek secildi (2026-09-06): 1280'de kucuk yazidaki Turkce
+# diakritikler (ğ, ş) bulaniklasip kayboluyor ve kelime tahmin edilerek
+# okunuyor; 1536'da dogrudan okunuyor. Bedeli goruntu basina ~540 jeton.
+screenshot_scale_long_edge = 1536
 
 # /shot/<token>.png baglantisinin omru (saniye). Bu baglanti OAuth'tan
 # BAGIMSIZ: token'i olan herkes goruntuyu gorur, o yuzden paylasmayin.
@@ -342,6 +350,21 @@ computer_task_max_steps = 25
 # UYGULAMA.md /tmp/pcb diyor; sapma bilincli: /tmp mod 775 yani herkese
 # okunur, ekran goruntusu ise bu projenin en gizlilik-hassas ciktisi.
 agent_shot_dir = ""
+
+# `shot` VERILMEDEN koordinat gonderildiginde: yakinda kucultulmus bir cekim
+# varsa ve koordinat o goruntunun kutusuna dusuyorsa cagriyi REDDET.
+#
+# Sebep: `shot` unutuldugunda koordinat global sayilir ve eylem sessizce
+# yanlis yere duser -- 1280'lik bir goruntuden okunan (640, 360) sag ekrandaki
+# bir dugmeyi degil SOL ekranin ortasini gosterir. Belirsizligi coz(e)meyiz
+# ((640, 360) gercekten de gecerli bir global koordinat), o yuzden tahmin
+# etmek yerine soruyoruz: `shot=` mi `monitor=` mi.
+#
+# Yanlis pozitif mumkun: gercekten global koordinat veren bir cagri bir tur
+# kaybeder ve `monitor=` ile tekrar dener. Sessiz yanlis tiklamadan iyi bir
+# takas -- 2026-08-02'de masaustundeki 23 oge tam da boyle gitti.
+# Yas olcutu asagidaki `agent_shot_max_age_seconds`ten geliyor.
+ambiguous_coord_guard = true
 
 # KOORDINATLI bir pcb-do eylemi gonderilirken en yeni ekran goruntusu en fazla
 # bu kadar saniye eski olabilir. 0 = kontrol kapali.
