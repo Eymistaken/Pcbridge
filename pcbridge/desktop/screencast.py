@@ -12,6 +12,22 @@ NEDEN AYRI BIR SUREC VAR
     Yan fayda: yayin o surecte yasiyor. Surec olurse yayin da oluyor, yani
     pcbridge cokerse ekran paylasimi acik kalmiyor.
 
+BASKA SURECIN YAYINI (olculdu 2026-09-06)
+    Yardimci sureci ACAN surec onun tutamagini KENDI belleginde tutuyor, yani
+    `ScreenCast.close()` yalnizca kendi yayinini kapatabiliyor. Bu bir boslugu
+    ortaya cikardi: `bridgekilit` (`cli.lock`) ayri bir surec, izin dosyasini
+    kapatiyor ama BASKA bir surecin acik yayinina dokunamiyor. Ayni sey
+    telefondan gelen `desktop_lock` icin de gecerliydi -- servis kendi
+    yayinini kapatir, ayni anda calisan bir `--stdio` istemcisininki acik
+    kalirdi.
+    Belirtisi: izin kapali (`desktop_unlock.json` -> `until: 0`) ama ust
+    cubuktaki paylasim gostergesi DURUYOR. Kullanici bunu gordu ve sordu.
+    Gosterge "ajan ekranini gorebiliyor" demek; acil kapatmadan sonra durmasi
+    ya erisimin surdugu ya da gostergenin yalan soyledigi anlamina gelir --
+    ikisi de kabul edilemez.
+    Cozum: `kill_helpers()` /proc'u tarayip HELPER'i calistiran butun
+    surecleri sonlandiriyor. Acil kapatma zaten "hepsini durdur" demek.
+
 OLCULDU 2026-08-03 (bu makine, yayin ACIKKEN ardisik 12 cekim)
     DP-1: 312-332 ms (8 cekim, tutarli)
     DP-2:  77- 87 ms (4 cekim, tutarli)
@@ -31,6 +47,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import threading
 from pathlib import Path
@@ -81,6 +98,50 @@ def available() -> tuple[bool, str]:
             "gstreamer1.0-plugins-good python3-gi"
         )
     return True, ""
+
+
+def kill_helpers(proc_root: str | Path = "/proc") -> int:
+    """HELPER'i calistiran BUTUN surecleri sonlandir -> sonlandirilan sayisi.
+
+    Neden /proc taramasi da PID dosyasi degil: yayini acan surec kayit
+    tutmayi unutabilir ya da cokebilir, ve ayni anda birden fazla yayin
+    olabiliyor (MCP sunucusu kalici bir tane tutuyor, `pcb-shot` her
+    cagrisinda kisa omurlu bir tane aciyor). Tarama yetim surecleri de
+    yakaliyor.
+
+    YALNIZCA kendi kullanicimizin surecleri ve cmdline'inda HELPER'in TAM
+    yolu gecenler. Baskasinin sureci sonlandirilmaz.
+    """
+    root = Path(proc_root)
+    target = str(HELPER)
+    me = os.getuid()
+    killed = 0
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return 0
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            if entry.stat().st_uid != me:
+                continue
+            cmdline = (entry / "cmdline").read_bytes().decode(
+                "utf-8", "replace"
+            ).split("\0")
+        except OSError:
+            continue
+        if target not in cmdline:
+            continue
+        pid = int(entry.name)
+        if pid == os.getpid():  # pragma: no cover — kendimizi vurmayalim
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+            killed += 1
+        except OSError:
+            continue
+    return killed
 
 
 class ScreenCast:

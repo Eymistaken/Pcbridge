@@ -2956,6 +2956,84 @@ def test_screencast_backend() -> None:
               "apt install" in why or "python" in why, why[:90])
 
 
+def test_kill_helpers() -> None:
+    """Ayri surecte yasayan yayin, `bridgekilit` ile gercekten oluyor mu.
+
+    BULUNAN BOSLUK (2026-09-06, kullanici fark etti): yardimci sureci ACAN
+    surec onun tutamagini kendi belleginde tutuyor, yani `ScreenCast.close()`
+    yalnizca kendi yayinini kapatabiliyor. `cli.lock` ayri bir surec: izin
+    dosyasini kapatiyordu ama baska bir surecin acik yayinina dokunamiyordu.
+    Belirti: izin kapali ama ust cubuktaki PAYLASIM GOSTERGESI duruyor.
+
+    Tarama /proc uzerinden yapiliyor, o yuzden testte sahte bir /proc agaci
+    kuruluyor: gercek surec oldurmeden secim mantigi sinaniyor.
+    """
+    section("51. Ekran yayini — baska surecin yayinini durdurma")
+    import os as _os
+
+    from pcbridge.desktop import screencast as SC
+
+    tmp = Path(tempfile.mkdtemp(prefix="pcb-proc-"))
+    oldurulen: list[int] = []
+    real_kill = _os.kill
+    try:
+        def sahte_proc(pid: int, cmdline: list[str]) -> None:
+            d = tmp / str(pid)
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "cmdline").write_bytes(b"\0".join(c.encode() for c in cmdline))
+
+        helper = str(SC.HELPER)
+        sahte_proc(1001, ["python3", helper])                 # hedef
+        sahte_proc(1002, ["python3", helper, "--x"])          # hedef
+        sahte_proc(1003, ["python3", "/baska/betik.py"])      # HEDEF DEGIL
+        sahte_proc(1004, ["/usr/bin/gnome-shell"])            # HEDEF DEGIL
+        # Ad benzerligi yetmez: TAM yol eslesmeli, yoksa baskasinin
+        # "screencast_helper.py" adli baska bir betik de vurulurdu.
+        sahte_proc(1005, ["python3", "/tmp/screencast_helper.py"])
+        (tmp / "self").mkdir()                                # sayi degil, atlanmali
+        (tmp / "sys").mkdir()
+
+        _os.kill = lambda pid, sig: oldurulen.append(pid)
+        n = SC.kill_helpers(proc_root=tmp)
+        check("yalnizca HELPER'i calistiranlar sonlandirildi",
+              sorted(oldurulen) == [1001, 1002], str(sorted(oldurulen)))
+        check("sayi dogru donuyor", n == 2, str(n))
+        check("baska betik dokunulmadi", 1003 not in oldurulen)
+        check("gnome-shell dokunulmadi", 1004 not in oldurulen)
+        check("ayni ADLI baska yol dokunulmadi", 1005 not in oldurulen,
+              "tam yol eslesmesi sart")
+
+        # Baskasinin sureci: uid uyusmuyorsa atlanmali. (chown yapamayiz, o
+        # yuzden stat'i tasliyoruz.)
+        oldurulen.clear()
+        real_stat = Path.stat
+
+        def sahte_stat(self, *a, **k):
+            st = real_stat(self, *a, **k)
+            if self.name == "1001":
+                class Fake:
+                    st_uid = 65534  # nobody
+                return Fake()
+            return st
+
+        Path.stat = sahte_stat
+        try:
+            SC.kill_helpers(proc_root=tmp)
+        finally:
+            Path.stat = real_stat
+        check("baska kullanicinin sureci dokunulmadi",
+              oldurulen == [1002], str(oldurulen))
+
+        # Okunamayan /proc: patlamak yerine 0 donmeli
+        check("olmayan /proc 0 donuyor",
+              SC.kill_helpers(proc_root=tmp / "yok") == 0)
+    finally:
+        _os.kill = real_kill
+        import shutil as _sh
+
+        _sh.rmtree(tmp, ignore_errors=True)
+
+
 def test_real_screencast() -> None:
     """GERCEK ekran yayini. PCBRIDGE_TEST_CAPTURE=1 ile acilir.
 
@@ -3183,6 +3261,7 @@ def main() -> int:
     test_hold_tracking()
     test_real_hold()
     test_screencast_backend()
+    test_kill_helpers()
     test_real_screencast()
     test_real_batch()
     print(f"\n\033[1m{ok_count} gecti, {fail_count} kaldi\033[0m")

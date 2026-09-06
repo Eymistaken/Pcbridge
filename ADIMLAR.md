@@ -10,6 +10,7 @@ kaydı. Sıra korunuyor: **her adım bitince durulur, bildirilir, onay beklenir.
 | 3a | `pcb-shot` ölçeği config'ten okusun | ✅ bitti |
 | 3b | `screenshot_scale_long_edge` 1280 → 1536 | ✅ bitti |
 | 4 | `shot` unutulursa reddet + instructions | ✅ bitti |
+| 5 | Yayın kapatma boşluğu (gösterge kalıyordu) | ✅ bitti |
 
 Onaylanan tasarım kararları: **çekim kimliği (`shot=`)** yolu · `pcb-shot`
 ölçeği **config'ten** okusun · CLI (`pcb-shot` / `pcb-do`) Adım 1 kapsamında.
@@ -345,6 +346,61 @@ bir takas — 2026-08-02'de masaüstündeki 23 öğe tam da böyle gitti.
 | `move (2880,540)` — kutu dışı global | dokunulmadı ✅ |
 | MCP `instructions`'ta kural | var ✅ |
 | `mouse` ve `computer_batch`, `shot` unutulmuş | ikisi de reddetti ✅ |
+
+---
+
+## ADIM 5 — Kapatmaya rağmen duran paylaşım göstergesi ✅
+
+Kullanıcı fark etti: `desktop_lock` çağrıldıktan sonra üst çubuktaki turuncu
+**ekran paylaşımı göstergesi duruyordu.** Bu işin ürünü değil, önceden var
+olan bir boşluk — ama benim "izni kapattım" raporum onu görmemişti.
+
+### Teşhis
+
+| gözlem | değer |
+|---|---|
+| `desktop_unlock.json` | `{"until": 0, "hard_until": 0}` → izin **kapalı** |
+| `screencast_helper.py` süreci | **yaşıyor** (PID 169158) |
+| Ebeveyni | PID 20924 — bir gün önce başlamış bir `--stdio` süreci |
+
+Yardımcı süreç, onu **başlatan** sürecin `Popen` tutamağında yaşıyor. Yani
+`ScreenCast.close()` yalnızca kendi yayınını kapatabiliyor. `bridgekilit`
+(`cli.lock`) ayrı bir süreç: izin dosyasını kapatıyor ama başka bir sürecin
+`ScreenCast` nesnesine ulaşamıyor.
+
+Aynı boşluk telefondan da açıktı: HTTP'den `desktop_lock` denildiğinde servis
+kendi yayınını kapatır, aynı anda çalışan bir stdio istemcisininki açık
+kalırdı.
+
+**Neden önemli:** gösterge "ajan ekranını görebiliyor" demek. Acil kapatmadan
+sonra durması ya erişimin sürdüğü ya da göstergenin yalan söylediği anlamına
+gelir. İkincisi bile kabul edilemez — göstergeye güven kalmaz.
+
+### Düzeltme
+
+`screencast.kill_helpers()` `/proc`'u tarayıp yardımcıyı çalıştıran bütün
+süreçleri sonlandırıyor. Ölçüt iki koşulun kesişimi: süreç **bizim
+kullanıcımıza** ait olacak ve cmdline'ında yardımcının **tam yolu** geçecek —
+`/tmp/screencast_helper.py` adlı başka bir betik vurulmaz.
+
+PID dosyası yerine `/proc` taraması seçildi: yayını açan süreç kayıt tutmayı
+unutabilir ya da çökebilir, ayrıca aynı anda birden fazla yayın olabiliyor
+(MCP sunucusu kalıcı bir tane tutuyor, `pcb-shot` her çağrısında kısa ömürlü
+bir tane açıyor). Tarama yetim süreçleri de yakalıyor.
+
+`desktop_lock` ve `cli.lock` ikisi de çağırıyor.
+
+### Doğrulama — 2026-09-06
+
+| senaryo | sonuç |
+|---|---|
+| Ayrı süreç yayın açtı, `bridgekilit` çalıştırıldı | `· 1 ekran yayini durduruldu`, helper öldü ✅ |
+| A süreci yayın açtı, **B süreci** `desktop_lock` dedi | `· 1 yardımcı süreç durduruldu`, helper öldü ✅ |
+| Kapatma sonrası `/proc` sayımı | **0** yardımcı süreç ✅ |
+
+Seçim mantığı sahte bir `/proc` ağacıyla ayrıca test edildi (bölüm 51): başka
+betik, `gnome-shell`, aynı adlı farklı yol ve başka kullanıcının süreci —
+hiçbirine dokunulmuyor.
 
 ---
 

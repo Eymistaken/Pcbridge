@@ -1,9 +1,20 @@
-"""Masaustu iznini kapat. Servis dururken `ExecStopPost` bunu cagiriyor.
+"""Masaustu iznini kapat VE ekran yayinini durdur.
+
+Servis dururken `ExecStopPost` bunu cagiriyor; kullanici `bridgekilit` ile
+elle de cagiriyor.
 
 Neden gerekli: izin durumu DISKTE (`state_dir/desktop_unlock.json`) ve
 sunucudan bagimsiz calisan `bin/pcb-do` de oradan okuyor. pcbridge oldukten
 sonra diskte kalmis acik bir izin, elle calistirilan bir `pcb-do`'yu hala
 yetkilendirirdi.
+
+YAYIN DA KAPATILIYOR (2026-09-06'da eklendi, kullanici fark etti)
+    Izin dosyasini kapatmak yetmiyordu: yayin `screencast_helper.py`
+    surecinde yasiyor ve tutamagi ONU ACAN surecin belleginde. `cli.lock`
+    ayri bir surec, o nesneye ulasamiyor. Sonuc: izin kapali ama ust
+    cubuktaki PAYLASIM GOSTERGESI duruyordu. Gosterge "ajan ekranini
+    gorebiliyor" demek; acil kapatmadan sonra durmasi ya erisimin surdugu ya
+    da gostergenin yalan soyledigi anlamina gelir -- ikisi de kabul edilemez.
 
 Bu, acil durdurmanin YERINE gecmiyor: olculdu 2026-08-02, `systemctl --user
 stop` calisan ajan islerini de olduruyor (isler servisin cgroup'unda kaliyor,
@@ -22,7 +33,16 @@ from . import EXIT_OK, gate_of, load
 def main(argv: list[str] | None = None) -> int:
     cfg = load()
     gate = gate_of(cfg)
-    print(gate.lock())
+    out = gate.lock()
+
+    # Yayin, izinden AYRI bir kaynak: hangi surec acmis olursa olsun durmali.
+    from ..desktop import screencast as screencastlib
+
+    killed = screencastlib.kill_helpers()
+    if killed:
+        out += (f"\n· {killed} ekran yayini durduruldu "
+                "(paylasim gostergesi kayboldu)")
+    print(out)
     return EXIT_OK
 
 

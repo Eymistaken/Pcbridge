@@ -86,7 +86,8 @@ Masaüstünü elle sürmek (MCP'den bağımsız kabuklar):
 
 Yerel istemci kaydı: `./connect.sh` (yazdırır) / `./connect.sh --apply` (yapar).
 Uzaktan erişim: `bridgeac` / `bridgekapat` / `bridgedurum`
-(= `./remote.sh start|stop|status`). Masaüstü izni acil kapatma: `bridgekilit`.
+(= `./remote.sh start|stop|status`). Masaüstü izni acil kapatma: `bridgekilit` — izni kapatır **ve** hangi süreç
+açmış olursa olsun ekran yayınını durdurur.
 **`bridgekapat` stdio istemcilerini durdurmaz** — onlar sunucuyu kendileri
 başlatıyor.
 
@@ -279,6 +280,21 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   aynı. **Asıl kazanç sessizlik, hız ikincil.**
   Kayıp yok: yayın çıktısı ile `gnome-screenshot`'ın aynı bölgesi **%99,8
   birebir aynı**.
+- **Yayını kapatmak, onu AÇAN süreci bulmayı gerektiriyordu.** Yardımcı
+  süreç (`screencast_helper.py`) onu başlatan sürecin `Popen` tutamağında
+  yaşıyor, yani `ScreenCast.close()` yalnızca **kendi** yayınını kapatabilir.
+  Bu bir boşluk bırakmıştı: `bridgekilit` (`cli.lock`) ayrı bir süreç, izin
+  dosyasını kapatıyor ama başka bir sürecin yayınına dokunamıyordu. Aynısı
+  telefondan gelen `desktop_lock` için de geçerliydi — servis kendi yayınını
+  kapatır, aynı anda çalışan bir `--stdio` istemcisininki açık kalırdı.
+  **Belirtisi:** izin kapalı (`desktop_unlock.json` → `until: 0`) ama üst
+  çubuktaki paylaşım göstergesi duruyor. 2026-09-06'da kullanıcı gördü ve
+  sordu. Gösterge "ajan ekranını görebiliyor" demek; acil kapatmadan sonra
+  durması ya erişimin sürdüğü ya da göstergenin yalan söylediği anlamına
+  gelir — ikisi de kabul edilemez. `screencast.kill_helpers()` artık
+  `/proc`'u tarayıp **kendi kullanıcımızın** ve cmdline'ında yardımcının
+  **tam yolu** geçen bütün süreçleri sonlandırıyor; `desktop_lock` ve
+  `cli.lock` ikisi de çağırıyor.
 - **Yayın `desktop_unlock` ile açılır, `desktop_lock`/süre dolumuyla kapanır.**
   Açıkken GNOME üst çubukta paylaşım göstergesi durur — bu istenen bir şey
   (kullanıcı ajanın masaüstüne erişebildiğini oradan görüyor) ve **çekilen

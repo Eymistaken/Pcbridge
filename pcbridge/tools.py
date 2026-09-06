@@ -1081,9 +1081,16 @@ def register(
             timer.cancel()
             _sc_timer["t"] = None
         screencast.close()
+        # BASKA sureclerin yayinlari da: aynı anda bir `--stdio` istemcisi ya
+        # da `pcb-shot` kendi yayinini acmis olabilir ve `close()` yalnizca
+        # BIZIM tutamagimizi kapatir. Kullanici "kapat" dediginde ust
+        # cubuktaki gostergenin gercekten kaybolmasi gerekiyor.
+        others = screencastlib.kill_helpers()
         note = f"\n· bırakılan: {', '.join(freed)}" if freed else ""
-        if yayin:
+        if yayin or others:
             note += "\n· ekran yayını kapatıldı (paylaşım göstergesi kayboldu)"
+        if others:
+            note += f" · {others} yardımcı süreç durduruldu"
         return gate.lock() + note
 
     @mcp.tool(annotations={"title": "Move or click the mouse", "destructiveHint": True})

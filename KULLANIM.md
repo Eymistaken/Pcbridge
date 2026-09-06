@@ -248,8 +248,14 @@ alınıyor, sistem bunu fotoğraf değil video saydığı için flaş çizmiyor.
 
 Karşılığında bir şey görüyorsun: masaüstü izni açıkken **üst çubukta turuncu
 bir paylaşım göstergesi** duruyor. Bu kasıtlı — ajanın şu an ekranına
-erişebildiğini oradan anlıyorsun. `desktop_lock` dediğinde ya da izin süresi
-dolduğunda gösterge kayboluyor. Gösterge çekilen görüntüde de görünür.
+erişebildiğini oradan anlıyorsun. `desktop_lock` dediğinde, `bridgekilit`
+çalıştırdığında ya da izin süresi dolduğunda gösterge kayboluyor. Gösterge
+çekilen görüntüde de görünür.
+
+Gösterge **kapattıktan sonra da duruyorsa** bu bir hataydı ve düzeltildi
+(2026-09-06): yayın onu açan sürecin içinde yaşıyor, ve kapatma komutu başka
+bir süreçten geldiğinde ona ulaşamıyordu. Artık ikisi de — `desktop_lock` ve
+`bridgekilit` — hangi süreç açmış olursa olsun yayını durduruyor.
 
 Gerektiğinde eski yola dönülebilir: `[desktop] capture_backend =
 "gnome-screenshot"` (flaş geri gelir). Yayın kurulamayan bir makinede
