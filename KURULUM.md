@@ -366,7 +366,10 @@ komut çalıştırma"dan daha geniş bir yetki — çünkü komut çalıştırma
   token'ın kendisi. Sebebi pratik: telefonun tarayıcısında görüntüyü açabilmen
   gerekiyor ve Gemini görseli gösteremiyor. Bu yüzden **bağlantıyı kimseye
   iletme**; 5 dakika sonra kendiliğinden ölüyor, PNG'ler de 24 saat içinde
-  siliniyor (`[desktop] shot_ttl_seconds` / `shot_keep_hours`).
+  siliniyor (`[desktop] shot_ttl_seconds` / `shot_keep_hours`). Temizlik
+  2026-09-06'ya kadar yalnızca HTTP yolunda çalışıyordu — stdio ile
+  bağlanıldığında hiç süpürülmüyordu; artık her çekimden önce ve sunucu
+  açılışında koşuyor.
 - **`enabled = false` varsayılanı bilinçli.** Açmadan önce "telefonumu
   kaybedersem ne olur" sorusuna cevabın olsun. Tek koruma yine OAuth parolası.
 
@@ -559,6 +562,7 @@ Pcbridge/
         ├── monitors.py     monitör tablosu — koordinat uzayının tek kaynağı
         ├── input.py        sanal klavye + mutlak fare (/dev/uinput)
         ├── capture.py      ekran görüntüsü: iki backend, kırp, ölçekle
+        │                   + çekim kaydı ve KOORDİNAT DÖNÜŞÜMÜNÜN TEK GEÇİDİ
         ├── screencast.py   PipeWire ekran yayını — SESSİZ yakalama
         ├── screencast_helper.py  yayın + kare — SİSTEM python3'ü, kalıcı süreç
         ├── uitree.py       erişilebilirlik ağacı → metin, kararlı #id'ler

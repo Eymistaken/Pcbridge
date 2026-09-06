@@ -342,6 +342,35 @@ terminaline yazabilir. Acil durdurma: `systemctl --user stop pcbridge`.
 
 ---
 
+## Koordinat alan bir araç yazıyorsan
+
+Dönüşümü **yazma**, çağır: `capture.to_global(x, y, monitor=…, shot=…,
+dirs=…, guard_age=…)`. Üç uzayı da o çözüyor ve dördüncü bir kopyası
+çıkarsa gün gelir biri güncellenmez — sonuç sessizce 1920 piksel sola
+tıklamaktır ve hata hiçbir yerde görünmez.
+
+```python
+# tools.py ve ops.py'nin ikisi de yalnızca dizin listesini bağlıyor
+gx, gy = capturelib.to_global(x, y, monitor=monitor, shot=shot,
+                              dirs=shot_dirs, guard_age=guard_age)
+```
+
+| girdi | anlamı |
+|---|---|
+| ikisi de yok | koordinat zaten global |
+| `monitor=2` | o monitörün içinde, **tam çözünürlük** |
+| `shot="m2-a1b2c3"` | o görüntüdeki piksel — ofset **ve** ölçek uygulanır |
+| ikisi birden | reddedilir: farklı uzaylar, tahmin edilmez |
+
+`guard_age > 0` verilirse belirsizlik koruması da devreye girer: yakında
+küçültülmüş bir çekim varsa ve koordinat onun kutusuna düşüyorsa, `shot`
+verilmemiş çağrı **reddedilir**. Yeni bir MCP aracı yazarken bunu geçmeyi
+unutma — geçmezsen aracın diğerlerinden sessizce daha gevşek olur.
+
+Araç parametrelerinin `Field(description=…)` metinleri **İngilizce** ve
+`shot`'un ne olduğunu söylemeli; istemci araç seçerken yalnızca onları
+okuyor.
+
 ## Protokol tuzakları
 
 İlk kurulumda saatlerimizi alan üç sorun. Kodda düzeltildiler; kaldırma.

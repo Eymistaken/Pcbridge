@@ -478,6 +478,10 @@ ve o değişken `--effort` bayrağını sessizce etkisiz kılıyor.
 | `gnome-extension/README.md` | Kabuk eklentisi: kurulum, acil geri alma, nested geliştirme döngüsü |
 | `GELISTIRME.md` | Yeni araç eklemenin uzun anlatımı + protokol tuzakları — geçmiş kayıt |
 | `PLAN.md`, `UYGULAMA.md` | Geçmiş kayıt: neyin neden böyle yapıldığı. Okuma zorunlu değil, **silme** |
+| `AGENTS.md` | Codex ve diğer ajanlar için giriş noktası — **ince**, buraya yönlendiriyor. Kopyasını çıkarma: bir kez çıkarıldı, iki günde 83 satır ayrıştı |
+| `KURALLAR.md` | Masaüstü araçlarının davranış sözleşmesi (O/K/Y sınıfları). Taslak; kayan kira gibi bazı maddeleri uygulandı |
+| `GOREV-kurallar.md` | `KURALLAR.md`'yi uygulamak için yazılmış görev tarifi — geçmiş kayıt |
+| `JARVIS.md` | pcbridge'i kişisel asistana çevirme **teklifi**. Ölçüm değil tasarım; "ölçüldü" satırları ayrı işaretli |
 
 ## Çalışma tarzı
 

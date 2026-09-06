@@ -8,8 +8,10 @@ state/
 *.log
 *.db
 
-# kisisel notlar ve onaylanmamis taslaklar -- depoya girmiyor.
-# DIKKAT: "*.md" YAZMA. CLAUDE.md, README.md, PLAN.md ve digerleri izleniyor.
-JARVIS.md
-KURALLAR.md
-GOREV-kurallar.md
+# Belgeler artik HEPSI izleniyor (2026-09-06). JARVIS.md, KURALLAR.md ve
+# GOREV-kurallar.md daha once burada duruyordu; icerikleri okundu, hassas veri
+# taranip temizlendi (JARVIS.md'deki gercek Tailscale hostname'i KURULUM.md'de
+# zaten kullanilan `<makinen>.tailXXXX.ts.net` bicimiyle maskelendi) ve depoya
+# alindilar. Depo PUBLIC: yeni bir belge eklerken once icine bak.
+#
+# DIKKAT: "*.md" YAZMA. Butun belgeler izleniyor.

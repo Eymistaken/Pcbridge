@@ -26,6 +26,7 @@ It is a personal tool, built and measured on one machine: **Zorin OS 18.1
 | **Shell and files** | Run commands (foreground or background), read, write, search. |
 | **Use the desktop** | Virtual keyboard and absolute mouse via `uinput`, window focus, app launch. |
 | **Read the screen** | Accessibility tree as text (cheap, coordinate-free) or a silent screenshot (PipeWire screencast, no flash). |
+| **Click what you see** | Every screenshot carries a short id. Send the pixel you see plus that id — the server applies the offset and the scale, so the model never does the arithmetic. |
 | **Batch it** | Run a whole sequence of GUI actions in one call, with budget and focus guards. |
 
 33 tools in total. The desktop half is **off by default** and stays off until you
@@ -90,11 +91,21 @@ Full instructions, client-by-client setup and troubleshooting live in
 | Desktop | `pcbridge/desktop/` | Monitors, input, capture, accessibility tree, batch engine, safety gate |
 | CLI shims | `pcbridge/cli/`, `bin/` | `pcb-shot` / `pcb-do` — usable from a plain shell, independent of MCP |
 
-Two design rules are enforced throughout:
+Three design rules are enforced throughout:
 
-- **All internal APIs use global canvas coordinates.** The per-monitor offset is
-  applied in exactly one place. Doing it twice means silently clicking 1920 px
-  to the left, and nothing reports the error.
+- **All internal APIs use global canvas coordinates**, and exactly one function
+  decides which space an incoming coordinate is in: `capture.to_global()`.
+  Pass `monitor=` and it adds that monitor's offset; pass a screenshot's
+  `shot=` id and it applies both the offset **and** the scale that image was
+  reduced by; pass neither and the coordinate was already global. Doing this
+  conversion in two places means silently clicking 1920 px to the left, and
+  nothing reports the error.
+- **When intent is ambiguous, ask — never guess.** A coordinate read off a
+  scaled-down screenshot and a genuine global coordinate can be the exact same
+  pair of numbers. If a recent screenshot was scaled and the coordinate falls
+  inside it but no `shot` was given, the call is refused with both ways out
+  spelled out. The same rule produced `expect_focus` in the batch engine: an
+  accident once came out of an intention nobody had declared.
 - **The batch engine knows nothing about real devices.** Dependencies point one
   way, so budget and stop logic is testable without sending a single real click.
 

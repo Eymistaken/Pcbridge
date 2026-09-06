@@ -1,5 +1,11 @@
 # YAPILACAKLAR.md
 
+> **2026-09-06 — ekran görüntüsü koordinatları işi bitti.** Beş adımın kaydı
+> [ADIMLAR.md](ADIMLAR.md)'de: koordinat dönüşümü sunucuya taşındı (çekim
+> kimliği), çekim temizliği gerçekten uygulanır oldu, ölçek 1536'ya çıktı,
+> `shot` unutulunca çağrı reddediliyor ve kapatılan yayın gerçekten
+> kapanıyor. Aşağıdaki `window_focus` işi **hâlâ sıradaki iş.**
+
 ## Sıradaki iş: `window_focus` açık pencere için aramadan geçmesin
 
 **Belirti.** `window_focus` çağrıldığında masaüstünde Super'a basılıyor,
