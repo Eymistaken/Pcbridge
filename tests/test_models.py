@@ -119,7 +119,7 @@ def test_plan_table() -> None:
         (
             "agent=antigravity",
             {"agent": "antigravity"},
-            ("antigravity", "gemini-3.6-flash", "high"),
+            ("antigravity", "gemini-3.8-flash", "high"),
         ),
         (
             "antigravity + 'gemini 3.6 flash' + 'yuksek'",
@@ -255,7 +255,7 @@ def test_build_args() -> None:
     check(
         "antigravity bayraklari",
         M.build_args(cfg.agents["antigravity"], res)
-        == ["--model", "gemini-3.6-flash", "--effort", "high"],
+        == ["--model", "gemini-3.8-flash", "--effort", "high"],
         str(M.build_args(cfg.agents["antigravity"], res)),
     )
 
@@ -323,8 +323,8 @@ def test_live_config_policy() -> None:
     agy = cfg.agents.get("antigravity")
     if agy:
         check(
-            "antigravity varsayilani gemini-3.6-flash",
-            agy.default_model == "gemini-3.6-flash",
+            "antigravity varsayilani gemini-3.8-flash",
+            agy.default_model == "gemini-3.8-flash",
             agy.default_model,
         )
         check("agy pty kapali (1.1.9'da gereksiz)", agy.pty is False, str(agy.pty))
@@ -544,7 +544,7 @@ def test_computer_task_consistency() -> None:
     check("agent='antigravity' cozuluyor", res.ok, res.error or "")
     check(
         "baska ajana gecince o ajanin modeli seciliyor",
-        res.ok and res.model == "gemini-3.6-flash",
+        res.ok and res.model == "gemini-3.8-flash",
         str(res.model),
     )
     res = sim(agent="claude", model="opus", effort="xhigh")
