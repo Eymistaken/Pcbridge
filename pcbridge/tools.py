@@ -35,6 +35,7 @@ from .desktop import ops as opslib
 from .desktop import safety as safetylib
 from .desktop import screencast as screencastlib
 from .desktop import uitree as uitreelib
+from .desktop.errors import DesktopError, ErrorCode
 from .desktop.runtime import DesktopRuntime, create_runtime
 
 logger = logging.getLogger("pcbridge.tools")
@@ -276,7 +277,7 @@ def register(
             return ""
         try:
             age = capture_provider.load_shot(shot, shot_dirs).age
-        except capturelib.CaptureError:
+        except (capturelib.CaptureError, DesktopError):
             return ""
         if age <= limit:
             return ""
@@ -831,6 +832,24 @@ def register(
             return ""
         try:
             runtime.start_capture(cursor=cfg.desktop.include_pointer)
+        except DesktopError as exc:
+            if exc.code == ErrorCode.DISPLAY_MAPPING_UNKNOWN:
+                return (
+                    "⚠️ Ekran yayını açılamadı "
+                    f"(monitör tablosu okunamadı: {exc})."
+                )
+            if cfg.desktop.capture_backend == "screencast":
+                return (
+                    f"⚠️ Ekran yayını açılamadı: {exc}\n"
+                    "`capture_backend = \"screencast\"` olduğu için ekran "
+                    "görüntüsü alınamayacak; `auto` yapılırsa gnome-screenshot'a "
+                    "düşer (o flaş patlatır)."
+                )
+            return (
+                f"⚠️ Ekran yayını açılamadı: {exc}\n"
+                "Ekran görüntüsü gnome-screenshot ile alınacak — her çekimde "
+                "beyaz flaş ve ses olur."
+            )
         except monitorslib.MonitorError as exc:
             return f"⚠️ Ekran yayını açılamadı (monitör tablosu okunamadı: {exc})."
         except screencastlib.ScreenCastError as exc:
@@ -1179,8 +1198,12 @@ def register(
                     "double_click, triple_click, right_click, middle_click, drag, "
                     "scroll, hold, release"
                 )
-        except (inputlib.InputError, monitorslib.MonitorError,
-                capturelib.CaptureError) as exc:
+        except (
+            inputlib.InputError,
+            monitorslib.MonitorError,
+            capturelib.CaptureError,
+            DesktopError,
+        ) as exc:
             gate.audit("mouse_error", action=act, error=str(exc)[:160])
             return f"Hata: {exc}"
 
@@ -1276,7 +1299,7 @@ def register(
                 done = f"`{keys}` {'basildi' if act == 'key' else act}"
             else:
                 return f"Bilinmeyen eylem: '{action}'. Gecerli: type, key, hold, release"
-        except inputlib.InputError as exc:
+        except (inputlib.InputError, DesktopError) as exc:
             gate.audit("keyboard_error", action=act, error=str(exc)[:160])
             return f"Hata: {exc}"
 
@@ -1327,7 +1350,7 @@ def register(
                 ui_line += f" · {len(wins)} pencere"
                 if focused:
                     ui_line += f", odakta: {focused.label}"
-            except uitreelib.UiTreeError as exc:
+            except (uitreelib.UiTreeError, DesktopError) as exc:
                 ui_line += f" · pencere listesi okunamadi ({exc})"
         else:
             ui_line += f" — {ui_why}"
@@ -1420,7 +1443,7 @@ def register(
                 scale_long_edge=long_edge,
                 include_pointer=pointer,
             )
-        except (capturelib.CaptureError, monitorslib.MonitorError) as exc:
+        except (capturelib.CaptureError, monitorslib.MonitorError, DesktopError) as exc:
             gate.audit("screen_capture_error", error=str(exc)[:160])
             return _text(f"Hata: {exc}")
 
@@ -1563,7 +1586,7 @@ def register(
             return f"⛔ Erisilebilirlik agaci okunamiyor: {why}"
         try:
             dump = tree.dump(target=target, interactive_only=interactive_only)
-        except uitreelib.UiTreeError as exc:
+        except (uitreelib.UiTreeError, DesktopError) as exc:
             gate.audit("ui_dump_error", error=str(exc)[:160])
             return f"Hata: {exc}"
         gate.audit("ui_dump", target=target, nodes=len(dump.nodes))
@@ -1596,7 +1619,7 @@ def register(
             return denied
         try:
             res = tree.click(str(id))
-        except uitreelib.UiTreeError as exc:
+        except (uitreelib.UiTreeError, DesktopError) as exc:
             gate.audit("ui_click_error", node=str(id)[:40], error=str(exc)[:160])
             return f"Hata: {exc}"
         gate.audit("ui_click", node=str(id)[:40], name=res.get("name", "")[:60],
@@ -1633,7 +1656,7 @@ def register(
             return denied
         try:
             res = tree.set_text(str(id), text)
-        except uitreelib.UiTreeError as exc:
+        except (uitreelib.UiTreeError, DesktopError) as exc:
             gate.audit("ui_set_text_error", node=str(id)[:40], error=str(exc)[:160])
             return f"Hata: {exc}"
         # Metnin KENDISI denetim kaydina yazilmaz; parola girilmis olabilir.
@@ -1661,7 +1684,7 @@ def register(
             return f"⛔ Pencere listesi okunamiyor: {why}"
         try:
             wins = tree.windows()
-        except uitreelib.UiTreeError as exc:
+        except (uitreelib.UiTreeError, DesktopError) as exc:
             gate.audit("window_list_error", error=str(exc)[:160])
             return f"Hata: {exc}"
         gate.audit("window_list", windows=len(wins))
@@ -1705,7 +1728,7 @@ def register(
             return denied
         try:
             note = appslib.focus(str(window), backend, tree.focused_window)
-        except appslib.AppError as exc:
+        except (appslib.AppError, DesktopError) as exc:
             gate.audit("window_focus_error", target=str(window)[:60],
                        error=str(exc)[:160])
             return f"Hata: {exc}"

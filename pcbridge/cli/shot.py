@@ -168,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
     scale = (cfg.desktop.screenshot_scale_long_edge if args.scale is None
              else max(0, args.scale))
     from ..desktop import capture as capturelib
+    from ..desktop.errors import DesktopError
     from ..desktop import monitors as monitorslib
     from ..desktop import screencast as screencastlib
 
@@ -186,7 +187,11 @@ def main(argv: list[str] | None = None) -> int:
                 runtime.start_capture(
                     cursor=not args.no_pointer and cfg.desktop.include_pointer
                 )
-            except (screencastlib.ScreenCastError, monitorslib.MonitorError):
+            except (
+                screencastlib.ScreenCastError,
+                monitorslib.MonitorError,
+                DesktopError,
+            ):
                 runtime.stop_capture()
 
         ok, why = capture_provider.available()
@@ -210,7 +215,11 @@ def main(argv: list[str] | None = None) -> int:
                 include_pointer=not args.no_pointer and cfg.desktop.include_pointer,
             )
             mons = capture_provider.list_monitors()
-        except (capturelib.CaptureError, monitorslib.MonitorError) as exc:
+        except (
+            capturelib.CaptureError,
+            monitorslib.MonitorError,
+            DesktopError,
+        ) as exc:
             gate.audit("pcb_shot_error", error=str(exc)[:160], job=job_id())
             fail(str(exc), EXIT_BAD_INPUT, args.json)
 

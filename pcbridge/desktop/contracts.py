@@ -8,11 +8,17 @@ own backend processes or device handles.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Protocol, Sequence, runtime_checkable
+from typing import Any, Hashable, Protocol, Sequence, runtime_checkable
+
+from .capabilities import Capability
 
 
 @runtime_checkable
 class CaptureProvider(Protocol):
+    def capability_token(self) -> Hashable: ...
+
+    def probe_capabilities(self) -> dict[str, Capability]: ...
+
     def start(self, *, cursor: bool | None = None) -> dict: ...
 
     def close(self) -> None: ...
@@ -60,6 +66,10 @@ class CaptureProvider(Protocol):
 
 @runtime_checkable
 class InputProvider(Protocol):
+    def capability_token(self) -> Hashable: ...
+
+    def probe_capabilities(self) -> dict[str, Capability]: ...
+
     def available(self) -> tuple[bool, str]: ...
 
     def ensure(self, keyboard: bool = False, pointer: bool = False) -> float: ...
@@ -105,6 +115,10 @@ class InputProvider(Protocol):
 
 @runtime_checkable
 class AccessibilityProvider(Protocol):
+    def capability_token(self) -> Hashable: ...
+
+    def probe_capabilities(self) -> dict[str, Capability]: ...
+
     def available(self) -> tuple[bool, str]: ...
 
     def dump(
@@ -129,6 +143,8 @@ class AccessibilityProvider(Protocol):
 
 @runtime_checkable
 class GrantProvider(Protocol):
+    spec: Any
+
     def check(self, tool: str, *, write: bool, force: bool = False) -> Any: ...
 
     def audit(self, event: str, **fields: Any) -> None: ...
@@ -142,6 +158,8 @@ class GrantProvider(Protocol):
     def is_unlocked(self) -> bool: ...
 
     def remaining_seconds(self) -> float: ...
+
+    def hard_remaining_seconds(self) -> float: ...
 
     def status_line(self) -> str: ...
 

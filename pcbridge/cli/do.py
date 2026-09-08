@@ -152,6 +152,7 @@ def _run_plan(cfg, args, plan, runtime) -> int:
     """Execute one parsed plan with resources owned by a single runtime."""
     from ..desktop import batch as batchlib
     from ..desktop import capture as capturelib
+    from ..desktop.errors import DesktopError
     from ..desktop import ops as opslib
 
     capture_provider = runtime.capture_provider
@@ -179,7 +180,7 @@ def _run_plan(cfg, args, plan, runtime) -> int:
                 continue
             try:
                 age = capture_provider.load_shot(sid, dirs).age
-            except capturelib.CaptureError as exc:
+            except (capturelib.CaptureError, DesktopError) as exc:
                 fail(str(exc), EXIT_DENIED, args.json)
             if age > limit:
                 fail(f"`{sid}` cekimi {int(age)} saniyelik (sinir {limit}). "

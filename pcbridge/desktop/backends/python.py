@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import time
+from functools import wraps
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence, TypeVar
 
 from ...config import Config
 from .. import capture as capturelib
@@ -11,6 +15,132 @@ from .. import input as inputlib
 from .. import monitors as monitorslib
 from .. import screencast as screencastlib
 from .. import uitree as uitreelib
+from ..capabilities import Capability, CapabilityEvidence, CapabilityState
+from ..errors import DesktopError, ErrorCategory, ErrorCode
+
+
+_T = TypeVar("_T")
+
+
+def _state_for(code: ErrorCode | None) -> CapabilityState:
+    if code in {
+        ErrorCode.PERMISSION_REQUIRED,
+        ErrorCode.PERMISSION_DENIED,
+        ErrorCode.DEVICE_NOT_GRANTED,
+    }:
+        return CapabilityState.PERMISSION_REQUIRED
+    if code == ErrorCode.UNSUPPORTED:
+        return CapabilityState.UNSUPPORTED
+    return CapabilityState.UNAVAILABLE
+
+
+def _capability(
+    name: str,
+    state: CapabilityState,
+    *,
+    backend: str,
+    scope: str,
+    reason_code: ErrorCode | None = None,
+    limitations: tuple[str, ...] = (),
+) -> Capability:
+    return Capability(
+        name=name,
+        state=state,
+        backend=backend,
+        scope=scope,
+        reason_code=reason_code,
+        limitations=limitations,
+        observed_at=time.time(),
+        evidence=CapabilityEvidence.PROBE,
+        usable_now=state in {CapabilityState.SUPPORTED, CapabilityState.DEGRADED},
+    )
+
+
+def _desktop_error(
+    exc: Exception,
+    *,
+    code: ErrorCode,
+    category: ErrorCategory,
+    backend: str,
+    retryable: bool,
+    suggested_action: str,
+    permission_scope: str | None = None,
+) -> DesktopError:
+    return DesktopError(
+        code=code,
+        message=str(exc),
+        category=category,
+        retryable=retryable,
+        suggested_action=suggested_action,
+        permission_scope=permission_scope,
+        backend=backend,
+    )
+
+
+def _display_mapping_error(exc: Exception) -> DesktopError:
+    return _desktop_error(
+        exc,
+        code=ErrorCode.DISPLAY_MAPPING_UNKNOWN,
+        category=ErrorCategory.CAPTURE,
+        backend="linux.mutter-display-config",
+        retryable=True,
+        suggested_action="Ekran düzenini yenileyip tekrar deneyin.",
+    )
+
+
+def _input_boundary(method_name: str, capability_name: str) -> Callable[..., Any]:
+    legacy_method = getattr(inputlib.InputBackend, method_name)
+
+    @wraps(legacy_method)
+    def wrapped(self: Any, *args: Any, **kwargs: Any) -> Any:
+        return self._translate(
+            lambda: getattr(inputlib.InputBackend, method_name)(
+                self,
+                *args,
+                **kwargs,
+            ),
+            capability_name,
+        )
+
+    return wrapped
+
+
+def _accessibility_boundary(
+    method_name: str,
+    *,
+    code: ErrorCode,
+    category: ErrorCategory,
+    retryable: bool,
+) -> Callable[..., Any]:
+    legacy_method = getattr(uitreelib.UiTree, method_name)
+
+    @wraps(legacy_method)
+    def wrapped(self: Any, *args: Any, **kwargs: Any) -> Any:
+        return self._translate_accessibility(
+            lambda: getattr(uitreelib.UiTree, method_name)(
+                self,
+                *args,
+                **kwargs,
+            ),
+            code=code,
+            category=category,
+            retryable=retryable,
+        )
+
+    return wrapped
+
+
+def _wayland_socket() -> str | None:
+    display = os.environ.get("WAYLAND_DISPLAY", "").strip()
+    if not display:
+        return None
+    path = Path(display)
+    if not path.is_absolute():
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "").strip()
+        if not runtime_dir:
+            return None
+        path = Path(runtime_dir) / path
+    return str(path) if path.exists() else None
 
 
 class PythonCaptureProvider:
@@ -22,12 +152,124 @@ class PythonCaptureProvider:
             screencast if screencast is not None else screencastlib.ScreenCast()
         )
 
-    def start(self, *, cursor: bool | None = None) -> dict:
-        monitors = [monitor.connector for monitor in self.list_monitors()]
-        return self.screencast.start(
-            monitors,
-            cursor=self.cfg.desktop.include_pointer if cursor is None else cursor,
+    def capability_token(self) -> tuple[Any, ...]:
+        """Dependency, session, and topology state without starting capture."""
+        try:
+            topology: tuple[Any, ...] = tuple(
+                (
+                    monitor.connector,
+                    monitor.x,
+                    monitor.y,
+                    monitor.width,
+                    monitor.height,
+                    monitor.scale,
+                )
+                for monitor in monitorslib.list_monitors(use_cache=False)
+            )
+        except monitorslib.MonitorError as exc:
+            topology = ("error", type(exc).__name__)
+        return (
+            self.cfg.desktop.capture_backend,
+            capturelib.PIL_AVAILABLE,
+            shutil.which(capturelib.GNOME_SCREENSHOT),
+            screencastlib.available()[0],
+            self.screencast.is_open(),
+            topology,
         )
+
+    def probe_capabilities(self) -> dict[str, Capability]:
+        """Report monitor and window capture separately without opening a session."""
+        pillow_ok = capturelib.PIL_AVAILABLE
+        screenshot_ok = bool(shutil.which(capturelib.GNOME_SCREENSHOT))
+        screencast_ok, _screencast_reason = screencastlib.available()
+        requested = self.cfg.desktop.capture_backend
+
+        if not pillow_ok:
+            monitor = _capability(
+                "capture.monitor",
+                CapabilityState.UNAVAILABLE,
+                backend="linux.python.capture",
+                scope="os.capture",
+                reason_code=ErrorCode.DEPENDENCY_MISSING,
+                limitations=("Pillow is required to crop and scale frames.",),
+            )
+        elif requested == "gnome-screenshot":
+            monitor = self._screenshot_capability("capture.monitor", screenshot_ok)
+        elif self.screencast.is_open() or screencast_ok:
+            monitor = _capability(
+                "capture.monitor",
+                CapabilityState.SUPPORTED,
+                backend="linux.gnome-screencast",
+                scope="os.capture",
+            )
+        elif requested == "auto" and screenshot_ok:
+            monitor = _capability(
+                "capture.monitor",
+                CapabilityState.DEGRADED,
+                backend="linux.gnome-screenshot",
+                scope="os.capture",
+                reason_code=ErrorCode.BACKEND_UNAVAILABLE,
+                limitations=(
+                    "The ScreenCast backend is unavailable; capture uses a visible flash.",
+                ),
+            )
+        else:
+            monitor = _capability(
+                "capture.monitor",
+                CapabilityState.UNAVAILABLE,
+                backend="linux.gnome-screencast",
+                scope="os.capture",
+                reason_code=ErrorCode.DEPENDENCY_MISSING,
+            )
+
+        try:
+            monitorslib.list_monitors()
+        except monitorslib.MonitorError:
+            monitor = _capability(
+                "capture.monitor",
+                CapabilityState.UNAVAILABLE,
+                backend="linux.mutter-display-config",
+                scope="os.capture",
+                reason_code=ErrorCode.DISPLAY_MAPPING_UNKNOWN,
+            )
+
+        window = self._screenshot_capability(
+            "capture.window",
+            pillow_ok and screenshot_ok,
+        )
+        return {"capture.monitor": monitor, "capture.window": window}
+
+    @staticmethod
+    def _screenshot_capability(name: str, available: bool) -> Capability:
+        return _capability(
+            name,
+            CapabilityState.SUPPORTED if available else CapabilityState.UNAVAILABLE,
+            backend="linux.gnome-screenshot",
+            scope="os.capture",
+            reason_code=None if available else ErrorCode.DEPENDENCY_MISSING,
+            limitations=("Window captures do not include a global position.",)
+            if name == "capture.window" and available
+            else (),
+        )
+
+    def start(self, *, cursor: bool | None = None) -> dict:
+        try:
+            monitors = [monitor.connector for monitor in self.list_monitors()]
+            return self.screencast.start(
+                monitors,
+                cursor=self.cfg.desktop.include_pointer if cursor is None else cursor,
+            )
+        except DesktopError:
+            raise
+        except screencastlib.ScreenCastError as exc:
+            raise _desktop_error(
+                exc,
+                code=ErrorCode.BACKEND_UNAVAILABLE,
+                category=ErrorCategory.CAPABILITY,
+                backend="linux.gnome-screencast",
+                retryable=True,
+                suggested_action="Ekran yayınını kapatıp yeniden açın.",
+            ) from exc
 
     def close(self) -> None:
         self.screencast.close()
@@ -49,22 +291,43 @@ class PythonCaptureProvider:
         scale_long_edge: int,
         include_pointer: bool,
     ) -> list[capturelib.Shot]:
-        return capturelib.capture(
-            spec,
-            out_dir=out_dir,
-            scale_long_edge=scale_long_edge,
-            include_pointer=include_pointer,
-            screencast=self.screencast,
-        )
+        try:
+            return capturelib.capture(
+                spec,
+                out_dir=out_dir,
+                scale_long_edge=scale_long_edge,
+                include_pointer=include_pointer,
+                screencast=self.screencast,
+            )
+        except capturelib.CaptureError as exc:
+            raise _desktop_error(
+                exc,
+                code=ErrorCode.BACKEND_UNAVAILABLE,
+                category=ErrorCategory.CAPABILITY,
+                backend="linux.python.capture",
+                retryable=True,
+                suggested_action="Ekran yakalama bağımlılıklarını ve oturumu denetleyin.",
+            ) from exc
+        except monitorslib.MonitorError as exc:
+            raise _display_mapping_error(exc) from exc
 
     def list_monitors(self) -> list[monitorslib.Monitor]:
-        return monitorslib.list_monitors()
+        try:
+            return monitorslib.list_monitors()
+        except monitorslib.MonitorError as exc:
+            raise _display_mapping_error(exc) from exc
 
     def describe_monitors(self) -> str:
-        return monitorslib.describe()
+        try:
+            return monitorslib.describe()
+        except monitorslib.MonitorError as exc:
+            raise _display_mapping_error(exc) from exc
 
     def find_monitor(self, x: int, y: int) -> monitorslib.Monitor | None:
-        return monitorslib.find_monitor(x, y)
+        try:
+            return monitorslib.find_monitor(x, y)
+        except monitorslib.MonitorError as exc:
+            raise _display_mapping_error(exc) from exc
 
     def to_global(
         self,
@@ -76,19 +339,59 @@ class PythonCaptureProvider:
         dirs: Sequence[Path] | None = None,
         guard_age: float = 0.0,
     ) -> tuple[int, int]:
-        return capturelib.to_global(
-            x,
-            y,
-            monitor=monitor,
-            shot=shot,
-            dirs=dirs,
-            guard_age=guard_age,
-        )
+        if shot and monitor is not None:
+            code = ErrorCode.AMBIGUOUS_COORDINATE
+        elif shot and not capturelib.SHOT_ID_RE.match(shot):
+            code = ErrorCode.SHOT_INVALID
+        elif shot:
+            code = ErrorCode.SHOT_NOT_FOUND
+        elif guard_age > 0 and monitor is None:
+            code = ErrorCode.AMBIGUOUS_COORDINATE
+        else:
+            code = ErrorCode.DISPLAY_MAPPING_UNKNOWN
+        try:
+            return capturelib.to_global(
+                x,
+                y,
+                monitor=monitor,
+                shot=shot,
+                dirs=dirs,
+                guard_age=guard_age,
+            )
+        except capturelib.CaptureError as exc:
+            raise _desktop_error(
+                exc,
+                code=code,
+                category=ErrorCategory.COORDINATE,
+                backend="python.shot-coordinate",
+                retryable=code
+                in {ErrorCode.SHOT_NOT_FOUND, ErrorCode.AMBIGUOUS_COORDINATE},
+                suggested_action=(
+                    "Taze bir çekim kimliği veya açık bir monitor seçimi kullanın."
+                ),
+            ) from exc
+        except monitorslib.MonitorError as exc:
+            raise _display_mapping_error(exc) from exc
 
     def load_shot(
         self, shot_id: str, dirs: Sequence[Path]
     ) -> capturelib.Shot:
-        return capturelib.load_shot(shot_id, dirs)
+        code = (
+            ErrorCode.SHOT_INVALID
+            if not capturelib.SHOT_ID_RE.match(shot_id or "")
+            else ErrorCode.SHOT_NOT_FOUND
+        )
+        try:
+            return capturelib.load_shot(shot_id, dirs)
+        except capturelib.CaptureError as exc:
+            raise _desktop_error(
+                exc,
+                code=code,
+                category=ErrorCategory.COORDINATE,
+                backend="python.shot-coordinate",
+                retryable=code == ErrorCode.SHOT_NOT_FOUND,
+                suggested_action="Taze bir ekran görüntüsü alıp kimliği aynen kullanın.",
+            ) from exc
 
     def save_meta(
         self, shot: capturelib.Shot, out_dir: Path | None = None
@@ -113,12 +416,261 @@ class PythonInputProvider(inputlib.InputBackend):
             pos_file=cfg.pointer_pos_file,
         )
 
+    def capability_token(self) -> tuple[Any, ...]:
+        try:
+            stat = os.stat(inputlib.UINPUT_NODE)
+            device = (stat.st_dev, stat.st_ino, stat.st_mode)
+        except OSError as exc:
+            device = (type(exc).__name__, getattr(exc, "errno", None))
+        return (
+            inputlib.EVDEV_AVAILABLE,
+            device,
+            os.access(inputlib.UINPUT_NODE, os.W_OK),
+            shutil.which("wl-copy"),
+            shutil.which("wl-paste"),
+            _wayland_socket(),
+        )
+
+    def _availability(self) -> tuple[bool, str, ErrorCode | None]:
+        ok, reason = self.available()
+        if ok:
+            return True, reason, None
+        if not inputlib.EVDEV_AVAILABLE or not os.path.exists(inputlib.UINPUT_NODE):
+            return False, reason, ErrorCode.DEPENDENCY_MISSING
+        if not os.access(inputlib.UINPUT_NODE, os.W_OK):
+            return False, reason, ErrorCode.DEVICE_NOT_GRANTED
+        return False, reason, ErrorCode.BACKEND_UNAVAILABLE
+
+    def probe_capabilities(self) -> dict[str, Capability]:
+        ok, _reason, code = self._availability()
+        state = CapabilityState.SUPPORTED if ok else _state_for(code)
+        values = {
+            name: _capability(
+                name,
+                state,
+                backend="linux.uinput",
+                scope=scope,
+                reason_code=None if ok else code,
+            )
+            for name, scope in (
+                ("input.pointer", "os.pointer"),
+                ("input.keyboard", "os.keyboard"),
+            )
+        }
+        for name, command in (
+            ("clipboard.read", "wl-paste"),
+            ("clipboard.write", "wl-copy"),
+        ):
+            command_path = shutil.which(command)
+            available = bool(command_path and _wayland_socket())
+            values[name] = _capability(
+                name,
+                CapabilityState.SUPPORTED if available else CapabilityState.UNAVAILABLE,
+                backend="linux.wl-clipboard",
+                scope="os.clipboard",
+                reason_code=(
+                    None
+                    if available
+                    else ErrorCode.DEPENDENCY_MISSING
+                    if not command_path
+                    else ErrorCode.BACKEND_UNAVAILABLE
+                ),
+            )
+        return values
+
+    def _translate(self, operation: Callable[[], _T], capability_name: str) -> _T:
+        try:
+            return operation()
+        except DesktopError:
+            raise
+        except inputlib.InputError as exc:
+            ok, _reason, reason_code = self._availability()
+            code = reason_code if not ok and reason_code else ErrorCode.EXECUTION_UNKNOWN
+            category = (
+                ErrorCategory.PERMISSION
+                if code
+                in {
+                    ErrorCode.PERMISSION_REQUIRED,
+                    ErrorCode.PERMISSION_DENIED,
+                    ErrorCode.DEVICE_NOT_GRANTED,
+                }
+                else ErrorCategory.CAPABILITY
+                if code
+                in {
+                    ErrorCode.BACKEND_UNAVAILABLE,
+                    ErrorCode.DEPENDENCY_MISSING,
+                    ErrorCode.UNSUPPORTED,
+                }
+                else ErrorCategory.EXECUTION
+            )
+            raise _desktop_error(
+                exc,
+                code=code,
+                category=category,
+                backend="linux.uinput",
+                retryable=code
+                not in {ErrorCode.DEPENDENCY_MISSING, ErrorCode.UNSUPPORTED},
+                suggested_action=(
+                    f"{capability_name} durumunu denetleyip tekrar deneyin."
+                ),
+                permission_scope=(
+                    "os.input" if category == ErrorCategory.PERMISSION else None
+                ),
+            ) from exc
+        except OSError as exc:
+            raise _desktop_error(
+                exc,
+                code=ErrorCode.EXECUTION_UNKNOWN,
+                category=ErrorCategory.EXECUTION,
+                backend="linux.uinput",
+                retryable=False,
+                suggested_action=(
+                    f"{capability_name} durumunu denetleyip sonucu doğrulayın."
+                ),
+            ) from exc
+
+    ensure = _input_boundary("ensure", "input")
+    move = _input_boundary("move", "input.pointer")
+    click = _input_boundary("click", "input.pointer")
+    drag = _input_boundary("drag", "input.pointer")
+    scroll = _input_boundary("scroll", "input.pointer")
+    mouse_down = _input_boundary("mouse_down", "input.pointer")
+    mouse_up = _input_boundary("mouse_up", "input.pointer")
+    key = _input_boundary("key", "input.keyboard")
+    key_down = _input_boundary("key_down", "input.keyboard")
+    key_up = _input_boundary("key_up", "input.keyboard")
+    type_text = _input_boundary("type_text", "clipboard.write")
+
 
 class PythonAccessibilityProvider(uitreelib.UiTree):
     """Expose the legacy AT-SPI client through the provider contract."""
 
     def available(self) -> tuple[bool, str]:
         return uitreelib.available()
+
+    def capability_token(self) -> tuple[Any, ...]:
+        available, _reason, _code = self._availability()
+        return (
+            uitreelib.HELPER.exists(),
+            shutil.which(uitreelib.SYSTEM_PYTHON),
+            available,
+        )
+
+    @staticmethod
+    def _availability() -> tuple[bool, str, ErrorCode | None]:
+        try:
+            ok, reason = uitreelib.available()
+        except OSError as exc:
+            return False, str(exc), ErrorCode.BACKEND_UNAVAILABLE
+        if ok:
+            return True, reason, None
+        if not uitreelib.HELPER.exists() or not shutil.which(
+            uitreelib.SYSTEM_PYTHON
+        ):
+            return False, reason, ErrorCode.DEPENDENCY_MISSING
+        return False, reason, ErrorCode.BACKEND_UNAVAILABLE
+
+    def probe_capabilities(self) -> dict[str, Capability]:
+        ok, _reason, code = self._availability()
+        state = CapabilityState.SUPPORTED if ok else _state_for(code)
+        values = {
+            name: _capability(
+                name,
+                state,
+                backend="linux.atspi",
+                scope="os.accessibility",
+                reason_code=None if ok else code,
+            )
+            for name in ("accessibility.read", "accessibility.action")
+        }
+        values["window.list"] = _capability(
+            "window.list",
+            CapabilityState.DEGRADED if ok else state,
+            backend="linux.atspi",
+            scope="os.accessibility",
+            reason_code=None if ok else code,
+            limitations=("Only accessibility-visible applications are listed.",)
+            if ok
+            else (),
+        )
+        return values
+
+    def _translate_accessibility(
+        self,
+        operation: Callable[[], _T],
+        *,
+        code: ErrorCode,
+        category: ErrorCategory,
+        retryable: bool,
+    ) -> _T:
+        try:
+            return operation()
+        except uitreelib.UiTreeError as exc:
+            raise _desktop_error(
+                exc,
+                code=code,
+                category=category,
+                backend="linux.atspi",
+                retryable=retryable,
+                suggested_action="Erişilebilirlik ağacını yenileyip tekrar deneyin.",
+            ) from exc
+
+    dump = _accessibility_boundary(
+        "dump",
+        code=ErrorCode.BACKEND_UNAVAILABLE,
+        category=ErrorCategory.CAPABILITY,
+        retryable=True,
+    )
+    focused_window = _accessibility_boundary(
+        "focused_window",
+        code=ErrorCode.BACKEND_UNAVAILABLE,
+        category=ErrorCategory.CAPABILITY,
+        retryable=True,
+    )
+    windows = _accessibility_boundary(
+        "windows",
+        code=ErrorCode.BACKEND_UNAVAILABLE,
+        category=ErrorCategory.CAPABILITY,
+        retryable=True,
+    )
+
+    def click(self, node_id: str, action: str = "click") -> dict:
+        try:
+            self.resolve(node_id)
+        except uitreelib.UiTreeError as exc:
+            raise _desktop_error(
+                exc,
+                code=ErrorCode.ELEMENT_STALE,
+                category=ErrorCategory.ACCESSIBILITY,
+                backend="linux.atspi",
+                retryable=True,
+                suggested_action="Erişilebilirlik ağacını yenileyip kimliği tekrar seçin.",
+            ) from exc
+        return self._translate_accessibility(
+            lambda: super(PythonAccessibilityProvider, self).click(node_id, action),
+            code=ErrorCode.ACTION_UNSUPPORTED,
+            category=ErrorCategory.ACCESSIBILITY,
+            retryable=False,
+        )
+
+    def set_text(self, node_id: str, text: str) -> dict:
+        try:
+            self.resolve(node_id)
+        except uitreelib.UiTreeError as exc:
+            raise _desktop_error(
+                exc,
+                code=ErrorCode.ELEMENT_STALE,
+                category=ErrorCategory.ACCESSIBILITY,
+                backend="linux.atspi",
+                retryable=True,
+                suggested_action="Erişilebilirlik ağacını yenileyip kimliği tekrar seçin.",
+            ) from exc
+        return self._translate_accessibility(
+            lambda: super(PythonAccessibilityProvider, self).set_text(node_id, text),
+            code=ErrorCode.TARGET_MISMATCH,
+            category=ErrorCategory.ACCESSIBILITY,
+            retryable=False,
+        )
 
     def describe_dump(self, dump: uitreelib.Dump) -> str:
         return uitreelib.describe(dump)
