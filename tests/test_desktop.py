@@ -10,7 +10,7 @@ pytest kuruluysa ayni dosya oldugu gibi toplanir:
 Bilincli olarak yapilmayan sey: gercek tiklama/tus gondermek. Bu testler
 gelistiricinin makinesinde de CI'da da kosabilmeli; uinput'a fiilen yazan
 dogrulama elle, kullaniciya haber verilerek ve bos bir pencerede yapilir
-(`YAPILACAKLAR.md` girdi guvenligi kurallari).
+(`CLAUDE.md` "Bu makinede test etmenin tehlikesi" bolumu).
 
 Monitor tablosu ve D-Bus okumalari sahtelenerek test edilir; boylece testler
 ekran sayisindan, kilit durumundan ve kullanicinin makinede olup olmamasindan
@@ -2727,13 +2727,13 @@ def _raises(fn, exc_type) -> bool:
 
 
 def test_real_hold() -> None:
-    """GERCEK cihazla basili tutma turu. PCBRIDGE_TEST_CAPTURE=1 ile acilir.
+    """GERCEK cihazla basili tutma turu. PCBRIDGE_TEST_INPUT=1 ile acilir.
 
     Ctrl'yi kisa sureligine basili tutar; hicbir sey YAZMAZ, TIKLAMAZ.
     Dogrulama cihazin KENDI event node'undan `active_keys()` ile yapiliyor --
     "hata vermedi" bu projede kanit sayilmiyor.
     """
-    if os.environ.get("PCBRIDGE_TEST_CAPTURE") != "1":
+    if os.environ.get("PCBRIDGE_TEST_INPUT") != "1":
         return
     section("40. Basili tutma — gercek cihaz")
 
@@ -3181,10 +3181,11 @@ def test_session_env() -> None:
 
 
 def test_real_batch() -> None:
-    """Gercek batch. Varsayilan olarak KOSMAZ: uinput'a fiilen yazar."""
+    """Gercek batch. INPUT ve BATCH izinleri birlikte verilmeden KOSMAZ."""
     import os
 
-    if os.environ.get("PCBRIDGE_TEST_BATCH") != "1":
+    if (os.environ.get("PCBRIDGE_TEST_INPUT") != "1"
+            or os.environ.get("PCBRIDGE_TEST_BATCH") != "1"):
         return
     section("31. Toplu eylem — GERCEK calisma")
     from pcbridge.desktop import batch as B

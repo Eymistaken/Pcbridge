@@ -44,20 +44,40 @@ Testler (hepsi düz betik; `.venv`'de pytest **kurulu değil**):
 
 ```bash
 ./.venv/bin/python tests/test_models.py     # cozumleyici + ajan cikti ayristiricilari, sunucu gerekmez
-./.venv/bin/python tests/test_desktop.py    # masaustu, 398 kontrol, GIRDI GONDERMEZ
+./.venv/bin/python tests/test_desktop.py    # masaustu, GIRDI GONDERMEZ
+./.venv/bin/python tests/test_test_safety.py # live-test secici guvenligi
 ```
 
-Gerçek cihazlarla masaüstü testleri (uinput'a yazar, AT-SPI okur) — varsayılan
-olarak atlanırlar:
+Gerçek testler varsayılan olarak atlanır. Yalnızca ekran yakalamayı açmak için:
 
 ```bash
-PCBRIDGE_TEST_CAPTURE=1 PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_BATCH=1 \
-  ./.venv/bin/python tests/test_desktop.py   # 431 kontrol
+PCBRIDGE_TEST_CAPTURE=1 ./.venv/bin/python tests/test_desktop.py
 ```
 
-`PCBRIDGE_TEST_CAPTURE=1` ekranı diske yazar **ve** kısa süreliğine ekran
-yayını açar (üst çubukta paylaşım göstergesi belirir); `PCBRIDGE_TEST_BATCH=1`
-gerçek tıklama gönderir.
+Bu seçim ekranı diske yazar ve kısa süreliğine ekran yayını açar (üst çubukta
+paylaşım göstergesi belirir), fakat uinput aygıtı açmaz. Gerçek uinput testleri
+ayrı izin ister:
+
+```bash
+PCBRIDGE_TEST_INPUT=1 ./.venv/bin/python tests/test_desktop.py
+```
+
+Gerçek batch için iki izin birlikte gerekir; `PCBRIDGE_TEST_BATCH=1` tek başına
+yeterli değildir:
+
+```bash
+PCBRIDGE_TEST_INPUT=1 PCBRIDGE_TEST_BATCH=1 \
+  ./.venv/bin/python tests/test_desktop.py
+```
+
+AT-SPI gerçek okuma testleri ayrıca `PCBRIDGE_TEST_ATSPI=1` ister. Bütün live
+testleri bilinçli olarak birlikte çalıştırmak için dört bayrağı da açıkça ver:
+
+```bash
+PCBRIDGE_TEST_CAPTURE=1 PCBRIDGE_TEST_INPUT=1 \
+PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_BATCH=1 \
+  ./.venv/bin/python tests/test_desktop.py
+```
 
 Uçtan uca (sunucu ayakta olmalı; parola verilmezse OAuth adımları 401 döner ve
 testin bozulduğunu sanırsın):
