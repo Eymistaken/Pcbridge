@@ -923,7 +923,7 @@ def test_shot_ops_wiring() -> None:
             desktop = DesktopSpec()
             shot_search_dirs = [tmp]
 
-        ops = O.DeviceOps(FakeBackend(), None, FakeCfgOps())
+        ops = O.DeviceOps(FakeBackend(), None, FakeCfgOps(), C)
         ops.click("left", 1, 640, 360, None, "m2-a1b2c3")
         check("click shot ile cevrildi", moves[-1] == (2880, 540), str(moves[-1]))
 

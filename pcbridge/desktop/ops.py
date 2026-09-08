@@ -16,8 +16,8 @@ import time
 from typing import Any
 
 from . import apps as appslib
-from . import capture as capturelib
 from .batch import INPUT_ACTIONS, POINTER_ACTIONS, Action
+from .contracts import CaptureProvider
 
 # Fareyi tasidiktan sonra tiklamadan once verilen soluklanma. Kompozitorun
 # imleci yeni yere tasimasi anlik degil; 0 verilirse tiklama ESKI konumda
@@ -54,10 +54,17 @@ def devices_needed(actions: list[Action]) -> tuple[bool, bool]:
 class DeviceOps:
     """`batch.Ops`: eylemleri gercek klavye/fare/AT-SPI'ya cevirir."""
 
-    def __init__(self, backend: Any, tree: Any, cfg: Any) -> None:
+    def __init__(
+        self,
+        backend: Any,
+        tree: Any,
+        cfg: Any,
+        capture_provider: CaptureProvider,
+    ) -> None:
         self.backend = backend
         self.tree = tree
         self.cfg = cfg
+        self.capture_provider = capture_provider
         # `shot=` kimliginin aranacagi dizinler. cfg'den BIR KEZ okunuyor;
         # her eylemde yeniden hesaplamak bir listeyi kirk kez kurmak olurdu.
         self.shot_dirs = list(cfg.shot_search_dirs)
@@ -71,7 +78,7 @@ class DeviceOps:
         Burada bir kopya tutulmuyor. `monitor=` tam cozunurluk ofseti ekler,
         `shot=` ayrica OLCEGI de uygular; ikisini de bilen tek yer orasi.
         """
-        return capturelib.to_global(
+        return self.capture_provider.to_global(
             x, y, monitor=monitor, shot=shot, dirs=self.shot_dirs,
             guard_age=self.guard_age,
         )

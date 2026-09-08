@@ -27,23 +27,25 @@ from __future__ import annotations
 
 import sys
 
-from . import EXIT_OK, gate_of, load
+from . import EXIT_OK, load, runtime_of
 
 
 def main(argv: list[str] | None = None) -> int:
     cfg = load()
-    gate = gate_of(cfg)
-    out = gate.lock()
+    runtime = runtime_of(cfg)
+    try:
+        out = runtime.gate.lock()
 
-    # Yayin, izinden AYRI bir kaynak: hangi surec acmis olursa olsun durmali.
-    from ..desktop import screencast as screencastlib
-
-    killed = screencastlib.kill_helpers()
-    if killed:
-        out += (f"\n· {killed} ekran yayini durduruldu "
-                "(paylasim gostergesi kayboldu)")
-    print(out)
-    return EXIT_OK
+        # Yayin, izinden AYRI bir kaynak: hangi surec acmis olursa olsun
+        # provider kendi helper taramasiyla onu da durdurur.
+        killed = runtime.capture_provider.kill_helpers()
+        if killed:
+            out += (f"\n· {killed} ekran yayini durduruldu "
+                    "(paylasim gostergesi kayboldu)")
+        print(out)
+        return EXIT_OK
+    finally:
+        runtime.close()
 
 
 if __name__ == "__main__":  # pragma: no cover

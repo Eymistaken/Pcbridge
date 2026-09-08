@@ -34,9 +34,9 @@ from . import (
     EXIT_OK,
     check_gate,
     fail,
-    gate_of,
     job_id,
     load,
+    runtime_of,
     shot_dir,
 )
 
@@ -63,7 +63,7 @@ def sweep(directory: Path, keep_hours: int) -> int:
     return removed
 
 
-def describe(shots, mons) -> list[str]:
+def describe(shots, mons, capture_provider=None) -> list[str]:
     """Ajanin okuyacagi metin. Her goruntunun KIMLIGI burada yaziyor.
 
     Eskiden burada donusum FORMULU yaziyordu ve ajan bolmeyi kendisi
@@ -117,10 +117,15 @@ def describe(shots, mons) -> list[str]:
 
     # Uyari EN SONA: kullanim talimatinin ustunde dursaydi "koordinat cikarma"
     # ile "koordinati soyle ver" yan yana gelir, son okunan sey talimat olurdu.
-    from ..desktop import capture as _cap
+    if capture_provider is None:
+        from ..desktop import capture as _cap
+
+        oversize_note = _cap.oversize_note
+    else:
+        oversize_note = capture_provider.oversize_note
 
     for s in shots:
-        note = _cap.oversize_note(s)
+        note = oversize_note(s)
         if note:
             out.append("\n" + note)
             break
@@ -162,99 +167,93 @@ def main(argv: list[str] | None = None) -> int:
     # degisirdi -- ayni ekran, iki farkli piksel uzayi.
     scale = (cfg.desktop.screenshot_scale_long_edge if args.scale is None
              else max(0, args.scale))
-    gate = gate_of(cfg)
-    # Ekran goruntusu bir YAZMA eylemi degil: "yakinda klavye kullanildi"
-    # korumasina takilmiyor, ama izin penceresi ve ekran kilidi aynen gecerli.
-    check_gate(cfg, gate, "pcb_shot", write=False, needs_input=False)
-
     from ..desktop import capture as capturelib
     from ..desktop import monitors as monitorslib
     from ..desktop import screencast as screencastlib
 
-    # MCP sunucusu yayini izin suresince acik tutuyor; burasi kisa omurlu bir
-    # surec, o yuzden kendi yayinini acip kapatiyor. Bedeli ~250 ms, karsiligi
-    # cekimde beyaz flas ve ses OLMAMASI. Acilamazsa gnome-screenshot'a
-    # dusuluyor -- goruntu yine aliniyor, sadece flasli.
-    screencast = None
-    if cfg.desktop.capture_backend != "gnome-screenshot":
-        try:
-            screencast = screencastlib.ScreenCast()
-            screencast.start(
-                [m.connector for m in monitorslib.list_monitors()],
-                cursor=not args.no_pointer and cfg.desktop.include_pointer,
-            )
-        except (screencastlib.ScreenCastError, monitorslib.MonitorError):
-            if screencast is not None:
-                screencast.close()
-            screencast = None
-
-    ok, why = capturelib.available(screencast)
-    if not ok:
-        if screencast is not None:
-            screencast.close()
-        gate.audit("pcb_shot_unavailable", reason=why[:120], job=job_id())
-        fail(f"Ekran goruntusu alinamiyor: {why}", EXIT_BAD_INPUT, args.json)
-
-    out_dir = Path(args.out).expanduser() if args.out else shot_dir(cfg)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    swept = sweep(out_dir, cfg.desktop.shot_keep_hours)
-
-    spec: int | str = str(args.monitor).strip()
-    if spec.isdigit():
-        spec = int(spec)
-
+    runtime = runtime_of(cfg)
+    gate = runtime.gate
+    capture_provider = runtime.capture_provider
     try:
-        shots = capturelib.capture(
-            spec,
-            out_dir=out_dir,
-            scale_long_edge=scale,
-            include_pointer=not args.no_pointer and cfg.desktop.include_pointer,
-            screencast=screencast,
+        # Ekran goruntusu bir YAZMA eylemi degil: "yakinda klavye kullanildi"
+        # korumasina takilmiyor, ama izin penceresi ve ekran kilidi aynen gecerli.
+        check_gate(runtime, "pcb_shot", write=False, needs_input=False)
+
+        # MCP sunucusu yayini izin suresince acik tutuyor; burasi kisa omurlu
+        # bir surec, o yuzden runtime kendi yayinini finally'de kapatiyor.
+        if cfg.desktop.capture_backend != "gnome-screenshot":
+            try:
+                runtime.start_capture(
+                    cursor=not args.no_pointer and cfg.desktop.include_pointer
+                )
+            except (screencastlib.ScreenCastError, monitorslib.MonitorError):
+                runtime.stop_capture()
+
+        ok, why = capture_provider.available()
+        if not ok:
+            gate.audit("pcb_shot_unavailable", reason=why[:120], job=job_id())
+            fail(f"Ekran goruntusu alinamiyor: {why}", EXIT_BAD_INPUT, args.json)
+
+        out_dir = Path(args.out).expanduser() if args.out else shot_dir(cfg)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        swept = sweep(out_dir, cfg.desktop.shot_keep_hours)
+
+        spec: int | str = str(args.monitor).strip()
+        if spec.isdigit():
+            spec = int(spec)
+
+        try:
+            shots = capture_provider.capture(
+                spec,
+                out_dir=out_dir,
+                scale_long_edge=scale,
+                include_pointer=not args.no_pointer and cfg.desktop.include_pointer,
+            )
+            mons = capture_provider.list_monitors()
+        except (capturelib.CaptureError, monitorslib.MonitorError) as exc:
+            gate.audit("pcb_shot_error", error=str(exc)[:160], job=job_id())
+            fail(str(exc), EXIT_BAD_INPUT, args.json)
+
+        # `--out` ile baska bir dizine yazildiysa cekim kaydi ARAMA dizinine
+        # de kopyalanir. Kayitta PNG'nin MUTLAK yolu kalir.
+        if out_dir != shot_dir(cfg):
+            for shot in shots:
+                capture_provider.save_meta(shot, shot_dir(cfg))
+
+        gate.audit(
+            "pcb_shot",
+            monitor=str(args.monitor),
+            shots=len(shots),
+            swept=swept or None,
+            job=job_id(),
         )
-        mons = monitorslib.list_monitors()
-    except (capturelib.CaptureError, monitorslib.MonitorError) as exc:
-        gate.audit("pcb_shot_error", error=str(exc)[:160], job=job_id())
-        fail(str(exc), EXIT_BAD_INPUT, args.json)
+
+        if args.json:
+            print(json.dumps({
+                "ok": True,
+                "shots": [
+                    {
+                        "id": s.id,
+                        "path": str(s.path),
+                        "monitor": None if s.monitor is None else s.monitor.index,
+                        "connector": None if s.monitor is None else s.monitor.connector,
+                        "primary": None if s.monitor is None else s.monitor.primary,
+                        "offset": list(s.offset) if s.offset else None,
+                        "size": list(s.size),
+                        "scaled": list(s.scaled),
+                        "scale": s.scale,
+                    }
+                    for s in shots
+                ],
+                "primary_monitor": next(
+                    (m.index for m in mons if m.primary), None
+                ),
+            }, ensure_ascii=False, indent=2))
+        else:
+            print("\n".join(describe(shots, mons, capture_provider)))
+        return EXIT_OK
     finally:
-        if screencast is not None:
-            screencast.close()
-
-    # `--out` ile baska bir dizine yazildiysa cekim kaydi ARAMA dizinine de
-    # kopyalanir. `pcb-do` yalnizca varsayilan iki dizine bakiyor (ayri surec,
-    # `--out`u bilemez); kopyalanmasaydi `--out` ile alinan bir goruntunun
-    # kimligi "boyle bir cekim yok" derdi. Kayitta PNG'nin MUTLAK yolu var,
-    # yani goruntu nerede olursa olsun bulunuyor.
-    if out_dir != shot_dir(cfg):
-        for s in shots:
-            capturelib.save_meta(s, shot_dir(cfg))
-
-    gate.audit("pcb_shot", monitor=str(args.monitor), shots=len(shots),
-               swept=swept or None, job=job_id())
-
-    if args.json:
-        print(json.dumps({
-            "ok": True,
-            "shots": [
-                {
-                    "id": s.id,
-                    "path": str(s.path),
-                    "monitor": None if s.monitor is None else s.monitor.index,
-                    "connector": None if s.monitor is None else s.monitor.connector,
-                    "primary": None if s.monitor is None else s.monitor.primary,
-                    "offset": list(s.offset) if s.offset else None,
-                    "size": list(s.size),
-                    "scaled": list(s.scaled),
-                    "scale": s.scale,
-                }
-                for s in shots
-            ],
-            "primary_monitor": next(
-                (m.index for m in mons if m.primary), None
-            ),
-        }, ensure_ascii=False, indent=2))
-    else:
-        print("\n".join(describe(shots, mons)))
-    return EXIT_OK
+        runtime.close()
 
 
 if __name__ == "__main__":  # pragma: no cover

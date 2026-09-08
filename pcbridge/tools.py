@@ -35,6 +35,7 @@ from .desktop import ops as opslib
 from .desktop import safety as safetylib
 from .desktop import screencast as screencastlib
 from .desktop import uitree as uitreelib
+from .desktop.runtime import DesktopRuntime, create_runtime
 
 logger = logging.getLogger("pcbridge.tools")
 
@@ -214,7 +215,8 @@ def register(
     jm: jobslib.JobManager,
     shot_store: "shotslib.ShotStore | None" = None,
     transport: str = "http",
-) -> None:
+    runtime: DesktopRuntime | None = None,
+) -> DesktopRuntime:
     global _DESC_AGENT, _DESC_MODEL, _DESC_EFFORT
     _DESC_AGENT = (
         "Agent name, e.g. 'claude' or 'antigravity'. Optional: if omitted it is "
@@ -238,7 +240,9 @@ def register(
     # yaziyor. Eskiden yalnizca masaustu araclari kayit tutuyordu, yani en sert
     # denetim en zayif araclardaydi; `shell_run` keyfi komut calistirmasina
     # ragmen hicbir iz birakmiyordu.
-    gate = safetylib.SafetyGate(cfg)
+    if runtime is None:
+        runtime = create_runtime(cfg, gate=safetylib.SafetyGate(cfg))
+    gate = runtime.gate
 
     # Bir kez hesaplanir: arac calisma anina kadar ne ayar ne tasima degisir.
     inline_images = _want_inline(cfg.inline_images, transport)
@@ -258,7 +262,7 @@ def register(
         bir kopya cikarsa gunun birinde biri guncellenmez ve sessizce 1920
         piksel sola tiklanir.
         """
-        return capturelib.to_global(
+        return capture_provider.to_global(
             x, y, monitor=monitor, shot=shot, dirs=shot_dirs,
             guard_age=guard_age,
         )
@@ -271,7 +275,7 @@ def register(
         if not shot or limit <= 0:
             return ""
         try:
-            age = capturelib.load_shot(shot, shot_dirs).age
+            age = capture_provider.load_shot(shot, shot_dirs).age
         except capturelib.CaptureError:
             return ""
         if age <= limit:
@@ -808,14 +812,9 @@ def register(
     # =============================================================== MASAUSTU
     # Klavye/fare kontrolu. Her cagri once SafetyGate'ten gecer: [desktop]
     # enabled, ekran kilidi, sureli izin, kullanici cakismasi, hiz siniri.
-    backend = inputlib.InputBackend(
-        pointer_speed=cfg.desktop.pointer_speed,
-        pointer_max_ms=cfg.desktop.pointer_move_max_ms,
-        hold_max_seconds=cfg.desktop.hold_max_seconds,
-        pos_file=cfg.pointer_pos_file,
-    )
-    tree = uitreelib.UiTree()
-    screencast = screencastlib.ScreenCast()
+    backend = runtime.input_provider
+    tree = runtime.accessibility_provider
+    capture_provider = runtime.capture_provider
 
     def _open_screencast() -> str:
         """Masaustu izniyle birlikte ekran yayinini ac.
@@ -831,11 +830,9 @@ def register(
         if cfg.desktop.capture_backend == "gnome-screenshot":
             return ""
         try:
-            mons = [m.connector for m in monitorslib.list_monitors()]
+            runtime.start_capture(cursor=cfg.desktop.include_pointer)
         except monitorslib.MonitorError as exc:
             return f"⚠️ Ekran yayını açılamadı (monitör tablosu okunamadı: {exc})."
-        try:
-            screencast.start(mons, cursor=cfg.desktop.include_pointer)
         except screencastlib.ScreenCastError as exc:
             if cfg.desktop.capture_backend == "screencast":
                 return (
@@ -849,66 +846,10 @@ def register(
                 "Ekran görüntüsü gnome-screenshot ile alınacak — her çekimde "
                 "beyaz flaş ve ses olur."
             )
-        _arm_screencast_timer()
         return (
             "📷 Ekran yayını açık: görüntüler sessizce alınacak (flaş yok). "
             "Üst çubuktaki paylaşım göstergesi izin kapanınca kaybolur."
         )
-
-    # Izin suresi dolunca yayini kapatan zamanlayici. Tembel kontrol (bir
-    # sonraki arac cagrisinda bak) TEK BASINA YETMEZ: cagri hic gelmeyebilir
-    # ve o zaman ust cubuktaki paylasim gostergesi izin kapandigi halde
-    # durmaya devam eder -- yani kullaniciya YALAN soyler. Gosterge bu
-    # projede "ajan su an masaustune erisebiliyor" demek; yanlis olmamali.
-    _sc_timer: dict[str, "threading.Timer | None"] = {"t": None}
-
-    def _arm_screencast_timer() -> None:
-        """Zamanlayiciyi izin suresinin GUNCEL haline gore kur.
-
-        KAYAN KIRA YUZUNDEN HER EYLEMDE YENIDEN KURULUYOR. Eskiden bir kez,
-        `unlock` aninda kuruluyordu ve o yeterliydi cunku `until` sabitti.
-        Artik `until` her eylemde `simdi + unlock_idle_seconds`e kayiyor: 15
-        dakikalik bir izinde zamanlayici 900 saniyeye kurulsaydi izin 90
-        saniyede duser ama ust cubuktaki paylasim gostergesi 13 dakika daha
-        DURURDU -- yani kullaniciya "ajan hala masaustune erisebiliyor" diye
-        YALAN soylerdi. Bu projede gosterge yalan soylememeli.
-
-        Yayin kapaliyken bedava: hicbir zamanlayici kurulmuyor.
-        """
-        eski = _sc_timer["t"]
-        if eski is not None:
-            eski.cancel()
-        _sc_timer["t"] = None
-        if not screencast.is_open():
-            return
-        kalan = gate.remaining_seconds()
-        if kalan <= 0:
-            return
-        # +2 sn: kapinin kendi sure hesabiyla yarismayalim.
-        timer = threading.Timer(kalan + 2, _close_screencast_if_locked)
-        timer.daemon = True
-        timer.start()
-        _sc_timer["t"] = timer
-
-    def _close_screencast_if_locked() -> None:
-        """Izin kapandiysa yayini da kapat.
-
-        Iki yerden cagriliyor: her masaustu cagrisinin basinda (ucuz kontrol)
-        ve izin suresi dolunca zamanlayicidan (cagri hic gelmezse diye).
-
-        Zamanlayicidan gelindiginde izin HALA acik olabilir: kirayi bu surecin
-        disindan kaydiran biri vardir (`bin/pcb-do`, `bin/pcb-shot` -- yerel
-        gorsel ajan onlari Bash'ten cagiriyor ve ikisi de ayri surec). O
-        durumda yayini kapatmak yanlis olur; onun yerine zamanlayici yeni
-        sureye gore YENIDEN kuruluyor. Aksi halde tek bir erken uyanma
-        gostergeyi zamanlayicisiz birakirdi.
-        """
-        if not screencast.is_open():
-            return
-        if gate.is_unlocked():
-            _arm_screencast_timer()
-            return
-        screencast.close()
 
     def _held_note() -> str:
         """Basili tutulan varsa yanitin sonuna eklenecek not.
@@ -963,7 +904,7 @@ def register(
                     # parcacigina guvenip kalp atissiz kalirdi.
                     _hb_thread["t"] = None
                     return
-            gate.touch()
+            runtime.touch_grant()
 
     def _heartbeat_add(job_id: str) -> None:
         if int(cfg.desktop.unlock_idle_seconds or 0) <= 0:
@@ -991,13 +932,13 @@ def register(
         ve erisilebilirlik araclari uinput kullanmiyor; /dev/uinput yokken
         onlari "girdi cihazi yok" diye reddetmek yanlis gerekce olurdu.
         """
-        _close_screencast_if_locked()
+        runtime.close_capture_if_locked()
         decision = gate.check(tool, write=write, force=force)
         if not decision.allowed:
             gate.audit(f"{tool}_denied", reason=decision.reason[:120])
             return f"⛔ {decision.reason}"
         # `check()` kirayi kaydirdi; gosterge de onunla birlikte kaysin.
-        _arm_screencast_timer()
+        runtime.refresh_capture_deadline()
         if needs_input:
             ok, why = backend.available()
             if not ok:
@@ -1058,7 +999,7 @@ def register(
                 capture_output=True,
                 timeout=10,
             )
-        out = [msg, "", monitorslib.describe(), ""]
+        out = [msg, "", capture_provider.describe_monitors(), ""]
         out.append(_open_screencast())
         out.append(
             "Koordinatlar **global tuval uzayinda**; sol ust (0, 0). Monitore ozel "
@@ -1074,18 +1015,13 @@ def register(
         mouse button still held down is released first. Use when the user says they
         are done, or asks you to stop touching their screen."""
         freed = backend.release_all()
-        backend.close()
-        yayin = screencast.is_open()
-        timer = _sc_timer["t"]
-        if timer is not None:
-            timer.cancel()
-            _sc_timer["t"] = None
-        screencast.close()
+        yayin = capture_provider.is_open()
+        runtime.release_resources()
         # BASKA sureclerin yayinlari da: aynı anda bir `--stdio` istemcisi ya
         # da `pcb-shot` kendi yayinini acmis olabilir ve `close()` yalnizca
         # BIZIM tutamagimizi kapatir. Kullanici "kapat" dediginde ust
         # cubuktaki gostergenin gercekten kaybolmasi gerekiyor.
-        others = screencastlib.kill_helpers()
+        others = capture_provider.kill_helpers()
         note = f"\n· bırakılan: {', '.join(freed)}" if freed else ""
         if yayin or others:
             note += "\n· ekran yayını kapatıldı (paylaşım göstergesi kayboldu)"
@@ -1256,7 +1192,7 @@ def register(
         where = backend.position
         note = ""
         if where:
-            m = monitorslib.find_monitor(*where)
+            m = capture_provider.find_monitor(*where)
             if m:
                 note = f" · monitor {m.index} ({m.connector})"
         return (
@@ -1364,14 +1300,14 @@ def register(
         one sits in the shared coordinate space, and which one is primary. Use this
         before clicking or capturing anything, so you know which coordinates land on
         which screen. Contains no personal data, only the hardware layout."""
-        lines = [monitorslib.describe(), ""]
-        _close_screencast_if_locked()
-        cap_ok, cap_why = capturelib.available(screencast)
+        lines = [capture_provider.describe_monitors(), ""]
+        runtime.close_capture_if_locked()
+        cap_ok, cap_why = capture_provider.available()
         lines.append(
             f"**Ekran goruntusu:** {'hazir' if cap_ok else 'KULLANILAMIYOR'} "
-            f"(`{capturelib.backend_name(screencast)}`)"
+            f"(`{capture_provider.backend_name()}`)"
             + ("" if cap_ok else f" — {cap_why}")
-            + ("" if screencast.is_open() else
+            + ("" if capture_provider.is_open() else
                " · yayın kapalı, çekimde flaş olur (`desktop_unlock` açar)")
         )
         in_ok, in_why = backend.available()
@@ -1379,7 +1315,7 @@ def register(
             f"**Klavye/fare:** {'hazir' if in_ok else 'KULLANILAMIYOR'}"
             + ("" if in_ok else f" — {in_why}")
         )
-        ui_ok, ui_why = uitreelib.available()
+        ui_ok, ui_why = tree.available()
         ui_line = f"**Erisilebilirlik agaci:** {'hazir' if ui_ok else 'KULLANILAMIYOR'}"
         if ui_ok:
             # Pencere listesi ve odak yalnizca buradan okunabiliyor: C
@@ -1456,7 +1392,7 @@ def register(
                 "⛔ Ekran goruntusu servisi kurulu degil (sunucu eski surumde?)."
             )
 
-        cap_ok, cap_why = capturelib.available(screencast)
+        cap_ok, cap_why = capture_provider.available()
         if not cap_ok:
             gate.audit("screen_capture_unavailable", reason=cap_why[:120])
             return _text(f"⛔ Ekran goruntusu alinamiyor: {cap_why}")
@@ -1478,12 +1414,11 @@ def register(
         swept = shot_store.sweep()
 
         try:
-            shots = capturelib.capture(
+            shots = capture_provider.capture(
                 spec,
                 out_dir=shot_store.dir,
                 scale_long_edge=long_edge,
                 include_pointer=pointer,
-                screencast=screencast,
             )
         except (capturelib.CaptureError, monitorslib.MonitorError) as exc:
             gate.audit("screen_capture_error", error=str(exc)[:160])
@@ -1555,7 +1490,7 @@ def register(
             # gordugunuz piksel ile kayitli olcek ayrisir ve `shot` hesabi
             # sessizce sasar. `scale=0` verildiginde tam da bu oluyor.
             for shot in shots:
-                note = capturelib.oversize_note(shot)
+                note = capture_provider.oversize_note(shot)
                 if note:
                     out.append(note)
                     break
@@ -1622,7 +1557,7 @@ def register(
         denied = _guard("ui_dump", write=False, needs_input=False)
         if denied:
             return denied
-        ok, why = uitreelib.available()
+        ok, why = tree.available()
         if not ok:
             gate.audit("ui_dump_unavailable", reason=why[:120])
             return f"⛔ Erisilebilirlik agaci okunamiyor: {why}"
@@ -1632,7 +1567,7 @@ def register(
             gate.audit("ui_dump_error", error=str(exc)[:160])
             return f"Hata: {exc}"
         gate.audit("ui_dump", target=target, nodes=len(dump.nodes))
-        return jobslib.tail_chars(uitreelib.describe(dump), MAX_INLINE)
+        return jobslib.tail_chars(tree.describe_dump(dump), MAX_INLINE)
 
     @mcp.tool(annotations={"title": "Click something on screen", "destructiveHint": True})
     def ui_click(
@@ -1720,7 +1655,7 @@ def register(
         denied = _guard("window_list", write=False, needs_input=False)
         if denied:
             return denied
-        ok, why = uitreelib.available()
+        ok, why = tree.available()
         if not ok:
             gate.audit("window_list_unavailable", reason=why[:120])
             return f"⛔ Pencere listesi okunamiyor: {why}"
@@ -1730,7 +1665,7 @@ def register(
             gate.audit("window_list_error", error=str(exc)[:160])
             return f"Hata: {exc}"
         gate.audit("window_list", windows=len(wins))
-        return uitreelib.describe_windows(wins)
+        return tree.describe_windows(wins)
 
     @mcp.tool(
         annotations={"title": "Bring a window to the front", "destructiveHint": True}
@@ -1781,7 +1716,7 @@ def register(
     # `DeviceOps` artik `desktop/ops.py`'de: ayni uygulamayi `bin/pcb-do`
     # kabugu da kullaniyor (F bolumu, yerel gorsel ajan). Burada bir kopya
     # dursaydi iki davranis zamanla ayrisirdi.
-    batch_ops = opslib.DeviceOps(backend, tree, cfg)
+    batch_ops = opslib.DeviceOps(backend, tree, cfg, capture_provider)
 
     @mcp.tool(
         annotations={"title": "Run several actions in one go", "destructiveHint": True}
@@ -2145,3 +2080,5 @@ def register(
             return "notify-send bulunamadi: `sudo apt install libnotify-bin`"
         except Exception as exc:  # pragma: no cover
             return f"Bildirim gonderilemedi: {exc}"
+
+    return runtime

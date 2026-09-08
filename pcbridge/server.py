@@ -307,7 +307,10 @@ def build_app(cfg: Config, transport: str = "http"):
 
     jm = JobManager(cfg.jobs_dir, default_timeout=cfg.default_job_timeout)
     shot_store = ShotStore(cfg)
-    toolsmod.register(mcp, cfg, jm, shot_store, transport=transport)
+    desktop_runtime = toolsmod.register(
+        mcp, cfg, jm, shot_store, transport=transport
+    )
+    mcp._pcbridge_desktop_runtime = desktop_runtime
 
     consent_get, consent_post = make_consent_routes(provider)
 
@@ -454,6 +457,15 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     mcp, _provider = build_app(cfg, transport=transport)
+    desktop_runtime = mcp._pcbridge_desktop_runtime
+    try:
+        return _run_app(mcp, cfg, args, transport)
+    finally:
+        desktop_runtime.close()
+
+
+def _run_app(mcp, cfg: Config, args: argparse.Namespace, transport: str) -> int:
+    """Run one configured transport while the caller owns desktop cleanup."""
 
     if args.stdio:
         banner = [

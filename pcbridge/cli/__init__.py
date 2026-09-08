@@ -55,9 +55,15 @@ def load() -> Any:
 
 
 def gate_of(cfg: Any) -> Any:
-    from ..desktop.safety import SafetyGate
+    """Compatibility helper for callers that only need the shared gate."""
+    return runtime_of(cfg).gate
 
-    return SafetyGate(cfg)
+
+def runtime_of(cfg: Any) -> Any:
+    """Create the same isolated desktop runtime used by the MCP server."""
+    from ..desktop.runtime import create_runtime
+
+    return create_runtime(cfg)
 
 
 def job_id() -> str | None:
@@ -85,7 +91,7 @@ def task_force() -> bool:
     return os.environ.get("PCBRIDGE_TASK_FORCE") == "1"
 
 
-def check_gate(cfg: Any, gate: Any, tool: str, *, write: bool,
+def check_gate(runtime: Any, tool: str, *, write: bool,
                needs_input: bool, force: bool = False) -> None:
     """Kapidan gec ya da `EXIT_DENIED` ile cik.
 
@@ -93,14 +99,13 @@ def check_gate(cfg: Any, gate: Any, tool: str, *, write: bool,
     kullanmiyor; /dev/uinput yokken onu "girdi cihazi yok" diye reddetmek
     yanlis gerekce olurdu (C bolumunde bir kez yasandi).
     """
+    gate = runtime.gate
     decision = gate.check(tool, write=write, force=force)
     if not decision.allowed:
         gate.audit(f"{tool}_denied", reason=decision.reason[:120], job=job_id())
         fail(decision.reason, EXIT_DENIED)
     if needs_input:
-        from ..desktop.input import InputBackend
-
-        ok, why = InputBackend().available()
+        ok, why = runtime.input_provider.available()
         if not ok:
             gate.audit(f"{tool}_unavailable", reason=why[:120], job=job_id())
             fail(f"Sanal girdi cihazi kullanilamiyor: {why}", EXIT_DENIED)

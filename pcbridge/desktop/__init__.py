@@ -6,6 +6,8 @@ Bu paket `[desktop] enabled = true` olmadan hicbir sey yapmaz; kapi
     monitors.py  monitor tablosu, koordinat uzayi, `monitor=` cozumleme
     input.py     /dev/uinput uzerinden sanal klavye + mutlak fare
     safety.py    sureli izin, ekran kilidi/idle kontrolu, hiz siniri, denetim
+    contracts.py provider arayuzleri
+    runtime.py   provider kaynak sahipligi ve yasam dongusu
 
 `evdev` kurulu degilse yalnizca girdi araclari devre disi kalir; pcbridge'in
 geri kalani (ajan, tmux, kabuk, dosya) etkilenmez.

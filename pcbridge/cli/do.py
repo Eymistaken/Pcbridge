@@ -37,10 +37,10 @@ from . import (
     EXIT_PARTIAL,
     check_gate,
     fail,
-    gate_of,
     job_id,
     load,
     newest_shot_age,
+    runtime_of,
     shot_dir,
     task_force,
 )
@@ -141,6 +141,21 @@ def main(argv: list[str] | None = None) -> int:
             print("\n".join(lines))
         return EXIT_OK
 
+    runtime = runtime_of(cfg)
+    try:
+        return _run_plan(cfg, args, plan, runtime)
+    finally:
+        runtime.close()
+
+
+def _run_plan(cfg, args, plan, runtime) -> int:
+    """Execute one parsed plan with resources owned by a single runtime."""
+    from ..desktop import batch as batchlib
+    from ..desktop import capture as capturelib
+    from ..desktop import ops as opslib
+
+    capture_provider = runtime.capture_provider
+
     # BAYAT GORUNTU KONTROLU. Odak korumasi "tikladiktan SONRA odak degisti mi"
     # diye bakiyor; bu ondan farkli bir tehlike: goruntuyu aldiktan sonra
     # kullanici baska pencereye gecmisse odak zaten orada olur, TIKLAMA da
@@ -157,15 +172,13 @@ def main(argv: list[str] | None = None) -> int:
         # yapilmissa "en yeni goruntu taze" der ve gecerdi, ama tiklama BASKA,
         # eski bir cekimin koordinatlarina gore yapilirdi -- yani korumanin
         # engellemek icin var oldugu seyin ta kendisi.
-        from ..desktop import capture as capturelib
-
         dirs = cfg.shot_search_dirs
         for act in needs_shot:
             sid = act.args.get("shot")
             if not sid:
                 continue
             try:
-                age = capturelib.load_shot(sid, dirs).age
+                age = capture_provider.load_shot(sid, dirs).age
             except capturelib.CaptureError as exc:
                 fail(str(exc), EXIT_DENIED, args.json)
             if age > limit:
@@ -188,26 +201,23 @@ def main(argv: list[str] | None = None) -> int:
                      "artik baska seyin ustunde olabilir. Once `pcb-shot` ile TAZE "
                      "goruntu alin.", EXIT_DENIED, args.json)
 
-    gate = gate_of(cfg)
+    gate = runtime.gate
     kinds = {a.a for a in plan}
     needs_input = bool(kinds & batchlib.INPUT_ACTIONS) or "focus" in kinds
     # Iki yoldan da yalnizca BOSTA kontrolu atlanir: `--force` elle kullanim
     # icin, `PCBRIDGE_TASK_FORCE` ise `computer_task`in gorev basinda yaptigi
     # kontrolu ajanin her eyleminde tekrarlamamak icin.
     forced = args.force or task_force()
-    check_gate(cfg, gate, "pcb_do", write=True, needs_input=needs_input,
-               force=forced)
-
-    from ..desktop.input import InputBackend
-    from ..desktop.uitree import UiTree
-
-    backend = InputBackend(
-        pointer_speed=cfg.desktop.pointer_speed,
-        pointer_max_ms=cfg.desktop.pointer_move_max_ms,
-        hold_max_seconds=cfg.desktop.hold_max_seconds,
-        pos_file=cfg.pointer_pos_file,
+    check_gate(
+        runtime,
+        "pcb_do",
+        write=True,
+        needs_input=needs_input,
+        force=forced,
     )
-    tree = UiTree()
+
+    backend = runtime.input_provider
+    tree = runtime.accessibility_provider
 
     # Cihazlari bastan ac: ikisi de gerekiyorsa bekleme tek sefere iner.
     want_k, want_p = opslib.devices_needed(plan)
@@ -218,19 +228,14 @@ def main(argv: list[str] | None = None) -> int:
 
     gate.audit("pcb_do_start", count=len(plan), kinds=",".join(sorted(kinds)),
                forced=forced or None, job=job_id())
-    try:
-        result = batchlib.run(
-            plan,
-            opslib.DeviceOps(backend, tree, cfg),
-            budget=float(cfg.desktop.batch_budget_seconds),
-            min_gap=gap,
-            check_focus=check_focus,
-            expect_focus=args.expect_focus,
-        )
-    finally:
-        # Cihazlar surecle birlikte zaten olurdu; yine de acikca kapatiyoruz
-        # ki bir istisna durumunda basili kalmis bir tus kalmasin.
-        backend.close()
+    result = batchlib.run(
+        plan,
+        opslib.DeviceOps(backend, tree, cfg, capture_provider),
+        budget=float(cfg.desktop.batch_budget_seconds),
+        min_gap=gap,
+        check_focus=check_focus,
+        expect_focus=args.expect_focus,
+    )
 
     for step in result.steps:
         # Metin ICERIGI yazilmaz -- `ui_set_text`teki kural aynen gecerli.

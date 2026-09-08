@@ -23,6 +23,9 @@ from pcbridge.cli import shot as shot_cli  # noqa: E402
 from pcbridge.config import DesktopSpec  # noqa: E402
 from pcbridge.desktop import capture as capturelib  # noqa: E402
 from pcbridge.desktop import monitors as monitorslib  # noqa: E402
+from pcbridge.desktop.backends.python import (  # noqa: E402
+    PythonCaptureProvider as RuntimeCaptureProvider,
+)
 
 
 FIXTURES = ROOT / "tests" / "fixtures" / "native"
@@ -138,6 +141,20 @@ class CaptureContractTests(unittest.TestCase):
                 def audit(self, *args, **kwargs) -> None:
                     return None
 
+            class ClosedScreenCast:
+                def is_open(self) -> bool:
+                    return False
+
+                def close(self) -> None:
+                    return None
+
+            capture_provider = RuntimeCaptureProvider(cfg, ClosedScreenCast())
+            runtime = SimpleNamespace(
+                gate=FakeGate(),
+                capture_provider=capture_provider,
+                close=capture_provider.close,
+            )
+
             def default_shot_dir(_cfg) -> Path:
                 default_output.mkdir(parents=True, exist_ok=True)
                 return default_output
@@ -163,7 +180,7 @@ class CaptureContractTests(unittest.TestCase):
             stdout = io.StringIO()
             with (
                 mock.patch.object(shot_cli, "load", return_value=cfg),
-                mock.patch.object(shot_cli, "gate_of", return_value=FakeGate()),
+                mock.patch.object(shot_cli, "runtime_of", return_value=runtime),
                 mock.patch.object(shot_cli, "check_gate", return_value=None),
                 mock.patch.object(shot_cli, "shot_dir", side_effect=default_shot_dir),
                 mock.patch.object(shot_cli, "job_id", return_value="contract-job"),
