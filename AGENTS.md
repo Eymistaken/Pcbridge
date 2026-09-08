@@ -36,8 +36,8 @@ yanlış bir komutu çalıştırırken — fark edilir.
 
 ## Native migration durumu
 
-- Son tamamlanan task: **0.2 — Public contract ve backend parity fixture'larını oluştur** (`d010462`)
-- Aktif task: **1.1 — `DesktopRuntime` ve Python provider adapter'ını çıkar**
-- Sıradaki task: **1.2 — Capability modelini ve `system_status` çıktısını genişlet**
+- Son tamamlanan task: **1.1 — `DesktopRuntime` ve Python provider adapter'ını çıkar** (`3a6a36f`)
+- Aktif task: **1.2 — Runtime capability ve typed error katmanını ekle**
+- Sıradaki task: **1.3 — Structured MCP hata yüzeyini kur**
 - Blocker: Yok
-- Son doğrulanan gate: **Gate 0 geçti.** Güvenli desktop baseline `578/0`; model suite `106/0`; safety selector `1/1`; contract suite `7/7`.
+- Son doğrulanan gate: **Task 1.1 acceptance geçti; Phase 1 devam ediyor.** Güvenli desktop baseline `578/0`; model suite `106/0`; safety selector `1/1`; contract suite `12/12`; server `--check` exit `0`.

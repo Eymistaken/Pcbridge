@@ -2,9 +2,9 @@
 
 ## Durum özeti
 
-- Aktif task: **1.1 — `DesktopRuntime` ve Python provider adapter'ını çıkar** (`başlıyor`)
-- Son tamamlanan task: **0.2 — Public contract ve backend parity fixture'larını oluştur** (`d010462`)
-- Sıradaki uygulanabilir task: **1.2 — Capability modelini ve `system_status` çıktısını genişlet**
+- Aktif task: **1.2 — Runtime capability ve typed error katmanını ekle** (`başlıyor`)
+- Son tamamlanan task: **1.1 — `DesktopRuntime` ve Python provider adapter'ını çıkar** (`3a6a36f`)
+- Sıradaki uygulanabilir task: **1.3 — Structured MCP hata yüzeyini kur**
 - Blocker: Yok
 - Son gate: **Gate 0 geçti.** Bütün gerçek test bayrakları kapalı güvenli baseline `578 geçti, 0 kaldı`; model suite `106/0`, safety selector `1/1`, contract suite `7/7`.
 
@@ -76,10 +76,45 @@
 
 ## Task 1.1 — `DesktopRuntime` ve Python provider adapter'ını çıkar
 
-**Durum:** `başlıyor`
+**Durum:** `tamamlandı`
 
 **Amaç:** MCP tool registration ile desktop kaynak sahipliğini ayırmak; mevcut Python davranışını provider adapter arkasından korumak.
 
-**Gate:** Phase 1 devam ediyor.
+**Değişen dosyalar:** `pcbridge/desktop/contracts.py`, `pcbridge/desktop/runtime.py`, `pcbridge/desktop/backends/`, `pcbridge/tools.py`, `pcbridge/server.py`, desktop CLI modülleri, `pcbridge/desktop/ops.py`, contract testleri.
+
+**Yapılanlar:**
+
+- Capture, input, accessibility ve grant protokolleri açık provider sınırlarına çıkarıldı.
+- Mevcut Python capture, uinput ve AT-SPI yolları Python provider adapter'larına bağlandı.
+- `DesktopRuntime` provider kaynaklarını, screencast grant zamanlayıcısını ve idempotent lifecycle kapanışını sahipleniyor.
+- MCP registration ve `pcb-shot`/`pcb-do`/`pcb-lock` aynı runtime factory'yi kullanıyor.
+- `computer_task` heartbeat orchestration'ı Python'da kaldı; grant yenilemesi runtime arayüzünden geçiyor.
+- `DeviceOps` capture bağımlılığını constructor üzerinden alıyor.
+- Server çıkışı ve CLI yürütme yolları runtime'ı `finally` içinde kapatıyor.
+
+**Test sonuçları:**
+
+- Contract discovery → `12 tests`, `OK`.
+- `tests/test_desktop.py` bütün live bayrakları unset → `578 geçti, 0 kaldı`.
+- `tests/test_models.py` bütün live bayrakları unset → `106 geçti, 0 kaldı`.
+- `tests/test_test_safety.py` bütün live bayrakları unset → `1 test`, `OK`.
+- `python -m pcbridge.server --check -c config.example.toml` → exit `0`.
+- Runtime contract, lazy construction, iki runtime izolasyonu, timer sahipliği, idempotent close ve MCP/CLI/server lifecycle kapanışını doğruluyor.
+
+**Gate:** Task 1.1 acceptance geçti; Phase 1 devam ediyor.
+
+**Commit:** `3a6a36f` (`refactor: centralize desktop runtime ownership`)
 
 **Rollback:** Runtime wiring task commit'i bağımsız geri alınabilir.
+
+**Sonraki somut adım:** Task 1.2 capability snapshot ve typed provider hata eşlemesini ekle.
+
+## Task 1.2 — Runtime capability ve typed error katmanını ekle
+
+**Durum:** `başlıyor`
+
+**Amaç:** Bir desktop özelliğinin implementasyonu ile o anda kullanılabilir olmasını ayrı, typed durumlar olarak raporlamak.
+
+**Gate:** Phase 1 devam ediyor.
+
+**Rollback:** Capability/error commit'i bağımsız geri alınabilir; provider sözleşmeleri Task 1.1 halinde kalır.
