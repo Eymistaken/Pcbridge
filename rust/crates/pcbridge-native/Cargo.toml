@@ -1,0 +1,17 @@
+[package]
+name = "pcbridge-native"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+test-harness = []
+
+[dependencies]
+pcbridge-core = { path = "../pcbridge-core" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

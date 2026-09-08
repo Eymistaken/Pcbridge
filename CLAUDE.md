@@ -507,6 +507,7 @@ ve o değişken `--effort` bayrağını sessizce etkisiz kılıyor.
 | Dosya | Ne |
 |---|---|
 | `YAPILACAKLAR.md` | **Sıradaki iş** + biten faz 1–3 kaydı + yarım kalan imleç katmanının bulguları |
+| `docs/native/protocol-v1.md` | Python/native stdio framing, handshake, control metotları ve test harness sınırı |
 | `ADIMLAR.md` | Ekran görüntüsü koordinatları / temizliği üçlüsünün adım adım kaydı: ne bitti, ne bekliyor, neden |
 | `KULLANIM.md` | Kullanıcıya dönük araç kataloğu + izin haritası — **güncel tutulmalı** |
 | `config.example.toml` | Ayarların belgelenmiş hâli; projenin asıl referansı |
