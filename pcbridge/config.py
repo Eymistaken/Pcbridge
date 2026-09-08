@@ -97,11 +97,11 @@ class DesktopSpec:
     # olayi olmadigi icin `desktop_lock`u unutmasi yapisal; bu onu kodda
     # cozuyor. 0 = kapali (eski davranis: sabit son tarih).
     unlock_idle_seconds: int = 90
-    # Masaustu izni ACIKKEN `shell_run`/`shell_run_background` engel
-    # listesindeki bir GUI uygulamasini baslatmaya calisirsa reddedilsin mi.
-    # Liste BOSSA hicbir sey engellenmez; masaustu izni kapaliyken kapi hic
-    # devreye girmez (masaustu kapaliyken kabuk normal kabuktur).
-    block_gui_launch_in_shell: bool = True
+    # Acikca etkinlestirilirse, masaustu izni ACIKKEN `shell_run`/
+    # `shell_run_background` engel listesindeki bir GUI uygulamasini baslatmaya
+    # calisinca reddeder. Varsayilan false: shell ayri bir execution yoludur;
+    # ozellikle calisan bir tarayiciya URL vermek yeni bir surec omru yaratmaz.
+    block_gui_launch_in_shell: bool = False
     # Kabuktan baslatilmasi engellenecek uygulamalar. Adlar `.desktop`
     # tablosunda aranir, yani "Text Editor" yazmak `gnome-text-editor`i de
     # yakalar.
@@ -528,7 +528,7 @@ def load_config(explicit: str | None = None) -> Config:
         unlock_notification=bool(desktop_raw.get("unlock_notification", True)),
         unlock_idle_seconds=int(desktop_raw.get("unlock_idle_seconds", 90)),
         block_gui_launch_in_shell=bool(
-            desktop_raw.get("block_gui_launch_in_shell", True)
+            desktop_raw.get("block_gui_launch_in_shell", False)
         ),
         gui_launch_blocklist=[
             str(x).strip()

@@ -2049,7 +2049,7 @@ def test_gui_launch_block() -> None:
 
     # --- config -------------------------------------------------------------
     d = DesktopSpec()
-    check("varsayilan: kapi acik", d.block_gui_launch_in_shell is True)
+    check("varsayilan: kapi kapali", d.block_gui_launch_in_shell is False)
     check("varsayilan: engel listesi BOS (hicbir sey engellenmiyor)",
           d.gui_launch_blocklist == [], str(d.gui_launch_blocklist))
 

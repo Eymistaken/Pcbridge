@@ -606,8 +606,10 @@ def main() -> int:
     dump_desc = str(by_name.get("ui_dump", {}).get("description", ""))
     check("ui_dump aciklamasi 'ne zaman kullanilir' iceriyor",
           "Use this" in dump_desc or "Use when" in dump_desc, dump_desc[:160])
-    check("ui_dump aciklamasi goruntu yerine metni onermeyi soyluyor",
-          "cannot read images" in dump_desc, dump_desc[:240])
+    check("ui_dump aciklamasi structured control yolunu anlatiyor",
+          "structured controls" in dump_desc, dump_desc[:240])
+    check("ui_dump aciklamasi eski goruntu varsayimini tasimiyor",
+          "cannot read images" not in dump_desc, dump_desc[:240])
 
     # Toplu eylem ve pencereler (E bolumu)
     batch_props = (

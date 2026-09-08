@@ -165,6 +165,19 @@ Emin değilsen önce bunu kullan.
 Kod 3 aldıysan tekrar deneme. Kullanıcı izni kapatmış, ekran kilitlenmiş ya
 da süre dolmuş olabilir; bunları senin aşman gerekmiyor ve aşamazsın.
 
+## Bir execution yolu kapanırsa
+
+Permission veya backend hatası kullanıcı görevini değiştirmez. Önce hangi
+kapsamın kapalı olduğunu koru: Pcbridge grant'i, ekran yakalama, pointer,
+klavye ve erişilebilirlik ayrı izinlerdir. Aynı çağrıyı körlemesine tekrarlama
+ve kendiliğinden daha geniş izin isteme.
+
+Görevi mevcut izinlerle tamamlayan başka bir yol varsa onu kullan. Pointer
+kapalı ama erişilebilirlik açıksa görünen düğümü `ui_click` ile çalıştırmak;
+çalışan bir tarayıcıya yalnızca URL vermek gerekiyorsa deterministik shell
+handoff'u kullanmak buna örnektir. Yol değiştirirken hedef uygulamayı, kullanıcı
+niyetini ve açık grant'in süresini baştan başlatma veya genişletme.
+
 ## Ekran görüntün bayatlar
 
 Bir görüntüye bakıp koordinat çıkardıktan sonra **hemen** tıkla. Arada kod

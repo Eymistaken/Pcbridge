@@ -393,10 +393,15 @@ elinle yaptığının aynısı; bu yüzden birkaç saniye sürüyor. AT-SPI'nin 
 D-Bus'ın pencere öne alma çağrıları bu sistemde çalışmıyor (ölçüldü), tek yol
 bu.
 
-**Grafik uygulama açmanın doğru yolu budur, `shell_run` değil.** Kabuktan
-açılan uygulama bu sunucunun çocuğu olur ve `systemctl --user restart
-pcbridge` onu öldürür; ayrıca çoğu zaman `app_id` almadığı için `window_list`
-ve `window_focus` onu sonradan bulamaz. Ajanın yönergesine bu kural yazılı.
+Yeni grafik sürecinin pcbridge yeniden başlasa da yaşaması ve pencere
+araçlarınca bulunması gerekiyorsa `window_focus` kullan. Kabuktan yeni açılan
+uygulama bu sunucunun çocuğu olur ve `systemctl --user restart pcbridge` onu
+öldürür; ayrıca çoğu zaman `app_id` almadığı için pencere sonradan bulunamaz.
+
+Çalışan bir uygulamaya istek devretmek farklıdır. Örneğin
+`google-chrome https://example.com` mevcut Chrome sürecine URL gönderirse
+pencerenin ömrü pcbridge'e bağlanmaz. Böyle deterministik isteklerde
+`shell_run` normal ve desteklenen bir execution yoludur.
 
 Sadece bir düğmeye basacaksan `ui_click` daha hızlı: pencerenin önde olmasını
 gerektirmiyor.
@@ -496,7 +501,7 @@ ya da bir işin bittiğini fark etmek için.
 | `system_capabilities` | Masaüstü backend yeteneklerini ve Pcbridge izin durumunu eylem yapmadan gösterir |
 | `system_status` | Makine durumu, diskler, GPU, işler, terminaller |
 | `notify` | Masaüstünde bildirim çıkarır |
-| `desktop_unlock` | Klavye/fare kontrolüne süreli izin verir (varsayılan 15 dk) |
+| `desktop_unlock` | Pcbridge masaüstü araçlarına süreli grant verir; işletim sistemi izinlerini değiştirmez |
 | `desktop_lock` | İzni erken kapatır, sanal cihazları yok eder |
 | `mouse` | Fareyi hareket ettirir (ışınlamaz, ara noktalardan geçer), tıklar (tek/çift/üçlü, sağ/orta), sürükler, kaydırır (dikey + yatay), düğmeyi basılı tutar |
 | `keyboard` | Metin yazar (pano yoluyla) veya tuş kombinasyonu gönderir; `hold`/`release` ile istenen sayıda tuşu basılı tutar |
@@ -507,7 +512,7 @@ ya da bir işin bittiğini fark etmek için.
 | `ui_set_text` | Metin kutusunu doğrudan doldurur (klavye taklidi yok) |
 | `computer_batch` | Bir eylem listesini tek onayda sırayla çalıştırır |
 | `window_list` | Açık pencereler, odaktaki işaretli |
-| `window_focus` | Bir uygulamayı öne getirir, kapalıysa açar (grafik uygulama açmanın tek doğru yolu) |
+| `window_focus` | Masaüstünün sahiplenmesi gereken bir uygulamayı öne getirir, kapalıysa açar |
 | `computer_task` | Uzun süren bir GUI işini makinendeki bir ajana devreder (9. bölüm) |
 
 ---
@@ -550,15 +555,15 @@ kapalıyken bile ajan komut çalıştırabilir, uygulama açabilir, dosya okuyab
 Nitekim ekranı da okuyabiliyor — `agent_run` ile makinedeki bir ajanı çalıştırıp
 ona ekran görüntüsü aldırarak (ölçüldü, 2026-08-02).
 
-### `shell_run`'ın tek istisnası: GUI uygulaması açmak
+### GUI süreci ile çalışan uygulamaya istek vermek farklıdır
 
-`shell_run` ve `shell_run_background`, masaüstü izni **açıkken**,
-`[desktop] gui_launch_blocklist` listesindeki bir uygulamayı başlatmayı
-reddeder ve `window_focus` önerir. **Liste varsayılan olarak boş, yani
-hiçbir şey engellenmez** — sürtünme yaratan adı sen eklersin:
+GUI launch engeli varsayılan olarak **kapalıdır**. İstersen masaüstü izni
+açıkken belirli yeni uygulama süreçlerini `shell_run` ve
+`shell_run_background` için engelleyebilirsin:
 
 ```toml
 [desktop]
+block_gui_launch_in_shell = true
 gui_launch_blocklist = ["Vesktop", "Text Editor"]
 ```
 
@@ -566,11 +571,17 @@ Adlar `.desktop` tablosunda aranıyor, yani `"Text Editor"` yazmak
 `gnome-text-editor ~/not.md` komutunu da yakalar; `gtk-launch`, `gio launch`,
 `xdg-open` ve `flatpak run <kimlik>` biçimleri de tanınıyor.
 
-Neden: kabuktan açılan uygulama pcbridge'in **çocuğu** olur ve
+Neden: kabuktan yeni açılan uygulama pcbridge'in **çocuğu** olur ve
 `systemctl --user restart pcbridge` onu kapatır; ayrıca çoğu zaman uygulama
 kimliği oluşmadığı için `window_list` ve `window_focus` pencereyi sonradan
 **bulamaz** — ajan kendi açtığı pencereyi kaybeder. Masaüstü izni kapalıyken
 bu kapı hiç devreye girmez: masaüstü kapalıyken kabuk normal kabuktur.
+
+Bu opt-in engel, çalışan bir uygulamaya iletilen deterministik istekler için
+gerekli değildir. Mevcut Chrome oturumuna URL göndermek yeni Chrome sürecinin
+ömrünü pcbridge'e bağlamaz. Bir desktop permission hatasından sonra execution
+yolu değiştirilecekse kullanıcı görevi ve mevcut izin kapsamı korunur; agent
+kendiliğinden daha geniş masaüstü izni istemez.
 
 ### stdio'da bir kat eksik
 

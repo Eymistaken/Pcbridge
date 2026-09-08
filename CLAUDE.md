@@ -296,6 +296,15 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
 - **`[desktop] enabled = false` yalnızca masaüstü araçlarını kapatır.**
   `shell_run`, `agent_run`, `fs_*`, `tmux_*` bu kapıdan geçmez. Bilinçli:
   koruma engelleme değil, `audit.log`'a iz bırakma.
+- **Shell ve desktop ayrı execution yollarıdır.** Yeni bir GUI süreci shell'de
+  başlarsa pcbridge service ömrünü paylaşır; süreç desktop'a ait ve sonradan
+  bulunabilir kalacaksa `window_focus` kullanılır. Çalışan Chrome'a URL vermek
+  gibi deterministik handoff komutları shell'in normal kullanımındadır.
+  `block_gui_launch_in_shell` varsayılanı `false`; kullanıcı açıkça `true`
+  yapmışsa ve blocklist eşleşirse eski engel davranışı korunur.
+- **Permission hatasında görev ve mevcut kapsam korunur.** Başka execution
+  yoluna geçmek daha geniş desktop izni istemek anlamına gelmez;
+  `system_capabilities` ile zaten kullanılabilir olan yol seçilir.
 - **Ekran görüntüsü artık sessiz alınıyor: Mutter ScreenCast (PipeWire).**
   `gnome-screenshot` her çekimde **beyaz flaş + ses** çıkarıyor ve flaşı kendi
   çiziyor (ikilikte `cheese_flash_fire`), yani `flash=false` geçirmek çözmezdi.

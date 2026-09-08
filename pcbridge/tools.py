@@ -641,8 +641,10 @@ def register(
     ) -> str:
         """Run a short shell command on the user's Linux desktop and return its
         output. For anything that may take longer than a minute use
-        shell_run_background instead. Do NOT use this to open a graphical
-        application — that is what `window_focus` is for."""
+        shell_run_background instead. This path can also send a deterministic
+        request, such as a URL, to an application that is already running. Use
+        window_focus when a new graphical process must survive pcbridge restarts
+        and remain discoverable as a desktop window."""
         denied = _gui_launch_block(command)
         if denied:
             return denied
@@ -691,8 +693,9 @@ def register(
         timeout: int | None = None,
     ) -> str:
         """Start a long-running shell command in the background (builds, installs,
-        downloads). Returns a job id to poll with job_status. Do NOT use this to
-        open a graphical application — that is what `window_focus` is for."""
+        downloads). Returns a job id to poll with job_status. A new graphical
+        process started here shares pcbridge's service lifetime; use window_focus
+        when the desktop must own that process and keep its window discoverable."""
         # Kapi BURADA DA duruyor. Yalnizca `shell_run` kapatilsaydi ajan
         # digerine duser ve kural hicbir sey yapmamis olurdu.
         denied = _gui_launch_block(command)
@@ -1048,11 +1051,10 @@ def register(
             Field(description="Short note about what this is for; goes to the audit log."),
         ] = None,
     ) -> str | ToolResult:
-        """Open a time-limited permission window for controlling the computer's
-        keyboard and mouse. The mouse and keyboard tools refuse to do anything
-        until this is called, and the permission expires on its own. Call this
-        first whenever the user asks you to click, type or drive an application
-        on their screen."""
+        """Open pcbridge's time-limited authorization grant for desktop tools.
+        Operating-system permissions are separate and system_capabilities reports
+        them independently. Call this before using a desktop tool when the user
+        has authorized screen reading or control; the grant expires on its own."""
         if not cfg.desktop.enabled:
             text = (
                 "⛔ Masaustu kontrolu kapali. config.toml'da `[desktop] enabled = true` "
@@ -1706,11 +1708,10 @@ def register(
         ] = True,
     ) -> str | ToolResult:
         """List what is on screen as text: every button, menu, text box and label
-        the application publishes, each with a short id. Use this instead of a
-        screenshot when you need to know what is there — you can read this, and you
-        cannot read images. Then act on an item with `ui_click` or `ui_set_text`
-        using its id. Prefer this over clicking coordinates: it is exact, while
-        coordinates are guesswork."""
+        the application publishes, each with a short id. Use this when structured
+        controls are useful, then act on an item with `ui_click` or `ui_set_text`
+        using its id. Prefer it over clicking coordinates when the target appears
+        here because accessibility actions address the control directly."""
         denied = _guard("ui_dump", write=False, needs_input=False)
         if denied:
             return denied
@@ -1893,11 +1894,10 @@ def register(
         search — exactly what the user would do by hand — and then verifies with
         the accessibility tree that the right window really came forward.
 
-        This is the ONLY correct way to open a graphical application. Never use
-        `shell_run` for that: an app started from the shell becomes a child of
-        this server and dies when the service restarts, and it usually gets no
-        application id, which means `window_list` and this tool cannot find its
-        window afterwards.
+        Use this when the desktop must own the new process lifetime and keep the
+        window discoverable across pcbridge restarts. Shell commands remain valid
+        for deterministic work and for handing a request, such as a URL, to an
+        application process that is already running.
 
         Takes a few seconds. If the app is already up and you only need to press
         a button or fill a field, prefer `ui_click` / `ui_set_text` — those reach

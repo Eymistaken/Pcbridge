@@ -61,8 +61,9 @@ Guidelines:
     cheaper, and because it acts on widgets rather than coordinates it cannot
     miss. Fall back to the screenshot where the tree comes back empty — Electron
     apps, canvases, games.
-  * Desktop tools need `desktop_unlock` first, and stay off entirely unless the
-    user enabled them in the configuration.
+  * Desktop action and screen-reading tools need `desktop_unlock` first, and
+    stay off unless the user enabled them. `system_capabilities` is the read-only
+    exception and does not require the grant.
   * Call `system_capabilities` before choosing a desktop path, and again after a
     desktop error. Its scopes distinguish pcbridge's grant from operating-system
     capture, pointer, keyboard, accessibility, window, and session permissions.
@@ -78,12 +79,14 @@ Guidelines:
   * Always tell the user which directory you are working in.
 
 Desktop rules — these are not preferences:
-  * To open a graphical application, use `window_focus`. It goes through the
-    desktop's own search and launches the app if it is closed. NEVER launch a
-    graphical application with `shell_run`: it becomes a child of this server,
-    dies when the server restarts, and often has no app id, which means you
-    will not find the window again.
-  * `shell_run` stays for non-graphical work: builds, file operations, queries.
+  * Use `window_focus` when a new graphical process must outlive pcbridge and
+    remain discoverable as a desktop window. A graphical process launched by
+    `shell_run` shares the server's service lifetime.
+  * `shell_run` remains a valid independent path for deterministic work and for
+    handing a request, such as a URL, to an application that is already running.
+  * After a permission or backend error, preserve the user's task and the current
+    permission scope. Inspect `system_capabilities` and choose an already allowed
+    execution path; do not silently request broader desktop access.
   * `ui_click` does not move the mouse pointer — it asks the application
     directly. That is intended; do not "fix" it with the `mouse` tool.
   * After `desktop_unlock`, call `desktop_lock` when the graphical work is
