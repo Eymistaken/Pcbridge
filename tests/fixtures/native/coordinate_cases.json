@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "displays": [
+    {
+      "connector": "DP-1",
+      "x": 1920,
+      "y": 0,
+      "width": 1920,
+      "height": 1080,
+      "scale": 1.0,
+      "primary": true
+    },
+    {
+      "connector": "DP-2",
+      "x": 0,
+      "y": 0,
+      "width": 1920,
+      "height": 1080,
+      "scale": 1.0,
+      "primary": false
+    }
+  ],
+  "monitor_points": [
+    {"x": 10, "y": 20, "monitor": null, "expected": [10, 20]},
+    {"x": 640, "y": 360, "monitor": 1, "expected": [640, 360]},
+    {"x": 640, "y": 360, "monitor": 2, "expected": [2560, 360]},
+    {"x": 100, "y": 75, "monitor": "DP-1", "expected": [2020, 75]}
+  ],
+  "shot": {
+    "id": "m2-a1b2c3",
+    "monitor": 2,
+    "connector": "DP-1",
+    "primary": true,
+    "offset": [1920, 0],
+    "size": [1920, 1080],
+    "scaled": [1280, 720],
+    "scale": 0.6666666666666666,
+    "point": [640, 360],
+    "expected": [2880, 540]
+  },
+  "guard": {
+    "max_age_seconds": 60,
+    "recent_age_seconds": 5,
+    "stale_age_seconds": 600,
+    "ambiguous_point": [640, 360],
+    "passthrough": [640, 360]
+  },
+  "invalid_shot_ids": [
+    "../m2-a1b2c3",
+    "m2-a1b2c3/../x",
+    "m2-ZZZZZZ",
+    "m2-a1b2c"
+  ]
+}

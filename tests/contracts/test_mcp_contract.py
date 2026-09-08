@@ -1,0 +1,294 @@
+#!/usr/bin/env python3
+"""Offline snapshots for MCP names, schemas, annotations, and image ordering."""
+
+from __future__ import annotations
+
+import asyncio
+import sys
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+from fastmcp import FastMCP
+from PIL import Image
+
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from pcbridge import tools as toolslib  # noqa: E402
+from pcbridge.config import AgentSpec, Config, DesktopSpec  # noqa: E402
+from pcbridge.desktop import capture as capturelib  # noqa: E402
+from pcbridge.desktop import monitors as monitorslib  # noqa: E402
+from pcbridge.jobs import JobManager  # noqa: E402
+from pcbridge.shots import ShotStore  # noqa: E402
+
+
+EXPECTED_TOOL_NAMES = [
+    "agent_run",
+    "computer_batch",
+    "computer_task",
+    "desktop_lock",
+    "desktop_unlock",
+    "fs_list",
+    "fs_read",
+    "fs_search",
+    "fs_write",
+    "job_cancel",
+    "job_list",
+    "job_output",
+    "job_status",
+    "keyboard",
+    "list_agents",
+    "mouse",
+    "notify",
+    "screen_capture",
+    "screen_info",
+    "shell_run",
+    "shell_run_background",
+    "system_status",
+    "tmux_capture",
+    "tmux_keys",
+    "tmux_kill",
+    "tmux_list",
+    "tmux_send",
+    "tmux_start",
+    "ui_click",
+    "ui_dump",
+    "ui_set_text",
+    "window_focus",
+    "window_list",
+]
+
+EXPECTED_ANNOTATIONS = {
+    "agent_run": {"title": "Send a prompt to a coding agent", "destructiveHint": True},
+    "computer_batch": {"title": "Run several actions in one go", "destructiveHint": True},
+    "computer_task": {"title": "Let a local agent drive the screen", "destructiveHint": True},
+    "desktop_lock": {"title": "Stop desktop control"},
+    "desktop_unlock": {"title": "Allow desktop control for a while", "destructiveHint": True},
+    "fs_list": {"title": "List a directory", "readOnlyHint": True},
+    "fs_read": {"title": "Read a file", "readOnlyHint": True},
+    "fs_search": {"title": "Search inside files", "readOnlyHint": True},
+    "fs_write": {"title": "Write a file", "destructiveHint": True},
+    "job_cancel": {"title": "Cancel a job", "destructiveHint": True},
+    "job_list": {"title": "List background jobs", "readOnlyHint": True},
+    "job_output": {"title": "Read raw job output", "readOnlyHint": True},
+    "job_status": {"title": "Check a background job", "readOnlyHint": True},
+    "keyboard": {"title": "Type text or press keys", "destructiveHint": True},
+    "list_agents": {"title": "List available coding agents"},
+    "mouse": {"title": "Move or click the mouse", "destructiveHint": True},
+    "notify": {"title": "Show a desktop notification"},
+    "screen_capture": {"title": "Take a screenshot", "readOnlyHint": True},
+    "screen_info": {"title": "Describe the screens", "readOnlyHint": True},
+    "shell_run": {"title": "Run a shell command", "destructiveHint": True},
+    "shell_run_background": {
+        "title": "Run a long shell command in background",
+        "destructiveHint": True,
+    },
+    "system_status": {"title": "Computer status", "readOnlyHint": True},
+    "tmux_capture": {"title": "Read a live terminal screen", "readOnlyHint": True},
+    "tmux_keys": {"title": "Press keys in a live terminal"},
+    "tmux_kill": {"title": "Close a live terminal", "destructiveHint": True},
+    "tmux_list": {"title": "List live terminal sessions", "readOnlyHint": True},
+    "tmux_send": {"title": "Type into a live terminal", "destructiveHint": True},
+    "tmux_start": {"title": "Open a live terminal session"},
+    "ui_click": {"title": "Click something on screen", "destructiveHint": True},
+    "ui_dump": {"title": "Read the screen as text", "readOnlyHint": True},
+    "ui_set_text": {"title": "Type into a text box", "destructiveHint": True},
+    "window_focus": {"title": "Bring a window to the front", "destructiveHint": True},
+    "window_list": {"title": "List open windows", "readOnlyHint": True},
+}
+
+
+def make_config(root: Path) -> Config:
+    config = Config(
+        public_url="https://example.invalid",
+        host="127.0.0.1",
+        port=8765,
+        mcp_path="/mcp",
+        password="contract-password",
+        static_token="",
+        access_token_ttl=60,
+        refresh_token_ttl=120,
+        auth_code_ttl=30,
+        max_failed_attempts=3,
+        lockout_seconds=60,
+        manual_redirect=False,
+        default_workdir=root,
+        state_dir=root,
+        max_output_chars=4000,
+        default_job_timeout=60,
+        max_sync_timeout=60,
+        agents={"contract": AgentSpec(name="contract", command=["true"])},
+        inline_images="true",
+        default_agent="contract",
+        desktop=DesktopSpec(enabled=True, screenshot_scale_long_edge=80),
+    )
+    config.jobs_dir.mkdir(parents=True, exist_ok=True)
+    return config
+
+
+class OpenGate:
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    def check(self, *args, **kwargs):
+        return SimpleNamespace(allowed=True, reason="")
+
+    def audit(self, *args, **kwargs) -> None:
+        return None
+
+    def is_unlocked(self) -> bool:
+        return True
+
+    def remaining_seconds(self) -> float:
+        return 0.0
+
+
+def build_mcp(root: Path) -> tuple[FastMCP, ShotStore]:
+    config = make_config(root)
+    store = ShotStore(config)
+    mcp = FastMCP("contract")
+    with mock.patch.object(toolslib.safetylib, "SafetyGate", OpenGate):
+        toolslib.register(
+            mcp,
+            config,
+            JobManager(config.jobs_dir, default_timeout=60),
+            store,
+            transport="stdio",
+        )
+    return mcp, store
+
+
+def compact_schema(tool) -> dict:
+    schema = tool.parameters
+    return {
+        "properties": list(schema["properties"]),
+        "required": schema.get("required", []),
+        "defaults": {
+            name: value["default"]
+            for name, value in schema["properties"].items()
+            if "default" in value
+        },
+        "additionalProperties": schema.get("additionalProperties"),
+    }
+
+
+class McpContractTests(unittest.TestCase):
+    def test_tool_names_annotations_and_desktop_input_schemas(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            mcp, _store = build_mcp(Path(raw))
+            tools = {tool.name: tool for tool in asyncio.run(mcp.list_tools())}
+
+        self.assertEqual(sorted(tools), EXPECTED_TOOL_NAMES)
+        self.assertEqual(
+            {
+                name: tool.annotations.model_dump(exclude_none=True)
+                for name, tool in tools.items()
+            },
+            EXPECTED_ANNOTATIONS,
+        )
+        self.assertEqual(
+            compact_schema(tools["screen_capture"]),
+            {
+                "properties": ["monitor", "scale", "include_pointer"],
+                "required": [],
+                "defaults": {"monitor": "all", "scale": None, "include_pointer": None},
+                "additionalProperties": False,
+            },
+        )
+        self.assertEqual(
+            compact_schema(tools["mouse"]),
+            {
+                "properties": [
+                    "action",
+                    "x",
+                    "y",
+                    "to_x",
+                    "to_y",
+                    "scroll_amount",
+                    "horizontal",
+                    "button",
+                    "smooth",
+                    "shot",
+                    "monitor",
+                    "force",
+                ],
+                "required": ["action"],
+                "defaults": {
+                    "x": None,
+                    "y": None,
+                    "to_x": None,
+                    "to_y": None,
+                    "scroll_amount": 3,
+                    "horizontal": False,
+                    "button": "left",
+                    "smooth": None,
+                    "shot": None,
+                    "monitor": None,
+                    "force": False,
+                },
+                "additionalProperties": False,
+            },
+        )
+        self.assertEqual(
+            compact_schema(tools["computer_batch"]),
+            {
+                "properties": ["actions", "final", "expect_focus", "force"],
+                "required": ["actions"],
+                "defaults": {"final": "ui_dump", "expect_focus": "", "force": False},
+                "additionalProperties": False,
+            },
+        )
+        self.assertIsNone(tools["screen_capture"].output_schema)
+
+    def test_screen_capture_returns_text_before_image_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            mcp, store = build_mcp(root)
+            monitors = monitorslib._ordered(
+                [
+                    monitorslib.Monitor(0, "DP-1", 2, 0, 2, 2, 1.0, True),
+                    monitorslib.Monitor(0, "DP-2", 0, 0, 2, 2, 1.0, False),
+                ]
+            )
+
+            def fake_capture(spec, out_dir, scale_long_edge, **kwargs):
+                self.assertEqual(spec, "all")
+                self.assertEqual(scale_long_edge, 80)
+                shots = []
+                for monitor, color in zip(monitors, ((220, 40, 30), (30, 80, 220))):
+                    path = Path(out_dir) / f"m{monitor.index}.png"
+                    Image.new("RGB", (2, 2), color).save(path)
+                    shots.append(
+                        capturelib.Shot(
+                            path=path,
+                            monitor=monitor,
+                            offset=(monitor.x, monitor.y),
+                            size=(2, 2),
+                            scaled=(2, 2),
+                            scale=1.0,
+                            id=f"m{monitor.index}-a1b2c3",
+                            taken_at=time.time(),
+                        )
+                    )
+                return shots
+
+            with (
+                mock.patch.object(toolslib.capturelib, "available", return_value=(True, "")),
+                mock.patch.object(toolslib.capturelib, "capture", side_effect=fake_capture),
+            ):
+                function = asyncio.run(mcp.get_tool("screen_capture")).fn
+                blocks = function()
+
+            self.assertEqual([block.type for block in blocks], ["text", "image", "image"])
+            self.assertIn("shot: `m1-a1b2c3`", blocks[0].text)
+            self.assertIn("shot: `m2-a1b2c3`", blocks[0].text)
+            self.assertTrue(store.dir.is_dir())
+
+
+if __name__ == "__main__":
+    unittest.main()

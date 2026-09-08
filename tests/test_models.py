@@ -303,14 +303,10 @@ def test_backward_compatible() -> None:
     check("yine bayrak yok", M.build_args(spec, res) == [], str(M.build_args(spec, res)))
 
 
-def test_live_config_policy() -> None:
-    """Kullanicinin gercek config.toml'u -- yalnizca politika, sir okunmaz."""
-    section("10. Canli config.toml politikasi")
-    path = ROOT / "config.toml"
-    if not path.exists():
-        print("  (config.toml yok, atlandi)")
-        return
-    cfg = load_config(str(path))
+def test_example_config_policy() -> None:
+    """Depoya giren ornek config politikasi; private config'e dokunmaz."""
+    section("10. Ornek config.toml politikasi")
+    cfg = example_config()
 
     claude = cfg.agents.get("claude")
     if claude:
@@ -318,7 +314,7 @@ def test_live_config_policy() -> None:
         check("fable engelli", "fable" in claude.blocked_models, str(claude.blocked_models))
         check("best engelli", "best" in claude.blocked_models, str(claude.blocked_models))
         res = M.resolve(cfg, model="fable")
-        check("canli configde fable reddediliyor", not res.ok, str(shape(res)))
+        check("ornek configde fable reddediliyor", not res.ok, str(shape(res)))
 
     agy = cfg.agents.get("antigravity")
     if agy:
@@ -515,11 +511,8 @@ def test_computer_task_consistency() -> None:
     """
     section("13. computer_task ajan/model tutarliligi")
 
-    path = ROOT / "config.toml"
-    if not path.exists():
-        print("  (config.toml yok, atlandi)")
-        return
-    cfg = load_config(str(path))
+    path = ROOT / "config.example.toml"
+    cfg = example_config()
     d = cfg.desktop
 
     check("varsayilan surucu claude", d.computer_task_agent == "claude",
@@ -557,9 +550,8 @@ def test_computer_task_consistency() -> None:
 
     raw = path.read_text(encoding="utf-8")
     bad = raw.replace(
-        "[desktop]",
-        '[desktop]\ncomputer_task_agent = "claude"\n'
-        'computer_task_model = "gemini-3.6-flash"',
+        'computer_task_model  = ""',
+        'computer_task_model  = "gemini-3.6-flash"',
         1,
     )
     with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as fh:
@@ -589,7 +581,7 @@ def main() -> int:
         test_build_args,
         test_effort_required,
         test_backward_compatible,
-        test_live_config_policy,
+        test_example_config_policy,
         test_claude_stream_parser,
         test_want_inline,
         test_computer_task_consistency,

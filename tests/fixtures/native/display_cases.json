@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "primary_on_right",
+      "displays": [
+        {
+          "connector": "DP-1",
+          "x": 160,
+          "y": 0,
+          "width": 160,
+          "height": 100,
+          "scale": 1.0,
+          "primary": true,
+          "color": [30, 80, 220]
+        },
+        {
+          "connector": "DP-2",
+          "x": 0,
+          "y": 0,
+          "width": 160,
+          "height": 100,
+          "scale": 1.0,
+          "primary": false,
+          "color": [220, 40, 30]
+        }
+      ],
+      "expected_order": ["DP-2", "DP-1"],
+      "expected_canvas": [320, 100]
+    },
+    {
+      "name": "portrait_with_fractional_scale",
+      "displays": [
+        {
+          "connector": "HDMI-1",
+          "x": 144,
+          "y": 0,
+          "width": 128,
+          "height": 102,
+          "scale": 1.25,
+          "primary": false,
+          "color": [40, 180, 90]
+        },
+        {
+          "connector": "eDP-1",
+          "x": 0,
+          "y": 0,
+          "width": 144,
+          "height": 256,
+          "scale": 2.0,
+          "primary": true,
+          "color": [180, 60, 190]
+        }
+      ],
+      "expected_order": ["eDP-1", "HDMI-1"],
+      "expected_canvas": [272, 256]
+    }
+  ]
+}
