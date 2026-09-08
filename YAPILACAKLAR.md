@@ -2,11 +2,11 @@
 
 ## Durum özeti
 
-- Aktif task: **1.2 — Runtime capability ve typed error katmanını ekle** (`başlıyor`)
-- Son tamamlanan task: **1.1 — `DesktopRuntime` ve Python provider adapter'ını çıkar** (`3a6a36f`)
-- Sıradaki uygulanabilir task: **1.3 — Structured MCP hata yüzeyini kur**
+- Aktif task: **1.3 — Structured MCP hata yüzeyini kur** (`başlıyor`)
+- Son tamamlanan task: **1.2 — Runtime capability ve typed error katmanını ekle** (`165e336`)
+- Sıradaki uygulanabilir task: **1.4 — Çok yollu execution sözleşmesini düzelt**
 - Blocker: Yok
-- Son gate: **Gate 0 geçti.** Bütün gerçek test bayrakları kapalı güvenli baseline `578 geçti, 0 kaldı`; model suite `106/0`, safety selector `1/1`, contract suite `7/7`.
+- Son gate: **Gate 0 geçti; Gate 1 devam ediyor.** Bütün gerçek test bayrakları kapalı güvenli baseline `578 geçti, 0 kaldı`; model suite `106/0`, safety selector `1/1`, contract suite `20/20`.
 
 ## Task 0.1 — Gerçek capture ve input test izinlerini ayır
 
@@ -111,10 +111,37 @@
 
 ## Task 1.2 — Runtime capability ve typed error katmanını ekle
 
-**Durum:** `başlıyor`
+**Durum:** `tamamlandı`
 
 **Amaç:** Bir desktop özelliğinin implementasyonu ile o anda kullanılabilir olmasını ayrı, typed durumlar olarak raporlamak.
 
+**Değişen dosyalar:** `pcbridge/desktop/errors.py`, `capabilities.py`, `contracts.py`, `runtime.py`, `backends/python.py`, desktop MCP/CLI hata yakalama yolları ve `tests/contracts/test_capabilities.py`.
+
+**Yapılanlar:**
+
+- Planın sekiz kategorili hata taxonomy'si ve bütün başlangıç hata kodları `DesktopError` üzerinde kararlı alanlarla tanımlandı.
+- On üç zorunlu capability anahtarı probe evidence'i, son operation evidence'i ve ayrı authorization durumu ile modellenip thread-safe cache'e bağlandı.
+- Capture monitor/window, pointer/keyboard, clipboard read/write, accessibility read/action ve window list/focus/move-resize durumları birbirinden bağımsız probe ediliyor.
+- Capture capability token'ı dependency, açık screencast session ve monitor topolojisini; input token'ı uinput izin/aygıtı ile Wayland clipboard socket'ini izliyor.
+- Legacy `CaptureError`, `InputError`, `UiTreeError` ve monitor hataları provider sınırında mesaj substring'i kullanılmadan typed hatalara çevriliyor. MCP ve CLI mevcut Türkçe hata metinlerini yakalamaya devam ediyor.
+- Capability probe uinput aygıtı oluşturmuyor, klavye/fare olayı yazmıyor, screencast veya portal oturumu açmıyor.
+- Gerçek makinede salt okunur probe 13 anahtarın tamamını `143,5 ms` içinde döndürdü. Grant kapalıyken backend capability'leri ayrıca raporlandı; authorization `grant_remaining_seconds=0` olarak ayrı kaldı.
+
+**Test sonuçları:**
+
+- Contract discovery → `20 tests`, `OK`.
+- `tests/test_desktop.py` bütün live bayrakları unset → `578 geçti, 0 kaldı`.
+- `tests/test_models.py` bütün live bayrakları unset → `106 geçti, 0 kaldı`.
+- `tests/test_test_safety.py` bütün live bayrakları unset → `1 test`, `OK`.
+- `python -m pcbridge.server --check -c config.example.toml` → exit `0`.
+- `tests/test_e2e.py` plan gereği çalıştırılmadı.
+
+**Acceptance:** Capture supported + pointer permission-required ile AT-SPI list degraded + move/resize unsupported sentetik sözleşmeleri geçti. Provider exception metni değiştirilse de hata kodunun değişmediği capture/input/accessibility testleri geçti.
+
 **Gate:** Phase 1 devam ediyor.
 
+**Commit:** `165e336` (`feat: add typed desktop capabilities`)
+
 **Rollback:** Capability/error commit'i bağımsız geri alınabilir; provider sözleşmeleri Task 1.1 halinde kalır.
+
+**Sonraki somut adım:** Task 1.3'te `system_capabilities` aracını ve FastMCP structured error sunumunu ekle.
