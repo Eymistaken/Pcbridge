@@ -36,8 +36,8 @@ yanlış bir komutu çalıştırırken — fark edilir.
 
 ## Native migration durumu
 
-- Son tamamlanan task: **1.3 — Structured MCP hata yüzeyini kur** (`a414d05`)
-- Aktif task: **1.4 — Çok yollu execution sözleşmesini düzelt**
-- Sıradaki task: **2.1 — Rust workspace ve executable protocol harness**
+- Son tamamlanan task: **1.4 — Çok yollu execution sözleşmesini düzelt** (`fe355b2`)
+- Aktif task: **2.1 — Rust workspace ve executable protocol harness**
+- Sıradaki task: **2.2 — Python `NativeClient` supervisor**
 - Blocker: Yok
-- Son doğrulanan gate: **Task 1.3 acceptance geçti; Gate 1 devam ediyor.** Güvenli desktop baseline `578/0`; model suite `106/0`; safety selector `1/1`; contract suite `25/25`; server `--check` exit `0`.
+- Son doğrulanan gate: **Gate 1 geçti.** Güvenli desktop baseline `578/0`; model suite `106/0`; safety selector `1/1`; contract suite `31/31`; server `--check` exit `0`.

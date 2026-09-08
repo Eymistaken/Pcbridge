@@ -2,11 +2,11 @@
 
 ## Durum özeti
 
-- Aktif task: **1.4 — Çok yollu execution sözleşmesini düzelt** (`başlıyor`)
-- Son tamamlanan task: **1.3 — Structured MCP hata yüzeyini kur** (`a414d05`)
-- Sıradaki uygulanabilir task: **2.1 — Rust workspace ve executable protocol harness**
+- Aktif task: **2.1 — Rust workspace ve executable protocol harness** (`başlıyor`)
+- Son tamamlanan task: **1.4 — Çok yollu execution sözleşmesini düzelt** (`fe355b2`)
+- Sıradaki uygulanabilir task: **2.2 — Python NativeClient supervisor**
 - Blocker: Yok
-- Son gate: **Gate 0 geçti; Gate 1 devam ediyor.** Bütün gerçek test bayrakları kapalı güvenli baseline `578 geçti, 0 kaldı`; model suite `106/0`, safety selector `1/1`, contract suite `25/25`.
+- Son gate: **Gate 1 geçti.** Bütün gerçek test bayrakları kapalı güvenli baseline `578 geçti, 0 kaldı`; model suite `106/0`, safety selector `1/1`, contract suite `31/31`.
 
 ## Task 0.1 — Gerçek capture ve input test izinlerini ayır
 
@@ -200,3 +200,61 @@ provider hata ve capability katmanı yerinde kalır.
 
 **Sonraki somut adım:** Task 1.4'te shell/filesystem/accessibility execution
 yollarının varsayılan ve tool açıklamalarını çok yollu modele hizala.
+
+## Task 1.4 — Çok yollu execution sözleşmesini düzelt
+
+**Durum:** `tamamlandı`
+
+**Amaç:** Shell, filesystem, job ve accessibility yollarını desktop grant'inden
+bağımsız ürün davranışı olarak korumak; araç açıklamalarındaki tek-yol
+varsayımlarını kaldırmak.
+
+**Değişen dosyalar:** `pcbridge/config.py`, `config.example.toml`,
+`pcbridge/tools.py`, `pcbridge/server.py`, `skills/computer-use/SKILL.md`,
+`KULLANIM.md`, `CLAUDE.md`, desktop/E2E kaynak testleri ve yeni
+`tests/contracts/test_execution_paths.py`.
+
+**Yapılanlar:**
+
+- `block_gui_launch_in_shell` dataclass ve TOML loader varsayılanı `false`
+  yapıldı; örnek config aynı değeri açıkça belgeliyor.
+- Kullanıcının açıkça verdiği `true` ve `gui_launch_blocklist` hâlâ okunuyor
+  ve masaüstü grant'i açıkken eşleşen komutu engelliyor.
+- Shell tool açıklamalarındaki mutlak GUI yasağı kaldırıldı. Yeni sürecin
+  pcbridge service ömrünü paylaşması ile çalışan Chrome'a URL devretmenin
+  farklı davranışları tool, server ve kullanıcı belgelerinde açıklandı.
+- `ui_dump` açıklamasındaki eski “istemci görüntü okuyamaz” varsayımı kaldırıldı.
+- `desktop_unlock` yalnızca Pcbridge'in süreli grant'ini açtığını, işletim
+  sistemi izinlerinin `system_capabilities` içinde ayrı olduğunu söylüyor.
+- Permission/backend hatasından sonra execution yolu değiştirilirken kullanıcı
+  görevinin ve mevcut izin kapsamının korunması server/skill yönergesine eklendi.
+
+**Test sonuçları:**
+
+- Contract discovery → `31 tests`, `OK`.
+- Mock Chrome URL komutu varsayılan policy ile geçti; hiçbir gerçek Chrome veya
+  GUI süreci çalıştırılmadı.
+- Explicit `block_gui_launch_in_shell=true` + Chrome blocklist hem TOML'dan
+  okundu hem mock shell çağrısını yürütmeden engelledi.
+- Desktop disabled sentetik MCP'de `shell_run`, `fs_write` ve `job_list`
+  başarıyla çalıştı.
+- `tests/test_desktop.py` bütün live bayrakları unset → `578 geçti, 0 kaldı`.
+- `tests/test_models.py` → `106 geçti, 0 kaldı`.
+- `tests/test_test_safety.py` → `1 test`, `OK`.
+- `python -m pcbridge.server --check -c config.example.toml` → exit `0`.
+- `tests/test_e2e.py` plan gereği çalıştırılmadı.
+
+**Acceptance:** Varsayılan config deterministik shell yolunu açık tutuyor;
+explicit blocklist davranışı korunuyor; desktop kapısı shell/filesystem/job
+araçlarını kapatmıyor.
+
+**Gate:** Gate 1 geçti. Python provider/runtime/capability/error ve çok yollu
+execution sözleşmeleri native entegrasyondan önce sabitlendi.
+
+**Commit:** `fe355b2` (`fix: preserve independent execution paths`)
+
+**Rollback:** Task commit'i bağımsız geri alınabilir; explicit `true` kullanan
+config'lerin davranışı rollback gerektirmeden korunur.
+
+**Sonraki somut adım:** Task 2.1'de desktop'a bağlanmayan Rust workspace ve
+framed protocol test harness'ını kur.
