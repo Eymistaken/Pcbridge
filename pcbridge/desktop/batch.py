@@ -150,6 +150,7 @@ class Result:
     # Liste bittiginde hala basili olanlar. Bos degilse raporda gorunur:
     # `hold` edip `release` etmeyi unutmak sessiz kalmamali.
     held: list[str] = field(default_factory=list)
+    error: Exception | None = None
 
     @property
     def done(self) -> int:
@@ -462,6 +463,7 @@ def run(
     auto_raw = False           # `super` sonrasi overview: pano bloklu
     focus_start = ""
     focus_now = ""
+    caught_error: Exception | None = None
 
     if check_focus:
         try:
@@ -490,6 +492,7 @@ def run(
         except Exception as exc:
             note = str(exc)
             ok = False
+            caught_error = exc
         steps.append(Step(i, act.describe(), ok, note[:200], (clock() - t0) * 1000))
 
         if not ok:
@@ -573,6 +576,7 @@ def run(
         focus_start=focus_start,
         focus_now=focus_now,
         held=held,
+        error=caught_error,
     )
 
 

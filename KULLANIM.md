@@ -493,6 +493,7 @@ ya da bir işin bittiğini fark etmek için.
 | `fs_read` | Metin dosyası okur |
 | `fs_write` | Dosya yazar veya sonuna ekler |
 | `fs_search` | Dosya içinde arama (ripgrep varsa onu kullanır) |
+| `system_capabilities` | Masaüstü backend yeteneklerini ve Pcbridge izin durumunu eylem yapmadan gösterir |
 | `system_status` | Makine durumu, diskler, GPU, işler, terminaller |
 | `notify` | Masaüstünde bildirim çıkarır |
 | `desktop_unlock` | Klavye/fare kontrolüne süreli izin verir (varsayılan 15 dk) |
@@ -523,8 +524,16 @@ gider ve o yol açıktır — projenin amacı zaten bu.
 | `mouse`, `keyboard`, `ui_click`, `ui_set_text`, `computer_batch`, `window_focus` | gerekli | gerekli | var (`force` ile geçilir) |
 | `computer_task` | gerekli | gerekli | **görev başında bir kez** (aşağıya bak) |
 | `screen_capture`, `ui_dump`, `window_list` | gerekli | gerekli | yok (okuma) |
-| `screen_info` | — | — | — |
+| `screen_info`, `system_capabilities` | — | — | — |
 | `shell_run`, `shell_run_background`, `agent_run`, `fs_*`, `tmux_*`, `job_*`, `notify` | — | — | — |
+
+Bir masaüstü aracı hata verdiğinde istemci bunu MCP düzeyinde `isError=true`
+olarak görür. Önceden görünen Türkçe açıklama korunur; ayrıca hata kodu,
+yeniden denenebilirlik ve izin kapsamı makinece okunabilir biçimde gelir.
+`pcbridge.desktop` kapsamı `[desktop] enabled` veya `desktop_unlock` kapısını,
+`os.capture` ekran yakalama iznini, `os.pointer` ise sanal fare iznini anlatır.
+Agent, başka bir yolu seçmeden önce `system_capabilities` ile bütün kapsamları
+ayrı ayrı kontrol edebilir; bu araç ekranı okumaz ve girdi göndermez.
 
 `computer_task`'in ikinci satırda ayrı durmasının sebebi ölçülmüş bir gerçek:
 **pcbridge'in gönderdiği tuş, "kullanıcı makinede mi" sayacını sıfırlıyor**

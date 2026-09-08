@@ -165,15 +165,26 @@ def _test_stdio() -> None:
         tools = res.get("result", {}).get("tools", [])
         check("stdio tools/list calisiyor", len(tools) >= 30, f"{len(tools)} arac")
         names = {t["name"] for t in tools}
-        for name in ("screen_capture", "computer_batch", "agent_run", "ui_dump"):
+        for name in (
+            "screen_capture",
+            "computer_batch",
+            "agent_run",
+            "ui_dump",
+            "system_capabilities",
+        ):
             check(f"stdio araci var: {name}", name in names)
 
-        # Goruntu donebilen araclarda outputSchema OLMAMALI: FastMCP sema
-        # uretirse cagri "outputSchema defined but no structured output" ile
-        # patliyor (H0'da fiilen uretildi).
-        for name in ("screen_capture", "computer_batch"):
+        # Dinamik masaustu araclarinda outputSchema OLMAMALI: FastMCP sema
+        # uretirse metin/goruntu ya da hata sonucu semayla celisip cagriyi
+        # patlatabilir (H0'da fiilen uretildi).
+        for name in (
+            "computer_batch", "computer_task", "desktop_lock", "desktop_unlock",
+            "keyboard", "mouse", "screen_capture", "screen_info",
+            "system_capabilities", "ui_click", "ui_dump", "ui_set_text",
+            "window_focus", "window_list",
+        ):
             tool = next((t for t in tools if t["name"] == name), {})
-            check(f"{name} sema uretmiyor (goruntu donebilsin)",
+            check(f"{name} sema uretmiyor (dinamik sonuc donebilsin)",
                   tool.get("outputSchema") is None, str(tool.get("outputSchema")))
 
         # Arac aciklamalari Ingilizce olmali: istemci arac secerken bunlari
@@ -464,6 +475,7 @@ def main() -> int:
         "fs_read",
         "fs_write",
         "fs_list",
+        "system_capabilities",
         "system_status",
         "list_agents",
         "desktop_unlock",
@@ -526,7 +538,7 @@ def main() -> int:
         )
     cap_req = by_name.get("screen_capture", {}).get("inputSchema", {}).get("required", [])
     check("screen_capture zorunlu parametresiz", not cap_req, str(cap_req))
-    for tool_name in ("screen_info", "screen_capture"):
+    for tool_name in ("screen_info", "screen_capture", "system_capabilities"):
         ann = by_name.get(tool_name, {}).get("annotations", {}) or {}
         check(f"{tool_name} readOnlyHint isaretli", ann.get("readOnlyHint") is True, str(ann))
         check(

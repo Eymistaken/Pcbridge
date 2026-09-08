@@ -30,6 +30,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .errors import ErrorCategory, ErrorCode
+
 logger = logging.getLogger("pcbridge.desktop")
 
 STATE_FILE = "desktop_unlock.json"
@@ -39,6 +41,11 @@ STATE_FILE = "desktop_unlock.json"
 class Decision:
     allowed: bool
     reason: str = ""
+    code: ErrorCode | None = None
+    permission_scope: str | None = None
+    retryable: bool = False
+    suggested_action: str = ""
+    category: ErrorCategory = ErrorCategory.SAFETY
 
     def __bool__(self) -> bool:
         return self.allowed
@@ -242,6 +249,9 @@ class SafetyGate:
                 "`[desktop] enabled = true` yapip `systemctl --user restart pcbridge` "
                 "calistirin. (Varsayilan kapali olmasi bilincli: bu ozellik acik "
                 "oturumunuzdaki her uygulamaya erisim demek.)",
+                code=ErrorCode.DESKTOP_DISABLED,
+                permission_scope="pcbridge.desktop",
+                suggested_action="Enable desktop control in config.toml and restart pcbridge.",
             )
 
         locked = screen_locked()
@@ -250,6 +260,10 @@ class SafetyGate:
                 False,
                 "Ekran kilitli. Kilitli ekranin arkasina girdi gonderilmez — "
                 "makinenin basina gecip kilidi acin.",
+                code=ErrorCode.SCREEN_LOCKED,
+                permission_scope="pcbridge.desktop",
+                retryable=True,
+                suggested_action="Unlock the local desktop session and retry.",
             )
 
         if not self.is_unlocked():
@@ -257,6 +271,10 @@ class SafetyGate:
                 False,
                 "Masaustu kontrolu su an kilitli. Once desktop_unlock ile "
                 f"sureli izin verin (varsayilan {self.spec.unlock_default_minutes} dakika).",
+                code=ErrorCode.GRANT_REQUIRED,
+                permission_scope="pcbridge.desktop",
+                retryable=True,
+                suggested_action="Call desktop_unlock before using desktop tools.",
             )
 
         if write and not force:
@@ -269,6 +287,12 @@ class SafetyGate:
                     "klavye/fare kullanildi). Telefondan gelen eylemle sizin "
                     "farenizin kavga etmemesi icin reddedildi. Yine de gonderilsin "
                     "isterseniz force=true verin.",
+                    code=ErrorCode.USER_ACTIVE,
+                    permission_scope="pcbridge.desktop",
+                    retryable=True,
+                    suggested_action=(
+                        "Wait for the user to become idle or retry with explicit force."
+                    ),
                 )
 
         if not self._rate_ok():
@@ -276,6 +300,10 @@ class SafetyGate:
                 False,
                 f"Hiz siniri: saniyede en fazla {self.spec.max_actions_per_second} "
                 "eylem. Bir sonraki saniyede tekrar deneyin.",
+                code=ErrorCode.RATE_LIMITED,
+                permission_scope="pcbridge.desktop",
+                retryable=True,
+                suggested_action="Retry after one second.",
             )
 
         # Kayan kira YALNIZCA burada damgalaniyor: bes katin hepsinden gecmis,

@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Proje
 
 pcbridge, kullanıcının Linux masaüstünü (Zorin OS / GNOME 46 / Wayland) uzaktan
-sürülebilir hale getiren kişisel bir MCP sunucusu. 33 araç: kodlama ajanlarına
+sürülebilir hale getiren kişisel bir MCP sunucusu. 34 araç: kodlama ajanlarına
 iş verme, arka plan işleri, tmux, kabuk/dosya, ve `[desktop]` altında sanal
 klavye/fare + ekran okuma.
 
@@ -126,7 +126,7 @@ rotaları eklenir. Katmanlar:
 |---|---|---|
 | Yapılandırma | `config.py` | TOML → dataclass; `_check_agents()` model/effort tuzaklarını **yüklemede** yakalayıp servisi durdurur |
 | Kimlik | `auth.py` | Tam bir mini OAuth 2.1 sunucusu (DCR + PKCE + refresh) + onay sayfası; SQLite |
-| Araçlar | `tools.py` | 33 MCP aracının tamamı. Yeni araç **buraya** yazılır |
+| Araçlar | `tools.py` | 34 MCP aracının tamamı. Yeni araç **buraya** yazılır |
 | İşler | `jobs.py` | Arka plan süreçleri + ajan çıktı ayrıştırıcıları (`plain`, `claude_stream_json`, `agy_json`) |
 | Çözümleyici | `models.py` | Ajan/model/effort seçimi. **Saf fonksiyon**, I/O yok; kurallar config'de |
 | Masaüstü | `desktop/` | GUI katmanı, aşağıda |
@@ -191,9 +191,16 @@ uzunluğu evet metnin kendisi hayır.
 - Docstring ve `Field(description=…)` **İngilizce** — istemci araç seçerken
   yalnızca bunları okuyor. Kullanıcıya dönen metinler Türkçe.
 - Docstring "ne zaman kullanılır"ı söylesin, sadece "ne yapar"ı değil.
-- Dönüş tipi `str`, çıktı `jobslib.tail_chars(metin, 4000)` ile kırpılmış.
-  Görüntü de dönüyorsa tip **`list[ContentBlock]`** (çıplak `-> list` FastMCP'ye
-  outputSchema ürettirir ve çağrı patlar).
+- Düz metin dönüş tipi `str`; uzun çıktı `jobslib.tail_chars(metin, 4000)` ile
+  kırpılmış. Görüntü de dönüyorsa başarı tipi `list[ContentBlock]`.
+- Dinamik masaüstü araçlarında `@mcp.tool(output_schema=None, ...)` açıkça
+  yazılır. Masaüstü execution hataları okunabilir eski metni `content` içinde,
+  kararlı alanları `structuredContent.error` içinde taşıyan
+  `ToolResult(..., is_error=True)` döndürür. Scope, Pcbridge izni için
+  `pcbridge.desktop`; işletim sistemi izinleri için `os.capture`, `os.pointer`,
+  `os.keyboard`, `os.accessibility`, `os.window` veya `os.session` olur.
+- FastMCP `3.4.5` sürümüne sabittir. `ToolResult` ve `output_schema=None`
+  davranışını doğrulamadan sürümü değiştirme.
 - `readOnlyHint` / `destructiveHint` doğru işaretlensin (yanlış `readOnlyHint`
   tehlikeli bir aracı sessizce çalıştırır).
 - **110 saniyeden uzun bloklama yok.**
@@ -371,9 +378,10 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
 - **stdio'da hiçbir `@mcp.custom_route` rotası yok** (HTTP sunucusu yok):
   `/shot/<token>.png`, `/healthz`, `/consent`, `/.well-known/*`. `screen_capture`
   orada bağlantı yerine dosya yolu döner. OAuth'u da fastmcp kendisi atlıyor.
-- **Görüntü dönen araçlarda dönüş tipi `list[ContentBlock]` olmalı.** Çıplak
-  `-> list` yazılırsa FastMCP outputSchema üretir ve çağrı
-  `"outputSchema defined but no structured output returned"` ile patlar.
+- **Dinamik masaüstü araçlarında `output_schema=None` olmalı.** Aksi halde
+  FastMCP metin/görüntü veya hata sonucuyla çelişen bir outputSchema üretip
+  çağrıyı `"outputSchema defined but no structured output returned"` hatasıyla
+  sonlandırabilir.
 - **stdio'da oturum ortamı bozuk gelebilir.** Ölçüldü: Codex'in başlattığı
   süreçte `DBUS_SESSION_BUS_ADDRESS` genişletilmemiş bir literal olarak geldi
   (`$DBUS_SESSION_BUS_ADDRESS`) ve masaüstü araçlarının **tamamı** çöktü —

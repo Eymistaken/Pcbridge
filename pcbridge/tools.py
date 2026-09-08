@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
+from fastmcp.tools.base import ToolResult
 from fastmcp.utilities.types import Image
 from mcp.types import ContentBlock, TextContent
 from pydantic import Field
@@ -32,10 +33,11 @@ from .desktop import capture as capturelib
 from .desktop import input as inputlib
 from .desktop import monitors as monitorslib
 from .desktop import ops as opslib
+from .desktop import presentation as presentationlib
 from .desktop import safety as safetylib
 from .desktop import screencast as screencastlib
 from .desktop import uitree as uitreelib
-from .desktop.errors import DesktopError, ErrorCode
+from .desktop.errors import DesktopError, ErrorCategory, ErrorCode
 from .desktop.runtime import DesktopRuntime, create_runtime
 
 logger = logging.getLogger("pcbridge.tools")
@@ -817,6 +819,46 @@ def register(
     tree = runtime.accessibility_provider
     capture_provider = runtime.capture_provider
 
+    def _unavailable_result(
+        capability_name: str,
+        *,
+        text: str,
+        message: str,
+        scope: str,
+        backend_name: str | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> ToolResult:
+        observed = runtime.capabilities().capabilities.get(capability_name)
+        error = presentationlib.capability_error(
+            observed,
+            message=message,
+            scope=scope,
+            backend=backend_name,
+        )
+        return presentationlib.desktop_error_result(error, text=text, extra=extra)
+
+    def _exception_result(
+        error: Exception,
+        *,
+        text: str,
+        category: ErrorCategory,
+        scope: str,
+        backend_name: str | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> ToolResult:
+        typed = presentationlib.execution_error(
+            error,
+            category=category,
+            scope=scope,
+            backend=backend_name,
+        )
+        return presentationlib.desktop_error_result(
+            typed,
+            text=text,
+            permission_scope=scope,
+            extra=extra,
+        )
+
     def _open_screencast() -> str:
         """Masaustu izniyle birlikte ekran yayinini ac.
 
@@ -944,8 +986,10 @@ def register(
         write: bool = True,
         force: bool = False,
         needs_input: bool = True,
-    ) -> str | None:
-        """Reddedildiyse kullaniciya donecek Turkce gerekce, izinliyse None.
+        input_capability: str = "input.pointer",
+        input_scope: str = "os.pointer",
+    ) -> ToolResult | None:
+        """Reddedildiyse typed MCP hata sonucu, izinliyse None.
 
         `needs_input=False`: sanal klavye/fare cihazi ARANMAZ. Ekran goruntusu
         ve erisilebilirlik araclari uinput kullanmiyor; /dev/uinput yokken
@@ -955,17 +999,39 @@ def register(
         decision = gate.check(tool, write=write, force=force)
         if not decision.allowed:
             gate.audit(f"{tool}_denied", reason=decision.reason[:120])
-            return f"⛔ {decision.reason}"
+            error = presentationlib.decision_error(decision)
+            return presentationlib.desktop_error_result(
+                error,
+                text=f"⛔ {decision.reason}",
+                permission_scope="pcbridge.desktop",
+            )
         # `check()` kirayi kaydirdi; gosterge de onunla birlikte kaysin.
         runtime.refresh_capture_deadline()
         if needs_input:
             ok, why = backend.available()
             if not ok:
                 gate.audit(f"{tool}_unavailable", reason=why[:120])
-                return f"⛔ Sanal girdi cihazi kullanilamiyor: {why}"
+                return _unavailable_result(
+                    input_capability,
+                    text=f"⛔ Sanal girdi cihazi kullanilamiyor: {why}",
+                    message=why,
+                    scope=input_scope,
+                    backend_name="desktop.input",
+                )
         return None
 
     @mcp.tool(
+        output_schema=None,
+        annotations={"title": "Desktop capabilities", "readOnlyHint": True},
+    )
+    def system_capabilities() -> ToolResult:
+        """Report desktop backend capabilities and authorization independently.
+        This probe is read-only and does not require desktop_unlock. Call it before
+        choosing a desktop action or when a desktop tool reports an error."""
+        return presentationlib.capabilities_result(runtime.capabilities())
+
+    @mcp.tool(
+        output_schema=None,
         annotations={"title": "Allow desktop control for a while", "destructiveHint": True}
     )
     def desktop_unlock(
@@ -981,21 +1047,36 @@ def register(
             str | None,
             Field(description="Short note about what this is for; goes to the audit log."),
         ] = None,
-    ) -> str:
+    ) -> str | ToolResult:
         """Open a time-limited permission window for controlling the computer's
         keyboard and mouse. The mouse and keyboard tools refuse to do anything
         until this is called, and the permission expires on its own. Call this
         first whenever the user asks you to click, type or drive an application
         on their screen."""
         if not cfg.desktop.enabled:
-            return (
+            text = (
                 "⛔ Masaustu kontrolu kapali. config.toml'da `[desktop] enabled = true` "
                 "yapip `systemctl --user restart pcbridge` calistirin. Once "
                 "`sudo ./setup_uinput.sh` gerekiyor (bir kez)."
             )
+            error = DesktopError(
+                code=ErrorCode.DESKTOP_DISABLED,
+                message="Masaustu kontrolu kapali.",
+                category=ErrorCategory.SAFETY,
+                retryable=False,
+                suggested_action="Enable desktop control in config.toml and restart pcbridge.",
+                permission_scope="pcbridge.desktop",
+            )
+            return presentationlib.desktop_error_result(error, text=text)
         ok, why = backend.available()
         if not ok:
-            return f"⛔ Sanal girdi cihazi kullanilamiyor: {why}"
+            return _unavailable_result(
+                "input.pointer",
+                text=f"⛔ Sanal girdi cihazi kullanilamiyor: {why}",
+                message=why,
+                scope="os.pointer",
+                backend_name="desktop.input",
+            )
 
         msg = gate.unlock(minutes, reason or "")
         # Izin acildiginin KULLANICIYA gorunmesi onemli, ama tek yolu bu
@@ -1027,7 +1108,7 @@ def register(
         out.append("Erken kapatmak icin: desktop_lock")
         return "\n".join(x for x in out if x)
 
-    @mcp.tool(annotations={"title": "Stop desktop control"})
+    @mcp.tool(output_schema=None, annotations={"title": "Stop desktop control"})
     def desktop_lock() -> str:
         """Close the desktop control permission immediately instead of waiting for
         it to expire, and destroy the virtual keyboard/mouse devices. Any key or
@@ -1048,7 +1129,10 @@ def register(
             note += f" · {others} yardımcı süreç durduruldu"
         return gate.lock() + note
 
-    @mcp.tool(annotations={"title": "Move or click the mouse", "destructiveHint": True})
+    @mcp.tool(
+        output_schema=None,
+        annotations={"title": "Move or click the mouse", "destructiveHint": True},
+    )
     def mouse(
         action: Annotated[
             str,
@@ -1133,7 +1217,7 @@ def register(
                 "Only set this when the user explicitly asked you to take over."
             ),
         ] = False,
-    ) -> str:
+    ) -> str | ToolResult:
         """Move the mouse pointer, click, drag, scroll or hold a button down on the
         user's Linux desktop. Requires desktop_unlock first. Use when the user asks
         you to press a button, open a menu or otherwise operate a graphical
@@ -1205,7 +1289,13 @@ def register(
             DesktopError,
         ) as exc:
             gate.audit("mouse_error", action=act, error=str(exc)[:160])
-            return f"Hata: {exc}"
+            return _exception_result(
+                exc,
+                text=f"Hata: {exc}",
+                category=ErrorCategory.EXECUTION,
+                scope="os.pointer",
+                backend_name="desktop.input",
+            )
 
         gate.audit(
             "mouse", action=act, x=x, y=y, monitor=monitor, shot=shot,
@@ -1224,7 +1314,10 @@ def register(
             + _held_note()
         )
 
-    @mcp.tool(annotations={"title": "Type text or press keys", "destructiveHint": True})
+    @mcp.tool(
+        output_schema=None,
+        annotations={"title": "Type text or press keys", "destructiveHint": True},
+    )
     def keyboard(
         action: Annotated[
             str,
@@ -1261,7 +1354,7 @@ def register(
             bool,
             Field(description="Send even if the user was recently active at the machine."),
         ] = False,
-    ) -> str:
+    ) -> str | ToolResult:
         """Type text or press key combinations on the user's Linux desktop.
         Requires desktop_unlock first. Use when the user asks you to fill in a
         field, confirm a dialog with Enter, or trigger a shortcut. Text is entered
@@ -1274,7 +1367,13 @@ def register(
         the machine unusable for the user. As a backstop the server releases
         everything by itself after a timeout and says so in the next reply, but
         that is damage control, not a substitute for releasing."""
-        err = _guard("keyboard", write=True, force=force)
+        err = _guard(
+            "keyboard",
+            write=True,
+            force=force,
+            input_capability="input.keyboard",
+            input_scope="os.keyboard",
+        )
         if err:
             return err
 
@@ -1301,7 +1400,13 @@ def register(
                 return f"Bilinmeyen eylem: '{action}'. Gecerli: type, key, hold, release"
         except (inputlib.InputError, DesktopError) as exc:
             gate.audit("keyboard_error", action=act, error=str(exc)[:160])
-            return f"Hata: {exc}"
+            return _exception_result(
+                exc,
+                text=f"Hata: {exc}",
+                category=ErrorCategory.EXECUTION,
+                scope="os.keyboard",
+                backend_name="desktop.input",
+            )
 
         gate.audit(
             "keyboard",
@@ -1317,7 +1422,10 @@ def register(
         )
 
     # ------------------------------------------------------- ekran goruntusu
-    @mcp.tool(annotations={"title": "Describe the screens", "readOnlyHint": True})
+    @mcp.tool(
+        output_schema=None,
+        annotations={"title": "Describe the screens", "readOnlyHint": True},
+    )
     def screen_info() -> str:
         """Describe the monitors: how many there are, their resolution, where each
         one sits in the shared coordinate space, and which one is primary. Use this
@@ -1364,7 +1472,10 @@ def register(
         )
         return "\n".join(lines)
 
-    @mcp.tool(annotations={"title": "Take a screenshot", "readOnlyHint": True})
+    @mcp.tool(
+        output_schema=None,
+        annotations={"title": "Take a screenshot", "readOnlyHint": True},
+    )
     def screen_capture(
         monitor: Annotated[
             str,
@@ -1392,7 +1503,7 @@ def register(
             bool | None,
             Field(description="Draw the mouse pointer into the image."),
         ] = None,
-    ) -> list[ContentBlock]:
+    ) -> list[ContentBlock] | ToolResult:
         """Take a screenshot of the user's screen. Use when the user asks what is on
         their screen, and before clicking somewhere, to check what is actually
         there. If your client can display images you get the picture itself and can
@@ -1409,16 +1520,30 @@ def register(
         # kontrolu ise aynen gecerli: goruntu en gizlilik-hassas cikti.
         denied = _guard("screen_capture", write=False, needs_input=False)
         if denied:
-            return _text(denied)
+            return denied
         if shot_store is None:
-            return _text(
-                "⛔ Ekran goruntusu servisi kurulu degil (sunucu eski surumde?)."
+            text = "⛔ Ekran goruntusu servisi kurulu degil (sunucu eski surumde?)."
+            error = DesktopError(
+                code=ErrorCode.BACKEND_UNAVAILABLE,
+                message="Ekran goruntusu servisi kurulu degil.",
+                category=ErrorCategory.CAPTURE,
+                retryable=False,
+                suggested_action="Upgrade or repair the pcbridge server installation.",
+                permission_scope="os.capture",
+                backend="pcbridge.shots",
             )
+            return presentationlib.desktop_error_result(error, text=text)
 
         cap_ok, cap_why = capture_provider.available()
         if not cap_ok:
             gate.audit("screen_capture_unavailable", reason=cap_why[:120])
-            return _text(f"⛔ Ekran goruntusu alinamiyor: {cap_why}")
+            return _unavailable_result(
+                "capture.monitor",
+                text=f"⛔ Ekran goruntusu alinamiyor: {cap_why}",
+                message=cap_why,
+                scope="os.capture",
+                backend_name=capture_provider.backend_name(),
+            )
 
         spec: int | str = monitor.strip() if isinstance(monitor, str) else monitor
         if isinstance(spec, str) and spec.isdigit():
@@ -1445,7 +1570,13 @@ def register(
             )
         except (capturelib.CaptureError, monitorslib.MonitorError, DesktopError) as exc:
             gate.audit("screen_capture_error", error=str(exc)[:160])
-            return _text(f"Hata: {exc}")
+            return _exception_result(
+                exc,
+                text=f"Hata: {exc}",
+                category=ErrorCategory.CAPTURE,
+                scope="os.capture",
+                backend_name=capture_provider.backend_name(),
+            )
 
         # stdio'da HTTP sunucusu YOK -> /shot/<token>.png rotasi da yok. Orada
         # baglanti uretmek sessizce olu bir URL vermek olurdu; onun yerine
@@ -1550,7 +1681,10 @@ def register(
     # Ekranin metinsel ikizi. Model goruntuyu goremedigi icin asil "goz" burasi;
     # tiklama da koordinatla degil dugumun kendi Action'iyla yapiliyor.
     # Hicbiri uinput kullanmaz -> needs_input=False.
-    @mcp.tool(annotations={"title": "Read the screen as text", "readOnlyHint": True})
+    @mcp.tool(
+        output_schema=None,
+        annotations={"title": "Read the screen as text", "readOnlyHint": True},
+    )
     def ui_dump(
         target: Annotated[
             str,
@@ -1570,7 +1704,7 @@ def register(
                 )
             ),
         ] = True,
-    ) -> str:
+    ) -> str | ToolResult:
         """List what is on screen as text: every button, menu, text box and label
         the application publishes, each with a short id. Use this instead of a
         screenshot when you need to know what is there — you can read this, and you
@@ -1583,16 +1717,31 @@ def register(
         ok, why = tree.available()
         if not ok:
             gate.audit("ui_dump_unavailable", reason=why[:120])
-            return f"⛔ Erisilebilirlik agaci okunamiyor: {why}"
+            return _unavailable_result(
+                "accessibility.read",
+                text=f"⛔ Erisilebilirlik agaci okunamiyor: {why}",
+                message=why,
+                scope="os.accessibility",
+                backend_name="desktop.accessibility",
+            )
         try:
             dump = tree.dump(target=target, interactive_only=interactive_only)
         except (uitreelib.UiTreeError, DesktopError) as exc:
             gate.audit("ui_dump_error", error=str(exc)[:160])
-            return f"Hata: {exc}"
+            return _exception_result(
+                exc,
+                text=f"Hata: {exc}",
+                category=ErrorCategory.ACCESSIBILITY,
+                scope="os.accessibility",
+                backend_name="desktop.accessibility",
+            )
         gate.audit("ui_dump", target=target, nodes=len(dump.nodes))
         return jobslib.tail_chars(tree.describe_dump(dump), MAX_INLINE)
 
-    @mcp.tool(annotations={"title": "Click something on screen", "destructiveHint": True})
+    @mcp.tool(
+        output_schema=None,
+        annotations={"title": "Click something on screen", "destructiveHint": True},
+    )
     def ui_click(
         id: Annotated[
             str,
@@ -1602,7 +1751,7 @@ def register(
             bool,
             Field(description="Go ahead even if the user just used the machine."),
         ] = False,
-    ) -> str:
+    ) -> str | ToolResult:
         """Click a button, menu item or link by the id `ui_dump` gave it. This asks
         the application to activate that item directly, so it works regardless of
         where the window sits or what has focus. Use it whenever the thing you want
@@ -1621,7 +1770,13 @@ def register(
             res = tree.click(str(id))
         except (uitreelib.UiTreeError, DesktopError) as exc:
             gate.audit("ui_click_error", node=str(id)[:40], error=str(exc)[:160])
-            return f"Hata: {exc}"
+            return _exception_result(
+                exc,
+                text=f"Hata: {exc}",
+                category=ErrorCategory.ACCESSIBILITY,
+                scope="os.accessibility",
+                backend_name="desktop.accessibility",
+            )
         gate.audit("ui_click", node=str(id)[:40], name=res.get("name", "")[:60],
                    forced=force or None)
         note = ""
@@ -1634,7 +1789,10 @@ def register(
             "yeniden bakin."
         )
 
-    @mcp.tool(annotations={"title": "Type into a text box", "destructiveHint": True})
+    @mcp.tool(
+        output_schema=None,
+        annotations={"title": "Type into a text box", "destructiveHint": True},
+    )
     def ui_set_text(
         id: Annotated[
             str,
@@ -1645,7 +1803,7 @@ def register(
             bool,
             Field(description="Go ahead even if the user just used the machine."),
         ] = False,
-    ) -> str:
+    ) -> str | ToolResult:
         """Replace the contents of a text box directly, by the id `ui_dump` gave it.
         Prefer this over the `keyboard` tool for filling in fields: it writes into
         the widget itself instead of simulating keystrokes, so nothing depends on
@@ -1658,7 +1816,13 @@ def register(
             res = tree.set_text(str(id), text)
         except (uitreelib.UiTreeError, DesktopError) as exc:
             gate.audit("ui_set_text_error", node=str(id)[:40], error=str(exc)[:160])
-            return f"Hata: {exc}"
+            return _exception_result(
+                exc,
+                text=f"Hata: {exc}",
+                category=ErrorCategory.ACCESSIBILITY,
+                scope="os.accessibility",
+                backend_name="desktop.accessibility",
+            )
         # Metnin KENDISI denetim kaydina yazilmaz; parola girilmis olabilir.
         gate.audit("ui_set_text", node=str(id)[:40], chars=len(text),
                    forced=force or None)
@@ -1669,8 +1833,11 @@ def register(
         )
 
     # -------------------------------------------------------- pencere yonetimi
-    @mcp.tool(annotations={"title": "List open windows", "readOnlyHint": True})
-    def window_list() -> str:
+    @mcp.tool(
+        output_schema=None,
+        annotations={"title": "List open windows", "readOnlyHint": True},
+    )
+    def window_list() -> str | ToolResult:
         """List the windows that are currently open, marking which one has focus.
         Use this to find out what the user is working on, or to pick a window to
         bring forward with `window_focus`. Cheap compared to `ui_dump`: it does
@@ -1681,16 +1848,29 @@ def register(
         ok, why = tree.available()
         if not ok:
             gate.audit("window_list_unavailable", reason=why[:120])
-            return f"⛔ Pencere listesi okunamiyor: {why}"
+            return _unavailable_result(
+                "window.list",
+                text=f"⛔ Pencere listesi okunamiyor: {why}",
+                message=why,
+                scope="os.window",
+                backend_name="desktop.accessibility",
+            )
         try:
             wins = tree.windows()
         except (uitreelib.UiTreeError, DesktopError) as exc:
             gate.audit("window_list_error", error=str(exc)[:160])
-            return f"Hata: {exc}"
+            return _exception_result(
+                exc,
+                text=f"Hata: {exc}",
+                category=ErrorCategory.ACCESSIBILITY,
+                scope="os.window",
+                backend_name="desktop.accessibility",
+            )
         gate.audit("window_list", windows=len(wins))
         return tree.describe_windows(wins)
 
     @mcp.tool(
+        output_schema=None,
         annotations={"title": "Bring a window to the front", "destructiveHint": True}
     )
     def window_focus(
@@ -1707,7 +1887,7 @@ def register(
             bool,
             Field(description="Go ahead even if the user just used the machine."),
         ] = False,
-    ) -> str:
+    ) -> str | ToolResult:
         """Open a graphical application and bring it to the front, launching it
         first if it is not already running. This goes through the desktop's own
         search — exactly what the user would do by hand — and then verifies with
@@ -1723,7 +1903,13 @@ def register(
         a button or fill a field, prefer `ui_click` / `ui_set_text` — those reach
         the widget directly and do not require the window to be in front at
         all."""
-        denied = _guard("window_focus", write=True, force=force)
+        denied = _guard(
+            "window_focus",
+            write=True,
+            force=force,
+            input_capability="input.keyboard",
+            input_scope="os.keyboard",
+        )
         if denied:
             return denied
         try:
@@ -1731,7 +1917,13 @@ def register(
         except (appslib.AppError, DesktopError) as exc:
             gate.audit("window_focus_error", target=str(window)[:60],
                        error=str(exc)[:160])
-            return f"Hata: {exc}"
+            return _exception_result(
+                exc,
+                text=f"Hata: {exc}",
+                category=ErrorCategory.EXECUTION,
+                scope="os.window",
+                backend_name="desktop.window",
+            )
         gate.audit("window_focus", target=str(window)[:60], forced=force or None)
         return note
 
@@ -1742,6 +1934,7 @@ def register(
     batch_ops = opslib.DeviceOps(backend, tree, cfg, capture_provider)
 
     @mcp.tool(
+        output_schema=None,
         annotations={"title": "Run several actions in one go", "destructiveHint": True}
     )
     def computer_batch(
@@ -1788,7 +1981,7 @@ def register(
             bool,
             Field(description="Go ahead even if the user just used the machine."),
         ] = False,
-    ) -> list[ContentBlock]:
+    ) -> list[ContentBlock] | ToolResult:
         """Run a whole sequence of desktop actions in a single call, then show you
         the result. Use this instead of calling `mouse`, `keyboard`, `ui_click` one
         at a time: each separate call asks the user for confirmation on their
@@ -1805,11 +1998,20 @@ def register(
         kinds = {a.a for a in plan}
         # Yalnizca erisilebilirlik eylemleri varsa /dev/uinput aranmaz --
         # C bolumunde duzeltilen ayni hata burada tekrarlanmasin.
-        needs_input = bool(kinds & batchlib.INPUT_ACTIONS) or "focus" in kinds
-        denied = _guard("computer_batch", write=True, force=force,
-                        needs_input=needs_input)
+        want_kbd, want_ptr = opslib.devices_needed(plan)
+        needs_input = want_kbd or want_ptr
+        input_capability = "input.pointer" if want_ptr else "input.keyboard"
+        input_scope = "os.pointer" if want_ptr else "os.keyboard"
+        denied = _guard(
+            "computer_batch",
+            write=True,
+            force=force,
+            needs_input=needs_input,
+            input_capability=input_capability,
+            input_scope=input_scope,
+        )
         if denied:
-            return _text(denied)
+            return denied
 
         gap = 0.0
         if cfg.desktop.max_actions_per_second > 0:
@@ -1822,9 +2024,21 @@ def register(
                    kinds=",".join(sorted(kinds)), forced=force or None)
         # Cihazlari bastan ac: iki cihaz gerekiyorsa bekleme tek sefere iner
         # (olculdu 2,61 s -> 1,41 s). Gerekmiyorsa hicbir cihaz acilmaz.
-        want_kbd, want_ptr = opslib.devices_needed(plan)
         if want_kbd or want_ptr:
-            backend.ensure(keyboard=want_kbd, pointer=want_ptr)
+            try:
+                backend.ensure(keyboard=want_kbd, pointer=want_ptr)
+            except (inputlib.InputError, DesktopError) as exc:
+                gate.audit("computer_batch_error", error=str(exc)[:160])
+                return _exception_result(
+                    exc,
+                    text=f"Hata: {exc}",
+                    category=ErrorCategory.EXECUTION,
+                    scope=input_scope,
+                    backend_name="desktop.input",
+                    extra={
+                        "batch": {"done": 0, "total": len(plan), "stopped": "error"}
+                    },
+                )
         result = batchlib.run(
             plan,
             batch_ops,
@@ -1841,6 +2055,48 @@ def register(
                    seconds=round(result.elapsed, 1), stopped=result.stopped or None)
 
         out = [batchlib.describe(result)]
+        batch_data = {
+            "done": result.done,
+            "total": result.total,
+            "stopped": result.stopped,
+        }
+        if result.error is not None:
+            if want_ptr:
+                error_scope = "os.pointer"
+                error_category = ErrorCategory.EXECUTION
+            elif want_kbd:
+                error_scope = "os.keyboard"
+                error_category = ErrorCategory.EXECUTION
+            else:
+                error_scope = "os.accessibility"
+                error_category = ErrorCategory.ACCESSIBILITY
+            return _exception_result(
+                result.error,
+                text=jobslib.tail_chars(out[0], MAX_INLINE),
+                category=error_category,
+                scope=error_scope,
+                extra={"batch": batch_data},
+            )
+
+        def _with_batch_error(final_result: ToolResult) -> ToolResult:
+            text_parts = list(out)
+            images: list[ContentBlock] = []
+            for block in final_result.content:
+                if isinstance(block, TextContent):
+                    text_parts.append(block.text)
+                else:
+                    images.append(block)
+            structured = dict(final_result.structured_content or {})
+            structured["batch"] = batch_data
+            return ToolResult(
+                content=[
+                    _text(jobslib.tail_chars("\n".join(text_parts), MAX_INLINE)),
+                    *images,
+                ],
+                structured_content=structured,
+                is_error=True,
+            )
+
         # `screen_capture` artik blok listesi donuyor: metin blogu rapora
         # katiliyor, goruntu bloklari SONA ekleniyor. Metnin ONCE gelmesi onemli
         # -- ofset ve olcek bilgisi goruntuden ayrilirsa koordinat hesabi
@@ -1849,17 +2105,25 @@ def register(
         want = (final or "ui_dump").strip().lower()
         if want == "screen_capture":
             out.append("\n---")
-            for block in screen_capture():
+            final_result = screen_capture()
+            if isinstance(final_result, ToolResult):
+                return _with_batch_error(final_result)
+            for block in final_result:
                 if isinstance(block, TextContent):
                     out.append(block.text)
                 else:
                     images.append(block)
         elif want != "none":
-            out += ["", "---", ui_dump()]
+            final_result = ui_dump()
+            if isinstance(final_result, ToolResult):
+                out += ["", "---"]
+                return _with_batch_error(final_result)
+            out += ["", "---", final_result]
         return [_text(jobslib.tail_chars("\n".join(out), MAX_INLINE)), *images]
 
     # ----------------------------------------------------- yerel gorsel ajan
     @mcp.tool(
+        output_schema=None,
         annotations={"title": "Let a local agent drive the screen",
                      "destructiveHint": True}
     )
@@ -1907,7 +2171,7 @@ def register(
             bool,
             Field(description="Go ahead even if the user just used the machine."),
         ] = False,
-    ) -> str:
+    ) -> str | ToolResult:
         """Hand a long-running graphical task to an agent on the user's own machine
         and get a job id back, so you are not blocked while it works. The local
         agent takes a screenshot, looks at it, clicks, checks the result, and
@@ -1929,11 +2193,30 @@ def register(
 
         skill = _SKILL_PATH
         if not skill.is_file():
-            return (
+            text = (
                 f"⛔ Gorsel ajan yonergesi yok: {skill}. Depodaki "
                 "`skills/computer-use/SKILL.md` silinmis ya da tasinmis."
             )
-        instructions = skill.read_text(encoding="utf-8")
+            error = DesktopError(
+                code=ErrorCode.DEPENDENCY_MISSING,
+                message=f"Gorsel ajan yonergesi yok: {skill}.",
+                category=ErrorCategory.CAPABILITY,
+                retryable=False,
+                suggested_action="Restore skills/computer-use/SKILL.md and retry.",
+                permission_scope="pcbridge.desktop",
+                backend="computer_task",
+            )
+            return presentationlib.desktop_error_result(error, text=text)
+        try:
+            instructions = skill.read_text(encoding="utf-8")
+        except OSError as exc:
+            return _exception_result(
+                exc,
+                text=f"⛔ Gorsel ajan yonergesi okunamadi: {exc}",
+                category=ErrorCategory.CAPABILITY,
+                scope="pcbridge.desktop",
+                backend_name="computer_task",
+            )
 
         spec = cfg.desktop
         # Config'teki uclu (agent, model, effort) BIRBIRINE AIT: model adi o
@@ -1965,10 +2248,16 @@ def register(
                 opened += " · " + appslib.focus(
                     str(app), backend, tree.focused_window
                 )
-            except appslib.AppError as exc:
+            except (appslib.AppError, DesktopError) as exc:
                 gate.audit("computer_task_app_error", app=str(app)[:60],
                            error=str(exc)[:160])
-                return f"⛔ `{app}` hazirlanamadi: {exc}"
+                return _exception_result(
+                    exc,
+                    text=f"⛔ `{app}` hazirlanamadi: {exc}",
+                    category=ErrorCategory.EXECUTION,
+                    scope="os.window",
+                    backend_name="desktop.window",
+                )
 
         steps = int(max_steps or spec.computer_task_max_steps)
         prompt = _task_prompt(instructions, str(goal), opened, steps)

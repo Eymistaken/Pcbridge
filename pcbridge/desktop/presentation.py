@@ -1,0 +1,145 @@
+"""MCP presentation helpers for typed desktop results."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastmcp.tools.base import ToolResult
+from mcp.types import ContentBlock, TextContent
+
+from .capabilities import Capability, CapabilitySnapshot, CapabilityState
+from .errors import DesktopError, ErrorCategory, ErrorCode
+
+
+def desktop_error_result(
+    error: DesktopError,
+    *,
+    text: str | None = None,
+    permission_scope: str | None = None,
+    extra: dict[str, Any] | None = None,
+    content: list[ContentBlock] | None = None,
+) -> ToolResult:
+    """Keep readable content while attaching a stable desktop error object."""
+    error_data = error.to_dict()
+    if permission_scope and "permission_scope" not in error_data:
+        error_data["permission_scope"] = permission_scope
+    structured: dict[str, Any] = {
+        "type": "pcbridge.desktop",
+        "error": error_data,
+    }
+    if extra:
+        structured.update(extra)
+    blocks = content if content is not None else [
+        TextContent(type="text", text=text if text is not None else error.message)
+    ]
+    return ToolResult(
+        content=blocks,
+        structured_content=structured,
+        is_error=True,
+    )
+
+
+def decision_error(decision: Any) -> DesktopError:
+    """Turn a typed SafetyGate decision into the common desktop taxonomy."""
+    return DesktopError(
+        code=getattr(decision, "code", None) or ErrorCode.EXECUTION_UNKNOWN,
+        message=decision.reason,
+        category=getattr(decision, "category", ErrorCategory.SAFETY),
+        retryable=bool(getattr(decision, "retryable", False)),
+        suggested_action=(
+            getattr(decision, "suggested_action", "")
+            or "Review the desktop authorization state and retry."
+        ),
+        permission_scope=getattr(decision, "permission_scope", None),
+    )
+
+
+def capability_error(
+    capability: Capability | None,
+    *,
+    message: str,
+    scope: str,
+    backend: str | None = None,
+) -> DesktopError:
+    """Build an error from probe evidence without classifying human text."""
+    state = capability.state if capability else CapabilityState.UNAVAILABLE
+    code = capability.reason_code if capability else None
+    permission = state == CapabilityState.PERMISSION_REQUIRED or code in {
+        ErrorCode.PERMISSION_REQUIRED,
+        ErrorCode.PERMISSION_DENIED,
+        ErrorCode.DEVICE_NOT_GRANTED,
+    }
+    if state == CapabilityState.UNSUPPORTED:
+        action = "Use a supported desktop capability."
+    elif permission:
+        action = f"Grant the required {scope} permission and retry."
+    else:
+        action = "Restore the desktop backend and retry."
+    return DesktopError(
+        code=code or (
+            ErrorCode.UNSUPPORTED
+            if state == CapabilityState.UNSUPPORTED
+            else ErrorCode.BACKEND_UNAVAILABLE
+        ),
+        message=message,
+        category=ErrorCategory.PERMISSION if permission else ErrorCategory.CAPABILITY,
+        retryable=state != CapabilityState.UNSUPPORTED,
+        suggested_action=action,
+        permission_scope=scope,
+        backend=backend or (capability.backend if capability else None),
+    )
+
+
+def execution_error(
+    error: Exception,
+    *,
+    category: ErrorCategory,
+    scope: str,
+    backend: str | None = None,
+) -> DesktopError:
+    """Wrap a legacy provider exception at the MCP presentation boundary."""
+    if isinstance(error, DesktopError):
+        return error
+    return DesktopError(
+        code=ErrorCode.EXECUTION_UNKNOWN,
+        message=str(error),
+        category=category,
+        retryable=False,
+        suggested_action="Inspect the desktop state before retrying the operation.",
+        permission_scope=scope,
+        backend=backend,
+    )
+
+
+def capabilities_result(snapshot: CapabilitySnapshot) -> ToolResult:
+    """Present a side-effect-free capability snapshot for humans and agents."""
+    lines = ["**Masaustu yetenekleri**", ""]
+    for name, value in sorted(snapshot.capabilities.items()):
+        line = f"- `{name}`: {value.state.value} (`{value.backend}`)"
+        if value.reason_code:
+            line += f" · {value.reason_code.value}"
+        lines.append(line)
+    authorization = snapshot.authorization
+    lines += [
+        "",
+        "**Yetkilendirme**",
+        f"- yapilandirma: {'acik' if authorization.desktop_enabled else 'kapali'}",
+        f"- izin: {authorization.grant_remaining_seconds} sn",
+        f"- ekran kilidi: {authorization.screen_lock_state}",
+    ]
+    return ToolResult(
+        content=[TextContent(type="text", text="\n".join(lines))],
+        structured_content={
+            "type": "pcbridge.desktop.capabilities",
+            **snapshot.as_dict(),
+        },
+    )
+
+
+__all__ = [
+    "capabilities_result",
+    "capability_error",
+    "decision_error",
+    "desktop_error_result",
+    "execution_error",
+]

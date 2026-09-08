@@ -49,6 +49,7 @@ EXPECTED_TOOL_NAMES = [
     "screen_info",
     "shell_run",
     "shell_run_background",
+    "system_capabilities",
     "system_status",
     "tmux_capture",
     "tmux_keys",
@@ -88,6 +89,7 @@ EXPECTED_ANNOTATIONS = {
         "title": "Run a long shell command in background",
         "destructiveHint": True,
     },
+    "system_capabilities": {"title": "Desktop capabilities", "readOnlyHint": True},
     "system_status": {"title": "Computer status", "readOnlyHint": True},
     "tmux_capture": {"title": "Read a live terminal screen", "readOnlyHint": True},
     "tmux_keys": {"title": "Press keys in a live terminal"},
@@ -243,7 +245,23 @@ class McpContractTests(unittest.TestCase):
                 "additionalProperties": False,
             },
         )
-        self.assertIsNone(tools["screen_capture"].output_schema)
+        for name in (
+            "computer_batch",
+            "computer_task",
+            "desktop_lock",
+            "desktop_unlock",
+            "keyboard",
+            "mouse",
+            "screen_capture",
+            "screen_info",
+            "system_capabilities",
+            "ui_click",
+            "ui_dump",
+            "ui_set_text",
+            "window_focus",
+            "window_list",
+        ):
+            self.assertIsNone(tools[name].output_schema, name)
 
     def test_screen_capture_returns_text_before_image_blocks(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

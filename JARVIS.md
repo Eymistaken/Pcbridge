@@ -90,7 +90,7 @@ Geriye üç pürüz kalıyor, üçü de küçük:
 | 2 | **Telefona push** | `notify` yalnızca `notify-send` — masaüstüne. Dışarı çıkan kanal yok. | ~30 satır |
 | 3 | **Kanıt teslimi** | `ShotStore` tam bunun için yazılmış ama `shot_ttl_seconds = 300`. Beş dakika sonra bakarsan bağlantı ölmüş. | ayar + ~50 satır |
 | 4 | **Hafıza** | Her oturum sıfırdan. | ~150 satır |
-| 5 | **Kodlama dışı araçlar** | 33 aracın hepsi kabuk/dosya/masaüstü/ajan. Ama takvim/mail/drive Claude Code'da zaten bağlı — beyin onları miras alıyor. Kalan: müzik, ev, notlar. | TOML (aşağıda) |
+| 5 | **Kodlama dışı araçlar** | 34 aracın hepsi kabuk/dosya/masaüstü/ajan. Ama takvim/mail/drive Claude Code'da zaten bağlı — beyin onları miras alıyor. Kalan: müzik, ev, notlar. | TOML (aşağıda) |
 
 ---
 
@@ -115,7 +115,7 @@ Tek ve büyük fikir: **beyin PC'nin içinde otursun.** O zaman beyin pcbridge'e
                                  │                    │                      │
                                  │                    │ MCP over stdio       │
                                  │                    ▼                      │
-                                 │        pcbridge — 33 araç  ◄── MEVCUT     │
+                                 │        pcbridge — 34 araç  ◄── MEVCUT     │
                                  └──────────────────────────────────────────┘
 ```
 
@@ -142,7 +142,7 @@ token yönetimi **yazmana gerek yok**. Çünkü:
 
 - `connect.sh --apply` pcbridge'i zaten Claude Code'a MCP sunucusu olarak
   kaydediyor.
-- `claude -p "<görev>"` başsız çalışıyor ve o 33 aracın hepsini görüyor.
+- `claude -p "<görev>"` başsız çalışıyor ve o 34 aracın hepsini görüyor.
 - `agent_run` bunu zaten yapıyor — `jobs.py` çıktıyı `claude_stream_json`
   ile ayrıştırıyor.
 
@@ -433,7 +433,7 @@ onları Claude Code'un mevcut connector'larından zaten görüyor.
 - **iOS.** Kotlin oraya taşınmıyor; KMP ile iş mantığı paylaşılır ama arayüz
   yeniden yazılır. Şimdilik kapsam dışı.
 - pcbridge'in araç yüzeyini değiştirmek — `pcbridged` **üstüne** biniyor,
-  içine değil. 33 aracın davranışı aynı kalıyor.
+  içine değil. 34 aracın davranışı aynı kalıyor.
 - Makineyi Funnel dışında herhangi bir yolla internete açmak.
 
 ---

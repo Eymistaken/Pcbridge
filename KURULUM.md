@@ -50,7 +50,7 @@ protokolü**. Sunucu "bende şu araçlar var, şu parametreleri alır" diye bir 
 yayınlar (`tools/list`), model uygun olanı seçip çağırır (`tools/call`), sunucu bir
 metin döner. Hepsi bu. Sihir yok — asıl iş senin yazdığın araç fonksiyonlarında.
 
-Buradaki 33 araç şu gruplara ayrılıyor:
+Buradaki 34 araç şu gruplara ayrılıyor:
 
 | Grup | Ne yapar |
 |---|---|
@@ -200,7 +200,7 @@ plandaki bir Claude Code görevi devam eder, sonucunu `job_list` ile görürsün
 
 ## Belgeler
 
-- **[KULLANIM.md](KULLANIM.md)** — 33 aracın tamamı, izin haritası ve gerçek
+- **[KULLANIM.md](KULLANIM.md)** — 34 aracın tamamı, izin haritası ve gerçek
   örnek cümleler
 - **[GELISTIRME.md](GELISTIRME.md)** — yeni araç eklemek, ajan tanımlamak,
   yaşadığımız protokol tuzakları (geçmiş kayıt)

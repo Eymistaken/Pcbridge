@@ -29,7 +29,7 @@ It is a personal tool, built and measured on one machine: **Zorin OS 18.1
 | **Click what you see** | Every screenshot carries a short id. Send the pixel you see plus that id — the server applies the offset and the scale, so the model never does the arithmetic. |
 | **Batch it** | Run a whole sequence of GUI actions in one call, with budget and focus guards. |
 
-33 tools in total. The desktop half is **off by default** and stays off until you
+34 tools in total. The desktop half is **off by default** and stays off until you
 opt in.
 
 ## Two transports, one server
@@ -85,7 +85,7 @@ Full instructions, client-by-client setup and troubleshooting live in
 | Server | `pcbridge/server.py` | Builds the FastMCP app, ASGI middleware, `/consent`, `/healthz`, `/shot/<token>` |
 | Config | `pcbridge/config.py` | TOML → dataclasses; catches model/effort mistakes **at load time** |
 | Auth | `pcbridge/auth.py` | A complete miniature OAuth 2.1 server (DCR + PKCE + refresh) |
-| Tools | `pcbridge/tools.py` | All 33 MCP tools |
+| Tools | `pcbridge/tools.py` | All 34 MCP tools |
 | Jobs | `pcbridge/jobs.py` | Background processes + agent output parsers |
 | Resolver | `pcbridge/models.py` | Agent/model/effort selection. Pure function, no I/O |
 | Desktop | `pcbridge/desktop/` | Monitors, input, capture, accessibility tree, batch engine, safety gate |
