@@ -36,8 +36,8 @@ yanlış bir komutu çalıştırırken — fark edilir.
 
 ## Native migration durumu
 
-- Son tamamlanan task: **1.1 — `DesktopRuntime` ve Python provider adapter'ını çıkar** (`3a6a36f`)
-- Aktif task: **1.2 — Runtime capability ve typed error katmanını ekle**
-- Sıradaki task: **1.3 — Structured MCP hata yüzeyini kur**
+- Son tamamlanan task: **1.3 — Structured MCP hata yüzeyini kur** (`a414d05`)
+- Aktif task: **1.4 — Çok yollu execution sözleşmesini düzelt**
+- Sıradaki task: **2.1 — Rust workspace ve executable protocol harness**
 - Blocker: Yok
-- Son doğrulanan gate: **Task 1.1 acceptance geçti; Phase 1 devam ediyor.** Güvenli desktop baseline `578/0`; model suite `106/0`; safety selector `1/1`; contract suite `12/12`; server `--check` exit `0`.
+- Son doğrulanan gate: **Task 1.3 acceptance geçti; Gate 1 devam ediyor.** Güvenli desktop baseline `578/0`; model suite `106/0`; safety selector `1/1`; contract suite `25/25`; server `--check` exit `0`.

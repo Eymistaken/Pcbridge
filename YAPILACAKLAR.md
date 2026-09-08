@@ -2,11 +2,11 @@
 
 ## Durum özeti
 
-- Aktif task: **1.3 — Structured MCP hata yüzeyini kur** (`başlıyor`)
-- Son tamamlanan task: **1.2 — Runtime capability ve typed error katmanını ekle** (`165e336`)
-- Sıradaki uygulanabilir task: **1.4 — Çok yollu execution sözleşmesini düzelt**
+- Aktif task: **1.4 — Çok yollu execution sözleşmesini düzelt** (`başlıyor`)
+- Son tamamlanan task: **1.3 — Structured MCP hata yüzeyini kur** (`a414d05`)
+- Sıradaki uygulanabilir task: **2.1 — Rust workspace ve executable protocol harness**
 - Blocker: Yok
-- Son gate: **Gate 0 geçti; Gate 1 devam ediyor.** Bütün gerçek test bayrakları kapalı güvenli baseline `578 geçti, 0 kaldı`; model suite `106/0`, safety selector `1/1`, contract suite `20/20`.
+- Son gate: **Gate 0 geçti; Gate 1 devam ediyor.** Bütün gerçek test bayrakları kapalı güvenli baseline `578 geçti, 0 kaldı`; model suite `106/0`, safety selector `1/1`, contract suite `25/25`.
 
 ## Task 0.1 — Gerçek capture ve input test izinlerini ayır
 
@@ -145,3 +145,58 @@
 **Rollback:** Capability/error commit'i bağımsız geri alınabilir; provider sözleşmeleri Task 1.1 halinde kalır.
 
 **Sonraki somut adım:** Task 1.3'te `system_capabilities` aracını ve FastMCP structured error sunumunu ekle.
+
+## Task 1.3 — Structured MCP hata yüzeyini kur
+
+**Durum:** `tamamlandı`
+
+**Amaç:** Agent'ın Pcbridge grant'i ile işletim sistemi backend/izin hatalarını
+ayırt edip doğru sonraki eylemi seçebilmesini sağlamak.
+
+**Değişen dosyalar:** `pcbridge/desktop/presentation.py`, `safety.py`,
+`batch.py`, `pcbridge/tools.py`, `pcbridge/server.py`, `requirements.txt`, MCP
+contract testleri ve kullanıcı/geliştirici belgeleri.
+
+**Yapılanlar:**
+
+- Read-only ve grant gerektirmeyen `system_capabilities` MCP aracı eklendi;
+  on üç capability ile authorization durumunu ayrı structured alanlarda sunuyor.
+- SafetyGate retleri kararlı hata kodu, retry bilgisi, önerilen eylem ve
+  `pcbridge.desktop` scope'u taşıyor.
+- Desktop execution hata dalları eski Türkçe metni `content` içinde koruyup
+  `structuredContent.error` ve `isError=true` döndüren FastMCP `ToolResult`
+  sunumuna geçirildi.
+- Capture, pointer, keyboard, accessibility ve window kapsamları birbirinden
+  ayrıldı; kullanıcı mesajından substring ile sınıflandırma yapılmıyor.
+- Dinamik masaüstü araçlarında otomatik output schema çıkarımı açıkça kapatıldı.
+- `computer_batch` final capture/UI okuması başarısız olduğunda tamamlanan adım
+  raporunu ve sayısını koruyor; eylemleri yeniden çalıştırmıyor.
+- FastMCP, başlangıçta doğrulanan `3.4.5` sürümüne sabitlendi. OAuth ve
+  shell/job sonuç sözleşmeleri değiştirilmedi.
+
+**Test sonuçları:**
+
+- Contract discovery → `25 tests`, `OK`; in-memory FastMCP istemcisi content,
+  `isError`, structured scope, output schema ve batch partial sonucunu doğruladı.
+- `tests/test_desktop.py` bütün live bayrakları unset → `578 geçti, 0 kaldı`.
+- `tests/test_models.py` → `106 geçti, 0 kaldı`.
+- `tests/test_test_safety.py` → `1 test`, `OK`.
+- `python -m pcbridge.server --check -c config.example.toml` → exit `0`.
+- `pip check` → bozuk bağımlılık yok; kurulu FastMCP sürümü `3.4.5`.
+- Gerçek Python provider'larıyla read-only MCP ölçümü 13 capability ve 7 scope'u
+  `183,8 ms` içinde, `is_error=False` ile döndürdü.
+- `tests/test_e2e.py` plan gereği çalıştırılmadı.
+
+**Acceptance:** Pcbridge grant, capture izni ve pointer izni sentetik wire
+sözleşmesinde sırasıyla `pcbridge.desktop`, `os.capture` ve `os.pointer` olarak
+ayırt edildi. Dinamik desktop tool listesinde output schema üretilmedi.
+
+**Gate:** Task 1.3 acceptance geçti; Gate 1, Task 1.4 tamamlanana kadar açık.
+
+**Commit:** `a414d05` (`feat: expose structured desktop errors`)
+
+**Rollback:** Presentation/tool commit'i bağımsız geri alınabilir; Task 1.2 typed
+provider hata ve capability katmanı yerinde kalır.
+
+**Sonraki somut adım:** Task 1.4'te shell/filesystem/accessibility execution
+yollarının varsayılan ve tool açıklamalarını çok yollu modele hizala.
