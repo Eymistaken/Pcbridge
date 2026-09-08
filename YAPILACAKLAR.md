@@ -2,11 +2,11 @@
 
 ## Durum özeti
 
-- Aktif task: **2.1 — Rust workspace ve executable protocol harness** (`başlıyor`)
-- Son tamamlanan task: **1.4 — Çok yollu execution sözleşmesini düzelt** (`fe355b2`)
+- Aktif task: **Yok** (`Task 2.1 sonrası kullanıcı isteğiyle duruldu`)
+- Son tamamlanan task: **2.1 — Rust workspace ve executable protocol harness** (`b53ea60`)
 - Sıradaki uygulanabilir task: **2.2 — Python NativeClient supervisor**
-- Blocker: Yok
-- Son gate: **Gate 1 geçti.** Bütün gerçek test bayrakları kapalı güvenli baseline `578 geçti, 0 kaldı`; model suite `106/0`, safety selector `1/1`, contract suite `31/31`.
+- Blocker: Yok; devam kararı bekleniyor.
+- Son gate: **Gate 1 geçti. Gate 2 açık.** Task 2.1 IPC harness acceptance'ı geçti; Python supervisor ve revoke lifecycle henüz uygulanmadı.
 
 ## Task 0.1 — Gerçek capture ve input test izinlerini ayır
 
@@ -258,3 +258,76 @@ config'lerin davranışı rollback gerektirmeden korunur.
 
 **Sonraki somut adım:** Task 2.1'de desktop'a bağlanmayan Rust workspace ve
 framed protocol test harness'ını kur.
+
+## Task 2.1 — Rust workspace ve executable protocol harness
+
+**Durum:** `tamamlandı`
+
+**Amaç:** Native desktop API'lerine dokunmadan versioned, framed stdio transport
+sınırını gerçek executable üzerinde doğrulamak.
+
+**Değişen dosyalar:** `rust/` altındaki iki crate, exact toolchain ve lockfile;
+`.gitignore`, `docs/native/protocol-v1.md` ve `CLAUDE.md` belge haritası.
+
+**Yapılanlar:**
+
+- `pcbridge-core` içine unsafe kodu yasaklayan frame parser/writer ve typed
+  protokol hataları eklendi. Dört byte unsigned big-endian header boyu,
+  64 KiB JSON ve 128 MiB binary sınırı allocation öncesinde uygulanıyor.
+- Kısmi read/write işlemleri tamamlanıyor; eksik header/payload, malformed JSON,
+  eksik `binary_len` ve boyut ihlalleri stdout'u kirletmeden temiz hata çıkışı
+  üretiyor. Geçersiz request değerleri stderr tanılarına yansıtılmıyor.
+- `pcbridge-native` ilk request'te `initialize` zorunluluğunu ve major/minor
+  negotiation'ı uyguluyor. Yalnızca `initialize`, `ping`, `capabilities`,
+  `cancel` ve `shutdown` dispatch ediliyor.
+- Unknown method structured error döndürüp bağlantıyı açık tutuyor; unknown
+  major framed error'dan sonra bağlantıyı kapatıyor. Pipelined request ID'leri
+  ayrı response'larda korunuyor.
+- Deterministik fake backend default dışı `test-harness` Cargo feature'ı ve
+  ayrıca `--test-mode` argümanı gerektiriyor. Default release binary bu
+  argümanı exit `2` ile reddediyor ve yalnızca `protocol-only` backend ilan
+  ediyor.
+- `Cargo.lock` çözümlenen sürümleri sabitliyor. Bağımlılık ağında desktop,
+  D-Bus, PipeWire, socket veya async runtime kütüphanesi yok.
+- Wire contract, lifecycle, error envelope, stdout/log sınırı ve test kipi
+  `docs/native/protocol-v1.md` içinde belgelendi.
+
+**Test sonuçları:**
+
+- Test-first kırmızı koşum: boş executable ile integration suite `1 geçti,
+  9 kaldı`; framing/dispatch uygulamasından sonra yeşile döndü.
+- `cargo fmt --all -- --check` → exit `0`.
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` →
+  exit `0`.
+- `cargo test --workspace --all-targets` → `16 geçti, 0 kaldı`.
+- `cargo test --workspace --all-targets --features
+  pcbridge-native/test-harness` → `17 geçti, 0 kaldı`.
+- `cargo build --release --locked -p pcbridge-native` → exit `0`; default
+  release üzerinde `--test-mode` → exit `2`.
+- Release binary initialize → capabilities → shutdown ölçümü: response ID'leri
+  `measure:1`, `measure:2`, `measure:3`; backend `protocol-only`; stdout `391`
+  byte framed veri; stderr `0` byte; `strace` connect syscall sayısı `0`.
+- `ldd` yalnızca `libgcc_s`, `libc` ve dynamic loader gösterdi.
+- Python contract discovery → `31 tests`, `OK`; örnek config server check →
+  exit `0`.
+- `cargo audit --no-fetch`, yerel RustSec advisory veritabanı bulunmadığı için
+  çalışamadı. Kullanıcının cloud GitHub'a dokunmama talebi nedeniyle online
+  advisory güncellemesi tamamlanmadı. Lockfile ve küçük dependency tree elle
+  incelendi.
+- `tests/test_e2e.py` plan gereği çalıştırılmadı; hiçbir live desktop test
+  bayrağı açılmadı.
+
+**Acceptance:** Partial frame, oversized header/binary, unknown method/version,
+zorunlu handshake, EOF/malformed frame, stdout framing ve pipelined ID testleri
+geçti. Gerçek executable ölçümünde desktop bağlantısı kurulmadı.
+
+**Gate:** Task 2.1 acceptance geçti. Gate 2, Python supervisor ve revoke
+lifecycle task'ları tamamlanana kadar açık.
+
+**Commit:** `b53ea60` (`feat: add native protocol harness`)
+
+**Rollback:** `b53ea60` bağımsız olarak geri alınabilir; Python runtime ve
+desktop backend seçimi bu task'ta değiştirilmedi.
+
+**Sonraki somut adım:** Kullanıcı devam istediğinde Task 2.2'de Python
+`NativeClient` supervisor'ını fake helper contract'larıyla uygula.
