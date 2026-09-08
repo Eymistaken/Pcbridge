@@ -2,11 +2,11 @@
 
 ## Durum özeti
 
-- Aktif task: **0.2 — Public contract ve backend parity fixture'larını oluştur** (`devam ediyor`)
-- Son tamamlanan task: **0.1 — Gerçek capture ve input test izinlerini ayır** (`c1a5c4b`)
-- Sıradaki uygulanabilir task: **1.1 — `DesktopRuntime` ve Python provider adapter'ını çıkar**
+- Aktif task: **1.1 — `DesktopRuntime` ve Python provider adapter'ını çıkar** (`başlıyor`)
+- Son tamamlanan task: **0.2 — Public contract ve backend parity fixture'larını oluştur** (`d010462`)
+- Sıradaki uygulanabilir task: **1.2 — Capability modelini ve `system_status` çıktısını genişlet**
 - Blocker: Yok
-- Son gate: **Task 0.1 acceptance geçti; Gate 0 devam ediyor.** Bütün gerçek test bayrakları kapalı güvenli baseline `578 geçti, 0 kaldı`; safety selector testi `1/1 OK`.
+- Son gate: **Gate 0 geçti.** Bütün gerçek test bayrakları kapalı güvenli baseline `578 geçti, 0 kaldı`; model suite `106/0`, safety selector `1/1`, contract suite `7/7`.
 
 ## Task 0.1 — Gerçek capture ve input test izinlerini ayır
 
@@ -43,21 +43,43 @@
 
 ## Task 0.2 — Public contract ve backend parity fixture'larını oluştur
 
-**Durum:** `devam ediyor`
+**Durum:** `tamamlandı`
 
 **Amaç:** Native migration boyunca Python ve Rust provider'ların karşılaştırılacağı, private config veya canlı masaüstü gerektirmeyen sözleşme baseline'ını kurmak.
 
-**Değişen dosyalar:** Çalışma sürüyor.
+**Değişen dosyalar:** `tests/contracts/`, `tests/fixtures/native/`, `tests/test_models.py`, `docs/native/baseline.md`
 
 **Yapılanlar:**
 
-- Güvenli desktop baseline `578/0` olarak kaydedildi.
-- Model suite'teki dört mevcut private-config beklenti farkı kök nedenine kadar sınıflandırıldı.
+- MCP tool adları, annotations, seçili input schema/default değerleri ve content block sırası snapshot olarak sabitlendi.
+- İki monitör, primary sağda, portrait, fractional scale, crop-before-resize, shot lookup, `--out`, stale ve ambiguity senaryoları sentetik fixture'lara çıkarıldı.
+- Capture sözleşmesi provider factory düzeninde kuruldu; mevcut Python adapter'ı aynı fixture'ları çalıştırıyor.
+- Model testlerinin private `config.toml` bağımlılığı kaldırıldı; `config.example.toml` kullanılıyor.
+- Önceden ölçülen dört model hatasının kök nedeni eski `gemini-3.6-flash` beklentisiydi. Örnek config ile `gemini-3.8-flash` hizası ayrı `3d7c31e` commit'inde düzeltildi.
+- Ölçülen komutlar, sonuçlar ve live-test sınırı `docs/native/baseline.md` içinde kaydedildi.
 
-**Test sonuçları:** Task sürüyor.
+**Test sonuçları:**
 
-**Gate:** Gate 0 henüz tamamlanmadı.
+- `tests/test_desktop.py` bütün live bayrakları unset → `578 geçti, 0 kaldı`.
+- `tests/test_models.py` bütün live bayrakları unset → `106 geçti, 0 kaldı`.
+- `tests/test_test_safety.py` bütün live bayrakları unset → `1 test`, `OK`.
+- Contract discovery → `7 tests`, `OK`.
+- `tests/test_e2e.py` plan gereği çalıştırılmadı.
+
+**Gate:** Gate 0 geçti. Baseline private config, çalışan server, gerçek agent ve desktop olmadan tekrar üretildi.
+
+**Commit:** `d010462` (`test: establish desktop provider contracts`)
 
 **Rollback:** Task 0.2 yalnızca test fixture'ları ve baseline belgesi ekleyecek; production davranışını değiştirmeyecek.
 
-**Sonraki somut adım:** Mevcut capture, coordinate, CLI ve MCP public sözleşmelerini sentetik fixture'lara çıkar.
+**Sonraki somut adım:** Task 1.1 için tool/CLI kaynak sahipliğini `DesktopRuntime` sınırına çıkar.
+
+## Task 1.1 — `DesktopRuntime` ve Python provider adapter'ını çıkar
+
+**Durum:** `başlıyor`
+
+**Amaç:** MCP tool registration ile desktop kaynak sahipliğini ayırmak; mevcut Python davranışını provider adapter arkasından korumak.
+
+**Gate:** Phase 1 devam ediyor.
+
+**Rollback:** Runtime wiring task commit'i bağımsız geri alınabilir.

@@ -36,8 +36,8 @@ yanlış bir komutu çalıştırırken — fark edilir.
 
 ## Native migration durumu
 
-- Son tamamlanan task: **0.1 — Gerçek capture ve input test izinlerini ayır** (`c1a5c4b`)
-- Aktif task: **0.2 — Public contract ve backend parity fixture'larını oluştur**
-- Sıradaki task: **1.1 — `DesktopRuntime` ve Python provider adapter'ını çıkar**
+- Son tamamlanan task: **0.2 — Public contract ve backend parity fixture'larını oluştur** (`d010462`)
+- Aktif task: **1.1 — `DesktopRuntime` ve Python provider adapter'ını çıkar**
+- Sıradaki task: **1.2 — Capability modelini ve `system_status` çıktısını genişlet**
 - Blocker: Yok
-- Son doğrulanan gate: Task 0.1 acceptance geçti; Gate 0, Task 0.2 tamamlanana kadar devam ediyor. Güvenli desktop baseline `578 geçti, 0 kaldı`; safety selector testi `1/1 OK`.
+- Son doğrulanan gate: **Gate 0 geçti.** Güvenli desktop baseline `578/0`; model suite `106/0`; safety selector `1/1`; contract suite `7/7`.
