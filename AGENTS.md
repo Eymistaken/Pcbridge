@@ -33,3 +33,11 @@ yanlış bir komutu çalıştırırken — fark edilir.
 
 [YAPILACAKLAR.md](YAPILACAKLAR.md) · devam eden işin adım kaydı için
 [ADIMLAR.md](ADIMLAR.md) · belge haritasının tamamı `CLAUDE.md` sonunda.
+
+## Native migration durumu
+
+- Son tamamlanan task: **0.1 — Gerçek capture ve input test izinlerini ayır** (`c1a5c4b`)
+- Aktif task: **0.2 — Public contract ve backend parity fixture'larını oluştur**
+- Sıradaki task: **1.1 — `DesktopRuntime` ve Python provider adapter'ını çıkar**
+- Blocker: Yok
+- Son doğrulanan gate: Task 0.1 acceptance geçti; Gate 0, Task 0.2 tamamlanana kadar devam ediyor. Güvenli desktop baseline `578 geçti, 0 kaldı`; safety selector testi `1/1 OK`.
