@@ -197,13 +197,16 @@ adimlar([
     // ---------------------------------------------------------------------
     [50, () => {
         section('11. Kayan kira — pcbridge\'in YENİ dosya biçimi');
-        // pcbridge artık `hard_until` ve `granted_by` da yazıyor ve `until`
+        // pcbridge artık lease kimliği alanlarını da yazıyor ve `until`
         // her masaüstü eyleminde ileri KAYIYOR. Eklenti kodu bu yüzden
         // değişmedi — yalnızca `until` okuduğu için etkilenmemesi gerekiyor.
         // "Gerekiyor" ölçüm değil; sözleşme burada fiilen sınanıyor.
         state = new UnlockState(tmpFile, (aktif, until) => olaylar.push([aktif, until]));
         olaylar.length = 0;
         yaz(JSON.stringify({
+            schema_version: 1,
+            grant_id: 'contract-grant',
+            revoke_epoch: 7,
             until: simdi() + 90,
             hard_until: simdi() + 900,
             reason: 'olcum',
@@ -212,7 +215,7 @@ adimlar([
         }));
         state.start();
         check('yeni biçim aktif okundu', state.active === true, `active=${state.active}`);
-        check('bilinmeyen alanlar (hard_until, granted_by) sorun çıkarmadı',
+        check('bilinmeyen lease kimliği alanları sorun çıkarmadı',
             olaylar.length === 1 && olaylar[0][0] === true, JSON.stringify(olaylar));
 
         // Kira kaydı: `until` küçüldü ama izin hâlâ açık. Bu SIK oluyor

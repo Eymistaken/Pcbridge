@@ -274,10 +274,13 @@ class DesktopRuntime:
         self.capture_provider.close()
         self.invalidate_capabilities()
 
-    def touch_grant(self) -> None:
+    def touch_grant(self, token: object | None = None) -> bool:
         """Refresh the sliding grant and keep its capture timer synchronized."""
-        self.gate.touch()
+        touched = self.gate.touch(token) if token is not None else self.gate.touch()
+        if touched is False:
+            return False
         self.refresh_capture_deadline()
+        return True
 
     def release_resources(self) -> None:
         """Release reusable desktop resources without retiring the runtime."""

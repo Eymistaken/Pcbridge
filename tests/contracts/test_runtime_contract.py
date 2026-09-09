@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import tempfile
 import unittest
@@ -66,8 +67,9 @@ class FakeGate:
     def is_unlocked(self) -> bool:
         return self.unlocked
 
-    def touch(self) -> None:
+    def touch(self, token=None) -> None:
         self.touches += 1
+        self.last_touch_token = token
 
 
 class FakeTimer:
@@ -199,9 +201,11 @@ class DesktopRuntimeContractTests(unittest.TestCase):
             )
             runtime.start_capture()
             first_timer = FakeTimer.created[-1]
-            runtime.touch_grant()
+            token = object()
+            runtime.touch_grant(token)
 
             self.assertEqual(gate.touches, 1)
+            self.assertIs(gate.last_touch_token, token)
             self.assertTrue(first_timer.cancelled)
             self.assertEqual(len(FakeTimer.created), 2)
             runtime.close()
@@ -228,6 +232,78 @@ class DesktopRuntimeContractTests(unittest.TestCase):
 
             self.assertIs(returned, runtime)
             self.assertIs(returned.input_provider, runtime.input_provider)
+            runtime.close()
+
+    def test_mcp_lock_revokes_before_releasing_any_resource(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            cfg = make_config(root)
+            events: list[str] = []
+
+            class OrderedGate(FakeGate):
+                spec = SimpleNamespace(enabled=True)
+
+                def lock(self) -> str:
+                    events.append("revoke")
+                    return "locked"
+
+                def audit(self, *args, **kwargs) -> None:
+                    return None
+
+                def check(self, *args, **kwargs):
+                    return SimpleNamespace(allowed=True, reason="")
+
+                def status_line(self) -> str:
+                    return "open"
+
+            class OrderedInput(FakeInputProvider):
+                def release_all(self) -> list[str]:
+                    events.append("release-input")
+                    return []
+
+                def take_auto_released(self) -> list[str]:
+                    return []
+
+                def held(self) -> list[str]:
+                    return []
+
+                def available(self) -> tuple[bool, str]:
+                    return True, ""
+
+            class OrderedCapture(FakeCaptureProvider):
+                def close(self) -> None:
+                    events.append("close-capture")
+                    super().close()
+
+                def kill_helpers(self) -> int:
+                    events.append("legacy-kill")
+                    return 0
+
+                def describe_monitors(self) -> str:
+                    return ""
+
+            runtime = DesktopRuntime(
+                capture_provider=OrderedCapture(),
+                input_provider=OrderedInput(),
+                accessibility_provider=FakeAccessibilityProvider(),
+                gate=OrderedGate(),
+            )
+            mcp = FastMCP("lock-order-contract")
+            toolslib.register(
+                mcp,
+                cfg,
+                JobManager(cfg.jobs_dir),
+                transport="stdio",
+                runtime=runtime,
+            )
+
+            tool = asyncio.run(mcp.get_tool("desktop_lock"))
+            self.assertEqual(tool.fn(), "locked")
+            self.assertEqual(events[0], "revoke")
+            self.assertEqual(
+                events[1:],
+                ["release-input", "close-capture", "legacy-kill"],
+            )
             runtime.close()
 
     def test_cli_and_server_close_runtime_in_finally_blocks(self) -> None:

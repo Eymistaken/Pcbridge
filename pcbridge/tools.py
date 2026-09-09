@@ -945,7 +945,7 @@ def register(
     # `hard_until`i asamiyor, yani kalp atisi izni sonsuza uzatamaz. Isin
     # kendisi olunce kayit bosalir ve is parcacigi CIKAR; boste kalan bir
     # zamanlayici birakmiyoruz.
-    _hb_jobs: set[str] = set()
+    _hb_jobs: dict[str, object] = {}
     _hb_lock = threading.Lock()
     _hb_thread: dict[str, "threading.Thread | None"] = {"t": None}
 
@@ -959,22 +959,28 @@ def register(
                 for jid in list(_hb_jobs):
                     try:
                         if jm.status(jid).get("status") != "running":
-                            _hb_jobs.discard(jid)
+                            _hb_jobs.pop(jid, None)
                     except Exception:  # noqa: BLE001 — is kaybolduysa da birak
-                        _hb_jobs.discard(jid)
+                        _hb_jobs.pop(jid, None)
                 if not _hb_jobs:
                     # Cikis ve slot temizligi AYNI kilit altinda: aksi halde
                     # tam bu arada eklenen bir is, olmek uzere olan bu is
                     # parcacigina guvenip kalp atissiz kalirdi.
                     _hb_thread["t"] = None
                     return
-            runtime.touch_grant()
+                tokens = set(_hb_jobs.values())
+            for token in tokens:
+                if not runtime.touch_grant(token):
+                    with _hb_lock:
+                        stale = [jid for jid, value in _hb_jobs.items() if value == token]
+                        for jid in stale:
+                            _hb_jobs.pop(jid, None)
 
-    def _heartbeat_add(job_id: str) -> None:
-        if int(cfg.desktop.unlock_idle_seconds or 0) <= 0:
+    def _heartbeat_add(job_id: str, token: object | None) -> None:
+        if int(cfg.desktop.unlock_idle_seconds or 0) <= 0 or token is None:
             return
         with _hb_lock:
-            _hb_jobs.add(job_id)
+            _hb_jobs[job_id] = token
             if _hb_thread["t"] is not None:
                 return
             t = threading.Thread(
@@ -1116,6 +1122,9 @@ def register(
         it to expire, and destroy the virtual keyboard/mouse devices. Any key or
         mouse button still held down is released first. Use when the user says they
         are done, or asks you to stop touching their screen."""
+        # Revoke is the linearization point: every other Python process and
+        # native watchdog observes the new epoch before cleanup begins.
+        message = gate.lock()
         freed = backend.release_all()
         yayin = capture_provider.is_open()
         runtime.release_resources()
@@ -1129,7 +1138,7 @@ def register(
             note += "\n· ekran yayını kapatıldı (paylaşım göstergesi kayboldu)"
         if others:
             note += f" · {others} yardımcı süreç durduruldu"
-        return gate.lock() + note
+        return message + note
 
     @mcp.tool(
         output_schema=None,
@@ -2190,6 +2199,8 @@ def register(
         denied = _guard("computer_task", write=True, force=force)
         if denied:
             return denied
+        last_token = getattr(gate, "last_token", None)
+        grant_token = last_token() if callable(last_token) else None
 
         skill = _SKILL_PATH
         if not skill.is_file():
@@ -2288,7 +2299,7 @@ def register(
         )
         # Kayan kira gorevin ortasinda dusmesin: is kostugu surece izni
         # tazele. Ayrinti `_heartbeat_loop`ta.
-        _heartbeat_add(job_id)
+        _heartbeat_add(job_id, grant_token)
         # Hedef METNI kaydedilmez, uzunlugu kaydedilir: ekranda ne yapilacagi
         # ozel bilgi icerebilir. Tam metin jobs/<id>/meta.json'da.
         gate.audit("computer_task", agent=res.agent, model=res.model,

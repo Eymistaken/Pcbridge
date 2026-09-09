@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -31,10 +32,11 @@ from pathlib import Path
 from typing import Any
 
 from .errors import ErrorCategory, ErrorCode
+from .lease import LEASE_STATE_FILE, LeaseStore, LeaseToken
 
 logger = logging.getLogger("pcbridge.desktop")
 
-STATE_FILE = "desktop_unlock.json"
+STATE_FILE = LEASE_STATE_FILE
 
 
 @dataclass(frozen=True)
@@ -93,26 +95,32 @@ class SafetyGate:
         self.cfg = cfg
         self.spec = cfg.desktop
         self._state_path = Path(cfg.state_dir) / STATE_FILE
+        self._lease = LeaseStore(cfg.state_dir)
+        self._local = threading.local()
         self._events: deque[float] = deque(maxlen=200)
 
     # ------------------------------------------------------------- izin durumu
     def _read_state(self) -> dict:
-        try:
-            return json.loads(self._state_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
+        return self._lease.read()
 
     def _write_state(self, data: dict) -> None:
         try:
-            self._state_path.parent.mkdir(parents=True, exist_ok=True)
-            self._state_path.write_text(
-                json.dumps(data, ensure_ascii=False), encoding="utf-8"
-            )
-        except OSError as exc:  # pragma: no cover
+            self._lease.replace(data)
+        except (OSError, ValueError) as exc:  # pragma: no cover
             logger.warning("desktop izin durumu yazilamadi: %s", exc)
 
+    @property
+    def revoke_epoch(self) -> int:
+        return self._lease.snapshot().revoke_epoch
+
+    def current_token(self) -> LeaseToken | None:
+        return self._lease.snapshot().token()
+
+    def last_token(self) -> LeaseToken | None:
+        return getattr(self._local, "token", None)
+
     def unlocked_until(self) -> float:
-        return float(self._read_state().get("until", 0) or 0)
+        return self._lease.snapshot().until
 
     def remaining_seconds(self) -> int:
         return max(0, int(self.unlocked_until() - time.time()))
@@ -125,7 +133,7 @@ class SafetyGate:
 
         Eski bicimli bir durum dosyasinda (yalnizca `until`) 0 doner.
         """
-        return float(self._read_state().get("hard_until", 0) or 0)
+        return self._lease.snapshot().hard_until
 
     def hard_remaining_seconds(self) -> int:
         return max(0, int(self.hard_until() - time.time()))
@@ -141,7 +149,8 @@ class SafetyGate:
         # vermek, kisa vermekten kotu.
         mins = self.spec.unlock_default_minutes if minutes is None else int(minutes)
         mins = max(1, min(mins, self.spec.unlock_max_minutes))
-        until = time.time() + mins * 60
+        granted = time.time()
+        until = granted + mins * 60
         # `until` TAVANDAN basliyor, `now + unlock_idle_seconds`ten degil:
         # unlock'tan sonra hic eylem gelmezse eski davranis aynen korunsun.
         # Kayma ILK EYLEMLE basliyor (`touch`).
@@ -152,13 +161,13 @@ class SafetyGate:
         # kullaniyor. Alan yine de yaziliyor: denetim kaydinda ve
         # `status_line`da anlami var, ve bir gun bir arac kendi izni acarsa
         # "acan kapatir" kurali icin gereken bilgi hazir olur.
-        self._write_state({
-            "until": until,
-            "hard_until": until,
-            "reason": reason,
-            "granted": time.time(),
-            "granted_by": granted_by,
-        })
+        snapshot = self._lease.grant(
+            until=until,
+            reason=reason,
+            granted=granted,
+            granted_by=granted_by,
+        )
+        self._local.token = snapshot.token(granted)
         self.audit("desktop_unlock", minutes=mins, reason=reason or None,
                    granted_by=granted_by)
         msg = (
@@ -174,16 +183,20 @@ class SafetyGate:
         return msg
 
     def lock(self) -> str:
-        was = self.remaining_seconds()
-        self._write_state({"until": 0, "hard_until": 0})
-        self.audit("desktop_lock", was_remaining=was)
+        snapshot, was_remaining = self._lease.revoke()
+        self._local.token = None
+        self.audit(
+            "desktop_lock",
+            was_remaining=was_remaining,
+            revoke_epoch=snapshot.revoke_epoch,
+        )
         return (
             "Masaustu kontrolu kapatildi."
-            if was
+            if was_remaining
             else "Masaustu kontrolu zaten kapaliydi."
         )
 
-    def touch(self) -> None:
+    def touch(self, token: LeaseToken | None = None) -> bool:
         """Kayan kira: izni son eylemden `unlock_idle_seconds` sonrasina cek.
 
         NEDEN SON TARIH DEGIL SON EYLEM: ajanin "isim bitti" diye bir olayi
@@ -203,28 +216,10 @@ class SafetyGate:
         uzatmamali) ve `computer_task` kalp atisi.
         """
         idle = int(getattr(self.spec, "unlock_idle_seconds", 0) or 0)
-        if idle <= 0:
-            return
-        # Oku-degistir-yaz SART: `_write_state` dosyayi komple uzerine
-        # yaziyor, sozluk yeniden kurulursa `hard_until` ilk eylemde kaybolur.
-        st = self._read_state()
-        hard = float(st.get("hard_until", 0) or 0)
-        if hard <= 0:
-            return
-        now = time.time()
-        if hard <= now:
-            return
-        until = float(st.get("until", 0) or 0)
-        if until <= now:
-            return
-        yeni = min(hard, now + idle)
-        # Saniyenin altindaki degisiklikler yazilmiyor: hiz siniri saniyede 10
-        # eyleme izin veriyor ve her biri diske yazsaydi eklentinin dosya
-        # izleyicisi bosuna calisirdi. Fark BIRIKIYOR, yani kira gerilemiyor.
-        if abs(yeni - until) < 1.0:
-            return
-        st["until"] = yeni
-        self._write_state(st)
+        captured = token if token is not None else self.current_token()
+        if captured is None:
+            return False
+        return self._lease.touch(captured, idle_seconds=idle)
 
     # ------------------------------------------------------------- hiz siniri
     def _rate_ok(self) -> bool:
@@ -242,6 +237,7 @@ class SafetyGate:
     # ------------------------------------------------------------------ kapi
     def check(self, tool: str, write: bool = True, force: bool = False) -> Decision:
         """GUI araci calisabilir mi? Reddin gerekcesi kullaniciya aynen doner."""
+        self._local.token = None
         if not self.spec.enabled:
             return Decision(
                 False,
@@ -266,7 +262,8 @@ class SafetyGate:
                 suggested_action="Unlock the local desktop session and retry.",
             )
 
-        if not self.is_unlocked():
+        token = self.current_token()
+        if token is None:
             return Decision(
                 False,
                 "Masaustu kontrolu su an kilitli. Once desktop_unlock ile "
@@ -309,7 +306,17 @@ class SafetyGate:
         # Kayan kira YALNIZCA burada damgalaniyor: bes katin hepsinden gecmis,
         # yani fiilen calisacak bir cagri. Yukaridaki her `return Decision(False)`
         # damgalamadan cikiyor -- reddedilen bir cagri izni uzatmamali.
-        self.touch()
+        if not self.touch(token):
+            return Decision(
+                False,
+                "Masaustu kontrol izni bu cagri sirasinda kapatildi. "
+                "Yeni bir desktop_unlock izni olmadan islem baslatilmaz.",
+                code=ErrorCode.GRANT_REQUIRED,
+                permission_scope="pcbridge.desktop",
+                retryable=True,
+                suggested_action="Call desktop_unlock before using desktop tools.",
+            )
+        self._local.token = token
         return Decision(True)
 
     # ---------------------------------------------------------- denetim kaydi

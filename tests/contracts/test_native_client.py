@@ -26,6 +26,7 @@ from pcbridge.config import NativeSpec, load_config  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCode  # noqa: E402
 from pcbridge.native.discovery import discover_native_binary  # noqa: E402
 from pcbridge.native.client import NativeClient  # noqa: E402
+from pcbridge.native.registry import NativeRegistry  # noqa: E402
 from pcbridge.native.protocol import (  # noqa: E402
     MAX_BINARY_BYTES,
     MAX_HEADER_BYTES,
@@ -227,6 +228,20 @@ class NativeClientContractTests(unittest.TestCase):
             assert pid is not None
             with self.assertRaises(ChildProcessError):
                 os.waitpid(pid, os.WNOHANG)
+
+    def test_live_helper_is_registered_and_close_removes_exact_record(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            client = self.make_client(root)
+            client.request("ping")
+            entries = NativeRegistry(root / "runtime").entries()
+
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(entries[0].pid, client.pid)
+            self.assertEqual(entries[0].instance_id, client.instance_id)
+
+            client.close()
+            self.assertEqual(NativeRegistry(root / "runtime").entries(), [])
 
     def test_out_of_order_responses_are_correlated_by_request_id(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

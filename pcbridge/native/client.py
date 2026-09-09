@@ -26,6 +26,7 @@ from .protocol import (
     read_frame,
     write_encoded_frame,
 )
+from .registry import NativeProcessEntry, NativeRegistry
 
 
 _STDERR_LIMIT = 64 * 1024
@@ -148,6 +149,8 @@ class NativeClient:
         self._closing = False
         self._closed = False
         self._handshake: NativeHandshake | None = None
+        self._registry = NativeRegistry(self.runtime_dir)
+        self._registry_entry: NativeProcessEntry | None = None
         self._stderr = bytearray()
 
     @property
@@ -371,10 +374,32 @@ class NativeClient:
                 allow_unready=True,
             )
             handshake = self._decode_handshake(response.result)
+            try:
+                registry_entry = self._registry.register(process.pid, handshake.instance_id)
+            except (OSError, ValueError) as error:
+                raise _desktop_error(
+                    ErrorCode.BACKEND_UNAVAILABLE,
+                    "Native helper process kaydi olusturulamadi.",
+                    suggested_action="inspect_native_runtime",
+                ) from error
             with self._state_lock:
-                if self._process is process and self._generation == generation:
+                registered = bool(
+                    self._process is process
+                    and self._generation == generation
+                    and process.poll() is None
+                )
+                if registered:
                     self._handshake = handshake
+                    self._registry_entry = registry_entry
                     self._ready = True
+            if not registered:
+                self._registry.unregister(registry_entry)
+                raise _desktop_error(
+                    ErrorCode.NATIVE_CRASHED,
+                    "Native helper initialize sonrasinda kapandi.",
+                    suggested_action="retry_read_only_native_request",
+                    execution_state="not_started",
+                )
         except BaseException:
             self._stop_process_locked(process)
             raise
@@ -740,10 +765,16 @@ class NativeClient:
 
         with self._state_lock:
             if self._process is process:
+                registry_entry = self._registry_entry
                 self._process = None
                 self._writer_queue = None
                 self._ready = False
                 self._handshake = None
+                self._registry_entry = None
+            else:
+                registry_entry = None
+        if registry_entry is not None:
+            self._registry.unregister(registry_entry)
 
 
 __all__ = ["NativeClient", "NativeHandshake", "NativeResponse"]
