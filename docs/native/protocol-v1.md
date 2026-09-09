@@ -4,9 +4,10 @@ Bu belge, Python host ile `pcbridge-native` child process'i arasındaki yerel
 stdio sözleşmesini tanımlar. Bu pipe, MCP stdio taşımasından ayrıdır. Native
 stdout yalnızca aşağıda tanımlanan framed response'ları taşır.
 
-Task 2.1 executable'ı yalnızca protokol sınırını uygular. Desktop API'sine,
-session D-Bus'a, Wayland'a veya PipeWire'a bağlanmaz. Python desktop backend
-varsayılan ve çalışan tek backend olarak kalır.
+Executable henüz gerçek desktop API'sine, session D-Bus'a, Wayland'a veya
+PipeWire'a bağlanmaz. Python desktop backend varsayılan ve çalışan tek backend
+olarak kalır. Native process grant/revoke lifecycle'ını şimdiden izler; böylece
+sonraki backend'ler güvenlik sınırını yeniden tasarlamadan kaynak ekleyebilir.
 
 ## Frame biçimi ve sınırlar
 
@@ -66,7 +67,8 @@ Başarılı response seçilen sürümü ve process kimliğini döndürür:
     "instance_id": "native-12345",
     "native_version": "0.1.0",
     "platform": "linux",
-    "features": []
+    "features": [],
+    "lease_bound": true
   },
   "binary_len": 0
 }
@@ -168,6 +170,55 @@ Helper'a yalnızca grafik oturum için gereken izinli ortam değişkenleri
 aktarılır; adında `PASSWORD`, `TOKEN`, `SECRET` veya `API_KEY` bulunan değerler
 engellenir. stderr sürekli boşaltılır fakat stdout'a ya da MCP yanıtına
 yazılmaz; bellekte yalnızca son 64 KiB tutulur.
+
+## Grant, revoke ve process registry
+
+`state_dir/desktop_unlock.json` geriye uyumlu alanları korur:
+`until`, `hard_until`, `reason`, `granted` ve `granted_by`. Yeni yazılan grant
+ayrıca `schema_version: 1`, rastgele bir `grant_id` ve monoton
+`revoke_epoch` taşır. Python süreçleri eski, yalnızca `until` içeren grant'i
+okuyabilir; native helper yalnızca yeni biçimli, aktif ve sert tavanı geçmemiş
+grant'e bağlanabilir.
+
+Python read-modify-write işlemleri ayrı ve sabit `desktop_unlock.lock`
+üzerinde Unix advisory lock alır. JSON aynı dizindeki `0600` geçici dosyaya
+yazılıp `fsync` sonrasında atomik replace ile yayımlanır. State dizini `0700`,
+state ve lock dosyaları `0600` tutulur. `desktop_lock` önce epoch'u artırıp
+`until` ile `hard_until` alanlarını sıfırlar; kaynak cleanup'ı bu görünür revoke
+noktasından sonra başlar. Eski heartbeat, yakaladığı `grant_id` ve epoch artık
+eşleşmediği için yeni grant'i uzatamaz.
+
+Native helper initialize sırasında o anki grant kimliğine bir kez bağlanır.
+Her korumalı dispatch dosyayı yeniden doğrular; ayrıca 100 ms watchdog grant
+değişimi, revoke, expiry, eksik veya bozuk state halinde açık native kaynakları
+fail-closed kapatır. Aynı helper daha sonra açılan grant'e bağlanmaz; yeni native
+session gerekir. Native protokolünde grant oluşturma veya uzatma metodu yoktur.
+
+Her helper `runtime_dir/pcbridge/native/` altında `0600` bir kayıt taşır;
+dizinler `0700` olur. Kayıt PID, process başlangıç kimliği ve native instance ID
+içerir. Cleanup sinyal göndermeden önce PID ile başlangıç kimliğini yeniden
+eşleştirir; yeniden kullanılmış PID'ye sinyal göndermez. Geçiş süresince Python
+screencast için exact executable path ve aynı UID kullanan legacy
+`kill_helpers()` ayrıca korunur.
+
+### İlk native opt-in runbook'u
+
+İlk kez `[native] capture = "rust"` veya `"auto"` seçilmeden önce:
+
+1. `./.venv/bin/python -m pcbridge.cli.lock` çalıştırarak grant'i revoke edin.
+2. MCP istemcisinin açtığı eski `python -m pcbridge.server --stdio`
+   process'lerini istemciyi kapatarak sonlandırın; yalnızca systemd servisini
+   durdurmanın stdio process'lerini durdurmadığını varsayın.
+3. `systemctl --user stop pcbridge` ile service process'ini ve cgroup'undaki
+   işleri kapatın.
+4. Eski helper kayıtlarını inceleyin; yalnızca PID ile process başlangıç
+   kimliği eşleşen kayıtların kapanmış olduğunu doğrulayın.
+5. Native seçimini yaptıktan sonra yeni service ve yeni stdio process'lerini
+   başlatın. Eski aktif grant'i geri yüklemeyin; gerekirse yeni
+   `desktop_unlock` çağrısı oluşturun.
+
+Rollback sırası da revoke → native helper'ları kapat →
+`[native] capture = "python"` → yeni process'leri başlat şeklindedir.
 
 ## Çıkış ve log kuralları
 

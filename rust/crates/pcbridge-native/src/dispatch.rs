@@ -6,6 +6,10 @@ use pcbridge_core::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+#[cfg(feature = "test-harness")]
+use crate::lifecycle::LeaseFailure;
+use crate::lifecycle::Lifecycle;
+
 #[derive(Debug)]
 pub enum BackendMode {
     Production {
@@ -49,7 +53,7 @@ impl BackendMode {
         match self {
             Self::Production { .. } => Vec::new(),
             #[cfg(feature = "test-harness")]
-            Self::DeterministicTest => vec!["test.fixture"],
+            Self::DeterministicTest => vec!["test.fixture", "test.lease"],
         }
     }
 
@@ -91,6 +95,7 @@ pub struct Dispatcher {
     mode: BackendMode,
     initialized: bool,
     negotiated_minor: Option<u16>,
+    lifecycle: Option<Lifecycle>,
 }
 
 impl Dispatcher {
@@ -100,6 +105,7 @@ impl Dispatcher {
             mode,
             initialized: false,
             negotiated_minor: None,
+            lifecycle: None,
         }
     }
 
@@ -177,6 +183,24 @@ impl Dispatcher {
                 json!({"shutdown": true}),
                 Some(CloseConnection::Shutdown),
             ),
+            #[cfg(feature = "test-harness")]
+            "test.hold_resource" => match self.lifecycle.as_ref() {
+                Some(lifecycle) => match lifecycle.open_test_resource() {
+                    Ok(()) => self.success(request.id, json!({"open": true}), None),
+                    Err(failure) => self.lease_error(request.id, failure),
+                },
+                None => self.lease_error(request.id, LeaseFailure::GrantRequired),
+            },
+            #[cfg(feature = "test-harness")]
+            "test.resource_status" => self.success(
+                request.id,
+                json!({
+                    "open": self.lifecycle
+                        .as_ref()
+                        .is_some_and(Lifecycle::test_resource_is_open),
+                }),
+                None,
+            ),
             _ => self.error(
                 request.id,
                 "UNKNOWN_METHOD",
@@ -243,6 +267,19 @@ impl Dispatcher {
             );
         }
 
+        let lifecycle = match Lifecycle::start(Path::new(&params.state_dir)) {
+            Ok(lifecycle) => lifecycle,
+            Err(_) => {
+                return self.error(
+                    request.id,
+                    "BACKEND_UNAVAILABLE",
+                    "native lease watchdog could not start",
+                    None,
+                );
+            }
+        };
+        let lease_bound = lifecycle.lease_bound();
+        self.lifecycle = Some(lifecycle);
         self.initialized = true;
         self.negotiated_minor = Some(PROTOCOL_MINOR);
         self.success(
@@ -252,6 +289,7 @@ impl Dispatcher {
                 "native_version": env!("CARGO_PKG_VERSION"),
                 "platform": self.mode.platform(),
                 "features": self.mode.features(),
+                "lease_bound": lease_bound,
             }),
             None,
         )
@@ -279,6 +317,22 @@ impl Dispatcher {
         DispatchOutcome {
             response: ResponseHeader::error(id, ErrorBody::protocol(code, message)),
             close,
+        }
+    }
+
+    #[cfg(feature = "test-harness")]
+    fn lease_error(&self, id: String, failure: LeaseFailure) -> DispatchOutcome {
+        DispatchOutcome {
+            response: ResponseHeader::error(
+                id,
+                ErrorBody {
+                    code: failure.code().to_owned(),
+                    message: "desktop grant is unavailable or revoked".to_owned(),
+                    retryable: true,
+                    category: "safety".to_owned(),
+                },
+            ),
+            close: None,
         }
     }
 }

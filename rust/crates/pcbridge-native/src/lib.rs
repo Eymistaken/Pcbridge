@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod dispatch;
+pub mod lifecycle;
 
 use std::io::{Read, Write};
 
