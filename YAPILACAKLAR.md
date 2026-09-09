@@ -2,11 +2,12 @@
 
 ## Durum özeti
 
-- Aktif task: **Yok** (`Task 2.2 sonrası kullanıcı isteğiyle duruldu`)
-- Son tamamlanan task: **2.2 — Python `NativeClient` supervisor** (`824fe1b`)
-- Sıradaki uygulanabilir task: **2.3 — Atomik grant ve süreçler arası revoke**
+- Aktif task: **Yok** (`Task 2.3 tamamlandı`)
+- Son tamamlanan task: **2.3 — Atomik grant ve süreçler arası revoke** (`c4aa76b`)
+- Sıradaki uygulanabilir task: **2.4 — Native lock/activity observations ve safety ayrımı**
 - Blocker: Yok.
-- Son gate: **Gate 1 geçti. Gate 2 açık.** Task 2.2 supervisor acceptance'ı geçti; süreçler arası revoke lifecycle henüz uygulanmadı.
+- Son gate: **Gate 2 geçti.** Atomik grant, süreçler arası revoke,
+  native watchdog ve PID-reuse güvenli registry acceptance'ı geçti.
 
 ## Task 0.1 — Gerçek capture ve input test izinlerini ayır
 
@@ -412,3 +413,98 @@ tutar; `824fe1b` bağımsız geri alınabilir.
 **Sonraki somut adım:** Kullanıcı devam istediğinde Task 2.3'te grant state'ini
 atomik yaz, native process'e senkronize et ve süreçler arası revoke/expiry
 contract'larını uygula.
+
+## Task 2.3 — Atomik grant ve süreçler arası revoke
+
+**Durum:** `tamamlandı`
+
+**Amaç:** Bir süreçte kapatılan veya süresi dolan masaüstü grant'inin diğer
+Python süreçlerinde ve açık native helper oturumlarında yeniden kullanılamamasını;
+geç kalan heartbeat'in grant'i diriltememesini sağlamak.
+
+**Başlangıç kararı:** `desktop_unlock.json` ayrı ve sabit bir Unix lockfile
+altında read-modify-write edilecek, aynı dizindeki geçici dosyadan atomik replace
+ile yayımlanacak. Her yeni grant benzersiz `grant_id` alacak; revoke monoton
+`revoke_epoch` artıracak. Native helper yalnızca bu kimliğe bağlanacak ve grant
+oluşturma veya uzatma yetkisi taşımayacak.
+
+**TDD sınırları:** Python lease store iki bağımsız `SafetyGate` örneğiyle;
+native registry PID, process başlangıç kimliği ve instance ID ile; Rust watchdog
+ise framed test-harness kaynağı ve gerçek state dosyasıyla sözleşme testine
+alınacak. GNOME okuyucusunun yeni alanları yok sayması mevcut JavaScript testiyle
+korunacak.
+
+**Değişen dosyalar:** `pcbridge/desktop/lease.py`, `safety.py`, `runtime.py`,
+`contracts.py`, `tools.py`, `pcbridge/native/registry.py`, `client.py`, Rust
+core lease ve native lifecycle modülleri, Python/Rust contract ve integration
+testleri, GNOME state testi ve `docs/native/protocol-v1.md`.
+
+**Yapılanlar:**
+
+- `desktop_unlock.json` ayrı ve sabit `desktop_unlock.lock` altında Unix
+  `flock` ile korunuyor; aynı dizindeki `0600` geçici dosyadan `fsync` + atomik
+  replace ile yayımlanıyor. State dizini `0700`, state ve lock dosyaları `0600`.
+- Mevcut `until`, `hard_until`, `reason`, `granted`, `granted_by` alanları
+  korunurken `schema_version`, benzersiz `grant_id` ve monoton `revoke_epoch`
+  eklendi. Legacy grant Python için okunabilir kaldı; native session'a uygun
+  sayılmıyor.
+- `desktop_lock` hem MCP hem CLI yolunda önce epoch'u artırıp grant'i kapatıyor,
+  sonra input/capture cleanup ve geçiş dönemi `kill_helpers()` çağrısını yapıyor.
+- Heartbeat job başında gördüğü grant kimliğine bağlandı. Revoke ve sonraki yeni
+  unlock sonrasında eski heartbeat eşleşemiyor, grant'i diriltemiyor veya yeni
+  grant'i uzatamıyor.
+- Native registry, `0700` session alt dizininde `0600` kayıtlarla PID, Linux
+  process başlangıç kimliği ve instance ID tutuyor. Sinyal yolu kimliği yeniden
+  doğrulayıp process'i `pidfd` ile sabitliyor; PID-reuse yarışında geniş ad/PID
+  kill yapılmıyor.
+- Rust core state'i read-only ve fail-closed okuyor. Native helper initialize
+  sırasında yalnızca fresh grant'e bağlanıyor; korumalı dispatch'te yeniden
+  doğruluyor ve 100 ms watchdog revoke, expiry, eksik veya bozuk state halinde
+  kaynağı kapatıyor. Aynı helper sonraki grant'e yeniden bağlanmıyor ve grant
+  oluşturma/uzatma metodu sunmuyor.
+- İlk native opt-in ve rollback sırası protokol belgesine runbook olarak eklendi:
+  revoke, eski stdio/service process'lerini kapat, helper kimliklerini doğrula,
+  sonra yeni process başlat; eski aktif grant'i geri yükleme.
+
+**Test sonuçları:**
+
+- TDD kırmızı koşumları önce eksik Python lease/registry import'larında, sonra
+  eksik Rust lease API'sinde ve native test resource metodunda beklenen şekilde
+  başarısız oldu; uygulama dilimleri sonrasında yeşile döndü.
+- Tam Python contract discovery → `64 tests`, `OK`.
+- İki Python process + iki native helper integration → `1 test`, `OK`; revoke
+  sonrası iki kaynak da ≤1 saniyede kapandı, yeni işlem reddedildi ve geç
+  heartbeat başarısız oldu.
+- Rust workspace, bütün target'lar ve test-harness → `22 geçti, 0 kaldı`.
+  Revoke watchdog testi ayrıca `250 ms` üst sınırı, expiry testi `1 saniye`
+  üst sınırı uyguluyor.
+- `cargo fmt --check`; default ve test-harness için
+  `cargo clippy --all-targets -- -D warnings`; locked release build → exit `0`.
+- `tests/test_desktop.py`, bütün live bayrakları unset → `578 geçti, 0 kaldı`.
+- `tests/test_models.py` → `106 geçti, 0 kaldı`;
+  `tests/test_test_safety.py` → `1 test`, `OK`.
+- GNOME `test_state.js` → `31 geçti, 0 kaldı`; yeni lease kimliği alanları
+  okuyucuyu bozmadı.
+- `python -m compileall` ve örnek config ile server `--check` → exit `0`.
+- `tests/test_e2e.py` plan gereği çalıştırılmadı; capture, input, batch ve AT-SPI
+  live bayraklarının hiçbiri açılmadı.
+
+**Acceptance:** Atomik raw reader testi paralel revoke yazımları boyunca bozuk
+JSON görmedi ve sabit lockfile inode'u değişmedi. Global epoch iki bağımsız
+Python process'te kayıpsız arttı. İki native helper aynı revoke'u gördü, açık
+kaynaklarını süre sınırında bıraktı, revoke sonrası ve replacement grant
+sonrasında yeni korumalı iş başlatmadı. Late heartbeat grant'i diriltmedi;
+GNOME görsel okuyucusu yeni alanlarla aynı davranışı korudu.
+
+**Gate:** Gate 2 geçti. Gerçek native capture hâlâ açılmadı.
+
+**Commitler:** `f9d9cc5` (`feat: make desktop grants process-safe`) ve
+`c4aa76b` (`feat: enforce native grant revocation`).
+
+**Rollback:** Önce `pcbridge.cli.lock` ile revoke et; registry kimliği eşleşen
+native helper'ları ve eski stdio/service process'lerini kapat; sonra
+`native.capture=python` ile yeni process başlat. Eski aktif grant'i geri yükleme.
+
+**Sonraki somut adım:** Task 2.4'te screen lock ve user activity okumalarını
+typed observation modeline al; unknown durumlarını fail-closed yap ve native
+kaynakları lock signal'ına bağla.
