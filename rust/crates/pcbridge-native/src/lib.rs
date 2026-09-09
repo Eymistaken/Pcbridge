@@ -2,6 +2,7 @@
 
 pub mod dispatch;
 pub mod lifecycle;
+pub mod platform;
 
 use std::io::{Read, Write};
 

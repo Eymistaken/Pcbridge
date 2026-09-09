@@ -14,12 +14,55 @@ from .. import capture as capturelib
 from .. import input as inputlib
 from .. import monitors as monitorslib
 from .. import screencast as screencastlib
+from .. import safety as safetylib
 from .. import uitree as uitreelib
 from ..capabilities import Capability, CapabilityEvidence, CapabilityState
 from ..errors import DesktopError, ErrorCategory, ErrorCode
 
 
 _T = TypeVar("_T")
+
+
+class PythonDesktopStateProvider:
+    """Expose GNOME session observations without collapsing unknown states."""
+
+    def __init__(
+        self,
+        *,
+        screen_lock_probe: Callable[[], bool | None] | None = None,
+        user_activity_probe: Callable[[], int | None] | None = None,
+    ) -> None:
+        self._screen_lock_probe = screen_lock_probe
+        self._user_activity_probe = user_activity_probe
+
+    def screen_lock(self) -> safetylib.ScreenLockObservation:
+        if self._screen_lock_probe is None:
+            return safetylib.observe_screen_lock()
+        value = self._screen_lock_probe()
+        state = (
+            safetylib.ScreenLockState.KNOWN_LOCKED
+            if value is True
+            else safetylib.ScreenLockState.KNOWN_UNLOCKED
+            if value is False
+            else safetylib.ScreenLockState.UNKNOWN
+        )
+        return safetylib.ScreenLockObservation(state, observed_at=time.time())
+
+    def user_activity(self) -> safetylib.ActivityObservation:
+        if self._user_activity_probe is None:
+            return safetylib.observe_user_activity()
+        value = self._user_activity_probe()
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            return safetylib.ActivityObservation(
+                safetylib.ActivityState.KNOWN,
+                idle_ms=value,
+                observed_at=time.time(),
+            )
+        return safetylib.ActivityObservation(
+            safetylib.ActivityState.UNKNOWN,
+            idle_ms=None,
+            observed_at=time.time(),
+        )
 
 
 def _state_for(code: ErrorCode | None) -> CapabilityState:

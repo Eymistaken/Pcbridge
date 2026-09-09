@@ -490,7 +490,15 @@ def test_gate_locked_screen_and_idle() -> None:
 
             S.screen_locked = lambda: None  # D-Bus okunamadi
             S.idle_ms = lambda: None
-            check("D-Bus okunamiyorsa kapi kapanmiyor", g.check("mouse").allowed)
+            d = g.check("mouse")
+            check("lock durumu bilinmiyorsa kapi kapaniyor", not d.allowed)
+            check("lock belirsizligi typed", d.code == S.ErrorCode.LOCK_STATE_UNKNOWN)
+
+            S.screen_locked = lambda: False
+            d = g.check("mouse")
+            check("activity bilinmiyorsa yazma reddediliyor", not d.allowed)
+            check("activity belirsizligi typed", d.code == S.ErrorCode.ACTIVITY_UNKNOWN)
+            check("force yalnizca activity'yi asiyor", g.check("mouse", force=True).allowed)
         finally:
             S.screen_locked, S.idle_ms = real_lock, real_idle
 

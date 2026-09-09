@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Hashable, Protocol, Sequence, runtime_checkable
 
 from .capabilities import Capability
+from .safety import ActivityObservation, ScreenLockObservation
 
 
 @runtime_checkable
@@ -171,9 +172,17 @@ class GrantProvider(Protocol):
     def status_line(self) -> str: ...
 
 
+@runtime_checkable
+class DesktopStateProvider(Protocol):
+    def screen_lock(self) -> ScreenLockObservation: ...
+
+    def user_activity(self) -> ActivityObservation: ...
+
+
 __all__ = [
     "AccessibilityProvider",
     "CaptureProvider",
+    "DesktopStateProvider",
     "GrantProvider",
     "InputProvider",
 ]

@@ -1065,7 +1065,8 @@ def register(
             text = (
                 "⛔ Masaustu kontrolu kapali. config.toml'da `[desktop] enabled = true` "
                 "yapip `systemctl --user restart pcbridge` calistirin. Once "
-                "`sudo ./setup_uinput.sh` gerekiyor (bir kez)."
+                "Pointer/keyboard kontrolu icin `sudo ./setup_uinput.sh` gerekiyor; "
+                "yalnizca ekran okumak icin gerekmiyor."
             )
             error = DesktopError(
                 code=ErrorCode.DESKTOP_DISABLED,
@@ -1076,16 +1077,19 @@ def register(
                 permission_scope="pcbridge.desktop",
             )
             return presentationlib.desktop_error_result(error, text=text)
-        ok, why = backend.available()
-        if not ok:
-            return _unavailable_result(
-                "input.pointer",
-                text=f"⛔ Sanal girdi cihazi kullanilamiyor: {why}",
-                message=why,
-                scope="os.pointer",
-                backend_name="desktop.input",
+        lock_decision = safetylib.screen_lock_decision(
+            runtime.desktop_state_provider.screen_lock()
+        )
+        if not lock_decision.allowed:
+            gate.audit(
+                "desktop_unlock_denied",
+                reason=lock_decision.reason[:120],
             )
-
+            return presentationlib.desktop_error_result(
+                presentationlib.decision_error(lock_decision),
+                text=f"⛔ {lock_decision.reason}",
+                permission_scope="pcbridge.desktop",
+            )
         msg = gate.unlock(minutes, reason or "")
         # Izin acildiginin KULLANICIYA gorunmesi onemli, ama tek yolu bu
         # bildirim degil: `gnome-extension/` altindaki kabuk eklentisi ayni
@@ -1113,8 +1117,37 @@ def register(
             "Koordinatlar **global tuval uzayinda**; sol ust (0, 0). Monitore ozel "
             "koordinat verecekseniz `monitor` parametresini de verin."
         )
+        snapshot = runtime.capabilities(refresh=True)
+        limitations = {
+            name: value.as_dict()
+            for name, value in sorted(snapshot.capabilities.items())
+            if not value.usable_now or value.limitations
+        }
+        if limitations:
+            out += ["", "**Kullanilamayan veya sinirli yetenekler**"]
+            for name, value in limitations.items():
+                detail = value["reason_code"] or value["state"]
+                out.append(f"- `{name}`: {detail}")
         out.append("Erken kapatmak icin: desktop_lock")
-        return "\n".join(x for x in out if x)
+        token = getattr(gate, "current_token", lambda: None)()
+        grant = {
+            "grant_id": getattr(token, "grant_id", ""),
+            "revoke_epoch": max(
+                0,
+                int(getattr(token, "revoke_epoch", snapshot.authorization.revoke_epoch)),
+            ),
+            "until": float(getattr(gate, "unlocked_until", lambda: 0.0)()),
+            "hard_until": float(getattr(gate, "hard_until", lambda: 0.0)()),
+        }
+        return ToolResult(
+            content=[TextContent(type="text", text="\n".join(x for x in out if x))],
+            structured_content={
+                "type": "pcbridge.desktop.grant",
+                "grant": grant,
+                "authorization": snapshot.authorization.as_dict(),
+                "capability_limitations": limitations,
+            },
+        )
 
     @mcp.tool(output_schema=None, annotations={"title": "Stop desktop control"})
     def desktop_lock() -> str:

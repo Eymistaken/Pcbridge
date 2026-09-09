@@ -4,10 +4,11 @@ Bu belge, Python host ile `pcbridge-native` child process'i arasındaki yerel
 stdio sözleşmesini tanımlar. Bu pipe, MCP stdio taşımasından ayrıdır. Native
 stdout yalnızca aşağıda tanımlanan framed response'ları taşır.
 
-Executable henüz gerçek desktop API'sine, session D-Bus'a, Wayland'a veya
-PipeWire'a bağlanmaz. Python desktop backend varsayılan ve çalışan tek backend
-olarak kalır. Native process grant/revoke lifecycle'ını şimdiden izler; böylece
-sonraki backend'ler güvenlik sınırını yeniden tasarlamadan kaynak ekleyebilir.
+Executable henüz Wayland, PipeWire veya uinput üzerinden desktop işlemi yapmaz;
+Python desktop backend varsayılan ve çalışan tek backend olarak kalır. Native
+process grant/revoke lifecycle'ına ek olarak GNOME session D-Bus üzerinden ekran
+kilidini ve kullanıcı etkinliğini typed observation olarak izler. Böylece sonraki
+backend'ler aynı fail-closed güvenlik sınırını kullanabilir.
 
 ## Frame biçimi ve sınırlar
 
@@ -189,10 +190,41 @@ noktasından sonra başlar. Eski heartbeat, yakaladığı `grant_id` ve epoch ar
 eşleşmediği için yeni grant'i uzatamaz.
 
 Native helper initialize sırasında o anki grant kimliğine bir kez bağlanır.
-Her korumalı dispatch dosyayı yeniden doğrular; ayrıca 100 ms watchdog grant
-değişimi, revoke, expiry, eksik veya bozuk state halinde açık native kaynakları
-fail-closed kapatır. Aynı helper daha sonra açılan grant'e bağlanmaz; yeni native
-session gerekir. Native protokolünde grant oluşturma veya uzatma metodu yoktur.
+Her korumalı dispatch dosyayı yeniden doğrular; ayrıca 100 ms lease watchdog
+grant değişimi, revoke, expiry, eksik veya bozuk state halinde açık native
+kaynakları fail-closed kapatır. Lease watchdog, D-Bus gözleminden ayrı bir thread'de
+çalışır; takılan bir session servisi revoke süresini uzatamaz. Aynı helper daha
+sonra açılan grant'e bağlanmaz; yeni native session gerekir. Native protokolünde
+grant oluşturma veya uzatma metodu yoktur.
+
+## Desktop state ve fail-closed kuralları
+
+Ekran kilidi boolean değil, üç durumlu bir observation'dır:
+`known_locked`, `known_unlocked` veya `unknown`. Kullanıcı etkinliği de `known`
+ya da `unknown` durumunu ve yalnızca `known` iken negatif olmayan `idle_ms`
+değerini taşır. Python ve Rust katmanları bu durumları boolean'a indirgemez.
+
+- Ekran kilidi `known_locked` ise read ve write işlemleri `SCREEN_LOCKED` ile
+  reddedilir.
+- Ekran kilidi `unknown` ise read ve write işlemleri `LOCK_STATE_UNKNOWN` ile
+  reddedilir.
+- Etkinlik `unknown` ise write işlemi `ACTIVITY_UNKNOWN` ile reddedilir.
+- Kullanıcı idle guard eşiğinden daha etkinse write işlemi `USER_ACTIVE` ile
+  reddedilir.
+- `force=true` yalnızca etkinlik kontrolünü atlar; kilit, grant, revoke ve expiry
+  kontrollerini atlamaz.
+- Batch ve task akışı etkinliği başlangıçta bir kez kontrol eder. Devam eden bir
+  batch içinde etkinlik tekrar okunmaz.
+
+Native lock watcher `org.gnome.ScreenSaver.ActiveChanged` sinyalini dinler ve
+bağlantı kaybını `unknown` kabul eder. Aktif native kaynak, kilitli veya bilinmeyen
+bir observation geldiğinde kapanır. D-Bus method çağrıları sonlu timeout kullanır.
+
+`desktop_unlock` grant oluşturmak için uinput desteği istemez. Ekran capture
+kullanılabilir, pointer veya keyboard kullanılamaz durumdaysa grant yine açılır;
+structured result `pcbridge.desktop.grant` tipini, grant kimliğini, authorization
+snapshot'ını ve `capability_limitations` haritasını döndürür. Bu sınırlamalar grant
+verildiğini gizlemez ve kullanılamayan girdiyi destekleniyor gibi ilan etmez.
 
 Her helper `runtime_dir/pcbridge/native/` altında `0600` bir kayıt taşır;
 dizinler `0700` olur. Kayıt PID, process başlangıç kimliği ve native instance ID

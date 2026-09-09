@@ -11,11 +11,13 @@ from ..config import Config
 from .backends.python import (
     PythonAccessibilityProvider,
     PythonCaptureProvider,
+    PythonDesktopStateProvider,
     PythonInputProvider,
 )
 from .contracts import (
     AccessibilityProvider,
     CaptureProvider,
+    DesktopStateProvider,
     GrantProvider,
     InputProvider,
 )
@@ -28,7 +30,7 @@ from .capabilities import (
     CapabilityState,
 )
 from .errors import ErrorCode
-from .safety import SafetyGate, idle_ms, screen_locked
+from .safety import ActivityState, SafetyGate, ScreenLockState
 
 
 logger = logging.getLogger("pcbridge.desktop.runtime")
@@ -60,6 +62,7 @@ class DesktopRuntime:
         input_provider: InputProvider,
         accessibility_provider: AccessibilityProvider,
         gate: GrantProvider,
+        desktop_state_provider: DesktopStateProvider | None = None,
         screen_lock_probe: Callable[[], bool | None] | None = None,
         user_activity_probe: Callable[[], int | None] | None = None,
     ) -> None:
@@ -67,8 +70,10 @@ class DesktopRuntime:
         self.input_provider = input_provider
         self.accessibility_provider = accessibility_provider
         self.gate = gate
-        self._screen_lock_probe = screen_lock_probe or screen_locked
-        self._user_activity_probe = user_activity_probe or idle_ms
+        self.desktop_state_provider = desktop_state_provider or PythonDesktopStateProvider(
+            screen_lock_probe=screen_lock_probe,
+            user_activity_probe=user_activity_probe,
+        )
         self._capabilities = CapabilityRegistry()
         self._timer: threading.Timer | None = None
         self._lock = threading.RLock()
@@ -163,25 +168,33 @@ class DesktopRuntime:
             reason_code=ErrorCode.UNSUPPORTED,
         )
 
-        activity = self._user_activity_probe()
+        activity = self.desktop_state_provider.user_activity()
         values["user_activity"] = self._observed_capability(
             "user_activity",
             CapabilityState.SUPPORTED
-            if activity is not None
+            if activity.state == ActivityState.KNOWN
             else CapabilityState.UNAVAILABLE,
             backend="linux.mutter-idle-monitor",
             scope="os.session",
-            reason_code=None if activity is not None else ErrorCode.ACTIVITY_UNKNOWN,
+            reason_code=(
+                None
+                if activity.state == ActivityState.KNOWN
+                else ErrorCode.ACTIVITY_UNKNOWN
+            ),
         )
-        locked = self._screen_lock_probe()
+        lock = self.desktop_state_provider.screen_lock()
         values["screen_lock"] = self._observed_capability(
             "screen_lock",
             CapabilityState.SUPPORTED
-            if locked is not None
+            if lock.state != ScreenLockState.UNKNOWN
             else CapabilityState.UNAVAILABLE,
             backend="linux.gnome-screen-saver",
             scope="os.session",
-            reason_code=None if locked is not None else ErrorCode.LOCK_STATE_UNKNOWN,
+            reason_code=(
+                None
+                if lock.state != ScreenLockState.UNKNOWN
+                else ErrorCode.LOCK_STATE_UNKNOWN
+            ),
         )
         for name, (backend, scope) in _REQUIRED_CAPABILITIES.items():
             values.setdefault(
@@ -197,10 +210,7 @@ class DesktopRuntime:
         return values
 
     def _authorization(self) -> AuthorizationStatus:
-        locked = self._screen_lock_probe()
-        screen_lock_state = (
-            "unknown" if locked is None else "locked" if locked else "unlocked"
-        )
+        screen_lock_state = self.desktop_state_provider.screen_lock().state.value
         hard_remaining = getattr(self.gate, "hard_remaining_seconds", None)
         return AuthorizationStatus(
             desktop_enabled=bool(getattr(self.gate.spec, "enabled", False)),
@@ -320,8 +330,10 @@ def create_runtime(
     capture_provider: CaptureProvider | None = None,
     input_provider: InputProvider | None = None,
     accessibility_provider: AccessibilityProvider | None = None,
+    desktop_state_provider: DesktopStateProvider | None = None,
 ) -> DesktopRuntime:
     """Build an isolated, lazy runtime for one MCP or CLI process."""
+    state_provider = desktop_state_provider or PythonDesktopStateProvider()
     return DesktopRuntime(
         capture_provider=(
             capture_provider
@@ -336,7 +348,8 @@ def create_runtime(
             if accessibility_provider is not None
             else PythonAccessibilityProvider()
         ),
-        gate=gate if gate is not None else SafetyGate(cfg),
+        gate=gate if gate is not None else SafetyGate(cfg, state_provider=state_provider),
+        desktop_state_provider=state_provider,
     )
 
 

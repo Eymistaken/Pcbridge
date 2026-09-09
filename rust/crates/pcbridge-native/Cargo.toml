@@ -9,9 +9,12 @@ default = []
 test-harness = []
 
 [dependencies]
+async-io.workspace = true
+futures-lite.workspace = true
 pcbridge-core = { path = "../pcbridge-core" }
 serde.workspace = true
 serde_json.workspace = true
+zbus.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

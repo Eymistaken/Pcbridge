@@ -28,11 +28,15 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .errors import ErrorCategory, ErrorCode
 from .lease import LEASE_STATE_FILE, LeaseStore, LeaseToken
+
+if TYPE_CHECKING:
+    from .contracts import DesktopStateProvider
 
 logger = logging.getLogger("pcbridge.desktop")
 
@@ -53,6 +57,42 @@ class Decision:
         return self.allowed
 
 
+class ScreenLockState(str, Enum):
+    KNOWN_LOCKED = "known_locked"
+    KNOWN_UNLOCKED = "known_unlocked"
+    UNKNOWN = "unknown"
+
+
+class ActivityState(str, Enum):
+    KNOWN = "known"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class ScreenLockObservation:
+    state: ScreenLockState
+    observed_at: float
+    backend: str = "linux.gnome-screen-saver"
+
+
+@dataclass(frozen=True)
+class ActivityObservation:
+    state: ActivityState
+    idle_ms: int | None
+    observed_at: float
+    backend: str = "linux.mutter-idle-monitor"
+
+    def __post_init__(self) -> None:
+        known = self.state == ActivityState.KNOWN
+        valid_idle = (
+            isinstance(self.idle_ms, int)
+            and not isinstance(self.idle_ms, bool)
+            and self.idle_ms >= 0
+        )
+        if known != valid_idle:
+            raise ValueError("known activity requires a nonnegative idle_ms")
+
+
 def _busctl_json(dest: str, path: str, iface: str, method: str) -> Any:
     """Tek degerli bir D-Bus cagrisini oku. Hata durumunda None."""
     try:
@@ -66,7 +106,7 @@ def _busctl_json(dest: str, path: str, iface: str, method: str) -> Any:
             return None
         data = json.loads(proc.stdout).get("data")
         return data[0] if isinstance(data, list) and data else None
-    except Exception:  # noqa: BLE001 — D-Bus yoksa kapiyi kapatmiyoruz, bilmiyoruz
+    except Exception:  # noqa: BLE001 — D-Bus yoksa observation unknown olur
         return None
 
 
@@ -87,15 +127,80 @@ def idle_ms() -> int | None:
         "org.gnome.Mutter.IdleMonitor",
         "GetIdletime",
     )
-    return int(val) if isinstance(val, int) else None
+    return int(val) if isinstance(val, int) and not isinstance(val, bool) else None
+
+
+def observe_screen_lock() -> ScreenLockObservation:
+    value = screen_locked()
+    state = (
+        ScreenLockState.KNOWN_LOCKED
+        if value is True
+        else ScreenLockState.KNOWN_UNLOCKED
+        if value is False
+        else ScreenLockState.UNKNOWN
+    )
+    return ScreenLockObservation(state=state, observed_at=time.time())
+
+
+def observe_user_activity() -> ActivityObservation:
+    value = idle_ms()
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return ActivityObservation(
+            state=ActivityState.KNOWN,
+            idle_ms=value,
+            observed_at=time.time(),
+        )
+    return ActivityObservation(
+        state=ActivityState.UNKNOWN,
+        idle_ms=None,
+        observed_at=time.time(),
+    )
+
+
+class _PythonDesktopStateProvider:
+    def screen_lock(self) -> ScreenLockObservation:
+        return observe_screen_lock()
+
+    def user_activity(self) -> ActivityObservation:
+        return observe_user_activity()
+
+
+def screen_lock_decision(observation: ScreenLockObservation) -> Decision:
+    if observation.state == ScreenLockState.UNKNOWN:
+        return Decision(
+            False,
+            "Ekran kilidi durumu okunamadi. Oturumun acik oldugu "
+            "dogrulanmadan masaustu islemi baslatilmaz.",
+            code=ErrorCode.LOCK_STATE_UNKNOWN,
+            permission_scope="pcbridge.desktop",
+            retryable=True,
+            suggested_action="Restore the desktop session connection and retry.",
+        )
+    if observation.state == ScreenLockState.KNOWN_LOCKED:
+        return Decision(
+            False,
+            "Ekran kilitli. Kilitli ekranin arkasina girdi gonderilmez — "
+            "makinenin basina gecip kilidi acin.",
+            code=ErrorCode.SCREEN_LOCKED,
+            permission_scope="pcbridge.desktop",
+            retryable=True,
+            suggested_action="Unlock the local desktop session and retry.",
+        )
+    return Decision(True)
 
 
 class SafetyGate:
-    def __init__(self, cfg: Any) -> None:
+    def __init__(
+        self,
+        cfg: Any,
+        *,
+        state_provider: DesktopStateProvider | None = None,
+    ) -> None:
         self.cfg = cfg
         self.spec = cfg.desktop
         self._state_path = Path(cfg.state_dir) / STATE_FILE
         self._lease = LeaseStore(cfg.state_dir)
+        self._state_provider = state_provider or _PythonDesktopStateProvider()
         self._local = threading.local()
         self._events: deque[float] = deque(maxlen=200)
 
@@ -250,17 +355,9 @@ class SafetyGate:
                 suggested_action="Enable desktop control in config.toml and restart pcbridge.",
             )
 
-        locked = screen_locked()
-        if locked:
-            return Decision(
-                False,
-                "Ekran kilitli. Kilitli ekranin arkasina girdi gonderilmez — "
-                "makinenin basina gecip kilidi acin.",
-                code=ErrorCode.SCREEN_LOCKED,
-                permission_scope="pcbridge.desktop",
-                retryable=True,
-                suggested_action="Unlock the local desktop session and retry.",
-            )
+        lock_decision = screen_lock_decision(self._state_provider.screen_lock())
+        if not lock_decision.allowed:
+            return lock_decision
 
         token = self.current_token()
         if token is None:
@@ -275,9 +372,23 @@ class SafetyGate:
             )
 
         if write and not force:
-            idle = idle_ms()
+            activity = self._state_provider.user_activity()
+            if activity.state == ActivityState.UNKNOWN:
+                return Decision(
+                    False,
+                    "Kullanici etkinligi okunamadi. Yazma islemi ancak etkinlik "
+                    "durumu biliniyorsa veya force=true acikca verildiyse baslatilir.",
+                    code=ErrorCode.ACTIVITY_UNKNOWN,
+                    permission_scope="pcbridge.desktop",
+                    retryable=True,
+                    suggested_action=(
+                        "Restore the activity monitor or retry with explicit force."
+                    ),
+                )
+            idle = activity.idle_ms
+            assert idle is not None
             guard = self.spec.idle_guard_seconds * 1000
-            if idle is not None and idle < guard:
+            if idle < guard:
                 return Decision(
                     False,
                     f"Makinenin basinda birisi var ({idle // 1000} saniye once "
@@ -364,8 +475,14 @@ class SafetyGate:
         rem = self.remaining_seconds()
         if rem <= 0:
             return "masaustu kontrolu: acik ama kilitli (desktop_unlock bekliyor)"
-        locked = screen_locked()
-        extra = " · EKRAN KILITLI" if locked else ""
+        lock = self._state_provider.screen_lock().state
+        extra = (
+            " · EKRAN KILITLI"
+            if lock == ScreenLockState.KNOWN_LOCKED
+            else " · EKRAN DURUMU BILINMIYOR"
+            if lock == ScreenLockState.UNKNOWN
+            else ""
+        )
         # Kayan kira acikken TEK bir sayi yaniltici olurdu: "1 dk 30 sn kaldi"
         # goren kullanici izni 15 dakika actigini hatirlayip kafasi karisir.
         # Iki sayi birden: kayan kalan ve onun tavani.

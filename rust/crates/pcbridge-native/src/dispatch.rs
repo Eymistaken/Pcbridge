@@ -1,4 +1,6 @@
 use std::path::Path;
+#[cfg(feature = "test-harness")]
+use std::sync::Arc;
 
 use pcbridge_core::{
     ErrorBody, Frame, PROTOCOL_MAJOR, PROTOCOL_MINOR, ProtocolError, RequestHeader, ResponseHeader,
@@ -9,6 +11,8 @@ use serde_json::{Value, json};
 #[cfg(feature = "test-harness")]
 use crate::lifecycle::LeaseFailure;
 use crate::lifecycle::Lifecycle;
+#[cfg(feature = "test-harness")]
+use crate::platform::linux::desktop_state::DeterministicDesktopState;
 
 #[derive(Debug)]
 pub enum BackendMode {
@@ -267,7 +271,15 @@ impl Dispatcher {
             );
         }
 
-        let lifecycle = match Lifecycle::start(Path::new(&params.state_dir)) {
+        let lifecycle = match &self.mode {
+            BackendMode::Production { .. } => Lifecycle::start(Path::new(&params.state_dir)),
+            #[cfg(feature = "test-harness")]
+            BackendMode::DeterministicTest => Lifecycle::start_with_provider(
+                Path::new(&params.state_dir),
+                Arc::new(DeterministicDesktopState),
+            ),
+        };
+        let lifecycle = match lifecycle {
             Ok(lifecycle) => lifecycle,
             Err(_) => {
                 return self.error(
