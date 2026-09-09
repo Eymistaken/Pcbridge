@@ -36,9 +36,9 @@ yanlış bir komutu çalıştırırken — fark edilir.
 
 ## Native migration durumu
 
-- Son tamamlanan task: **2.3 — Atomik grant ve süreçler arası revoke** (`c4aa76b`)
-- Aktif task: **Yok** (`Task 2.3 tamamlandı`)
-- Sıradaki task: **2.4 — Native lock/activity observations ve safety ayrımı**
+- Son tamamlanan task: **2.4 — Native lock/activity observations ve safety ayrımı** (`9d0fe92`)
+- Aktif task: **Yok** (`Task 2.4 tamamlandı`)
+- Sıradaki task: **3.1 — Native display snapshot**
 - Blocker: Yok
-- Son doğrulanan gate: **Gate 2 geçti.** Atomik grant, süreçler arası revoke,
-  native watchdog ve PID-reuse güvenli registry acceptance'ı geçti.
+- Son doğrulanan gate: **Gate 2 geçti.** Task 2.4 typed desktop state,
+  fail-closed policy ve native lock watcher acceptance'ı da geçti.

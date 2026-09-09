@@ -2,12 +2,12 @@
 
 ## Durum özeti
 
-- Aktif task: **Yok** (`Task 2.3 tamamlandı`)
-- Son tamamlanan task: **2.3 — Atomik grant ve süreçler arası revoke** (`c4aa76b`)
-- Sıradaki uygulanabilir task: **2.4 — Native lock/activity observations ve safety ayrımı**
+- Aktif task: **Yok** (`Task 2.4 tamamlandı`)
+- Son tamamlanan task: **2.4 — Native lock/activity observations ve safety ayrımı** (`9d0fe92`)
+- Sıradaki uygulanabilir task: **3.1 — Native display snapshot**
 - Blocker: Yok.
-- Son gate: **Gate 2 geçti.** Atomik grant, süreçler arası revoke,
-  native watchdog ve PID-reuse güvenli registry acceptance'ı geçti.
+- Son gate: **Gate 2 geçti.** Task 2.4 typed desktop state, fail-closed policy
+  ve native lock watcher acceptance'ı da geçti.
 
 ## Task 0.1 — Gerçek capture ve input test izinlerini ayır
 
@@ -508,3 +508,93 @@ native helper'ları ve eski stdio/service process'lerini kapat; sonra
 **Sonraki somut adım:** Task 2.4'te screen lock ve user activity okumalarını
 typed observation modeline al; unknown durumlarını fail-closed yap ve native
 kaynakları lock signal'ına bağla.
+
+## Task 2.4 — Native lock/activity observations ve safety ayrımı
+
+**Durum:** `tamamlandı`
+
+**Amaç:** Screen lock ve user activity durumlarını bool/`None` kaybı olmadan
+typed observation olarak taşımak; belirsizlikte desktop erişimini fail-closed
+reddetmek ve native kaynakları lock bağlantısı yaşam döngüsüne bağlamak.
+
+**Başlangıç kararı:** Mevcut GNOME ScreenSaver ve Mutter IdleMonitor sınırları
+korunacak, fakat policy yalnızca `known_locked`, `known_unlocked` ve `unknown`
+lock durumlarını; activity için de known/unknown observation'ı tüketecek.
+`force=true` yalnızca activity reddini aşacak. Unlock sonucu grant ile işletim
+sistemi capability'lerini ayrı raporlayacak; uinput grant oluşturmanın ön koşulu
+olmayacak.
+
+**TDD sınırları:** Python public observation + `SafetyGate.check()` sözleşmesi,
+MCP `desktop_unlock` structured sonucu ve Rust `DesktopStateProvider` + lifecycle
+watchdog'u. Batch içinde ikinci activity ölçümü yapılmadığı mevcut execution
+yüzeyinden çağrı sayısıyla doğrulanacak; hiçbir canlı capture/input/AT-SPI testi
+çalıştırılmayacak.
+
+**Yapılanlar:**
+
+- Python ve Rust tarafında screen lock `known_locked`, `known_unlocked`,
+  `unknown`; activity ise `known`/`unknown` ve geçerli `idle_ms` taşıyan typed
+  observation modellerine alındı. Boolean IdleMonitor cevabı fail-closed
+  reddediliyor.
+- `SafetyGate` bilinmeyen lock durumunda read/write işlemlerini, bilinmeyen
+  activity durumunda write işlemlerini typed hata kodlarıyla reddediyor.
+  `force=true` yalnızca activity kontrolünü atlıyor; grant, revoke, expiry ve
+  lock kontrollerini atlamıyor.
+- `DesktopStateProvider` runtime sınırına eklendi. Capability ve authorization
+  snapshot'ları aynı typed provider'dan besleniyor; lock durumu boolean'a
+  indirgenmeden public sonuçta taşınıyor.
+- Native GNOME provider, `org.gnome.ScreenSaver.ActiveChanged` sinyalini ve
+  Mutter IdleMonitor'u zbus ile okuyor. Bağlantı kaybı veya bozuk cevap unknown
+  oluyor ve açık native kaynak kapanıyor.
+- Lease ve desktop-state watchdog'ları ayrıldı. Yavaş veya takılan D-Bus
+  gözlemi revoke'un 200 ms denetim sözleşmesini geciktiremiyor; method çağrıları
+  ayrıca 200 ms timeout kullanıyor.
+- `desktop_unlock` uinput uygunluğunu grant ön koşulu olmaktan çıkardı. Capture
+  kullanılabilirken pointer/keyboard unavailable olsa da grant açılıyor;
+  structured sonuç grant, authorization ve `capability_limitations` alanlarını
+  ayrı bildiriyor.
+- Batch ve computer task activity'yi yalnızca başlangıçta bir kez okuyor;
+  agent'ın kendi girdisini kullanıcı etkinliği sayacak mid-batch kontrol
+  eklenmedi.
+- Public davranış ve watchdog ayrımının gerekçesi
+  `docs/native/protocol-v1.md` içinde kaydedildi.
+
+**Test sonuçları:**
+
+- TDD kırmızı/yeşil: yavaş desktop provider altında revoke önce 250 ms sınırını
+  aştı; watchdog'lar ayrılınca aynı test geçti. Boolean activity parser testi
+  önce `True -> 1 ms` hatasını üretti, parser sıkılaştırılınca geçti.
+- Tam Python contract discovery → `72 tests`, `OK`.
+- `tests/test_desktop.py`, bütün live bayrakları unset → `582 geçti, 0 kaldı`.
+- `tests/test_models.py` → `106 geçti, 0 kaldı`;
+  `tests/test_test_safety.py` → `1 test`, `OK`.
+- GNOME `test_state.js` → `31 geçti, 0 kaldı`.
+- Rust workspace default set → `19 geçti, 0 kaldı`; test-harness set →
+  `25 geçti, 0 kaldı`. Desktop-state contract'larında lock/connection-loss
+  kapanışı ve D-Bus'tan bağımsız revoke sınırı ölçüldü.
+- `cargo fmt --check`; bütün target'lar ve test-harness için
+  `cargo clippy -- -D warnings`; locked release build → exit `0`.
+- Güncel RustSec advisory veritabanıyla `cargo audit`, 92 bağımlılık → bilinen
+  vulnerability yok.
+- `python -m compileall`, `git diff --check`, American English spelling taraması
+  ve örnek config ile server `--check` → exit `0`.
+- `tests/test_e2e.py` plan gereği çalıştırılmadı; capture, input, batch ve AT-SPI
+  live bayraklarının hiçbiri açılmadı.
+
+**Acceptance:** Capture-only fixture grant açtı ve pointer için
+`DEVICE_NOT_GRANTED` limitation'ını structured sonuçta korudu. Locked ve unknown
+session grant oluşturmadan reddedildi. Unknown lock read/forced write'ı, unknown
+activity force'suz write'ı durdurdu. Native lock/unknown açık kaynağı 250 ms
+sınırında kapattı; yavaş desktop observation aynı sınırdaki revoke'u geciktirmedi.
+
+**Gate:** Gate 2 geçerli. Phase 2 tamamlandı; gerçek native capture hâlâ açılmadı.
+
+**Commit:** `9d0fe92` (`feat: fail closed on unknown desktop state`)
+
+**Rollback:** Önce desktop grant'i revoke et ve native helper'ları kapat; sonra
+native desktop-state provider yerine Python provider ile yeni process başlat.
+Yeni fail-closed Python policy korunmalı.
+
+**Sonraki somut adım:** Task 3.1'de Mutter display snapshot'ını zbus ile oku,
+monitor sırası/topology kimliğini contract'larla sabitle ve native capture
+session'ın aynı snapshot'ı kullanacağı sınırı kur.
