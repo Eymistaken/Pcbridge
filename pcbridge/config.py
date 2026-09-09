@@ -197,6 +197,17 @@ class DesktopSpec:
 
 
 @dataclass
+class NativeSpec:
+    """Private native helper selection.
+
+    Python remains the default until the native capture parity gate passes.
+    """
+
+    capture: str = "python"
+    binary_path: Path | None = None
+
+
+@dataclass
 class Config:
     public_url: str
     host: str
@@ -235,6 +246,7 @@ class Config:
     # Ajan adi verilmediginde ve model hicbir ajana ait degilse kullanilir.
     default_agent: str = "claude"
     desktop: DesktopSpec = field(default_factory=DesktopSpec)
+    native: NativeSpec = field(default_factory=NativeSpec)
     # audit.log bu boyutu asinca `.1`'e devredilir. 0 = donderme kapali.
     # Masaustu araclarindan sonra kabuk/ajan/dosya araclari da kayit tuttugu
     # icin dosya artik hizli buyuyor.
@@ -444,6 +456,7 @@ def load_config(explicit: str | None = None) -> Config:
     paths = raw.get("paths", {})
     limits = raw.get("limits", {})
     server = raw.get("server", {})
+    native_raw = raw.get("native") or {}
 
     # `[server] inline_images` asil yazim. Ama bugune kadar butun sunucu
     # ayarlari (public_url, host, port, mcp_path) KOKTE duruyor, o yuzden kokteki
@@ -640,6 +653,18 @@ def load_config(explicit: str | None = None) -> Config:
             "baglantiyi telefonda acmaya yetmez."
         )
 
+    native_capture = str(native_raw.get("capture", "python")).strip().lower()
+    if native_capture not in ("python", "rust", "auto"):
+        raise SystemExit(
+            f"[native] ({path}): `capture` ({native_capture!r}) "
+            "python, rust ya da auto olmali."
+        )
+    native_binary = str(native_raw.get("binary_path", "")).strip()
+    native = NativeSpec(
+        capture=native_capture,
+        binary_path=_expand(native_binary) if native_binary else None,
+    )
+
     state_dir = _expand(paths.get("state_dir", "~/.local/state/pcbridge"))
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / "jobs").mkdir(parents=True, exist_ok=True)
@@ -670,5 +695,6 @@ def load_config(explicit: str | None = None) -> Config:
         agents=agents,
         default_agent=default_agent,
         desktop=desktop,
+        native=native,
         source_path=path,
     )

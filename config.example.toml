@@ -92,6 +92,24 @@ default_agent = "claude"
 
 
 # ---------------------------------------------------------------------------
+# YEREL MASAUSTU YARDIMCI SURECI
+#
+# Rust yakalama esligi ve yayina alma kapilari gecilene kadar Python
+# varsayilan olarak kalir. Yardimci surec calisma aninda indirilmez veya
+# derlenmez.
+# ---------------------------------------------------------------------------
+
+[native]
+# "python" = mevcut Python saglayicilari, "rust" = yerel saglayiciyi zorunlu tut,
+# "auto" = yeni izin/oturum basinda gorunur geri donuse izin ver.
+capture = "python"
+
+# pcbridge-native icin istege bagli mutlak yol. PCBRIDGE_NATIVE_BIN ortam
+# degiskeni onceliklidir. Bos deger paketlenmis executable yolunu kullanir.
+binary_path = ""
+
+
+# ---------------------------------------------------------------------------
 # MASAUSTU KONTROLU (klavye + fare)
 #
 # Bu bolum acildiginda pcbridge, /dev/uinput uzerinden sanal bir klavye ve fare

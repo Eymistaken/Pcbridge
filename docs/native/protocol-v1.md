@@ -129,6 +129,46 @@ Test kipi sabit `test-native-instance` kimliği, `test` platformu ve
 `test.fake` capability backend'i üretir. Fake capability açık bir desktop
 desteği iddia etmez. Bu kip yalnızca byte-düzeyi contract testleri içindir.
 
+## Python supervisor yaşam döngüsü
+
+Task 2.2'deki `NativeClient`, helper'ı MCP stdio taşımasından ayrı üç pipe ile
+ve yalnızca ilk native request geldiğinde başlatır. Binary arama sırası sabittir:
+
+1. `PCBRIDGE_NATIVE_BIN` ortam değişkeni,
+2. `[native].binary_path`,
+3. `pcbridge/_native/<target>/pcbridge-native` paket yolu.
+
+İlk iki explicit yol geçersizse daha düşük öncelikli bir binary'ye sessizce
+düşülmez; `NATIVE_NOT_FOUND` döner. Helper çalışma anında indirilmez, derlenmez
+ve `PATH` içinde aranmaz. `[native].capture = "python"` varsayılandır; Task 2.2
+runtime capture seçimini değiştirmez.
+
+Supervisor'ın reader, writer ve stderr drainer thread'leri birbirinden
+ayrıdır. Request ID'leri process yeniden başlasa bile tekrar kullanılmaz ve
+response'lar geliş sırasına göre değil ID ile eşleştirilir. Aynı anda en fazla
+16 request bekleyebilir; sınırdaki yeni request `BUSY` döner. Yerel olarak
+frame'e dönüştürülemeyen bir request `INVALID_FRAME` döndürür fakat sağlıklı
+helper process'ini kapatmaz.
+
+`initialize` sonucundaki `instance_id`, `native_version`, `platform` ve
+`features` alanlarının tamamı kullanılabilirlik ilanından önce doğrulanır.
+Major/minor uyuşmazlığı `PROTOCOL_MISMATCH`, bozuk envelope veya handshake
+`INVALID_FRAME`, EOF ve beklenmeyen process çıkışı `NATIVE_CRASHED` olur.
+Process kaybı o nesilde bekleyen bütün request'leri tamamlar; hiçbir request
+yeni process üzerinde otomatik olarak yeniden oynatılmaz. Sonraki yeni request
+helper'ı yeniden başlatabilir.
+
+Deadline dolunca bekleyen request tablodan atomik olarak çıkarılır ve
+best-effort `cancel` gönderilir. `close()` önce framed `shutdown` dener; iki
+saniyelik sınırın ardından sırasıyla terminate ve kill uygular, her durumda
+child process'i toplar. Job child process'leri native pipe descriptor'larını
+miras alamaz.
+
+Helper'a yalnızca grafik oturum için gereken izinli ortam değişkenleri
+aktarılır; adında `PASSWORD`, `TOKEN`, `SECRET` veya `API_KEY` bulunan değerler
+engellenir. stderr sürekli boşaltılır fakat stdout'a ya da MCP yanıtına
+yazılmaz; bellekte yalnızca son 64 KiB tutulur.
+
 ## Çıkış ve log kuralları
 
 - Temiz EOF, `shutdown` ve uyumsuz major sürüm bağlantıyı kaynak bırakmadan
