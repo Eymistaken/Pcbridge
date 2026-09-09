@@ -36,8 +36,8 @@ yanlış bir komutu çalıştırırken — fark edilir.
 
 ## Native migration durumu
 
-- Son tamamlanan task: **1.4 — Çok yollu execution sözleşmesini düzelt** (`fe355b2`)
-- Aktif task: **2.1 — Rust workspace ve executable protocol harness**
-- Sıradaki task: **2.2 — Python `NativeClient` supervisor**
+- Son tamamlanan task: **2.2 — Python `NativeClient` supervisor** (`824fe1b`)
+- Aktif task: **Yok** (`Task 2.2 sonrası kullanıcı isteğiyle duruldu`)
+- Sıradaki task: **2.3 — Atomik grant ve süreçler arası revoke**
 - Blocker: Yok
-- Son doğrulanan gate: **Gate 1 geçti.** Güvenli desktop baseline `578/0`; model suite `106/0`; safety selector `1/1`; contract suite `31/31`; server `--check` exit `0`.
+- Son doğrulanan gate: **Gate 1 geçti. Gate 2 açık.** Task 2.2 supervisor acceptance'ı geçti; süreçler arası revoke lifecycle henüz tamamlanmadı.

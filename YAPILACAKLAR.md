@@ -2,11 +2,11 @@
 
 ## Durum özeti
 
-- Aktif task: **Yok** (`Task 2.1 sonrası kullanıcı isteğiyle duruldu`)
-- Son tamamlanan task: **2.1 — Rust workspace ve executable protocol harness** (`b53ea60`)
-- Sıradaki uygulanabilir task: **2.2 — Python NativeClient supervisor**
-- Blocker: Yok; devam kararı bekleniyor.
-- Son gate: **Gate 1 geçti. Gate 2 açık.** Task 2.1 IPC harness acceptance'ı geçti; Python supervisor ve revoke lifecycle henüz uygulanmadı.
+- Aktif task: **Yok** (`Task 2.2 sonrası kullanıcı isteğiyle duruldu`)
+- Son tamamlanan task: **2.2 — Python `NativeClient` supervisor** (`824fe1b`)
+- Sıradaki uygulanabilir task: **2.3 — Atomik grant ve süreçler arası revoke**
+- Blocker: Yok.
+- Son gate: **Gate 1 geçti. Gate 2 açık.** Task 2.2 supervisor acceptance'ı geçti; süreçler arası revoke lifecycle henüz uygulanmadı.
 
 ## Task 0.1 — Gerçek capture ve input test izinlerini ayır
 
@@ -331,3 +331,84 @@ desktop backend seçimi bu task'ta değiştirilmedi.
 
 **Sonraki somut adım:** Kullanıcı devam istediğinde Task 2.2'de Python
 `NativeClient` supervisor'ını fake helper contract'larıyla uygula.
+
+## Task 2.2 — Python `NativeClient` supervisor
+
+**Durum:** `tamamlandı`
+
+**Amaç:** Native child process'in framing, concurrency, timeout, cancellation,
+crash ve shutdown lifecycle'ını MCP stdio taşımasından tamamen ayrı yönetmek;
+helper arızasında Python server ve non-desktop execution yollarını ayakta tutmak.
+
+**Değişen dosyalar:** `pcbridge/native/`, `pcbridge/config.py`,
+`config.example.toml`, `docs/native/protocol-v1.md`,
+`tests/contracts/test_native_client.py` ve executable fake helper fixture'ı.
+
+**Yapılanlar:**
+
+- Binary discovery sırası `PCBRIDGE_NATIVE_BIN` → `[native].binary_path` →
+  paketlenmiş target yolu olarak sabitlendi. Explicit ama geçersiz yol daha
+  düşük önceliğe sessizce düşmeden `NATIVE_NOT_FOUND` döndürüyor.
+- Framed protokol parser/writer'ı Python sınırında aynı 64 KiB JSON ve 128 MiB
+  binary limitlerini, kısa read/write döngülerini ve major/minor doğrulamasını
+  uyguluyor. Yerel olarak encode edilemeyen request sağlıklı helper'ı düşürmeden
+  `INVALID_FRAME` oluyor.
+- `NativeClient` lazy child başlatma, ayrı reader/writer/stderr thread'leri,
+  process nesliyle bağlı request ID'leri, out-of-order response korelasyonu,
+  16 pending sınırı ve bounded outgoing queue kullanıyor.
+- Deadline beklemesi pipe yazımından bağımsız hale getirildi. Timeout request'i
+  pending tablodan atomik çıkarıyor ve best-effort `cancel` kuyruğa alıyor;
+  henüz yazılmamış stale request'ler atlanıyor.
+- EOF/crash/protocol ihlalinde aynı process neslinin bütün pending request'leri
+  typed hatayla tamamlanıyor. Sonraki yeni request temiz process başlatabiliyor;
+  eski request hiçbir durumda replay edilmiyor.
+- `initialize` sonucundaki `instance_id`, `native_version`, `platform` ve
+  `features` alanları kullanılabilirlikten önce doğrulanıyor ve immutable
+  handshake olarak saklanıyor.
+- Helper yalnızca allowlist grafik oturum ortamını alıyor; parola/token/secret
+  adları eleniyor. IPC descriptor'ları inheritable değil; job child
+  process'lerine taşınmadığı `/proc` ölçümüyle doğrulandı.
+- stderr stdout'a veya MCP yanıtına yazılmadan sürekli boşaltılıyor ve yalnızca
+  son 64 KiB bellekte tutuluyor. Kapanış framed `shutdown` → terminate → kill
+  sırasını izliyor ve child'ı topluyor.
+- `[native] capture="python"` ve isteğe bağlı `binary_path` gerçekten parse
+  ediliyor. Python capture varsayılan ve tek runtime yolu olarak kaldı; native
+  capture entegrasyonu açılmadı.
+
+**Test sonuçları:**
+
+- TDD kırmızı koşumları önce eksik `NativeSpec`, ardından eksik protocol ve
+  client modüllerinde beklenen import hatalarını verdi; her dilim uygulandıktan
+  sonra yeşile döndü.
+- Native supervisor contract'ları → `20 tests`, `OK`. Stderr flood,
+  out-of-order response, timeout/cancel, bloke pipe deadline'ı, process crash,
+  no-replay restart, invalid frame/version/handshake, missing binary, pending
+  limit, environment/descriptor izolasyonu ve shutdown escalation kapsandı.
+- Tam contract discovery → `51 tests`, `OK`.
+- `tests/test_desktop.py`, bütün live bayrakları unset → `578 geçti, 0 kaldı`.
+- `tests/test_models.py` → `106 geçti, 0 kaldı`.
+- `tests/test_test_safety.py` → `1 test`, `OK`.
+- `python -m compileall` ve örnek config ile server `--check` → exit `0`.
+- Task 2.1 release binary'siyle Python supervisor ölçümü: handshake version
+  `0.1.0`, platform `linux`, backend `protocol-only`, capability listesi boş,
+  ping nonce korundu, stderr `0` byte, kapanış sonrası process çalışmıyor,
+  toplam süre `2.1 ms`.
+- `tests/test_e2e.py` plan gereği çalıştırılmadı; hiçbir live desktop test
+  bayrağı açılmadı.
+
+**Acceptance:** Helper yokluğu typed hata veriyor ve lazy sınır nedeniyle server
+ile non-desktop execution yollarını engellemiyor. Native stdout yalnızca private
+pipe'a gidiyor ve MCP/stdout ölçümünü bozmuyor. Normal, timeout ve zorla kapatma
+yollarının tümünde child process toplandı.
+
+**Gate:** Task 2.2 acceptance geçti. Gate 2, atomik grant ve süreçler arası
+revoke Task 2.3 tamamlanana kadar açık.
+
+**Commit:** `824fe1b` (`feat: add native client supervisor`)
+
+**Rollback:** `native.capture=python` varsayılanı runtime'ı Python yolunda
+tutar; `824fe1b` bağımsız geri alınabilir.
+
+**Sonraki somut adım:** Kullanıcı devam istediğinde Task 2.3'te grant state'ini
+atomik yaz, native process'e senkronize et ve süreçler arası revoke/expiry
+contract'larını uygula.
