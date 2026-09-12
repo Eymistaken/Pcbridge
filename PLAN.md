@@ -1,1707 +1,2093 @@
-# PLAN — pcbridge'e tam teşekküllü Computer Use eklemek
+# OPEN DECISIONS
 
-**Durum:** tasarım onaylandı, Faz 0 ölçümleri tamam, uygulama bekliyor.
-**Uygulayıcı için:** bu dosya *gerekçe ve ölçüm kaydı*. Ne inşa edileceği
-`UYGULAMA.md`'de anlatılıyor, çalışma kuralları `YAPILACAKLAR.md`'de.
-**Hedef sistem:** Zorin OS 18.1 Core (Ubuntu 24.04 LTS tabanlı, GNOME Shell 46, Wayland).
-**Tarih:** 2026-08-01
+İlk Linux migration’ını engelleyen açık mimari karar kalmadı. Aşağıdaki iki karar sonraki fazların kapsamını etkiliyor:
 
----
+1. **Linux tamamlandıktan sonra Windows mu, macOS mu önce gelmeli?** Repo belgelerinde onaylanmış bir sıra bulamadım. Aşağıdaki W ve M fazlarına bu nedenle sıra numarası vermedim.
+2. **GNOME eklentisi ileride pencere kontrolü için genişletilebilir mi?** Mevcut sözleşmede yalnızca görsel katman. Onay gelene kadar plana eklenti üzerinden kontrol eklenmeyecek; mevcut focus fallback’i korunacak ve sınırı capability çıktısında gösterilecek.
 
-## 1. Kısa cevap
+Planın hazırlık incelemesinde kod değiştirilmedi, migration başlatılmadı ve masaüstü testleri çalıştırılmadı. İncelenen Pcbridge commit’i `22a58240`; Conduit commit’i `c4338f9e`. Conduit çalışma ağacındaki önceden bulunan değişikliklere dokunulmadı. Bu belge, kullanıcının 2026-09-07 tarihli isteğiyle önceki `PLAN.md` içeriğinin yerine kaydedildi; önceki `YAPILACAKLAR.md` silindi. Migration uygulaması henüz başlamadı.
 
-**Evet, eklenebilir.** Klavye + fare kontrolü, ekran görüntüsü ve pencere yönetimi
-Wayland altında da mümkün. Ama tasarımı belirleyen **üç sert kısıt** var ve bunlar
-"Anthropic'in computer use aracını kopyala yapıştır" yaklaşımını doğrudan
-elinden alıyor:
+# Pcbridge Native Core Implementation Plan
 
-| # | Kısıt | Sonuç |
-|---|---|---|
-| 1 | **Gemini, MCP araç sonucundaki görselleri göremiyor.** Function response'lar yalnızca metin / yapılandırılmış metin destekliyor. | Klasik "ekran görüntüsü gönder → model baksın → tıklasın" döngüsü Spark üzerinden **kurulamaz**. Ekranı modele **metin** olarak anlatmak gerekiyor. |
-| 2 | **Wayland, harici süreçlerin girdi enjekte etmesini ve ekran okumasını engelliyor.** GNOME'da `xdotool` yalnızca XWayland pencerelerini görür, `wtype` wlroots ister (Mutter'da çalışmaz). | Girdi için çekirdek seviyesine (`/dev/uinput`) inmek, ekran için portal/kabuk API'si kullanmak şart. |
-| 3 | **Spark her yazma işleminde onay soruyor + istek ~110 s'de zaman aşımına uğruyor.** | Tek tek tıklama göndermek kullanılamaz (her tık için telefonda onay). Eylemler **toplu (batch)** çalıştırılmalı. |
+**Uygulayıcı:** GPT-5.6 Sol  
+**Hedef:** Pcbridge’in çok yollu execution modelini koruyarak Linux native altyapısını küçük, geri alınabilir adımlarla Rust’a taşımak.  
+**İlk teslim noktası:** Python orchestration sınırları ayrılmış, sürümlü IPC üzerinden çalışan Rust monitor discovery + capture backend’i.  
+**Yaklaşım:** Önce davranış sözleşmesi, sonra adapter, sonra native implementation, sonra parity, en son default değişikliği.
 
-### 1.1 Ölçüm günlüğü — 2026-08-01
+## Belge kullanımı ve ilerleme kaydı
 
-Makinede fiilen doğrulananlar (tahmin değil):
+- `AGENTS.md`, otomatik yüklenen kısa ve kendi başına yeterli proje rehberidir. Her session başında `PLAN.md`, `YAPILACAKLAR.md` veya `CLAUDE.md` dosyasını bütünüyle okuma zorunluluğu yoktur. Task ayrıntısı veya geçmiş ölçüm gerektiğinde yalnızca ilgili bölüme başvurulur.
+- Bu dosya implementation sözleşmesidir; günlük çalışma günlüğü değildir. Mimari kararları ve task kimliklerini koru. Kullanıcı talimatı ya da doğrulanmış repo gerçeği bir düzeltme gerektiriyorsa değişikliği gerekçesiyle kaydet.
+- **Uygulayıcı model migration üzerinde çalışmaya başladığında proje kökünde yeni bir `YAPILACAKLAR.md` oluşturacak.** Planı kaydeden model bu ilerleme dosyasını önceden oluşturmayacak; eski listenin görevleri yeni listeye taşınmayacak.
+- Yeni `YAPILACAKLAR.md` içinde yapılan ve yapılacak işleri bu plandaki task kimlikleriyle takip et. En üstte kısa durum özeti, aktif task, sıradaki uygulanabilir task ve blocker'lar bulunsun. Planın tamamını kopyalama.
+- Her task başında durumu `devam ediyor` olarak güncelle. Task sonunda değişen dosyaları, yapılanları, kalan adımları, çalıştırılan test komutlarını ve gerçek sonuçlarını, geçilen/başarısız gate'i, varsa commit kimliğini ve rollback notunu kaydet. Test çalışmadıysa `çalıştırılmadı` yaz; acceptance sağlanmadan `tamamlandı` işaretleme.
+- Yarım kalan işte dosyayı yeni bir listeyle değiştirme; mevcut kaydı güncelle ve bir sonraki somut adımı yaz. Başarısız testleri ve açık kararları kayıttan silme. Durum seçenekleri: `bekliyor`, `devam ediyor`, `blokeli`, `tamamlandı`, `ertelendi`.
+- Oturum devrinde modelin temel bağlamı başka dosya okumadan alabilmesi için `AGENTS.md` içindeki kısa migration durumunu da güncel tut: tamamlanan son task, aktif/sıradaki task, blocker ve son doğrulanan gate. Ayrıntılı test çıktıları ve günlük geçmişi yalnızca `YAPILACAKLAR.md` içinde kalsın.
+- Migration planının bulunması, ilgisiz her kullanıcı isteğinde migration'a kendiliğinden başlama talimatı değildir. Mevcut kullanıcı görevinin kapsamında ilerle.
+- `CLAUDE.md` ve `ADIMLAR.md` içindeki eski `PLAN.md`/`YAPILACAKLAR.md` bölüm referansları geçmiş döneme aittir. Yeni migration sırasını bu referanslardan türetme; ölçülmüş makine gerçeklerini görevle ilgili olduğunda kullan.
 
-| Bulgu | Sonuç |
+## 1. Mevcut koddan doğrulanan önemli noktalar
+
+Plan aşağıdaki gerçeklere dayanıyor:
+
+| Bulgu | Plana etkisi |
 |---|---|
-| `gnome-screenshot` 41.0-2build2, GNOME 46 Wayland | ✅ çalışıyor, `3840x1080`, 2,5 MB gerçek yakalama |
-| **`claude -p` non-interactive, `Read` ile PNG** | ✅ **görüyor** — ekrandaki 15 haneli rastgele kodu birebir okudu. Planın taşıyıcı varsayımı sağlam |
-| **`agy -p "@dosya.png …"`** | ✅ **görüyor** — aynı kodu okudu. `@yol` sözdizimi çalışıyor |
-| `agy` çıktısı boruya (`\| cat`) yazıldığında | ✅ **geliyor** — upstream #76 (TTY olmadan boş çıktı) 1.1.9'da düzelmiş görünüyor → `pty = true` artık gerekmeyebilir |
-| İki monitör: DP-2 (x=0, sol) + DP-1 (x=1920, sağ, **birincil**) | ⚠️ numaralandırma soldan sağa yapılacak (§2.5) |
-| Kesirli ölçekleme | ✅ **yok**, her iki monitör `scale = 1.0` → koordinat matematiği 1:1 |
-| İmlecin hangi monitörde olduğunu dışarıdan sormak | ❌ Wayland'de mümkün değil (GNOME `Shell.Eval` kapalı) → varsayılan `monitor="all"` |
+| `tools.py` yaklaşık 2.100 satır; desktop nesneleri, izin zamanlayıcıları ve orchestration aynı registration closure’ında. | Tool kataloğunu baştan parçalamadan `DesktopRuntime` çıkarılacak. |
+| `capture.py`, görüntü yakalamanın yanında shot kaydı, ölçekleme ve koordinat dönüşümü yapıyor. | İlk Rust migration yalnızca görüntünün edinilmesini değiştirecek. |
+| `screencast_helper.py`, Mutter ScreenCast + Python GI/GStreamer kullanıyor. | İlk native backend doğrudan Rust D-Bus + PipeWire kullanacak; capture için Python GI/GStreamer gerekmeyecek. |
+| `SYSTEM_PYTHON = "python3"` PATH üzerinden çözülüyor. | “Sistem Python’u kullanılıyor” varsayımı runtime’da garanti değil; missing dependency testine alınacak. |
+| Açık screencast sırasında frame alma hatası otomatik olarak `gnome-screenshot`’a düşmüyor; hata dönüyor. | Fallback davranışı yorumlardan değil, çalışan koddan sabitlenecek. |
+| `desktop_unlock`, şu anda uinput kullanılabilirliğini şart koşuyor. | Capture/accessibility izni input cihazından ayrılacak. |
+| `capture.to_global()` ortak koordinat giriş noktası. | MCP, batch ve CLI bu girişten geçmeye devam edecek. |
+| `mouse` eski shot için uyarıyor; `pcb-do` belirli durumlarda reddediyor. | İlk migration’da bunlar yanlışlıkla eşitlenmeyecek. |
+| `SafetyGate`, bilinmeyen lock/activity durumunda bazı kontrolleri geçiriyor; batch focus okunamayınca takibi kapatabiliyor. | Bunlar parity’den ayrı safety task’larında güçlendirilecek. |
+| Shell’den GUI açmayı caydıran docstring’ler ve isteğe bağlı blocklist var. | Çok yollu execution kararına uygun, ayrı bir davranış değişikliği yapılacak. |
+| `PCBRIDGE_TEST_CAPTURE=1`, `test_real_hold()` üzerinden gerçek input da çalıştırıyor. | İlk task test izinlerini ayıracak. |
+| Kurulu FastMCP `3.4.5`, `ToolResult.is_error` ve `structured_content` destekliyor. | MCP üzerinde ikinci bir custom hata protokolü kurulmayacak. |
 
-**Bunun en büyük sonucu: iki görsel sürücümüz var.** Claude Code (Claude Pro
-kotası) ve Antigravity (Google AI Pro kotası) — ikisi de ekran görüntüsü okuyup
-GUI sürebilir, kotaları birbirinden bağımsız. Uzun GUI oturumlarında biri
-tükenirse diğerine geçilebilir.
+Başlıca mevcut kaynaklar: [capture.py](pcbridge/desktop/capture.py), [screencast_helper.py](pcbridge/desktop/screencast_helper.py), [safety.py](pcbridge/desktop/safety.py), [batch.py](pcbridge/desktop/batch.py), [tools.py](pcbridge/tools.py).
 
-Bu üçü birlikte, "doğru" mimariyi şuraya itiyor:
+### Conduit’ten alınacak ve alınmayacak şeyler
 
-> Ekranı modele **metin olarak** (erişilebilirlik ağacı + OCR) anlat, eylemleri
-> **toplu** çalıştır, gerçekten göze ihtiyaç duyan işi **makinedeki Claude Code'a
-> devret** (o PNG dosyasını okuyabiliyor, yani gözü var).
+Referans olarak incelenen mevcut dosyalar:
 
-Yani pcbridge'in mevcut felsefesi (`agent_run` ile işi yerel ajana devret) burada
-da en güçlü çözüm oluyor — computer use, `agent_run`'ın rakibi değil **eli**.
+- `~/Masaüstü/app/conduit/src-tauri/src/platform/linux/capture.rs`
+- `~/Masaüstü/app/conduit/src-tauri/src/platform/linux/portal.rs`
+- `~/Masaüstü/app/conduit/src-tauri/src/platform/linux/screen.rs`
+- `~/Masaüstü/app/conduit/src-tauri/src/platform/linux/ax.rs`
+- `~/Masaüstü/app/conduit/src-tauri/src/platform/linux/apps.rs`
+- `~/Masaüstü/app/conduit/src-tauri/Cargo.toml`
 
----
+**Alınacak fikirler:** PipeWire için ayrılmış thread, frame stride/channel conversion, session ile capture lifecycle ilişkisi, runtime kullanılabilirliğinin raporlanması.
 
-## 2. Araştırma bulguları — neyin ne olduğu
+**Devralınmayacak tasarımlar:**
 
-### 2.1 Girdi (klavye/fare) enjeksiyonu
+- Tauri/GTK initialization’a bağlı display discovery.
+- Global, süreç boyunca bırakılmayan session nesneleri.
+- Monitor eşleşmeyince ilk stream’i seçmek.
+- Bilinmeyen piksel formatını tahmin ederek yorumlamak.
+- Frame timestamp olmadan “en yeni frame” döndürmek.
+- Capture oturumunun açılmasını pointer izni kanıtı saymak.
+- Pcbridge’in LANCZOS ölçeklemesini nearest-neighbor ile değiştirmek.
 
-| Yöntem | GNOME 46 Wayland'de çalışır mı | Not |
-|---|---|---|
-| `xdotool` | ❌ (yalnız XWayland) | Native GTK/GNOME pencerelerinde etkisiz |
-| `wtype` | ❌ | `virtual-keyboard-unstable-v1` ister; Mutter desteklemiyor |
-| **`ydotool` / `dotool` (uinput)** | ✅ | Çekirdek seviyesinde sanal cihaz; kompozitörden bağımsız. **Seçilen yol.** |
-| XDG `RemoteDesktop` portalı + libei | ✅ ama | Her oturumda GNOME onay penceresi çıkar. Kalıcı izin (`persist_mode`) portal **1.21+** ile geldi; Ubuntu 24.04'te 1.18 var → **telefondan kullanım için uygun değil**, makine başında birinin "İzin Ver" demesi gerekir |
-| `gnome-remote-desktop` (RDP) | ✅ | Ağır; ayrı bir RDP istemcisi + oturum yönetimi gerekir. Yalnızca "sanal ekran" senaryosu için mantıklı |
+Güncel portal sözleşmesinde input yetkileri `Start` sonucundaki cihaz maskesiyle ayrılıyor. RemoteDesktop persistence da sürüme bağlı olarak mevcut; Conduit yorumlarındaki genel “persist edilemez” hükmü taşınmayacak. [RemoteDesktop sözleşmesi](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.RemoteDesktop.html)
 
-> ⚠️ **Aşağıdaki iki aday da kullanılmadı.** Ölçüm sonrası `python-evdev` seçildi:
-> makinede zaten kurulu, derleme/daemon istemiyor ve ABS eksenini bizim
-> tanımlamamıza izin verdiği için çift monitör riskini kapatıyor. Gerekçe:
-> **"Faz 1 sonuçları — ölçüldü 2026-08-01 (B bölümü)"** bölümü, 2. madde.
+Portal session kapanışı ve `Closed` sinyali lifecycle’ın parçası olacak. [Session sözleşmesi](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.Session.html)
 
-**Karar: uinput.** İki aday var:
+## 2. Kararı verilmiş mimari
 
-- **`ydotool`** — Ubuntu 24.04 deposundaki sürüm **0.1.8** (eski). `mousemove --absolute`
-  ve yeni CLI 1.0.x ile geldi → **kaynaktan 1.0.4 derlemek gerekir**.
-- **`dotool`** — Go ile yazılmış, stdin'den komut okur, **klavye düzenini bilir**
-  (`DOTOOL_XKB_LAYOUT=tr`). Aşağıdaki Türkçe klavye sorununu kökten çözdüğü için
-  **birinci tercih**.
-
-> ⚠️ **Türkçe klavye tuzağı.** uinput tabanlı araçlar ham *keycode* gönderir; ne
-> yazılacağını sistemin XKB düzeni belirler. Sistem Türkçe Q düzenindeyken
-> ydotool'a `type "user@example.com"` dedirtirsen ekrana `user"example.com`
-> benzeri bir şey düşer. Üç çözüm var, üçünü de uygulayacağız:
-> 1. `dotool` + `DOTOOL_XKB_LAYOUT=tr` (doğru yol),
-> 2. metin girişinde **panoya kopyala + Ctrl+V** (`wl-copy`) — düzenden tamamen bağımsız, uzun metinlerde ayrıca çok daha hızlı,
-> 3. `key` komutlarında düzenden etkilenmeyen tuşları (Tab, Enter, ok tuşları, F-tuşları) tercih et.
-
-### 2.2 Ekran görüntüsü
-
-| Yöntem | Durum |
-|---|---|
-| `gnome-screenshot -f x.png` | ✅ **ÖLÇÜLDÜ — çalışıyor.** `41.0-2build2` (noble/universe), Zorin 18.1 + GNOME 46 Wayland: çıkış 0, `3840 x 1080` RGBA, 2,5 MB → gerçek yakalama, siyah kare değil |
-| `gdbus … org.gnome.Shell.Screenshot` | GNOME 41+ ile özel API kısıtlandı; **güvenilmez** |
-| XDG `Screenshot` portalı | Her çağrıda kullanıcı onayı → otomasyona uygun değil |
-| **XDG `ScreenCast` portalı + PipeWire** | ✅ İlk seferde onay, sonra `restore_token` ile sessiz. Ubuntu 24.04'ün portal 1.18'i ScreenCast kalıcılığını **destekliyor**. En sağlam yol, en çok emek isteyen yol |
-| GNOME Shell eklentisi + kendi D-Bus'ın | ✅ Kompozitörün içinde çalıştığı için kısıtsız. Bir kez logout gerekir |
-| `grim` | ❌ wlroots-only |
-
-**Karar:** birincil yol **`gnome-screenshot`** (ölçüldü, çalışıyor). Kod yine de
-backend soyutlamasıyla yazılır — paket GNOME 49'da bozulmuş görünüyor, yani bir
-gün dağıtım yükseltmesinde ScreenCast portalı yedeğine geçmek gerekebilir. Ama
-**Faz 2 bugün için yarım günlük iş**, PipeWire yazmaya gerek yok.
-
-`gnome-screenshot` notları:
-
-- Tüm masaüstünü yakalar; `-w` odaktaki pencere, `-p` imleci de dahil eder
-- `-a` (alan seçimi) **interaktif**, otomasyonda kullanılamaz → kırpma bizde
-- Kullanıcının grafik oturumu içinden çalışmalı; systemd birimine oturum
-  ortamının aktarılması şart (§3, systemd düzeltmesi)
-
-### 2.5 Çok monitörlü kurulum — koordinat tuzağı
-
-**Ölçüm sonucu: ekran görüntüsü `3840 x 1080`**, yani yan yana iki 1920×1080
-monitör tek bir tuval olarak yakalanıyor. Bu, computer use açısından iki ayrı
-sorun doğuruyor:
-
-**1. Model için okunamaz.** 3840×1080'i uzun kenardan 1280'e indirince her
-monitör ~640×180 kalıyor; buton yazıları okunmaz hâle geliyor. 3,55:1 en-boy
-oranı görsel modeller için de kötü.
-→ **Çözüm:** `screen_capture(monitor=…)`, tuval her zaman monitör başına
-kırpılır. Kırpma Pillow ile, ölçekleme kırpmadan sonra.
-
-**Hangi monitör varsayılan olsun?** İmleç sorulamıyor (Wayland kapalı), odaktaki
-pencereye güvenmek de kırılgan: masaüstündeyken odakta pencere yok ve pencereyi
-odağa almak için ona tıklamak gerekiyor — otomasyonda tavuk-yumurta.
-
-Bu yüzden **varsayılan `monitor="all"`**: her monitör **ayrı bir görüntü** olarak
-üretilir (2 × 1920×1080 → her biri 1280×720'e inince hâlâ rahat okunur). Görsel
-sürücü ikisine birden bakar, tahmin yok. Diğer seçenekler ek olarak durur:
-
-| `monitor=` | Davranış |
-|---|---|
-| `"all"` (varsayılan) | Her monitör ayrı görüntü + her birinin global ofseti |
-| `1`, `2`, `"DP-1"`, `"primary"` | Tek monitör |
-| ~~`"focused"`~~ | **Yapılamadı**, aşağıya bakın |
-| `"window"` | Yalnızca odaktaki pencere (`gnome-screenshot -w`) — global ofseti **yok** |
-
-> ⚠️ **`"focused"` ölçüldü ve düşürüldü — 2026-08-02.**
-> `busctl --user call org.gnome.Shell /org/gnome/Shell/Introspect
-> org.gnome.Shell.Introspect GetWindows` → **`Call failed: Access denied`**.
-> GNOME 46 bu arayüzü izin listesindeki uygulamalara kapatmış, yani odaktaki
-> pencerenin monitörünü dışarıdan okumanın yolu yok. Odak bilgisi ileride
-> AT-SPI'dan gelebilir (D bölümü).
->
-> `"window"` duruyor ama **koordinat üretmiyor**: `gnome-screenshot -w`
-> pencerenin ekranda nerede olduğunu bildirmiyor, o yüzden `Shot.offset = None`
-> ve araç çıktısı "buradan koordinat türetmeyin" diye uyarıyor. (Ölçüldü:
-> pencere görüntüsü 1944×1062 geldi — monitörden geniş, çünkü gölge dahil.)
-
-`config.toml` → `[desktop] default_monitor = 1` ile monitöre özel yorumlanan
-çağrıların varsayılanı sabitlenir.
-
-ℹ️ **Odak, GUI'yi sürmek için gerekli değil.** uinput tıklaması odaktan bağımsız
-çalışır; bir pencereye tıklamak zaten onu odağa alır. Odak yalnızca "hangi dar
-alanı yakalayayım" optimizasyonu için anlamlı, temel akış için değil.
-
-**2. Sessizce 1920 piksel sola tıklama.** İkinci monitörden kırpılmış bir
-görüntüye bakıp "buton (300, 400)'de" denince, gerçek tıklama koordinatı
-(300+1920, 400) olmalı. Ofset unutulursa hata **hiç görünmez** — sadece yanlış
-yere tıklanır.
-→ **Çözüm:** kırpılmış her görüntünün yanında ofseti taşı; `pcb-do` /
-`mouse` araçlarının kabul ettiği koordinatlar **her zaman global masaüstü
-uzayında** olsun. Model monitör-yerel koordinat verirse `monitor=` parametresiyle
-birlikte verir, dönüşümü pcbridge yapar. Tek kaynak:
-
-```bash
-gdbus call --session --dest org.gnome.Mutter.DisplayConfig \
-  --object-path /org/gnome/Mutter/DisplayConfig \
-  --method org.gnome.Mutter.DisplayConfig.GetCurrentState
+```text
+MCP tools / CLI
+       |
+       v
+Python DesktopRuntime
+  ├─ SafetyGate / batch / shot registry / presentation
+  ├─ Python compatibility providers
+  └─ NativeClient
+          |
+          | versioned, framed local stdio IPC
+          v
+Persistent pcbridge-native process
+  ├─ lifecycle / cancellation / lease enforcement
+  └─ Linux platform modules
+       ├─ Mutter / D-Bus
+       ├─ PipeWire
+       └─ later: uinput / AT-SPI / native state
 ```
 
-Bu çağrı her mantıksal monitörün `x, y, genişlik, yükseklik, ölçek` değerlerini
-veriyor. `screen_info` bu tabloyu döndürür, `capture` da kırpmayı buradan yapar.
+### Katman sahipliği
 
-**Ölçülen geometri (2026-08-01):**
-
-| Bağlantı | Konum | Boyut | Ölçek | Birincil | Kırpma kutusu |
-|---|---|---|---|---|---|
-| **DP-2** | x=0, y=0 | 1920×1080 | 1.0 | hayır | `(0, 0, 1920, 1080)` |
-| **DP-1** (ASUS VG247Q1A @165 Hz) | x=1920, y=0 | 1920×1080 | 1.0 | **evet** | `(1920, 0, 3840, 1080)` |
-
-✅ **Kesirli ölçekleme yok** — her iki monitör de `scale = 1.0`. Mantıksal ve
-fiziksel piksel birebir örtüşüyor, `gnome-screenshot`'ın 3840×1080 tuvali global
-koordinat uzayının aynısı. Dönüşüm matematiği 1:1, en kötü tuzak kapandı.
-
-⚠️ **Birincil monitör SOLDA DEĞİL, SAĞDA.** "Monitör 1 = birincil" ya da
-"listedeki ilk monitör" gibi doğal görünen bir numaralandırma, kullanıcı "birinci
-ekran" derken sağdaki ekranı seçerdi. Bu yüzden:
-
-> **Numaralandırma kuralı: monitörler `x` konumuna göre soldan sağa sıralanır.**
-> `monitor=1` → DP-2 (sol), `monitor=2` → DP-1 (sağ).
-> Ayrıca `monitor="DP-1"` (bağlantı adı) ve `monitor="primary"` da kabul edilir.
-> Sıra `GetCurrentState`'ten her seferinde yeniden hesaplanır — monitör takılıp
-> çıkarıldığında ya da yerleri değiştirildiğinde kendiliğinden düzelir.
-
-ℹ️ **GNOME kabuğu birincil monitörde**: üst çubuk, Etkinlikler ve `Super`'a
-basınca açılan uygulama ızgarası **sağ ekranda** (DP-1) beliriyor. Görsel sürücüye
-bu bilgi `screen_info` üzerinden verilmeli, yoksa `Super`'a basıp sol ekranda
-menü arar ve "hiçbir şey olmadı" sanır.
-
-⚠️ **uinput mutlak fare, çift monitörde test edilmeli.** Sanal işaretçi cihazının
-ABS ekseni tüm 3840 px'i mi kapsıyor yoksa yalnızca birincil monitörü mü,
-denemeden bilinmiyor. İkinci monitörün sağ alt köşesine tıklama testi Faz 1'in
-ilk maddesi olacak.
-
-### 2.3 Ekranı modele metin olarak anlatmak
-
-Görsel gönderilemediğine göre iki kaynak kalıyor:
-
-1. **AT-SPI erişilebilirlik ağacı** — GTK/GNOME uygulamaları arayüzlerini D-Bus
-   üzerinden bir ağaç olarak yayınlıyor: her düğümün rolü (`push button`,
-   `entry`, `menu item`), etiketi, durumu (`enabled`, `focused`, `checked`) var.
-   Python'dan `gi.repository.Atspi` ile okunur. **Bu, ekranın metinsel ikizidir**
-   ve piksel tahmininden kat kat güvenilirdir.
-   - ⚠️ Wayland'de AT-SPI'ın **mutlak ekran koordinatları** güvenilmez olabiliyor.
-     Çözüm: koordinat kullanmak yerine düğümün `Action` arayüzünü çağır
-     (`do_action("click")`) — koordinat gerekmez, doğrudan tıklanır.
-   - ⚠️ Electron uygulamaları (VS Code, Discord…) `--force-renderer-accessibility`
-     olmadan ağaç yayınlamaz. Bunlarda OCR + koordinat moduna düşülür.
-2. **OCR** — ekran görüntüsü üzerinde `tesseract` (`tesseract-ocr-tur` +
-   `tesseract-ocr-eng`), kelime bazlı kutu koordinatlarıyla (`tsv` çıktısı).
-   AT-SPI'ın görmediği her şey için (oyunlar, canvas, Electron, uzak masaüstü).
-
-### 2.4 Görüntüyü **insana** göstermek
-
-Model göremiyor ama **sen görebilirsin**. pcbridge zaten HTTPS'ten yayında:
-ekran görüntüsünü `~/.local/state/pcbridge/shots/` altına yazıp
-`https://<host>/shot/<token>.png` bağlantısı döndüreceğiz.
-Telefonda bağlantıya dokunursun, ekranı görürsün. Token kısa ömürlü (5 dk);
-OAuth'tan bağımsız olduğu için bağlantıyı paylaşma.
-
-> ⚠️ **"Tek kullanımlık" kararı değişti — 2026-08-02.** Bağlantı artık süre
-> bazlı: 5 dakika boyunca kaç kez istenirse istensin çalışıyor. Tek kullanım
-> daha dar bir pencere verirdi ama telefon tarayıcısında **yenileme, geri tuşu
-> ve bağlantı önizlemesi ikinci bir istek atıyor** ve görüntüyü daha kullanıcı
-> bakmadan yakıyordu. Kullanıcı onayıyla süre bazlı yola geçildi.
-
----
-
-## 3. Mimari
-
-```
-                    Telefon / Spark  (metin dünyası)
-                              │
-                    ┌─────────┴──────────┐
-                    ▼                    ▼
-            ui_dump / ui_click    computer_task
-            (metinsel gözler)     (görsel işi yerel ajana devret)
-                    │                    │
-                    ▼                    ▼
-        ┌───────────────────────┐   claude -p  (PNG okuyabilir → gözü var)
-        │  pcbridge/desktop.py  │        │
-        │  ─────────────────────│◄───────┘  (aynı araçları CLI üzerinden kullanır)
-        │  InputBackend  ──► dotool/ydotool ──► /dev/uinput
-        │  CaptureBackend ─► gnome-screenshot | portal+PipeWire | shell ext.
-        │  UiTree        ──► AT-SPI (D-Bus)
-        │  Ocr           ──► tesseract
-        │  SafetyGate    ──► kilit ekranı / idle / süreli izin / denetim kaydı
-        └───────────────────────┘
-```
-
-### Yeni dosyalar
-
-| Dosya | İçerik |
+| Sorumluluk | Karar |
 |---|---|
-| `pcbridge/desktop/__init__.py` | Ortak arayüzler, backend seçimi (autodetect) |
-| `pcbridge/desktop/input.py` | `dotool`/`ydotool` sarmalayıcı: move, click, drag, scroll, key, type, paste |
-| `pcbridge/desktop/capture.py` | Ekran görüntüsü backend zinciri + ölçekleme + PNG yazma |
-| `pcbridge/desktop/uitree.py` | AT-SPI ağacı → düz metin + kararlı `#id` üretimi + `click_by_id` |
-| `pcbridge/desktop/ocr.py` | tesseract TSV → kelime/kutu listesi, `find_text()` |
-| `pcbridge/desktop/windows.py` | Pencere listesi/odak (GNOME Introspect D-Bus veya AT-SPI'dan türetilmiş) |
-| `pcbridge/desktop/safety.py` | İzin penceresi, kilit/idle kontrolü, hız sınırı, denetim kaydı |
-| `pcbridge/shots.py` | `/shot/<token>.png` HTTP rotası, tek kullanımlık token |
-| `extensions/pcbridge-frame@local/` | GNOME Shell eklentisi: ekran kenarı gradyan çerçevesi + D-Bus (§7.1) |
-| `desktop_doctor.sh` | Faz 0 tanı betiği (aşağıda) |
-| `tests/test_desktop.py` | Sanal ekranda (Xvfb/weston-headless) uçtan uca test |
+| FastMCP, MCP tool registration | Python’da kalacak. |
+| OAuth, HTTP, consent, `/shot` | Python’da kalacak. Bu migration OAuth mantığını değiştirmeyecek. |
+| Shell, filesystem, jobs, coding-agent delegation | Python’da kalacak. |
+| tmux/session orchestration | Python’da kalacak. |
+| `computer_batch` parse, budget, focus policy, remaining actions | Python’da kalacak. |
+| Desktop authorization policy, audit | Python’da kalacak. |
+| Native kaynakların revoke/expiry sırasında kapatılması | Rust da bağımsız olarak uygulayacak. |
+| Shot ID, disk metadata, TTL, MCP image delivery | Python’da kalacak. |
+| Screenshot koordinatı → Pcbridge global koordinatı | Tek authoritative giriş: Python `capture.to_global()`. |
+| Global koordinat → platform/device koordinatı | Native backend’de tek platform dönüşümü. |
+| Display discovery + raw capture | İlk Rust migration. |
+| Input injection | Capture default olduktan sonraki Rust migration. |
+| Accessibility traversal/action | Daha sonraki Rust migration. |
+| Clipboard | İlk aşamada çalışan Python yolu; input migration sonrasında native supervisor’a alınabilir. |
+| App seçimi, launch/focus fallback orchestration | Python’da kalacak; mevcut native işlemler adapter arkasına alınacak. |
+| Full Rust MCP server | Bu planın dışında. |
+| GUI | Son aşamada, isteğe bağlı control plane. |
 
-### Değişecek dosyalar
+Buradaki iki koordinat dönüşümü aynı hesabın iki kopyası değildir:
 
-- `pcbridge/tools.py` — yeni araçlar (aşağıdaki tablo)
-- `pcbridge/config.py` + `config.example.toml` — `[desktop]` bölümü
-- `pcbridge/server.py` — `/shot/...` rotası
-- `systemd/pcbridge.service` — **grafik oturum ortamı** (aşağıda, kritik)
-- `install.sh` — uinput izinleri, `ydotoold`/`dotoold` kullanıcı servisi, bağımlılıklar
-- `doctor.sh`, `README.md`, `KULLANIM.md`, `GELISTIRME.md`
+1. `shot` üzerindeki pikselin desktop global noktasına çevrilmesi.
+2. Bu global noktanın OS/input API’sinin istediği birime çevrilmesi.
 
-### systemd düzeltmesi (kritik)
+Rust, `shot` ID çözümleyip monitor offset’ini ikinci kez uygulamayacak.
 
-> ⚠️ **Ölçüldü: bu makinede gerekmiyordu ve aşağıdaki hâliyle uygulanmadı.**
-> Oturum ortamı birime zaten geliyor; `WantedBy`/`PartOf` değişiklikleri ise
-> projenin "açılışta otomatik başlama" kararıyla çelişiyor. Uygulanan hâli ve
-> gerekçesi: **"Faz 1 sonuçları"** bölümü, 3. madde.
+### Rust workspace: iki crate
 
-Mevcut birim yalnızca `Environment=DISPLAY=:0` veriyor; Wayland'de bu yetmez.
-Servis, grafik oturumun ortam değişkenlerini görmeden ne uinput'a ne D-Bus'a
-ne de AT-SPI'a ulaşabilir:
-
-```ini
-[Unit]
-After=graphical-session.target
-PartOf=graphical-session.target
-
-[Service]
-Environment=XDG_SESSION_TYPE=wayland
-# WAYLAND_DISPLAY, DBUS_SESSION_BUS_ADDRESS, XDG_RUNTIME_DIR oturumdan gelir:
-#   ~/.config/autostart içinde ya da oturum açılışında bir kez
-#   systemctl --user import-environment WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP
-#   dbus-update-activation-environment --systemd --all
+```text
+rust/
+  Cargo.toml
+  Cargo.lock
+  rust-toolchain.toml
+  crates/
+    pcbridge-core/
+      Cargo.toml
+      src/
+        lib.rs
+        protocol.rs
+        error.rs
+        capability.rs
+        display.rs
+        frame.rs
+        lease.rs
+      tests/
+    pcbridge-native/
+      Cargo.toml
+      src/
+        lib.rs
+        main.rs
+        dispatch.rs
+        lifecycle.rs
+        platform/
+          mod.rs
+          linux/
+            mod.rs
+            display.rs
+            session.rs
+            capture.rs
+            desktop_state.rs
+      tests/
 ```
 
-`WantedBy=default.target` → `WantedBy=graphical-session.target` yapılacak (servis
-zaten elle başlatılıyor; bu yalnızca ortamın doğru gelmesi için).
+Sonraki modüller kendi task’ları geldiğinde oluşturulacak.
 
----
+- `pcbridge-core`: OS bağımsız veri yapıları, doğrulama ve saf hesaplar.
+- `pcbridge-native`: executable, IPC dispatch ve platform kaynaklarının sahibi.
+- Ayrı Linux crate’i başlangıçta gerekmiyor. Windows/macOS geldiğinde de önce aynı crate altında platform modülleri kullanılacak.
+- Tauri, React, GTK ve MCP bağımlılıkları Rust workspace’e eklenmeyecek.
+- İlk toolchain `1.95.0`: bu makinede kurulu sürüm doğrulandı.
+- Başlangıç bağımlılıkları: `serde`, `serde_json`, `thiserror`, `tracing`; Linux için `zbus`, `pipewire`; PNG encoding için yalnızca PNG özelliği açık `image`.
+- Çözümlenen sürümler `Cargo.lock` ile sabitlenecek. Conduit’in lockfile’ı kopyalanmayacak.
+- `pcbridge-core` için `unsafe` yasak. Platformda zorunlu `unsafe`, küçük bir modülde ve ownership gerekçesiyle sınırlandırılacak.
 
-## 4. Yeni MCP araçları
+## 3. IPC contract — uygulayıcı bunu yeniden tasarlamayacak
 
-Proje kuralı gereği: **docstring'ler İngilizce**, dönüş tipi `str`, çıktı
-kırpılmış, 110 s'den uzun bloklama yok, `readOnlyHint`/`destructiveHint` doğru.
+### Transport ve framing
 
-| Araç | Hint | Ne yapar |
-|---|---|---|
-| `screen_info()` | readOnly | Çözünürlük, monitörler, ölçek, odaktaki pencere, imleç konumu, hangi backend'lerin hazır olduğu |
-| `screen_capture(region, scale, with_ocr)` | readOnly | Ekran görüntüsü alır; **kısa ömürlü HTTPS bağlantısı** + istenirse OCR metni döner |
-| `ui_dump(app, max_nodes, interactive_only)` | readOnly | AT-SPI ağacını metin olarak döker: `#12 push button "Kaydet" [enabled]`. **Modelin gözü budur** |
-| `ui_click(id \| label, button, double)` | destructive | `ui_dump`'taki bir düğüme tıklar (önce AT-SPI action, olmazsa koordinat) |
-| `ui_set_text(id, text)` | destructive | Bir metin kutusunu doğrudan doldurur (klavye düzeni sorunundan tamamen bağımsız) |
-| `screen_find_text(query)` | readOnly | OCR ile ekranda metin arar, kutu merkezlerini döner |
-| `mouse(action, x, y, button, clicks)` | destructive | move / click / double / right / drag / scroll — ham koordinat modu |
-| `keyboard(action, text \| keys)` | destructive | `type` (pano-yapıştır varsayılan), `key` (`ctrl+shift+t`), `hold`/`release` |
-| `computer_batch(actions, final)` | destructive | **En önemli araç.** Eylem listesini sırayla çalıştırır, aralara `wait` koyar, sonunda `ui_dump`/`screen_capture` döner. Spark'ta tek onay = birçok tık |
-| `window_list()` / `window_focus(id)` | readOnly / destructive | Açık pencereler, odaklama |
-| `desktop_unlock(minutes, reason)` | destructive | GUI kontrolünü süreli açar; makinede masaüstü bildirimi + denetim kaydı |
-| `desktop_lock()` | — | Süre dolmadan kapatır |
-| `computer_task(goal, app, max_steps)` | destructive | **Görsel işi yerel Claude Code'a devreder**: hedefi verirsin, o ekran görüntülerini kendi gözüyle okuyup adım adım yürütür, `job_id` döner |
+**Transport:** Python’ın başlattığı child process’in özel stdin/stdout pipe’ları.
 
-### `computer_batch` neden bu kadar önemli
+Bu pipe, Python MCP server’ın dış stdio transport’undan ayrıdır. Native stdout hiçbir şekilde MCP stdout’una doğrudan bağlanmayacak.
 
-Spark her `destructiveHint` araç çağrısında telefonda onay soruyor. Bir menüden
-tek bir öğe seçmek 4-5 çağrı ediyor → 5 onay, 5 × ağ gecikmesi. `computer_batch`
-ile:
+**Her frame:**
+
+```text
+4 byte unsigned big-endian JSON header length
+JSON header, UTF-8
+header.binary_len kadar binary payload
+```
+
+Kurallar:
+
+- Header en fazla 64 KiB.
+- Binary payload en fazla 128 MiB.
+- Capture’da bir response yalnızca bir monitor frame’i taşır.
+- Request/response header’ında `binary_len` daima bulunur; yoksa protokol hatası.
+- Kısmi read/write normal kabul edilir; `read_exact` davranışı uygulanır.
+- Geçersiz uzunluk, kesik frame veya bilinmeyen major sürümde bağlantı kapatılır.
+- PNG native pipe üzerinde base64 yapılmaz. MCP `ImageContent` için gereken base64 Python’da, son görüntüden üretilir.
+- Native process’e çıktı dosyası yolu verilmez. Böylece native dosya yazımı ve istemci MEDIA/path sözleşmesi birbirine bağlanmaz.
+
+### Mesaj örnekleri
+
+İlk handshake:
 
 ```json
-{"actions": [
-  {"a": "key",   "keys": "super"},
-  {"a": "wait",  "ms": 400},
-  {"a": "type",  "text": "libre"},
-  {"a": "wait",  "ms": 600},
-  {"a": "key",   "keys": "Return"},
-  {"a": "wait",  "ms": 3000}
-], "final": "ui_dump"}
+{
+  "protocol": {"major": 1, "minor": 0},
+  "id": "client-a:1",
+  "method": "initialize",
+  "params": {
+    "client_version": "pcbridge-build-id",
+    "supported_minor": [0],
+    "state_dir": "/absolute/private/state",
+    "runtime_dir": "/absolute/private/runtime"
+  },
+  "binary_len": 0
+}
 ```
 
-→ tek onay, tek istek, sonunda ekranın metinsel hâli. Toplam süre 110 s
-sınırının altında tutulur; aşarsa iş otomatik olarak arka plan job'ına dönüşür.
-
----
-
-## 5. Ajan modeli ve effort seçimi
-
-### 5.1 Şu an ne oluyor?
-
-`config.toml`'daki komutta `--model` **yok**:
-
-```toml
-command = ["claude", "-p", "{prompt}", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"]
-```
-
-Yani model seçimi Claude Code'un kendi öncelik sırasına kalıyor:
-
-1. `--model` bayrağı (yok)
-2. `ANTHROPIC_MODEL` ortam değişkeni (systemd biriminde yok — temiz)
-3. Ayar dosyasındaki `model` alanı → **`~/.claude/settings.json`**
-
-Makinede doğrulandı: **Claude Code v2.1.220, Claude Pro, "Opus 5 with xhigh
-effort"**. Picker'daki modeller: Sonnet 5 (varsayılan/önerilen), Fable 5
-(*ek kullanım kredisi ister*), Opus 5, Haiku 4.5. Effort: `low / medium / high /
-xhigh / max`.
-
-Claude Code v2.1.153'ten beri `/model` ile seçim yapıp **Enter**'a bastığında bu
-seçim kullanıcı ayarlarına `model` olarak **yazılıyor**. Effort için de aynısı:
-`low/medium/high/xhigh` interaktif oturumda seçilince kalıcı (`effortLevel`).
-
-**Sonuç: evet, telefondan gönderdiğin işler şu an en son seçtiğin modelle
-(Opus 5, xhigh effort) çalışıyor** — meğer ki model picker'da `Enter` yerine `s`
-("sadece bu oturum") demiş olasın.
-
-**Bunu tahmin etmene gerek yok, ölçebilirsin.** Mevcut parser `system/init`
-olayındaki modeli zaten yazdırıyor; `job_status` çıktısındaki şu satır:
-
-```
-· oturum baslatildi (model: claude-opus-5, dizin: /home/…)
-```
-
-Ayrıca doğrudan bakabilirsin:
-
-```bash
-grep -E '"(model|effortLevel)"' ~/.claude/settings.json
-```
-
-⚠️ **Dikkat edilecek iki nokta:**
-
-- İşler `os.environ.copy()` ile başlıyor (`jobs.py:112`), yani **systemd
-  biriminin ortamı ajanlara aynen geçiyor**. Birime `ANTHROPIC_MODEL` veya
-  `CLAUDE_CODE_EFFORT_LEVEL` eklenmemeli — `CLAUDE_CODE_EFFORT_LEVEL` *her şeyin
-  üstünde* önceliğe sahip ve `--effort` bayrağını sessizce etkisiz kılar.
-- Interaktif oturumda `/model` ile modeli değiştirirsen, **telefondan gelen işler
-  de o modele geçer** (ikisi aynı ayar dosyasını okuyor). Bu sürpriz istemiyorsan
-  aşağıdaki 5.2'yi uygula: pcbridge her çağrıda modeli açıkça belirtsin.
-
-### 5.2 Değiştirilebiliyor mu? Evet — ve eklemeliyiz
-
-Her ikisi de **oturuma özel** bayraklarla verilebiliyor; kalıcı ayarına dokunmaz:
-
-| Ne | Nasıl | Değerler |
-|---|---|---|
-| Model | `claude --model <takma ad \| tam isim>` | `opus`, `sonnet`, `haiku`, `fable`, `best`, `opusplan`, `opus[1m]`, `sonnet[1m]` veya `claude-opus-5` gibi tam isim |
-| Effort | `claude --effort <seviye>` | `low`, `medium`, `high`, `xhigh`, `max`, `ultracode` |
-
-Opus 5 için effort seviyeleri: `low/medium/high/xhigh/max`. Varsayılan `high`
-(yani sen `xhigh`'a **bilerek** çekmişsin). `max` ve `ultracode` yalnızca oturumluk;
-`ultracode` = `xhigh` + dinamik workflow orkestrasyonu, Claude Code ≥ v2.1.203 ister.
-Tek seferlik derin düşünme için prompt'un içine `ultrathink` yazmak da yeterli —
-effort ayarını değiştirmez.
-
-**Tasarım: kod değil, yapılandırma.** Mevcut `{prompt}` / `{session_id}` şablon
-mantığını genişletiyoruz, böylece her ajan kendi bayrak sözdizimini, model
-listesini, varsayılanlarını ve takma adlarını tanımlar. Kod tarafında tek bir
-**çözümleyici** (resolver) var; kurallar `config.toml`'da yaşıyor.
-
-`AgentSpec`'e eklenecek alanlar:
-
-| Alan | Ne işe yarar |
-|---|---|
-| `model_args` / `effort_args` | Bayrak sözdizimi (`["--model", "{model}"]`) |
-| `models` | Serbestçe seçilebilen modeller |
-| `restricted_models` | **Yalnızca açıkça istenirse** seçilebilenler (varsayılan seçimde asla) |
-| `blocked_models` | Hiçbir koşulda seçilemeyenler |
-| `efforts` | O ajanın kabul ettiği effort seviyeleri |
-| `default_model` | Model belirtilmezse |
-| `model_effort` | **Model başına** varsayılan effort (`sonnet="medium"`, `opus="high"`) |
-| `effort_required_with_model` | Model verilince effort de zorunlu mu (agy: evet) |
-| `aliases` | Serbest metin → kanonik ad eşlemesi |
-
-### 5.2.1 Senin kuralların
-
-Söylediklerin doğrudan yapılandırmaya çevriliyor:
-
-| Kural | Karşılığı |
-|---|---|
-| Claude tarafında **asla Fable** | `blocked_models = ["fable", "best"]` — `best` takma adı Fable'a çözülüyor, o yüzden o da kapalı |
-| Varsayılan **Sonnet 5 + medium** | `default_model = "sonnet"`, `model_effort.sonnet = "medium"` |
-| "opus" dersem → **Opus 5 + high** | `model_effort.opus = "high"` |
-| "extra" dersem → **xhigh** | `aliases."extra" = "xhigh"` (ayrıca `"maksimum"/"max"` → `max`) |
-| Antigravity'de **yalnızca Gemini** | Gemini'ler `models`'ta; Claude 4.6'lar ve GPT-OSS `restricted_models`'ta |
-| Antigravity varsayılanı **Gemini 3.6 Flash + high** | `default_model = "gemini-3.6-flash"`, `model_effort."gemini-3.6-flash" = "high"` |
-
-```toml
-[agents.claude]
-command = ["claude", "-p", "{prompt}", "--output-format", "stream-json",
-           "--verbose", "--dangerously-skip-permissions"]
-resume_args = ["--resume", "{session_id}"]
-parser = "claude_stream_json"
-
-# YENİ
-model_args  = ["--model", "{model}"]
-effort_args = ["--effort", "{effort}"]
-default_model = "sonnet"
-models  = ["sonnet", "opus", "haiku"]
-blocked_models = ["fable", "best"]        # ASLA. "best" -> Fable'a cozuluyor
-efforts = ["low", "medium", "high", "xhigh", "max"]
-effort_required_with_model = false
-
-[agents.claude.model_effort]              # model basina varsayilan effort
-sonnet = "medium"
-opus   = "high"
-haiku  = "medium"
-
-[agents.claude.aliases]
-"sonnet 5" = "sonnet"
-"sonnet5"  = "sonnet"
-"opus 5"   = "opus"
-"opus5"    = "opus"
-"haiku 4.5" = "haiku"
-"dusuk" = "low"
-"orta"  = "medium"
-"yuksek" = "high"
-"extra"  = "xhigh"                        # senin tercihin
-"ekstra" = "xhigh"
-"cok yuksek" = "xhigh"
-"maksimum" = "max"
-"en yuksek" = "max"
-```
-
-```toml
-[agents.antigravity]
-command = ["agy", "-p", "{prompt}", "--dangerously-skip-permissions"]
-resume_args = ["--conversation", "{session_id}"]
-parser = "plain"
-pty = true
-
-model_args  = ["--model", "{model}"]
-effort_args = ["--effort", "{effort}"]
-effort_required_with_model = true         # agy: model tek basina calismiyor (§5.4)
-default_model = "gemini-3.6-flash"
-efforts = ["low", "medium", "high"]       # agy'de xhigh/max YOK
-models  = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-pro"]
-# Asagidakiler yalnizca ACIKCA istenirse; varsayilan secimde asla kullanilmaz
-restricted_models = ["claude-sonnet-4.6", "claude-opus-4.6", "gpt-oss-120b"]
-
-[agents.antigravity.model_effort]
-"gemini-3.6-flash" = "high"
-"gemini-3.5-flash" = "high"
-"gemini-3.1-pro"   = "high"
-
-[agents.antigravity.aliases]
-"gemini 3.6 flash" = "gemini-3.6-flash"
-"3.6 flash" = "gemini-3.6-flash"
-"flash"     = "gemini-3.6-flash"
-"gemini 3.5 flash" = "gemini-3.5-flash"
-"gemini 3.1 pro"   = "gemini-3.1-pro"
-"pro"              = "gemini-3.1-pro"
-"gpt"  = "gpt-oss-120b"
-"gpt-oss" = "gpt-oss-120b"
-```
-
-> ⚠️ **Yukarıdaki `[agents.antigravity]` bloğu ÖLÇÜMDEN ÖNCEKİ tahmindir, aynen
-> uygulanmadı.** `agy models` ile gerçek kimlikler alındı: `claude-sonnet-4.6`
-> değil `claude-sonnet-4-6`, `claude-opus-4.6` değil `claude-opus-4-6-thinking`,
-> `gpt-oss-120b` değil `gpt-oss-120b-medium`. Ayrıca effort listesi ajan başına
-> değil **model başına** (`gemini-3.1-pro`'da medium yok; Claude/GPT-OSS
-> modelleri `--effort` hiç kabul etmiyor). Uygulanan hâli için
-> **"Faz 0 sonuçları"** bölümüne ve `config.example.toml`'a bak.
-
-### 5.2.2 Çözümleyici — akış
-
-```python
-def agent_run(agent=None, prompt=..., workdir=None, resume_session=None,
-              model: str | None = None,    # "Model name or alias, e.g. 'opus', 'gemini 3.6 flash'."
-              effort: str | None = None,   # "Reasoning effort, e.g. 'high', 'xhigh'."
-              wait_seconds=30, timeout=None) -> str
-```
-
-1. **Normalize** — `model`/`effort` küçük harfe çevrilir, noktalama/boşluk
-   sadeleştirilir, `aliases` uygulanır. "Gemini 3.6 Flash", "gemini-3.6-flash",
-   "3.6 flash" hepsi aynı yere gider.
-2. **Ajanı çıkar** — `agent` verilmemişse: model hangi ajana aitse o seçilir;
-   ait değilse `default_agent` (= `claude`). Bare "opus" → Claude Code Opus 5;
-   Antigravity'nin Claude Opus 4.6'sı için `agent="antigravity"` demek gerekir.
-3. **Politika kontrolü**
-   - `blocked_models` → **reddet**, gerekçeyle ("Fable devre dışı: PLAN §5.2.1")
-   - `restricted_models` → yalnızca kullanıcı adı açıkça verdiyse geçer;
-     varsayılan/otomatik seçim buraya asla düşemez
-   - listede olmayan ad → reddet, geçerli listeyi göster
-4. **Varsayılanları doldur** — model boşsa `default_model`; effort boşsa
-   `model_effort[model]`, o da yoksa `default_effort`, o da yoksa boş bırak.
-5. **Kırp (clamp)** — istenen effort o ajanda yoksa **en yakın alt seviyeye**
-   indirilir ve bu **çıktıda söylenir**. `agy` + `xhigh` → `high`, "xhigh
-   Antigravity'de yok, high kullanıldı" notu. (Claude Code bunu kendi de yapıyor;
-   agy yapmıyor.)
-6. **Zorunluluk** — `effort_required_with_model` ve effort hâlâ boşsa çağrı
-   reddedilir (agy'nin sessizce varsayılan modele düşmesini engeller, §5.4).
-7. **Komutu kur** — `model_args`/`effort_args` yalnızca değer varsa eklenir.
-8. **Raporla** — iş özetinin ilk satırı: `ajan: claude · model: opus · effort: high`.
-   İş bitince gerçekleşen değer (`modelUsage` / agy başlık satırı) ile karşılaştırılır;
-   fark varsa **uyarı** basılır.
-
-Böylece telefondan şunların hepsi çalışır:
-
-| Ne dersen | Ne olur |
-|---|---|
-| "…yap" (model demezsin) | claude · sonnet · medium |
-| "opus ile yap" | claude · opus · high |
-| "opus, extra ile yap" | claude · opus · xhigh |
-| "antigravity ile yap" | antigravity · gemini-3.6-flash · high |
-| "antigravity üzerinden gemini 3.6 flash yüksek efor" | antigravity · gemini-3.6-flash · high |
-| "antigravity ile 3.1 pro, düşük efor" | antigravity · gemini-3.1-pro · low |
-| "antigravity ile claude opus" | antigravity · claude-opus-4.6 (açıkça istendi → izinli) |
-| "fable ile yap" | **reddedilir**, gerekçe döner |
-
-Diğer kurallar:
-
-- `list_agents` çıktısına her ajanın model tablosu, varsayılanları ve effort
-  listesi eklenir → Gemini neyin var olduğunu araç açıklamasından değil,
-  **veriden** öğrenir
-- `parse_claude_stream_json`, `result` olayındaki **`modelUsage`** alanını okuyup
-  özete `model: claude-opus-5 · effort: xhigh` satırı ekler
-- `--model` yalnızca **başlattığımız oturumu** etkiler; senin interaktif
-  `/model` seçimin (Opus 5 · xhigh) bozulmaz
-- Araç açıklamaları İngilizce kalır ama **değer listeleri açıklamaya gömülür**
-  (`"Model: sonnet | opus | haiku | gemini-3.6-flash | ..."`) — Gemini'nin doğru
-  değeri üretme şansı artar; yine de son söz yerel çözümleyicidedir
-
-### 5.3 Neden bu önemli: maliyet
-
-Telefondan atılan "şu klasörde ne var" tarzı bir iş Opus 5 + xhigh ile çalışırsa
-gereksiz pahalı — üstelik Claude Pro'dasın, Opus 5 Sonnet'in ~2 katı kullanım
-yakıyor. Varsayılanı Sonnet 5 + medium yapmak tam da bunu çözüyor; ağır işi
-"opus" veya "opus, extra" diyerek bilinçli olarak seçiyorsun.
-
-`job_status` çıktısı zaten `maliyet: $…` satırını gösteriyor, yani etkisini
-ölçebilirsin. Ayrıca Fable 5 Pro planında **ek kredi** istediği için
-`blocked_models`'ta — yanlışlıkla seçilip faturaya yansıması mümkün değil.
-
-### 5.4 Antigravity — ölçüldü (agy 1.1.9)
-
-> ⚠️ **Bu bölümün ölçümleri agy 1.1.5'e ait ve 1.1.9'da GEÇERSİZ.** Sessiz geri
-> düşüş düzelmiş (artık exit 1), model kimlikleri farklı, effort model başına,
-> `pty` gereksiz, açılış başlığı print modunda basılmıyor. Güncel ve uygulanan
-> gerçekler: **"Faz 0 sonuçları — ölçüldü 2026-08-01"** bölümü (§6 altında).
-> Aşağısı tarihsel kayıt olarak bırakıldı.
-
-Evet, `agy` şu an da kullanılabilir: `agent_run(agent="antigravity", …)`.
-`config.toml`'da tanımlı ve `pty = true` ile çıktı sorunu çözülmüş durumda.
-
-**TUI'deki `/model` listesi (agy 1.1.9, Google AI Pro):**
-
-| Görünen ad | Politika |
-|---|---|
-| Gemini 3.6 Flash | ✅ varsayılan (+ `high`) |
-| Gemini 3.5 Flash | ✅ serbest |
-| Gemini 3.1 Pro | ✅ serbest |
-| Claude Sonnet 4.6 (Thinking) | 🔒 yalnızca açıkça istenirse |
-| Claude Opus 4.6 (Thinking) | 🔒 yalnızca açıkça istenirse |
-| GPT-OSS 120B (Medium) | 🔒 yalnızca açıkça istenirse |
-
-Effort kaydırıcısı: `low / medium / high` (Claude Code'daki `xhigh` ve `max` yok).
-Claude ve GPT-OSS satırlarındaki `(Thinking)` / `(Medium)` etiketleri bu modellerin
-kendi sabit akıl yürütme kipleri olabileceğini düşündürüyor — `--effort` kabul
-edip etmedikleri ayrıca denenmeli.
-
-**Makinede test edildi (Antigravity CLI 1.1.5, Google AI Pro hesabı):**
-
-```
-$ agy --model "gemini-3.6-flash"
-⚠ Warning
-  --model gemini-3.6-flash requires --effort (available: low, medium, high).
-  Using the default model instead.
-```
-
-`--effort "high"` eklenince çalışıyor. Yani agy'de **model ve effort ayrılmaz bir
-çift**: modeli tek başına vermek işe yaramıyor.
-
-Buradan çıkan üç sonuç plana giriyor:
-
-**1. `agy`'de effort seviyeleri farklı.** `low / medium / high` — Claude Code'daki
-`xhigh` ve `max` burada **yok**. İzin listeleri ajan başına ayrı tutulmalı (zaten
-öyle tasarlandı, ama artık değerleri biliyoruz).
-
-**2. Sessiz geri düşüş var — ve bu bir tuzak.** Yukarıdaki durum bir **hata
-değil, uyarı**: `agy` çıkış kodu 0 ile, ama **istediğin modelden farklı bir
-modelle** çalışmaya devam ediyor. Telefondan "gemini-3.6-flash ile yap" dersin,
-iş sorunsuz görünür, aslında varsayılan modelle (Gemini 3.5 Flash) yapılmıştır.
-Bu yüzden:
-
-- `[agents.*]`'a `effort_required_with_model = true` alanı eklenir. Bu ajanda
-  `model` verilip `effort` verilmemişse pcbridge, komutu göndermeden önce
-  `default_effort`'ü koyar; o da yoksa **çağrıyı reddeder** ve neden reddettiğini
-  söyler. Yanlış modelle sessizce çalışmaktansa açık hata iyidir.
-- `plain` ayrıştırıcı çıktıda `Using the default model instead` / `requires
-  --effort` kalıplarını arar; bulursa iş özetinin **en üstüne** uyarı basar.
-
-**0. `pty = true` artık gerekmeyebilir.** 1.1.9'da `agy … -p "…" | cat` çıktıyı
-sorunsuz veriyor (§1.1), yani projeyi kuran upstream #76 hatası düzelmiş
-görünüyor. Faz 1'de dosyaya yönlendirerek de doğrula:
-
-```bash
-agy --model gemini-3.6-flash --effort high -p "sadece OK yaz" > /tmp/agy.txt 2>&1; wc -c /tmp/agy.txt
-```
-
-Boyut > 0 ise `pty = false` yapılabilir — `script` sarmalayıcısı kalkar, ANSI
-gürültüsü azalır, ayrıştırma temizlenir. Şüphedeysen `true` bırakmak zararsız.
-
-**3. Gerçekte hangi modelin çalıştığı çıktıdan okunabiliyor.** `agy` açılış
-başlığında `Gemini 3.5 Flash (High)` yazıyor, alt bilgi çubuğunda da
-`Gemini 3.5 Flash · high`. `pty = true` olduğu için bu satırlar iş kaydına
-düşüyor → ayrıştırıcı bunu yakalayıp `model: … · effort: …` satırı olarak
-özete koyar (Claude tarafındaki `modelUsage` ile aynı işlev).
-
-Yapılandırma karşılığı:
-
-```toml
-[agents.antigravity]
-command = ["agy", "-p", "{prompt}", "--dangerously-skip-permissions"]
-resume_args = ["--conversation", "{session_id}"]
-parser = "plain"
-pty = true
-
-# YENİ
-model_args  = ["--model", "{model}"]
-effort_args = ["--effort", "{effort}"]
-effort_required_with_model = true          # agy 1.1.5: model tek basina calismiyor
-default_model  = ""                        # bos = agy'nin kendi varsayilani (Gemini 3.5 Flash)
-default_effort = "high"
-efforts = ["low", "medium", "high"]        # agy'de xhigh/max YOK
-models  = ["gemini-3.6-flash"]             # dogrulanan; asagidaki komutla tamamlanacak
-```
-
-Model **kimliklerinin** (CLI'a verilecek tam metin) doğrulanması gerekiyor;
-yalnızca `gemini-3.6-flash` kesin biliniyor, diğerleri görünen addan türetilmiş
-tahmin. Faz 0'da tek tek:
-
-```bash
-for m in gemini-3.5-flash gemini-3.1-pro claude-sonnet-4.6 claude-opus-4.6 gpt-oss-120b; do
-  echo "--- $m"; agy --model "$m" --effort high -p "sadece OK yaz" 2>&1 | head -4
-done
-```
-
-Çıktıda `requires --effort` / `Using the default model instead` görürsen o kimlik
-yanlıştır. Doğru kimlikleri `config.toml`'daki `models` / `restricted_models`
-listelerine geçir.
-
-⚠️ Antigravity Claude Code'un ayar dosyalarını okumaz — kendi hesabı, kendi
-kotası, kendi model listesi vardır. `[agents.*]` blokları birbirinden bağımsız.
-
----
-
-## 6. Faz planı
-
-### Faz 0 — Ölçüm (kod yazmadan önce, ~30 dk)
-
-Bu plandaki birkaç madde "muhtemelen çalışır" seviyesinde. Önce makinede
-ölçülecek. `desktop_doctor.sh` olarak kaydedip çalıştır:
-
-```bash
-#!/usr/bin/env bash
-echo "== oturum ==";        echo "$XDG_SESSION_TYPE / $XDG_CURRENT_DESKTOP / GNOME $(gnome-shell --version 2>/dev/null)"
-echo "== klavye düzeni =="; gsettings get org.gnome.desktop.input-sources sources
-echo "== uinput ==";        ls -l /dev/uinput; id -nG | tr ' ' '\n' | grep -x input || echo "input grubunda DEGILSIN"
-echo "== ydotool ==";       command -v ydotool && ydotool --version
-echo "== claude modeli ==";  claude --version; grep -E '"(model|effortLevel)"' ~/.claude/settings.json 2>/dev/null || echo "settings.json'da model/effort alani yok"
-echo "== agy modeli ==";     command -v agy && agy --version
-# agy 1.1.5'te dogrulandi: --model tek basina YETMIYOR, --effort sart (low/medium/high)
-echo "== agy model+effort =="; agy --model "gemini-3.6-flash" --effort "high" -p "sadece OK yaz" 2>&1 | tail -5
-echo "== screenshot 1 ==";  gnome-screenshot -f /tmp/p0.png 2>&1; file /tmp/p0.png 2>/dev/null   # OLCULDU: calisiyor, 3840x1080
-echo "== monitorler ==";    gdbus call --session --dest org.gnome.Mutter.DisplayConfig --object-path /org/gnome/Mutter/DisplayConfig --method org.gnome.Mutter.DisplayConfig.GetCurrentState 2>&1 | head -c 600
-echo "== portal ==";        dpkg -l xdg-desktop-portal xdg-desktop-portal-gnome 2>/dev/null | awk '/^ii/{print $2, $3}'
-echo "== pipewire gst ==";  gst-inspect-1.0 pipewiresrc >/dev/null 2>&1 && echo ok || echo "gstreamer1.0-pipewire yok"
-echo "== AT-SPI ==";        python3 -c "import gi;gi.require_version('Atspi','2.0');from gi.repository import Atspi;d=Atspi.get_desktop(0);print('uygulama sayisi:',d.get_child_count());print([d.get_child_at_index(i).get_name() for i in range(min(8,d.get_child_count()))])" 2>&1 | tail -3
-echo "== pencere listesi =="; gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell/Introspect --method org.gnome.Shell.Introspect.GetWindows 2>&1 | head -c 300
-echo "== idle monitor ==";  gdbus call --session --dest org.gnome.Mutter.IdleMonitor --object-path /org/gnome/Mutter/IdleMonitor/Core --method org.gnome.Mutter.IdleMonitor.GetIdletime 2>&1 | head -c 120
-echo "== ekran kilidi ==";  gdbus call --session --dest org.gnome.ScreenSaver --object-path /org/gnome/ScreenSaver --method org.gnome.ScreenSaver.GetActive 2>&1 | head -c 120
-echo "== tesseract ==";     command -v tesseract && tesseract --list-langs 2>&1 | head -5
-echo "== wl-clipboard ==";  command -v wl-copy || echo "yok: sudo apt install wl-clipboard"
-```
-
-**Çıktıya göre kararlar:**
-
-- `gnome-screenshot` çalışıyorsa → Faz 2 bir günden yarım güne iner (PipeWire'a gerek kalmaz)
-- `Introspect.GetWindows` boş/hata dönerse → pencere listesini AT-SPI'dan türet
-- AT-SPI uygulama sayısı 0 ise → `gsettings set org.gnome.desktop.interface toolkit-accessibility true` + yeniden oturum
-- `settings.json`'da `model` alanı yoksa → `/model` picker'da `s` (oturumluk) seçilmiş demektir; §5.2'deki `default_model` daha da gerekli hale gelir
-- `agy` (1.1.5) → `--model` + `--effort` birlikte **zorunlu**, ölçüldü (§5.4). Model listesini TUI'deki `/model`'den tamamla
-
-**Çıktı:** `PLAN.md`'ye "Faz 0 sonuçları" bölümü eklenir, belirsizlikler kapanır.
-
-### Faz 0 sonuçları — ölçüldü 2026-08-01 (A bölümü kısmı)
-
-A bölümüne giren ölçümler yapıldı. **Bu planın §5.2.1 ve §5.4'teki üç varsayımı
-yanlış çıktı**; ilgili yerler aşağıdaki gerçeklere göre düzeltildi. (Masaüstü
-tarafındaki ölçümler — uinput, AT-SPI, monitör — B bölümüne kaldı.)
-
-**1. Claude Code tarafı: sorun doğrulandı.**
-
-```
-$ grep -E '"(model|effortLevel)"' ~/.claude/settings.json
-  "model": "opus",
-  "effortLevel": "xhigh",
-```
-
-Yani §5.1'in tahmini doğru: telefondan gönderilen **her iş** şu anda Opus 5 +
-xhigh ile çalışıyor. `default_model = "sonnet"` gerçekten gerekli.
-
-**2. `agy models` alt komutu var — model kimliklerini tahmin etmeye gerek yok.**
-
-```
-$ agy models
-gemini-3.6-flash-high      gemini-3.5-flash-high      gemini-3.1-pro-high
-gemini-3.6-flash-medium    gemini-3.5-flash-medium    gemini-3.1-pro-low
-gemini-3.6-flash-low       gemini-3.5-flash-low
-claude-sonnet-4-6          claude-opus-4-6-thinking   gpt-oss-120b-medium
-```
-
-**Effort, model kimliğinin parçası.** `--model X --effort Y`, `X-Y` kompozitine
-çözülüyor; iki yazım eşdeğer ve ikisi de çalışıyor (ölçüldü, exit 0):
-
-```
-agy --model gemini-3.6-flash --effort high   ≡   agy --model gemini-3.6-flash-high
-```
-
-**3. §5.2.1/§5.4'teki model kimlikleri yanlıştı — nokta değil tire, ve son ekler
-var.** Doğrusu: `claude-sonnet-4-6` (❌ `claude-sonnet-4.6`),
-`claude-opus-4-6-thinking` (❌ `claude-opus-4.6`), `gpt-oss-120b-medium`
-(❌ `gpt-oss-120b`).
-
-**4. Effort listesi ajan başına değil, MODEL başına.** §5.4'teki
-"`efforts = ["low","medium","high"]`, ajan geneli" yaklaşımı gerçeği anlatmıyor:
-
-| Model | Kabul ettiği effort | Ölçülen davranış |
-|---|---|---|
-| `gemini-3.6-flash`, `gemini-3.5-flash` | low, medium, high | effort **zorunlu** |
-| `gemini-3.1-pro` | **low, high** (medium YOK) | `--effort medium` → exit 1 |
-| `claude-sonnet-4-6`, `claude-opus-4-6-thinking`, `gpt-oss-120b-medium` | **hiçbiri** | `--effort` verilirse exit 1 |
-
-```
-$ agy --model gemini-3.1-pro --effort medium -p …
-Error: invalid model selection (--model "gemini-3.1-pro" --effort "medium"):
-  gemini-3.1-pro has no "medium" effort (available: low, high)   → exit 1
-
-$ agy --model claude-sonnet-4-6 --effort high -p …
-Error: invalid model selection (--model "claude-sonnet-4-6" --effort "high"):
-  --effort is not supported for model "claude-sonnet-4-6"        → exit 1
-
-$ agy --model claude-sonnet-4-6 -p …                             → exit 0, "OK"
-```
-
-Sonuç: `effort_required_with_model` tek bir ajan-geneli bayrak olarak yetmiyor.
-Yapılandırmaya **model başına izinli effort listesi** giriyor (`model_efforts`);
-boş liste = "bu model `--effort` kabul etmiyor, bayrağı hiç ekleme".
-
-**5. Sessiz geri düşüş 1.1.9'da DÜZELTİLMİŞ — §5.4 madde 2 artık geçerli değil.**
-1.1.5'teki `⚠ Warning … Using the default model instead` + **exit 0** davranışı
-yok. Geçersiz seçim artık `Error: invalid model selection …` + **exit 1**.
-
-Bu iyi haber ama tasarımı değiştiriyor: çözümleyicinin görevi artık "yanlış
-modelle sessizce çalışmayı önlemek" değil, **işin baştan hata vermesini
-önlemek**. Doğru effort'u yapılandırmadan doldurmak hâlâ şart, gerekçe değişti.
-
-**6. `pty = true` artık gereksiz — kaldırıldı.**
-
-```
-$ agy --model gemini-3.6-flash --effort high -p "sadece OK yaz" > /tmp/agy.txt 2>&1
-$ wc -c /tmp/agy.txt        →  3   ("OK\n")
-```
-
-`script` sarmalayıcısıyla 4 bayt (yalnızca `\r\n` farkı) — ek bilgi yok. Upstream
-#76 düzelmiş. `pty = false` yapıldı; ANSI gürültüsü ve `script` bağımlılığı kalktı.
-
-**7. Model başlığı print modunda hiç basılmıyor — §5.4 madde 3 uygulanamaz.**
-`Gemini 3.6 Flash (High)` satırı ne pty'li ne pty'siz çıktıda var; o satır yalnızca
-interaktif TUI'ye ait. "Gerçekleşen modeli açılış başlığından oku" yolu yok.
-
-**8. Yerine daha iyisi var: `--output-format json`.**
+Yanıt:
 
 ```json
-{"conversation_id":"91652d3b-…","status":"SUCCESS","response":"OK\n",
- "duration_seconds":1.74,"num_turns":1,
- "usage":{"input_tokens":19325,"output_tokens":35,"thinking_tokens":26,
-          "cache_read_tokens":0,"total_tokens":19360}}
+{
+  "protocol": {"major": 1, "minor": 0},
+  "id": "client-a:1",
+  "result": {
+    "instance_id": "native-instance-id",
+    "native_version": "pcbridge-build-id",
+    "platform": "linux",
+    "features": ["display.snapshot", "capture.on_demand"]
+  },
+  "binary_len": 0
+}
 ```
 
-Bu, mevcut `plain` ayrıştırıcısının UUID regex avından çok daha sağlam:
-`conversation_id` doğrudan geliyor (→ `--conversation` ile devam), `status` ve
-token kullanımı da cabası. Model adı JSON'da yok — ama artık gerekmiyor, çünkü
-yanlış model sessizce çalışmıyor, exit 1 veriyor (madde 5).
+Capture isteği:
 
-→ `[agents.antigravity]` komutuna `--output-format json` eklendi,
-`parser = "agy_json"` yapıldı. Ayrıştırıcı JSON çözemezse düz metne düşer
-(hata durumunda stdout boş, stderr'de `Error: …` var).
+```json
+{
+  "protocol": {"major": 1, "minor": 0},
+  "id": "client-a:18",
+  "method": "capture.frame",
+  "params": {
+    "display_id": "mutter:DP-1",
+    "topology_id": "layout-fingerprint",
+    "session_id": "capture-session-id",
+    "grant_id": "grant-id",
+    "revoke_epoch": "epoch-id",
+    "timeout_ms": 8000,
+    "freshness": "after_request"
+  },
+  "binary_len": 0
+}
+```
 
-**9. §5.2.1 ↔ §5.4 çelişkisi çözüldü.** §5.2.1 ve `UYGULAMA.md`
-`default_model = "gemini-3.6-flash"` diyor, §5.4 ise `""`. İkiye bir ve gerekçe
-net: boş bırakmak "hangi modelle çalıştığını bilmemek" demek, planın çözmeye
-çalıştığı sorunun ta kendisi. **`gemini-3.6-flash` uygulandı.**
+Başarılı yanıt, ardından PNG byte’ları:
 
-### Faz 1 sonuçları — ölçüldü 2026-08-01 (B bölümü)
+```json
+{
+  "protocol": {"major": 1, "minor": 0},
+  "id": "client-a:18",
+  "result": {
+    "display_id": "mutter:DP-1",
+    "topology_id": "layout-fingerprint",
+    "session_id": "capture-session-id",
+    "frame_sequence": 42,
+    "pixel_size": [1920, 1080],
+    "desktop_rect": [1920, 0, 1920, 1080],
+    "captured_at_unix_ms": 1780000000000,
+    "frame_age_ms": 12,
+    "backend": "linux.mutter.pipewire",
+    "mime_type": "image/png"
+  },
+  "binary_len": 431000
+}
+```
 
-Girdi katmanı yazıldı ve makinede doğrulandı. **Bu planın üç kararı değişti**;
-gerekçeleri aşağıda, ilgili bölümlere de not düşüldü.
+Hata:
 
-**1. Mutlak fare TÜM TUVALİ kapsıyor — §2.5 ve §8'deki "yüksek risk" kapandı.**
+```json
+{
+  "protocol": {"major": 1, "minor": 0},
+  "id": "client-a:18",
+  "error": {
+    "code": "PERMISSION_REQUIRED",
+    "message": "Ekran paylaşımı izni gerekli.",
+    "retryable": false,
+    "category": "permission",
+    "suggested_action": "approve_capture_permission",
+    "permission_scope": "os.capture",
+    "backend": "linux.portal"
+  },
+  "binary_len": 0
+}
+```
 
-`ABS_X`/`ABS_Y` aralığı `0..3839` / `0..1079` verilen bir uinput cihazı, global
-tuvale **1:1** eşleniyor. Altı noktada ölçüldü (imleç konumu ekran görüntüsü
-farkından okunarak):
+### Request ID ve concurrency
 
-| Hedef | İstenen | Ölçülen | Sapma |
-|---|---|---|---|
-| tuvalin başı (sol üst) | (5, 5) | (5, 5) | 0 |
-| SOL ekran ortası | (960, 540) | (960, 540) | 0 |
-| SOL ekran sağ-alt | (1900, 1050) | (1900, 1050) | 0 |
-| SAĞ ekran sol-üst | (1930, 10) | (1930, 10) | 0 |
-| SAĞ ekran ortası | (2760, 540) | (2760, 540) | 0 |
-| tuvalin sonu (sağ alt) | (3834, 1074) | (3834, 1075) | 1 px* |
+- ID: client instance kimliği + monoton artan sayaç.
+- Python’da bir reader thread response’ları ID’ye göre pending request’lere dağıtır.
+- Writer lock yalnızca frame yazımını korur.
+- Yanıtların request sırasıyla gelmesi zorunlu değildir.
+- Native tarafında capture işlemleri session başına sıralanır.
+- Input işlemleri tek bir execution lane kullanır.
+- `cancel`, `revoke`, `shutdown` capture/encoding kuyruğunun arkasında beklemez.
+- Başlangıç sınırı: en fazla 16 pending request; fazlası `BUSY`.
 
-\* sprite ekranın alt kenarında kırpıldığı için ölçüm artefaktı, konumlama hatası değil.
+### Timeout ve cancellation
 
-Kritik olan **yetenek bileşkesi**: `ABS_X + ABS_Y + BTN_LEFT` → udev
-`ID_INPUT_MOUSE=1` ("VMware mutlak faresi" yolu). `BTN_TOUCH` ya da
-`BTN_TOOL_PEN` eklenirse cihaz dokunmatik ekran/tablet olur ve kompozitör onu
-**tek bir çıkışa** bağlar — ikinci monitör erişilemez hale gelirdi. Göreli
-hareket + geri besleme tasarımına gerek kalmadı.
+| İşlem | Üst sınır |
+|---|---:|
+| Binary startup + initialize | 3 saniye |
+| Status/capability snapshot | 2 saniye |
+| Display discovery | 10 saniye |
+| Mutter capture session kurulumu | 15 saniye |
+| Tek frame bekleme | 8 saniye |
+| Accessibility read/action | Mevcut 20/25 saniye sınırları |
+| Normal shutdown | 2 saniye; sonra terminate/kill |
+| Bir MCP çağrısının toplamı | 110 saniyeden kısa |
 
-**2. Girdi arka ucu `dotool` değil, `python-evdev` — §2.1 değişti.**
+- Python, kalan deadline’ı IPC’ye gönderir.
+- Batch adımları ve final screenshot aynı toplam deadline’ı paylaşır.
+- Timeout’ta ID’ye yönelik `cancel` gönderilir.
+- Capture cancellation sonucu geç gelen frame yayımlanmaz.
+- Kısmen yürümüş input işlemi geri alınmış sayılmaz.
+- Input timeout/crash sonucu kesin bilinmiyorsa `EXECUTION_UNKNOWN`; otomatik tekrar yasak.
+- Release/cleanup girişimi yapılır; başarılı olduğu ölçülmeden “bütün tuşlar bırakıldı” denmez.
 
-Ölçüm: makinede `dotool`, `ydotool`, `go`, `cmake` yok; depodaki ydotool 0.1.8
-(eski). Buna karşılık `python3-evdev` zaten kurulu ve venv'e bir `pip install`
-ile giriyor. `dotool`'un tek gerçek üstünlüğü `DOTOOL_XKB_LAYOUT=tr` ile ham tuş
-yolunda düzen farkındalığıydı — ama planın kendisi metin girişinin varsayılan
-yolunu **pano + Ctrl+V** yapıyor, yani o üstünlük yalnızca `raw=True` kaçış
-kapısında işe yarıyor. Bedeli ise Go kurulumu (~400 MB), kaynaktan derleme ve
-ayrı bir `dotoold` servisi. evdev ayrıca **ABS aralığını bizim tanımlamamıza**
-izin verdiği için 1. maddedeki riski doğrudan hedefledi. Kullanıcı onayıyla
-değiştirildi.
+### Süreç ömrü
 
-Yan etki: acil durdurma komutu değişti. Ayrı daemon yok, sanal cihaz pcbridge
-sürecinin içinde yaşıyor → **`systemctl --user stop pcbridge`** (eski plandaki
-`pkill -f dotoold` geçersiz).
+- Her uzun ömürlü Python MCP process’i en fazla bir native child tutar.
+- İlk fazda kullanıcı başına paylaşılan daemon/socket kurulmaz.
+- CLI process’i gerektiğinde kendi child’ını açar ve çıkarken kapatır.
+- Desktop kapalıyken server açılışı native capture session başlatmaz.
+- `initialize` ve capability sorgusu permission dialog açmaz.
+- Python stdin’i kapanırsa native bütün kaynaklarını kapatıp çıkar.
+- Native crash, Python server’ı veya shell/jobs araçlarını düşürmez.
+- Read-only discovery için bir sonraki çağrıda en fazla bir restart yapılabilir.
+- Capture/input crash sonrası aktif işlemler tekrarlanmaz; yeni capture session açık bir yeniden etkinleştirme adımı ister.
+- Crash sırasında native session kimliği ve frame cache geçersizleşir.
 
-**3. systemd düzeltmesi büyük ölçüde gereksizmiş — §3 değişti.**
+### Binary discovery ve loglar
 
-Ölçüm: systemd kullanıcı yöneticisinde `WAYLAND_DISPLAY`,
-`DBUS_SESSION_BUS_ADDRESS`, `XDG_RUNTIME_DIR`, `XDG_SESSION_TYPE` **zaten
-import edilmiş** durumda ve çalışan pcbridge süreci hepsini görüyor (GNOME
-oturumu bunu kendisi yapıyor). Planın "kritik" dediği sorun bu makinede yok.
+Sıra:
 
-Ayrıca §3'ün önerdiği iki satır **uygulanmadı**, çünkü projenin açık kararıyla
-çelişiyorlar:
+1. Açıkça verilmiş `PCBRIDGE_NATIVE_BIN`.
+2. `[native] binary_path`.
+3. Paketlenmiş `pcbridge/_native/<target>/pcbridge-native`.
+4. Hiçbiri yoksa `NATIVE_NOT_FOUND`.
 
-- `WantedBy=graphical-session.target` servisi **açılışta otomatik başlatır**;
-  oysa `install.sh` servisi bilinçle `disable` ediyor ve `doctor.sh` bunu
-  *"açılışta otomatik başlamıyor (istenen davranış)"* diye doğruluyor.
-- `PartOf=graphical-session.target` oturum kapanınca pcbridge'i **öldürür**;
-  bugün öldürmüyor ve ajan/tmux/kabuk araçlarının masaüstüne ihtiyacı yok.
+Geliştirme binary’si otomatik PATH taramasıyla bulunmayacak; test komutunda açıkça gösterilecek.
 
-Uygulanan: yalnızca `After=graphical-session.target` (sıralama, zararsız), artı
-`install.sh`'a `import-environment` + `dbus-update-activation-environment`
-güvenlik ağı (bunu yapmayan oturumlar için).
+- Yanlış executable/protokol sürümü sessizce kabul edilmeyecek.
+- Helper `config.toml` okumayacak; parola/token almayacak.
+- Stderr ayrı thread ile sürekli boşaltılacak.
+- Bellekte son 64 KiB tanı tutulacak; kalıcı log boyut sınırı olacak.
+- IPC payload, görüntü, clipboard içeriği ve yazılan metin loglanmayacak.
+- Major değişikliği uyumsuzdur. Minor değişiklikleri yalnızca ek alan/metot; negotiated feature olmadan yeni metot çağrılmayacak.
 
-**4. Ek ölçümler.**
+## 4. Ortak veri sözleşmeleri
 
-- Klavye düzeni düz `tr` değil, **`tr+intl`** (`gsettings ... input-sources`).
-- `/dev/uinput` için udev kural dosyasının **numarası işlevsel**: ACL'i veren
-  satır `73-seat-late.rules` içinde, dolayısıyla kural 73'ten önce gelmeli.
-  İlk denemede `80-uinput.rules` yazıldı → `GROUP`/`MODE` uygulandı ama
-  `uaccess` ACL'i oluşmadı. `60-pcbridge-uinput.rules`'a alınınca oturum
-  kapatmaya gerek kalmadan çalıştı.
-- Monitör tablosu `busctl --user --json=short` ile **düz JSON** olarak okunuyor
-  → yeni Python bağımlılığı yok. Yedek: `xrandr --listmonitors` (XWayland).
-- `wl-copy` `capture_output=True` ile **asılıyor**: pano sahibi olarak arka
-  planda yaşadığı için borular EOF vermiyor. Yazma yolunda `DEVNULL` şart.
-- Ekran kilidi (`ScreenSaver.GetActive`) ve idle (`IdleMonitor.GetIdletime`)
-  D-Bus okumaları servis içinden sorunsuz çalışıyor.
+### Native ve Python arasında
 
-**Uçtan uca doğrulandı:** izin almadan ret → `desktop_unlock(5)` → kullanıcı
-makinedeyken `force`suz ret (43 sn idle okundu) → görülen konuma tıklama →
-`merhaba @ ış ğü ÖÇ — pcbridge B testi #1` pano yoluyla **birebir** yazıldı,
-pano eski içeriğine döndü → `ctrl+a` seçim → `desktop_lock` sonrası tekrar ret.
-Testler: `test_desktop.py` 101/101, `test_models.py` 79/79, `test_e2e.py` 111 geçti
-+ 4 atlandı (0 hata).
-
-> ⚠️ **Düzeltme.** Bu satır bir ara "`test_e2e.py` 115/115" diyordu. O sayı
-> tekrar üretilemiyordu: 12. bölümün dört ayrıştırma kontrolü sabit çıktılı
-> sahte bir ajan ister, o da yalnızca geçici olarak PATH'e konmuştu. Sahte ajan
-> `tests/fake_agents/claude` olarak depoya alındı; sunucuya PATH ile enjekte
-> etmek **mümkün değil** (`jobs.py` `bash -lc` kullanıyor, login kabuğu
-> `~/.profile` üzerinden `$HOME/.local/bin`'i PATH'in başına koyuyor — ölçüldü).
-> `parse_claude_stream_json`'un kapsamı bu yüzden `test_models.py` 11. bölüme
-> taşındı (sunucusuz, 10 kontrol); e2e'deki dördü artık **ATLA** sayılıyor.
-
-### Faz 1 — Girdi katmanı + güvenlik kapısı ✅ tamamlandı 2026-08-01
-
-- [x] ~~`dotool`/`ydotool` derle~~ → **`python-evdev`** kullanıldı; harici derleme
-  ve ayrı daemon yok. Gerekçe: "Faz 1 sonuçları", 1. madde
-- [x] `/etc/udev/rules.d/`**`60`**`-pcbridge-uinput.rules` → `KERNEL=="uinput", GROUP="input", MODE="0660", TAG+="uaccess"`, `usermod -aG input $USER`
-  — **dosya numarası 80 değil 60 olmak zorunda**; ACL'i veren `73-seat-late.rules`
-  ondan sonra koşarsa `uaccess` etiketi hiç görülmüyor (ölçüldü). `setup_uinput.sh`
-- [x] ~~`dotoold.service` kullanıcı servisi~~ → **gerekmedi**; sanal cihaz pcbridge
-  sürecinin içinde yaşıyor, süreç ölünce cihaz da yok oluyor
-- [x] **İlk test: ikinci monitörün sağ alt köşesine tıkla.** → 6 noktada ölçüldü,
-  tuvalin tamamına 1:1, en büyük sapma 1 px (§2.5 riski kapandı)
-- [x] `pcbridge/desktop/input.py`: move/click/drag/scroll/key/type + **pano-yapıştır** metin girişi
-- [x] `pcbridge/desktop/safety.py`: `desktop_unlock` süreli izin, ekran kilidi kontrolü, "kullanıcı 60 s içinde klavyeye dokunduysa reddet" (IdleMonitor), saniyede eylem limiti, `audit.log`'a her eylem
-- [x] `mouse` / `keyboard` / `desktop_unlock` / `desktop_lock` araçları
-- [x] `config.toml`: `[desktop] enabled = false` (**varsayılan kapalı**)
-- [x] **Model/effort seçimi (§5.2)** — `AgentSpec` alanları (`model_args`, `effort_args`, `models`, `restricted_models`, `blocked_models`, `efforts`, `default_model`, `model_effort`, `effort_required_with_model`, `aliases`); §5.2.2'deki 8 adımlı çözümleyici; `agent_run`'a `model` + `effort` (+ `agent` artık opsiyonel); `list_agents` çıktısına model tablosu; `parse_claude_stream_json`'a `modelUsage`; `plain` ayrıştırıcıya agy başlık satırı + "default model instead" uyarı taraması (§5.4). Masaüstünden bağımsız, tek başına test edilebilir → **ilk bu yapılabilir**
-- [x] §5.2.2'deki "Ne dersen / ne olur" tablosunun her satırı için birim test (çözümleyici saf fonksiyon, sunucu ayakta olmadan test edilebilir)
-
-**Doğrulama:** telefondan `desktop_unlock(10)` → `keyboard(type:"merhaba")` → gedit'e yazıldı mı; Türkçe düzende `@`, `ı`, `ş` doğru çıkıyor mu.
-
-### Faz 2 sonuçları — ölçüldü 2026-08-02 (C bölümü)
-
-**1. `monitor="focused"` yapılamadı.** `Shell.Introspect.GetWindows` "Access
-denied" veriyor (§2.5'teki düzeltme notu). Kalan değerler: `"all"`, `N`,
-bağlantı adı, `"primary"`, `"window"`.
-
-**2. `/shot` bağlantısı tek kullanımlık değil, süre bazlı** (§2.4'teki not).
-
-**3. Pillow bir bağımlılık olarak eklendi.** Sistemde vardı ama venv'de yoktu;
-`requirements.txt`'e girdi. Yoksa yalnızca `screen_capture` kapanıyor.
-
-**4. Aynı saniyedeki iki yakalama birbirini eziyordu.** Dosya adı
-`%Y%m%d-%H%M%S` + monitör'den üretiliyordu; saniye çözünürlüğü yetmiyor. İlk
-koordinat ölçümünde yakalandı: taban görüntü siliniyor, fark boş çıkıyordu.
-Üretimde sonucu daha ağır olurdu — **yayımlanmış eski bir `/shot` bağlantısı
-sessizce daha yeni bir ekran görüntüsü göstermeye başlardı.** Ada rastgele
-6 haneli bir son ek eklendi; `test_desktop.py` bunu artık koruyor.
-
-**5. Koordinat gidiş-dönüşü ölçüldü.** Fare bilinen global noktalara
-gönderilip ekran görüntüsünde imleç arandı, formülle geri çevrildi:
-
-| ölçek | nokta sayısı | en büyük sapma |
-|---|---|---|
-| tam çözünürlük (`scale=0`) | 5 (iki monitörde) | **1 px** |
-| 1280 uzun kenar (varsayılan) | 4 | ~5 px (bir uç noktada 14 px) |
-
-Kırpma + ofset zinciri birebir doğru. Küçültmedeki sapma küçültmenin kendisinden
-(1 görüntü pikseli = 1,5 ekran pikseli, üstüne LANCZOS'un imleç kenarını
-yayması). Buton/menü için fazlasıyla yeterli; araç çıktısı bunu **açıkça
-söylüyor** ve keskinlik gerekirse `scale=0` öneriyor.
-
-> **2026-09-05 — bu maddenin bir yarısı geçersizleşti.** Zincirin doğru olması
-> yetmiyormuş: zinciri **modelin kendisi** yürütüyordu. Araç çıktısı formülü
-> veriyor (`global_x = ofset_x + görüntü_x / ölçek`), model bölmeyi yapıyordu.
-> Zayıf modeller bu aritmetiği tutturamadı — sistematik olarak hedefin
-> kenarına tıklandı, bazen ofset/ölçek bilgisi büsbütün kayboldu.
->
-> Çözüm hesabı düzeltmek değil, **hesabı modelden almak** oldu: her çekim
-> `<id>.json` olarak kaydediliyor, `mouse` / `computer_batch` / `pcb-do` bir
-> `shot="m2-a1b2c3"` alıp dönüşümü kendisi yapıyor (`capture.to_global`, tek
-> geçit). Yukarıdaki **sapma ölçümü aynen geçerli** — o sapma dönüşümden
-> değil küçültmenin kendisinden geliyordu ve hâlâ öyle.
-
-**6. Fark ölçümünde aynı tuzağa iki kez düşüldü:** tüm görüntünün farkını almak
-saati/yanıp sönen imleci de yakalıyor ve `getbbox()` alakasız bir yeri
-gösteriyor. Doğrusu B'deki gibi hedefin etrafındaki dar pencerede fark almak.
-
-### Faz 2 — Ekran görüntüsü ✅ tamamlandı 2026-08-02
-
-- [x] `capture.py` backend zinciri + `screen_info`'da hangisinin seçildiğini göster
-- [x] **Monitör farkındalığı (§2.5)** — monitör tablosu `monitors.py`'dan (B'de yazıldı, C onu yeniden kullanıyor); `screen_capture(monitor=…)` kırpması; **varsayılan `"all"`**; her kırpılmış görüntüyle ofset taşınması; koordinatların global uzayda normalleştirilmesi
-- [x] Ölçekleme: kırpma sonrası uzun kenar ≤ 1280 px, PNG optimize (telefon için)
-- [x] `pcbridge/shots.py` + `/shot/<token>.png` rotası, 5 dk TTL, ~~tek kullanım~~ süre bazlı, `state_dir/shots` temizliği
-- [x] `screen_capture` + `screen_info` araçları
-- [ ] Gerekirse: ScreenCast portalı + `restore_token`'ı `state_dir/screencast.token`'a sakla — **gerekmedi**, `gnome-screenshot` çalışıyor
-
-### Faz 3 sonuçları — ölçüldü 2026-08-02 (D bölümü)
-
-**1. Ağaç dolu ve kullanılabilir.** `toolkit-accessibility = false` olmasına
-rağmen 20 uygulama kayıtlı; a11y veri yolu `systemd-run --user` altından da
-görünüyor (servis bağlamı sorun değil). Ölçülen ağaçlar:
-
-| uygulama | düğüm | tıklanabilir | süre |
-|---|---|---|---|
-| gnome-text-editor (GTK4) | 66 | 14 (+1 düzenlenebilir) | 0,04 sn |
-| ModrinthApp | 411 | 399 | 0,27 sn |
-| gnome-shell | 3121 | 1 | 1,93 sn |
-| claude-desktop (Electron) | 3 | — | 0,00 sn |
-
-GTK4 ağacı **derin**: düzenlenebilir `text` düğümü 16. seviyede, dip 18. Sığ bir
-derinlik sınırı konulamaz — sınır düğüm sayısında.
-
-**2. `gi` venv'den import edilemiyor** (`include-system-site-packages = false`).
-AT-SPI ayrı bir yardımcı süreçte (sistem `python3`) çalışıyor. İkinci ve daha
-önemli gerekçe: AT-SPI cevap vermeyen uygulamada bloklayabiliyor, ayrı süreç
-sert zaman aşımıyla öldürülebiliyor.
-
-**3. GTK4 her düğüme TÜM GAction grubunu iliştiriyor.** gnome-text-editor'de
-frame 35 "eylem" bildiriyor (`page.save-as`, `clipboard.copy`, `win.open`…).
-Bunlar tıklanabilirlik değil. Ayırt edici işaret **nokta**: GAction'lar
-`grup.ad`, gerçek AT-SPI eylemleri tek kelime (`click`). Filtresiz bırakılınca
-her etiket tıklanabilir görünüyordu.
-
-**4. Chromium/Electron her düğüme `doDefault` + `showContextMenu` koyuyor** —
-noktasız oldukları için yukarıdaki filtreye takılmıyorlar. Bu yüzden
-**kapsayıcı roller** (`application`, `frame`, `panel`, `section`…) eylem
-bildirseler bile hedef sayılmıyor. Düzeltmeden önce claude-desktop
-"3 tıklanabilir düğüm" gibi görünüyordu, oysa içeriğini hiç yayınlamıyor.
-
-**5. Koordinatlar güvenilmez — ölçüldü.** `get_extents(SCREEN)` çağrısında
-`Desktop Icons 1` ve `Desktop Icons 2` **ikisi de `@(0,0) 1920x1080`**
-bildiriyor, oysa tanımı gereği ayrı monitörlerde. Bu yüzden `ui_click`
-**koordinata düşmüyor**: `Action` yoksa açıkça reddediyor ve `screen_capture` +
-`mouse` yolunu öneriyor. Sessizce yanlış yere tıklamak en kötü sonuç olurdu.
-
-**6. `insert_text`'in uzunluk parametresi KARAKTER DEĞİL BAYT.** `len(text)`
-verilince `merhaba @ ış ğü ÖÇ — pcbridge D testi #1` (40 karakter, 48 bayt)
-sessizce **32 karaktere düşüyordu** — hiçbir hata vermeden. Türkçe harfler 2,
-em-dash 3 bayt. Düzeltildi; ayrıca yazılan karakter sayısı doğrulanıyor.
-
-**7. Odaktaki pencere AT-SPI'dan okunabiliyor** (`StateType.ACTIVE`, tam bir
-tane). C'de `Shell.Introspect` "Access denied" verdiği için düşen odak bilgisi
-buradan geliyor; `screen_info` artık odaktaki pencereyi söylüyor.
-
-**Kapsam:** OCR bu bölüme **girmedi** (kullanıcı kararı). `tesseract` kurulu
-değil ve AT-SPI'ın göremediği Electron uygulamaları için F bölümündeki
-`computer_task` daha iyi bir cevap.
-
-### Faz 3 — Metinsel gözler: AT-SPI ✅ tamamlandı 2026-08-02
-
-- [x] `uitree.py`: ağacı gez, gürültüyü ele, kararlı `#id` üret, `ui_dump` çıktısını 4000 karaktere sığdır
-  — **kimlik karmasına yol GİRMİYOR** (rol + etiket + kaçıncı geçtiği). Yol
-  karışıma girseydi her sekme açılışında bütün kimlikler değişir, modelin
-  elindeki liste sessizce eskirdi
-- [x] `ui_click`: `Action.do_action`. ~~olmazsa `Component.get_extents` + fare~~
-  → **fare yedeği bilinçli olarak YOK**, gerekçesi yukarıda 5. madde
-- [x] `ui_set_text`: `EditableText` arayüzü — klavye taklidi olmadığı için
-  Türkçe düzenden tamamen bağımsız (canlı doğrulandı, birebir eşleşme)
-- [ ] `ocr.py`: tesseract TSV, `screen_find_text` — **ertelendi** (yukarıda)
-- [x] Electron uygulamaları için not: `--force-renderer-accessibility` bayrağı
-  — `ui_dump` boş ağaç gördüğünde bunu kullanıcıya kendisi söylüyor
-
-**Bu fazın sonunda Spark, klavye/fare koordinatı bilmeden GUI kullanabiliyor.**
-
-### Faz 4 sonuçları — ölçüldü 2026-08-02 (E bölümü)
-
-**1. uinput olayı `IdleMonitor`'ü SIFIRLIYOR** — 104227 ms → 151 ms. Sonuç:
-"kullanıcı makinenin başında mı" kontrolü bir eylem dizisinin **içinde**
-yapılamaz; dizi ikinci adımda kendi tuşunu kullanıcı sanıp kendini durdururdu.
-Kontrol yalnızca batch **başında**, `SafetyGate` tarafından yapılıyor.
-
-**2. Pencere öne alma: iki yol daha çürüdü.** C'de `Shell.Introspect` kapalı
-çıkmıştı; E'de kalan iki aday da elendi:
-
-| yol | sonuç |
+| Tip | Sorumluluk |
 |---|---|
-| AT-SPI `Component.grab_focus` | GTK'da `atspi_error`, Electron'da `False` |
-| D-Bus `org.freedesktop.Application.Activate` | `exit=0` **ama pencere gelmiyor** — sessiz başarısızlık, iki kez doğrulandı |
-| **GNOME araması** (`super` + ad + `Return`) | **çalışıyor**, ~6,5 sn |
+| `ProtocolVersion` | Major/minor negotiation. |
+| `NativeError` / Python `DesktopError` | Stable code ve güvenli kullanıcı mesajı. |
+| `CapabilitySnapshot` | Platform, backend, durum, sınırlama, doğrulama zamanı. |
+| `DisplaySnapshot` | Tek bir topology kimliği ve o andaki monitor tablosu. |
+| `DisplayInfo` | Stable backend ID, connector, public index, geometry, scale, transform. |
+| `RawFrame` | Sahip olunan RGBA byte’ları, pixel boyutu, sequence, timestamp, session/topology kimliği. |
+| `CapturedImage` | Native PNG byte’ları + raw frame metadata. |
+| `DesktopGrant` | Grant ID, revoke epoch, `until`, `hard_until`. |
+| `ExecutionContext` | Request ID, deadline, grant, cancellation. |
+| `ElementRef` | Accessibility backend referansı + app/window/snapshot kimliği. |
 
-`window_focus` bu yüzden pahalı ve sonucu **AT-SPI'dan doğruluyor**; arama
-yanlış uygulamayı seçerse `Escape` ile toparlanıp hata dönüyor.
+Python provider interface’leri:
 
-**3. GNOME overview açıkken Wayland panosu bloklanıyor** — `wl-paste` 5 sn'de
-cevap vermedi, `focused_window` da "ACTIVE pencere yok" diyor. Yani
-`UYGULAMA.md`'nin `computer_batch` örneği (`super` → `type "libre"`) varsayılan
-yolda **asılırdı**. `batch.py` `super` sonrası `type` eylemlerini kendiliğinden
-ham tuş yoluna çeviriyor ve bunu raporda söylüyor; `Escape`/`Return` ile geri
-dönüyor.
+- `CaptureProvider`: `display_snapshot`, `start`, `capture_frame`, `stop`, `capabilities`, `close`.
+- `InputProvider`: mevcut `InputBackend` public işlemleri.
+- `AccessibilityProvider`: dump, window/focus read, native action, editable text.
+- `DesktopStateProvider`: lock/activity observations.
 
-**4. Ölçülen eylem maliyetleri** — bütçe tahmini bunlardan kuruldu:
+Bunlar `pcbridge/desktop/contracts.py` içinde tanımlanacak. İlk task’ta kullanılmayan interface’ler boş implementation olarak üretilmeyecek.
 
-| eylem | ilk çağrı | sonraki |
-|---|---|---|
-| `key` | 1331 ms | **30 ms** |
-| `move` | 1307 ms | **0 ms** |
-| `type` (pano) | — | ~620 ms, **uzunluktan bağımsız** |
-| `ui_dump` / `focused_window` | — | 115–135 ms |
-| `windows` (pencere listesi) | — | **42 ms** (ağaç gezmiyor) |
-| `screen_capture` | — | 2200–2500 ms |
+### Capability modeli
 
-İlk çağrılardaki ~1,3 sn uinput cihazı yaratma; sunucu ömründe bir kez.
+Her capability için:
 
-**5. Kör tıklama odağı kaydırıyor — ve bu gerçekten oldu.** Bir ölçüm
-tıklaması (`move(920,520)` + `click`, konumu doğrulanmadan) masaüstüne düştü;
-ardından temizlik için gönderilen `ctrl+a` + `Delete` masaüstündeki **23 öğeyi
-çöpe gönderdi** (hepsi geri alındı). Karşılığı: `computer_batch` fare
-tıklamalarından sonra odağı doğruluyor, kaymışsa **duruyor**. Aynı senaryo
-regresyon testi olarak duruyor (`test_desktop.py` 26. bölüm).
+```text
+state:
+  supported
+  unsupported
+  unavailable
+  permission_required
+  degraded
 
-**6. 110 s aşımı: job'a devir YAPILMADI** (kullanıcı kararı). `jm.start()` ayrı
-bir süreç (`argv`) istiyor, yani batch'i önce CLI'ye taşımak gerekirdi — o iş
-F bölümündeki `bin/pcb-do`. Bunun yerine **kısmi çalıştırma**: bütçe dolunca
-sıradaki eyleme hiç başlanmaz, yapılmayanlar listelenir. GUI eylemleri geri
-alınamadığı için modelin sonucu göremeden devam etmesindense durması doğru.
+backend
+scope
+reason_code
+limitations[]
+observed_at
+evidence: probe | operation
+usable_now
+```
 
-**7. Denetim kaydı genişletildi.** Bulgu: 438 satırlık `audit.log`'da
-`shell_run` geçen **tek satır yoktu** — en sıkı denetim en zayıf araçlardaydı.
-Artık `shell_run`, `shell_run_background`, `agent_run`, `fs_read`, `fs_write`,
-`tmux_send/keys/kill`, `job_cancel` de yazıyor. Kural her yerde aynı: **ne
-yapıldığı yazılır, içerik yazılmaz** (komut evet çıktısı hayır, dosya yolu evet
-içeriği hayır, `prompt_chars` evet prompt hayır).
+Ayrı top-level authorization durumu:
 
-**Canlı doğrulandı:** izin yokken ret → `desktop_unlock(3)` → `window_list`
-5 pencere → `window_focus("Metin Duzenleyici")` öne aldı → `computer_batch` ile
-**4 eylem tek çağrıda 1,5 saniyede** (`ui_set_text` + `wait` + `key` + `type`) →
-metin kutusundaki içerik `pcbridge E7 — toplu eylem testi · ek metin ığüşöç`
-ile **birebir eşleşti** (49 karakter, 58 bayt) → bütçe aşımı 2/3 yapıp durdu →
-hatalı `ui_click` sonrası `type` **çalışmadı** → `desktop_lock` sonrası üçü de
-reddetti. `config.toml` hiç değiştirilmedi (izin yalnızca test sürecinin
-belleğindeydi).
+```text
+desktop_enabled
+grant_remaining_seconds
+hard_remaining_seconds
+screen_lock_state
+revoke_epoch
+```
 
-### Faz 4 — Toplu eylem + pencereler ✅ tamamlandı 2026-08-02
+Böylece “capture implementasyonu kullanılabilir” ile “Pcbridge masaüstü izni şu an açık” ayrılır.
 
-- [x] `computer_batch` — eylem şeması, süre bütçesi, ~~110 s aşımında job'a
-  devir~~ → **kısmi çalıştırma** (gerekçe: yukarıda 6. madde)
-- [x] `window_list` / `window_focus` — ~~`Shell.Introspect`~~ → AT-SPI listesi +
-  GNOME araması (gerekçe: 2. madde)
-- [x] Hazır makrolar → ayrı araç **değil**, `computer_batch` içinde `launch` ve
-  `focus` eylemleri. Araç sayısı Spark'ta doğrudan token maliyeti; 32 araç oldu
-- [x] Odak koruması (planda yoktu, 5. maddedeki kazadan doğdu)
-- [x] Denetim kaydının kabuk/ajan/dosya araçlarına genişletilmesi
-- [x] Yetki haritası: `[desktop] enabled = false`'un ne kapatıp **ne
-  kapatmadığı** (`KULLANIM.md`, `README.md`)
-- [ ] **Ekran çerçevesi eklentisi (§7.1)** — `pcbridge-frame@local`, Cairo gradyan stroke, `affectsInputRegion: false`, D-Bus `SetActive`/`SetState`, `monitors-changed` bağlantısı, durum renkleri. Bir kez logout gerekiyor
-  → **G bölümüne taşındı.** `UYGULAMA.md` bunu "G · opsiyonel, en son" diye
-  sıralıyor; bu satır plan ile uygulama belgesi arasında tutarsızlıktı
+Zorunlu capability anahtarları:
 
-**Bu fazın sonunda bir menü seçimi telefonda 5 onay değil, 1 onay.**
+- `capture.monitor`
+- `capture.window`
+- `input.pointer`
+- `input.keyboard`
+- `accessibility.read`
+- `accessibility.action`
+- `window.list`
+- `window.focus`
+- `window.move_resize`
+- `clipboard.read`
+- `clipboard.write`
+- `user_activity`
+- `screen_lock`
 
-### Faz 5 — Yerel görsel ajan: `computer_task` (~1 gün)
+Örnek kararlar:
 
-Asıl "tam teşekküllü computer use" burada oluyor. Claude Code makinede çalışıyor
-ve **PNG dosyalarını okuyabiliyor** — yani gözü var. `computer_task`:
+- GNOME AT-SPI window list: **degraded**, yalnızca görünür accessibility uygulamaları.
+- GNOME aramasıyla focus: **degraded**, native activation değil.
+- Kullanılabilir move/resize backend’i yok: **unsupported**.
+- GI eksik legacy capture + çalışan screenshot fallback: **degraded**.
+- Portal capture açık, pointer verilmemiş: capture ve pointer farklı durumlar.
+- Capability probe hiçbir mouse/keyboard olayı göndermeyecek.
 
-1. `config.toml`'daki `claude` ajanını, GUI görevleri için hazırlanmış bir sistem
-   yönergesiyle başlatır (`~/.claude/skills/computer-use/SKILL.md`)
-2. Skill, Claude Code'a şunu öğretir: `pcb-shot` ile ekranı çek → `Read` ile
-   PNG'ye bak → `pcb-do '<eylem json>'` ile eyleme geç → tekrar bak
-3. Bunlar için iki küçük CLI kabuğu yazılır (`bin/pcb-shot`, `bin/pcb-do`), aynı
-   `desktop/` modülünü kullanır — MCP sunucusundan bağımsız çalışır
-4. Telefondan gelen çağrı bir `job_id` döner, `job_status` ile izlenir
-5. `computer_task` kendi `model`/`effort` parametresini alır (§5.2). Ekran
-   görüntüsü okuyup GUI sürmek zor iş — burada varsayılan `opus` + `xhigh`
-   mantıklı; rutin metin işleri `sonnet`'te kalır
+### Hata taxonomy
 
-Sonuç: telefondan *"Ayarlar'ı aç, gece modunu 22:00'ye kur"* diyebilirsin;
-Gemini görüntüyü hiç görmez, işi gören yerel ajandır.
+Kodlar mesaj metninden türetilmeyecek.
 
-### Faz 5 sonuçları ✅ tamamlandı 2026-08-03
+| Kategori | Başlangıç kodları |
+|---|---|
+| `safety` | `DESKTOP_DISABLED`, `GRANT_REQUIRED`, `GRANT_EXPIRED`, `REVOKED`, `SCREEN_LOCKED`, `LOCK_STATE_UNKNOWN`, `USER_ACTIVE`, `ACTIVITY_UNKNOWN`, `RATE_LIMITED` |
+| `permission` | `PERMISSION_REQUIRED`, `PERMISSION_DENIED`, `DEVICE_NOT_GRANTED` |
+| `capability` | `UNSUPPORTED`, `BACKEND_UNAVAILABLE`, `DEPENDENCY_MISSING` |
+| `capture` | `FRAME_TIMEOUT`, `STALE_FRAME`, `FRAME_FORMAT_UNSUPPORTED`, `FRAME_TOO_LARGE`, `DISPLAY_CHANGED`, `DISPLAY_MAPPING_UNKNOWN` |
+| `coordinate` | `SHOT_NOT_FOUND`, `SHOT_INVALID`, `SHOT_STALE`, `AMBIGUOUS_COORDINATE` |
+| `accessibility` | `TARGET_MISMATCH`, `ELEMENT_STALE`, `ELEMENT_AMBIGUOUS`, `ACTION_UNSUPPORTED` |
+| `execution` | `TIMEOUT`, `CANCELLED`, `EXECUTION_UNKNOWN`, `BUSY` |
+| `ipc` | `NATIVE_NOT_FOUND`, `PROTOCOL_MISMATCH`, `NATIVE_CRASHED`, `INVALID_FRAME` |
 
-**Plandan sapmalar — hepsi ölçümle gerekçelendi.**
+Her hata `code`, `message`, `category`, `retryable`, `suggested_action` taşıyacak. Gerektiğinde `permission_scope`, `backend`, `execution_state` eklenecek.
 
-**1. Sürücü Claude Code değil Antigravity oldu** (kullanıcı kararı: kotası ayrı,
-Claude Code kullanımını yemiyor). Model `gemini-3.6-flash` + `high`;
-`gemini-3.1-pro` açıkça dışarıda bırakıldı. Yani yukarıdaki *"varsayılan `opus`
-+ `xhigh` mantıklı"* maddesi geçersiz — **model yükseltme ilkesi bu bölümde
-uygulanmadı.** Ayarlar koda değil `config.toml`'a gömüldü
-(`[desktop] computer_task_*`), tek satırla değişir.
+`retryable=true`, otomatik yeniden execution izni değildir.
 
-Seçimin bedeli ölçüldü: `agy_json` ayrıştırıcısı adım listesi vermiyor, yalnızca
-son cevabı. Karşılığı `pcb-do`'nun her eylemi `audit.log`'a **görev kimliğiyle**
-yazması — denetim kaydı fiilen adım listesinin yerine geçiyor. Canlı koşuda
-işe yaradı: ajanın 15 adımı satır satır okunabildi.
+## 5. Capture için verilmiş kararlar
 
-**2. Ölçümler (F0):**
+### İlk backend
 
-| ölçüm | sonuç | etkisi |
-|---|---|---|
-| taze süreçte uinput | klavye 1,301 s + fare 1,306 s = **2,607 s** | `pcb-do` liste alıyor |
-| iki cihaz tek bekleme | **1,41 s** (idle 57694→404 ms ile doğrulandı) | `InputBackend.ensure()` eklendi |
-| gerçek tuş basımı | 0,030 s | cihaz kurulumu baskın maliyet |
-| `systemctl stop/restart` | çalışan işleri **öldürüyor** | `jobs.py` docstring'i yanlıştı, düzeltildi |
-| `agy` PNG okuma | 4,2 s, doğru cevap | varsayılan sürücü doğrulandı |
-| `agy --print-timeout` | varsayılan **5 dk**, GUI işi 239 s'de tostladı | `30m` eklendi |
-| AT-SPI + Vesktop | pencere **görünüyor**, iç ağaç **0 düğüm** | F'nin varlık sebebi kanıtlandı |
-| ekran görüntüsü maliyeti | ~40 bin jeton/görüntü | skill'de "gereksiz görüntü alma" |
+**GNOME/Mutter ScreenCast + doğrudan PipeWire.**
 
-**3. `[desktop] enabled` → `false` her zaman ölçülüyor sanılıyordu ama
-`batch_max_actions`, `batch_budget_seconds` ve `batch_check_focus`
-`load_config()` tarafından **hiç okunmuyordu** (E bölümünde atlanmış).
-`config.example.toml`'da belgeliydi, `DesktopSpec`'te vardı, ama dosyaya
-yazılan değer hiçbir şey yapmıyordu. F0 sırasında fark edildi, düzeltildi.
+Gerekçe: Pcbridge’in çalışan Linux yolunu korur; aynı anda portal input mimarisi ve capture migration yapılmaz. Portal capture daha sonra ayrı backend olarak eklenir.
 
-**4. `apps.launch` Flatpak'te sahte hata veriyordu.** `capture_output=True`
-boru yaratıyor, `flatpak run` çocuğu onu miras alıyor ve `communicate()`
-gtk-launch'ın bitmesini değil **borunun kapanmasını** bekliyor. Vesktop soğuk
-başlatmada 15 s'de "başlamadı" hatası veriyordu — oysa uygulama açılıyordu.
-`Popen` + `wait()` + çıktı dosyaya: **0,12 s**.
+- Mutter D-Bus bağlantısı native process’in sahibi olduğu kalıcı bağlantı.
+- Monitorler connector üzerinden `RecordMonitor` ile bağlanır.
+- Stream event aboneliği `Start` öncesinde kurulur.
+- Session izni açıkken yaşar; her screenshot’ta yeniden kurulmaz.
+- İlk sürümde **OnDemand**: capture talebi geldiğinde PipeWire consumer etkinleşir; istekten sonra alınan geçerli frame döner; consumer bırakılır.
+- Session açık tutulması, sürekli frame biriktirmek anlamına gelmez.
+- Frame tüketimi için ayrılmış PipeWire thread.
+- `RawFrame`: tightly packed RGBA8, alpha 255, owned buffer.
+- İlk sürümde yalnızca doğrulanmış packed RGB/BGR formatları ve CPU erişilebilir buffer.
+- DMA-BUF/EGL, HDR ve GPU zero-copy kapsam dışı.
+- Stride, chunk offset/size, overflow, buffer boyu ve format doğrulanır.
+- Bilinmeyen format tahmin edilmez.
+- Native lossless PNG encode eder; Python son crop/resize/publish işlemlerini yapar.
+- `Image.LANCZOS`, 1536 default ve mevcut oversize uyarısı korunur.
+- `monitor="window"` ilk native capture’ın parçası değildir; legacy yol açıkça raporlanır.
+- `include_pointer` değişikliği session’ın kontrollü yeniden kurulmasını gerektirebilir; eski frame’ler atılır.
 
-**5. Odak koruması yeniden tasarlandı.** Canlı ajan koşusunda iki kez ateşledi
-ve ikisinde de doğru davrandı — ama ajanın planı "editöre tıkla, sonra yaz"dı,
-yani odağın değişmesi *istenen* şeydi. Kör bir çağıran (`computer_batch`) için
-durmak doğru; gözü olan bir ajan için her pencereye tıklama tuzağa basıyordu.
-Çözüm korumayı kapatmak değil **niyeti söyletmek** oldu: `expect_focus`.
-Beklenen pencereye gidilirse dizi sürüyor, başka yere giderse yine duruyor.
+### Fallback politikası
 
-**6. Yeni bir tehlike sınıfı bulundu: bayat ekran görüntüsü.** Odak koruması
-"tıkladıktan *sonra* odak değişti mi" diye bakıyor. Görüntü bayatladıysa odak
-zaten hedef pencerede olmaz, tıklama oraya düşer ve **değişen bir şey olmadığı
-için koruma hiç ötmez**. Canlı doğrulamada tam bu yaşandı (69 sn). Karşılığı:
-`pcb-shot` çıktısına zaman damgası, `pcb-do`'ya koordinatlı eylemler için yaş
-kontrolü (`agent_shot_max_age_seconds`, varsayılan 60).
+İki ayrı ayar katmanı kullanılacak:
 
-**7. Ekran görüntüleri `/tmp/pcb` yerine `$XDG_RUNTIME_DIR/pcbridge/shots`**
-(mod 700, oturumla silinir). `UYGULAMA.md` `/tmp/pcb` diyor; `/tmp` 775 ve
-ekran görüntüsü bu projenin en gizlilik-hassas çıktısı.
+- Mevcut `[desktop] capture_backend`: `auto | screencast | gnome-screenshot`.
+- Yeni `[native] capture`: `python | rust | auto`.
 
-**Canlı doğrulama sonucu:** Vesktop'ta `oneaura`'ya mesaj — `ui_dump` orada
-sıfır düğüm döndürdüğü için `ui_click`/`ui_set_text` kullanılamadı; iş yalnızca
-ekrana bakıp koordinatla tıklayarak yapıldı. Metin birebir düştü (40 karakter,
-Türkçe harfler bozulmadan), gönderilmeden önce doğru sohbette olunduğu ekran
-görüntüsüyle doğrulandı.
+Anlamları:
 
-**Yapılmadı:** otonom ajanın (`agy`) görevi uçtan uca kendi başına tamamlaması.
-İki denemede de tamamlayamadı — birincisinde `--print-timeout` duvarına
-tosladı, ikincisinde odak koruması niyeti beyan edilmediği için durdurdu.
-İkisinin de karşılığı koda girdi ama **`computer_task` ile tam otonom bir GUI
-görevinin başarıyla bittiği görülmedi**; `pcb-shot`/`pcb-do` döngüsü ise elle
-sürülerek uçtan uca doğrulandı.
+| Ayar | Davranış |
+|---|---|
+| `native.capture=python` | Mevcut Python implementation. |
+| `native.capture=rust` | Rust screencast zorunlu; sessiz Python screencast dönüşü yok. |
+| `native.capture=auto` | Yeni grant/session başında Rust denenir; uygun başlangıç hatalarında legacy provider seçilebilir. |
+| `desktop.capture_backend=gnome-screenshot` | Capture implementation ayarından bağımsız açık legacy screenshot seçimi. |
+| `desktop.capture_backend=screencast` | Monitor capture’da screenshot fallback yasak. |
+| `desktop.capture_backend=auto` | Session kurulamazsa screenshot fallback mümkün; kullanılan yol görünür. |
 
-### Faz 6 — Belge, test, güvenlik gözden geçirmesi (~0.5 gün)
+Ek kurallar:
 
-- [ ] `tests/test_desktop.py`: `weston --backend=headless` (veya Xvfb) içinde gerçek tıklama testleri; CI'da gerçek masaüstüne dokunmadan
-- [ ] `tests/test_e2e.py`'ye yeni araçların şema testleri
-- [ ] `KULLANIM.md`: telefondan yazılabilecek gerçek cümleler
-- [ ] `GELISTIRME.md`: Wayland tuzakları bölümü (düzen, AT-SPI koordinatları, uinput izinleri)
-- [ ] `README.md` güvenlik bölümüne GUI kontrolü uyarısı
-- [ ] Spark'ta araç listesini yenile (kaldır–ekle)
-
-**Toplam tahmin: 5–6 gün** (Faz 0 sonuçlarına göre ±1 gün).
+- Permission denial, revoke, lock, yanlış topology veya geçersiz koordinat nedeniyle fallback yapılmaz.
+- Aktif session ortasında backend değiştirilmez.
+- Bir `all` capture sonucu farklı backend’lerin kısmi görüntülerinden oluşturulmaz.
+- Native failure ile GUI input aynı çağrı içinde başka backend’e otomatik tekrar gönderilmez.
+- `window` capture’ın mevcut legacy davranışı ayrı operation olarak korunur; native monitor desteği var diye native window desteği iddia edilmez.
 
 ---
 
-## 7. Güvenlik tasarımı
+# Phase 0 — Güvenli ve tekrarlanabilir baseline
 
-Bu özellik pcbridge'in risk profilini ciddi biçimde büyütüyor: şu ana kadar
-"uzaktan komut çalıştırma" vardı, şimdi **açık oturumundaki her uygulamaya,
-oturum açmış tarayıcına, parola yöneticine görsel erişim** ekleniyor. Bu yüzden
-güvenlik, sonradan eklenen değil **Faz 1'de yazılan** bir parça:
+## Task 0.1 — Gerçek capture ve input test izinlerini ayır
 
-1. **Varsayılan kapalı.** `[desktop] enabled = false`. Açmak bilinçli bir işlem.
-2. **Süreli izin.** GUI araçları yalnızca `desktop_unlock(minutes)` sonrası
-   çalışır; süre dolunca kendiliğinden kapanır (varsayılan 15 dk, tavan 120 dk).
-3. **Kilit ekranı kontrolü.** `org.gnome.ScreenSaver.GetActive` true ise tüm GUI
-   araçları reddeder. Kilitli ekranın arkasında parola yazdırmak yok.
-4. **Çakışma koruması.** `IdleMonitor.GetIdletime < 60 s` ise (yani sen
-   makinedeysen) yazma eylemleri reddedilir — telefon ile senin faren kavga etmez.
-   `force = true` ile bilinçli olarak geçilebilir.
-5. **Görünürlük.** Her iki ekranın kenarında, kontrol açıkken duran **canlı
-   çerçeve** (§7.1) + `desktop_unlock`'ta masaüstü bildirimi. Bildirim kaçar,
-   çerçeve kaçmaz.
-6. **Denetim kaydı.** Her eylem `audit.log`'a: zaman, araç, parametre özeti,
-   sonuç. Ekran görüntüleri `shots/` altında 24 saat saklanır, sonra silinir.
-7. **Hız sınırı.** Saniyede N eylem tavanı; sonsuz döngüye giren bir ajan
-   makineyi kilitleyemesin.
-8. **Ekran görüntüsü bağlantıları** OAuth'suz erişilebilir olduğu için: 128 bit
-   token, tek kullanım, 5 dk TTL, `Cache-Control: no-store`.
-9. **Kör noktalar dürüstçe:** parola alanları, banka oturumları, 2FA ekranları
-   görüntüye girer. `deny_apps` listesi (varsayılan: parola yöneticisi, banka
-   sekmeleri) yardımcı olur ama **tam koruma değildir**. Bu özelliği açmak,
-   "telefonumu kaybedersem ne olur" sorusuna cevabın olmasını gerektirir.
+**Amaç:** Capture testi çalıştırılırken yanlışlıkla klavye/fare girdisi gönderilmesini önlemek.  
+**Ön koşul:** Yok.
 
-### 7.1 Ekran çerçevesi — "kontrol bende" göstergesi
+**İncelenecek mevcut dosyalar:**
 
-Kontrol açıkken her iki ekranın kenarında ince, mavi-mor gradyanlı, yavaşça
-nefes alan bir çerçeve. Hem havalı hem de yukarıdaki 5. maddenin (görünürlük)
-en iyi karşılığı: bildirim kaybolur, çerçeve durur.
+- `tests/test_desktop.py`
+- `tests/test_e2e.py`
+- `CLAUDE.md`
 
-**Yapılabilir mi: evet, ama tek yolu var — GNOME Shell eklentisi.**
+**Değiştirilecek/oluşturulacak:**
 
-| Yöntem | Durum |
-|---|---|
-| GNOME Shell eklentisi (Clutter/St aktörü) | ✅ Kompozitörün içinde çizdiği için kısıtsız; tam kontrol |
-| `gtk4-layer-shell` ile overlay pencere | ❌ `wlr-layer-shell` ister, Mutter desteklemiyor |
-| Şeffaf, hep-üstte GTK penceresi | ❌ Wayland istemcisi kendini hep-üstte yapamaz, konumlandıramaz |
+- Değiştir: `tests/test_desktop.py`, `CLAUDE.md`
+- Yeni: `tests/test_test_safety.py`
 
-Yani X11'de 20 satırlık iş, Wayland'de küçük bir eklenti. Ama zaten §2.2'de
-"ekran görüntüsü yedeği" için eklenti ihtimalini yazmıştık — **aynı eklenti iki
-işi de yapar**, o yüzden maliyeti düşük.
+**Korunacak/compatibility:** Mevcut test senaryoları ve assertion’lar silinmez; yalnızca opt-in sınırları düzeltilir.
 
-**Nasıl çalışacak**
+**Implementation:**
 
-- `~/.local/share/gnome-shell/extensions/pcbridge-frame@local/` — ~100 satır GJS
-- Her monitör için bir `St.DrawingArea`; Cairo ile yuvarlatılmış dikdörtgen
-  **stroke**, `LinearGradient` mavi → mor, dışa doğru azalan alfa ile 2-3 kat
-  yumuşak parıltı
-- `Main.layoutManager.addChrome(actor, { affectsInputRegion: false })` +
-  `reactive = false` → **tıklamaları asla yemez**, tamamen geçirgen
-- `monitors-changed` sinyaline bağlan → monitör takıp çıkarınca kendini düzeltir
-- Faz süren bir `Clutter` zamanlayıcısıyla gradyan kayar (nefes efekti)
-- D-Bus arayüzü açar: `SetActive(bool)`, `SetState(string)`. pcbridge
-  `desktop_unlock`'ta açar, süre dolunca/`desktop_lock`'ta kapatır
+1. `test_real_hold` ve gerçek uinput kullanan her test için `PCBRIDGE_TEST_INPUT=1` zorunlu yap.
+2. Gerçek batch için hem `PCBRIDGE_TEST_INPUT=1` hem `PCBRIDGE_TEST_BATCH=1` iste.
+3. `PCBRIDGE_TEST_CAPTURE=1` yalnızca capture açsın.
+4. Alt süreçte device constructor’ını “çağrılırsa fail” sentinel’iyle değiştirerek capture-only seçimin input açmadığını doğrula.
+5. Dokümantasyondaki birleşik test komutunu düzelt.
 
-**Durum renkleri** (bedava geliyor, çünkü çizim zaten bizde):
+**Testler:** `tests/test_test_safety.py`, mevcut desktop suite; bütün real opt-in değişkenleri unset.
 
-| Durum | Görünüm |
-|---|---|
-| `idle` — izin açık, eylem yok | Yavaş nefes alan mavi-mor, düşük parlaklık |
-| `active` — o an tıklama/tuş gidiyor | Daha parlak, hızlı nabız |
-| `expiring` — izne < 60 sn kaldı | Amber tona kayar |
+**Acceptance:** Capture-only test seçimi hiçbir uinput constructor/write çağrısı yapmıyor; default suite gerçek input çalıştırmıyor.
 
-⚠️ **Çerçeve ekran görüntüsüne de girer.** Görsel sürücü her karede kenarlarda
-mor bir bant görecek. İki seçenek:
+**Rollback:** Yeni test seçici geri alınabilir; güvenli komut sınırı korunmadan gerçek capture suite çalıştırılmaz.
 
-- **Önerilen:** çerçeveyi ince tut (4-6 px). Model için gürültü sayılmaz,
-  koordinatları etkilemez, ekstra gecikme yok.
-- Alternatif: `[desktop] hide_frame_during_capture = true` → eklentiye
-  `SetActive(false)` → yakala → geri aç. Temiz kare verir ama her ekran
-  görüntüsüne ~200 ms ve gözle görülür bir titreme ekler. Varsayılan **kapalı**.
+**Yapılmayacak:** Gerçek desktop input denemesi, runtime refactor, native kod.
 
-**Maliyet:** ~yarım gün. **Tuzak:** yeni eklentinin tanınması için Wayland'de bir
-kez oturumu kapatıp açmak gerekiyor (kabuk yeniden başlatılamıyor). Eklenti
-`metadata.json`'da `shell-version: ["46"]` ile sabitlenir; Zorin 18.1 GNOME 46'da
-2029'a kadar sabit olduğu için kırılma riski düşük.
+## Task 0.2 — Public contract ve backend parity fixture’larını oluştur
 
-**Faz:** 4'ün sonuna eklendi. Faz 1-3 çalışmadan çerçeveyi yazmanın anlamı yok,
-ama Faz 5'teki uzun GUI oturumlarından **önce** hazır olmalı — asıl değeri o
-zaman ortaya çıkıyor.
+**Amaç:** Migration’ın karşılaştırılacağı, private config’e bağlı olmayan baseline üretmek.  
+**Ön koşul:** 0.1.
 
-### Alternatif: sanal masaüstü modu (opsiyonel, çok daha güvenli)
+**İncelenecek:**
 
-`weston --backend=headless` veya `Xvfb :99` ile **ayrı, görünmez bir masaüstü**
-açıp otomasyonu orada yapmak. Avantajları: gerçek ekranına dokunulmaz, oturum
-açmış hesapların risk altında değil, X11 olduğu için `xdotool`/`scrot` kusursuz
-çalışır (Wayland kısıtlarının hiçbiri yok), makine başındayken çakışma olmaz.
-Dezavantajı: "benim açık Firefox'umda şu sekmeyi kapat" gibi işler yapılamaz.
+- `tests/test_desktop.py`, `tests/test_models.py`, `tests/test_e2e.py`
+- `pcbridge/desktop/capture.py`, `monitors.py`, `batch.py`, `uitree.py`
+- `pcbridge/tools.py`, `pcbridge/cli/shot.py`, `pcbridge/cli/do.py`
 
-`[desktop] mode = "real" | "virtual"` olarak konfigüre edilebilir; `virtual`
-modu Faz 1-4'ün büyük kısmını bedavaya getirir ve iyi bir ilk adımdır.
+**Yeni dosyalar:**
+
+- `tests/contracts/__init__.py`
+- `tests/contracts/test_capture_contract.py`
+- `tests/contracts/test_coordinate_contract.py`
+- `tests/contracts/test_mcp_contract.py`
+- `tests/fixtures/native/display_cases.json`
+- `tests/fixtures/native/coordinate_cases.json`
+- `docs/native/baseline.md`
+
+**Implementation:**
+
+1. Mevcut güvenli testleri çalıştır; gerçek assertion sayısını ve hataları kaydet.
+2. Test config’lerini `config.example.toml` veya sentetik `Config` üzerinden kur.
+3. MCP tool adları, input schema, defaults, annotations ve content block sırasını snapshot olarak sabitle.
+4. İki monitor, primary sağda, portrait, ölçekleme, crop-before-resize, shot lookup, `--out`, stale/ambiguous koordinat fixture’larını ekle.
+5. Synthetic renkli canvas ve küçük metin fixture’ları kullan; gerçek screenshot’ı repoya koyma.
+6. Native adapter eklendiğinde aynı contract testlerinin provider factory ile çalışabileceği düzeni kur.
+
+**Testler:** Mevcut iki script + `unittest` contract suite.
+
+**Acceptance:** Baseline private config, çalışan server, gerçek agent ve desktop olmadan tekrar üretilebiliyor.
+
+**Rollback:** Yalnızca test/docs commit’i geri alınır.
+
+**Yapılmayacak:** Önceden başarısız testi gizlemek, test beklentisini açıklamasız değiştirmek, canlı `test_e2e.py` çalıştırmak.
 
 ---
 
-## 8. Riskler ve bilinmeyenler
+# Phase 1 — Python sınırlarını temizle
 
-| Risk | Olasılık | Etki | Önlem |
-|---|---|---|---|
-| Gemini metin ağacını (ui_dump) doğru yorumlayamaz | orta | orta | Çıktı formatını kısa ve tablomsu tut; `computer_task` ile yerel ajana kaç |
-| ~~`gnome-screenshot` GNOME 46'da bozuk çıkar~~ | — | — | **Kapandı:** ölçüldü, çalışıyor (§2.2). İleride dağıtım yükseltmesinde bozulursa portal yedeği |
-| **Çift monitörde 1920 px kaymış tıklama** | yüksek | yüksek | Global koordinat uzayı + ofset taşıma; dönüşüm tek yerde (`monitors.to_global`), birim testli |
-| ~~uinput mutlak fare yalnızca birincil monitörü kapsar~~ | — | — | **Kapandı:** 6 noktada ölçüldü, tuvalin tamamına 1:1, en büyük sapma 1 px (Faz 1 sonuçları) |
-| uinput mutlak fare yalnızca birincil monitörü kapsar | orta | orta | Faz 1'de ölçülür; gerekirse göreli hareket + imleç konumu geri beslemesiyle konumlan. **Birincil sağdaki olduğu için testi sol ekranda yap** — kapsama sorunu varsa orada görünür |
-| ~~Kesirli ölçekleme koordinatları bozar~~ | — | — | **Kapandı:** her iki monitör `scale = 1.0` (§2.5) |
-| AT-SPI ağacı Wayland'de eksik koordinat verir | yüksek | düşük | Koordinat yerine `do_action` kullan |
-| Electron/Java uygulamaları ağaç yayınlamaz | yüksek | orta | OCR + koordinat moduna düş |
-| uinput izinleri her çekirdek güncellemesinde bozulur | düşük | düşük | `doctor.sh`'a kontrol ekle |
-| Türkçe düzende yanlış karakter | **yüksek** | yüksek | Pano-yapıştır varsayılan; `ui_set_text` tercih |
-| Spark'ın onay yorgunluğu kullanımı öldürür | yüksek | yüksek | `computer_batch` + `computer_task` |
-| Sistem güncellemesi portal/eklenti API'sini değiştirir | orta | orta | Backend soyutlaması + `desktop_doctor.sh` |
-| İnteraktif `/model` seçimin telefondaki işlerin modelini de değiştirir | **kesin** | orta | §5.2: her çağrıda `--model` açıkça verilsin |
-| Gemini var olmayan bir model adı uydurur | orta | düşük | `models` izin listesi + net hata mesajı |
-| **`agy` istenen modeli sessizce yok sayıp varsayılana düşer** (effort verilmezse; çıkış kodu 0, sadece uyarı) | **kesin** | orta | `effort_required_with_model` + çıktıda uyarı kalıbı taraması (§5.4) |
-| Telefondan atılan rutin işler Opus 5 xhigh'ta çalışıp pahalıya patlar | yüksek | orta | `default_model = "sonnet"`, `job_status`'taki maliyet satırını izle |
+## Task 1.1 — `DesktopRuntime` ve Python provider adapter’ını çıkar
 
-**Faz 0'da kapatılacak bilinmeyenler:** `gnome-screenshot` durumu,
-`Introspect.GetWindows` erişimi, AT-SPI ağacının doluluğu, `input` grubu üyeliği,
-sistemdeki XKB düzeni.
+**Amaç:** Tool registration ile desktop kaynak sahipliğini ayırmak.  
+**Ön koşul:** 0.2.
+
+**İncelenecek:**
+
+- `pcbridge/tools.py`
+- `pcbridge/desktop/ops.py`
+- `pcbridge/desktop/screencast.py`
+- `pcbridge/cli/__init__.py`, `shot.py`, `do.py`, `lock.py`
+- `pcbridge/server.py`
+
+**Değiştirilecek/oluşturulacak:**
+
+- Yeni: `pcbridge/desktop/contracts.py`
+- Yeni: `pcbridge/desktop/runtime.py`
+- Yeni: `pcbridge/desktop/backends/__init__.py`
+- Yeni: `pcbridge/desktop/backends/python.py`
+- Yeni: `tests/contracts/test_runtime_contract.py`
+- Değiştir: Yukarıdaki caller dosyaları.
+
+**Implementation:**
+
+1. `DesktopRuntime`, input/tree/capture provider ve `SafetyGate` nesnelerinin sahibi olsun.
+2. `tools.py` içindeki screencast timer yönetimini runtime’a taşı.
+3. `computer_task` heartbeat orchestration’ını Python’da tut; runtime grant touch arayüzünü kullansın.
+4. MCP ve CLI aynı runtime factory’yi kullansın.
+5. `DeviceOps` bağımlılıklarını constructor üzerinden alsın.
+6. Server lifecycle çıkışında ve CLI `finally` bloğunda idempotent `close()` bağla.
+
+**Korunacak:** Tool adları, batch `Ops`, gate sırası, session environment repair, shot dizinleri.
+
+**Interface:** `DesktopRuntime.close()`, `capture_provider`, `input_provider`, `accessibility_provider`, `gate`.
+
+**Test/acceptance:** Baseline suite geçiyor; runtime oluşturmak capture/input başlatmıyor; iki runtime birbirinin response’ını tüketmiyor.
+
+**Rollback:** Caller’lar eski construction yoluna alınır; legacy modüller yerinde durur.
+
+**Yapılmayacak:** Bütün `tools.py` dosyasını tool başına modüllere bölmek; OAuth/jobs refactor.
+
+## Task 1.2 — Runtime capability ve typed error katmanını ekle
+
+**Amaç:** “Tool var” ile “bu makinede kullanılabilir” ayrımını kurmak.  
+**Ön koşul:** 1.1.
+
+**İncelenecek:**
+
+- `pcbridge/desktop/safety.py`
+- `pcbridge/desktop/input.py`
+- `pcbridge/desktop/capture.py`
+- `pcbridge/desktop/uitree.py`
+- `pcbridge/desktop/apps.py`
+- `pcbridge/tools.py`
+
+**Yeni/değişen:**
+
+- Yeni: `pcbridge/desktop/errors.py`
+- Yeni: `pcbridge/desktop/capabilities.py`
+- Yeni: `tests/contracts/test_capabilities.py`
+- Değiştir: `contracts.py`, `runtime.py`, `backends/python.py`
+
+**Implementation:**
+
+1. Yukarıdaki taxonomy ve capability tiplerini oluştur.
+2. Legacy exception’ları provider sınırında typed hataya çevir; mesaj substring’iyle classification yapma.
+3. Capture, pointer, keyboard, accessibility ve window durumlarını ayrı probe et.
+4. Eksik input cihazının capture/accessibility capability’sini kapatmasını önle.
+5. Probe sonucu ile son gerçek operation sonucunu ayrı evidence olarak sakla.
+6. Cache’i dependency/session/topology değişiminde geçersizleştir.
+
+**Korunacak:** Türkçe kullanıcı mesajları; shell/filesystem/job yetki ayrımı.
+
+**Test/acceptance:** “Capture supported + pointer permission_required” ve “AT-SPI list degraded + move_resize unsupported” sentetik olarak temsil ediliyor; probe input göndermiyor.
+
+**Rollback:** Provider eski hata adapter’ına dönebilir.
+
+**Yapılmayacak:** Portal prompt, window focus denemesi, yeni native backend.
+
+## Task 1.3 — MCP capability ve hata sonuçlarını doğal FastMCP semantics ile sun
+
+**Amaç:** Agent’ın permission ve backend hatalarında doğru sonraki adımı seçmesi.  
+**Ön koşul:** 1.2.
+
+**İncelenecek:**
+
+- `pcbridge/tools.py`
+- `pcbridge/server.py`
+- `requirements.txt`
+- `tests/test_e2e.py`
+- Kurulu FastMCP: `fastmcp/tools/base.py`
+
+**Yeni/değişen:**
+
+- Yeni: `pcbridge/desktop/presentation.py`
+- Yeni: `tests/contracts/test_mcp_errors.py`
+- Değiştir: `tools.py`, `requirements.txt`, `KULLANIM.md`, `CLAUDE.md`
+
+**Implementation:**
+
+1. `system_capabilities` adlı read-only, side effect oluşturmayan MCP tool ekle.
+2. Başlangıçta doğrulanan FastMCP `3.4.5` sürümünü sabitle; aynı commit’te genel dependency upgrade yapma.
+3. Desktop execution hatalarında `ToolResult(content=..., structured_content=..., is_error=True)` kullan.
+4. Eski insan tarafından okunabilir metni content içinde koru; structured error’ı ayrıca taşı.
+5. Dinamik desktop response’larında otomatik `outputSchema` çıkarımını açıkça kapat; wire-level testle doğrula.
+6. `screen_capture` hata dallarının tek `TextContent` yerine tutarlı sonuç üretmesini sağla.
+7. `computer_batch` final capture başarısızsa tamamlanmış action raporunu korusun; action’ları tekrar etmesin.
+
+**Compatibility:** Eski tool adları/input parametreleri korunur. Hataların `isError=true` olması bilinçli, belgelenmiş semantics düzeltmesidir. Başarılı metin/görüntü sırası korunur.
+
+**Testler:** In-memory FastMCP client ile hata content’i, `isError`, structured data ve batch partial sonucu.
+
+**Acceptance:** Output schema hatası yok; permission hatası `pcbridge.desktop`, `os.capture` veya `os.pointer` scope’unu ayırıyor.
+
+**Rollback:** Presentation adapter geri alınır; iç typed errors kalabilir.
+
+**Yapılmayacak:** OAuth error formatını değiştirmek; bütün shell/job çıktısını custom JSON envelope’a sarmak.
+
+## Task 1.4 — Çok yollu execution sözleşmesini düzelt
+
+**Amaç:** Deterministik shell/filesystem/accessibility yollarını ürünün normal davranışı yapmak.  
+**Ön koşul:** 0.2; 1.1 ile bağımsız uygulanabilir.
+
+**İncelenecek/değiştirilecek:**
+
+- `pcbridge/tools.py`
+- `pcbridge/server.py`
+- `pcbridge/config.py`
+- `config.example.toml`
+- `skills/computer-use/SKILL.md`
+- `KULLANIM.md`, `CLAUDE.md`
+- `tests/test_desktop.py`
+
+**Yeni test:** `tests/contracts/test_execution_paths.py`
+
+**Implementation:**
+
+1. Shell docstring’lerindeki mutlak “GUI uygulaması açma” yasağını kaldır.
+2. `ui_dump` açıklamasındaki “görüntü okuyamazsın” gibi eski istemci varsayımlarını kaldır.
+3. `block_gui_launch_in_shell` varsayılanını `false` yap; kullanıcının açıkça verdiği `true` ve blocklist’i okumaya devam et.
+4. Process lifetime isteyen app launch ile mevcut Chrome oturumuna URL gönderme arasındaki farkı belgeye yaz.
+5. `desktop_unlock` açıklamasını yalnızca Pcbridge grant’i olduğunu söyleyecek şekilde düzelt.
+6. Permission hatası üzerine başka execution yoluna geçmenin kullanıcı görevini ve mevcut izin kapsamını koruması gerektiğini belirt.
+
+**Korunacak:** Shell audit, timeout, workdir çözümü, background jobs ve explicit kullanıcı config’i.
+
+**Test/acceptance:** Mock `shell_run` Chrome URL komutunu varsayılan config’te geçiriyor; explicit blocklist hâlâ uygulanıyor; desktop kapalıyken shell/filesystem/job araçları kullanılabiliyor.
+
+**Rollback:** Default ve açıklama commit’i geri alınır.
+
+**Yapılmayacak:** Shell komutunu otomatik GUI tıklamasına çevirmek; Chrome’u gerçek masaüstünde açmak; web extraction’ı GUI başarı kanıtı saymak.
 
 ---
 
-## 9. Bu plan onaylanırsa ilk üç komut
+# Phase 2 — Native process, IPC ve revoke temeli
+
+## Task 2.1 — Rust workspace ve executable protocol harness
+
+**Amaç:** Native API’lere dokunmadan transport sınırını doğrulamak.  
+**Ön koşul:** 0.2.
+
+**İncelenecek:** `requirements.txt`, `run.sh`, `pcbridge/desktop/screencast.py`.
+
+**Oluşturulacak:**
+
+- Yukarıda tanımlanan iki crate’in manifest ve giriş dosyaları.
+- `rust/crates/pcbridge-core/src/protocol.rs`
+- `rust/crates/pcbridge-core/src/error.rs`
+- `rust/crates/pcbridge-native/src/dispatch.rs`
+- `rust/crates/pcbridge-native/tests/ipc_protocol.rs`
+- `docs/native/protocol-v1.md`
+- `.gitignore` içine `rust/target/`.
+
+**Implementation:**
+
+1. Toolchain ve workspace’i kur.
+2. Framing/limit/handshake contract’ını uygula.
+3. Yalnızca `initialize`, `ping`, `capabilities`, `cancel`, `shutdown` metotlarını ekle.
+4. Test modunda deterministik fake response üret; production backend bunu kullanamasın.
+5. EOF ve malformed frame sonrası temiz exit testlerini ekle.
+6. stdout’a yalnızca framed response yazıldığını doğrula.
+
+**Korunacak:** Python hâlâ varsayılan ve tek çalışan desktop backend.
+
+**Acceptance:** Partial frame, fazla büyük payload, unknown method/version ve concurrent ID testleri geçiyor; executable desktop’a bağlanmıyor.
+
+**Rollback:** Workspace bağımsız commit olarak geri alınır.
+
+**Yapılmayacak:** PipeWire, Tauri, input, daemon/socket kurulumu.
+
+## Task 2.2 — Python `NativeClient` supervisor
+
+**Amaç:** Native crash’in MCP transport’unu ve diğer execution yollarını etkilememesi.  
+**Ön koşul:** 1.1, 2.1.
+
+**Yeni/değişen:**
+
+- Yeni: `pcbridge/native/__init__.py`
+- Yeni: `pcbridge/native/protocol.py`
+- Yeni: `pcbridge/native/client.py`
+- Yeni: `pcbridge/native/discovery.py`
+- Yeni: `tests/contracts/test_native_client.py`
+- Değiştir: `pcbridge/config.py`, `config.example.toml`
+
+**Implementation:**
+
+1. Binary discovery sırasını uygula.
+2. Reader/writer/stderr thread’lerini ve pending request map’ini ekle.
+3. Deadline, cancellation, pending limit ve shutdown escalation’ı uygula.
+4. EOF/crash durumunda bütün pending future’ları typed hata ile tamamla.
+5. Request’leri restart sonrası yeniden göndermeyi engelle.
+6. Job child process’lerine native IPC descriptor’larının geçmesini önle.
+7. `[native] capture="python"` default’unu ve binary path ayarını gerçekten parse et.
+
+**Testler:** Fake helper ile stderr flood, out-of-order response, timeout, kill, invalid protocol, missing binary.
+
+**Acceptance:** Helper yokken server ve non-desktop tools başlıyor; native stdout MCP stdout’unu bozmuyor; child shutdown sonrası reap ediliyor.
+
+**Rollback:** `native.capture=python`.
+
+**Yapılmayacak:** Native binary’yi otomatik indirmek; runtime’da Cargo build çalıştırmak.
+
+## Task 2.3 — Atomik grant ve süreçler arası revoke
+
+**Amaç:** MCP/CLI process’lerinin eski grant veya açık native session ile erişimi sürdürmesini önlemek.  
+**Ön koşul:** 1.1, 2.2.
+
+**İncelenecek:**
+
+- `pcbridge/desktop/safety.py`
+- `pcbridge/cli/lock.py`
+- `pcbridge/desktop/screencast.py`
+- `systemd/pcbridge.service`
+- GNOME eklentisinin `state.js` dosyası.
+
+**Yeni/değişen:**
+
+- Yeni: `pcbridge/desktop/lease.py`
+- Yeni: `pcbridge/native/registry.py`
+- Yeni: `rust/crates/pcbridge-core/src/lease.rs`
+- Yeni: `rust/crates/pcbridge-native/src/lifecycle.rs`
+- Yeni: `tests/contracts/test_lease_contract.py`
+- Yeni: `tests/integration/test_native_revoke.py`
+- Değiştir: `safety.py`, `runtime.py`, `cli/lock.py`.
+
+**Contract:**
+
+- `desktop_unlock.json` mevcut `until`, `hard_until`, `reason`, `granted`, `granted_by` alanlarını korur.
+- Yeni alanlar: `schema_version`, `grant_id`, `revoke_epoch`.
+- Unix’te lock ayrı sabit lockfile üzerinde alınır; JSON aynı dizinde temp + atomic replace ile yazılır.
+- Kullanıcı/desktop session runtime dizini `0700`; registry dosyaları `0600`.
+- Aynı desktop session’daki bütün native helper’lar ortak revoke epoch’u izler.
+- Native helper grant oluşturamaz veya süresini uzatamaz.
+
+**Implementation:**
+
+1. Python read-modify-write işlemlerini process lock altında atomik yap.
+2. `desktop_lock` önce grant’i kapatsın ve global revoke epoch’u değiştirsin; sonra kaynak kapatsın.
+3. Native watchdog en fazla 200 ms aralıkla epoch ve grant geçerliliğini kontrol etsin.
+4. Native her dispatch öncesinde tekrar doğrulasın.
+5. Registry’de PID yanında process başlangıç kimliği ve instance ID tut; PID reuse durumunda yanlış süreci öldürme.
+6. Legacy helper’lar için mevcut `kill_helpers()` geçiş boyunca kalsın.
+7. Eski grant dosyası Python’da okunabilir; yeni native session için fresh grant gerekir.
+8. İlk native opt-in öncesinde eski stdio process’lerini kapatma ve izinleri revoke etme adımını runbook’a ekle.
+
+**Test/acceptance:** İki Python + iki fake native process senaryosunda revoke sonrası yeni işlem başlamıyor; idle helper kaynakları ≤1 saniyede bırakıyor; late heartbeat grant’i diriltmiyor; GNOME görsel state reader’ı bozulmuyor.
+
+**Rollback:** Önce revoke; bütün helper’ları kapat; Python backend’e dön. Eski aktif grant’i geri yükleme.
+
+**Yapılmayacak:** OAuth grant’lerini buraya taşımak; shell/jobs yetkisini desktop grant’e bağlamak; PID adına göre geniş process kill.
+
+## Task 2.4 — Native lock/activity observations ve safety ayrımı
+
+**Amaç:** Capture session’ın kilitli ekranda veya izni bitince çalışmasını engellemek.  
+**Ön koşul:** 2.3.
+
+**İncelenecek:** `pcbridge/desktop/safety.py`, `pcbridge/desktop/batch.py`.
+
+**Yeni/değişen:**
+
+- Yeni: `rust/crates/pcbridge-native/src/platform/linux/desktop_state.rs`
+- Yeni: `tests/contracts/test_desktop_state.py`
+- Yeni: `rust/crates/pcbridge-native/tests/desktop_state.rs`
+- Değiştir: `runtime.py`, `safety.py`, `backends/python.py`.
+
+**Implementation:**
+
+1. GNOME ScreenSaver ve Mutter IdleMonitor okumalarını typed observation olarak sun.
+2. `known_locked`, `known_unlocked`, `unknown` durumlarını bool’a indirgeme.
+3. Varsayılan policy’de bilinmeyen lock durumunda desktop read/write reddedilsin.
+4. Bilinmeyen activity durumunda write reddedilsin; mevcut `force=true` yalnızca activity kontrolünü aşabilsin.
+5. Native aktif kaynaklar varken lock sinyalini izle; bağlantı kaybını unknown sayıp kaynakları kapat.
+6. `desktop_unlock` için uinput zorunluluğunu kaldır; grant sonucu capability sınırlamalarını bildirsin.
+7. Activity kontrolünü batch/görev başında tut; kendi input’unu kullanıcı etkinliği sayan mid-batch kontrol ekleme.
+
+**Compatibility:** Güvenlik belirsizliğinde önceki permissive davranış bilinçli olarak sıkılaştırılır; desktop default `false` değişmez.
+
+**Acceptance:** Capture-only makine unlock olabilir; pointer yine unavailable kalır. `force` lock/revoke/expiry’yi aşamaz.
+
+**Rollback:** Native observation provider Python’a döner; yeni fail-closed policy silinmez.
+
+**Yapılmayacak:** Fiziksel input dinlemek; `/dev/input` izni istemek; tüm SafetyGate’i Rust’ta yeniden yazmak.
+
+---
+
+# Phase 3 — İlk Rust subsystem: monitor discovery ve capture
+
+## Task 3.1 — Native display snapshot
+
+**Amaç:** Capture ve input’un aynı monitor gerçeğini kullanması.  
+**Ön koşul:** 2.1, 2.2.
+
+**İncelenecek:**
+
+- `pcbridge/desktop/monitors.py`
+- `tests/test_desktop.py`
+- Conduit `linux/screen.rs`.
+
+**Yeni/değişen:**
+
+- `rust/crates/pcbridge-core/src/display.rs`
+- `rust/crates/pcbridge-native/src/platform/linux/display.rs`
+- `rust/crates/pcbridge-native/tests/display_contract.rs`
+- `tests/contracts/test_display_contract.py`
+- `pcbridge/desktop/contracts.py`
+
+**Implementation:**
+
+1. Mutter `GetCurrentState` cevabını zbus ile oku.
+2. Current mode, logical size, scale, rotation, connector ve primary alanlarını mevcut Python kurallarıyla çöz.
+3. Public index’i `(x,y)` sırasına göre 1’den başlat.
+4. Geometry/scale/transform değişiminden `topology_id` üret.
+5. `MonitorsChanged` ile cache’i invalidate et.
+6. Native capture session’a bu snapshot’ı bağla.
+7. İlk sürümde doğrulanmayan geometry’yi `DISPLAY_MAPPING_UNKNOWN` olarak reddet.
+
+**Korunacak:** Primary sağda olsa da monitor 2; selector `1`, `"DP-1"`, `"primary"`, `"all"` davranışları.
+
+**Test/acceptance:** Python ve Rust aynı fixture’dan aynı tabloyu üretiyor; GTK/Tauri/display window gerekmiyor.
+
+**Rollback:** Python monitor provider.
+
+**Yapılmayacak:** İlk monitor fallback’i; monitor sırasını primary-first yapmak; aynı anda mixed-DPI davranışı genişletmek.
+
+## Task 3.2 — Mutter capture session lifecycle
+
+**Amaç:** Python GI olmadan kalıcı, kapatılabilir screencast session.  
+**Ön koşul:** 2.3, 2.4, 3.1.
+
+**İncelenecek:** `pcbridge/desktop/screencast.py`, `screencast_helper.py`; Conduit `linux/portal.rs`.
+
+**Yeni/değişen:**
+
+- `rust/crates/pcbridge-native/src/platform/linux/session.rs`
+- `rust/crates/pcbridge-native/tests/capture_session.rs`
+- `docs/native/capture.md`
+
+**Implementation:**
+
+1. `CaptureSession` state machine: `Closed → Starting → Ready → Stopping → Closed`; failure ayrı durum.
+2. `CreateSession`, connector başına `RecordMonitor`, stream sinyali aboneliği, `Start` sırasını uygula.
+3. Connector → stream identity eşlemesini session içinde tut.
+4. Partial startup failure’da oluşturulan kaynakların tamamını kapat.
+5. Cursor değişiminde kontrollü session recreate yap.
+6. Revoke, lock, timeout, EOF ve compositor bağlantı kaybında session’ı kapat.
+7. Capability sorgusunun session açmadığını test et.
+
+**Korunacak:** Unlock ile paylaşım göstergesinin açılması; izin kapanınca session’ın kapanması.
+
+**Acceptance:** Fake D-Bus ile erken signal, missing stream, double start/stop ve revoke-during-start senaryoları geçiyor.
+
+**Rollback:** `native.capture=python`.
+
+**Yapılmayacak:** RemoteDesktop pointer permission istemek; portal persistence; buffered capture.
+
+## Task 3.3 — OnDemand PipeWire frame alma ve güvenli PNG encoding
+
+**Amaç:** İlk gerçek native frame pipeline’ı.  
+**Ön koşul:** 3.2.
+
+**İncelenecek:** Mevcut `screencast_helper.py`; Conduit `linux/capture.rs`.
+
+**Yeni/değişen:**
+
+- `rust/crates/pcbridge-core/src/frame.rs`
+- `rust/crates/pcbridge-native/src/platform/linux/capture.rs`
+- `rust/crates/pcbridge-core/tests/frame_conversion.rs`
+- `rust/crates/pcbridge-native/tests/capture_worker.rs`
+
+**Implementation:**
+
+1. PipeWire loop’unu tek dedicated thread’de sahiplen.
+2. Session/node kimliğini taşıyan OnDemand capture request’i gönder.
+3. Frame’in format, dimensions, stride, chunk offset ve byte sınırlarını doğrula.
+4. BGRx/RGBx/BGRA/RGBA’yı owned RGBA8’e çevir; bilinmeyen formatı reddet.
+5. En fazla 32 milyon pixel ve IPC payload sınırını allocation öncesi uygula.
+6. İstekten sonra alınmış geçerli frame’i sequence/timestamp ile döndür.
+7. Frame callback’ini PNG encoding sırasında bloklama.
+8. Timeout/cancel/revoke sonrasında buffer ve stream’i bırak.
+9. PNG’yi binary IPC payload olarak gönder.
+
+**Testler:** Padded stride, nonzero chunk offset, truncated buffer, channel order, alpha, overflow, unsupported format, late frame ve cancellation.
+
+**Acceptance:** Synthetic pixel dönüşümü beklenen byte’larla birebir eşleşiyor; decode edilen PNG doğru; success response boş/siyah placeholder üretmiyor.
+
+**Rollback:** Native provider kapatılır.
+
+**Yapılmayacak:** Nearest-neighbor resize, GPU capture, DMA-BUF fallback, arbitrary format guessing.
+
+PipeWire frame tüketimi ve stream lifecycle için implementation sırasında bu resmi kaynak kullanılacak: [PipeWire video capture tutorial](https://pipewire.pages.freedesktop.org/pipewire/page_tutorial5.html).
+
+## Task 3.4 — Rust capture’ı mevcut Python shot pipeline’ına bağla
+
+**Amaç:** Shot ID ve public davranışı koruyarak acquisition backend’ini değiştirmek.  
+**Ön koşul:** 1.1, 1.2, 3.3.
+
+**İncelenecek:**
+
+- `pcbridge/desktop/capture.py`, `monitors.py`
+- `pcbridge/tools.py`
+- `pcbridge/cli/shot.py`
+- `pcbridge/shots.py`
+
+**Yeni/değişen:**
+
+- Yeni: `pcbridge/desktop/backends/rust.py`
+- Yeni: `tests/contracts/test_capture_backend_selection.py`
+- Değiştir: `capture.py`, `runtime.py`, `config.py`, `config.example.toml`.
+
+**Implementation:**
+
+1. Rust adapter `CapturedImage` üretir; public `Shot` üretmez.
+2. Python aynı `_write_crop`/resize/final PNG yolunu kullanır.
+3. Native frame’in bağlı olduğu display snapshot’ı kullan; capture sonrasında farklı tabloyla metadata kurma.
+4. Mevcut shot ID formatını, iki lookup dizinini ve `taken_at` alanını koru.
+5. `taken_at` gerçek frame edinim zamanından gelsin.
+6. Yukarıdaki backend/fallback tablosunu tek selector’da uygula.
+7. `screen_info` backend adını tahminden değil gerçek provider/session durumundan alsın.
+8. İlk sürümde stream boyutu ile beklenen logical boyut farklıysa açık hata ver; sessiz scale varsayma.
+
+**Compatibility:** `screencast=` gibi mevcut Python çağrı yüzeyi compatibility adapter ile yaşar. `monitor="window"` legacy operation kalır.
+
+**Acceptance:** Aynı capture contract suite Python ve Rust fixture provider’larında geçiyor; shot→global sonuçları aynı.
+
+**Rollback:** `native.capture=python`; shot metadata migration gerektirmez.
+
+**Yapılmayacak:** Shot ID’yi Rust’a taşımak; Python capture dosyasını silmek; default backend değiştirmek.
+
+## Task 3.5 — Screenshot artifact ve MCP image delivery bütünlüğü
+
+**Amaç:** Capture başarısı ile görüntünün gerçekten istemciye ulaşmasını ayırmak ve ikisini doğrulamak.  
+**Ön koşul:** 1.3, 3.4.
+
+**İncelenecek:**
+
+- `pcbridge/shots.py`
+- `pcbridge/tools.py`
+- `pcbridge/cli/shot.py`
+- `pcbridge/server.py`
+
+**Yeni/değişen:**
+
+- Yeni: `tests/integration/test_mcp_capture_delivery.py`
+- Yeni: `tests/contracts/test_shot_artifacts.py`
+- Değiştir: `capture.py`, `shots.py`, `presentation.py`, `cli/shot.py`.
+
+**Implementation:**
+
+1. PNG ve metadata’yı private staging dizininde oluştur.
+2. Bütün target monitorler başarılıysa final path’lere atomik yayımla.
+3. Partial failure’da incomplete artifact/metadata bırakma.
+4. ID collision durumunda mevcut dosyayı overwrite etme; yeni suffix üret.
+5. Stdio sonucunda text ilk, ardından her shot için gerçek `ImageContent` ver.
+6. HTTP `/shot` token/TTL yolunu koru.
+7. CLI `--json`, absolute path ve `--out` metadata kopyasını koru.
+8. Inline image okunamazsa delivery failure bildir; bunu capture success diye gizleme.
+9. Batch özetini kırparken shot kimliği ve image eşleşmesini kesme.
+
+**Test/acceptance:** MCP client’ı PNG’yi decode edip fixture içeriğini doğruluyor; path başka vision aracına aktarılmadan inline görüntü kullanılabiliyor; HTTP token expire oluyor; stdio için ölü HTTP URL üretilmiyor.
+
+**Rollback:** Artifact/presentation adapter geri alınır; native capture ayrı kalır.
+
+**Yapılmayacak:** Conduit MEDIA marker’ı eklemek; görüntünün yalnızca diskte bulunmasını end-to-end başarı saymak; OAuth route mantığını değiştirmek.
+
+---
+
+# Phase 4 — Paketleme, parity ve default değişikliği
+
+## Task 4.1 — Native binary build/package ve tanı
+
+**Amaç:** Geliştirici makinesinde çalışan native backend’in kurulabilir olması.  
+**Ön koşul:** 3.4.
+
+**İncelenecek:**
+
+- `install.sh`, `run.sh`, `doctor.sh`
+- `requirements.txt`
+- `systemd/pcbridge.service`
+- `KURULUM.md`
+
+**Yeni/değişen:**
+
+- Yeni: `scripts/build-native.sh`
+- Yeni: `.github/workflows/native.yml`
+- Yeni: `docs/native/packaging.md`
+- Yeni: `tests/integration/test_native_packaging.py`
+- Değiştir: `install.sh`, `doctor.sh`, `.gitignore`, `KURULUM.md`.
+
+**Implementation:**
+
+1. Release binary’yi build ID ve protocol sürümüyle üret.
+2. Başlangıç Linux artifact hedefini `x86_64-unknown-linux-gnu` olarak sınırla.
+3. Ubuntu 24.04 tabanında build/test yap; runtime PipeWire dependency’sini listele.
+4. Build-time header/toolchain bağımlılıklarını runtime gereksinimlerinden ayır.
+5. Paketleme smoke testini yeni bir dizinden, repo cwd’sine güvenmeden çalıştır.
+6. `doctor.sh` native binary/version/protocol/backend/capability bilgisini raporlasın; permission istemesin.
+7. Native bulunmazsa Python kurulumunun çalışmaya devam ettiğini doğrula.
+8. Kurulum sırasında çalışan service’i otomatik restart etme.
+
+**Acceptance:** Native capture için `python3-gi`, GStreamer ve `pipewiresrc` gerekmiyor; legacy accessibility GI dependency’si ayrıca raporlanıyor.
+
+**Rollback:** Paketlenmiş binary seçilmez; Python provider.
+
+**Yapılmayacak:** Rust toolchain’i runtime zorunluluğu yapmak; unsigned otomatik update sistemi; GUI paketi.
+
+## Task 4.2 — Gerçek Linux capture parity gate
+
+**Amaç:** Native capture’ın referans makinede gerçekten çalıştığını ölçmek.  
+**Ön koşul:** 0.1, 3.5, 4.1.
+
+**Yeni dosyalar:**
+
+- `tests/live/test_capture_parity.py`
+- `docs/native/verification-linux.md`
+
+**Implementation:**
+
+1. Kullanıcı capture testine izin verdikten sonra static test pattern’i görünür yap.
+2. İki monitorü ayrı ayrı ve `all` olarak iki backend’den yakala.
+3. `include_pointer=true/false`, 1536 scale ve full-size capture ölç.
+4. Frame tazeliğini değişen sequence/test pattern ile doğrula.
+5. Lock, expiry, revoke, Python process exit ve native crash senaryolarını çalıştır.
+6. Python GI import’unun mümkün olmadığı kontrollü ortamda Rust capture’ı doğrula.
+7. Her backend için en az 30 warm capture ve 5 session startup ölç.
+8. Stdio ve izole HTTP client üzerinde image decode/delivery doğrula.
+9. Test sonunda bütün test session’larını kapat.
+
+**Ölçülebilir acceptance:**
+
+- Monitor kimliği, offset, output size ve shot→global fixture sonuçları eşleşiyor.
+- Static, değişmeyen crop’ta decoded pixel farkı açıklanabilir; hedef en az `%99,5` eşleşme.
+- Her dönen OnDemand frame request sonrasına ait.
+- Capture/session error rate test serisinde `0`.
+- Warm capture p95, aynı koşuldaki legacy sessiz capture’ın `1,5×` değerini aşmıyor; aşarsa default gate kapanır.
+- Revoke/expiry sonrası frame teslimi yok.
+- Kaynak kapandıktan sonra paylaşım göstergesinin kaybolduğu gözlemleniyor.
+- Shell/jobs araçları native failure sırasında kullanılabiliyor.
+
+**Rollback:** Revoke → native shutdown → `native.capture=python`.
+
+**Yapılmayacak:** Mouse click/typing; web extraction ile GUI doğrulama; özel ekran görüntülerini Git’e eklemek.
+
+## Task 4.3 — Rust capture’ı varsayılan yap
+
+**Amaç:** Parity kanıtı sonrası kontrollü rollout.  
+**Ön koşul:** 4.2 başarılı.
+
+**Değiştirilecek:**
+
+- `pcbridge/config.py`
+- `config.example.toml`
+- `README.md`, `KURULUM.md`, `KULLANIM.md`
+- `docs/native/verification-linux.md`
+- `tests/contracts/test_capture_backend_selection.py`
+
+**Implementation:**
+
+1. `[native] capture` default’unu `python` → `auto` yap.
+2. Packaged, compatible native backend mevcutsa ilk tercih Rust olsun.
+3. Fallback olduğunda result/capability/audit kullanılan backend’i açıkça göstersin.
+4. Kullanıcının `python` veya `gnome-screenshot` seçimini koru.
+5. Yeni stdio process ve service process için rollout talimatını ayrı yaz.
+6. Çalışan job’ları kontrol etmeden service restart yapma.
+
+**Acceptance:** Temiz kurulum Rust capture seçiyor; missing binary senaryosu Python’a görünür degraded fallback yapıyor; eski MCP tool contract’ları geçiyor.
+
+**Rollback:** `native.capture=python`, ardından uygun process’leri kontrollü yeniden başlat.
+
+**Yapılmayacak:** Legacy implementation silmek; aynı commit’te input default değiştirmek.
+
+---
+
+# Phase 5 — Input migration ve batch safety
+
+## Task 5.1 — Input parity fixture’ları ve batch safety açıklarını kapat
+
+**Amaç:** Native input’tan önce mevcut korumaları ölçülebilir hale getirmek.  
+**Ön koşul:** 1.1, 2.3, 2.4. Capture ile paralel geliştirilebilir; rollout 4.3 sonrasında.
+
+**İncelenecek:**
+
+- `pcbridge/desktop/input.py`
+- `pcbridge/desktop/batch.py`
+- `pcbridge/desktop/ops.py`
+- `pcbridge/cli/do.py`
+- `tests/test_desktop.py`
+
+**Yeni/değişen:**
+
+- `tests/contracts/test_input_contract.py`
+- `tests/contracts/test_batch_safety.py`
+- `tests/fixtures/native/input_events.json`
+- `pcbridge/desktop/execution.py`
+- `batch.py`, `runtime.py`, `ops.py`.
+
+**Implementation:**
+
+1. Key combo, hold/release, pointer path, scroll direction, drag ve auto-release event fixture’larını çıkar.
+2. Batch’e device bilmeyen `before_action`/cancellation hook’u ekle.
+3. Her action öncesi grant/lock/revoke/deadline kontrolü yap; activity’yi yeniden sorgulama.
+4. Focus check etkinse focus okunamaması veya doğrulanamaması halinde devam etme.
+5. Aynı desktop session’daki write sequence’lerini processler arası execution lock ile sırala.
+6. Lock bekledikten sonra safety check’i tekrar yap.
+7. Rate limit muhasebesini aynı lock altında paylaş; batch action gap korunur.
+8. Stop/budget/error/revoke halinde held input cleanup’ı doğrula.
+
+**Korunacak:** `expect_focus`, action count budget, remaining actions, `super` sonrası raw typing, başarılı batch sonunda bilinçli hold.
+
+**Acceptance:** Mock event log’da revoke/focus failure sonrasında tek bir ek key/click yok; batch hâlâ MCP ve gerçek cihaz import etmiyor.
+
+**Rollback:** Native input başlamaz; safety düzeltmesi ayrı commit olarak korunur.
+
+**Yapılmayacak:** Batch motorunu Rust’a taşımak; safety testini gerçek input ile yürütmek.
+
+## Task 5.2 — Rust keyboard ve held-key lifecycle
+
+**Amaç:** Klavye injection ve tuş bırakma güvencesini native process’e taşımak.  
+**Ön koşul:** 4.3, 5.1.
+
+**Yeni/değişen:**
+
+- `rust/crates/pcbridge-native/src/platform/linux/input.rs`
+- `rust/crates/pcbridge-native/tests/keyboard_contract.rs`
+- `pcbridge/desktop/backends/rust.py`
+- `pcbridge/config.py`, `config.example.toml`
+
+**Implementation:**
+
+1. Rust `evdev` uinput wrapper’ı kullan; custom ioctl binding yazma.
+2. Mevcut key alias/combo contract’ını uygula.
+3. `held()` ve `take_auto_released()` semantiğini koru.
+4. Monotonic hold timer ekle; başka çağrı gelmesini bekleme.
+5. Shutdown/revoke/error sırasında açıkça release gönder.
+6. `native.input=python` default’unu ekle; keyboard migration test modunda seçilsin.
+7. IPC input request’lerini otomatik tekrar etmeyi yasakla.
+
+**Test/acceptance:** Golden event dizileri aynı; timer sahte saatle doğrulanıyor; hiçbir default test `/dev/uinput` açmıyor.
+
+**Rollback:** Önce release/revoke, sonra Python input seç.
+
+**Yapılmayacak:** Türkçe metni ASCII keycode ile “çözmek”; portal input’a geçmek; Python klavyeyi silmek.
+
+## Task 5.3 — Rust pointer, motion path ve native koordinat adapter’ı
+
+**Amaç:** Pointer injection’ı shot mapping’i bozmadan taşımak.  
+**Ön koşul:** 5.2.
+
+**İncelenecek:** `input.py` içindeki `_make_pointer`, `move_path`, `_clamp`, pointer state read/write, drag/scroll.
+
+**Yeni/değişen:**
+
+- `rust/crates/pcbridge-core/src/input.rs`
+- `rust/crates/pcbridge-core/tests/pointer_path.rs`
+- `rust/crates/pcbridge-native/tests/pointer_contract.rs`
+- Native Linux `input.rs`
+- Python Rust adapter.
+
+**Implementation:**
+
+1. Mevcut absolute-device event setini koru: `BTN_TOUCH`/`BTN_TOOL_PEN` ekleme.
+2. `move_path`, speed=0, min/max duration ve drag interpolation parity’sini uygula.
+3. Global→device dönüşümünü tek native fonksiyonda tut.
+4. Caller’dan `shot` veya `monitor` kabul etme; yalnızca çözülmüş global nokta al.
+5. `pointer.json` uyumluluğunu, yaşı ve cihaz açılırken state’in silinmemesini koru.
+6. Display topology değişince device geometry’yi güvenli biçimde yeniden kur.
+7. Capture’dan gelen koordinat için topology uyuşmazlığını injection öncesinde reddet.
+
+**Acceptance:** Golden path/event sequence geçiyor; monitor 2 için ikinci kez offset eklenmiyor; raw global clamp’in mevcut davranışı korunuyor.
+
+**Rollback:** Release/revoke sonrası Python input.
+
+**Yapılmayacak:** Gerçek pointer pozisyonunu bildiğini varsaymak; Conduit’in “ilk stream” fallback’i; native core’a shot registry eklemek.
+
+## Task 5.4 — Text/clipboard adapter’ı ve input default gate
+
+**Amaç:** Türkçe metin, clipboard restore ve native input entegrasyonunu tamamlamak.  
+**Ön koşul:** 5.3.
+
+**İncelenecek:**
+
+- `input.py`: `_wl_read`, `_wl_copy`, `_clipboard_save`, `_clipboard_restore`, `type_text`
+- `batch.py`: `_auto_raw`
+- `tests/test_desktop.py`
+
+**Yeni/değişen:**
+
+- `pcbridge/desktop/clipboard.py`
+- `rust/crates/pcbridge-native/src/platform/linux/clipboard.rs`
+- `tests/contracts/test_clipboard_contract.py`
+- `tests/live/test_input_parity.py`
+
+**Implementation — ayrı küçük commit’ler:**
+
+1. Clipboard işlemlerini Python’da ayrı interface arkasına çıkar; davranışı değiştirme.
+2. Rust’ta aynı `wl-copy`/`wl-paste` programlarını yöneten adapter ekle. GNOME’da doğrulanmamış wlr-data-control library’sini zorunlu yapma.
+3. Copy ownership process’inin stdout/stderr pipe’larını açık bırakma tuzağını önle.
+4. Tek MIME restore sınırlamasını koru ve capability limitation olarak bildir.
+5. `type_text` orchestration’ını Python’da bırak: clipboard set → native paste combo → gerekli restore.
+6. Raw typing ve overview davranışını koru.
+7. Açık input opt-in ile boş editor’da Turkish Unicode, modifiers, move→görsel doğrulama→click, drag, expiry/revoke testlerini çalıştır.
+8. Keyboard ve pointer birlikte parity sağlamadan `native.input=auto` default yapma.
+
+**Acceptance:** Türkçe metin birebir okunuyor; clipboard restore fixture’ı geçiyor; held input süre sonunda bırakılıyor; pointer hotspot hedefte beklenen ≤1 global pixel injection sapmasını sağlıyor.
+
+**Rollback:** Input ve clipboard provider’ları birlikte Python’a alınır; aktif held state önce bırakılır.
+
+**Yapılmayacak:** Clipboard içeriğini audit’e yazmak; fiziksel klavye düzenini değiştirmek; gerçek input testini CI’a açmak.
+
+---
+
+# Phase 6 — Accessibility ve window/application sınırı
+
+## Task 6.1 — Element target bütünlüğünü Python’da sabitle
+
+**Amaç:** Yanlış uygulama veya aynı isimli yanlış node üzerinde action yapılmasını önlemek.  
+**Ön koşul:** 1.1, 1.2.
+
+**İncelenecek:**
+
+- `pcbridge/desktop/uitree.py`
+- `pcbridge/desktop/atspi_helper.py`
+- `tests/test_desktop.py`
+
+**Yeni/değişen:**
+
+- `tests/contracts/test_accessibility_contract.py`
+- `tests/fixtures/native/accessibility_cases.json`
+- `uitree.py`, `atspi_helper.py`
+
+**Implementation:**
+
+1. Dump sonucuna backend/app/window/snapshot identity ekle.
+2. Kısa public ID’leri koru; aynı dump içindeki hash collision’ı sessiz overwrite etme.
+3. `_resolve` içinde açık app bulunamazsa focused app’e düşmeyi kaldır.
+4. Path değişince role/name aramasını yalnızca aynı hedef içinde yap.
+5. Birden fazla eşleşme varsa `ELEMENT_AMBIGUOUS`; ilk eşleşmeyi seçme.
+6. `focused_window()` ve `windows()` çağrılarının son dump registry’sini değiştirmemesini koru.
+7. Native action yoksa koordinat fallback yapma.
+
+**Compatibility:** `ui_dump → #id → ui_click/ui_set_text` korunur. Güvensiz ambiguity/fallback davranışları bilinçli olarak sıkılaştırılır.
+
+**Acceptance:** Chrome hedefi kaybolunca Shell UI’a action gönderilmiyor; duplicate “Close” scenario’su yanlış node seçmiyor.
+
+**Rollback:** Native a11y migration başlamaz; target doğrulama düzeltmesi korunur.
+
+**Yapılmayacak:** AT-SPI extents üzerinden tıklamak; browser flags’i kullanıcıdan habersiz değiştirmek.
+
+## Task 6.2 — Rust AT-SPI read/window/focus provider
+
+**Amaç:** Accessibility okumalarını Python GI’den ayırmak.  
+**Ön koşul:** 4.3, 6.1.
+
+**Yeni/değişen:**
+
+- `rust/crates/pcbridge-native/src/platform/linux/accessibility.rs`
+- `rust/crates/pcbridge-native/tests/accessibility_read.rs`
+- `pcbridge/desktop/backends/rust.py`
+- `pcbridge/config.py`, `config.example.toml`
+
+**Implementation:**
+
+1. Accessibility bus discovery ve AT-SPI D-Bus proxy’lerini zbus ile kur.
+2. Traversal depth, node count ve toplam deadline sınırı uygula.
+3. Role/name/states/actions/editable alanlarını ortak contract’a çevir.
+4. GTK uygulama GAction’larını gerçek element action’ı sanmayan mevcut filtreyi koru.
+5. Window enumeration ve focused observation’ı traversal’dan ayrı uygula.
+6. Native referansları client/snapshot bazında sakla; başka process’in ID’sini kabul etme.
+7. `native.accessibility=python` default’u ile başlat.
+
+**Acceptance:** İki provider aynı fixture suite’i geçiyor; Electron boş tree durumu degraded olarak doğru hedef adıyla dönüyor; GUI thread/GTK initialization yok.
+
+**Rollback:** Python `UiTree` provider.
+
+**Yapılmayacak:** Window enumeration’ı bütün GNOME pencerelerini görüyormuş gibi sunmak; action migration’ı aynı commit’e katmak.
+
+## Task 6.3 — Rust accessibility actions ve parity
+
+**Amaç:** Native action ve editable text yolunu koruyarak GI action helper’ını değiştirmek.  
+**Ön koşul:** 5.1, 6.2.
+
+**Yeni/değişen:**
+
+- Native Linux `accessibility.rs`
+- `rust/crates/pcbridge-native/tests/accessibility_actions.rs`
+- `tests/live/test_accessibility_parity.py`
+
+**Implementation:**
+
+1. `ElementRef` target identity’yi action anında doğrula.
+2. AT-SPI Action çağrısını kullan; true/false native sonucu kontrol et.
+3. EditableText işlemlerini method contract’ına uygun uygula; Python GI wrapper’ının byte-length ayrıntısını körlemesine D-Bus metoduna taşıma.
+4. Türkçe metin için son karakter sayısı ve mümkünse geri okunan metni doğrula.
+5. Timeout sonrası action replay yapma.
+6. Read-only testten ayrı input/action opt-in altında boş uygulamada parity ölç.
+7. Başarılı olursa ayrı commit ile accessibility default’unu `auto` yap.
+
+**Acceptance:** Native action uinput gerektirmiyor; cursor hareketi zorunlu değil; yanlış target/stale element reddediliyor; text truncation yok.
+
+**Rollback:** Python accessibility provider; eldeki native element registry geçersizleştirilir ve yeni `ui_dump` istenir.
+
+**Yapılmayacak:** Native action başarısız olunca gizli coordinate click.
+
+AT-SPI API ve interface ayrıntıları için resmi referans: [AT-SPI documentation](https://gnome.pages.gitlab.gnome.org/at-spi2-core/libatspi/).
+
+## Task 6.4 — App/window orchestration’ını capability arkasına al
+
+**Amaç:** Launch/focus/window-list işlemlerinin doğru backend ve doğrulama ile çalışması.  
+**Ön koşul:** 1.4, 6.2.
+
+**İncelenecek/değiştirilecek:**
+
+- `pcbridge/desktop/apps.py`
+- `pcbridge/desktop/ops.py`
+- `pcbridge/tools.py`
+- `pcbridge/desktop/batch.py`
+- `YAPILACAKLAR.md`
+
+**Yeni:**
+
+- `tests/contracts/test_window_operations.py`
+
+**Implementation:**
+
+1. İç işlemleri `resolve_application`, `launch_application`, `activate_window`, `observe_focus` olarak ayır.
+2. Public `window_focus` tek tool olarak kalsın; kapalı uygulamayı açma yeteneği korunur.
+3. Hedef zaten focused ise input gönderme.
+4. Native activation desteklenmiyorsa mevcut GNOME arama yolunu açık `degraded` fallback olarak kullan.
+5. Sonucu gerçek app/window observation ile doğrula; yalnızca launch exit code’u başarı sayma.
+6. Batch device need ve cost hesabını seçilen focus yolundan al.
+7. `window_focus`, `computer_task`, `DeviceOps.focus` aynı orchestration’ı kullansın.
+8. `window.move_resize` GNOME’da implementation yoksa `unsupported` kalsın.
+
+**Acceptance:** Zaten focused hedef için `super` gönderilmiyor; cold launch korunuyor; yanlış arama sonucu focus success sayılmıyor.
+
+**Rollback:** Eski `apps.focus` adapter’ı.
+
+**Yapılmayacak:** Açık karar D2 sonuçlanmadan GNOME eklentisini kontrol servisine dönüştürmek; doğrulanmamış `<1 saniye` native focus iddiası.
+
+---
+
+# Phase 7 — Capture kapsamını genişlet
+
+Bu phase, ilk native subsystem için zorunlu değildir.
+
+## Task 7.1 — Mixed scale, negatif origin ve topology güvenliği
+
+**Amaç:** Bugünkü scale=1 referansının ötesine güvenli geçiş.  
+**Ön koşul:** 4.3, 5.3.
+
+**İncelenecek:** `capture.py`, `monitors.py`, `input.py`, native display/frame/input modülleri.
+
+**Yeni/değişen:**
+
+- `tests/fixtures/native/mixed_scale_cases.json`
+- `tests/contracts/test_coordinate_v2.py`
+- `rust/crates/pcbridge-core/tests/geometry.rs`
+- `capture.py`, native `display.rs`, `frame.rs`, `input.rs`.
+
+**Contract:**
+
+- Native platform origin ile Pcbridge canvas origin ayrı alanlardır.
+- Pcbridge canvas origin bounding rectangle’ın sol üstüne normalize edilir.
+- Linux/macOS desktop unit logical; Windows backend phase’inde fiziksel desktop unit açıkça etiketlenir.
+- Public monitor index yine `(x,y)` sırasıyla 1’den başlar.
+- Shot metadata v2 ek alanları: `source_pixel_size`, `scale_xy`, `topology_id`, `coordinate_space`.
+- Mevcut `size`, `scaled`, `offset`, `scale` alanları korunur.
+- `scale`, compatibility için x oranıdır; v2 dönüşüm iki ekseni ayrı kullanır.
+- Legacy metadata reader desteklenir; topology bilinmiyorsa karmaşık layout üzerinde güvenli hareket iddia edilmez.
+
+**Implementation:**
+
+1. 1.25×, 1.5×, 2×, portrait, negative origin ve gap fixture’larını ekle.
+2. Raw pixel → logical capture geometry eşlemesini tanımlı oranlarla uygula.
+3. `capture.to_global()` içinde v2 dönüşümü ekle; caller’larda matematik ekleme.
+4. Hotplug/rotation/scale değişiminde eski shot’ın input için kullanımını reddet.
+5. Monitor arası boşluğu ve out-of-image shot noktasını reddet.
+6. Eski process’ler kapatılmadan mixed-scale rollout yapma.
+
+**Acceptance:** Round-trip hatası fixture matrisinde ≤1 desktop unit; eşit ölçekli mevcut iki monitor sonucu değişmiyor.
+
+**Rollback:** Yeni layout desteğini kapat; eski shot’ları yeniden kullanmak yerine fresh screenshot al.
+
+**Yapılmayacak:** Python ve Rust’ta aynı shot dönüşümünü ayrı ayrı implement etmek.
+
+## Task 7.2 — Ayrı XDG ScreenCast portal backend’i
+
+**Amaç:** Mutter dışındaki Linux desktop’ları için capture genişletmesi.  
+**Ön koşul:** 7.1.
+
+**Yeni/değişen:**
+
+- `rust/crates/pcbridge-native/src/platform/linux/portal.rs`
+- `rust/crates/pcbridge-native/tests/portal_session.rs`
+- `tests/live/test_portal_capture.py`
+- `config.py`, `config.example.toml`, native capture selector.
+
+**Implementation:**
+
+1. İlk portal implementation yalnızca ScreenCast istesin; pointer/keyboard permission istemesin.
+2. Request response aboneliğini method çağrısından önce kur.
+3. Kullanıcı prompt’unu yalnızca açık session başlatma adımında aç; status polling’de açma.
+4. Cancel/deny/timeout/Closed sonuçlarını ayrı sınıflandır.
+5. `persist_mode=0` ile başla; restore token saklama.
+6. Stream geometry ve identity mevcutsa monitor eşleştir; eksikse ilk monitorü seçme.
+7. Portal sürümü sunuyorsa `pipewire-serial` ile hedefle; eski sürümde node ID’yi session lifecycle ile sınırla.
+8. Revoke/lock/EOF’ta session kapat.
+
+**Acceptance:** Capture izni pointer capability’sini supported yapmıyor; kullanıcı reddettiğinde her screenshot çağrısı yeniden dialog açmıyor.
+
+**Rollback:** Mutter backend.
+
+**Yapılmayacak:** Bu task’ta portal input, libei, persistence veya bütün Linux compositor’ları için destek iddiası.
+
+Stream geometry’nin pixel boyutuyla aynı olmak zorunda olmadığı ve yeni sürümlerde stream serial desteği resmi sözleşmede belirtiliyor. [ScreenCast sözleşmesi](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html)
+
+## Task 7.3 — Buffered capture
+
+**Amaç:** Ölçülmüş ihtiyaç varsa repeated capture latency’sini azaltmak.  
+**Ön koşul:** 4.3; 7.2 zorunlu değil.
+
+**Yeni/değişen:**
+
+- `rust/crates/pcbridge-core/src/capture_mode.rs`
+- `rust/crates/pcbridge-native/tests/frame_freshness.rs`
+- `tests/live/test_capture_modes.py`
+- Native capture worker ve config.
+
+**Implementation:**
+
+1. `capture_mode=on_demand|buffered`; default OnDemand.
+2. Buffered modda monitor başına yalnızca bir son frame tut.
+3. En fazla 10 FPS iste; frame timestamp/sequence zorunlu.
+4. Normal snapshot için en fazla 250 ms yaş kabul et.
+5. Input sonrası doğrulamada action tamamlanmasından sonra alınmış frame iste.
+6. Stream durunca eski frame’i fresh timestamp ile döndürme.
+7. Idle CPU, compositor CPU, RSS ve p95 latency’yi OnDemand ile karşılaştır.
+
+**Acceptance:** Frozen stream `STALE_FRAME`; revoke cache’i temizliyor; memory monitor sayısıyla sınırlı; latency kazancı ve kaynak maliyeti raporlu.
+
+**Rollback:** `capture_mode=on_demand`.
+
+**Yapılmayacak:** Buffered’ı ölçüm olmadan default yapmak.
+
+## Task 7.4 — Adaptive mode
+
+**Amaç:** Buffered kazanımını yalnızca aktif kullanım sırasında almak.  
+**Ön koşul:** 7.3’ün ölçümleri fayda gösteriyor.
+
+**Yeni/değişen:**
+
+- `rust/crates/pcbridge-core/tests/adaptive_capture.rs`
+- `capture_mode.rs`, native capture worker, config docs.
+
+**Implementation:**
+
+1. Son 2 saniyede üç capture request’i gelirse Buffered’a geç.
+2. 5 saniye request gelmezse OnDemand’a dön.
+3. Mod değişiminde session/frame kimliklerini koru; stale buffer döndürme.
+4. Revoke/lock/expiry bütün modların üzerinde olsun.
+5. Threshold’ları önce sabit tut; kullanıcı ayarı çoğaltma.
+
+**Acceptance:** Sahte saatle bütün geçişler deterministik; mod geçişi başına ikinci portal dialog yok; kaynak maliyeti ölçülmüş.
+
+**Rollback:** OnDemand.
+
+**Yapılmayacak:** ML tabanlı tahmin, background screenshot history, video recording.
+
+---
+
+# Phase 8 — Legacy retirement
+
+## Task 8.1 — Python screencast helper’ını emekliye ayır
+
+**Amaç:** Artık kullanılmayan GI/GStreamer capture yolunun bakım yükünü kaldırmak.  
+**Ön koşul:** Rust default en az iki sürüm döngüsü kullanılmış; 4.2 gate hâlâ geçiyor; paket rollback’i doğrulanmış.
+
+**İncelenecek:**
+
+- `pcbridge/desktop/screencast.py`
+- `pcbridge/desktop/screencast_helper.py`
+- `doctor.sh`, `install.sh`
+- `tests/test_desktop.py`
+- `CLAUDE.md`, `KURULUM.md`
+
+**Implementation — ayrı commit’ler:**
+
+1. Bütün import/caller’ları `rg` ile doğrula.
+2. `screencast.py` public adapter’ını önce native provider’a yönlendir.
+3. Sonraki commit’te kullanılmayan `screencast_helper.py` dosyasını kaldır.
+4. GStreamer capture dependency/probe’larını kaldır.
+5. `gnome-screenshot` fallback’ini ve Python shot/coordinate pipeline’ını koru.
+6. Legacy process cleanup’ını ancak eski helper process’leri artık destek kapsamından çıktıktan sonra kaldır.
+
+**Acceptance:** Aktif hiçbir caller silinen helper’a gitmiyor; capture regression ve install smoke suite geçiyor.
+
+**Rollback:** Retirement commit’ini revert et veya önceki paket sürümüne dön; önce revoke uygula.
+
+**Yapılmayacak:** `capture.py` dosyasını silmek; accessibility henüz GI kullanıyorsa `python3-gi` gereksinimini tamamen kaldırmak; geçmiş plan belgelerini silmek.
+
+## Task 8.2 — Diğer legacy backend’ler için bağımsız retirement gate
+
+**Amaç:** Input/accessibility kodunu capture ile birlikte topluca silmemek.  
+**Ön koşul:** İlgili subsystem için kendi parity, default ve iki sürüm gate’i.
+
+**Dosyalar:** `input.py`, `uitree.py`, `atspi_helper.py`, `backends/python.py`, ilgili test ve kurulum belgeleri.
+
+**Implementation:**
+
+1. Her subsystem için ayrı caller envanteri çıkar.
+2. Compatibility facade ile implementation’ı ayır.
+3. Yalnızca kullanılmayan implementation’ı bir commit’te kaldır.
+4. Ortak contract testlerini native backend üzerinde koru.
+5. Config’te eski selector için açık migration mesajı ver; bilinmeyen değeri sessizce `auto` yapma.
+
+**Acceptance:** Her silme ayrı review/revert edilebilir; public tool/CLI contract’ı aynı.
+
+**Rollback:** İlgili tek retirement commit’i revert edilir.
+
+**Yapılmayacak:** “Rust yüzdesini artırmak” gerekçesiyle Python orchestration silmek.
+
+---
+
+# Phase W — Windows
+
+**Durum:** D1 yanıtına göre sıraya alınacak. Linux capture ve input gate’leri tamamlanmadan başlamaz.
+
+Windows’a yalnızca native modül eklemek yeterli değildir: mevcut `jobs.py`, `bash`, `script -qec` ve Unix process-group cancellation kullanıyor. Bu nedenle desktop port ile Python host uyumluluğu ayrı task’lardır.
+
+## Task W.1 — Python host/process boundary
+
+**Ön koşul:** D1’de Windows’un sıraya alınması; Phase 5 tamam.
+
+**İncelenecek:** `pcbridge/jobs.py`, `tmuxctl.py`, `tools.py`, `config.py`, `desktop/session.py`, `native/registry.py`.
+
+**Yeni:**
+
+- `pcbridge/host.py`
+- `tests/contracts/test_host_processes.py`
+- `tests/integration/test_windows_jobs.py`
+
+**Adımlar:**
+
+1. Shell argv, process launch/cancel, PTY desteği ve process lock’u `HostServices` interface’ine al.
+2. Linux implementation’ı davranış değiştirmeden bağla.
+3. Windows için PowerShell tabanlı shell seçimini açık config/documentation ile ekle.
+4. Jobs/coding-agent delegation Python’da kalsın; process-tree cancellation için Windows Job Object wrapper kullan.
+5. İlk Windows release’te tmux ve unsupported PTY agent’larını structured unavailable/unsupported olarak bildir.
+6. WSL’ye sessiz geçiş yapma.
+
+**Test/acceptance:** Fake agent job start/status/output/cancel Windows CI’da geçiyor; Linux baseline değişmiyor.
+
+**Rollback:** Windows host adapter devre dışı.
+
+**Yapılmayacak:** Shell/jobs motorunu Rust’a taşımak; tmux klonu yazmak.
+
+## Task W.2 — Windows display/capture provider
+
+**Yeni yollar:**
+
+- `rust/crates/pcbridge-native/src/platform/windows/mod.rs`
+- `rust/crates/pcbridge-native/src/platform/windows/display.rs`
+- `rust/crates/pcbridge-native/src/platform/windows/capture.rs`
+- `rust/crates/pcbridge-native/tests/windows_geometry.rs`
+- `tests/live/test_windows_capture.py`
+
+**Adımlar:**
+
+1. Başlangıç desteğini Windows 11 x64 ile sınırla.
+2. DPI awareness’ı native process açılışında ayarla.
+3. Display discovery için Win32 monitor API’lerini, capture için Windows Graphics Capture kullan.
+4. WinRT/D3D kaynaklarını dedicated owner thread’de tut.
+5. Row pitch, BGRA conversion, resize ve device-loss senaryolarını ortak `RawFrame` contract’ına bağla.
+6. İkinci monitor, farklı DPI, negative OS origin, lock ve display disconnect testlerini çalıştır.
+
+**Acceptance:** Ortak capture/coordinate/delivery suite geçiyor; Linux-only dependency Windows build’e girmiyor.
+
+**Rollback:** Windows capture unavailable; Python non-desktop yolları çalışır.
+
+**Yapılmayacak:** Linux Python capture’ına sahte fallback; driver/input migration’ını aynı commit’e katmak.
+
+## Task W.3 — Windows input, state ve accessibility
+
+**Yeni yollar:**
+
+- `platform/windows/input.rs`
+- `platform/windows/desktop_state.rs`
+- `platform/windows/clipboard.rs`
+- `platform/windows/accessibility.rs`
+- `platform/windows/apps.rs`
+- `tests/live/test_windows_input.py`
+- `tests/live/test_windows_accessibility.py`
+
+Bu yollar `rust/crates/pcbridge-native/src/` altındadır.
+
+**Implementation sırası — her madde ayrı migration task/commit grubu:**
+
+1. `SendInput`, virtual desktop absolute mapping ve Unicode text.
+2. Lock/session state, activity observation, held-input cleanup.
+3. Win32 clipboard ownership.
+4. UI Automation read, ardından Invoke/Value/Text action contract’ları.
+5. Window listing ve activation; focus sonucu gözlemle doğrulama.
+6. Paketleme ve açık opt-in parity gate.
+
+**Acceptance:** UIPI/elevation farkı typed failure olarak raporlanıyor; otomatik elevation yok; partial input sonucu replay edilmiyor; element ID flow korunuyor.
+
+**Rollback:** İlgili capability kapatılır; tam native core kapatılmaz.
+
+**Yapılmayacak:** Protected/secure desktop erişimi veya privilege escalation.
+
+`SendInput` için UIPI ve gönderilen event sayısı sınırlamaları acceptance testlerinin parçası olacak. [Microsoft SendInput documentation](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput)
+
+---
+
+# Phase M — macOS
+
+**Durum:** D1 yanıtına göre sıraya alınacak. GUI bu fazın ön koşulu değildir.
+
+## Task M.1 — macOS host ve izin kimliği
+
+**Ön koşul:** D1’de macOS’un sıraya alınması; Phase 5 tamam.
+
+**İncelenecek:** `jobs.py`, `config.py`, `desktop/session.py`, `native/discovery.py`, varsa `host.py`.
+
+**Yeni/değişen:**
+
+- `pcbridge/host.py` macOS adapter’ı.
+- `tests/integration/test_macos_jobs.py`
+- `docs/native/macos-packaging.md`
+
+**Adımlar:**
+
+1. Başlangıç runtime tabanını macOS 14+ olarak sınırla.
+2. Bash/PTY invocation’ını macOS `script` davranışından bağımsız Python host adapter’ında uygula.
+3. tmux kuruluysa mevcut logic’i kullan; yoksa unavailable.
+4. Native executable için sabit bundle/izin kimliği ve imza stratejisini paketleme contract’ına koy.
+5. Build path değişimlerinin TCC iznini etkilediği senaryoyu test et.
+6. Permission sorgusu ile permission request’i ayır.
+
+**Acceptance:** Headless Python server GUI olmadan başlayabiliyor; capability sorgusu TCC prompt açmıyor.
+
+**Rollback:** macOS native provider kapalı.
+
+**Yapılmayacak:** TCC veritabanını düzenlemek; GUI’yi izin almanın zorunlu yolu yapmak.
+
+## Task M.2 — macOS display/capture provider
+
+**Yeni yollar:**
+
+- `rust/crates/pcbridge-native/src/platform/macos/mod.rs`
+- `.../macos/display.rs`
+- `.../macos/capture.rs`
+- `rust/crates/pcbridge-native/tests/macos_geometry.rs`
+- `tests/live/test_macos_capture.py`
+
+Buradaki `.../macos/`, aynı `rust/crates/pcbridge-native/src/platform/macos/` dizinidir.
+
+**Adımlar:**
+
+1. CoreGraphics display metadata ve ScreenCaptureKit kullan.
+2. Desktop logical points ile backing pixels’i ayrı alanlarda tut.
+3. Y ekseni/origin dönüşümünü tek platform adapter’ında yap.
+4. Screenshot permission denial, monitor disconnect, sleep/wake ve cursor seçimini doğrula.
+5. Native PNG → Python shot pipeline’ını değişmeden kullan.
+
+**Acceptance:** Retina/non-Retina iki monitor testi ve ortak coordinate suite geçiyor.
+
+**Rollback:** Capability unavailable; non-desktop yollar korunur.
+
+**Yapılmayacak:** macOS private API veya görüntünün pixel boyutunu logical geometry sanmak.
+
+Capture implementation’ın resmi dayanağı: [ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit).
+
+## Task M.3 — macOS input/accessibility/clipboard
+
+**Yeni yollar:**
+
+- `rust/crates/pcbridge-native/src/platform/macos/input.rs`
+- `.../macos/accessibility.rs`
+- `.../macos/clipboard.rs`
+- `.../macos/desktop_state.rs`
+- `.../macos/apps.rs`
+- `tests/live/test_macos_input.py`
+- `tests/live/test_macos_accessibility.py`
+
+**Implementation sırası — ayrı commit grupları:**
+
+1. CoreGraphics input ve held-state cleanup.
+2. Accessibility permission ve AX element read.
+3. AX native action ve text setting.
+4. NSPasteboard adapter.
+5. NSWorkspace/application operations.
+6. Lock/activity observations ve bütün platform parity gate’i.
+
+**Acceptance:** Screen Recording ile Accessibility izinleri ayrı raporlanıyor; direct AX action varsa cursor click gerekmiyor; revoke bütün aktif kaynakları kapatıyor.
+
+**Rollback:** İlgili provider seçimi devre dışı.
+
+**Yapılmayacak:** Permission verildiğini input/capture sonucundan tahmin etmek; private API ile window kontrolü zorlamak.
+
+---
+
+# Phase G — İsteğe bağlı control plane GUI
+
+**Ön koşul:** Native IPC, capabilities, grant/revoke ve en az Linux default backend stabil. Windows/macOS’un ikisinin de bitmesi zorunlu değil.
+
+GUI’nin ürün kapsamı bu migration’ın default gate’lerine dahil değildir. İlk GUI sürümü yalnızca durum, izin, backend seçimi ve tanı gösterecek.
+
+## Task G.1 — Python control-plane endpoint
+
+**Amaç:** GUI’nin doğrudan native policy sahibi olmaması.
+
+**İncelenecek:** `runtime.py`, `capabilities.py`, `lease.py`, `server.py`.
+
+**Yeni:**
+
+- `pcbridge/control.py`
+- `tests/contracts/test_control_plane.py`
+
+**Adımlar:**
+
+1. Status/capability, timed unlock, revoke ve diagnostic snapshot operasyonlarını tanımla.
+2. Unix’te kullanıcıya özel socket; Windows’ta kullanıcı ACL’li named pipe kullan.
+3. Bu endpoint’i mevcut public HTTP/OAuth route’larına karıştırma.
+4. GUI kapandığında server/native session yaşamını policy belirlesin.
+5. Revoke’u GUI thread’i veya açık pencereye bağımlı yapma.
+
+**Acceptance:** Yetkisiz kullanıcı bağlanamıyor; GUI olmadan aynı CLI/MCP işlemleri çalışıyor.
+
+**Rollback:** Control endpoint kapanır; MCP/CLI devam eder.
+
+**Yapılmayacak:** İkinci SafetyGate veya ikinci native daemon yaratmak.
+
+## Task G.2 — Tauri + React control plane
+
+**Yeni yollar:**
+
+- `ui/package.json`
+- `ui/src/App.tsx`
+- `ui/src/lib/control.ts`
+- `ui/src/components/Capabilities.tsx`
+- `ui/src/components/DesktopPermission.tsx`
+- `ui/src-tauri/Cargo.toml`
+- `ui/src-tauri/src/lib.rs`
+
+**Adımlar:**
+
+1. Mevcut grant/capability contract’ını göster.
+2. Timed unlock, revoke ve explicit permission retry kontrollerini bağla.
+3. Degraded backend nedenini ve gerçek permission scope’unu göster.
+4. Disconnect/crash durumunda eski “izin açık” bilgisini canlıymış gibi sunma.
+5. GUI shutdown ile native resource shutdown senaryolarını ayrı test et.
+
+**Acceptance:** GUI kapalıyken Pcbridge tam headless çalışıyor; panic/revoke control endpoint ve CLI’den çalışıyor.
+
+**Rollback:** GUI paketi kaldırılır.
+
+**Yapılmayacak:** MCP server’ı Tauri’ye taşımak; screenshot editor, workflow builder, chat uygulaması veya Conduit UI klonu.
+
+---
+
+# Test komutları ve ortak çalışma sözleşmesi
+
+Aşağıdaki komutlar **uygulama sırasında** kullanılacak; bu plan hazırlanırken çalıştırılmadı.
+
+Güvenli mevcut baseline:
 
 ```bash
-cd ~/Belgeler/Pcbridge
-edit desktop_doctor.sh          # yukarıdaki betiği yapıştır
-chmod +x desktop_doctor.sh && ./desktop_doctor.sh | tee /tmp/faz0.txt
+env -u PCBRIDGE_TEST_CAPTURE -u PCBRIDGE_TEST_INPUT -u PCBRIDGE_TEST_ATSPI -u PCBRIDGE_TEST_BATCH ./.venv/bin/python tests/test_desktop.py
 ```
 
-Çıktıyı paylaş; Faz 0 sonuçlarına göre bu dosyanın 6. bölümünü kesinleştirip
-Faz 1'e başlarım. (§5'teki model/effort işi masaüstünden bağımsız — istersen
-Faz 0'ı beklemeden ondan başlanabilir.)
+```bash
+./.venv/bin/python tests/test_models.py
+```
 
----
+Yeni Python contract suite:
 
-## 9b. Faz H sonuçları — ajan-bağımsız MCP (2026-08-03)
+```bash
+./.venv/bin/python -m unittest discover -s tests/contracts -p 'test_*.py' -v
+```
 
-> Bu plan Gemini Spark varsayımıyla yazıldı. Faz H o varsayımı kaldırdı.
-> Aşağıdakiler **ölçüldü**; planla çelişenler ayrıca işaretli.
+Native integration, geliştirme binary’si açıkça seçilerek:
 
-### Ölçümler
+```bash
+PCBRIDGE_NATIVE_BIN="$PWD/rust/target/debug/pcbridge-native" ./.venv/bin/python -m unittest discover -s tests/integration -p 'test_native_*.py' -v
+```
 
-| soru | sonuç | nasıl |
+Rust:
+
+```bash
+cargo fmt --manifest-path rust/Cargo.toml --all --check
+```
+
+```bash
+cargo test --manifest-path rust/Cargo.toml --workspace --locked
+```
+
+```bash
+cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets --locked -- -D warnings
+```
+
+Capture-only gerçek test, yalnızca explicit opt-in sonrasında:
+
+```bash
+PCBRIDGE_TEST_CAPTURE=1 ./.venv/bin/python tests/live/test_capture_parity.py
+```
+
+Input testleri bundan ayrıdır:
+
+```bash
+PCBRIDGE_TEST_INPUT=1 ./.venv/bin/python tests/live/test_input_parity.py
+```
+
+Ek kurallar:
+
+- Yeni testler standart `unittest` ile yazılacak; pytest migration’ı yapılmayacak.
+- Live test dosyaları flag yoksa işlem yapmadan skip edecek.
+- Default CI live testleri çalıştırmayacak.
+- `tests/test_e2e.py` doğrudan günlük gate olmayacak: çalışan server ve gerçek agent çağrısı riski var. Mock backend’li, geçici config’li transport integration testleri esas alınacak.
+- Mevcut bir baseline hatası çıkarsa kaydedilecek ve ilgili bug ayrı commit’te giderilecek; native migration başarısı sayılmayacak.
+- Her riskli migration’da aynı fixture’ları iki backend tüketmeli; yeni implementation’ın kendi çıktısından üretilmiş beklenen sonuç test sayılmaz.
+
+# A. Dependency graph
+
+```text
+0.1 -> 0.2
+
+0.2 -> 1.1 -> 1.2 -> 1.3
+0.2 -> 1.4
+
+0.2 -> 2.1
+1.1 + 2.1 -> 2.2
+1.1 + 2.2 -> 2.3 -> 2.4
+
+2.1 + 2.2 -> 3.1
+2.3 + 2.4 + 3.1 -> 3.2 -> 3.3
+1.1 + 1.2 + 3.3 -> 3.4
+1.3 + 3.4 -> 3.5
+
+3.4 -> 4.1
+0.1 + 3.5 + 4.1 -> 4.2 -> 4.3
+
+1.1 + 2.3 + 2.4 -> 5.1
+4.3 + 5.1 -> 5.2 -> 5.3 -> 5.4
+
+1.1 + 1.2 -> 6.1
+4.3 + 6.1 -> 6.2
+5.1 + 6.2 -> 6.3
+1.4 + 6.2 -> 6.4
+
+4.3 + 5.3 -> 7.1 -> 7.2
+4.3 -> 7.3 -> 7.4
+
+4.3 + two-release gate -> 8.1
+subsystem parity/default + two-release gate -> 8.2
+
+D1 + Phase 5 -> W.1 -> W.2 -> W.3
+D1 + Phase 5 -> M.1 -> M.2 -> M.3
+
+stable Linux runtime + IPC + capabilities -> G.1 -> G.2
+D2 -> optional future GNOME activation task
+```
+
+# B. Critical path
+
+En kısa güvenilir yol:
+
+```text
+0.1
+→ 0.2
+→ 1.1
+→ 1.2
+→ 2.1
+→ 2.2
+→ 2.3
+→ 2.4
+→ 3.1
+→ 3.2
+→ 3.3
+→ 3.4
+```
+
+Bu noktada **temiz Python/native sınırı + ilk çalışan Rust capture subsystem’i** vardır.
+
+Kullanıcıya varsayılan olarak sunulması için ayrıca:
+
+```text
+1.3 + 3.5 + 4.1
+→ 4.2
+→ 4.3
+```
+
+Input, accessibility, buffered/adaptive capture, portal genişletmesi ve GUI bu ilk teslimin ön koşulu değildir.
+
+# C. Deferred work
+
+Bilinçli olarak ilk migration dışında:
+
+- Windows/macOS implementation; D1’e bağlı sonraki fazlar.
+- GNOME eklentisiyle hızlı activation; D2’ye bağlı.
+- Tauri + React GUI.
+- Full Rust MCP server.
+- OAuth/HTTP rewrite.
+- Shell/filesystem/jobs/tmux motorlarının Rust’a taşınması.
+- Batch ve yüksek seviye SafetyGate’in Rust’a taşınması.
+- Shared native daemon ve çok client’lı native socket mimarisi.
+- Portal input/libei.
+- Portal restore-token persistence.
+- DMA-BUF/EGL, GPU zero-copy, HDR/video capture.
+- Arbitrary region-crop public API.
+- Clipboard multi-MIME fidelity genişletmesi.
+- Fiziksel input dinleyerek agent/human ayrımı.
+- Otomatik güncelleme sistemi.
+
+# D. Risk register
+
+| Risk | Olasılık | Etki | Mitigation |
+|---|---|---|---|
+| Rust deneyiminin sınırlı olması | Yüksek | Yüksek | İki crate, küçük task, safe wrapper, ortak fixture, exact toolchain; karmaşık generic/framework yok. |
+| AI-generated native code’un derlenip yanlış çalışması | Yüksek | Çok yüksek | Golden pixel/event testleri, fault injection ve gerçek gözlem gate’i. |
+| `unsafe`/FD/buffer ownership hataları | Orta | Çok yüksek | Core’da unsafe yasağı; OwnedFd/RAII; küçük FFI sınırı; offset/stride/overflow testleri. |
+| Wayland izinlerinin birbirine karıştırılması | Yüksek | Yüksek | Capture/input grant ayrımı; `permission_scope`; explicit session lifecycle; capability probe input göndermez. |
+| Yanlış monitor eşlemesi | Orta | Çok yüksek | Connector/stable identity + topology; sıra veya ilk stream fallback’i yok. |
+| Stale frame’e fresh shot ID verilmesi | Orta | Çok yüksek | Frame timestamp/sequence/session kimliği; OnDemand request barrier; frozen-stream testi. |
+| Çoklu stdio process’lerinin revoke sonrası yaşaması | Yüksek | Çok yüksek | Ortak revoke epoch, native watchdog, registry identity, legacy cleanup geçişi. |
+| Input timeout sonrası double execution | Orta | Çok yüksek | Otomatik replay yasağı; `EXECUTION_UNKNOWN`; release/cleanup. |
+| Python/Rust coordinate regression | Orta | Çok yüksek | Tek shot→global path; paylaşılan fixture; native dönüşümün ayrı ve dar olması. |
+| Accessibility yanlış uygulama/node seçimi | Orta | Çok yüksek | Snapshot/app/window identity; ambiguity reddi; native action; coordinate fallback yok. |
+| Paketleme ve sistem library farkları | Yüksek | Yüksek | Ubuntu 24.04 build tabanı; runtime dependency smoke test; explicit Python fallback. |
+| Cross-platform API farkları | Yüksek | Yüksek | Platformlar ayrı gate; unsupported/degraded açık; Linux varsayımlarını genelleştirmeme. |
+| FastMCP output schema/transport regression | Orta | Yüksek | Kurulu sürümü sabitleme; wire-level content/error/image testleri. |
+| Legacy kodun erken silinmesi | Orta | Yüksek | Parity → default → iki sürüm → retirement sırası. |
+| Service restart ile çalışan agent job’ının kesilmesi | Yüksek | Yüksek | Restart öncesi job inventory; stdio/service ayrımı; otomatik restart yok. |
+| Testin gerçek masaüstüne input göndermesi | Yüksek | Çok yüksek | Task 0.1; ayrı input opt-in; boş editor; move→gözlem→click sırası. |
+| Native log üzerinden içerik sızması | Orta | Yüksek | Payload/text/clipboard/frame log yasağı; sınırlandırılmış metadata audit. |
+| Sürekli capture kaynak tüketimi | Orta | Orta | OnDemand default; Buffered/Adaptive yalnızca ölçüm sonrası. |
+
+# E. Verification gates
+
+| Gate | Gerekli kanıt | Başarısızsa |
 |---|---|---|
-| Claude Code araç sonucunda görüntü alıyor mu? | **Evet** | Bilinen içerikli PNG'ye yazılan gizli değer (`KELIME-1234`) modelden birebir geri geldi |
-| Uçtan uca çalışıyor mu? | **Evet** | `--stdio` ile bağlanan gerçek Claude Code oturumu `desktop_unlock` + `screen_capture` çağırıp ekranı doğru tarif etti |
-| Görüntünün jeton maliyeti | 1920×1080 ~12976 · 1280×720 ~11712 cache_creation (fark ~1264) | `claude -p --output-format json` |
-| stdio mevcut `build_app()` ile çalışıyor mu? | **Evet**, 33 araç, stdout temiz | el JSON-RPC ile `initialize` + `tools/list` |
-| stdio'da OAuth | fastmcp kendisi atlıyor (`server.py:196`, "skip_auth ... STDIO transport") | kaynak + ölçüm |
-| Codex | **ölçülemedi** — abonelik yok. Yalnızca `codex mcp get pcbridge` ile yapılandırmanın doğru yazıldığı doğrulandı | — |
-| Claude Desktop | `~/.config/Claude/claude_desktop_config.json` var, `mcpServers` anahtarı **yok** | dosya şeması okundu (değerler okunmadı) |
+| **Gate 0 — Güvenli baseline** | Mevcut tests + contract fixture’ları; capture/input opt-in ayrılmış. | Refactor başlamaz. |
+| **Gate 1 — Python boundary** | Tool/CLI contract aynı; runtime lifecycle testleri; capabilities ve errors doğru. | Native entegrasyon yapılmaz. |
+| **Gate 2 — IPC/lifecycle** | Framing, timeout, crash, cancellation, EOF, multi-process revoke testleri. | Gerçek native capture açılmaz. |
+| **Gate 3 — Rust capture parity** | Pixel/metadata/coordinate/freshness + MCP delivery; GI olmadan gerçek capture. | Rust default olmaz; Python silinmez. |
+| **Gate 4 — Default rollout** | Paketleme smoke, görünür fallback, yeni stdio/service process doğrulaması. | `native.capture=python`. |
+| **Gate 5 — Input parity** | Golden events, batch safety, gerçek boş-editor/input ölçümleri, release/revoke. | Rust input default olmaz. |
+| **Gate 6 — Accessibility parity** | Target identity, stable IDs, native action, Unicode text, gerçek read/action testi. | Python accessibility korunur. |
+| **Gate 7 — Retirement** | İki sürüm, açık blocker yok, rollback paketi, sıfır aktif caller. | Legacy implementation silinmez. |
+| **Gate W / M** | İlgili OS üzerinde package + host + native + live parity. | Cross-platform supported iddiası yapılmaz. |
+| **Gate G** | GUI kapalıyken MCP/CLI çalışıyor; revoke GUI’den bağımsız. | GUI yayınlanmaz. |
 
-### Plandan sapmalar
+**Gate başarısızlığı sonraki destructive migration’ı durdurur.** Feature flag ile kapalı geliştirme devam edebilir; başarısız gate atlanmış sayılmaz.
 
-1. **`agy`'de ölçülen ~40 bin jeton Claude'da geçerli değil.** Burada bir görüntü
-   ~1200–1900 jeton — 20–30 kat ucuz. "Görüntü ajana pahalı" varsayımı sürücüye
-   bağlıymış; `computer_task`'i pahalı yapan şey görüntü değil, **ayrı oturum ve
-   tekrar eden turlar.**
-2. **`screenshot_scale_long_edge = 1280` korundu ama gerekçesi değişti.** Artık
-   jeton tasarrufu için değil: Anthropic API uzun kenarı **1568'e indiriyor**.
-   1280 o sınırın altında kaldığı için modelin gördüğü piksel ile bizim
-   raporladığımız ölçek aynı kalıyor. 1920 gönderilseydi "ölçek 1.0" bilgisi
-   sessizce yalan olurdu — ve bu, koordinat hesabını bozan türden bir yalan.
-3. **`[server]` diye bir bölüm yoktu.** Bütün sunucu ayarları kökte duruyordu.
-   `inline_images` her iki yazımdan da okunuyor; belgelerde `[server]` gösteriliyor.
-4. **`computer_task`'te gerçek bir hata bulundu.** `agent="claude"` çağrısı,
-   yapılandırılan model agy'ye ait olduğu için çözümlemede patlıyordu. Aynı tuzak
-   yapılandırmada da vardı ve **çağrı anına kadar görünmüyordu**; artık
-   `_check_computer_task()` yüklemede yakalıyor.
-5. **stdio'da `/shot` rotası yok.** HTTP sunucusu olmayınca `@mcp.custom_route`
-   ile eklenen hiçbir rota servis edilmiyor. Orada bağlantı yerine diskteki
-   dosya yolu dönüyor — sessizce ölü bir URL vermek yerine.
+# F. IMPLEMENTER INSTRUCTIONS — GPT-5.6 Sol
 
-### Tasarım kararları
-
-- **`[server] inline_images = "auto"`** — taşımaya bakıyor: stdio'da açık,
-  HTTP'de kapalı. Spark görüntü bloğu gelince bozulduğu için HTTP yolunun
-  dokunulmadan kalması şart; taşıma, "bu istemci görüyor mu" sorusunun en iyi
-  vekili çünkü Spark HTTP'den, gören istemciler stdio'dan geliyor.
-- **Metin bloğu her zaman ilk sırada.** Monitör numarası, global ofset ve
-  dönüşüm kuralı görüntüden ayrılırsa ikinci monitöre yapılan her tıklama
-  1920 px şaşar ve hata hiçbir yerde görünmez.
-- **Dönüş tipi `list[ContentBlock]`.** `-> list` (çıplak) yazılırsa FastMCP
-  outputSchema üretiyor ve çağrı `"outputSchema defined but no structured output
-  returned"` ile patlıyor (fiilen üretildi).
-- **stdio bir güvenlik gerilemesi ve kullanıcı onayıyla kabul edildi.** Ağ
-  katmanı ve OAuth kalkıyor, önde yalnızca `desktop_unlock` kalıyor.
-
----
-
-## 9c. Faz I sonuçları — yumuşak fare ve basılı tutma (2026-08-03)
-
-Kullanıcının isteği: *"fareyi hareket ettirdiğinde ışınlanıyor, gerçekten
-hareket ederse iyi olur"*, ayrıca tut-sürükle / sağ tık / scroll / scroll'a
-basma / çok tuşa aynı anda basma ve basılı tutabilme.
-
-### Plandan sapan bulgu: istenenin çoğu zaten vardı
-
-Kod okunmadan yazılan bir plan yedi yeni yetenek eklerdi. Gerçekte `input.py`
-sağ tık, orta tık, `drag`, yatay scroll, `mouse_down`/`mouse_up`,
-`key_down`/`key_up` ve sınırsız tuş kombinasyonunu **zaten yapıyordu** — bir
-kısmı MCP araçlarına ve toplu eylem motoruna bağlanmamıştı. Gerçekten eksik
-olan tek şey yumuşak hareketti. Bu yüzden bölüm çoğunlukla *yeni kod* değil
-*var olanı dışarı açma* işi oldu ve `mouse` aracı genişledi; **yeni araç
-eklenmedi** (33'te kaldı).
-
-### Ölçümler
-
-| ölçüm | sonuç |
-|---|---|
-| `time.sleep(0.008)` gerçek süresi | **8,07 ms** (sapma +0,08 ms) |
-| 48 adımlık hareketin geçen olayları | **48 ABS_X + 48 ABS_Y, tamamı**; `SYN_DROPPED` yok |
-| 48×8 ms toplam / 24×16 ms toplam | 388 ms / 387 ms — tutarlı |
-| Gerçek hareket süreleri | 960 px → 186 ms · köşegen → 498 ms (tavan) · 80 px → 61 ms (taban) |
-| Cihaz yok edilince tuş bırakılıyor mu | **ölçülemedi** — destroy ile event node kayboluyor |
-
-**Ölçüm tuzağı (kaydedilmeye değer):** ilk sayımda 96 olayın 11'i göründü ve
-bir an "kernel ara noktaları birleştiriyor" sanıldı. Sebep koddaki bir şey
-değil, ölçüm yöntemiydi: olaylar hareket boyunca okunmayınca evdev istemci
-kuyruğu taşıyor. Paralel okuyucuyla tekrarlandığında kayıp sıfır çıktı.
-
-### Kararlar
-
-- **Yumuşak hareket varsayılan**, `pointer_speed = 0` ile ışınlamaya dönülüyor.
-  Hız 5000 px/s (kullanıcı seçti), tavan 500 ms.
-- **`drag` bu ayardan bağımsız** ara nokta üretiyor (`min_steps`): sıçrayan bir
-  hareketi çoğu uygulama sürükleme saymıyor, yani `pointer_speed = 0` sürüklemeyi
-  bozardı.
-- **Sıkışma koruması istekte yoktu ama zorunluydu.** `hold`'u MCP'ye açmak, onu
-  kapatan bir yol açmadan yapılamaz: `release` unutulan bir Ctrl makineyi
-  kullanılamaz yapıyor ve ajanın bunu göreceği bir kanal yok. Zamanlayıcı +
-  `release_all()` + batch yarıda kalırsa otomatik bırakma + her yanıtta görünür
-  not. Tembel kontrol (bir sonraki çağrıda bak) yetmez — o çağrı hiç gelmeyebilir.
-- **Bağıl fare modu (`REL_X`/`REL_Y`) kapsam dışı.** Oyunlar imleci yakalayıp
-  bağıl hareket bekler; mutlak cihaz orada çalışmaz. Ayrı ve daha büyük iş,
-  kullanıcı da oyun demedi.
-
----
-
-## 9d. Faz J sonuçları — sessiz ekran görüntüsü (2026-08-03)
-
-Kullanıcının sorusu: *"gnome-screenshot ekran görüntüsü alırken beyaz bir flaş
-patlatıyor. Acaba o flaş ve sesi patlatmadan sessizce alabilir mi?"*
-
-### Elenen yollar (hepsi denendi, hepsi ölçüldü)
-
-| yol | sonuç |
-|---|---|
-| `gnome-screenshot --no-flash` | Bayrak **yok** — eski sürümlerde vardı, kaldırılmış |
-| `gsettings` ile flaş kapatma | Şemada **flaşla ilgili anahtar yok** |
-| `org.gnome.Shell.Screenshot` D-Bus, `flash=false` | **"Access denied"** — GNOME 46 çağıranı süzüyor, yalnızca kendi uygulamalarına izin veriyor |
-| XDG portal (`org.freedesktop.portal.Screenshot`) | Çalışıyor (497 ms) ama **yine flaş**; ayrıca çıktıyı `~/Resimler`'e yazıp klasörü kirletiyor |
-| **`org.gnome.Mutter.ScreenCast`** | **Erişilebilir ve sessiz** ✔ |
-
-Yol boyunca bir yanlış varsayım düzeltildi: flaşı GNOME Shell'in çizdiği
-sanılmıştı. Ölçüm tersini söyledi — `gnome-screenshot` ikilisinde
-`cheese_flash_fire` var, yani flaşı **istemci kendi çiziyor**. Bu, D-Bus'a
-`flash=false` geçirmenin neden yetmeyeceğini de açıklıyor.
-
-### Kabul edilen çözüm ve ölçümleri
-
-Ekran *paylaşımı* yolunda flaş yok çünkü sistem bunu fotoğraf değil **video**
-sayıyor.
-
-| ölçüm | sonuç |
-|---|---|
-| Ham yakalama | gnome-screenshot 833 ms · portal 497 ms · **ScreenCast 240 ms** |
-| Uçtan uca (2 monitör + ölçekleme + PNG) | 2497 ms → **1462 ms** |
-| Piksel karşılaştırması | **%99,8 birebir aynı** (2.070.172 / 2.073.600) |
-| Açık yayının maliyeti | gnome-shell CPU %35,2 → **%35,2** (değişmedi) |
-| Çekim süresi dağılımı | DP-1 ~315 ms · DP-2 ~80 ms — **sebebi bilinmiyor** |
-
-**Hız iddiası bilinçli olarak küçültüldü.** Ham yakalamada 3,5 kat fark var ama
-uçtan uca 1,7 kat: aradaki farkın çoğu Pillow'un ölçekleme/PNG yazma maliyeti ve
-iki yolda da aynı. Asıl kazanç sessizlik.
-
-### Ölçüm hatası (kaydedilmeye değer)
-
-İlk sayımda 96 olayın 11'i göründü ve bir an "kernel ara noktaları
-birleştiriyor" sanıldı. Sebep kodda değil, ölçüm yöntemindeydi: olaylar hareket
-boyunca okunmayınca evdev istemci kuyruğu taşıyor. Paralel okuyucuyla
-tekrarlandığında kayıp sıfır çıktı. (Bu aslında I bölümünün ölçümü ama aynı
-oturumda ve aynı dersi veriyor: **ölçüm aracının kendisi de yanılabilir.**)
-
-### Kararlar
-
-- **Yayın `desktop_unlock` ile açılıyor**, `screen_capture` beklenmiyor. Sebep
-  kullanıcının isteği: üst çubuktaki paylaşım göstergesi "ajan şu an masaüstüne
-  erişebiliyor" demek ve bu izin açıldığı anda doğru.
-- **Gösterge bir yan etki değil, özellik.** Sessizleşen bir yeteneğin görünür
-  bir işareti olmalı. Çekilen karede de göründüğü bilerek kabul edildi.
-- **Yayın yardımcı süreçte yaşıyor**, ana süreçte değil: pcbridge çökerse
-  paylaşım da kapanıyor.
-- **`gnome-screenshot` silinmedi.** `monitor="window"` (yayında pencere seçimi
-  yok), gstreamer kurulu olmayan makineler ve yayın kurulamadığı durumlar için
-  yedek. `capture_backend` ayarıyla zorlanabiliyor.
-
----
-
-## 10. Kaynaklar
-
-- [XDG RemoteDesktop portalı](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.RemoteDesktop.html) — portal tabanlı girdi enjeksiyonu
-- [Peter Hutterer — libei integrations in the XDG RemoteDesktop and InputCapture portals (Temmuz 2026)](http://who-t.blogspot.com/2026/07/libei-integrations-in-xdg-remotedesktop.html) — oturum kalıcılığı portal 1.21+ ile geldi
-- [ydotool README](https://github.com/ReimuNotMoe/ydotool) — uinput tabanlı, X11/Wayland/TTY
-- [ydotool #43 — non-QWERTY düzenlerde bozuk yazım](https://github.com/ReimuNotMoe/ydotool/issues/43)
-- [ydotool paketi, Ubuntu Noble: 0.1.8](https://launchpad.net/ubuntu/noble/amd64/ydotool) — depodaki sürüm eski
-- [dotool — düzen farkındalıklı uinput aracı](https://sr.ht/~geb/dotool/)
-- [gemini-cli #2136 — MCP araç sonuçlarında görsel desteklenmiyor](https://github.com/google-gemini/gemini-cli/issues/2136)
-- [Gemini Spark özel uygulamalar (destek belgesi)](https://support.google.com/gemini/answer/17209137?hl=en&co=GENIE.Platform%3DDesktop)
-- [GNOME Discourse — D-Bus ile ekran görüntüsü](https://discourse.gnome.org/t/take-screenshot-in-gnome-environment-via-its-dbus-api/21144)
-- [ArchWiki — Screen capture](https://wiki.archlinux.org/title/Screen_capture)
-- [AT-SPI2 / pyatspi](https://www.freedesktop.org/wiki/Accessibility/AT-SPI2/) ve [erişilebilirlikle otomasyon örnekleri](https://modehnal.github.io/)
-- [Zorin OS 18: Ubuntu 24.04 LTS + GNOME Shell 46](https://ubuntuhandbook.org/index.php/2025/10/zorin-os-18-officially-released-based-on-ubuntu-24-04-lts/), [Zorin OS 18.1 (Nisan 2026)](https://www.omgubuntu.co.uk/2026/04/zorin-os-18-1-released)
-
-Model ve effort (5. bölüm):
-
-- [Claude Code — Model configuration](https://code.claude.com/docs/en/model-config) — öncelik sırası, `/model`'in ayara yazılması, effort seviyeleri, `modelUsage`
-- [Claude Code — CLI reference](https://code.claude.com/docs/en/cli-reference) — `--model`, `--effort`
-- [Antigravity CLI komut listesi](https://toolsbase.dev/en/reference/antigravity-cli-commands) ve [agy rehberi](https://www.codeagentswarm.com/en/guides/how-to-use-antigravity-cli) — `agy --model`, sürüme bağlı TUI-only davranış
-
----
-
-# 10. GNOME 46 kabuk eklentisi — "ajan görünür olsun" (2026-08-04)
-
-`YAPILACAKLAR.md`'nin o günkü görevi: masaüstü izni açıkken bunu **bakar bakmaz**
-anlamak. Üç madde istenmişti — ekran kenarlarında çerçeve, değişen imleç, imlecin
-yöne dönmesi. İkisi yapıldı, üçüncüsü (imleç) geri alındı.
-
-## 10a. Neden ayrı bir eklenti, neden pcbridge'e dokunulmadı
-
-İş açıkça "yalnızca görsel katman" diye tanımlanmıştı. Eklenti pcbridge'in
-durumunu **dosyadan okuyor** (`state_dir/desktop_unlock.json`), pcbridge'e tek
-satır eklenmedi.
-
-D-Bus düşünülüp elendi: GNOME 46 bu makinede `Shell.Introspect` ve
-`Shell.Screenshot`'ı dışarıya kapatmış, pcbridge'in kendisi de bir arayüz
-sunmuyor ve sunması kapsam dışıydı. Dosya zaten var, zaten yazılıyor, tek yönlü.
-
-**Süre dolumu ayrıca zamanlayıcı istiyor.** pcbridge izin bitince dosyayı
-yeniden yazmıyor — `until` sadece geçmişte kalıyor. Yalnızca dosya olaylarını
-dinleyen bir izleyici izin bittiğini hiç duymaz ve çerçeve sonsuza kadar ekranda
-kalırdı.
-
-## 10b. Ölçüm altyapısı: `selftest.js`
-
-Eklentinin iki iddiası dışarıdan doğrulanamıyor — çerçevenin tıklamayı
-engellemediği ve kabuğun ana döngüsünü tıkamadığı. `Shell.Eval` GNOME 41+ ile
-kapalı, yani kabuğa dışarıdan kod sokulamıyor. Ölçümü yapabilecek tek yer
-kabuğun içinde zaten çalışan eklentinin kendisi. `PCBRIDGE_GORUNUR_SELFTEST=1`
-ya da bir işaret dosyası ile açılıyor; kapalıyken maliyeti tek bir `getenv`.
-
-Ana döngü gözcüsü ("fare donuyor" şikâyeti) bu işin en faydalı parçası çıktı:
-sabit aralıklı bir zamanlayıcı kurup **gerçekte** ne zaman uyandığına bakıyor.
-CPU yüzdesi bunu göstermez — donma toplam yükten değil tek bir uzun işten de
-gelebilir.
-
-## 10c. Çerçeve: neden dört şerit, tek tam ekran aktör değil
-
-Tam ekran bir `St.DrawingArea` monitör başına ~8 MB doku ayırır ve her karede
-1920×1080 saydam bir dörtgen harmanlatır. Dört kenar şeridi aynı görüntüyü
-**~4 kat az piksel** harmanlayarak veriyor (552 bin px yerine 2,07 milyon).
-
-Köşeler: yatay şeritler tam genişlik, dikey şeritler tam yükseklik; köşede ikisi
-üst üste biniyor ve saydamlıklar OVER ile birleşiyor. Köşe biraz daha parlak
-çıkıyor — kusur değil, cam kenarındaki ışık böyle davranır.
-
-Çizim **bir kez**: şeritler yalnızca boyut değişince yeniden çiziliyor,
-belirme/kaybolma `opacity` üzerinden GPU'da oluyor. Animasyon boyunca tek bir
-Cairo çağrısı yok. Ölçülen sonuç: boşta maliyet ölçüm gürültüsünün altında.
-
-`Clutter.Canvas` mutter çatalında yok; çizim yolu `St.DrawingArea` + Cairo.
-
-## 10d. İmleç: soru çözüldü, özellik geri alındı
-
-`YAPILACAKLAR` "2 ve 3 tek bir soruya bağlı: gerçek imleci gizleyebiliyor muyuz?"
-diyordu ve gizleyemezsek tema değiştirme yedeğine düşmeyi öneriyordu (yön
-dönmesi düşerdi).
-
-**Cevap evet.** `Meta.CursorTracker.set_pointer_visible(false)` gerçek oturumda,
-gerçek donanımda imleci gizliyor ve gizli kalıyor. Görsel kanıt: gizli/görünür
-kareleri arasındaki fark tam olarak imlecin bulunduğu noktada, 13×21 px, başka
-hiçbir piksel değişmedi. Kendi imlecimiz çizildi, yöne döndü, kullanıcının
-verdiği referans görsele göre yeniden tasarlandı.
-
-Sonra gerçek kullanımda **fiziksel fareyle** tıklamalar basmadı ve fare dondu.
-Üç hipotez test edildi (girdi bölgesi fırtınası, basılıyken takibin durması,
-tıklamaların yutulması) ve **üçü de yanlış çıktı** — ölçümleri
-`YAPILACAKLAR.md`'de. Bütün testlerin ortak kusuru sentetik fare kullanmalarıydı;
-ölçülmemiş tek fark olay hızı. Kullanıcı çerçeveyle yetinmeyi seçti, imleç
-kodu çıkarıldı (git: `2cac1b3`, `3b15559`).
-
-**Buradan çıkan ders:** sentetik girdiyle yapılan bir ölçüm, fiziksel girdiyle
-aynı şey değil. pcbridge'in kendi `mouse` aracı 8 ms adımlarla ~125 Hz üretiyor;
-bir oyuncu faresi 1000 Hz üretebiliyor ve aradaki fark bir tasarımı çökertmeye
-yetiyor.
-
-## 10e. Yol boyunca çıkan iki tuzak
-
-**`rm` çalışan eklentiyi durdurmuyor.** GNOME 45+ ESM modüllerini önbellekte
-tutuyor; diskteki dosyayı silmek ancak kabuk yeniden başlayınca etki ediyor.
-Kullanıcıya önce yalnızca `rm` söylendi, hiçbir şey değişmedi ve makineyi
-yeniden başlatmak zorunda kaldı. Doğrusu `gnome-extensions disable <uuid>`.
-
-**Nested kabuk oturum servisi sızdırıyor.** Her koşum ~13 servis bırakıyor;
-~20 koşumda 298 yetim süreç birikti ve `fs.inotify.max_user_instances` (128)
-doldu. O noktada `Gio.FileMonitor` yeni izleyici yaratamıyor ve bunu **sessizce**
-yapıyor. Belirtisi yanlış yorumlandı: eklentinin durum izleyicisi öldü sanıldı ve
-kodda hata arandı; `test_state.js` 23/23 iken 11/23'e düştü — hem yeni hem
-commit'teki kodla, yani kod değişmemişti. Temizlikten sonra tekrar 23/23.
+1. `AGENTS.md` içindeki proje bağlamını ve güncel migration özetini kullan. Her session başında başka belgeyi tamamen okuma ritüeli ekleme; task ayrıntısı gerektiğinde bu plandaki ilgili bölüme, ölçüm gerektiğinde ilgili mevcut belgeye başvur.
+2. Bu planı task sırasıyla uygula; açık D1/D2 kararlarını varsayım olarak kapatma.
+3. Her task öncesi listelenen dosyaların hâlâ aynı sorumluluğu taşıdığını doğrula.
+4. Repo planla çelişiyorsa körlemesine taşıma yapma; farkı, etkisini ve önerilen düzeltmeyi bildir.
+5. Riskli subsystem’de önce contract testini ekle, sonra implementation’ı değiştir.
+6. Her task tek migration sınırı taşısın. Büyük task’ların numaralı alt adımlarını küçük commit’lere böl.
+7. Refactor, yeni feature, native migration ve public semantics değişikliğini aynı commit’e sıkıştırma.
+8. Eski implementation’ı parity/default/retirement gate’leri tamamlanmadan silme.
+9. Başarısız testleri gizleme, silme veya yalnızca yeni koda uysun diye değiştirme.
+10. `config.toml` içeriğini yazdırma, loglama veya commit etme.
+11. OAuth, `MetadataNormalizer`, `BasicAuthFormShim` ve agent model politikalarını kapsam dışında tut.
+12. Native input request’ini crash/timeout sonrasında otomatik tekrar etme.
+13. `capture.to_global()` dışında shot koordinat matematiği yazma.
+14. Accessibility action başarısızlığını gizli coordinate click ile telafi etme.
+15. Shell/filesystem/jobs/delegation yollarını desktop grant’e bağlama; çok yollu execution’ı koru.
+16. Gerçek input testlerini explicit opt-in olmadan çalıştırma. Capture opt-in’ini input izni sayma.
+17. Gerçek mouse testinde önce move, sonra görüntüyle doğrulama, ardından click uygula.
+18. Service restart öncesinde çalışan işleri kontrol et; mevcut stdio bağlantısının yeni kodu kullandığını varsayma.
+19. Kod, identifier, yorum ve İngilizce belgelerde American English kullan. Serialized/public alanları yalnızca yazım nedeniyle yeniden adlandırma.
+20. Her task sonunda değişen dosyaları, çalıştırılan komutları, gerçek sonuçları, geçilen gate’i ve rollback yolunu özetle.
+21. “Çalışıyor” demek için ölçüm göster. Capture dosyası oluşması, image delivery veya GUI görevinin tamamlanmasıyla aynı şey değildir.
+22. İlk hedefi büyütme: **Python orchestration + sürümlü IPC + güvenilir Linux Rust capture.** Diğer fazlara ancak ilgili gate geçince ilerle.
+23. Migration uygulamasına başladığında yeni `YAPILACAKLAR.md` oluştur; yaptıklarını ve yapacaklarını task kimlikleri, gerçek test sonuçları, gate durumu ve sonraki somut adımla kaydet. Her task sonunda ve oturum devrinde güncelle.
+24. `AGENTS.md` içindeki kısa migration özetini de güncel tut; modelin her session başında planı veya ilerleme dosyasını okumasını zorunlu kılma. Ayrıntılı çalışma günlüğünü `AGENTS.md` içine kopyalama.
