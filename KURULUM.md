@@ -1,5 +1,7 @@
 # pcbridge — kurulum, kullanım ve güvenlik (ayrıntılı)
 
+> Kurallar ve mimari: **[CLAUDE.md](CLAUDE.md)** · Sıradaki iş: **[WALKTHROUGH.md](WALKTHROUGH.md)**
+
 > Bu dosya projenin **ayrıntılı Türkçe elkitabı**. Kısa ve İngilizce genel
 > bakış için [README.md](README.md)'ye bakın.
 

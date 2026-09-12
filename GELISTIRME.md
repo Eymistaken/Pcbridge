@@ -1,5 +1,7 @@
 # Geliştirme rehberi — yeni araç eklemek
 
+> Kurallar ve mimari: **[CLAUDE.md](CLAUDE.md)** · Sıradaki iş: **[WALKTHROUGH.md](WALKTHROUGH.md)**
+
 Bu dosya, ilk kurulumda karşılaştığımız sorunların tekrar yaşanmaması için
 yazıldı. Yeni bir araç eklemeden önce **"Spark'a özgü kurallar"** ve
 **"Protokol tuzakları"** bölümlerini oku; ikisi de acı deneyimle öğrenildi.

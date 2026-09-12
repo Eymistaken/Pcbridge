@@ -1,5 +1,7 @@
 # Native migration baseline
 
+> Kurallar ve mimari: **[CLAUDE.md](../../CLAUDE.md)** · Sıradaki iş: **[WALKTHROUGH.md](../../WALKTHROUGH.md)**
+
 Bu belge, native desktop migration başlamadan önce korunacak public sözleşmeleri
 ve güvenli test sonuçlarını kaydeder. Son ölçüm 8 Eylül 2026 tarihinde yapıldı.
 

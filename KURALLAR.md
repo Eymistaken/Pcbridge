@@ -1,7 +1,12 @@
 # KURALLAR.md — masaüstü araçlarının davranış sözleşmesi
 
-> **TASLAK / ONAY BEKLİYOR.** Bu belge kod değişikliği önerisi. Hiçbir madde
-> henüz uygulanmadı. "Ölçüldü" işaretli satırlar 2026-08-21'de bu makinede
+> Kurallar ve mimari: **[CLAUDE.md](CLAUDE.md)** · Sıradaki iş: **[WALKTHROUGH.md](WALKTHROUGH.md)**
+
+> **KISMEN UYGULANDI.** Bu belge kod değişikliği önerisi olarak yazıldı.
+> §1 kayan kira (`unlock_idle_seconds`), §3'teki yönerge/kapı üçlüsü ve §4'ün
+> 1–3 numaralı maddeleri o gün uygulandı; **§4'ün 5, 6 ve 7 numaralı maddeleri
+> hâlâ açık** ve `WALKTHROUGH.md` Adım 1'de sıraya alındı. §4 tablosunun
+> "Durum" sütunu güncel kaynaktır. "Ölçüldü" işaretli satırlar 2026-08-21'de bu makinede
 > koşturuldu ya da doğrudan kaynak koddan okundu; geri kalanı tasarım.
 
 Üç şikâyet vardı. Kaynağa bakınca ikisinin kökü sanılandan farklı çıktı.
@@ -176,11 +181,11 @@ En ucuzu, ama istediğin hissi vermiyor.
 ### Ölçüm boşluğu — ayrı konu ama ilgili
 
 `frame.js`'de nefes animasyonu **açık** (`BREATH_MS = 5500`, tam çevrim 11
-saniye). `YAPILACAKLAR.md` ise nested kabukta ölçülen **%19 CPU**'yu ve
+saniye). `CLAUDE.md` ise nested kabukta ölçülen **%19 CPU**'yu ve
 "gerçek oturumda ÖLÇÜLMEDİ" notunu taşıyor. Yani şu an makinede sürekli
 koşan, maliyeti gerçek oturumda hiç ölçülmemiş bir animasyon var.
 
-`pulse` eklemeden önce bu ölçülmeli — yöntem `YAPILACAKLAR.md`'de zaten
+`pulse` eklemeden önce bu ölçülmeli — yöntem `CLAUDE.md`'de zaten
 yazılı: `top` değil, `/proc/<pid>/stat`'tan CPU zamanı farkı. Çıkan sayı
 %1'in altındaysa mesele yok; %10 civarıysa nefes yerine `pulse`'a geçmek
 hem daha ucuz hem daha bilgilendirici olur (sürekli animasyon "izin açık"

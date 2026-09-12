@@ -3,11 +3,13 @@
 İlk Linux migration’ını engelleyen açık mimari karar kalmadı. Aşağıdaki iki karar sonraki fazların kapsamını etkiliyor:
 
 1. **Linux tamamlandıktan sonra Windows mu, macOS mu önce gelmeli?** Repo belgelerinde onaylanmış bir sıra bulamadım. Aşağıdaki W ve M fazlarına bu nedenle sıra numarası vermedim.
-2. **GNOME eklentisi ileride pencere kontrolü için genişletilebilir mi?** Mevcut sözleşmede yalnızca görsel katman. Onay gelene kadar plana eklenti üzerinden kontrol eklenmeyecek; mevcut focus fallback’i korunacak ve sınırı capability çıktısında gösterilecek.
+2. ~~**GNOME eklentisi ileride pencere kontrolü için genişletilebilir mi?**~~ **Karara bağlandı (2026-09-12, kullanıcı onayı): dar kapsamda evet.** Gerekçe: GNOME 46 + Wayland’de `Shell.Introspect` ve `Shell.Eval` kapalı (ölçüldü, “Access denied”), kabuğun içinden `Meta.Window.activate` bilinen tek temiz yol; ölçülen 6,6 saniyelik arama yolu kullanıcının tarayıcısında istenmeyen sekme açıyor. Dört koşul: (a) eklenti **tek** D-Bus yöntemi sunar, `ActivateWindow(hedef) -> bool` — taşıma/kapatma/boyutlandırma/pencere listesi yok; (b) yöntem `desktop_unlock.json` grant’ini kontrol eder ve izin kapalıyken reddeder; (c) GNOME araması silinmez, `degraded` fallback olarak kalır ve eklenti kurulu değilken davranış birebir aynıdır; (d) “hızlı” iddiası `audit.log`’un `ms` alanıyla, en az beş çağrının ortalamasıyla kanıtlanır. Ayrıntı ve kabul ölçütü `WALKTHROUGH.md` Adım 2’de.
 
-Planın hazırlık incelemesinde kod değiştirilmedi, migration başlatılmadı ve masaüstü testleri çalıştırılmadı. İncelenen Pcbridge commit’i `22a58240`; Conduit commit’i `c4338f9e`. Conduit çalışma ağacındaki önceden bulunan değişikliklere dokunulmadı. Bu belge, kullanıcının 2026-09-07 tarihli isteğiyle önceki `PLAN.md` içeriğinin yerine kaydedildi; önceki `YAPILACAKLAR.md` silindi. Migration uygulaması henüz başlamadı.
+Planın hazırlık incelemesinde kod değiştirilmedi, migration başlatılmadı ve masaüstü testleri çalıştırılmadı. İncelenen Pcbridge commit’i `22a58240`; Conduit commit’i `c4338f9e`. Conduit çalışma ağacındaki önceden bulunan değişikliklere dokunulmadı. Bu belge, kullanıcının 2026-09-07 tarihli isteğiyle önceki `PLAN.md` içeriğinin yerine kaydedildi; önceki `YAPILACAKLAR.md` silindi. **Güncel durum için `WALKTHROUGH.md`'ye bak:** Faz 0–2 tamamlandı, Gate 0/1/2 geçti.
 
 # Pcbridge Native Core Implementation Plan
+
+> Kurallar ve mimari: **[CLAUDE.md](CLAUDE.md)** · Sıradaki iş: **[WALKTHROUGH.md](WALKTHROUGH.md)**
 
 **Uygulayıcı:** GPT-5.6 Sol  
 **Hedef:** Pcbridge’in çok yollu execution modelini koruyarak Linux native altyapısını küçük, geri alınabilir adımlarla Rust’a taşımak.  
@@ -16,15 +18,15 @@ Planın hazırlık incelemesinde kod değiştirilmedi, migration başlatılmadı
 
 ## Belge kullanımı ve ilerleme kaydı
 
-- `AGENTS.md`, otomatik yüklenen kısa ve kendi başına yeterli proje rehberidir. Her session başında `PLAN.md`, `YAPILACAKLAR.md` veya `CLAUDE.md` dosyasını bütünüyle okuma zorunluluğu yoktur. Task ayrıntısı veya geçmiş ölçüm gerektiğinde yalnızca ilgili bölüme başvurulur.
+- `AGENTS.md`, otomatik yüklenen kısa ve kendi başına yeterli proje rehberidir. Her session başında `PLAN.md`, `WALKTHROUGH.md` veya `CLAUDE.md` dosyasını bütünüyle okuma zorunluluğu yoktur. Task ayrıntısı veya geçmiş ölçüm gerektiğinde yalnızca ilgili bölüme başvurulur.
 - Bu dosya implementation sözleşmesidir; günlük çalışma günlüğü değildir. Mimari kararları ve task kimliklerini koru. Kullanıcı talimatı ya da doğrulanmış repo gerçeği bir düzeltme gerektiriyorsa değişikliği gerekçesiyle kaydet.
-- **Uygulayıcı model migration üzerinde çalışmaya başladığında proje kökünde yeni bir `YAPILACAKLAR.md` oluşturacak.** Planı kaydeden model bu ilerleme dosyasını önceden oluşturmayacak; eski listenin görevleri yeni listeye taşınmayacak.
-- Yeni `YAPILACAKLAR.md` içinde yapılan ve yapılacak işleri bu plandaki task kimlikleriyle takip et. En üstte kısa durum özeti, aktif task, sıradaki uygulanabilir task ve blocker'lar bulunsun. Planın tamamını kopyalama.
+- **İlerleme kaydı `WALKTHROUGH.md` dosyasındadır.** (2026-09-12 düzeltmesi: dosya `YAPILACAKLAR.md` adıyla oluşturulmuştu, `git mv` ile yeniden adlandırıldı ve migration dışındaki açık işler de aynı listeye alındı. Gerekçe: `window_focus` ölçümü ve imleç katmanı bulguları eski dosya değiştirilirken silinmiş, beş belge var olmayan içeriğe bağlantı verir hale gelmişti.)
+- `WALKTHROUGH.md` içinde yapılan ve yapılacak işleri bu plandaki task kimlikleriyle takip et. En üstte kısa durum özeti, aktif iş, sıradaki uygulanabilir iş ve blocker'lar bulunsun. Planın tamamını kopyalama.
 - Her task başında durumu `devam ediyor` olarak güncelle. Task sonunda değişen dosyaları, yapılanları, kalan adımları, çalıştırılan test komutlarını ve gerçek sonuçlarını, geçilen/başarısız gate'i, varsa commit kimliğini ve rollback notunu kaydet. Test çalışmadıysa `çalıştırılmadı` yaz; acceptance sağlanmadan `tamamlandı` işaretleme.
 - Yarım kalan işte dosyayı yeni bir listeyle değiştirme; mevcut kaydı güncelle ve bir sonraki somut adımı yaz. Başarısız testleri ve açık kararları kayıttan silme. Durum seçenekleri: `bekliyor`, `devam ediyor`, `blokeli`, `tamamlandı`, `ertelendi`.
-- Oturum devrinde modelin temel bağlamı başka dosya okumadan alabilmesi için `AGENTS.md` içindeki kısa migration durumunu da güncel tut: tamamlanan son task, aktif/sıradaki task, blocker ve son doğrulanan gate. Ayrıntılı test çıktıları ve günlük geçmişi yalnızca `YAPILACAKLAR.md` içinde kalsın.
+- **Durum özetini `AGENTS.md` içine kopyalama.** (2026-09-12 düzeltmesi: bu satır eskiden kopyalamayı istiyordu ve `AGENTS.md` fiilen ayrışmaya başlamıştı — aynı dosya bir kez `CLAUDE.md` kopyası olarak üretilip iki günde 83 satır ayrışmıştı.) `AGENTS.md` yalnızca `CLAUDE.md` ve `WALKTHROUGH.md` dosyalarına yönlendirir; durum, test çıktıları ve günlük geçmişi tek yerde, `WALKTHROUGH.md` içinde kalır.
 - Migration planının bulunması, ilgisiz her kullanıcı isteğinde migration'a kendiliğinden başlama talimatı değildir. Mevcut kullanıcı görevinin kapsamında ilerle.
-- `CLAUDE.md` ve `ADIMLAR.md` içindeki eski `PLAN.md`/`YAPILACAKLAR.md` bölüm referansları geçmiş döneme aittir. Yeni migration sırasını bu referanslardan türetme; ölçülmüş makine gerçeklerini görevle ilgili olduğunda kullan.
+- `ADIMLAR.md` ve `UYGULAMA.md` içindeki eski `PLAN.md`/`YAPILACAKLAR.md` bölüm referansları geçmiş döneme aittir. Yeni migration sırasını bu referanslardan türetme; ölçülmüş makine gerçeklerini görevle ilgili olduğunda kullan.
 
 ## 1. Mevcut koddan doğrulanan önemli noktalar
 
@@ -1427,7 +1429,7 @@ AT-SPI API ve interface ayrıntıları için resmi referans: [AT-SPI documentati
 - `pcbridge/desktop/ops.py`
 - `pcbridge/tools.py`
 - `pcbridge/desktop/batch.py`
-- `YAPILACAKLAR.md`
+- `WALKTHROUGH.md`
 
 **Yeni:**
 
@@ -1448,7 +1450,9 @@ AT-SPI API ve interface ayrıntıları için resmi referans: [AT-SPI documentati
 
 **Rollback:** Eski `apps.focus` adapter’ı.
 
-**Yapılmayacak:** Açık karar D2 sonuçlanmadan GNOME eklentisini kontrol servisine dönüştürmek; doğrulanmamış `<1 saniye` native focus iddiası.
+**Yapılmayacak:** Eklentiyi genel kontrol servisine dönüştürmek — D2 yalnızca tek bir `ActivateWindow` yöntemi için gevşetildi; doğrulanmamış `<1 saniye` native focus iddiası.
+
+**Not (2026-09-12):** Hızlı focus yolunun kendisi bu task’tan önce, `WALKTHROUGH.md` Adım 2’de ele alınıyor. Adım 2 tamamlanmışsa bu task “hızlı yolu tasarla” değil, “çalışan yolu capability arkasına al ve doğrula” işidir.
 
 ---
 
@@ -2089,5 +2093,5 @@ Bilinçli olarak ilk migration dışında:
 20. Her task sonunda değişen dosyaları, çalıştırılan komutları, gerçek sonuçları, geçilen gate’i ve rollback yolunu özetle.
 21. “Çalışıyor” demek için ölçüm göster. Capture dosyası oluşması, image delivery veya GUI görevinin tamamlanmasıyla aynı şey değildir.
 22. İlk hedefi büyütme: **Python orchestration + sürümlü IPC + güvenilir Linux Rust capture.** Diğer fazlara ancak ilgili gate geçince ilerle.
-23. Migration uygulamasına başladığında yeni `YAPILACAKLAR.md` oluştur; yaptıklarını ve yapacaklarını task kimlikleri, gerçek test sonuçları, gate durumu ve sonraki somut adımla kaydet. Her task sonunda ve oturum devrinde güncelle.
-24. `AGENTS.md` içindeki kısa migration özetini de güncel tut; modelin her session başında planı veya ilerleme dosyasını okumasını zorunlu kılma. Ayrıntılı çalışma günlüğünü `AGENTS.md` içine kopyalama.
+23. İlerlemeyi `WALKTHROUGH.md` içinde tut; yaptıklarını ve yapacaklarını task kimlikleri, gerçek test sonuçları, gate durumu ve sonraki somut adımla kaydet. Her task sonunda ve oturum devrinde güncelle.
+24. Durum özetini `AGENTS.md` veya başka bir dosyaya **kopyalama**; `AGENTS.md` yalnızca yönlendirir. Depoda tek yapılacak-iş listesi `WALKTHROUGH.md`'dir.

@@ -16,3 +16,6 @@ rust/target/
 # alindilar. Depo PUBLIC: yeni bir belge eklerken once icine bak.
 #
 # DIKKAT: "*.md" YAZMA. Butun belgeler izleniyor.
+
+# graphify ciktisi: uretilen bilgi grafigi, depoya girmiyor.
+graphify-out/

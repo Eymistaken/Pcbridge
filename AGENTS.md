@@ -31,14 +31,12 @@ yanlış bir komutu çalıştırırken — fark edilir.
 
 ## Sıradaki iş
 
-[YAPILACAKLAR.md](YAPILACAKLAR.md) · devam eden işin adım kaydı için
-[ADIMLAR.md](ADIMLAR.md) · belge haritasının tamamı `CLAUDE.md` sonunda.
+**[WALKTHROUGH.md](WALKTHROUGH.md)** — depodaki tek yapılacak-iş listesi: yol
+haritası, her adımın kabul ölçütü, biten işlerin kaydı ve son doğrulanan gate.
+Native migration'ın implementation sözleşmesi [PLAN.md](PLAN.md); belge
+haritasının tamamı `CLAUDE.md` sonunda.
 
-## Native migration durumu
-
-- Son tamamlanan task: **2.4 — Native lock/activity observations ve safety ayrımı** (`9d0fe92`)
-- Aktif task: **Yok** (`Task 2.4 tamamlandı`)
-- Sıradaki task: **3.1 — Native display snapshot**
-- Blocker: Yok
-- Son doğrulanan gate: **Gate 2 geçti.** Task 2.4 typed desktop state,
-  fail-closed policy ve native lock watcher acceptance'ı da geçti.
+**Durum özetini buraya kopyalama.** Bu dosyada bir zamanlar "Native migration
+durumu" bloğu vardı ve `WALKTHROUGH.md` ile aynı bilgiyi iki yerde tutuyordu —
+tıpkı bu dosyanın `CLAUDE.md` kopyası olduğu dönemdeki gibi. İki gerçeğin
+olduğu yerde biri eskir, ve eskiyen kopya en kötü anda fark edilir.

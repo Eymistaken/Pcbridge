@@ -1,5 +1,7 @@
 # pcbridge — Ajan Görünür (GNOME 46 kabuk eklentisi)
 
+> Kurallar ve mimari: **[CLAUDE.md](../CLAUDE.md)** · Sıradaki iş: **[WALKTHROUGH.md](../WALKTHROUGH.md)**
+
 pcbridge bir ajana klavye, fare ve ekran erişimi verebiliyor. Bunun tek görünür
 işareti bugüne kadar GNOME'un üst çubuktaki küçük turuncu paylaşım simgesiydi.
 Bu eklenti aynı durumu **göz kaçırmayacak** biçimde gösteriyor.
@@ -134,5 +136,5 @@ yeterli; çerçeve yine çalışır ve tekrar bedava olur.
   geçiş özelliğin tipini bilmiyor, aralık boş kalıyor ve özellik **0'a** düşüyor
   (ölçüldü: 15 ölçek örneğinin hepsi 0.000). `actor.ease()` zincirlemesi
   doğrulanmış yol.
-- İmleci değiştirme denendi ve geri alındı — gerekçesi ve devam yolu
-  [YAPILACAKLAR.md](../YAPILACAKLAR.md)'de.
+- İmleci değiştirme denendi ve geri alındı — gerekçesi, ölçülmüş bulgular ve
+  devam yolu [WALKTHROUGH.md](../WALKTHROUGH.md)'de.

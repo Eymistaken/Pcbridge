@@ -1,10 +1,12 @@
 # UYGULAMA.md — computer use'u pcbridge'e ekleme rehberi
 
+> Kurallar ve mimari: **[CLAUDE.md](CLAUDE.md)** · Sıradaki iş: **[WALKTHROUGH.md](WALKTHROUGH.md)**
+
 > # ⛔ BU DOSYA ARTIK ŞARTNAME DEĞİL — TARİHÎ KAYIT
 >
 > A–F bölümleri **tamamlandı** (`93e3be7`). Bu dosya o işin *başlangıçtaki
 > niyetini* saklıyor; **uygulanacak talimat listesi değil.** Güncel yönerge
-> `YAPILACAKLAR.md`'de ve o dosya kendi kendine yetiyor.
+> `CLAUDE.md`'de, sıradaki iş `WALKTHROUGH.md`'de.
 >
 > **Buradaki bazı talimatlar ölçümle ÇÜRÜTÜLDÜ.** Uygulamadan önce bil:
 >
@@ -19,8 +21,8 @@
 >
 > Ayrıca **temel varsayımı değişti**: bu dosya "Gemini görsel göremiyor, o yüzden
 > her şeyi metne çevir" üzerine kurulu. Sınır Gemini'nin *kanalıydı*; Claude Code
-> ve Codex'te o kısıt yok, MCP görüntü taşıyabiliyor. `YAPILACAKLAR.md`'deki H
-> bölümü tam olarak bunu ele alıyor.
+> ve Codex'te o kısıt yok, MCP görüntü taşıyabiliyor. Ölçüm `CLAUDE.md`'nin
+> "Ölçülmüş makine gerçekleri" bölümünde.
 >
 > Ölçüm sonuçlarının tamamı `PLAN.md`'de ("Faz N sonuçları" başlıkları).
 > Çelişki görürsen **ölçüm kazanır**, bu dosya değil.
@@ -32,9 +34,8 @@ kendin çıkar; burada kutucuk yok, çünkü işin şeklini okuduktan sonra kend
 sıralaman benim tahminimden iyi olacak.
 
 Çalışma kuralları, makine gerçekleri ve dokunulmayacak yerler
-**`YAPILACAKLAR.md`**'de — bu dosyadan önce onu oku. Tasarımın gerekçesi ve ölçüm
-sonuçları `PLAN.md`'de; çelişki görürsen `PLAN.md` kazanır, ama önce dur ve
-kullanıcıya söyle.
+**`CLAUDE.md`**'de — bu dosyadan önce onu oku; sıradaki iş `WALKTHROUGH.md`'de.
+Çelişki görürsen `CLAUDE.md` kazanır, ama önce dur ve kullanıcıya söyle.
 
 **Sıra önemli:** A bağımsız ve tek başına değerli, ilk onu bitir. B olmadan
 C-D-E'nin anlamı yok. F, B+C+D'ye dayanıyor. G en sonda ve tamamen opsiyonel.
@@ -341,7 +342,7 @@ Dosyaları 24 saat sonra temizle.
 
 > Not: sınır **kanalın**, modelin değil. Gemini'nin görme yeteneği var;
 > Antigravity içindeki Gemini ve Claude Code PNG okuyabiliyor (ölçüldü —
-> `YAPILACAKLAR.md` "Makine gerçekleri"). F bölümündeki `computer_task` tam da
+> `CLAUDE.md` "Ölçülmüş makine gerçekleri"). F bölümündeki `computer_task` tam da
 > buna dayanıyor: görsel işi PNG okuyabilen **yerel** bir ajana devrediyor.
 
 Araçlar: `screen_info` (monitör tablosu, hangi backend seçildi, birincil hangisi,

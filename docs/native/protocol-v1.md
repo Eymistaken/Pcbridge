@@ -1,5 +1,7 @@
 # Native IPC protocol v1
 
+> Kurallar ve mimari: **[CLAUDE.md](../../CLAUDE.md)** · Sıradaki iş: **[WALKTHROUGH.md](../../WALKTHROUGH.md)**
+
 Bu belge, Python host ile `pcbridge-native` child process'i arasındaki yerel
 stdio sözleşmesini tanımlar. Bu pipe, MCP stdio taşımasından ayrıdır. Native
 stdout yalnızca aşağıda tanımlanan framed response'ları taşır.

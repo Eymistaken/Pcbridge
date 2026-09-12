@@ -1,13 +1,413 @@
-# Pcbridge Native Core ilerleme kaydı
+# WALKTHROUGH.md — nerede kaldık, ne kaldı
+
+> Kurallar, mimari ve ölçülmüş makine gerçekleri: **[CLAUDE.md](CLAUDE.md)**.
+> Native migration'ın implementation sözleşmesi: **[PLAN.md](PLAN.md)**.
+> Bu dosya tek bir soruyu cevaplar: **sırada ne var ve şimdiye kadar ne yapıldı.**
+
+Depoda tek "yapılacak iş" listesi budur. Başka bir dosyaya durum özeti
+kopyalama: `AGENTS.md` bir kez `CLAUDE.md`'nin kopyası olarak üretilmişti ve
+iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- Aktif task: **Yok** (`Task 2.4 tamamlandı`)
-- Son tamamlanan task: **2.4 — Native lock/activity observations ve safety ayrımı** (`9d0fe92`)
-- Sıradaki uygulanabilir task: **3.1 — Native display snapshot**
-- Blocker: Yok.
-- Son gate: **Gate 2 geçti.** Task 2.4 typed desktop state, fail-closed policy
-  ve native lock watcher acceptance'ı da geçti.
+- **Aktif adım:** Yok (`Adım 0 tamamlandı`)
+- **Son tamamlanan adım:** Adım 0 — belge omurgası
+- **Sıradaki uygulanabilir adım:** Adım 1 — `KURALLAR.md` 5/6/7 kapıları
+  (onay bekliyor)
+- **Blocker:** Yok
+- **Son doğrulanan gate:** **Gate 2 geçti** (native migration). Task 2.4 typed
+  desktop state, fail-closed policy ve native lock watcher acceptance'ı dahil.
+- **Native migration içindeki sıradaki task:** 3.1 — Native display snapshot
+
+Çalışma kuralı (kullanıcı isteği, 2026-09-12): **her adım sonunda ilerleme bu
+dosyaya yazılır ve durulur; devam için onay beklenir.**
+
+---
+
+# Yol haritası
+
+Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabilir.
+
+| Adım | Ne | Durum |
+|---|---|---|
+| 0 | Belge omurgası: tek giriş noktası, ölü referansların onarımı | `tamamlandı` |
+| 1 | `KURALLAR.md` §4'teki 5/6/7 kapıları (parola alanı, tekrar tıklama, kapatma onayı) | `bekliyor` |
+| 2 | `window_focus` hızlı yolu (ölçülmüş 6,6 sn → hedef <1 sn) | `bekliyor` |
+| 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `bekliyor` |
+| 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `bekliyor` |
+| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `bekliyor` |
+| 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
+| — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
+
+## Adım 0 — Belge omurgası
+
+**Durum:** `tamamlandı`
+
+**Amaç:** kalan her işin tek, güncel bir listesi olsun; var olmayan içeriğe
+işaret eden belgeler onarılsın.
+
+**Neden gerekti.** `b4fa5ed` commit'inde `YAPILACAKLAR.md` native migration
+günlüğüyle değiştirildi. İçindeki `window_focus` ölçümü ve imleç katmanı
+bulguları o anda **silindi**; yalnızca git geçmişinde (`22a5824`) kaldılar. Beş
+belge hâlâ o silinmiş içeriğe bağlantı veriyordu. Ayrıca `PLAN.md`
+commit'lenmemişti: on commit, yalnızca izlenmeyen bir dosyada bulunan task
+kimliklerine atıf yapıyordu.
+
+**Yapılacaklar:**
+
+1. `PLAN.md` commit'lensin (içerik değişmeden).
+2. `YAPILACAKLAR.md` → `WALKTHROUGH.md` (`git mv`, geçmiş korunur); durum
+   özeti + yol haritası + kurtarılan kayıtlar + ilerleme kaydı tek dosyada.
+3. `CLAUDE.md` bu dosyaya işaret etsin; üç ölü satır onarılsın.
+4. `AGENTS.md` kopyaladığı durum bloğunu bıraksın, yönlendirmeye dönsün.
+5. `UYGULAMA.md`, `KURALLAR.md`, `gnome-extension/README.md`, `KULLANIM.md`,
+   `README.md`, `GOREV-kurallar.md` içindeki ölü referanslar onarılsın.
+6. `PLAN.md`'nin sözleşme satırlarındaki dosya adı güncellensin.
+7. Proje belgelerine tek biçim başlık eklensin.
+8. `graphify-out/` `.gitignore`'a eklensin. **`*.md` yazılmayacak** —
+   `.gitignore` bunu açıkça yasaklıyor, bütün belgeler izleniyor.
+
+**Ölçüt:** `grep -rn 'YAPILACAKLAR' --include='*.md' .` yalnızca tarihsel
+anlatım satırlarını döndürür, bağlantı döndürmez.
+
+### Yapılanlar
+
+- `PLAN.md` içerik değiştirilmeden commit'lendi (`6cddfe4`). Öncesinde sır
+  taraması yapıldı: `config.toml`'daki gerçek parola ve statik token dosyada
+  geçmiyor, Tailscale hostname'i yok.
+- `YAPILACAKLAR.md` → `WALKTHROUGH.md` (`git mv`; on task kaydının tamamı
+  korundu). Üstüne durum özeti, yol haritası ve kurtarılan kayıtlar eklendi.
+- `22a5824:YAPILACAKLAR.md` içinden kurtarılanlar: `window_focus`'un altı
+  satırlık ölçüm tablosu, etkilenen dört çağıran, "bozulmaması gereken faz
+  1/3" gerekçesi ve imleç katmanının bütün bulguları + tasarım kararları.
+- `CLAUDE.md`: beş düzeltme. Giriş artık `WALKTHROUGH.md`'ye yönlendiriyor;
+  imleç katmanı satırı onarıldı; belge haritasında `PLAN.md` "geçmiş kayıt"
+  olmaktan çıkıp **yürürlükteki sözleşme** olarak ayrıldı.
+- `AGENTS.md`: kopyaladığı "Native migration durumu" bloğu kaldırıldı, yerine
+  neden kopyalanmaması gerektiğini söyleyen yönlendirme kondu.
+- Ölü referanslar onarıldı: `UYGULAMA.md` (4), `KURALLAR.md` (2),
+  `gnome-extension/README.md` (1), `KULLANIM.md` (1), `README.md` (1),
+  `GOREV-kurallar.md` (1). İmleç katmanına bakanlar `WALKTHROUGH.md`'ye,
+  makine ölçümlerine bakanlar `CLAUDE.md`'ye yönlendirildi.
+- `PLAN.md` sözleşme satırları güncellendi ve iki eskimiş iddia düzeltildi:
+  "Migration uygulaması henüz başlamadı" (Faz 0–2 bitti) ve `AGENTS.md`'ye
+  durum kopyalamayı **isteyen** kural — kopyalamayı **yasaklayan** kurala
+  çevrildi, gerekçesiyle.
+- `KURALLAR.md`'nin "Hiçbir madde henüz uygulanmadı" ibaresi gerçekle
+  değiştirildi: §1, §3 ve §4'ün 1–3'ü uygulandı; 5/6/7 açık.
+- On bir proje belgesine tek biçim yönlendirme başlığı eklendi.
+  `README.md` (İngilizce vitrin) ve `skills/computer-use/SKILL.md`
+  (frontmatter'lı skill dosyası) kapsam dışı bırakıldı.
+- `graphify-out/` `.gitignore`'a eklendi. `*.md` **yazılmadı**.
+
+### Test sonuçları
+
+Hepsi live bayrakları kapalı olarak:
+
+- `tests/test_desktop.py` → **582 geçti, 0 kaldı**
+- `tests/test_models.py` → **106 geçti, 0 kaldı**
+- `tests/test_test_safety.py` → **1 test, OK**
+- `tests/contracts` discovery → **72 tests, OK**
+- `python -m pcbridge.server --check -c config.example.toml` → exit `0`
+- Bağlantı denetimi (bütün izlenen `.md`'lerdeki göreli bağlantılar) →
+  **0 kırık bağlantı**
+- Kabul ölçütü → `YAPILACAKLAR` artık hiçbir belgede **bağlantı** olarak
+  geçmiyor; kalan dört satır tarihsel anlatı.
+
+`tests/test_e2e.py` **çalıştırılmadı** (gerçek `claude -p` kotası yakıyor,
+bu adım kod değiştirmedi). Rust suite **çalıştırılmadı** (Rust'a dokunulmadı).
+
+### Karar kaydı
+
+**D2 karara bağlandı** (kullanıcı "sen hangisini öneriyorsan onu yap" dedi):
+GNOME eklentisinin "yalnızca görsel katman" kuralı **dar kapsamda** gevşetildi.
+Dört koşul Adım 2'de yazılı. Karar `PLAN.md` OPEN DECISIONS ve Task 6.4'e de
+işlendi.
+
+**Kullanıcının "bütün markdown'lar CLAUDE.md'ye işaret etsin" isteği kısmen
+uygulandı.** Kelimesi kelimesine uygulanırsa `KULLANIM.md` (araç kataloğu),
+`KURULUM.md` (elkitabı), `README.md` (İngilizce vitrin) ve
+`docs/native/protocol-v1.md` (protokol sözleşmesi) silinmiş olurdu — hepsi
+taşıyıcı içerik. Uygulanan ayrım: **yönlendirmeye dönen tek dosya `AGENTS.md`**;
+diğerleri tek satırlık başlık aldı ve içeriklerini korudu; silinen tek şey
+kopyalanmış durum blokları ve ölü referanslar oldu.
+
+**Rollback:** Adım 0 tek commit; `git revert` yeter. `PLAN.md` commit'i
+(`6cddfe4`) ayrı ve geri alınmamalı.
+
+**Sonraki somut adım:** Adım 1 — `KURALLAR.md` §4'ün 7 numaralı maddesiyle
+(parola alanı kapısı) başla. Önce gerçek AT-SPI rol dizesini **ölç**.
+
+## Adım 1 — `KURALLAR.md` 5/6/7 kapıları
+
+`PLAN.md` bu üçünü **hiç kapsamıyor** (grep ile doğrulandı). Migration'dan
+bağımsız, ucuz ve gerçek bir kazayı karşılıyorlar.
+
+Sıra: 7 → 6 → 5 (ucuzdan pahalıya).
+
+**7 — parola alanı kapısı.** `uitree.Node.role` zaten AT-SPI'dan geliyor.
+`set_text` yolunda rol parola alanıysa reddedilsin. Kapı **provider sınırında**
+olsun ki `ui_set_text` MCP aracı, `ops.ui_set_text` ve `pcb-do` üçü birden
+kazansın. Gerçek rol dizesi **ölçülecek**, `"password text"` diye
+varsayılmayacak. `force=true` bu kapıyı **açmaz**.
+
+**6 — tekrar tıklama durdurma.** `batch.py`'deki `stopped` alanı zaten
+`"" | "budget" | "error" | "focus"` taşıyor; `"repeat"` eklenecek. Aynı hedefe
+üst üste 3 kez tıklama batch'i durdurur; tamamlanan adımlar ve kalan eylemler
+bugünkü gibi raporlanır. `batch.py` gerçek cihaz tanımadığı için test sahte
+`Ops` ile yazılır.
+
+**5 — kaydetmeden kapatma onayı.** En riskli madde, yanlış pozitifi en yüksek
+olan da bu. Kapsam dar: kapatma kombinasyonları (`alt+F4`, `ctrl+w`, `ctrl+q`)
+ve AT-SPI'da kapatma rolü taşıyan düğmeler, çağıran açıkça onay vermediğinde
+reddedilir.
+
+**Ölçüt:** üç kapı da sahte provider'la kırmızı→yeşil gösterilir; gerçek girdi
+gönderilmez; `tests/test_desktop.py` bütün live bayrakları kapalıyken tam geçer.
+
+## Adım 2 — `window_focus` hızlı yolu
+
+Ölçüm ve bozulmaması gerekenler aşağıda, "Kurtarılan kayıtlar" bölümünde.
+
+**Karar (D2, 2026-09-12): GNOME eklentisinin "yalnızca görsel katman" kuralı
+dar kapsamda gevşetildi.** Gerekçe: GNOME 46 + Wayland'de `Shell.Introspect` ve
+`Shell.Eval` kapalı (ölçüldü, "Access denied"); kabuğun içinden
+`Meta.Window.activate` bilinen tek temiz yol. Dört koşul:
+
+1. Eklenti **tek** D-Bus yöntemi sunar: `ActivateWindow(hedef) -> bool`.
+   Taşıma, kapatma, boyutlandırma, pencere listesi **yok**.
+2. Yöntem `desktop_unlock.json`'daki grant'i kontrol eder ve izin kapalıyken
+   reddeder. Eklenti o dosyayı bugün zaten **okuyor**; izin kapalıyken pencere
+   etkinleştiren bir yöntem güvenlik modelinde delik açardı.
+3. GNOME araması **silinmez**, `degraded` yedek olarak ikinci sıraya düşer.
+   Eklenti kurulu değilken davranış bugünküyle birebir aynı kalır.
+4. "Hızlı" iddiası ölçümle kanıtlanır: `audit.log`'un `ms` alanı, en az beş
+   çağrının ortalaması.
+
+Geri alma: eklentiden yöntemi kaldırmak yeter; `apps.focus()` yedeğe düşer.
+
+**Adımlar:** ölç → tutarsa dal `apps.focus()` içine yazılsın (üç çağıran da
+aynı fonksiyondan geçtiği için `window_focus`, `computer_task`,
+`computer_batch` ve `pcb-do` kendiliğinden kazanır) → `computer_task(app=…)`
+kendi açtığı uygulama için aramaya girmeyi bıraksın → `batch.py`'deki 7000 ms
+bütçesi ve `ops.devices_needed()`'in klavye açması gözden geçirilsin →
+sözleşme metinleri birlikte güncellensin.
+
+**Ölçüt:** açık pencere için `focus` **6,6 sn → 1 sn altı** (en az beş çağrının
+`ms` ortalaması) · kapalı uygulamayı açma soğuk başlatmayla hâlâ çalışıyor ·
+eklenti kurulu **değilken** davranış bugünküyle aynı · aynı ölçüm
+`computer_batch` içindeki `focus` eylemiyle de tekrarlanıyor.
+
+Bu iş bitince `PLAN.md` Task 6.4 "hızlı yolu tasarla"dan "çalışan yolu
+capability arkasına al ve doğrula"ya iner.
+
+## Adım 3 — Faz 3: ilk Rust capture subsystem (Gate 3)
+
+`PLAN.md` Task 3.1 → 3.5, her biri ayrı commit. Plan dosya listesini,
+acceptance'ı ve rollback'i zaten taşıyor; burada tekrarlanmıyor. Kritik
+sınırlar:
+
+- **3.1** `tests/fixtures/native/display_cases.json` hazır; Python ve Rust
+  **aynı fixture'dan aynı tabloyu** üretmeli. Public index `(x,y)` sırasına
+  göre 1'den başlar — primary sağda olsa da monitor 2. Doğrulanmayan geometry
+  `DISPLAY_MAPPING_UNKNOWN` ile reddedilir, ilk monitöre düşülmez.
+- **3.2** Capability sorgusu session **açmamalı**. Revoke/lock/timeout/EOF'ta
+  session kapanır.
+- **3.3** Bilinmeyen piksel formatı tahmin edilmez, reddedilir. Frame
+  sequence/timestamp olmadan "en yeni frame" döndürülmez.
+- **3.4** `capture.to_global()` **tek** koordinat girişi olarak kalır; shot ID
+  Rust'a taşınmaz; varsayılan backend değişmez.
+- **3.5** Capture başarısı ile görüntünün istemciye ulaşması ayrı doğrulanır;
+  dosyanın diskte oluşması uçtan uca başarı sayılmaz.
+
+## Adım 4 — Faz 4: paketleme, parity, varsayılan değişikliği (Gate 4)
+
+Task 4.1 (build/package/`doctor.sh` tanısı) → 4.2 (gerçek Linux capture
+parity, `PCBRIDGE_TEST_CAPTURE=1`) → 4.3 (varsayılan `native.capture = "rust"`).
+
+**Gerçek makinede ölçüm ister.** `systemctl --user restart pcbridge` çalışan
+işleri öldürür — önce `job_list`. Bu oturumun `--stdio` süreci yeni kodu
+**çalıştırmaz**; doğrulama servise HTTP + statik token ile gider
+(`tests/test_e2e.py` kalıbı).
+
+## Adım 5 — Faz 5–8
+
+| Faz | Ne | Gate |
+|---|---|---|
+| 5 | Input parity fixture'ları + batch safety, Rust klavye/pointer/clipboard | Gate 5 |
+| 6 | Accessibility read/action + window orchestration (Adım 2'den beslenir) | Gate 6 |
+| 7 | Mixed scale, XDG portal backend'i, buffered, adaptive | — |
+| 8 | Python screencast helper'ının emekliye ayrılması, iki sürüm gate'i | Gate 7 |
+
+Faz 5.1 (batch safety) Faz 3 ile **paralel** geliştirilebilir; rollout'u 4.3
+sonrasına bağlı. Adım 1'deki kapılar 5.1'in yerine geçmez: 5.1
+grant/lock/revoke/deadline kontrolü, Adım 1 ise eylem içeriği kapısı.
+
+## Adım 6 — İmleç katmanı
+
+Bulgular ve tasarım kararları aşağıda, "Kurtarılan kayıtlar" bölümünde.
+**Önce ölçüm:**
+
+1. Fiziksel farenin gerçek olay hızını ölç (`/dev/input/eventN`'den saniyedeki
+   olay sayısı). 1000 Hz çıkarsa hipotez güçlenir, 125 Hz çıkarsa çürür ve
+   başka yere bakmak gerekir.
+2. Hipotez tutarsa konum **kare saatinde bir kez** uygulanır, her olayda değil.
+3. `Main.layoutManager.addTopChrome` yerine `Main.uiGroup` denenir.
+
+Acil geri alma **`gnome-extensions disable <uuid>`** — dizini silmek çalışan
+eklentiyi durdurmuyor.
+
+## Ertelenen (bilinçli)
+
+- **Faz W (Windows) / Faz M (macOS)** — `PLAN.md`'nin D1 kararı (hangisi önce)
+  verilmedi; Faz 5 tamamlanmadan başlamaz.
+- **Faz G** — Tauri + React control plane.
+- **`JARVIS.md`** — pcbridge'i kişisel asistana çevirme **teklifi**; ölçüm
+  değil tasarım.
+
+---
+
+# Kurtarılan kayıtlar
+
+Bu bölüm `22a5824:YAPILACAKLAR.md` içinden kurtarıldı. İçerik `b4fa5ed`
+commit'inde silinmişti ve yalnızca git geçmişinde kalmıştı; beş belge hâlâ
+buraya bağlantı veriyordu.
+
+## `window_focus` — ölçüm ve sınırlar
+
+**Belirti.** `window_focus` çağrıldığında masaüstünde Super'a basılıyor,
+uygulama adı GNOME aramasına yazılıyor ve Enter'a basılıyor. Uygulama arama
+sonuçlarında ilk sırada çıkmazsa Enter **web arama sağlayıcısına** düşüyor ve
+tarayıcıda bir DuckDuckGo araması açılıyor. Kullanıcı bunu fark edip sordu.
+
+**Ölçüm — 2026-09-02, `audit.log`.** Aşağıdaki satırlar `window_focus`
+aracının değil, `computer_batch` içindeki **`focus` eyleminin** kayıtları
+(`batch_step`) — ikisi de aynı `apps.focus()`'a gidiyor. Bunun ayrıca
+yazılması gerekiyor, çünkü **`window_focus` olayları `ms` alanı taşımıyor**:
+o olaylara bakarak bu ölçüm tekrarlanamaz. Ham satır:
+
+```
+{"ts": "2026-09-02T09:53:19", "event": "batch_step", "i": 0,
+ "a": "focus 'PcBridge Desktop'", "ok": true, "ms": 6935}
+```
+
+Zaten **açık ve görünür** bir pencere için:
+
+| Saat (2026-09-02) | Hedef | Süre |
+|---|---|---|
+| 09:53:19 | PcBridge Desktop | 6935 ms |
+| 10:19:52 | PcBridge Desktop | 6669 ms |
+| 10:27:40 | PcBridge Desktop | 6674 ms |
+| 13:23:11 | PcBridge Desktop | 6683 ms |
+| 17:11:17 | PcBridge Desktop | 6616 ms |
+| 17:15:49 | PcBridge Desktop | 6631 ms |
+
+Altı çağrının altısı da **~6,6 saniye**. Doğrudan pencere etkinleştirme
+milisaniye sürer. Tekrarlamak için:
+
+```bash
+grep "PcBridge Desktop" ~/.local/state/pcbridge/audit.log
+```
+
+**Etkilenen yollar — üçü de aynı fonksiyona gidiyor.** `window_focus`'u tek
+başına düzeltmek yetmez:
+
+| Yer | Ne |
+|---|---|
+| `pcbridge/tools.py` | `window_focus` MCP aracı |
+| `pcbridge/tools.py` | `computer_task(app=…)` — **en kötü durum burada** |
+| `pcbridge/desktop/ops.py` | `DeviceOps.focus` — hem `computer_batch` hem `bin/pcb-do` |
+| `pcbridge/desktop/batch.py` | `"focus": 7000.0` sabit bütçe; hızlı yol gelirse yanlış kalır |
+| `pcbridge/desktop/ops.py` | `devices_needed()`: listede `focus` varsa klavye açılıyor; gereksiz kalır |
+
+`computer_task(app=…)` bu bedeli her seferinde ödüyor: önce `launch()`, 1,5
+saniye bekleme, **sonra** `focus()` — yani uygulamayı kendi açtığını **bilerek**
+arama yoluna giriyor.
+
+**Sunucu bunu zaten biliyor.** `audit.log`, 2026-08-23:
+
+```
+window_focus_error · target: gnome-shell
+'gnome-shell' one alinamadi; odakta 'gnome-terminal-server | eymistaken@ZorinOS: ~' var.
+GNOME aramasi baska bir sonuc secmis olabilir.
+```
+
+**Bozulmaması gereken (faz 1 ve faz 3 buna dayanıyor).** "Bul + başlat + öne
+al"ın tek araçta olması kaza değil, bilinçli bir karar — 2026-08-21:
+
+- `a0c7d0a` (**faz 1**) `window_focus`'un docstring'ini tam da "kapalıysa açar
+  da" desin diye yeniden yazdı; ajan bunu bilmediği için `shell_run`'a
+  düşüyordu.
+- `4eda165` (**faz 3**) kabuktan GUI başlatmaya kapı koydu ve ret gerekçesi
+  ajanı doğrudan `window_focus`'a yönlendiriyor.
+
+Ayırma yapılırken ikisi de ayakta kalmalı: **ajana verilen kapı tek kalsın**
+(içeride iki yol, dışarıda tek araç) ve **kapalı uygulamayı açma yeteneği
+kaybolmasın.**
+
+**Tespit yarısı zaten çözülü.** "Pencere açık mı" sorusunu `window_list`
+(→ `tree.windows()`, AT-SPI) bugün cevaplıyor. Eksik olan yalnızca
+**etkinleştirme**; mesai oraya harcansın.
+
+**Yan etki.** Bu araç masaüstü izni açıkken kullanıcının tarayıcısında
+istenmeyen sekme açabiliyor ve pencere düzenini bozabiliyor.
+
+## İmleç katmanı — neden geri alındı, nereden devam edilir
+
+**Durum: çalışıyordu, ama gerçek kullanımda bozdu ve geri alındı.**
+Kod git geçmişinde: `2cac1b3` (ilk hâli) ve `3b15559` (son tasarım).
+
+**Zor kısım çözüldü.**
+`Meta.CursorTracker.get_for_display(global.display).set_pointer_visible(false)`
+gerçek oturumda, gerçek donanımda imleci gizliyor ve **gizli kalıyor** —
+çağrıdan 6 saniye sonra hâlâ `false`, kompozitörden tek bir geri açma gelmedi.
+Görsel kanıt: imleç durağan bir monitöre konup gizli/görünür kareleri
+karşılaştırıldı; fark tam olarak imlecin bulunduğu noktada, **13×21 px**,
+ekranda başka hiçbir piksel değişmedi. Yani tema değiştirme yedeğine düşmeye
+gerek yok.
+
+**Neden geri alındı.** Gerçek makinede, **fiziksel fareyle**: tıklamalar
+basmıyor ve fare donuyor. Ajanın sentetik faresiyle hiç görülmedi. Üç hipotez
+test edildi, üçü de **yanlış** çıktı:
+
+1. *"`addTopChrome` ile izlenen aktör her harekette girdi bölgesini yeniden
+   hesaplatıyor"* → kabuğun içine konan ana döngü gözcüsü yoğun harekette 1600
+   tıkta **0 gecikme** gösterdi.
+2. *"Düğme basılıyken imleç takibi duruyor"* → tut + 3 hareket + kare: imleç
+   son konumda (891 parlak piksel), basma noktasında 0. **Takip ediyor.**
+3. *"Tıklamalar yutuluyor"* → `BUTTON_PRESS=2 · BUTTON_RELEASE=2` görüldü ve
+   gerçek oturumda Chrome sekmesi tıklamayla değişti.
+
+**Bütün testlerin ortak kusuru: hepsi sentetik fare ile yapıldı.** Fiziksel
+fareyle ölçülmemiş tek fark **olay hızı**. Kod aktörü *her* fare olayında
+yeniden konumlandırıyordu; 1000 Hz'lik bir fare saniyede 1000 yeniden çizim
+demek, sentetik testte ise ~50 ölçüldü.
+
+**Tasarım kararları (tekrar sorulmasın diye).**
+
+- Şekil: uç + geriye süpürülmüş iki kanat + arka çentik (kâğıt uçak / gönder
+  oku). Dört aday arasından kullanıcı seçti.
+- Renk: **içi koyu gri→siyah gradyan, etrafı ince beyaz şerit** — kullanıcının
+  kendi imleci de böyle. Düz beyaz gövde beyaz zeminde kayboluyor.
+- Parıltı: **şeklin çevresini** sarıyor, ucun etrafını değil. Cairo'da
+  bulanıklık yok; giderek genişleyen eş saydamlıkta halkalarla yapılıyor ve
+  katman başına saydamlık **birikime göre** hesaplanmalı (sabit alfa verilince
+  şeklin dibinde beyaz bir yığın oluşuyor). Seçilen değerler: yayılım 12 px,
+  tepe saydamlık 0,26.
+- Basma hissi (tıklamada küçülüp büyüme) istendi, sonra iptal edildi. Ama
+  **yapılabilir olduğu ölçüldü**: `global.stage` `captured-event` düğme
+  olaylarını görüyor. Kural: asla `Clutter.EVENT_STOP` dönme, olayı tüketmek
+  masaüstünü kilitler.
+
+**Eklenti kapsamı dışında kalanlar:** ayar arayüzü, extensions.gnome.org'a
+yayımlama, GNOME 46 dışındaki sürümler.
+
+---
+
+# İlerleme kaydı — native migration (Faz 0–2)
+
+Aşağısı `b4fa5ed`–`a4dd107` arasında tutulan task kaydıdır; olduğu gibi
+korunuyor.
 
 ## Task 0.1 — Gerçek capture ve input test izinlerini ayır
 

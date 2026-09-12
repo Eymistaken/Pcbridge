@@ -18,9 +18,10 @@ Proje Gemini Spark için başlamıştı; **artık hedef değil.** Mimarinin
 "görüntü yerine metin" tercihleri (`ui_dump`, `/shot` bağlantıları) o çağdan
 kalma ve **kazanç oldukları için duruyorlar** — daha ucuz ve ıskalamıyorlar.
 
-**Sıradaki iş [YAPILACAKLAR.md](YAPILACAKLAR.md).** Sırada `window_focus`'un
-açık pencere için GNOME aramasından geçmemesi var (ölçüldü: açık pencere için
-bile ~6,6 sn). Ayrıca yarım kalan **imleç katmanı** (aşağıda).
+**Sıradaki iş [WALKTHROUGH.md](WALKTHROUGH.md).** Depodaki tek yapılacak-iş
+listesi odur: yol haritası, her adımın kabul ölçütü ve şimdiye kadar ne
+yapıldığının kaydı. Native migration'ın implementation sözleşmesi ayrı bir
+dosyada: [PLAN.md](PLAN.md). **Durum özetini başka dosyaya kopyalama.**
 
 `gnome-extension/` altında isteğe bağlı bir **GNOME 46 kabuk eklentisi** var:
 masaüstü izni açıkken her monitörün kenarlarında yumuşak beyaz bir çerçeve
@@ -437,7 +438,7 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   gizli kalıyor** (gerçek oturum, gerçek donanım). Görsel kanıt: gizli/görünür
   kareleri arasındaki fark tam olarak imlecin bulunduğu noktada, 13×21 px.
   Ama imleç katmanı fiziksel fareyle tıklamayı bozdu — ayrıntı ve devam yolu
-  `YAPILACAKLAR.md`'de.
+  `WALKTHROUGH.md`'de.
 - **`Clutter.Canvas` mutter çatalında YOK**; çizim `St.DrawingArea` + Cairo.
   GJS'de Cairo bağlamı `cr.$dispose()` ile bırakılmazsa sızıyor.
 - **GNOME'un monitör sırası pcbridge'inkiyle aynı değil.** `Main.layoutManager.monitors`
@@ -506,7 +507,7 @@ ve o değişken `--effort` bayrağını sessizce etkisiz kılıyor.
 
 | Dosya | Ne |
 |---|---|
-| `YAPILACAKLAR.md` | **Sıradaki iş** + biten faz 1–3 kaydı + yarım kalan imleç katmanının bulguları |
+| `WALKTHROUGH.md` | **Depodaki tek yapılacak-iş listesi:** yol haritası, kabul ölçütleri, biten işlerin kaydı + `window_focus` ölçümü ve imleç katmanının kurtarılmış bulguları |
 | `docs/native/protocol-v1.md` | Python/native stdio framing, handshake, control metotları ve test harness sınırı |
 | `ADIMLAR.md` | Ekran görüntüsü koordinatları / temizliği üçlüsünün adım adım kaydı: ne bitti, ne bekliyor, neden |
 | `KULLANIM.md` | Kullanıcıya dönük araç kataloğu + izin haritası — **güncel tutulmalı** |
@@ -515,8 +516,9 @@ ve o değişken `--effort` bayrağını sessizce etkisiz kılıyor.
 | `KURULUM.md` | Türkçe elkitabı: kurulum, istemcilere bağlanma, güvenlik değerlendirmesi, sorun giderme |
 | `gnome-extension/README.md` | Kabuk eklentisi: kurulum, acil geri alma, nested geliştirme döngüsü |
 | `GELISTIRME.md` | Yeni araç eklemenin uzun anlatımı + protokol tuzakları — geçmiş kayıt |
-| `PLAN.md`, `UYGULAMA.md` | Geçmiş kayıt: neyin neden böyle yapıldığı. Okuma zorunlu değil, **silme** |
-| `AGENTS.md` | Codex ve diğer ajanlar için giriş noktası — **ince**, buraya yönlendiriyor. Kopyasını çıkarma: bir kez çıkarıldı, iki günde 83 satır ayrıştı |
+| `PLAN.md` | **Yürürlükteki** native migration sözleşmesi: faz/task kimlikleri, acceptance, gate'ler. Sıradaki işi buradan değil `WALKTHROUGH.md`'den oku |
+| `UYGULAMA.md` | Geçmiş kayıt: neyin neden böyle yapıldığı. Okuma zorunlu değil, **silme** |
+| `AGENTS.md` | Codex ve diğer ajanlar için giriş noktası — **ince**, buraya yönlendiriyor. Kopyasını çıkarma: bir kez çıkarıldı, iki günde 83 satır ayrıştı; durum bloğu da bir kez kopyalandı ve aynı desene girdi |
 | `KURALLAR.md` | Masaüstü araçlarının davranış sözleşmesi (O/K/Y sınıfları). Taslak; kayan kira gibi bazı maddeleri uygulandı |
 | `GOREV-kurallar.md` | `KURALLAR.md`'yi uygulamak için yazılmış görev tarifi — geçmiş kayıt |
 | `JARVIS.md` | pcbridge'i kişisel asistana çevirme **teklifi**. Ölçüm değil tasarım; "ölçüldü" satırları ayrı işaretli |

@@ -181,12 +181,13 @@ with their numbers.
 | File | What |
 |---|---|
 | [KURULUM.md](KURULUM.md) | Full manual: install, client setup, security assessment, troubleshooting (TR) |
-| [KULLANIM.md](KULLANIM.md) | User-facing tool catalogue and permission map (TR) |
+| [KULLANIM.md](KULLANIM.md) | User-facing tool catalog and permission map (TR) |
 | [config.example.toml](config.example.toml) | Every setting, documented — the real reference |
 | [CLAUDE.md](CLAUDE.md) | Guidance for AI agents working on this repo, plus measured machine facts |
 | [GELISTIRME.md](GELISTIRME.md) | Adding a tool, protocol pitfalls (TR) |
-| [PLAN.md](PLAN.md), [UYGULAMA.md](UYGULAMA.md) | Historical record: what was built and why |
-| [YAPILACAKLAR.md](YAPILACAKLAR.md) | What's next |
+| [PLAN.md](PLAN.md) | Active contract for the native core migration: phases, tasks, gates |
+| [UYGULAMA.md](UYGULAMA.md) | Historical record: what was built and why |
+| [WALKTHROUGH.md](WALKTHROUGH.md) | What's next, and what has been done so far |
 
 ## Status and scope
 

@@ -1,5 +1,7 @@
 # JARVIS.md — pcbridge'i kişisel asistana çevirme planı
 
+> Kurallar ve mimari: **[CLAUDE.md](CLAUDE.md)** · Sıradaki iş: **[WALKTHROUGH.md](WALKTHROUGH.md)**
+
 > Bu belge bir **teklif**, ölçüm raporu değil. İçindeki "ölçüldü" işaretli
 > satırlar 2026-08-21'de bu makinede gerçekten koşturuldu; geri kalanı
 > tasarım önerisi ve sınanmadı. İkisini karıştırmamak için ayrı işaretlendi.

@@ -1,5 +1,7 @@
 # ADIMLAR.md
 
+> Kurallar ve mimari: **[CLAUDE.md](CLAUDE.md)** · Sıradaki iş: **[WALKTHROUGH.md](WALKTHROUGH.md)**
+
 Ekran görüntüsü koordinatları ve çekim temizliği üzerine üç adımlık işin
 kaydı. Sıra korunuyor: **her adım bitince durulur, bildirilir, onay beklenir.**
 

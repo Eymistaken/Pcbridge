@@ -1,5 +1,7 @@
 # Görev: masaüstü araçlarının davranış sözleşmesini netleştir
 
+> Kurallar ve mimari: **[CLAUDE.md](CLAUDE.md)** · Sıradaki iş: **[WALKTHROUGH.md](WALKTHROUGH.md)**
+
 Depo: `~/Belgeler/Pcbridge`. Şartname: **`KURALLAR.md`** (depo kökünde).
 Önce onu baştan sona oku — bu istem onun özeti değil, uygulama emri.
 
@@ -179,7 +181,7 @@ söyle.
 1. Önce `KURALLAR.md` + `CLAUDE.md` + ilgili kaynak dosyaları oku.
 2. **Kendi görev listeni çıkar ve bana onaylat.** Onay almadan kod yazma.
 3. Faz faz ilerle, her fazın sonunda dur ve sonucu göster.
-4. Bitince `YAPILACAKLAR.md`'yi güncelle (biten iş + varsa yeni açılan
+4. Bitince `WALKTHROUGH.md`'yi güncelle (biten iş + varsa yeni açılan
    konu) ve `KULLANIM.md`'deki araç kataloğunda değişen docstring'leri
    yansıt.
 5. Ölçtüğün ve **seni şaşırtan** her sayıyı belgeye yaz. Bu deponun âdeti

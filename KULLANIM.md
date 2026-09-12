@@ -1,5 +1,7 @@
 # Neler yapabilirsin
 
+> Kurallar ve mimari: **[CLAUDE.md](CLAUDE.md)** · Sıradaki iş: **[WALKTHROUGH.md](WALKTHROUGH.md)**
+
 Bağlandığın ajana yazdığın cümleler. Ajan hangi aracı çağıracağına kendi karar
 veriyor — komut ezberlemene gerek yok, ama ne istediğini net söylemek sonucu
 belirgin şekilde iyileştiriyor.
@@ -654,7 +656,7 @@ Bilmeniz gerekenler:
 - Ayrıntı ve geliştirme döngüsü: [gnome-extension/README.md](gnome-extension/README.md).
 
 İmleci değiştirme fikri denendi ve **şimdilik bırakıldı** — gerekçesi
-[YAPILACAKLAR.md](YAPILACAKLAR.md)'de.
+[WALKTHROUGH.md](WALKTHROUGH.md)'de.
 
 ### Açılış bildirimi
 
