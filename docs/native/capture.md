@@ -276,6 +276,74 @@ farklı seviyeleri tutuyor: `ipc_protocol.rs` deterministik fake backend'i,
 Kapının gerçekten kapı olduğu mutasyonla denendi: `matches_token` her zaman
 `true` dönecek şekilde bozulunca test kırmızıya döndü.
 
+## Python tarafına bağlanma (Task 3.4)
+
+Karenin **nereden geldiği** değişti, başka hiçbir şey değişmedi. Kırpma,
+ölçekleme, istemciye giden PNG, çekim kimliği, iki arama dizini, kayıt dosyası
+ve bütün koordinat dönüşümü `capture.py`'de kaldı. Sebep tek cümle: çekim
+kimliği sonraki bir `mouse(shot=…)` çağrısının ofseti ve ölçeği bulma yolu;
+o defteri ikinci bir dile taşımak iki kopyanın ayrışıp **yanlış ekrana
+tıklanması** demek.
+
+`NativeScreenCast` eski `ScreenCast` tutamacıyla aynı şekle sahip
+(`is_open`, `start`, `ensure_cursor`, `capture(connector, path)`, `close`) ve
+`capture.py` ikisini ayırt edemiyor. `RustCaptureProvider` ise Python
+sağlayıcısının o tutamaç enjekte edilmiş hâli; yalnızca gerçekten farklı olanı
+geçersiz kılıyor: kullanılabilirlik, capability raporu ve backend adı.
+
+### Backend tablosu tek yerde
+
+`select_capture_backend` saf bir fonksiyon ve seçim **runtime kurulurken bir
+kez** yapılıyor — açık bir oturumun ortasında backend değişmiyor, yani bir
+`all` çekimi iki farklı kaynaktan birleştirilemiyor.
+
+| `[native] capture` | Yardımcı var | Yardımcı yok |
+|---|---|---|
+| `python` | Python | Python |
+| `rust` | Rust | **Rust kalır ve görünür şekilde hata verir** |
+| `auto` | Rust | Python + `degraded` (gerekçe capability raporunda) |
+
+`rust` satırı önemli: zorunlu tutulmuş bir backend sessizce Python'a dönmüyor.
+Zorunlu tutmanın amacı tam olarak onun çalışıp çalışmadığını görmek.
+
+### `taken_at` artık karenin kendi saati
+
+Eskiden bütün dizi için tek bir damga vardı. Native yol karenin **ne kadar
+beklendiğini** bildiriyor, o yüzden her çekim kendi geliş anını taşıyor: bir
+`all` çekiminde monitörler sırayla okunuyor ve aradaki fark yüzlerce
+milisaniye olabiliyor. Damga bayatlık uyarısını sürdüğü için bu fark önemli.
+İleriye doğru bir saniyeden fazla sapan damga yok sayılıyor — gelecekten gelen
+bir damga bayatlık kontrolünü **sessizce** kapatırdı.
+
+### Paylaşım göstergesi biraz kayıyor (kayıtta)
+
+Python yolunda ekran paylaşımı `desktop_unlock` ile açılıyor, yani üst
+çubuktaki gösterge izinle birlikte beliriyor. Native oturum **istek üzerine**:
+ilk `capture.frame` ile açılıyor ve revoke/kilide kadar açık kalıyor. Yani izin
+ile ilk çekim arasında grant'i olan ama göstergesi olmayan bir pencere var.
+
+Bu belgelenmiş davranıştan gerçek bir sapma ve gizlenmiyor. Tartışılabilir
+biçimde **daha doğru** bir sinyal — o pencerede hiçbir şey ekranı okuyamıyor,
+çünkü oturum yok — ama gösterge kullanıcının kanıtı, o yüzden fark keşfedilmek
+yerine yazılıyor. `[native] capture` varsayılan olmadan önce (Task 4.3)
+yeniden bakılacak.
+
+### Ölçüldü (2026-09-12, gerçek makine, uçtan uca)
+
+`[native] capture = "rust"`, gerçek helper, geçici state dizininde grant:
+
+| Ne | Sonuç |
+|---|---|
+| `backend_name()` başlamadan önce | `pcbridge-native` |
+| `backend_name()` başladıktan sonra | `linux.mutter.pipewire` (tahmin değil, durum) |
+| `capture.monitor` | `supported` / `linux.mutter.pipewire` |
+| Çekim | `m1-e0cf3b`, DP-4, ofset `(0,0)`, 1920×1080 → 1536×864, ölçek 0,8 |
+| PNG | 796.883 bayt, 25.504 ayrı renk (gerçek masaüstü) |
+| Kayıt dosyası | yazıldı, geri okundu, `to_global(10,10)` → `(12,12)` |
+| `capture()` toplam | **414 ms** (kare + kırpma + ölçekleme + PNG yazma) |
+
+Varsayılan **değişmedi**: `config.example.toml` hâlâ `capture = "python"`.
+
 ### PNG kodlayıcı: `image` değil `png`
 
 `PLAN.md` "yalnızca png özelliği açık `image`" diyordu. Ölçüldü: `image` 0.25.10

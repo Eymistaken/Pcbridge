@@ -1,0 +1,485 @@
+"""Native capture provider: the frame comes from Rust, everything else does not.
+
+WHAT MOVES AND WHAT DOES NOT
+    Only the acquisition of the raw frame changes. Cropping, scaling, the PNG
+    that reaches the client, the shot id, the two lookup directories, the
+    metadata record and every coordinate conversion stay exactly where they
+    were, in `capture.py`. That is deliberate: the shot id is how a later
+    `mouse(shot=...)` call finds the offset and scale of an image, and moving
+    that bookkeeping into a second language is how the two copies drift and a
+    click lands on the wrong screen.
+
+    So this module is small on purpose. `NativeScreenCast` has the same shape
+    the legacy `ScreenCast` handle has -- `is_open`, `start`, `ensure_cursor`,
+    `capture(connector, path)`, `close` -- and `capture.py` cannot tell them
+    apart. `RustCaptureProvider` is the Python provider with that handle
+    injected, overriding only what genuinely differs: availability, the
+    capability report and the backend name.
+
+THE SHARING INDICATOR MOVES SLIGHTLY, AND IT IS RECORDED
+    On the Python path the screen share opens at `desktop_unlock`, so GNOME's
+    top-bar indicator appears the moment the grant does. The native session is
+    on demand: it opens on the first `capture.frame` and then stays open until
+    revoke or lock. So between unlocking and the first screenshot there is a
+    window with a grant and no indicator.
+
+    That is a real difference from the documented behavior and it is not hidden.
+    It is arguably the more truthful signal -- during that window nothing can
+    read the screen, because no session exists -- but the indicator is the
+    user's evidence, so the change is written down rather than discovered.
+    Revisit before `[native] capture` becomes the default (Task 4.3).
+"""
+
+from __future__ import annotations
+
+import os
+import secrets
+import shutil
+import time
+from pathlib import Path
+from typing import Any
+
+from ..capabilities import Capability, CapabilityState
+from ..errors import DesktopError, ErrorCategory, ErrorCode
+from .. import capture as capturelib
+from .. import monitors as monitorslib
+from .python import PythonCaptureProvider, _capability, _desktop_error
+from ...config import Config
+from ...native import NativeClient, discover_native_binary
+
+#: Mutter connectors are addressed with an explicit scheme so that a native
+#: backend for another compositor cannot be handed an id it would misread.
+DISPLAY_SCHEME = "mutter"
+
+#: Matches the native side's own ceiling. A frame that has not arrived in eight
+#: seconds is not coming, and one MCP call may not block for 110.
+FRAME_TIMEOUT_MS = 8000
+
+BACKEND_NAME = "linux.mutter.pipewire"
+
+
+class NativeCaptureError(RuntimeError):
+    """Raised where the legacy handle would raise, carrying the typed cause."""
+
+    def __init__(self, message: str, *, cause: DesktopError | None = None) -> None:
+        super().__init__(message)
+        self.desktop_error = cause
+
+
+class BackendSelection:
+    """Which acquisition path was chosen, and whether the user should be told."""
+
+    __slots__ = ("backend", "degraded", "reason")
+
+    def __init__(self, *, backend: str, degraded: bool = False, reason: str = "") -> None:
+        self.backend = backend
+        self.degraded = degraded
+        self.reason = reason
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, BackendSelection):
+            return NotImplemented
+        return (self.backend, self.degraded, self.reason) == (
+            other.backend,
+            other.degraded,
+            other.reason,
+        )
+
+    def __repr__(self) -> str:  # pragma: no cover - diagnostics only
+        return (
+            f"BackendSelection(backend={self.backend!r}, "
+            f"degraded={self.degraded!r}, reason={self.reason!r})"
+        )
+
+
+def select_capture_backend(
+    *,
+    requested: str,
+    native_ready: bool,
+    native_reason: str = "",
+) -> "BackendSelection":
+    """Decide once, at runtime construction, which acquisition path is used.
+
+    Pure on purpose: the table in `PLAN.md` is the contract, and a table that
+    lives in one function can be read and tested without a compositor.
+
+    The rule that matters is the one for `rust`: a forced native backend that
+    cannot start does **not** quietly become a Python screencast. It stays
+    selected and fails visibly, because the whole point of forcing it is to
+    find out whether it works.
+    """
+    choice = (requested or "python").strip().lower()
+    if choice == "python":
+        return BackendSelection(backend="python")
+    if choice == "rust":
+        return BackendSelection(backend="rust", reason="" if native_ready else native_reason)
+    if choice == "auto":
+        if native_ready:
+            return BackendSelection(backend="rust")
+        return BackendSelection(backend="python", degraded=True, reason=native_reason)
+    # config.py validates this field, so an unknown value means the two drifted.
+    return BackendSelection(
+        backend="python",
+        degraded=True,
+        reason=f"bilinmeyen `[native] capture` degeri: {requested!r}",
+    )
+
+
+def runtime_dir() -> Path:
+    """Where the helper registry lives.
+
+    `$XDG_RUNTIME_DIR` for the same reason screenshots go there: it is readable
+    only by this user and disappears with the session.
+    """
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    return Path(runtime) if runtime else Path("/tmp/pcb")
+
+
+def native_binary_ready(cfg: Config) -> tuple[bool, str]:
+    """Is a native helper reachable, without starting one?
+
+    Discovery only: no process, no session bus, no screen share. A capability
+    query must stay cheap enough to answer on every tool call.
+    """
+    try:
+        discover_native_binary(
+            cfg.native,
+            package_root=Path(__file__).resolve().parents[2],
+        )
+    except DesktopError as exc:
+        return False, exc.message
+    except Exception as exc:  # noqa: BLE001 - discovery reports its own reasons
+        return False, str(exc)
+    return True, ""
+
+
+class NativeScreenCast:
+    """The legacy `ScreenCast` surface, answered by the native helper.
+
+    Deliberately not a `ScreenCast` subclass: nothing here drives GStreamer or
+    the system Python, and inheriting would invite a method that silently falls
+    through to the helper process we are trying to retire.
+    """
+
+    def __init__(
+        self,
+        cfg: Config,
+        *,
+        gate: Any | None = None,
+        client: NativeClient | None = None,
+    ) -> None:
+        self.cfg = cfg
+        self.gate = gate
+        self._client = client
+        self._open = False
+        self._cursor = bool(cfg.desktop.include_pointer)
+        self._monitors: list[str] = []
+        self._session_id = f"pcb-{secrets.token_hex(6)}"
+
+    # ------------------------------------------------------------- helper
+    def _ensure_client(self) -> NativeClient:
+        if self._client is not None:
+            return self._client
+        try:
+            binary = discover_native_binary(
+                self.cfg.native,
+                package_root=Path(__file__).resolve().parents[2],
+            )
+        except DesktopError as exc:
+            raise NativeCaptureError(exc.message, cause=exc) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise NativeCaptureError(f"native helper bulunamadi: {exc}") from exc
+        self._client = NativeClient(
+            binary,
+            state_dir=self.cfg.state_dir,
+            runtime_dir=runtime_dir(),
+        )
+        return self._client
+
+    def _grant(self) -> tuple[str, int]:
+        """The grant snapshot this capture belongs to.
+
+        The native helper binds one grant at `initialize` and refuses any
+        request naming a different one. Passing the gate's current token is what
+        makes a revoke that happened between two calls come back as `REVOKED`
+        instead of a picture.
+        """
+        token = None
+        if self.gate is not None:
+            token = self.gate.current_token() or self.gate.last_token()
+        if token is None:
+            raise NativeCaptureError(
+                "masaustu izni yok: native capture grant kimligi olmadan istenemez"
+            )
+        return str(token.grant_id), int(token.revoke_epoch)
+
+    # -------------------------------------------------------------- shape
+    def is_open(self) -> bool:
+        return self._open
+
+    def start(self, monitors: list[str], cursor: bool = True) -> dict:
+        """Mark this handle usable. No session opens yet -- see the module note."""
+        self._monitors = [str(name) for name in monitors]
+        self._cursor = bool(cursor)
+        self._open = True
+        return {"already": False, "monitors": list(self._monitors), "on_demand": True}
+
+    def stop(self) -> None:
+        self._open = False
+        self._monitors = []
+
+    def close(self) -> None:
+        self.stop()
+        client, self._client = self._client, None
+        if client is not None:
+            client.close()
+
+    def ensure_cursor(self, cursor: bool) -> bool:
+        """Record the pointer mode; the native session recreates itself for it."""
+        changed = bool(cursor) != self._cursor
+        self._cursor = bool(cursor)
+        return changed
+
+    def monitors(self) -> list[str]:
+        return list(self._monitors)
+
+    # ------------------------------------------------------------ capture
+    def capture(self, connector: str, path: str | Path) -> dict:
+        """One frame for one connector, written to `path` as PNG bytes."""
+        if not self._open:
+            raise NativeCaptureError(
+                "native capture hazir degil (masaustu izni verilince aciliyor)"
+            )
+        grant_id, revoke_epoch = self._grant()
+        # The same monitor table `capture.py` selected the target from. The
+        # helper refuses a topology that no longer matches, so a layout change
+        # between the two reads ends in DISPLAY_CHANGED rather than in a frame
+        # from the wrong screen.
+        table = monitorslib.list_monitors()
+        topology = monitorslib.topology_id(table)
+        expected = next((m for m in table if m.connector == connector), None)
+
+        client = self._ensure_client()
+        started = time.time()
+        response = client.request(
+            "capture.frame",
+            {
+                "display_id": f"{DISPLAY_SCHEME}:{connector}",
+                "topology_id": topology,
+                "session_id": self._session_id,
+                "grant_id": grant_id,
+                "revoke_epoch": revoke_epoch,
+                "timeout_ms": FRAME_TIMEOUT_MS,
+                "freshness": "after_request",
+                "include_pointer": self._cursor,
+            },
+            timeout=(FRAME_TIMEOUT_MS / 1000.0) + 5.0,
+        )
+        if response.error:
+            raise NativeCaptureError(
+                str(response.error.get("message") or response.error.get("code")),
+                cause=_error_from_response(response.error),
+            )
+
+        result = response.result if isinstance(response.result, dict) else {}
+        pixels = result.get("pixel_size")
+        if expected is not None and isinstance(pixels, list) and len(pixels) == 2:
+            if (int(pixels[0]), int(pixels[1])) != (expected.width, expected.height):
+                # Rule 8: an unexpected stream size is reported, never rescaled
+                # into place. A silent scale here would put every later click a
+                # proportional distance away from where the agent aimed.
+                raise NativeCaptureError(
+                    f"{connector} akisi {pixels[0]}x{pixels[1]} verdi, monitor "
+                    f"tablosu {expected.width}x{expected.height} diyor. Monitor "
+                    "duzeni degismis olabilir; tekrar deneyin."
+                )
+        if not response.binary:
+            raise NativeCaptureError(f"{connector} icin bos kare dondu")
+
+        destination = Path(path)
+        destination.write_bytes(response.binary)
+        wait_ms = float(result.get("wait_ms") or 0.0)
+        return {
+            "ok": True,
+            "path": str(destination),
+            "monitor": connector,
+            "ms": round((time.time() - started) * 1000),
+            # The frame arrived `wait_ms` after we asked, so that -- not the
+            # moment the batch began -- is when this image describes the screen.
+            "taken_at": started + (wait_ms / 1000.0),
+            "frame_identity_source": result.get("frame_identity_source", ""),
+            "stale_frames": result.get("stale_frames", 0),
+        }
+
+
+def _error_from_response(error: dict[str, Any]) -> DesktopError:
+    code = str(error.get("code") or "")
+    mapped = {
+        "REVOKED": (ErrorCode.REVOKED, ErrorCategory.SAFETY),
+        "GRANT_REQUIRED": (ErrorCode.GRANT_REQUIRED, ErrorCategory.SAFETY),
+        "SCREEN_LOCKED": (ErrorCode.SCREEN_LOCKED, ErrorCategory.SAFETY),
+        "LOCK_STATE_UNKNOWN": (ErrorCode.LOCK_STATE_UNKNOWN, ErrorCategory.SAFETY),
+        "DISPLAY_CHANGED": (ErrorCode.DISPLAY_CHANGED, ErrorCategory.CAPTURE),
+        "DISPLAY_MAPPING_UNKNOWN": (
+            ErrorCode.DISPLAY_MAPPING_UNKNOWN,
+            ErrorCategory.CAPTURE,
+        ),
+        "FRAME_TIMEOUT": (ErrorCode.FRAME_TIMEOUT, ErrorCategory.CAPTURE),
+        "FRAME_FORMAT_UNSUPPORTED": (
+            ErrorCode.FRAME_FORMAT_UNSUPPORTED,
+            ErrorCategory.CAPTURE,
+        ),
+        "FRAME_TOO_LARGE": (ErrorCode.FRAME_TOO_LARGE, ErrorCategory.CAPTURE),
+        "INVALID_FRAME": (ErrorCode.FRAME_FORMAT_UNSUPPORTED, ErrorCategory.CAPTURE),
+        "CANCELLED": (ErrorCode.CANCELLED, ErrorCategory.EXECUTION),
+        "BUSY": (ErrorCode.BUSY, ErrorCategory.EXECUTION),
+    }.get(code, (ErrorCode.BACKEND_UNAVAILABLE, ErrorCategory.CAPABILITY))
+    return DesktopError(
+        code=mapped[0],
+        message=str(error.get("message") or code or "native capture basarisiz"),
+        category=mapped[1],
+        retryable=bool(error.get("retryable", False)),
+        suggested_action="check_desktop_grant_and_display_layout",
+        backend=BACKEND_NAME,
+    )
+
+
+class RustCaptureProvider(PythonCaptureProvider):
+    """The Python capture provider with the native handle injected.
+
+    Everything inherited is the part that must not change: shot ids, metadata,
+    `to_global`, the two lookup directories. What is overridden is only what
+    would otherwise answer for the wrong backend.
+    """
+
+    def __init__(
+        self,
+        cfg: Config,
+        *,
+        gate: Any | None = None,
+        screencast: Any | None = None,
+    ) -> None:
+        super().__init__(
+            cfg,
+            screencast=screencast
+            if screencast is not None
+            else NativeScreenCast(cfg, gate=gate),
+        )
+
+    def capability_token(self) -> tuple[Any, ...]:
+        topology: tuple[Any, ...]
+        try:
+            topology = (
+                monitorslib.topology_id(monitorslib.list_monitors(use_cache=False)),
+            )
+        except monitorslib.MonitorError as exc:
+            topology = ("error", type(exc).__name__)
+        ready, _reason = native_binary_ready(self.cfg)
+        return (
+            "rust",
+            self.cfg.desktop.capture_backend,
+            capturelib.PIL_AVAILABLE,
+            ready,
+            self.screencast.is_open(),
+            topology,
+        )
+
+    def available(self) -> tuple[bool, str]:
+        if not capturelib.PIL_AVAILABLE:
+            return False, (
+                f"python paketi `Pillow` yok ({capturelib.PIL_IMPORT_ERROR}). "
+                "Kurulum: ./.venv/bin/pip install -r requirements.txt"
+            )
+        return native_binary_ready(self.cfg)
+
+    def backend_name(self) -> str:
+        """What the next capture will actually use -- state, not a guess."""
+        return BACKEND_NAME if self.screencast.is_open() else "pcbridge-native"
+
+    def probe_capabilities(self) -> dict[str, Capability]:
+        """Report monitor capture from the native path without opening a session."""
+        pillow_ok = capturelib.PIL_AVAILABLE
+        ready, reason = native_binary_ready(self.cfg)
+        if not pillow_ok:
+            monitor = _capability(
+                "capture.monitor",
+                CapabilityState.UNAVAILABLE,
+                backend=BACKEND_NAME,
+                scope="os.capture",
+                reason_code=ErrorCode.DEPENDENCY_MISSING,
+                limitations=("Pillow is required to crop and scale frames.",),
+            )
+        elif ready:
+            monitor = _capability(
+                "capture.monitor",
+                CapabilityState.SUPPORTED,
+                backend=BACKEND_NAME,
+                scope="os.capture",
+            )
+        else:
+            monitor = _capability(
+                "capture.monitor",
+                CapabilityState.UNAVAILABLE,
+                backend=BACKEND_NAME,
+                scope="os.capture",
+                reason_code=ErrorCode.DEPENDENCY_MISSING,
+                limitations=(reason,) if reason else (),
+            )
+
+        try:
+            monitorslib.list_monitors()
+        except monitorslib.MonitorError:
+            monitor = _capability(
+                "capture.monitor",
+                CapabilityState.UNAVAILABLE,
+                backend="linux.mutter-display-config",
+                scope="os.capture",
+                reason_code=ErrorCode.DISPLAY_MAPPING_UNKNOWN,
+            )
+
+        # Window capture is not a native capability and is not claimed as one:
+        # the legacy screenshot path still owns it.
+        window = PythonCaptureProvider._screenshot_capability(
+            "capture.window",
+            pillow_ok and bool(shutil.which(capturelib.GNOME_SCREENSHOT)),
+        )
+        return {"capture.monitor": monitor, "capture.window": window}
+
+    def capture(
+        self,
+        spec: int | str,
+        *,
+        out_dir: Path,
+        scale_long_edge: int,
+        include_pointer: bool,
+    ) -> list[capturelib.Shot]:
+        try:
+            return super().capture(
+                spec,
+                out_dir=out_dir,
+                scale_long_edge=scale_long_edge,
+                include_pointer=include_pointer,
+            )
+        except NativeCaptureError as exc:
+            if exc.desktop_error is not None:
+                raise exc.desktop_error from exc
+            raise _desktop_error(
+                exc,
+                code=ErrorCode.BACKEND_UNAVAILABLE,
+                category=ErrorCategory.CAPABILITY,
+                backend=BACKEND_NAME,
+                retryable=True,
+                suggested_action="Native capture yardimcisini ve masaustu iznini denetleyin.",
+            ) from exc
+
+
+__all__ = [
+    "BackendSelection",
+    "BACKEND_NAME",
+    "NativeCaptureError",
+    "NativeScreenCast",
+    "RustCaptureProvider",
+    "native_binary_ready",
+    "runtime_dir",
+    "select_capture_backend",
+]

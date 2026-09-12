@@ -373,7 +373,8 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   `/proc`'u tarayıp **kendi kullanıcımızın** ve cmdline'ında yardımcının
   **tam yolu** geçen bütün süreçleri sonlandırıyor; `desktop_lock` ve
   `cli.lock` ikisi de çağırıyor.
-- **Yayın `desktop_unlock` ile açılır, `desktop_lock`/süre dolumuyla kapanır.**
+- **Yayın `desktop_unlock` ile açılır, `desktop_lock`/süre dolumuyla kapanır**
+  (Python yolunda; native yolda ilk çekimde açılır — `docs/native/capture.md`).
   Açıkken GNOME üst çubukta paylaşım göstergesi durur — bu istenen bir şey
   (kullanıcı ajanın masaüstüne erişebildiğini oradan görüyor) ve **çekilen
   karede de görünür**. Yayın `screencast_helper.py` sürecinde yaşıyor: süreç

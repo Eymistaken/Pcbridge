@@ -10,14 +10,15 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Yok (`Task 3.3 tamamlandı`; kullanıcı onayı bekleniyor)
-- **Son tamamlanan adım:** Adım 3 / Task 3.3 — OnDemand PipeWire frame + PNG
-- **Sıradaki uygulanabilir adım:** Task 3.4 — Rust capture'ı Python shot
+- **Aktif adım:** Yok (`Task 3.4 tamamlandı`; kullanıcı onayı bekleniyor)
+- **Son tamamlanan adım:** Adım 3 / Task 3.4 — Rust capture'ı Python shot
   pipeline'ına bağla
+- **Sıradaki uygulanabilir adım:** Task 3.5 — Screenshot artifact ve MCP image
+  delivery bütünlüğü (Gate 3'ün son task'ı)
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 2 geçti** (native migration). Task 2.4 typed
   desktop state, fail-closed policy ve native lock watcher acceptance'ı dahil.
-- **Native migration içindeki sıradaki task:** 3.4
+- **Native migration içindeki sıradaki task:** 3.5 → **Gate 3**
 
 Çalışma kuralı (kullanıcı isteği, 2026-09-12): **her adım sonunda ilerleme bu
 dosyaya yazılır ve durulur; devam için onay beklenir.**
@@ -728,6 +729,100 @@ yeniden ölçüldü:
 **Sonraki somut adım:** Task 3.4 — native PNG payload'ını mevcut Python shot
 store, monitor seçimi ve `capture.to_global()` sözleşmesine bağla; varsayılanı
 değiştirme.
+
+### Task 3.4 — Rust capture'ı Python shot pipeline'ına bağla · `tamamlandı`
+
+**Ne yapıldı.** Karenin **nereden geldiği** değişti, başka hiçbir şey
+değişmedi. Kırpma, ölçekleme, istemciye giden PNG, çekim kimliği, iki arama
+dizini, kayıt dosyası ve bütün koordinat dönüşümü `capture.py`'de kaldı.
+Sebep tek cümle: çekim kimliği sonraki bir `mouse(shot=…)` çağrısının ofseti
+ve ölçeği bulma yolu; o defteri ikinci bir dile taşımak iki kopyanın ayrışıp
+**yanlış ekrana tıklanması** demek.
+
+**Yeni:** `pcbridge/desktop/backends/rust.py`
+(`NativeScreenCast` + `RustCaptureProvider` + `select_capture_backend`),
+`tests/contracts/test_capture_backend_selection.py` (18 test).
+**Değişen:** `capture.py` (per-frame `taken_at`, typed hata geçişi),
+`runtime.py` (`select_capture_provider`), `backends/python.py`
+(`degraded_reason`), `config.example.toml`, `CLAUDE.md`,
+`docs/native/capture.md`.
+
+**Seam neydi.** Eski `capture()` zaten bir `screencast` nesnesi alıyordu
+(`is_open` / `ensure_cursor` / `capture(connector, path)`). Native tarafa aynı
+şekli veren bir adaptör yazmak, pipeline'a hiç dokunmadan backend'i
+değiştirmeye yetti — `capture.py` ikisini ayırt edemiyor.
+
+**Backend tablosu tek yerde** ve saf: `select_capture_backend`. Seçim runtime
+kurulurken **bir kez** yapılıyor, oturum ortasında değişmiyor (bir `all`
+çekimi iki farklı kaynaktan birleştirilemez). Önemli satır `rust`: zorunlu
+tutulmuş backend yardımcı yoksa **sessizce Python'a dönmüyor**, seçili kalıp
+görünür şekilde hata veriyor — zorunlu tutmanın amacı tam olarak onun çalışıp
+çalışmadığını görmek. `auto` ise Python'a düşerken gerekçeyi capability
+raporuna `degraded` limitation olarak yazıyor.
+
+**`taken_at` artık karenin kendi saati.** Native yol kareyi ne kadar
+beklediğini bildiriyor; bir `all` çekiminde monitörler sırayla okunuyor ve
+aradaki fark yüzlerce milisaniye olabiliyor. Damga bayatlık uyarısını sürüyor,
+o yüzden fark önemli. İleriye doğru bir saniyeden fazla sapan damga yok
+sayılıyor: gelecekten gelen bir damga bayatlık kontrolünü **sessizce**
+kapatırdı.
+
+**Paylaşım göstergesi biraz kayıyor — kayıtta, gizli değil.** Python yolunda
+paylaşım `desktop_unlock` ile açılıyor, gösterge izinle birlikte beliriyor.
+Native oturum istek üzerine: ilk çekimde açılıyor, revoke/kilide kadar açık
+kalıyor. Yani izin ile ilk çekim arasında grant'i olan ama göstergesi olmayan
+bir pencere var. Tartışılabilir biçimde daha doğru bir sinyal (o pencerede
+hiçbir şey ekranı okuyamıyor), ama gösterge kullanıcının kanıtı; Task 4.3'te
+varsayılan değişmeden önce yeniden bakılacak.
+
+**Acceptance — aynı çekim iki backend'den.** `test_capture_backend_selection`
+aynı PNG baytlarını hem eski tutamaçtan hem native adaptörden `capture.py`'ye
+veriyor ve **çekimlerin birebir aynı** çıktığını doğruluyor: kimlik biçimi,
+ofset, boyut, ölçek, kayıt dosyası ve `to_global` sonucu. `shot→global`
+merkezleri `(960,540)` ve `(2880,540)`.
+
+**Ölçüldü (gerçek makine, uçtan uca).** `[native] capture = "rust"`, gerçek
+helper, geçici state dizininde grant:
+
+| Ne | Sonuç |
+|---|---|
+| `backend_name()` başlamadan / başladıktan sonra | `pcbridge-native` → `linux.mutter.pipewire` |
+| `capture.monitor` | `supported` / `linux.mutter.pipewire` |
+| Çekim | `m1-e0cf3b`, DP-4, ofset `(0,0)`, 1920×1080 → 1536×864, ölçek 0,8 |
+| PNG | 796.883 bayt, 25.504 ayrı renk (gerçek masaüstü) |
+| Kayıt | yazıldı, geri okundu, `to_global(10,10)` → `(12,12)` |
+| `capture()` toplam | **414 ms** |
+
+Gerçek masaüstü grant'ine dokunulmadı: doğrulama boyunca `desktop_unlock.json`
+`until: 0` kaldı.
+
+**Testlerin tuttuğu mutasyonla denendi.** Beş şey ayrı ayrı bozuldu — zorunlu
+`rust`'ın sessizce Python'a dönmesi, boyut uyuşmazlığının yutulması,
+`taken_at`'in bekleme süresini yok sayması, grant kimliğinin yanlış
+gönderilmesi ve `capture.py`'nin per-frame damgayı kullanmaması — hepsi
+kırmızıya döndürdü.
+
+**Test sonuçları:**
+
+- `tests/contracts/test_capture_backend_selection.py` (yeni) → **18 test**
+- Python contract discovery → **140 test, OK** (122 → 140)
+- `tests/test_desktop.py` live bayrakları kapalı → **583 geçti, 0 kaldı**
+- `tests/test_models.py` → **106**; `test_test_safety.py` → OK
+- `python -m pcbridge.server --check -c config.example.toml` → exit `0`
+
+**Korunanlar:** Varsayılan `[native] capture = "python"` **değişmedi**. Çekim
+kimliği biçimi, iki arama dizini, `window` çekiminin legacy davranışı ve
+`capture.to_global()`'ın tek koordinat girişi olması aynen duruyor. Native
+monitor desteği native **window** desteği iddiası üretmiyor.
+
+**Bilinçli olarak yapılmayanlar:** Çekim kimliğini Rust'a taşımak; Python
+capture dosyasını silmek; varsayılan backend'i değiştirmek.
+
+**Rollback:** `[native] capture = "python"` (zaten varsayılan). Çekim
+metadata'sı göç istemiyor.
+
+**Sonraki somut adım:** Task 3.5 — Screenshot artifact ve MCP image delivery
+bütünlüğü. Gate 3'ün son task'ı.
 
 ## Adım 4 — Faz 4: paketleme, parity, varsayılan değişikliği (Gate 4)
 

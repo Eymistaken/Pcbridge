@@ -190,11 +190,21 @@ def _wayland_socket() -> str | None:
 class PythonCaptureProvider:
     """Own the legacy ScreenCast handle and expose capture as one provider."""
 
-    def __init__(self, cfg: Config, screencast: Any | None = None) -> None:
+    def __init__(
+        self,
+        cfg: Config,
+        screencast: Any | None = None,
+        *,
+        degraded_reason: str = "",
+    ) -> None:
         self.cfg = cfg
         self.screencast = (
             screencast if screencast is not None else screencastlib.ScreenCast()
         )
+        # Set when the selector wanted the native backend and could not have it.
+        # Carried into the capability report so a fallback is something the
+        # client can read, not something it has to infer from timings.
+        self.degraded_reason = degraded_reason
 
     def capability_token(self) -> tuple[Any, ...]:
         """Dependency, session, and topology state without starting capture."""
@@ -271,6 +281,18 @@ class PythonCaptureProvider:
                 backend="linux.mutter-display-config",
                 scope="os.capture",
                 reason_code=ErrorCode.DISPLAY_MAPPING_UNKNOWN,
+            )
+
+        if self.degraded_reason:
+            monitor = _capability(
+                monitor.name,
+                CapabilityState.DEGRADED
+                if monitor.state is CapabilityState.SUPPORTED
+                else monitor.state,
+                backend=monitor.backend,
+                scope=monitor.scope,
+                reason_code=monitor.reason_code or ErrorCode.BACKEND_UNAVAILABLE,
+                limitations=tuple(monitor.limitations) + (self.degraded_reason,),
             )
 
         window = self._screenshot_capability(

@@ -353,6 +353,30 @@ class DesktopRuntime:
                 logger.warning("accessibility provider cleanup failed: %s", exc)
 
 
+def select_capture_provider(cfg: Config, gate: GrantProvider) -> CaptureProvider:
+    """Apply the backend table once, here, and nowhere else.
+
+    The choice is made when a runtime is built and never revisited inside it:
+    swapping acquisition backends mid-session would let one `all` capture be
+    assembled from two different sources, and `PLAN.md` forbids exactly that.
+    """
+    from .backends.rust import (  # yerel import: native yol istege bagli
+        RustCaptureProvider,
+        native_binary_ready,
+        select_capture_backend,
+    )
+
+    ready, reason = native_binary_ready(cfg)
+    selection = select_capture_backend(
+        requested=cfg.native.capture,
+        native_ready=ready,
+        native_reason=reason,
+    )
+    if selection.backend == "rust":
+        return RustCaptureProvider(cfg, gate=gate)
+    return PythonCaptureProvider(cfg, degraded_reason=selection.reason if selection.degraded else "")
+
+
 def create_runtime(
     cfg: Config,
     *,
@@ -364,11 +388,14 @@ def create_runtime(
 ) -> DesktopRuntime:
     """Build an isolated, lazy runtime for one MCP or CLI process."""
     state_provider = desktop_state_provider or PythonDesktopStateProvider()
+    resolved_gate = (
+        gate if gate is not None else SafetyGate(cfg, state_provider=state_provider)
+    )
     return DesktopRuntime(
         capture_provider=(
             capture_provider
             if capture_provider is not None
-            else PythonCaptureProvider(cfg)
+            else select_capture_provider(cfg, resolved_gate)
         ),
         input_provider=(
             input_provider if input_provider is not None else PythonInputProvider(cfg)
@@ -378,9 +405,9 @@ def create_runtime(
             if accessibility_provider is not None
             else PythonAccessibilityProvider()
         ),
-        gate=gate if gate is not None else SafetyGate(cfg, state_provider=state_provider),
+        gate=resolved_gate,
         desktop_state_provider=state_provider,
     )
 
 
-__all__ = ["DesktopRuntime", "create_runtime"]
+__all__ = ["DesktopRuntime", "create_runtime", "select_capture_provider"]

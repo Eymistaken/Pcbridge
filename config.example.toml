@@ -100,8 +100,28 @@ default_agent = "claude"
 # ---------------------------------------------------------------------------
 
 [native]
-# "python" = mevcut Python saglayicilari, "rust" = yerel saglayiciyi zorunlu tut,
-# "auto" = yeni izin/oturum basinda gorunur geri donuse izin ver.
+# Ekran goruntusunun HAM KARESINI kimin aldigi. Kirpma, olcekleme, cekim
+# kimligi, kayit dosyasi ve butun koordinat donusumu her halukarda Python'da
+# kalir -- yalnizca karenin geldigi yer degisir.
+#
+#   "python"  mevcut yol: Mutter ScreenCast + GStreamer, sistem python3'unde
+#             yasayan `screencast_helper.py` sureci.
+#   "rust"    yerel yardimciyi ZORUNLU tut. Yardimci yoksa ya da kare
+#             alamazsa cagri HATA verir; sessizce Python yoluna DONMEZ --
+#             zorunlu tutmanin amaci tam olarak bunu gormek.
+#   "auto"    yardimci varsa yerel yol, yoksa Python yolu. Geri donus
+#             `system_capabilities` ciktisinda `degraded` olarak gorunur.
+#
+# Secim bir runtime kurulurken BIR KEZ yapilir; acik bir oturumun ortasinda
+# backend degismez (bir `all` cekimi iki farkli kaynaktan birlestirilmez).
+#
+# Bilinmesi gereken davranis farki: Python yolunda ekran paylasimi
+# `desktop_unlock` ile acilir, yani ust cubuktaki paylasim gostergesi izinle
+# birlikte belirir. Yerel yol ISTEK UZERINE calisir: oturum ilk ekran
+# goruntusunde acilir ve revoke/kilide kadar acik kalir. Yani izin verildikten
+# sonra ilk cekime kadar gecen surede gosterge YOK -- o sirada gercekten hicbir
+# sey ekrani okuyamaz, ama gosterge kullanicinin kaniti oldugu icin fark burada
+# yaziyor.
 capture = "python"
 
 # pcbridge-native icin istege bagli mutlak yol. PCBRIDGE_NATIVE_BIN ortam

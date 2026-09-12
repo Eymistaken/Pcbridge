@@ -70,6 +70,7 @@ from pathlib import Path
 from typing import Any
 
 from . import monitors as monitorslib
+from .errors import DesktopError
 
 try:  # Pillow olmadan kirpma/olcekleme yapilamaz; yalnizca bu araclar kapanir
     from PIL import Image
@@ -469,6 +470,24 @@ def _grab_window(tmpdir: Path, include_pointer: bool) -> Path:
     return out
 
 
+def _frame_taken_at(frame: Any, fallback: float) -> float:
+    """Backend'in bildirdigi edinim zamani, yoksa dizinin baslangici.
+
+    Yalnizca ileri dogru guveniliyor: gelecege ait ya da anlamsiz bir damga
+    bayatlik kontrolunu SESSIZCE devre disi birakirdi, o yuzden aralik disi
+    deger yok sayiliyor.
+    """
+    if not isinstance(frame, dict):
+        return fallback
+    reported = frame.get("taken_at")
+    if not isinstance(reported, (int, float)):
+        return fallback
+    reported = float(reported)
+    if reported <= 0 or reported > time.time() + 1.0:
+        return fallback
+    return reported
+
+
 # --------------------------------------------------------- kirpma/olcekleme
 def _scaled_size(w: int, h: int, long_edge: int) -> tuple[int, int]:
     """Uzun kenari `long_edge`e indiren boyut. 0 ya da zaten kucukse aynen."""
@@ -573,7 +592,7 @@ def capture(
                 shots = []
                 for mon in targets:
                     raw = tmpdir / f"sc-{mon.connector}.png"
-                    screencast.capture(mon.connector, raw)
+                    frame = screencast.capture(mon.connector, raw)
                     dest = out_dir / f"{stamp}-m{mon.index}-{mon.connector}.png"
                     with Image.open(raw) as img:
                         size, scaled, scale = _write_crop(
@@ -588,12 +607,18 @@ def capture(
                     shot = Shot(
                         path=dest, monitor=mon, offset=(mon.x, mon.y),
                         size=size, scaled=scaled, scale=scale,
-                        id=f"m{mon.index}-{suffix}", taken_at=taken_at,
+                        id=f"m{mon.index}-{suffix}",
+                        # Bir backend karenin FIILEN ne zaman geldigini
+                        # biliyorsa o kazanir: `taken_at` bayatlik uyarisini
+                        # suruyor ve bir `all` cekiminde monitorler arasinda
+                        # yuzlerce milisaniye olabiliyor. Bilmiyorsa dizinin
+                        # baslangici, eskisi gibi.
+                        taken_at=_frame_taken_at(frame, taken_at),
                     )
                     save_meta(shot)
                     shots.append(shot)
                 return shots
-            except CaptureError:
+            except (CaptureError, DesktopError):
                 raise
             except Exception as exc:  # noqa: BLE001
                 # Yayin dustu (monitor uykuda, kompozitor yeniden basladi).
