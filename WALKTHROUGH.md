@@ -693,6 +693,35 @@ bu yüzden ayrı `cancel` request'i aktif capture ile interleave olamaz ve
 çağrı kendi 1–8000 ms zaman aşımı ve ayrı lifecycle watchdog'larıyla sınırlı.
 Task 3.4 native client deadline'ını bu timeout ile aynı sözleşmeye bağlamalı.
 
+**Bağımsız doğrulama (2026-09-12, ayrı oturum).** Kod okundu ve iddialar
+yeniden ölçüldü:
+
+- Bütün gate'ler tekrarlandı: fmt, clippy (iki feature kipinde), Rust
+  **89/98**, `test_desktop` 583, contract 122, `test_models` 106,
+  `server --check` exit 0. Rapor edilen sayıların hepsi doğru.
+- **Üretim yolu uçtan uca sürüldü** — ki ne live test ne harness testi onu
+  kapsıyor. Geçici state dizininde grant, gerçek binary, stdio protokolü:
+  `capture.frame` **421.034 baytlık** gerçek bir masaüstü PNG'si döndürdü,
+  `binary_len` birebir eşleşti, yanlış `grant_id` `REVOKED` aldı, stderr boştu,
+  arkada süreç/Session kalmadı. Ayrıntı `docs/native/capture.md`.
+- Tembel bağlantı değişmemiş: `capabilities` **1** connect (yalnızca
+  `/run/user/1000/bus`), `display.snapshot` **2**. Capabilities hiçbir PipeWire
+  soketine dokunmuyor.
+- **Zamanlama bandı tekrarlanmadı.** Aynı release binary, aynı monitör, 7
+  koşum: PNG kodlaması 49,4–53,0 ms (kayıtta 32,2–34,0), toplam 101,0–107,7 ms
+  (kayıtta 87,1–97,3). Fark tutarlı, gürültü değil; o sırada `load average`
+  3,02 ve governor `powersave` idi. Kod sorunu değil — ama tek oturumda alınmış
+  dar bir bant makinenin davranışı gibi okunuyordu. `capture.md` artık iki
+  oturumu da gösteriyor.
+
+**Kalan iki açık nokta (defect değil, kayıt):**
+
+1. `capabilities` `capture.monitor: supported` diyor ve bu **build zamanı**
+   iddiası: Mutter ScreenCast çalışma anında yoksa (GNOME dışı oturum) yine
+   "supported" der. Runtime kullanılabilirlik raporlaması Task 4.1'in işi.
+2. `capture_frame_production` yolunun otomatik testi **yok**; `ipc_protocol.rs`
+   fake backend'i, `capture_frame_live.rs` kütüphaneyi sürüyor.
+
 **Rollback:** Bu tamamlayıcı commit yerelde `git revert` edilebilir; Part A
 `d31aaf1` ayrı kalır. Varsayılan backend Python olduğu için rollout değişmedi.
 

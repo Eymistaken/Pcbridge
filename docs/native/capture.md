@@ -227,12 +227,21 @@ runtime bağımlılık ayrımı Task 4.1'de belgelenecek.
 ve bütün alfa baytlarının `255` olduğu doğrulandı; her ikilide sequence `1 → 2`
 ve timestamp arttı. Sonuçlar:
 
-| Ölçüm | Rust release |
-|---|---|
-| Kare bekleme (ilk kare) | 57,3–63,2 ms |
-| PNG encoding (ilk kare) | 32,2–34,0 ms |
-| Toplam, session/source zaten açık | 87,1–97,3 ms |
-| Wait + encode dışı stream bırakma ek yükü | 0,2–0,4 ms |
+| Ölçüm | 1. oturum | 2. oturum (bağımsız doğrulama) |
+|---|---|---|
+| Kare bekleme (ilk kare) | 57,3–63,2 ms | 52,4–83,3 ms |
+| PNG encoding (ilk kare) | 32,2–34,0 ms | **49,4–53,0 ms** |
+| Toplam, session/source zaten açık | 87,1–97,3 ms | **101,0–107,7 ms** |
+| Wait + encode dışı stream bırakma ek yükü | 0,2–0,4 ms | <1 ms |
+
+**İki oturum aynı bandı vermedi ve bu kayıtta durmalı.** İkinci oturum aynı
+release binary'siyle, aynı monitörde, 7 koşumda ölçüldü ve PNG kodlaması
+tutarlı biçimde ~%50 daha uzun sürdü. Fark gürültü değil: ikinci oturumun
+encode örnekleri 49,4 / 49,9 / 50,8 / 51,1 / 51,5 / 53,0 ms ile çok dar.
+En olası sebep makine durumu — o sırada `load average` **3,02** ve CPU
+governor **powersave** idi — ama bu **ölçülmedi**, yalnızca gözlendi. Sonuç:
+tek bir oturumda alınmış dar bir bandı bu makinenin davranışı diye okuma;
+sayılar yük altında **%50'ye kadar** kayıyor.
 
 Aynı monitörde Python/GStreamer `screencast_helper.py` ölçümü: **71 ms**,
 1920×1080, siyah değil, alfa tamamen opak. Kareler farklı anlarda alındığı için
@@ -243,6 +252,24 @@ derlemede ölçüldü.
 
 Koşumlardan sonra Mutter altında Session nesnesi, `pcbridge-native` process'i,
 `screencast_helper.py` process'i ve geçici PNG kalmadı.
+
+**Üretim yolu uçtan uca doğrulandı (2026-09-12, bağımsız).** Gerçek native
+binary'ye geçici bir state dizininden grant verilip stdio protokolü üzerinden
+sürüldü: `initialize` → `display.snapshot` → `capture.frame`. Sonuç
+**421.034 baytlık** bir PNG, `binary_len` ilan edileniyle birebir aynı,
+1920×1080, `desktop_rect [0,0,1920,1080]`, `frame_identity_source`
+`source_monotonic_clock`. Görüntü istatistikle doğrulandı (5.786 ayrı renk,
+kanal ortalamaları ~30, satırlar birbirinden farklı) — yani gerçek masaüstü,
+düz dolgu ya da gürültü değil. Yanlış `grant_id` ile aynı istek
+`REVOKED`/`safety` döndürdü, stderr boştu, süreç temiz kapandı, arkada Mutter
+Session nesnesi kalmadı.
+
+**Bu yolun otomatik testi yok.** `ipc_protocol.rs`'teki
+`capture_frame_sends_png_as_the_binary_payload` deterministik **fake**
+backend'i sürüyor; `capture_frame_live.rs` ise kütüphaneyi doğrudan çağırıyor.
+`capture_frame_production` (grant eşleşmesi, `mutter:` şeması, snapshot
+araması, `NativeCapture` kablolaması) yalnızca yukarıdaki elle koşumla
+doğrulandı.
 
 ### PNG kodlayıcı: `image` değil `png`
 
