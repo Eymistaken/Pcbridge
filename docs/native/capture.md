@@ -143,6 +143,78 @@ işlemin iki taraftaki maliyeti.
 Koşum sonrası `busctl --user tree org.gnome.Mutter.ScreenCast` altında Session
 nesnesi kalmadı ve `screencast_helper.py` süreci açılmadı.
 
+## Frame alma ve PNG (Task 3.3)
+
+Oturum connector başına bir PipeWire düğüm numarası üretiyor. Bir düğümden tek
+kare alıp PNG'ye çevirmek `capture.rs`'in işi; kuralları
+`pcbridge-core::frame`'de.
+
+### Sıra neden bu sırada
+
+PipeWire karesi, üreticinin **hâlâ sahibi olduğu** bellek olarak geliyor. O
+tamponu geri vermeden önce ne yaparsak kompozitör onu bekliyor — ve 1920×1080
+bir kareyi PNG'ye çevirmek onlarca milisaniyelik saf CPU. Kodlamayı o pencerenin
+içinde yapmak bir ekran görüntüsünün bedelini bütün masaüstüne ödetirdi.
+
+Bu yüzden ayrım hatırlanacak bir kural değil, **yapısal**: `FrameSource`
+sahipli bir `RgbaFrame` döndürüyor, yani dönüşüm çoktan olmuş ve tampon çoktan
+geri verilmiş. Ayrıca işçi `detach`'i kodlamadan önce çağırıyor.
+
+### Sessizce yanlış cevap üreten üç tuzak
+
+1. **`x` kanalı alfa değildir.** `BGRx`/`RGBx`'te dördüncü bayt tanımsız. Onu
+   alfaya kopyalamak, üretici oraya sıfır yazdığında **tamamen saydam** bir PNG
+   üretir: teknik olarak geçerli, tamamen boş bir görüntü.
+2. **Stride, genişlik çarpı dört değildir.** Satırlar hizalama için dolgulu.
+   Tamponu tek blok gibi okumak her satırı biraz daha sağa kaydırır.
+3. **Boyut sınırları tahsisten önce gelir.** 60000×60000 iddia eden bir başlık
+   daha sayıyken reddedilmeli, 14 GB istendikten sonra değil. Test bunu sırayla
+   sabitliyor: dört baytlık bir tamponla 3,6 milyar piksellik istek
+   `TooManyPixels` döndürüyor, `BufferTooSmall` değil.
+
+### Tazelik neden bizim saatimizle ölçülüyor
+
+Kare üreticinin sequence numarasını ve sunum zaman damgasını taşıyor; ikisi de
+çağırana rapor ediliyor. Ama hiçbiri "bu kare bu isteğe mi ait" sorusunu
+cevaplamıyor: o zaman damgası sürücünün saatinden geliyor ve onun bizim saatimiz
+olduğunu **varsaymak**, tam olarak bir önceki ekranın görüntüsünü üretecek türden
+ölçülmemiş bir varsayım. Bunun yerine kaynak her kareyi geldiği anda monotonik
+bir `Instant` ile damgalıyor; istekten eski olan atılıyor ve **sayılıyor**
+(`stale_frames`).
+
+### Sınırlar
+
+| Sınır | Değer | Nerede |
+|---|---|---|
+| Kare bekleme | 8 sn | Python yardımcısıyla aynı; bir MCP çağrısı 110 sn'yi geçemez |
+| En büyük kare | 32 milyon piksel | Tahsisten önce |
+| IPC yükü | 128 MiB | `MAX_PIXELS * 4 <= MAX_BINARY_BYTES` **derleme zamanında** doğrulanıyor |
+
+### Eksik olan: gerçek PipeWire kaynağı
+
+`FrameSource`'un PipeWire uygulaması **henüz yok**, çünkü bu makinede
+`libpipewire-0.3-dev` kurulu değil — çalışma kütüphanesi (`libpipewire-0.3.so.0`,
+1.0.5) var, başlıklar yok. `pipewire-sys`/`libspa-sys` bindgen ile başlık
+istiyor:
+
+```bash
+sudo apt install libpipewire-0.3-dev libclang-dev
+```
+
+Trait'in üstündeki her şey yazılı ve sahte kaynakla sınanmış. PNG'yi binary IPC
+yükü olarak gönderen protokol metodu da gerçek kaynakla birlikte gelecek: hiçbir
+zaman çalışamayacak bir metodu şimdiden protokole koymak, olmayan bir yeteneği
+ilan etmek olurdu.
+
+### PNG kodlayıcı: `image` değil `png`
+
+`PLAN.md` "yalnızca png özelliği açık `image`" diyordu. Ölçüldü: `image` 0.25.10
+o özellikle bile `moxcms` (renk yönetimi), `pxfm`, `bytemuck`, `num-traits` ve
+`byteorder-lite`'ı sürüklüyor — core'un doğrudan bağımlılık ağacı 15 sandık.
+`png` sandığı doğrudan kullanılınca 8. Yaptığımız iş RGBA8 tamponu PNG'ye
+yazmak ve testte geri okumak; aradaki hiçbir şeye dokunmuyoruz. Planın niyeti
+(bütün bir görüntü yığınını çekmemek) bu şekilde daha sıkı karşılanıyor.
+
 ## Testler
 
 - `rust/crates/pcbridge-native/tests/capture_session.rs` — 27 test, sahte
@@ -151,6 +223,14 @@ nesnesi kalmadı ve `screencast_helper.py` süreci açılmadı.
   watchdog bayrağı, kapının içinden yeniden girme, ve `Lifecycle` kaydının
   gerçekten bağlı olduğu. D-Bus'a dokunmuyor, ekran paylaşmıyor, ekran
   gerektirmiyor.
+- `rust/crates/pcbridge-core/tests/frame_conversion.rs` — 19 test, elle
+  kurulmuş tamponlar. Dolgulu stride, sıfır olmayan chunk offset, kesik tampon,
+  kanal sırası, alfa, taşma, sıfır boyut ve PNG gidiş-dönüşü. Beklenen baytlar
+  elle yazıldı; hiçbiri dönüştürücüyü çalıştırıp çıktısını kaydederek
+  üretilmedi.
+- `rust/crates/pcbridge-native/tests/capture_worker.rs` — 12 test, sahte kare
+  kaynağı. Bayat kare, zaman aşımı, iptal, revoke, bozuk tampon, başarısız
+  attach ve her hata yolunda tam bir `detach`.
 - `rust/crates/pcbridge-native/tests/capture_session_live.rs` —
   `PCBRIDGE_TEST_CAPTURE=1` yoksa atlanır. Gerçek Mutter'a bağlanır; metot
   adlarının, argüman imzalarının ve sinyal biçiminin doğru olduğunu yalnızca bu

@@ -10,15 +10,16 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Yok (`Task 3.2 tamamlandı`)
+- **Aktif adım:** Adım 3 / Task 3.3 — OnDemand frame + PNG (`kısmen tamamlandı`)
 - **Son tamamlanan adım:** Adım 3 / Task 3.2 — Mutter capture session lifecycle
-- **Sıradaki uygulanabilir adım:** Task 3.3 — OnDemand PipeWire frame + güvenli
-  PNG encoding
-- **Blocker:** Yok
+- **Sıradaki uygulanabilir adım:** Task 3.3'ün kalanı — gerçek PipeWire kaynağı
+- **Blocker:** **`libpipewire-0.3-dev` kurulu değil.** Kural katmanı, işçi ve
+  testler bitti; `FrameSource`'un PipeWire uygulaması bu paket olmadan
+  derlenemiyor. Tek komut, sudo gerektiriyor:
+  `sudo apt install libpipewire-0.3-dev libclang-dev`
 - **Son doğrulanan gate:** **Gate 2 geçti** (native migration). Task 2.4 typed
   desktop state, fail-closed policy ve native lock watcher acceptance'ı dahil.
-- **Native migration içindeki sıradaki task:** 3.3 — OnDemand PipeWire frame
-  (ön koşulu 3.2 tamam)
+- **Native migration içindeki sıradaki task:** 3.3'ün kalanı, sonra 3.4
 
 Çalışma kuralı (kullanıcı isteği, 2026-09-12): **her adım sonunda ilerleme bu
 dosyaya yazılır ve durulur; devam için onay beklenir.**
@@ -34,7 +35,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 0 | Belge omurgası: tek giriş noktası, ölü referansların onarımı | `tamamlandı` |
 | 1 | `KURALLAR.md` §4'teki 5/6/7 kapıları (parola alanı, tekrar tıklama, kapatma onayı) | `tamamlandı` |
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
-| 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `devam ediyor` (3.1 ✅, 3.2 ✅, sırada 3.3) |
+| 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `devam ediyor` (3.1 ✅, 3.2 ✅, 3.3 kısmi — paket engeli) |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `bekliyor` |
 | 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `bekliyor` |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
@@ -600,6 +601,103 @@ alma bugün zaten etkisiz.
 
 **Sonraki somut adım:** Task 3.3 — OnDemand PipeWire frame alma ve güvenli PNG
 encoding. Oturumu ilk açacak olan metot orada geliyor.
+
+### Task 3.3 — OnDemand frame + güvenli PNG · `kısmen tamamlandı — engellendi`
+
+**Durum:** Kural katmanı, işçi ve testler bitti. **Gerçek PipeWire kaynağı
+yazılamadı**: bu makinede `libpipewire-0.3-dev` kurulu değil. Acceptance'ın
+tamamı sağlanmadığı için `tamamlandı` değil.
+
+**Engel ve tek komut.** Çalışma kütüphanesi var (`libpipewire-0.3.so.0`, sürüm
+1.0.5), **başlıklar yok**. `pipewire-sys`/`libspa-sys` bindgen ile başlık
+istiyor; ölçüldü, `cargo build` şunu diyor: "The system library
+`libpipewire-0.3` required by crate `libspa-sys` was not found."
+
+```bash
+sudo apt install libpipewire-0.3-dev libclang-dev
+```
+
+(`libclang-dev` ihtiyaten: `clang` kurulu ama yalnızca `libclang.so.1` var,
+sürümsüz `libclang.so` sembolik bağı yok ve bindgen bazı sürümlerde onu arıyor.)
+Sudo gerektirdiği için kullanıcıya söyleniyor, kendiliğinden çalıştırılmıyor.
+
+**Ne yapıldı.**
+
+- `pcbridge-core::frame` — tampon kuralları: format, genişlik/yükseklik, stride,
+  chunk offset, chunk boyutu ve bayt sınırları. BGRx/RGBx/BGRA/RGBA → sahipli
+  RGBA8. PNG kodlama. Hiçbir yerde tahmin yok.
+- `platform/linux/capture.rs` — `FrameSource` trait'i ve `CaptureWorker`:
+  attach → isteğe ait ilk kareyi al → **her yolda** detach → ancak ondan sonra
+  PNG kodla. Kapı (grant) attach'ten önce ve kare geldikten sonra yeniden
+  sorulur; iptal bayrağı bekleme döngüsünde okunur.
+- Testler: `frame_conversion.rs` **19**, `capture_worker.rs` **12**.
+
+**Üç tuzak, üçü de teste bağlandı** — her biri sessizce yanlış cevap üretir:
+
+1. **`x` kanalı alfa değil.** `BGRx`/`RGBx`'te dördüncü bayt tanımsız; alfaya
+   kopyalanırsa üretici oraya sıfır yazdığı anda **tamamen saydam** bir PNG
+   çıkar. Geçerli dosya, boş görüntü.
+2. **Stride, genişlik×4 değil.** Tamponu tek blok okumak her satırı biraz daha
+   sağa kaydırır.
+3. **Boyut sınırı tahsisten önce.** Test bunu *sırayla* sabitliyor: dört
+   baytlık tamponla 3,6 milyar piksellik istek `TooManyPixels` döndürüyor,
+   `BufferTooSmall` değil — yani sayı hâlâ sayıyken reddedildi.
+
+`MAX_PIXELS * 4 <= MAX_BINARY_BYTES` **derleme zamanında** doğrulanıyor
+(`const _: () = assert!(…)`), testte değil: sınır ilişkisi bozulursa kod hiç
+derlenmesin.
+
+**Tazelik bizim saatimizle ölçülüyor.** Kare üreticinin sequence ve pts
+değerlerini taşıyor ve ikisi de rapor ediliyor, ama "bu kare bu isteğe mi ait"
+sorusunu cevaplamıyorlar: o damga sürücünün saatinden geliyor ve onun bizim
+saatimiz olduğunu varsaymak tam olarak bir önceki ekranı göstermenin yolu.
+Kaynak her kareyi geldiği anda monotonik `Instant` ile damgalıyor; istekten
+eski olan atılıyor ve `stale_frames` olarak sayılıyor.
+
+**Plandan bir sapma: PNG için `image` değil `png`.** Plan "yalnızca png özelliği
+açık `image`" diyordu. Ölçüldü: `image` 0.25.10 o özellikle bile `moxcms` (renk
+yönetimi), `pxfm`, `bytemuck`, `num-traits` ve `byteorder-lite` sürüklüyor —
+core'un doğrudan bağımlılık ağacı **15 sandık**, `png` ile **8**; workspace
+kilidi 107 → 101. Yaptığımız iş RGBA8 tamponu PNG'ye yazmak ve testte geri
+okumak. Planın niyeti (bütün bir görüntü yığınını çekmemek) böyle daha sıkı
+karşılanıyor.
+
+**Bilinçli olarak yapılmayan:** PNG'yi binary IPC yükü olarak gönderen protokol
+metodu. Gerçek kaynak olmadan o metot **hiçbir zaman** kare üretemezdi; olmayan
+bir yeteneği protokolde ilan etmek, `capabilities`'in yalan söylemesi demek.
+Kaynakla aynı commit'te gelecek.
+
+**Testlerin tuttuğu mutasyonla denendi.** Beş şey ayrı ayrı bozuldu — `x`
+kanalının alfaya kopyalanması, stride'ın yok sayılması, boyut kontrolünün
+atlanması, bayat kare kontrolünün kaldırılması ve `detach`'in kodlamadan sonraya
+alınması — **16 test kırmızıya döndü**. Sonra dosyalar geri alındı.
+
+**Süreç notu:** `cargo test` ilk başarısız **hedeften sonra durur**; sonraki
+test ikilileri hiç çalışmaz. Mutasyon denemesinde tam olarak bu oldu ve
+capture_worker sonuçları görünmedi. Doğrulama bundan sonra `--no-fail-fast`
+ile yapılıyor.
+
+**Test sonuçları:**
+
+- `cargo test --workspace --locked --no-fail-fast` → **85 test** (54 → 85)
+- `--features pcbridge-native/test-harness` ile → **91 test**, 0 hata
+- `cargo fmt --check` ve `clippy --workspace --all-targets -- -D warnings`
+  (iki feature kipinde de) → temiz
+- `tests/test_desktop.py` live bayrakları kapalı → **583 geçti, 0 kaldı**
+- Python contract discovery → **122 test, OK**
+- `python -m pcbridge.server --check -c config.example.toml` → exit `0`
+
+**Kalan iş (paket kurulduktan sonra):**
+
+1. `FrameSource`'un PipeWire uygulaması: tek adanmış thread, düğüme bağlanma,
+   buffer map/unmap, SPA video format → `PixelFormat` eşlemesi (sabitler
+   **gerçek başlıktan** doğrulanacak, kopyalanmayacak).
+2. Bilinmeyen SPA formatının reddedildiği test — tek eksik acceptance vakası.
+3. Gerçek kare ölçümü (`PCBRIDGE_TEST_CAPTURE=1`): süre, piksel doğruluğu,
+   `screencast_helper.py` ile karşılaştırma.
+4. PNG'yi binary IPC yükü olarak gönderen protokol metodu.
+
+**Rollback:** Tek commit; `git revert`. Üretimde çağıranı yok.
 
 ## Adım 4 — Faz 4: paketleme, parity, varsayılan değişikliği (Gate 4)
 
