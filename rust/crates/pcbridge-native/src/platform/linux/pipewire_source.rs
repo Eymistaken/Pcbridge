@@ -234,16 +234,6 @@ fn run_pipewire_loop(
         let core = context
             .connect_rc(None)
             .map_err(|error| CaptureError::Unavailable(error.to_string()))?;
-        let stream = pw::stream::StreamRc::new(
-            core,
-            "pcbridge-capture",
-            properties! {
-                *pw::keys::MEDIA_TYPE => "Video",
-                *pw::keys::MEDIA_CATEGORY => "Capture",
-                *pw::keys::MEDIA_ROLE => "Screen",
-            },
-        )
-        .map_err(|error| CaptureError::Unavailable(error.to_string()))?;
 
         let state = Rc::new(RefCell::new(LoopState {
             format: None,
@@ -252,87 +242,25 @@ fn run_pipewire_loop(
             events,
             attached: Arc::clone(&attached),
         }));
-        let _listener = stream
-            .add_local_listener_with_user_data(Rc::clone(&state))
-            .state_changed(|_, state, _, new| {
-                if let pw::stream::StreamState::Error(message) = new {
-                    state.borrow().attached.store(false, Ordering::Release);
-                    send_event(
-                        &state.borrow().events,
-                        WorkerEvent::Error(CaptureError::Stream(message)),
-                    );
-                }
-            })
-            .param_changed(|_, state, id, param| {
-                if id != spa::param::ParamType::Format.as_raw() {
-                    return;
-                }
-                let Some(param) = param else {
-                    state.borrow_mut().format = None;
-                    return;
-                };
-                let parsed = parse_format(param);
-                match parsed {
-                    Ok(format) => state.borrow_mut().format = Some(format),
-                    Err(error) => {
-                        state.borrow_mut().format = None;
-                        send_event(&state.borrow().events, WorkerEvent::Error(error));
-                    }
-                }
-            })
-            .process(|stream, state| {
-                let received_at = Instant::now();
-                let (format, local_sequence, source_timestamp_ns) = {
-                    let mut state = state.borrow_mut();
-                    let Some(format) = state.format else {
-                        return;
-                    };
-                    state.local_sequence = state.local_sequence.saturating_add(1);
-                    let elapsed = received_at.duration_since(state.clock_origin).as_nanos();
-                    let timestamp = i64::try_from(elapsed).unwrap_or(i64::MAX);
-                    (format, state.local_sequence, timestamp)
-                };
-                let Some(frame) = copy_frame(
-                    stream,
-                    format,
-                    received_at,
-                    local_sequence,
-                    source_timestamp_ns,
-                ) else {
-                    return;
-                };
-                let event = match frame {
-                    Ok(frame) => WorkerEvent::Frame(frame),
-                    Err(error) => WorkerEvent::Error(error),
-                };
-                let event = match stream.disconnect() {
-                    Ok(()) => {
-                        state.borrow().attached.store(false, Ordering::Release);
-                        event
-                    }
-                    Err(error) => WorkerEvent::Error(CaptureError::Stream(format!(
-                        "failed to release the captured stream: {error}"
-                    ))),
-                };
-                send_event(&state.borrow().events, event);
-            })
-            .register()
-            .map_err(|error| CaptureError::Unavailable(error.to_string()))?;
+        // Declared after `core`, so it is dropped first: a stream never
+        // outlives the connection it was created on.
+        let active: Rc<RefCell<Option<ActiveStream>>> = Rc::new(RefCell::new(None));
 
-        let command_stream = stream.clone();
+        let command_core = core.clone();
         let command_state = Rc::clone(&state);
+        let command_active = Rc::clone(&active);
         let command_loop = mainloop.clone();
         let _commands = commands.attach(mainloop.loop_(), move |command| match command {
             WorkerCommand::Attach { node, reply } => {
-                let result = attach_stream(&command_stream, &command_state, node);
+                let result = attach_stream(&command_core, &command_state, &command_active, node);
                 let _ = reply.send(result);
             }
             WorkerCommand::Detach { reply } => {
-                detach_stream(&command_stream, &command_state);
+                detach_stream(&command_state, &command_active);
                 let _ = reply.send(());
             }
             WorkerCommand::Shutdown { reply } => {
-                detach_stream(&command_stream, &command_state);
+                detach_stream(&command_state, &command_active);
                 let _ = reply.send(());
                 command_loop.quit();
             }
@@ -342,6 +270,7 @@ fn run_pipewire_loop(
             .send(Ok(()))
             .map_err(|_| CaptureError::Unavailable("PipeWire owner disappeared".to_owned()))?;
         mainloop.run();
+        detach_stream(&state, &active);
         Ok(())
     })();
 
@@ -351,21 +280,128 @@ fn run_pipewire_loop(
     }
 }
 
-fn attach_stream(
-    stream: &pw::stream::Stream,
+/// The stream of one capture, created for exactly one node.
+///
+/// Never reused for another node. Measured 2026-09-13 (PipeWire 1.0.5,
+/// WirePlumber 0.4.17, two monitors): one long-lived `pw_stream` reconnected
+/// to a different node kept delivering the node it was FIRST connected to.
+/// With DP-3 requested first, every later DP-4 request returned DP-3's
+/// picture, and the other way round when DP-4 came first -- a frame from the
+/// wrong screen with every size check passing. The legacy GStreamer helper
+/// never hit this because it builds a new `pipewiresrc` for every capture.
+struct ActiveStream {
+    // Fields drop in declaration order: the listener goes before its stream.
+    _listener: pw::stream::StreamListener<Rc<RefCell<LoopState>>>,
+    stream: pw::stream::StreamRc,
+}
+
+fn open_stream(
+    core: &pw::core::CoreRc,
     state: &Rc<RefCell<LoopState>>,
+) -> Result<ActiveStream, CaptureError> {
+    let stream = pw::stream::StreamRc::new(
+        core.clone(),
+        "pcbridge-capture",
+        properties! {
+            *pw::keys::MEDIA_TYPE => "Video",
+            *pw::keys::MEDIA_CATEGORY => "Capture",
+            *pw::keys::MEDIA_ROLE => "Screen",
+        },
+    )
+    .map_err(|error| CaptureError::Unavailable(error.to_string()))?;
+
+    let listener = stream
+        .add_local_listener_with_user_data(Rc::clone(state))
+        .state_changed(|_, state, _, new| {
+            if let pw::stream::StreamState::Error(message) = new {
+                state.borrow().attached.store(false, Ordering::Release);
+                send_event(
+                    &state.borrow().events,
+                    WorkerEvent::Error(CaptureError::Stream(message)),
+                );
+            }
+        })
+        .param_changed(|_, state, id, param| {
+            if id != spa::param::ParamType::Format.as_raw() {
+                return;
+            }
+            let Some(param) = param else {
+                state.borrow_mut().format = None;
+                return;
+            };
+            let parsed = parse_format(param);
+            match parsed {
+                Ok(format) => state.borrow_mut().format = Some(format),
+                Err(error) => {
+                    state.borrow_mut().format = None;
+                    send_event(&state.borrow().events, WorkerEvent::Error(error));
+                }
+            }
+        })
+        .process(|stream, state| {
+            let received_at = Instant::now();
+            let (format, local_sequence, source_timestamp_ns) = {
+                let mut state = state.borrow_mut();
+                let Some(format) = state.format else {
+                    return;
+                };
+                state.local_sequence = state.local_sequence.saturating_add(1);
+                let elapsed = received_at.duration_since(state.clock_origin).as_nanos();
+                let timestamp = i64::try_from(elapsed).unwrap_or(i64::MAX);
+                (format, state.local_sequence, timestamp)
+            };
+            let Some(frame) = copy_frame(
+                stream,
+                format,
+                received_at,
+                local_sequence,
+                source_timestamp_ns,
+            ) else {
+                return;
+            };
+            let event = match frame {
+                Ok(frame) => WorkerEvent::Frame(frame),
+                Err(error) => WorkerEvent::Error(error),
+            };
+            let event = match stream.disconnect() {
+                Ok(()) => {
+                    state.borrow().attached.store(false, Ordering::Release);
+                    event
+                }
+                Err(error) => WorkerEvent::Error(CaptureError::Stream(format!(
+                    "failed to release the captured stream: {error}"
+                ))),
+            };
+            send_event(&state.borrow().events, event);
+        })
+        .register()
+        .map_err(|error| CaptureError::Unavailable(error.to_string()))?;
+
+    Ok(ActiveStream {
+        _listener: listener,
+        stream,
+    })
+}
+
+fn attach_stream(
+    core: &pw::core::CoreRc,
+    state: &Rc<RefCell<LoopState>>,
+    active: &RefCell<Option<ActiveStream>>,
     node: u32,
 ) -> Result<(), CaptureError> {
-    if state.borrow().attached.swap(false, Ordering::AcqRel) {
-        let _ = stream.disconnect();
-    }
-    state.borrow_mut().format = None;
+    detach_stream(state, active);
 
+    let opened = open_stream(core, state)?;
     let values = format_parameter()?;
     let pod = Pod::from_bytes(&values)
         .ok_or_else(|| CaptureError::Unavailable("invalid SPA format parameter".to_owned()))?;
     let mut params = [pod];
-    stream
+    // Targeting by node id is deprecated in libpipewire, whose header asks for
+    // `target.object` set to the node's object.serial. Mutter reports only the
+    // id, and a fresh stream per node is what makes the id reliable here: it
+    // is the same mechanism the legacy `pipewiresrc path=<id>` has used.
+    opened
+        .stream
         .connect(
             spa::utils::Direction::Input,
             Some(node),
@@ -374,13 +410,17 @@ fn attach_stream(
         )
         .map_err(|error| CaptureError::Stream(error.to_string()))?;
     state.borrow().attached.store(true, Ordering::Release);
+    *active.borrow_mut() = Some(opened);
     Ok(())
 }
 
-fn detach_stream(stream: &pw::stream::Stream, state: &Rc<RefCell<LoopState>>) {
+fn detach_stream(state: &Rc<RefCell<LoopState>>, active: &RefCell<Option<ActiveStream>>) {
     state.borrow().attached.store(false, Ordering::Release);
     state.borrow_mut().format = None;
-    let _ = stream.disconnect();
+    let previous = active.borrow_mut().take();
+    if let Some(previous) = previous {
+        let _ = previous.stream.disconnect();
+    }
 }
 
 fn format_parameter() -> Result<Vec<u8>, CaptureError> {

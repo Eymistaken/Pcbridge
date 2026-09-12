@@ -206,6 +206,22 @@ kare geçer. Event kanalı iki öğeyle sınırlıdır. Format pazarlığı ger�
 enum'larıyla yalnızca BGRx/RGBx/BGRA/RGBA ilan eder; bilinmeyen format,
 CPU-map edilemeyen DMA-BUF, negatif stride ve bozuk/eksik chunk reddedilir.
 
+**`Stream` her çekimde yeniden kuruluyor (2026-09-13 düzeltmesi).**
+`MainLoop`, `Context` ve `Core` thread ömrü boyunca yaşıyor; `Stream` ise tek
+bir düğüm için yaratılıyor ve bir sonraki çekimde yok ediliyor. İlk uygulama
+tek bir `pw_stream`'i tutup her çekimde başka düğüme yeniden bağlıyordu ve bu,
+aşağıdaki "Yanlış monitör" bölümünde ölçülen hatayı üretti. Eski GStreamer
+yardımcısı bu hataya hiç düşmedi, çünkü her çekimde yeni bir `pipewiresrc`
+kuruyor.
+
+Düğümü **kimliğiyle** hedeflemek libpipewire'da eskimiş sayılıyor: başlık
+`target.object` = hedefin `object.serial`'ını istiyor. Mutter ise yalnızca
+kimliği bildiriyor. Bu makinede (PipeWire 1.0.5, WirePlumber 0.4.17) taze akış
++ kimlik doğru monitörü veriyor ve bunu
+`each_connector_gets_its_own_monitors_frame` her canlı koşumda sınıyor. Bir
+PipeWire yükseltmesi bunu bozarsa yol belli: registry'den düğümün
+`object.serial`'ını okuyup `target.object` ile bağlanmak.
+
 Process callback'i tamponu dequeue eder, doğrular ve RGBA8'e kopyalar. Tampon
 RAII ile geri verildikten sonra stream **callback'in içinde disconnect edilir**;
 ancak bundan sonra sahipli kare işçiye gönderilir ve PNG kodlaması başlar. Bu
@@ -352,6 +368,57 @@ o özellikle bile `moxcms` (renk yönetimi), `pxfm`, `bytemuck`, `num-traits` ve
 `png` sandığı doğrudan kullanılınca 8. Yaptığımız iş RGBA8 tamponu PNG'ye
 yazmak ve testte geri okumak; aradaki hiçbir şeye dokunmuyoruz. Planın niyeti
 (bütün bir görüntü yığınını çekmemek) bu şekilde daha sıkı karşılanıyor.
+
+## Yanlış monitör: bulundu ve düzeltildi (2026-09-13)
+
+Task 3.5'in canlı doğrulamasında, native yol ile eski Python yardımcısı aynı
+monitörde arka arkaya karşılaştırıldı (sıra: native, eski, native — iki native
+kare gürültü tabanı). Sol monitör (DP-4) birebir tuttu: %99,993, taban
+%99,989. Sağ monitör (DP-3) yalnızca **%26,92** tuttu, oysa native'in iki
+karesi kendi arasında %99,916'ydı — içerik değişmemişti, backend'ler farklı
+şey görüyordu.
+
+İçeriğe bakınca soru netleşti: native DP-4, native DP-3 ve eski DP-4 **aynı
+ekranı** gösteriyordu (sohbet penceresi açık sol monitör); yalnızca eski
+yardımcının DP-3 karesi birincil monitörün kendisiydi (masaüstü simgeleri,
+görev çubuğu). Kanal takası (%0,17) ve bir piksellik kayma (%4–6) sayısal
+olarak elendi.
+
+Kök neden bir sıra deneyiyle ayrıldı: taze bir native yardımcıya istekler iki
+farklı sırada gönderildi ve her kare eski yardımcının iki monitör karesiyle
+karşılaştırıldı.
+
+| Sıra | Önce (tek akış yeniden kullanılıyor) | Sonra (çekim başına akış) |
+|---|---|---|
+| DP-3, DP-4, DP-3, DP-4 | DP-4 istekleri **DP-3** gösterdi | 4/4 doğru |
+| DP-4, DP-3, DP-4, DP-3 | DP-3 istekleri **DP-4** gösterdi (ilk ölçüm) | 4/4 doğru |
+
+Yani yeniden bağlanan akış **ilk bağlandığı düğümde kalıyordu**. Oturum
+tarafındaki connector → düğüm eşlemesi (stream nesne yoluna göre) doğruydu;
+yanlış olan, doğru düğüm numarasının akışı başka düğüme taşımamasıydı.
+
+Neden hiçbir test yakalamadı: bütün canlı testler **ilk** monitörü okuyordu
+(`capture_frame_live.rs` `monitors.first()`, `capture_frame_ipc_live.rs`
+`monitors[0]`); MCP canlı testi ise iki monitörü alıp yalnızca boyut, PNG ve
+renk sayısına bakıyordu — iki görüntünün **aynı ekran** olduğunu göremezdi
+(o koşumda iki PNG 649.475 ve 650.358 bayttı). Varsayılan backend hâlâ
+`python` olduğu için kullanıcıya yansımadı; Task 4.3 varsayılanı değiştirmiş
+olsaydı `monitor=2` ekran görüntüsü sol monitörü gösterecek ve `shot=`
+tıklaması onun koordinatlarıyla sağ monitöre düşecekti.
+
+Artık bunu canlı testler tutuyor:
+
+- `capture_frame_live.rs` → `each_connector_gets_its_own_monitors_frame`:
+  ikinci monitör önce, sonra birinci, sonra ikisi tekrar. Aynı monitörün iki
+  karesi ≥%90, farklı monitörlerinki <%99 tutmalı. Düzeltmeyle ölçüldü:
+  DP-3/DP-3 **%100,00**, DP-4/DP-4 **%99,93**, DP-3/DP-4 **%26,92**.
+  **Mutasyonla denendi:** HEAD'deki tek akışlı `pipewire_source.rs` geri
+  konunca bu test kırmızıya döndü.
+
+Testin ön koşulu kayıtta: iki monitör gerçekten farklı içerik göstermeli. Bir
+panel, görev çubuğu ya da tek bir pencere bunu sağlıyor; iki monitörü
+tamamen aynı gösteren bir kurulumda test yanlış alarm verir ve mesajı bunu
+söylüyor.
 
 ## Testler
 

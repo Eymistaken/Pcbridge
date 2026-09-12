@@ -402,8 +402,30 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   (tam yeniden kurulum) **3,8–6,4 ms** — Python yardımcısında aynı değişim
   ~113 ms olarak kaydedilmişti. İki sayı aynı ölçüm noktasından alınmadı
   (Python'unki yardımcı sürece JSON gidiş dönüşünü de içeriyor). Ayrıntı:
-  `docs/native/capture.md`. **Üretimde hâlâ Python yolu kullanılıyor**;
-  native oturumu açan bir protokol metodu yok.
+  `docs/native/capture.md`. **Varsayılan hâlâ Python yolu**
+  (`[native] capture = "python"`); native yol `capture.frame` ile seçilebilir
+  (Task 3.3/3.4).
+- **Native capture'ı debug binary ile ölçme; asıl maliyet Python'un PNG
+  kaydı.** Ölçüldü 2026-09-13, gerçek Mutter, 1920×1080, yük ~1,0, governor
+  `powersave`: `capture.frame` monitör başına debug binary ile **~1915 ms**
+  (`encode_ms` ~1755, `wait_ms` ~145), release ile **271–294 ms** (`encode_ms`
+  ~200, `wait_ms` 60–68). `rust/Cargo.toml`'da `[profile]` yok, yani debug
+  derlemede PNG kodlayıcı optimizasyonsuz. Aynı karenin Python tarafı: çözme
+  ~20 ms, 1536'ya küçültme ~40 ms, `save(optimize=True)` **~1000 ms** — ve bu
+  Python backend'inde de aynen ödeniyor. MCP üzerinden iki monitörlük
+  `screen_capture` debug binary ile 6,0–6,3 sn sürdü; sıcak çağrı soğuk kadar
+  yavaştı, yani süre oturum açılışından gelmiyor.
+- **Tek bir PipeWire akışı başka düğüme YENİDEN BAĞLANMIYOR.** Ölçüldü
+  2026-09-13 (PipeWire 1.0.5, WirePlumber 0.4.17): native kaynak tek bir
+  `pw_stream`'i tutup her çekimde başka düğüme `connect` ettiğinde akış **ilk
+  bağlandığı düğümde kaldı** — DP-3 önce istenince bütün DP-4 istekleri
+  DP-3'ün görüntüsünü döndürdü; boyut, PNG ve zaman damgası hepsi geçerliydi.
+  Çekim başına yeni akış bunu çözdü (iki istek sırasında 8/8 doğru monitör).
+  Hiçbir test yakalamamıştı çünkü bütün canlı testler yalnızca **ilk**
+  monitörü okuyordu; artık `each_connector_gets_its_own_monitors_frame` iki
+  monitörü çapraz sınıyor. Düğümü kimliğiyle hedeflemek libpipewire'da
+  eskimiş (`target.object` = `object.serial` isteniyor); bir yükseltme bunu
+  bozarsa yol registry'den serial okumak. Ayrıntı: `docs/native/capture.md`.
 - **Ekran görüntüsünün maliyeti sürücüye göre 20–30 kat değişiyor** — `agy`'de
   tek görüntü ~40 bin girdi jetonu, **Claude'da ~1200–1900**. `ui_dump` yine de
   daha ucuz (~0,1 sn, birkaç yüz jeton) ve koordinat kullanmadığı için
