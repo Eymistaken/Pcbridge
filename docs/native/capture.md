@@ -369,6 +369,88 @@ o özellikle bile `moxcms` (renk yönetimi), `pxfm`, `bytemuck`, `num-traits` ve
 yazmak ve testte geri okumak; aradaki hiçbir şeye dokunmuyoruz. Planın niyeti
 (bütün bir görüntü yığınını çekmemek) bu şekilde daha sıkı karşılanıyor.
 
+## Çekim artifact'ı ve teslim (Task 3.5)
+
+Task 3.5 iki olguyu ayırıyor: **çekim başarılı oldu** ve **görüntü istemciye
+bütün olarak ulaştı**. `shots/` altında bir PNG'nin durması ikincisi değil.
+
+### Yayım: bütün ya da hiç
+
+Eskiden `capture.py` her monitörün PNG'sini ve kaydını o monitör bitince
+yazıyordu. Üç şey sessizce ters gidebiliyordu:
+
+1. Bir `all` çekiminde ikinci monitör düşünce birincinin görüntüsü ve kaydı
+   diskte kalıyordu — kimsenin almadığı ama `shot=` ile hâlâ bulunan bir çekim.
+2. Son ek çakışması (24 bit) başka bir çekimin kaydını eziyordu; sonraki bir
+   `shot=` tıklaması o zaman başka bir çekimin ofset ve ölçeğiyle çevrilirdi.
+3. Yarıda öldürülen bir çekim tam çözünürlükte bir görüntüyü hiçbir
+   süpürmenin bakmadığı bir yerde bırakabiliyordu.
+
+Şimdi:
+
+- Görüntüler `out_dir` içindeki gizli, mod 700 bir hazırlık dizininde
+  (`.staging-*`) üretiliyor; ham kareler de orada, `/tmp` kullanılmıyor.
+- Bütün hedefler hazır olunca yayım **hard link** ile: `os.link` tek adımda ve
+  hedef varsa `FileExistsError` veriyor, `os.replace` gibi sessizce ezmiyor.
+  Önce PNG'ler, en son kayıtlar — arkasında görüntü olmayan bir kayıt hiçbir
+  an görünmüyor. Hard link desteklemeyen dosya sisteminde `x` kipiyle kopya.
+- Yeni kimlik `shot=` aramasının baktığı **bütün** dizinlerde boş olmalı
+  (`reserved_dirs`); değilse yeni son ek (en fazla 16 deneme). Kontrol ile
+  yayım arasında başka bir süreç aynı adı alırsa bu denemenin yayımladıkları
+  geri alınıyor: listede yalnızca başarılı link'ler var, yani silinen hiçbir şey
+  başkasının dosyası olamıyor.
+- `pcb-shot --out` kayıt kopyası (`copy_meta_to`) yayımın parçası: kopya
+  yazılamazsa çekim de yayımlanmıyor.
+- Terk edilmiş hazırlık dizinleri (10 dakikadan eski) hem `ShotStore.sweep()`
+  hem `pcb-shot` süpürmesinde gidiyor, `shot_keep_hours = 0` olsa bile.
+
+### Teslim: istemci çözemiyorsa başarı değil
+
+`screen_capture` her görüntüyü göndermeden önce baytlarına bakıyor: PNG imzası,
+IHDR ve **kayıttaki ölçekli boyut**. Tutmazsa sonuç `isError=true` +
+`IMAGE_DELIVERY_FAILED`; metin hangi çekimin ulaşmadığını söylüyor, ulaşan
+görüntüler yine gidiyor, `structuredContent.shots` bütün kimlikleri taşıyor.
+Boyut kontrolünün sebebi: istemci görüntüden okuduğu pikseli `shot=` ile geri
+gönderiyor ve sunucu kayıttaki ölçeği uyguluyor — boyutu kaydıyla uyuşmayan
+bir görüntü tıklamayı sessizce kaydırırdı. Eskiden okunamayan görüntü başarılı
+sonucun içinde tek satırlık bir notla kayboluyordu.
+
+Metin bloğu her zaman ilk; birden fazla görüntü varsa metin eşleşmeyi açıkça
+söylüyor ("Goruntuler asagida bu sirayla: …"). `computer_batch` yalnızca kendi
+raporunu kırpıyor, son adımın çekim metnini asla. `tail_chars` sondan tuttuğu
+için eski kod kimlik satırlarını ancak çekim metni sınırı tek başına aşınca
+kesiyordu — nadir, ama kesilince görüntüler kimliksiz kalıyordu.
+
+stdio'da HTTP bağlantısı üretilmiyor (ölü URL yok); HTTP'de
+`/shot/<token>.png` token/TTL yolu aynen duruyor.
+
+### Ölçüldü (2026-09-13, gerçek makine)
+
+Canlı teslim testi gerçek sunucuyu gerçek stdio üzerinden sürdü:
+`[native] capture = "rust"`, Python GI içe aktarılamaz (`PYTHONPATH` engeli;
+aynı ortamda `python3 -c "import gi"` başarısız) ve `gnome-screenshot`
+çalışamaz hâlde.
+
+| Ne | Sonuç |
+|---|---|
+| `capture.monitor` | `supported` / `linux.mutter.pipewire` |
+| `screen_capture(all)` | 2 görüntü, ikisi de 1536×864, istemcide çözüldü |
+| DP-4 / DP-3 | 690.509 B · 10.606 renk / 912.058 B · 26.328 renk |
+| Monitörler arası piksel eşleşmesi | %26,24 (aynı ekran olsaydı ~%100) |
+| Kayıt | ölçekli boyut = çözülen boyut, ofset korunuyor, `taken_at` taze |
+| `desktop_lock` sonrası `screen_capture` | `safety` hatası, görüntü yok |
+| Kapanıştan sonra | native süreç yok, Python yardımcısı yok, Mutter oturumu artmadı, `.staging-*` yok |
+
+Süre: iki monitörlük çağrı **debug** binary ile 9,6 sn, soğuk ve sıcak aynı.
+Monitör başına parçalandığında (release, yük ~1,0, governor `powersave`):
+`capture.frame` 271–294 ms (bekleme 60–68, kodlama ~200; daha karmaşık
+içerikte 518–527 ms), Python tarafı çözme ~20 + küçültme ~40 +
+`save(optimize=True)` **~1000 ms**. Debug binary'de kodlama tek başına
+~1755–1811 ms. Python PNG maliyeti eski backend'de de aynen ödeniyor.
+
+Eski yardımcıyla aynı monitörde arka arkaya (native, eski, native), düzeltmeden
+sonra: DP-4 **%99,993** (native/native tabanı %99,987), DP-3 **%100,000**.
+
 ## Yanlış monitör: bulundu ve düzeltildi (2026-09-13)
 
 Task 3.5'in canlı doğrulamasında, native yol ile eski Python yardımcısı aynı
@@ -414,6 +496,8 @@ Artık bunu canlı testler tutuyor:
   DP-3/DP-3 **%100,00**, DP-4/DP-4 **%99,93**, DP-3/DP-4 **%26,92**.
   **Mutasyonla denendi:** HEAD'deki tek akışlı `pipewire_source.rs` geri
   konunca bu test kırmızıya döndü.
+- `test_mcp_capture_delivery.py` → `LiveNativeDelivery`: MCP üzerinden gelen
+  monitör görüntüleri çiftler hâlinde karşılaştırılıyor, <%99 olmalı.
 
 Testin ön koşulu kayıtta: iki monitör gerçekten farklı içerik göstermeli. Bir
 panel, görev çubuğu ya da tek bir pencere bunu sağlıyor; iki monitörü
@@ -422,6 +506,18 @@ söylüyor.
 
 ## Testler
 
+- `tests/contracts/test_shot_artifacts.py` — 15 test (Task 3.5). Yayımın
+  bütün-ya-da-hiç olması (sonraki monitörde hata, yazma hatası, pencere
+  çekimi), hiçbir dosyanın üstüne yazılmaması (arama dizinlerindeki kimlik,
+  var olan PNG, kontrol ile yayım arasındaki yarış, kayıt kopyası), terk
+  edilmiş hazırlık dizinlerinin süpürülmesi ve teslim edilen bloğun
+  yayımlanan PNG ile bayt bayt aynı olması.
+- `tests/integration/test_mcp_capture_delivery.py` — 8 test (Task 3.5). Gerçek
+  bir MCP istemcisi görüntüyü base64'ten çözüp fixture pikselleriyle
+  karşılaştırıyor: bellek içi taşıma, **gerçek stdio boruları**, HTTP
+  bağlantısının süresi dolunca 404, teslim edilemeyen görüntünün hata olması,
+  uzun batch raporunun kimlik satırlarını kesmemesi. Canlı sınıf
+  `PCBRIDGE_TEST_CAPTURE=1` ister.
 - `rust/crates/pcbridge-native/tests/capture_session.rs` — 27 test, sahte
   veriyolu. Erken sinyal, yabancı sinyal, eksik stream, kısmi başlangıç
   hatası, çift start/stop, revoke-during-start, kayıp bağlantı, `Drop`,

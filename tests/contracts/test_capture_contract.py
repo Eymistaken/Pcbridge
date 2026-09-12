@@ -134,7 +134,8 @@ class CaptureContractTests(unittest.TestCase):
                     capture_backend="gnome-screenshot",
                     screenshot_scale_long_edge=80,
                     shot_keep_hours=24,
-                )
+                ),
+                shot_search_dirs=[default_output],
             )
 
             class FakeGate:
@@ -159,23 +160,10 @@ class CaptureContractTests(unittest.TestCase):
                 default_output.mkdir(parents=True, exist_ok=True)
                 return default_output
 
-            def fake_capture(spec, out_dir, scale_long_edge, **kwargs):
-                self.assertEqual(spec, 2)
-                self.assertEqual(scale_long_edge, 80)
-                destination = Path(out_dir) / "fixture.png"
-                Image.new("RGB", (80, 50), (30, 80, 220)).save(destination)
-                shot = capturelib.Shot(
-                    path=destination,
-                    monitor=monitors[1],
-                    offset=(160, 0),
-                    size=(160, 100),
-                    scaled=(80, 50),
-                    scale=0.5,
-                    id="m2-a1b2c3",
-                    taken_at=1.0,
-                )
-                capturelib.save_meta(shot)
-                return [shot]
+            # Task 3.5 made the copy part of the capture itself (published with
+            # it, or not at all), so the real capture runs here; only the
+            # screenshot program is replaced by the fixture canvas.
+            fixture = PythonCaptureProvider(case)
 
             stdout = io.StringIO()
             with (
@@ -185,7 +173,7 @@ class CaptureContractTests(unittest.TestCase):
                 mock.patch.object(shot_cli, "shot_dir", side_effect=default_shot_dir),
                 mock.patch.object(shot_cli, "job_id", return_value="contract-job"),
                 mock.patch.object(capturelib, "available", return_value=(True, "")),
-                mock.patch.object(capturelib, "capture", side_effect=fake_capture),
+                mock.patch.object(capturelib, "_grab_canvas", side_effect=fixture._canvas),
                 mock.patch.object(monitorslib, "list_monitors", return_value=monitors),
                 contextlib.redirect_stdout(stdout),
             ):
@@ -196,12 +184,17 @@ class CaptureContractTests(unittest.TestCase):
             self.assertEqual(result, 0)
             payload = json.loads(stdout.getvalue())
             self.assertTrue(payload["ok"])
-            self.assertEqual(payload["shots"][0]["id"], "m2-a1b2c3")
-            self.assertTrue((custom_output / "m2-a1b2c3.json").is_file())
+            shot = payload["shots"][0]
+            self.assertRegex(shot["id"], r"^m2-[0-9a-f]{6}$")
+            self.assertEqual(shot["offset"], [160, 0])
+            self.assertTrue((custom_output / f"{shot['id']}.json").is_file())
             copied = json.loads(
-                (default_output / "m2-a1b2c3.json").read_text(encoding="utf-8")
+                (default_output / f"{shot['id']}.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(copied["png"], str((custom_output / "fixture.png").resolve()))
+            self.assertEqual(copied["png"], shot["path"])
+            self.assertTrue(Path(copied["png"]).is_absolute())
+            self.assertEqual(Path(copied["png"]).parent, custom_output)
+            self.assertTrue(Path(copied["png"]).is_file())
 
 
 if __name__ == "__main__":

@@ -114,18 +114,24 @@ class ShotStore:
         `<id>.json` kayitlari PNG ile ayni yasa tabi: kayit tek basina kalirsa
         `shot=` ile bulunur ama arkasinda goruntu olmaz, yani ajan olmayan bir
         goruntuye tiklamaya calisir.
+
+        Oldurulmus bir cekimin biraktigi hazirlik dizinleri de burada gidiyor,
+        `shot_keep_hours = 0` olsa bile: onlar saklanan bir cekim degil ve
+        icinde tam cozunurlukte bir goruntu olabilir.
         """
+        from .desktop import capture as capturelib
+
         now = time.time()
         with self._lock:
             dead = [t for t, e in self._entries.items() if e.expires_at <= now]
             for t in dead:
                 self._entries.pop(t, None)
 
+        removed = capturelib.sweep_staging(self.dir, now)
         keep = max(0, int(self.cfg.desktop.shot_keep_hours)) * 3600
         if keep <= 0:
-            return 0
+            return removed
         cutoff = now - keep
-        removed = 0
         try:
             for f in (*self.dir.glob("*.png"), *self.dir.glob("*.json")):
                 try:

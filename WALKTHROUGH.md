@@ -10,18 +10,31 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Yok (`Task 3.4 tamamlandı`; kullanıcı onayı bekleniyor)
-- **Son tamamlanan adım:** Adım 3 / Task 3.4 — Rust capture'ı Python shot
-  pipeline'ına bağla
-- **Sıradaki uygulanabilir adım:** Task 3.5 — Screenshot artifact ve MCP image
-  delivery bütünlüğü (Gate 3'ün son task'ı)
+- **Aktif adım:** Adım 4 / Task 4.1 — Native binary build/package ve tanı
+- **Son tamamlanan adım:** Adım 3 / Task 3.5 — Screenshot artifact ve MCP image
+  delivery bütünlüğü
+- **Sıradaki uygulanabilir adım:** Task 4.1
 - **Blocker:** Yok
-- **Son doğrulanan gate:** **Gate 2 geçti** (native migration). Task 2.4 typed
-  desktop state, fail-closed policy ve native lock watcher acceptance'ı dahil.
-- **Native migration içindeki sıradaki task:** 3.5 → **Gate 3**
+- **Son doğrulanan gate:** **Gate 3 geçti** (2026-09-13). Yolda native yolun
+  ikinci monitörde yanlış ekranı verdiği bulundu ve düzeltildi — Task 3.5.
+- **Native migration içindeki sıradaki task:** 4.1 → 4.2 → 4.3 → **Gate 4**
+- **Kullanıcı dönünce:** aşağıdaki "Kullanıcıyı bekleyenler" listesi.
 
-Çalışma kuralı (kullanıcı isteği, 2026-09-12): **her adım sonunda ilerleme bu
-dosyaya yazılır ve durulur; devam için onay beklenir.**
+Çalışma kuralı (kullanıcı isteği, 2026-09-12 gecesi, öncekinin yerine):
+kullanıcı yokken **onay beklemeden sıradaki adıma geçilir**; her adım yine bu
+dosyaya yazılır ve commit'lenir. Kullanıcının fiilen test etmesi zorunlu bir
+adım atlanabiliyorsa atlanır ve aşağıdaki listeye yazılır, atlanamıyorsa
+durulur. Oturumdan çıkış/giriş gerektiren işler beklenmez. Kalıcı silme
+(Shift+Delete, `rm`) zorunlu olmadıkça yapılmaz.
+
+## Kullanıcıyı bekleyenler
+
+Kullanıcı yokken yapılamayan ya da gözle doğrulanması gereken işler. Biri
+yapılınca silinmez, `yapıldı` diye işaretlenir.
+
+| # | Ne | Neden bekliyor | Durum |
+|---|---|---|---|
+| 1 | Adım 6 — imleç katmanı: fiziksel farenin olay hızını ölçmek | Fareyi elle oynatmak gerekiyor; eklenti değişikliği oturumdan çıkış/giriş istiyor | `bekliyor` |
 
 ---
 
@@ -34,8 +47,8 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 0 | Belge omurgası: tek giriş noktası, ölü referansların onarımı | `tamamlandı` |
 | 1 | `KURALLAR.md` §4'teki 5/6/7 kapıları (parola alanı, tekrar tıklama, kapatma onayı) | `tamamlandı` |
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
-| 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `devam ediyor` (3.1 ✅, 3.2 ✅, 3.3 ✅; sırada 3.4) |
-| 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `bekliyor` |
+| 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `tamamlandı` (3.1–3.5 ✅, **Gate 3 geçti**) |
+| 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `devam ediyor` (sırada 4.1) |
 | 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `bekliyor` |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
@@ -823,6 +836,106 @@ metadata'sı göç istemiyor.
 
 **Sonraki somut adım:** Task 3.5 — Screenshot artifact ve MCP image delivery
 bütünlüğü. Gate 3'ün son task'ı.
+
+### Task 3.5 — Screenshot artifact ve MCP image delivery bütünlüğü · `tamamlandı`
+
+**Ne yapıldı.** Çekimin başarılı olması ile görüntünün istemciye bütün olarak
+ulaşması ayrıldı ve ikisi ayrı ayrı doğrulandı. Tasarım ve ölçümler:
+`docs/native/capture.md` → "Çekim artifact'ı ve teslim (Task 3.5)".
+
+- **Bütün ya da hiç yayım.** Görüntüler gizli bir hazırlık dizininde
+  üretiliyor, bütün monitörler hazır olunca hard link ile yayımlanıyor; hata
+  durumunda bu çekimden diskte hiçbir şey kalmıyor.
+- **Asla üstüne yazma.** Kimlik `shot=` aramasının baktığı iki dizinde de boş
+  olmalı; çakışmada yeni son ek. `pcb-shot --out` kayıt kopyası yayımın
+  parçası.
+- **Teslim kontrolü.** Görüntü gitmeden önce PNG imzası ve kayıttaki boyut;
+  tutmazsa `IMAGE_DELIVERY_FAILED` (yeni kod, `PLAN.md` taksonomisine
+  gerekçesiyle eklendi). Metin görüntü sırasını söylüyor; `computer_batch`
+  kimlik satırlarını kesmiyor.
+- **Terk edilmiş hazırlık dizinleri** süpürülüyor, `shot_keep_hours = 0` olsa
+  bile.
+
+**Yeni:** `tests/contracts/test_shot_artifacts.py` (15),
+`tests/integration/test_mcp_capture_delivery.py` (8, biri canlı),
+`tests/integration/delivery_fixture.py`, `tests/integration/delivery_server.py`.
+**Değişen:** `capture.py`, `presentation.py`, `shots.py`, `tools.py`,
+`cli/shot.py`, `contracts.py`, `backends/python.py`, `backends/rust.py`,
+`errors.py`, `test_capabilities.py`, `test_capture_contract.py`, `PLAN.md`,
+`KULLANIM.md`, `CLAUDE.md`, `docs/native/capture.md`.
+
+**Acceptance — ölçüldü.**
+
+| Ölçüt (`PLAN.md`) | Kanıt |
+|---|---|
+| MCP client PNG'yi decode edip fixture içeriğini doğruluyor | bellek içi **ve gerçek stdio boruları**: dört renk çeyreği iki monitörde de doğru |
+| Path başka araca aktarılmadan inline görüntü kullanılabiliyor | görüntü `ImageContent` base64'ünden çözülüyor, yol kullanılmıyor |
+| HTTP token expire oluyor | `/shot/<token>.png` önce 200 + aynı baytlar, TTL sonrası 404, dosya duruyor |
+| stdio için ölü HTTP URL üretilmiyor | metinde `/shot/` yok, kayıtlı token 0 |
+| Partial failure'da artifact kalmıyor | ikinci monitör / yazma / kopya hatası → dizin boş |
+| ID collision'da overwrite yok | başka dizindeki kimlik, var olan PNG, yayım yarışı → yeni son ek, eski dosya aynen |
+| Inline görüntü okunamazsa delivery failure | `isError`, `IMAGE_DELIVERY_FAILED`; ulaşan görüntü yine gidiyor |
+
+**Testlerin tuttuğu mutasyonla denendi: 12/12.** Link yerine üstüne yazan
+kopya, kimlik kontrolünü kapatmak, geri almayı kapatmak, hazırlık dizinini
+bırakmak, süpürmeyi ters çevirmek, MCP süpürmesini atlamak, teslimde boyut
+kontrolünü kapatmak, teslim hatasını yutmak, batch'in kimlik satırlarını da
+kesmesi, MCP aracının `pcb-shot` kimliklerini yok sayması, sıra satırını
+kaldırmak, `pcb-shot --out` kopyasını düşürmek. İlk koşumda batch mutasyonu
+**kaçtı** (11/12): test uzun bir rapor kuruyordu ama `tail_chars` sondan
+tuttuğu için kimlik satırları hiç risk altında değildi. Test, çekim metninin
+sınırı tek başına aştığı durumu kuracak şekilde düzeltildi; mutasyon
+yakalandı.
+
+**Yolda bulunan hata: native yol ikinci monitörde yanlış ekranı veriyordu.**
+Gate 3'ün piksel kanıtı için native ile eski Python yardımcısı aynı monitörde
+arka arkaya karşılaştırılınca DP-3 yalnızca %26,92 tuttu. Sıra deneyi kök
+nedeni ayırdı: tek bir `pw_stream` başka düğüme yeniden bağlandığında ilk
+düğümde kalıyordu — hangi monitör önce istenirse bütün kareler ondan geldi.
+Düzeltme ayrı commit'te: çekim başına yeni akış. Varsayılan `python` olduğu
+için kullanıcıya yansımadı; Task 4.3 varsayılanı değiştirmiş olsaydı
+`monitor=2` sol ekranı gösterecekti. Ayrıntı: `docs/native/capture.md` →
+"Yanlış monitör"; yeni canlı regresyon testi eski kaynağa karşı kırmızı.
+
+**Süre (ölçüldü).** İki monitörlük `screen_capture` debug binary ile 6–9,6 sn;
+release'te `capture.frame` monitör başına 271–294 ms. Kalan asıl maliyet
+Python'un `save(optimize=True)`'u (~1 sn/monitör) ve eski backend'de de aynı.
+Task 4.1 paketlemesi **release** binary üretmeli; Task 4.2'nin p95 ölçütü bu
+farkı görecek.
+
+**Test sonuçları:**
+
+- Python contract discovery → **155 test, OK** (140 → 155)
+- `tests/integration/test_mcp_capture_delivery.py` → 7 geçti + 1 canlı
+  (`PCBRIDGE_TEST_CAPTURE=1` ile **geçti**)
+- `tests/integration` `test_native_*` → OK
+- `tests/test_desktop.py` live bayrakları kapalı → **583 geçti, 0 kaldı**
+- `tests/test_models.py` → **106**; `test_test_safety.py` → OK
+- `python -m pcbridge.server --check -c config.example.toml` → exit `0`
+- Rust workspace → **91** (varsayılan) / **100** (`test-harness`); fmt ve
+  clippy iki kipte temiz
+- Canlı: `capture_frame_live.rs` 2/2, `LiveNativeDelivery` 1/1
+
+**Rollback:** Yayım `capture.py`'de tek fonksiyon ailesi (`_render` +
+`_publish`); geri almak commit'i revert etmek. Native capture ayrı ve
+varsayılan `python`.
+
+### Gate 3 — Rust capture parity · `geçti` (2026-09-13)
+
+| Gerekli kanıt | Nerede |
+|---|---|
+| Pixel | Eski yardımcıyla aynı monitörde arka arkaya: DP-4 **%99,993** (native/native tabanı %99,987), DP-3 **%100,000** — düzeltmeden sonra; önce %26,92 |
+| Metadata | Task 3.4 parity: iki backend'den birebir aynı çekim yapısı; canlı: kayıttaki ölçekli boyut = çözülen görüntü |
+| Coordinate | Task 3.4: `shot→global` `(960,540)` / `(2880,540)` iki backend'de aynı; canlı: ofsetler kayıtta korunuyor |
+| Freshness | `after_request` bariyeri, `stale_frames = 0`; canlı: `taken_at` < 60 sn; `capture_worker.rs` bayat kare testleri |
+| MCP delivery | bellek içi, gerçek stdio, HTTP + TTL, canlı gerçek sunucu |
+| GI olmadan gerçek capture | canlı sunucu, `gi` engelli ve `gnome-screenshot` çalışamazken iki monitörü teslim etti |
+
+Gate 3 ilk denemede **geçmezdi**: piksel kanıtı yanlış monitör hatasını ortaya
+çıkardı. Hata düzeltilip regresyon testiyle kilitlendikten sonra geçti.
+Varsayılan hâlâ `python`; Rust varsayılanı Gate 4'e (Task 4.2 + 4.3) bağlı.
+
+**Sonraki somut adım:** Task 4.1 — native binary build/package ve tanı.
 
 ## Adım 4 — Faz 4: paketleme, parity, varsayılan değişikliği (Gate 4)
 

@@ -18,7 +18,6 @@ from typing import Annotated, Any
 
 from fastmcp import FastMCP
 from fastmcp.tools.base import ToolResult
-from fastmcp.utilities.types import Image
 from mcp.types import ContentBlock, TextContent
 from pydantic import Field
 
@@ -1632,6 +1631,9 @@ def register(
                 out_dir=shot_store.dir,
                 scale_long_edge=long_edge,
                 include_pointer=pointer,
+                # `shot=` iki dizinde de ariyor; yeni kimlik ikisinde de bos
+                # olmali, yoksa arama baska bir cekimin kaydini bulur.
+                reserved_dirs=shot_dirs,
             )
         except (capturelib.CaptureError, monitorslib.MonitorError, DesktopError) as exc:
             gate.audit("screen_capture_error", error=str(exc)[:160])
@@ -1725,22 +1727,50 @@ def register(
                     "`scale=0` ile tam cozunurlukte alin."
                 )
 
+        # Goruntu bloklari metinden ONCE hazirlaniyor ama metnin ARKASINA
+        # diziliyor: teslim edilemeyen bir goruntu metinde yazmali.
+        images: list[ContentBlock] = []
+        delivered: list[Any] = []
+        undelivered: list[DesktopError] = []
+        if inline_images:
+            for shot in shots:
+                try:
+                    images.append(presentationlib.shot_image(shot))
+                    delivered.append(shot)
+                except DesktopError as exc:
+                    undelivered.append(exc)
+        if len(delivered) > 1:
+            # Kimlik metinde, goruntu ayri blokta: eslesme SIRAYLA.
+            out.append(
+                "Goruntuler asagida bu sirayla: "
+                + ", ".join(f"`{shot.id or shot.label}`" for shot in delivered)
+                + "."
+            )
+        if undelivered:
+            # Cekim diskte basarili ama istemci goruntuyu ALMADI. Bunu basari
+            # gibi dondurmek, modelin gormedigi bir goruntuden koordinat
+            # uydurmasina davetiye olurdu. Eskiden tam olarak oyle oluyordu:
+            # okunamayan goruntu tek satirlik bir notla basarili sonucun
+            # icinde kayboluyordu.
+            gate.audit("screen_capture_undelivered", shots=len(undelivered))
+            error = presentationlib.undelivered_error(undelivered)
+            out.append(
+                "⛔ Goruntu istemciye ULASTIRILAMADI: "
+                f"{error.message}. Cekim alindi ama bu cagriyi basarili "
+                "saymayin: bu goruntuden koordinat cikarmayin, yeni bir cekim "
+                "alin."
+            )
+            return presentationlib.desktop_error_result(
+                error,
+                content=[_text("\n".join(out)), *images],
+                extra={"shots": [shot.id for shot in shots]},
+            )
+
         # METIN BLOGU HER ZAMAN ILK SIRADA ve her zaman var. Monitor numarasi,
         # global ofset ve donusum kurali goruntuyle BIRLIKTE gitmeli; yoksa
         # istemci ikinci monitore 1920 piksel sasarak tiklar ve hata hicbir
         # yerde gorunmez.
-        blocks: list[ContentBlock] = [_text("\n".join(out))]
-        if inline_images:
-            for shot in shots:
-                try:
-                    blocks.append(Image(path=shot.path).to_image_content())
-                except OSError as exc:
-                    # Dosya okunamadi: metin zaten yolu soyluyor, sessizce
-                    # atlamak yerine sebebi de soyle.
-                    blocks.append(
-                        _text(f"({shot.label}: goruntu okunamadi — {exc})")
-                    )
-        return blocks
+        return [_text("\n".join(out)), *images]
 
     # ------------------------------------------------- erisilebilirlik agaci
     # Ekranin metinsel ikizi. Model goruntuyu goremedigi icin asil "goz" burasi;
@@ -2175,21 +2205,28 @@ def register(
                 extra={"batch": batch_data},
             )
 
+        def _report(final_text: list[str]) -> str:
+            # KIRPILAN YALNIZCA batch raporu. Son adimin metni (cekim
+            # kimlikleri, ofset, olcek) oldugu gibi gidiyor: eskiden tamami
+            # birlikte kirpiliyordu ve `tail_chars` BASTAN kestigi icin uzun
+            # bir raporda kimlik satirlari eslestikleri goruntulerden
+            # ayrilabiliyordu.
+            return "\n".join(
+                [jobslib.tail_chars("\n".join(out), MAX_INLINE), *final_text]
+            )
+
         def _with_batch_error(final_result: ToolResult) -> ToolResult:
-            text_parts = list(out)
+            final_text: list[str] = []
             images: list[ContentBlock] = []
             for block in final_result.content:
                 if isinstance(block, TextContent):
-                    text_parts.append(block.text)
+                    final_text.append(block.text)
                 else:
                     images.append(block)
             structured = dict(final_result.structured_content or {})
             structured["batch"] = batch_data
             return ToolResult(
-                content=[
-                    _text(jobslib.tail_chars("\n".join(text_parts), MAX_INLINE)),
-                    *images,
-                ],
+                content=[_text(_report(final_text)), *images],
                 structured_content=structured,
                 is_error=True,
             )
@@ -2199,6 +2236,7 @@ def register(
         # -- ofset ve olcek bilgisi goruntuden ayrilirsa koordinat hesabi
         # yapilamaz.
         images: list[ContentBlock] = []
+        final_text: list[str] = []
         want = (final or "ui_dump").strip().lower()
         if want == "screen_capture":
             out.append("\n---")
@@ -2207,7 +2245,7 @@ def register(
                 return _with_batch_error(final_result)
             for block in final_result:
                 if isinstance(block, TextContent):
-                    out.append(block.text)
+                    final_text.append(block.text)
                 else:
                     images.append(block)
         elif want != "none":
@@ -2216,7 +2254,7 @@ def register(
                 out += ["", "---"]
                 return _with_batch_error(final_result)
             out += ["", "---", final_result]
-        return [_text(jobslib.tail_chars("\n".join(out), MAX_INLINE)), *images]
+        return [_text(_report(final_text)), *images]
 
     # ----------------------------------------------------- yerel gorsel ajan
     @mcp.tool(

@@ -36,6 +36,7 @@ import os
 import secrets
 import shutil
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -452,6 +453,8 @@ class RustCaptureProvider(PythonCaptureProvider):
         out_dir: Path,
         scale_long_edge: int,
         include_pointer: bool,
+        copy_meta_to: Sequence[Path] = (),
+        reserved_dirs: Sequence[Path] = (),
     ) -> list[capturelib.Shot]:
         try:
             return super().capture(
@@ -459,6 +462,8 @@ class RustCaptureProvider(PythonCaptureProvider):
                 out_dir=out_dir,
                 scale_long_edge=scale_long_edge,
                 include_pointer=include_pointer,
+                copy_meta_to=copy_meta_to,
+                reserved_dirs=reserved_dirs,
             )
         except NativeCaptureError as exc:
             if exc.desktop_error is not None:

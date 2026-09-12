@@ -2,13 +2,79 @@
 
 from __future__ import annotations
 
+import base64
+import struct
+from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from fastmcp.tools.base import ToolResult
-from mcp.types import ContentBlock, TextContent
+from mcp.types import ContentBlock, ImageContent, TextContent
 
 from .capabilities import Capability, CapabilitySnapshot, CapabilityState
 from .errors import DesktopError, ErrorCategory, ErrorCode
+
+
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def shot_image(shot: Any) -> ImageContent:
+    """The image block for one published shot, checked against its record.
+
+    A client acts on this picture through `shot=`, which maps its pixels with
+    the recorded scale. So the block must be a PNG with exactly the recorded
+    scaled size; anything else is a delivery failure, raised here rather than
+    handing over a picture whose pixels no longer mean what the record says.
+    """
+    label = getattr(shot, "id", "") or str(getattr(shot, "path", ""))
+    try:
+        data = Path(shot.path).read_bytes()
+    except OSError as exc:
+        raise _undelivered(label, f"PNG okunamadi ({exc.strerror or exc})") from exc
+    if len(data) < 24 or data[:8] != PNG_SIGNATURE or data[12:16] != b"IHDR":
+        raise _undelivered(label, "dosya gecerli bir PNG degil")
+    width, height = struct.unpack(">II", data[16:24])
+    expected = tuple(shot.scaled)
+    if (width, height) != expected:
+        raise _undelivered(
+            label,
+            f"PNG {width}x{height}, kayit {expected[0]}x{expected[1]} diyor",
+        )
+    return ImageContent(
+        type="image",
+        data=base64.b64encode(data).decode("ascii"),
+        mimeType="image/png",
+    )
+
+
+def _undelivered(label: str, reason: str) -> DesktopError:
+    return DesktopError(
+        code=ErrorCode.IMAGE_DELIVERY_FAILED,
+        message=f"{label}: {reason}",
+        category=ErrorCategory.CAPTURE,
+        retryable=True,
+        suggested_action=(
+            "Take a fresh screenshot; do not act on coordinates from this one."
+        ),
+        permission_scope="os.capture",
+        backend="pcbridge.mcp",
+    )
+
+
+def undelivered_error(errors: Sequence[DesktopError]) -> DesktopError:
+    """One typed error naming every image that did not reach the client."""
+    if len(errors) == 1:
+        return errors[0]
+    first = errors[0]
+    return DesktopError(
+        code=first.code,
+        message="; ".join(error.message for error in errors),
+        category=first.category,
+        retryable=first.retryable,
+        suggested_action=first.suggested_action,
+        permission_scope=first.permission_scope,
+        backend=first.backend,
+    )
 
 
 def desktop_error_result(
@@ -142,4 +208,6 @@ __all__ = [
     "decision_error",
     "desktop_error_result",
     "execution_error",
+    "shot_image",
+    "undelivered_error",
 ]

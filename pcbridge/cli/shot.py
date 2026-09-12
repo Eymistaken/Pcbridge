@@ -48,11 +48,16 @@ def sweep(directory: Path, keep_hours: int) -> int:
     da ayni yasa tabi: PNG'siz kalan bir kayit `shot=` ile bulunur ama arkasinda
     goruntu olmaz -- ajani olmayan bir goruntuye tiklatmaktansa kimligin de
     kaybolmasi dogru.
+
+    Oldurulmus bir cekimin hazirlik dizini `keep_hours`tan bagimsiz gidiyor:
+    saklanan bir cekim degil, icinde tam cozunurlukte bir goruntu olabilir.
     """
+    from ..desktop import capture as capturelib
+
+    removed = capturelib.sweep_staging(directory)
     if keep_hours <= 0:
-        return 0
+        return removed
     cutoff = time.time() - keep_hours * 3600
-    removed = 0
     for f in (*directory.glob("*.png"), *directory.glob("*.json")):
         try:
             if f.stat().st_mtime < cutoff:
@@ -213,6 +218,12 @@ def main(argv: list[str] | None = None) -> int:
                 out_dir=out_dir,
                 scale_long_edge=scale,
                 include_pointer=not args.no_pointer and cfg.desktop.include_pointer,
+                # `--out` ile baska bir dizine yaziliyorsa cekim kaydi ARAMA
+                # dizinine de gidiyor: `pcb-do` ayri bir surec ve `--out`u
+                # bilemez. Kopya cekimin PARCASI -- yazilamazsa cekim de
+                # yayimlanmaz. Kayitta PNG'nin MUTLAK yolu kalir.
+                copy_meta_to=[] if out_dir == shot_dir(cfg) else [shot_dir(cfg)],
+                reserved_dirs=list(cfg.shot_search_dirs),
             )
             mons = capture_provider.list_monitors()
         except (
@@ -222,12 +233,6 @@ def main(argv: list[str] | None = None) -> int:
         ) as exc:
             gate.audit("pcb_shot_error", error=str(exc)[:160], job=job_id())
             fail(str(exc), EXIT_BAD_INPUT, args.json)
-
-        # `--out` ile baska bir dizine yazildiysa cekim kaydi ARAMA dizinine
-        # de kopyalanir. Kayitta PNG'nin MUTLAK yolu kalir.
-        if out_dir != shot_dir(cfg):
-            for shot in shots:
-                capture_provider.save_meta(shot, shot_dir(cfg))
 
         gate.audit(
             "pcb_shot",

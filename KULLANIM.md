@@ -564,6 +564,15 @@ yeniden denenebilirlik ve izin kapsamı makinece okunabilir biçimde gelir.
 Agent, başka bir yolu seçmeden önce `system_capabilities` ile bütün kapsamları
 ayrı ayrı kontrol edebilir; bu araç ekranı okumaz ve girdi göndermez.
 
+Ekran görüntüsünde bir ayrım daha var: **çekimin alınması, görüntünün sana
+ulaştığı anlamına gelmez.** `screen_capture` görüntüyü göndermeden önce
+PNG'nin sağlam olduğuna ve boyutunun çekim kaydıyla eşleştiğine bakar. Tutmazsa
+çağrı başarılı gibi dönmez: `IMAGE_DELIVERY_FAILED` kodlu bir hata gelir ve
+metin hangi çekimin ulaşmadığını söyler. O görüntüden koordinat çıkarma, yeni
+bir çekim al. Bir `all` çekiminde monitörlerden biri alınamazsa diğerleri de
+yayımlanmaz: diskte yarım bir çekim ve arkasında görüntü olmayan bir `shot`
+kimliği kalmaz.
+
 `computer_task`'in ikinci satırda ayrı durmasının sebebi ölçülmüş bir gerçek:
 **pcbridge'in gönderdiği tuş, "kullanıcı makinede mi" sayacını sıfırlıyor**
 (104227 ms → 151 ms). Yani ajan ikinci eylemine geldiğinde kendi ilk tuşunu

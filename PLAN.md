@@ -456,7 +456,7 @@ Kodlar mesaj metninden türetilmeyecek.
 | `safety` | `DESKTOP_DISABLED`, `GRANT_REQUIRED`, `GRANT_EXPIRED`, `REVOKED`, `SCREEN_LOCKED`, `LOCK_STATE_UNKNOWN`, `USER_ACTIVE`, `ACTIVITY_UNKNOWN`, `RATE_LIMITED` |
 | `permission` | `PERMISSION_REQUIRED`, `PERMISSION_DENIED`, `DEVICE_NOT_GRANTED` |
 | `capability` | `UNSUPPORTED`, `BACKEND_UNAVAILABLE`, `DEPENDENCY_MISSING` |
-| `capture` | `FRAME_TIMEOUT`, `STALE_FRAME`, `FRAME_FORMAT_UNSUPPORTED`, `FRAME_TOO_LARGE`, `DISPLAY_CHANGED`, `DISPLAY_MAPPING_UNKNOWN` |
+| `capture` | `FRAME_TIMEOUT`, `STALE_FRAME`, `FRAME_FORMAT_UNSUPPORTED`, `FRAME_TOO_LARGE`, `DISPLAY_CHANGED`, `DISPLAY_MAPPING_UNKNOWN`, `IMAGE_DELIVERY_FAILED` |
 | `coordinate` | `SHOT_NOT_FOUND`, `SHOT_INVALID`, `SHOT_STALE`, `AMBIGUOUS_COORDINATE` |
 | `accessibility` | `TARGET_MISMATCH`, `ELEMENT_STALE`, `ELEMENT_AMBIGUOUS`, `ACTION_UNSUPPORTED` |
 | `execution` | `TIMEOUT`, `CANCELLED`, `EXECUTION_UNKNOWN`, `BUSY` |
@@ -465,6 +465,8 @@ Kodlar mesaj metninden türetilmeyecek.
 Her hata `code`, `message`, `category`, `retryable`, `suggested_action` taşıyacak. Gerektiğinde `permission_scope`, `backend`, `execution_state` eklenecek.
 
 `retryable=true`, otomatik yeniden execution izni değildir.
+
+(2026-09-13 düzeltmesi, Task 3.5: `capture` kategorisine `IMAGE_DELIVERY_FAILED` eklendi. Gerekçe: Task 3.5 capture başarısı ile görüntünün istemciye bütün olarak ulaşmasını ayırıyor; yayımlanmış bir çekimin PNG'si okunamadığında ya da boyutu kaydıyla uyuşmadığında bu bir frame hatası değil, ama başarı da değil. Mevcut kodlardan biri seçilseydi ya yanlış katmanı (`INVALID_FRAME`, IPC) ya da hiçbir şey söylemeyen `EXECUTION_UNKNOWN`'u işaret ederdi.)
 
 ## 5. Capture için verilmiş kararlar
 

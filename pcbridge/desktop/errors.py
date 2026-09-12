@@ -42,6 +42,8 @@ class ErrorCode(str, Enum):
     FRAME_TOO_LARGE = "FRAME_TOO_LARGE"
     DISPLAY_CHANGED = "DISPLAY_CHANGED"
     DISPLAY_MAPPING_UNKNOWN = "DISPLAY_MAPPING_UNKNOWN"
+    # The capture succeeded but its image did not reach the client intact.
+    IMAGE_DELIVERY_FAILED = "IMAGE_DELIVERY_FAILED"
 
     SHOT_NOT_FOUND = "SHOT_NOT_FOUND"
     SHOT_INVALID = "SHOT_INVALID"

@@ -352,6 +352,8 @@ class PythonCaptureProvider:
         out_dir: Path,
         scale_long_edge: int,
         include_pointer: bool,
+        copy_meta_to: Sequence[Path] = (),
+        reserved_dirs: Sequence[Path] = (),
     ) -> list[capturelib.Shot]:
         try:
             return capturelib.capture(
@@ -360,6 +362,8 @@ class PythonCaptureProvider:
                 scale_long_edge=scale_long_edge,
                 include_pointer=include_pointer,
                 screencast=self.screencast,
+                copy_meta_to=copy_meta_to,
+                reserved_dirs=reserved_dirs,
             )
         except capturelib.CaptureError as exc:
             raise _desktop_error(

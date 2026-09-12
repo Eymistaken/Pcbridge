@@ -172,6 +172,9 @@ class CapabilityContractTests(unittest.TestCase):
                 "FRAME_TOO_LARGE",
                 "DISPLAY_CHANGED",
                 "DISPLAY_MAPPING_UNKNOWN",
+                # Task 3.5: a capture can succeed while its image fails to
+                # reach the client; that is not a frame error.
+                "IMAGE_DELIVERY_FAILED",
                 "SHOT_NOT_FOUND",
                 "SHOT_INVALID",
                 "SHOT_STALE",

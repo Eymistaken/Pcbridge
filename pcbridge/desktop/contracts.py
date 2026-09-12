@@ -37,6 +37,8 @@ class CaptureProvider(Protocol):
         out_dir: Path,
         scale_long_edge: int,
         include_pointer: bool,
+        copy_meta_to: Sequence[Path] = (),
+        reserved_dirs: Sequence[Path] = (),
     ) -> list[Any]: ...
 
     def list_monitors(self) -> list[Any]: ...
