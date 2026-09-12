@@ -13,6 +13,7 @@ use crate::lifecycle::LeaseFailure;
 use crate::lifecycle::Lifecycle;
 #[cfg(feature = "test-harness")]
 use crate::platform::linux::desktop_state::DeterministicDesktopState;
+use crate::platform::linux::display::DisplayReader;
 
 #[derive(Debug)]
 pub enum BackendMode {
@@ -100,16 +101,23 @@ pub struct Dispatcher {
     initialized: bool,
     negotiated_minor: Option<u16>,
     lifecycle: Option<Lifecycle>,
+    /// Built on the first `display.snapshot`, never at startup. Task 2.1
+    /// measured zero `connect` syscalls for a default binary that only does
+    /// initialize/capabilities/shutdown, and that has to stay true: a session
+    /// bus connection opened for nothing is a resource the caller never asked
+    /// for.
+    display: Option<DisplayReader>,
 }
 
 impl Dispatcher {
     #[must_use]
-    pub const fn new(mode: BackendMode) -> Self {
+    pub fn new(mode: BackendMode) -> Self {
         Self {
             mode,
             initialized: false,
             negotiated_minor: None,
             lifecycle: None,
+            display: None,
         }
     }
 
@@ -174,6 +182,7 @@ impl Dispatcher {
         let outcome = match request.method.as_str() {
             "ping" => self.success(request.id, ping_result(request.params), None),
             "capabilities" => self.success(request.id, self.mode.capabilities(), None),
+            "display.snapshot" => self.display_snapshot(request.id),
             "cancel" => match parse_cancel(request.params) {
                 Ok(target_id) => self.success(
                     request.id,
@@ -305,6 +314,62 @@ impl Dispatcher {
             }),
             None,
         )
+    }
+
+    /// Read-only display metadata: no pixels, no grant, no device. Mirrors the
+    /// host's `screen_info`, which is likewise outside the desktop grant.
+    fn display_snapshot(&mut self, id: String) -> DispatchOutcome {
+        if self.display.is_none() {
+            match DisplayReader::connect() {
+                Ok(reader) => self.display = Some(reader),
+                Err(err) => {
+                    return self.error(
+                        id,
+                        "DISPLAY_MAPPING_UNKNOWN",
+                        format!("display config unavailable: {err}"),
+                        None,
+                    );
+                }
+            }
+        }
+        let reader = self
+            .display
+            .as_ref()
+            .expect("display reader was just constructed");
+        match reader.snapshot() {
+            Ok(snapshot) => {
+                let (width, height) = pcbridge_core::display::canvas_size(&snapshot.monitors);
+                let monitors: Vec<Value> = snapshot
+                    .monitors
+                    .iter()
+                    .map(|monitor| {
+                        json!({
+                            "index": monitor.index,
+                            "connector": monitor.connector,
+                            "x": monitor.x,
+                            "y": monitor.y,
+                            "width": monitor.width,
+                            "height": monitor.height,
+                            "scale": monitor.scale,
+                            "primary": monitor.primary,
+                            "name": monitor.name,
+                            "transform": monitor.transform,
+                            "serial": monitor.serial,
+                        })
+                    })
+                    .collect();
+                self.success(
+                    id,
+                    json!({
+                        "topology_id": snapshot.topology_id,
+                        "canvas": [width, height],
+                        "monitors": monitors,
+                    }),
+                    None,
+                )
+            }
+            Err(err) => self.error(id, "DISPLAY_MAPPING_UNKNOWN", err.to_string(), None),
+        }
     }
 
     fn success(

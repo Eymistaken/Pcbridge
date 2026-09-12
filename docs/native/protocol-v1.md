@@ -97,6 +97,46 @@ Harness yalnızca aşağıdaki metotları kabul eder:
   kapatır.
 
 Diğer metotlar `UNKNOWN_METHOD` döndürür ve bağlantı kullanılabilir kalır.
+
+## Task 3.1 metodu — `display.snapshot`
+
+Sıralı monitör tablosunu ve düzen kimliğini döndürür. **Salt okunur metadata:**
+piksel okumaz, cihaz açmaz, masaüstü grant'i istemez — host tarafındaki
+`screen_info` gibi. Kurallar `pcbridge-core::display` içinde; bu metot yalnızca
+Mutter `GetCurrentState` cevabını taşıyıp çözücüye veriyor.
+
+```json
+{
+  "topology_id": "v1|0,0,1920,1080,1.0000,0,0|1920,0,1920,1080,1.0000,0,1",
+  "canvas": [3840, 1080],
+  "monitors": [
+    {"index": 1, "connector": "DP-4", "x": 0, "y": 0, "width": 1920,
+     "height": 1080, "scale": 1.0, "primary": false, "name": "…",
+     "transform": 0, "serial": "…"}
+  ]
+}
+```
+
+Düzen çözülemezse `DISPLAY_MAPPING_UNKNOWN` döner ve **hiçbir şey tahmin
+edilmez**: geçerli modu olmayan monitör, bilinmeyen connector, boş connector
+listesi ve pozitif olmayan ölçek reddedilir. "İlk modu seç" ya da "ilk monitöre
+düş" bir yakalamanın sessizce yanlış ekrana inmesinin yoludur.
+
+**Oturum veriyolu bağlantısı tembeldir.** İlk `display.snapshot`'a kadar
+kurulmaz. Ölçüldü 2026-09-12, release binary, `strace -e trace=connect`:
+`initialize` → `capabilities` → `shutdown` **1** bağlantı yapıyor; aynı dizide
+`capabilities` yerine `display.snapshot` olunca **2**. Yani bu metot tam olarak
+bir bağlantı ekliyor ve yalnızca çağrıldığında.
+
+> **Düzeltme:** Task 2.1 kaydı "connect syscall sayısı 0" diyor. O ölçüm Task
+> 2.1 kodu için doğruydu; **Task 2.4** desktop-state sağlayıcısını ekleyince
+> açılışta `/run/user/<uid>/bus`'a bir bağlantı kuruldu ve bu yeniden
+> ölçülmemişti. Bugünkü taban çizgisi 1'dir; `display.rs` olmadan derlenmiş
+> binary'de de 1 çıktı, yani artış bu task'tan gelmiyor.
+
+Düzen değişikliği Mutter'ın `MonitorsChanged` sinyaliyle yakalanıyor: önbellek
+zamanlayıcıyla değil, sinyalle geçersizleşiyor. Yani takılan bir monitör bir
+sonraki snapshot'ta görünür, önbellek ömrü kadar sonra değil.
 Her response request'in string `id` alanını taşır. İstemci birden çok request'i
 cevap beklemeden gönderebilir ve response'ları ID ile eşleştirmelidir.
 

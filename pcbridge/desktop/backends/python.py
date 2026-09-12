@@ -198,17 +198,13 @@ class PythonCaptureProvider:
 
     def capability_token(self) -> tuple[Any, ...]:
         """Dependency, session, and topology state without starting capture."""
+        # Duzen kimligi TEK yerde hesaplaniyor (`monitors.topology_id`), cunku
+        # buradaki ikinci bir kopya `transform` gibi bir alan eklendiginde
+        # sessizce eskir ve onbellek bayat kalirdi.
+        topology: tuple[Any, ...]
         try:
-            topology: tuple[Any, ...] = tuple(
-                (
-                    monitor.connector,
-                    monitor.x,
-                    monitor.y,
-                    monitor.width,
-                    monitor.height,
-                    monitor.scale,
-                )
-                for monitor in monitorslib.list_monitors(use_cache=False)
+            topology = (
+                monitorslib.topology_id(monitorslib.list_monitors(use_cache=False)),
             )
         except monitorslib.MonitorError as exc:
             topology = ("error", type(exc).__name__)
@@ -358,6 +354,19 @@ class PythonCaptureProvider:
     def list_monitors(self) -> list[monitorslib.Monitor]:
         try:
             return monitorslib.list_monitors()
+        except monitorslib.MonitorError as exc:
+            raise _display_mapping_error(exc) from exc
+
+    def topology_id(self) -> str:
+        """Ekran duzeninin kararli kimligi — Rust tarafiyla BIREBIR ayni dize.
+
+        Acik bir capture oturumunun ya da onbellege alinmis bir goruntunun
+        hala gecerli olup olmadigini soran katman bunu karsilastiriyor. Kural
+        `monitors.topology_id`te; burasi yalnizca saglayici sinirindan gecirip
+        hatayi typed hale getiriyor.
+        """
+        try:
+            return monitorslib.topology_id(monitorslib.list_monitors())
         except monitorslib.MonitorError as exc:
             raise _display_mapping_error(exc) from exc
 

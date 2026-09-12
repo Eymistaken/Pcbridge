@@ -1,0 +1,642 @@
+{
+  "schema_version": 1,
+  "note": [
+    "Mutter GetCurrentState cevabinin ANLAMSAL icerigi, notr semada.",
+    "Python ve Rust ayni dosyayi kendi URETIM cozucusune veriyor; yalnizca",
+    "tasima adaptorleri (busctl JSON / zbus) ayri. Beklenen tablo elle",
+    "hesaplandi: mantiksal boyut = round(mod / olcek), transform 1/3/5/7",
+    "mod eksenlerini takas eder, sira (x, y)'ye gore ve indeks 1'den baslar.",
+    "Gercek makine serileri MASKELENDI: depo public.",
+    "YUVARLAMA: mantiksal boyut yarim pikselde SIFIRDAN UZAGA yuvarlanir (960.5 -> 961). Python'in yerlesik round()'u bankaci yuvarlamasi yapar ve 960 verirdi; iki dil ayrismasin diye kural iki tarafta da ACIKCA yazildi. Mutter'in kendi yarim-sinir davranisi OLCULMEDI -- bu makinede iki monitor de olcek 1.0, kesirli olcek donanimi yok."
+  ],
+  "cases": [
+    {
+      "name": "real_machine_primary_on_right",
+      "note": "Bu makineden 2026-09-12'de alindi. Birincil SAGDA ama monitor 2.",
+      "state": {
+        "physical": [
+          {
+            "connector": "DP-3",
+            "vendor": "AUS",
+            "product": "ASUS VG247Q1A",
+            "serial": "SERIAL-A",
+            "display_name": "ASUSTek COMPUTER INC 24\"",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              },
+              {
+                "width": 1280,
+                "height": 720,
+                "is_current": false
+              }
+            ]
+          },
+          {
+            "connector": "DP-4",
+            "vendor": "AUS",
+            "product": "ASUS VG247Q1A",
+            "serial": "SERIAL-B",
+            "display_name": "ASUSTek COMPUTER INC 24\"",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": false,
+            "connectors": [
+              "DP-4"
+            ]
+          },
+          {
+            "x": 1920,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": true,
+            "connectors": [
+              "DP-3"
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "monitors": [
+          {
+            "index": 1,
+            "connector": "DP-4",
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": false,
+            "serial": "SERIAL-B"
+          },
+          {
+            "index": 2,
+            "connector": "DP-3",
+            "x": 1920,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": true,
+            "serial": "SERIAL-A"
+          }
+        ],
+        "canvas": [
+          3840,
+          1080
+        ],
+        "topology": "v1|0,0,1920,1080,1.0000,0,0|1920,0,1920,1080,1.0000,0,1"
+      }
+    },
+    {
+      "name": "primary_on_left_orders_the_same_way",
+      "note": "Birincil bayragi sirayi DEGISTIRMIYOR; yalnizca x onemli.",
+      "state": {
+        "physical": [
+          {
+            "connector": "DP-3",
+            "vendor": "V",
+            "product": "P",
+            "serial": "S-A",
+            "display_name": "",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              }
+            ]
+          },
+          {
+            "connector": "DP-4",
+            "vendor": "V",
+            "product": "P",
+            "serial": "S-B",
+            "display_name": "",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": true,
+            "connectors": [
+              "DP-4"
+            ]
+          },
+          {
+            "x": 1920,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": false,
+            "connectors": [
+              "DP-3"
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "monitors": [
+          {
+            "index": 1,
+            "connector": "DP-4",
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": true,
+            "serial": "S-B"
+          },
+          {
+            "index": 2,
+            "connector": "DP-3",
+            "x": 1920,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": false,
+            "serial": "S-A"
+          }
+        ],
+        "canvas": [
+          3840,
+          1080
+        ],
+        "topology": "v1|0,0,1920,1080,1.0000,0,1|1920,0,1920,1080,1.0000,0,0"
+      }
+    },
+    {
+      "name": "portrait_with_fractional_scale",
+      "note": "eDP-1 olcek 2.0; HDMI-1 90 derece donuk ve olcek 1.25.",
+      "state": {
+        "physical": [
+          {
+            "connector": "eDP-1",
+            "vendor": "V",
+            "product": "Laptop",
+            "serial": "S-1",
+            "display_name": "Dahili",
+            "modes": [
+              {
+                "width": 2880,
+                "height": 1800,
+                "is_current": true
+              }
+            ]
+          },
+          {
+            "connector": "HDMI-1",
+            "vendor": "V",
+            "product": "Harici",
+            "serial": "S-2",
+            "display_name": "",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 1440,
+            "y": 0,
+            "scale": 1.25,
+            "transform": 1,
+            "primary": false,
+            "connectors": [
+              "HDMI-1"
+            ]
+          },
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 2.0,
+            "transform": 0,
+            "primary": true,
+            "connectors": [
+              "eDP-1"
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "monitors": [
+          {
+            "index": 1,
+            "connector": "eDP-1",
+            "x": 0,
+            "y": 0,
+            "width": 1440,
+            "height": 900,
+            "scale": 2.0,
+            "transform": 0,
+            "primary": true,
+            "serial": "S-1"
+          },
+          {
+            "index": 2,
+            "connector": "HDMI-1",
+            "x": 1440,
+            "y": 0,
+            "width": 864,
+            "height": 1536,
+            "scale": 1.25,
+            "transform": 1,
+            "primary": false,
+            "serial": "S-2"
+          }
+        ],
+        "canvas": [
+          2304,
+          1536
+        ],
+        "topology": "v1|0,0,1440,900,2.0000,0,1|1440,0,864,1536,1.2500,1,0"
+      }
+    },
+    {
+      "name": "rotated_270_swaps_mode_axes",
+      "note": "transform 3 = 270 derece. Olcek 1, yani yalnizca takas gorunur.",
+      "state": {
+        "physical": [
+          {
+            "connector": "DP-1",
+            "vendor": "V",
+            "product": "P",
+            "serial": "S",
+            "display_name": "",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 3,
+            "primary": true,
+            "connectors": [
+              "DP-1"
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "monitors": [
+          {
+            "index": 1,
+            "connector": "DP-1",
+            "x": 0,
+            "y": 0,
+            "width": 1080,
+            "height": 1920,
+            "scale": 1.0,
+            "transform": 3,
+            "primary": true,
+            "serial": "S"
+          }
+        ],
+        "canvas": [
+          1080,
+          1920
+        ],
+        "topology": "v1|0,0,1080,1920,1.0000,3,1"
+      }
+    },
+    {
+      "name": "stacked_vertically_orders_by_y",
+      "note": "Ayni x'te iki monitor: sira y'ye duser.",
+      "state": {
+        "physical": [
+          {
+            "connector": "DP-1",
+            "vendor": "V",
+            "product": "P",
+            "serial": "S-A",
+            "display_name": "",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              }
+            ]
+          },
+          {
+            "connector": "DP-2",
+            "vendor": "V",
+            "product": "P",
+            "serial": "S-B",
+            "display_name": "",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 0,
+            "y": 1080,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": false,
+            "connectors": [
+              "DP-2"
+            ]
+          },
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": true,
+            "connectors": [
+              "DP-1"
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "monitors": [
+          {
+            "index": 1,
+            "connector": "DP-1",
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": true,
+            "serial": "S-A"
+          },
+          {
+            "index": 2,
+            "connector": "DP-2",
+            "x": 0,
+            "y": 1080,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": false,
+            "serial": "S-B"
+          }
+        ],
+        "canvas": [
+          1920,
+          2160
+        ],
+        "topology": "v1|0,0,1920,1080,1.0000,0,1|0,1080,1920,1080,1.0000,0,0"
+      }
+    },
+    {
+      "name": "half_pixel_rounds_away_from_zero",
+      "note": "Yuvarlama kuralini sabitler. 1921/2 = 960.5, 1081/2 = 540.5.",
+      "state": {
+        "physical": [
+          {
+            "connector": "eDP-1",
+            "vendor": "V",
+            "product": "P",
+            "serial": "S",
+            "display_name": "",
+            "modes": [
+              {
+                "width": 1921,
+                "height": 1081,
+                "is_current": true
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 2.0,
+            "transform": 0,
+            "primary": true,
+            "connectors": [
+              "eDP-1"
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "monitors": [
+          {
+            "index": 1,
+            "connector": "eDP-1",
+            "x": 0,
+            "y": 0,
+            "width": 961,
+            "height": 541,
+            "scale": 2.0,
+            "transform": 0,
+            "primary": true,
+            "serial": "S"
+          }
+        ],
+        "canvas": [
+          961,
+          541
+        ],
+        "topology": "v1|0,0,961,541,2.0000,0,1"
+      }
+    }
+  ],
+  "rejected": [
+    {
+      "name": "no_current_mode",
+      "note": "Gecerli mod yoksa TAHMIN EDILMEZ; ilk mod secilmez.",
+      "state": {
+        "physical": [
+          {
+            "connector": "DP-1",
+            "vendor": "V",
+            "product": "P",
+            "serial": "S",
+            "display_name": "",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": false
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": true,
+            "connectors": [
+              "DP-1"
+            ]
+          }
+        ]
+      },
+      "error": "DISPLAY_MAPPING_UNKNOWN"
+    },
+    {
+      "name": "logical_monitor_without_connector",
+      "note": "Connector listesi bos: hangi mod oldugu bilinemez.",
+      "state": {
+        "physical": [
+          {
+            "connector": "DP-1",
+            "vendor": "V",
+            "product": "P",
+            "serial": "S",
+            "display_name": "",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": true,
+            "connectors": []
+          }
+        ]
+      },
+      "error": "DISPLAY_MAPPING_UNKNOWN"
+    },
+    {
+      "name": "unknown_connector",
+      "note": "Mantiksal monitor fiziksel tabloda olmayan bir connector gosteriyor.",
+      "state": {
+        "physical": [
+          {
+            "connector": "DP-1",
+            "vendor": "V",
+            "product": "P",
+            "serial": "S",
+            "display_name": "",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": true,
+            "connectors": [
+              "DP-9"
+            ]
+          }
+        ]
+      },
+      "error": "DISPLAY_MAPPING_UNKNOWN"
+    },
+    {
+      "name": "non_positive_scale",
+      "note": "Olcek 0: bolme yapilmaz, uydurulmaz.",
+      "state": {
+        "physical": [
+          {
+            "connector": "DP-1",
+            "vendor": "V",
+            "product": "P",
+            "serial": "S",
+            "display_name": "",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 0.0,
+            "transform": 0,
+            "primary": true,
+            "connectors": [
+              "DP-1"
+            ]
+          }
+        ]
+      },
+      "error": "DISPLAY_MAPPING_UNKNOWN"
+    },
+    {
+      "name": "no_logical_monitors",
+      "note": "Mutter hic mantiksal monitor bildirmedi.",
+      "state": {
+        "physical": [],
+        "logical": []
+      },
+      "error": "DISPLAY_MAPPING_UNKNOWN"
+    }
+  ]
+}

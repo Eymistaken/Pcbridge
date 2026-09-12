@@ -19,6 +19,7 @@ sistemde hazir, yani yeni bir Python bagimliligi gerekmiyor.
 from __future__ import annotations
 
 import json
+import math
 import re
 import subprocess
 import time
@@ -56,6 +57,15 @@ class Monitor:
     scale: float
     primary: bool
     name: str = ""  # insan okunur ad, varsa
+    # Mutter'in donusum kodu: 0=normal, 1=90, 2=180, 3=270, 4-7 aynalanmis.
+    # `width`/`height` ZATEN takas edilmis halde; bu alan yine de duruyor,
+    # cunku 180 derece boyutlari degistirmez ama koordinat eslemesini
+    # degistirir -- `topology_id` bunu gormek zorunda.
+    transform: int = 0
+    # Fiziksel kimlik. Connector adi KARARLI DEGIL: bu makinede geometri hic
+    # degismeden DP-1/DP-2 iken DP-3/DP-4 oldu (olculdu 2026-09-12, hem
+    # Mutter hem `xrandr --listmonitors` ayni seyi soyledi).
+    serial: str = ""
 
     @property
     def bbox(self) -> tuple[int, int, int, int]:
@@ -77,63 +87,178 @@ class Monitor:
         )
 
 
+# ------------------------------------------------------- ortak cozumleme
+# Donusum kodlarindan hangileri mod eksenlerini takas eder (90 ve 270, ve
+# bunlarin aynalanmis esleri).
+_SWAPS_AXES = frozenset({1, 3, 5, 7})
+
+TOPOLOGY_VERSION = "v1"
+
+
+def _round_half_away(value: float) -> int:
+    """Yarim pikselde SIFIRDAN UZAGA yuvarla (960.5 -> 961).
+
+    Python'in yerlesik `round()`u BANKACI yuvarlamasi yapar (960.5 -> 960,
+    961.5 -> 962) ve Rust'in `f64::round()`u yapmaz. Kural burada acikca
+    yaziliyor, cunku aksi halde iki dil kesirli olcekte bir piksel ayrisir
+    ve bunu hicbir sey haber vermez.
+
+    Mutter'in kendi yarim-sinir davranisi OLCULMEDI: bu makinedeki iki
+    monitorun da olcegi 1.0, yani bolme her zaman tam. Kesirli olcek
+    donanimi olan biri bunu dogrulamali.
+    """
+    return int(math.floor(value + 0.5)) if value >= 0 else -int(math.floor(-value + 0.5))
+
+
+def resolve_state(state: dict) -> list[Monitor]:
+    """Notr ekran durumundan sirali monitor tablosu. I/O YOK.
+
+    Girdi Mutter `GetCurrentState` cevabinin ANLAMI: `physical` girdileri
+    connector, kimlik ve modlari; `logical` girdileri konum, olcek, donusum
+    ve birincil bayragini tasir. Bu ayrim bilincli -- ayni fonksiyonu hem
+    `busctl` JSON'u hem test fixture'i besliyor, ve Rust tarafi ayni kurallari
+    ayni fixture uzerinde tekrar uretiyor.
+
+    HICBIR SEY TAHMIN EDILMEZ. Gecerli mod yoksa ilk mod secilmez, bilinmeyen
+    connector atlanmaz, sifir olcekle bolunmez: hepsi `MonitorError`.
+    """
+    physical = state.get("physical") or []
+    logical = state.get("logical") or []
+
+    modes: dict[str, tuple[int, int]] = {}
+    names: dict[str, str] = {}
+    serials: dict[str, str] = {}
+    for entry in physical:
+        connector = str(entry.get("connector") or "")
+        if not connector:
+            continue
+        names[connector] = str(entry.get("display_name") or "") or str(
+            entry.get("product") or ""
+        )
+        serials[connector] = str(entry.get("serial") or "")
+        for mode in entry.get("modes") or []:
+            if mode.get("is_current"):
+                modes[connector] = (int(mode["width"]), int(mode["height"]))
+                break
+
+    out: list[Monitor] = []
+    for lm in logical:
+        connectors = lm.get("connectors") or []
+        if not connectors:
+            raise MonitorError(
+                "Mantiksal monitor hicbir connector bildirmedi; hangi modun "
+                "gecerli oldugu bilinemez."
+            )
+        connector = str(connectors[0])
+        if connector not in modes:
+            raise MonitorError(f"{connector} icin gecerli mod bulunamadi")
+        scale = float(lm.get("scale") or 0.0)
+        if scale <= 0:
+            raise MonitorError(f"{connector} icin gecersiz olcek: {scale!r}")
+        transform = int(lm.get("transform") or 0)
+        mw, mh = modes[connector]
+        if transform in _SWAPS_AXES:
+            mw, mh = mh, mw
+        width = _round_half_away(mw / scale)
+        height = _round_half_away(mh / scale)
+        if width <= 0 or height <= 0:
+            raise MonitorError(
+                f"{connector} icin gecersiz mantiksal boyut: {width}x{height}"
+            )
+        out.append(
+            Monitor(
+                index=0,  # asagida siralandiktan sonra atanir
+                connector=connector,
+                x=int(lm.get("x") or 0),
+                y=int(lm.get("y") or 0),
+                width=width,
+                height=height,
+                scale=scale,
+                primary=bool(lm.get("primary")),
+                name=names.get(connector, ""),
+                transform=transform,
+                serial=serials.get(connector, ""),
+            )
+        )
+    if not out:
+        raise MonitorError("Mutter hic mantiksal monitor bildirmedi")
+    return _ordered(out)
+
+
+def topology_id(mons: list[Monitor] | None = None) -> str:
+    """Ekran duzeninin kararli kimligi — onbellek gecerli mi sorusu icin.
+
+    KANONIK DIZE, hash degil: carpisma olmaz, gozle okunur ve iki dil arasinda
+    birebir karsilastirilabilir. Connector ADI BILINCLI OLARAK DISARIDA --
+    bu makinede geometri hic degismeden DP-1/DP-2 iken DP-3/DP-4 oldu; ada
+    bagli bir kimlik her yeniden adlandirmada "duzen degisti" derdi.
+
+    `transform` iceride, cunku 180 derece donus genislik/yukseklik degistirmez
+    ama goruntuyu ve koordinat eslemesini degistirir.
+    """
+    mons = list_monitors() if mons is None else mons
+    parts = [
+        f"{m.x},{m.y},{m.width},{m.height},{m.scale:.4f},{m.transform},"
+        f"{1 if m.primary else 0}"
+        for m in mons
+    ]
+    return "|".join([TOPOLOGY_VERSION, *parts])
+
+
 # ---------------------------------------------------------------- okuma yollari
-def _from_mutter() -> list[Monitor]:
-    """Mutter.DisplayConfig.GetCurrentState -> mantiksal monitorler.
+def _mutter_state(data: list) -> dict:
+    """busctl JSON'unu `resolve_state`in bekledigi notr semaya cevir.
 
     Donen yapi: (serial, monitorler, mantiksal_monitorler, ozellikler)
       monitor          = [(connector, vendor, product, serial), [modlar], props]
       mod              = [id, genislik, yukseklik, tazeleme, tercih_olcek, olcekler, props]
       mantiksal monitor= [x, y, olcek, donusum, birincil, [(connector,...)], props]
+
+    Burasi YALNIZCA tasima adaptoru. Kural yok: hangi mod gecerli, donusum
+    eksenleri takas eder mi, sira nasil kurulur -- hepsi `resolve_state`te,
+    cunku Rust tarafi ayni kurallari ayni fixture uzerinde tekrar uretiyor
+    ve iki kopya kural er gec ayrisir.
     """
+    physical, logical = data[1], data[2]
+    return {
+        "physical": [
+            {
+                "connector": mon[0][0],
+                "vendor": mon[0][1],
+                "product": mon[0][2],
+                "serial": mon[0][3],
+                "display_name": _prop(mon[2], "display-name") or mon[0][2] or "",
+                "modes": [
+                    {
+                        "width": int(mode[1]),
+                        "height": int(mode[2]),
+                        "is_current": bool(_prop(mode[6], "is-current")),
+                    }
+                    for mode in mon[1]
+                ],
+            }
+            for mon in physical
+        ],
+        "logical": [
+            {
+                "x": int(lm[0]),
+                "y": int(lm[1]),
+                "scale": float(lm[2]),
+                "transform": int(lm[3]),
+                "primary": bool(lm[4]),
+                "connectors": [c[0] for c in (lm[5] or [])],
+            }
+            for lm in logical
+        ],
+    }
+
+
+def _from_mutter() -> list[Monitor]:
+    """Mutter.DisplayConfig.GetCurrentState -> mantiksal monitorler."""
     proc = subprocess.run(_BUSCTL, capture_output=True, text=True, timeout=10)
     if proc.returncode != 0:
         raise MonitorError((proc.stderr or "busctl basarisiz").strip())
-    data = json.loads(proc.stdout)["data"]
-    physical, logical = data[1], data[2]
-
-    # connector -> (mod_genislik, mod_yukseklik) ve insan okunur ad
-    modes: dict[str, tuple[int, int]] = {}
-    names: dict[str, str] = {}
-    for mon in physical:
-        connector = mon[0][0]
-        names[connector] = _prop(mon[2], "display-name") or mon[0][2] or connector
-        for mode in mon[1]:
-            if _prop(mode[6], "is-current"):
-                modes[connector] = (int(mode[1]), int(mode[2]))
-                break
-
-    out: list[Monitor] = []
-    for lm in logical:
-        x, y, scale, transform, primary = (
-            int(lm[0]),
-            int(lm[1]),
-            float(lm[2]),
-            int(lm[3]),
-            bool(lm[4]),
-        )
-        connector = lm[5][0][0] if lm[5] else "?"
-        mw, mh = modes.get(connector, (0, 0))
-        if not mw or not mh:
-            raise MonitorError(f"{connector} icin gecerli mod bulunamadi")
-        if transform in (1, 3, 5, 7):  # 90/270 derece dondurulmus
-            mw, mh = mh, mw
-        out.append(
-            Monitor(
-                index=0,  # asagida siralandiktan sonra atanir
-                connector=connector,
-                x=x,
-                y=y,
-                width=round(mw / scale),
-                height=round(mh / scale),
-                scale=scale,
-                primary=primary,
-                name=names.get(connector, ""),
-            )
-        )
-    if not out:
-        raise MonitorError("Mutter hic mantiksal monitor bildirmedi")
-    return out
+    return resolve_state(_mutter_state(json.loads(proc.stdout)["data"]))
 
 
 _XRANDR_RE = re.compile(
@@ -196,6 +321,8 @@ def _ordered(mons: list[Monitor]) -> list[Monitor]:
             scale=m.scale,
             primary=m.primary,
             name=m.name,
+            transform=m.transform,
+            serial=m.serial,
         )
         for i, m in enumerate(ordered, start=1)
     ]

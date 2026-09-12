@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 
+pub mod display;
 pub mod error;
 pub mod lease;
 pub mod protocol;
 
+pub use display::{DisplayError, DisplayState, Monitor, TOPOLOGY_VERSION};
 pub use error::ProtocolError;
 pub use lease::{DesktopLease, LEASE_SCHEMA_VERSION, LEASE_STATE_FILE, LeaseReadError, LeaseToken};
 pub use protocol::{

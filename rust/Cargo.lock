@@ -426,6 +426,7 @@ dependencies = [
  "pcbridge-core",
  "serde",
  "serde_json",
+ "thiserror",
  "zbus",
 ]
 

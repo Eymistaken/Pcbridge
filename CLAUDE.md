@@ -280,6 +280,24 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   bırakıyor.
 - **`Shell.Introspect` kapalı** (GNOME 46, "Access denied"). Pencere listesi ve
   odak yalnızca AT-SPI'dan.
+- **Connector adları KARARLI DEĞİL.** Ölçüldü 2026-09-12: geometri hiç
+  değişmeden `DP-2`/`DP-1` iken `DP-4`/`DP-3` oldu; hem Mutter D-Bus hem
+  `xrandr --listmonitors` aynı şeyi söyledi. Sıra ve numaralandırma
+  etkilenmedi (soldan sağa, x=0 → `monitor=1`, x=1920 birincil → `monitor=2`),
+  ama `monitor="DP-1"` gibi **ada göre seçim artık bu makinede çözülmüyor**.
+  Bu yüzden `topology_id` connector adını içermiyor; kalıcı kimlik için
+  monitörün `serial` alanı var (bu makinedeki iki panel aynı model, yalnızca
+  seri numarası ayırıyor).
+- **Ekran düzeni kimliği tek yerde: `monitors.topology_id()`.** Kanonik dize,
+  hash değil — çarpışma yok ve Rust tarafıyla birebir karşılaştırılabiliyor.
+  `transform` içinde, çünkü 180 derece dönüş genişlik/yüksekliği değiştirmez
+  ama koordinat eşlemesini değiştirir.
+- **Mantıksal boyut yarım pikselde SIFIRDAN UZAĞA yuvarlanır** (960,5 → 961).
+  Python'ın yerleşik `round()`'u bankacı yuvarlaması yapar ve 960 verirdi,
+  Rust'ın `f64::round()`'u vermez; kural iki tarafta da açıkça yazıldı yoksa
+  kesirli ölçekte bir piksel sessizce ayrışırdı. **Mutter'ın kendi yarım-sınır
+  davranışı ÖLÇÜLMEDİ** — bu makinede iki monitör de ölçek 1.0, bölme her
+  zaman tam.
 - **AT-SPI'da parola alanının rolü `password text` ve başka işaret yok.**
   Ölçüldü 2026-09-12: `Atspi.role_get_name(Atspi.Role.PASSWORD_TEXT)` →
   `'password text'`; adında "password" geçen **tek** rol bu ve paroloya özel

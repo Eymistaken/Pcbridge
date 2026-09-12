@@ -10,13 +10,14 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Yok (`Adım 2 tamamlandı, gerçek oturumda ölçüldü`)
-- **Son tamamlanan adım:** Adım 2 — `window_focus` hızlı yolu
-- **Sıradaki uygulanabilir adım:** Adım 3 — Native migration Faz 3 (Task 3.1)
+- **Aktif adım:** Yok (`Task 3.1 tamamlandı`)
+- **Son tamamlanan adım:** Adım 3 / Task 3.1 — Native display snapshot
+- **Sıradaki uygulanabilir adım:** Task 3.2 — Mutter capture session lifecycle
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 2 geçti** (native migration). Task 2.4 typed
   desktop state, fail-closed policy ve native lock watcher acceptance'ı dahil.
-- **Native migration içindeki sıradaki task:** 3.1 — Native display snapshot
+- **Native migration içindeki sıradaki task:** 3.2 — Mutter capture session
+  lifecycle (ön koşulları 2.3, 2.4, 3.1 tamam)
 
 Çalışma kuralı (kullanıcı isteği, 2026-09-12): **her adım sonunda ilerleme bu
 dosyaya yazılır ve durulur; devam için onay beklenir.**
@@ -32,7 +33,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 0 | Belge omurgası: tek giriş noktası, ölü referansların onarımı | `tamamlandı` |
 | 1 | `KURALLAR.md` §4'teki 5/6/7 kapıları (parola alanı, tekrar tıklama, kapatma onayı) | `tamamlandı` |
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
-| 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `bekliyor` |
+| 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `devam ediyor` (3.1 ✅, sırada 3.2) |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `bekliyor` |
 | 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `bekliyor` |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
@@ -401,6 +402,80 @@ sınırlar:
   Rust'a taşınmaz; varsayılan backend değişmez.
 - **3.5** Capture başarısı ile görüntünün istemciye ulaşması ayrı doğrulanır;
   dosyanın diskte oluşması uçtan uca başarı sayılmaz.
+
+### Task 3.1 — Native display snapshot · `tamamlandı`
+
+**Ne yapıldı.** Monitör tablosunun kuralları tek bir yere yazıldı ve iki dilde
+aynı fixture'la sabitlendi: `pcbridge-core::display` (Rust) ile
+`monitors.resolve_state()` (Python). Taşıma adaptörleri ayrı kaldı — Python
+`busctl --json=short`, Rust zbus — ama hangi mod geçerli, dönüşüm eksenleri ne
+zaman takas eder, sıra nasıl kurulur, yuvarlama nasıl yapılır: hepsi ortak.
+
+`_from_mutter` artık kendi ayrıştırıcısını taşımıyor, `resolve_state`e veriyor.
+Bu şart: iki kopya kural er geç ayrışır ve ayrışma bir piksel olarak değil
+**yanlış ekrana tıklama** olarak görünür.
+
+**Yeni:** `rust/crates/pcbridge-core/src/display.rs`,
+`rust/crates/pcbridge-native/src/platform/linux/display.rs`,
+`rust/crates/pcbridge-native/tests/display_contract.rs`,
+`tests/contracts/test_display_contract.py`,
+`tests/fixtures/native/display_state_cases.json` (6 kabul + 5 ret vakası).
+`display.snapshot` protokol metodu eklendi; `contracts.py` `topology_id()`
+seam'ini kazandı.
+
+**Yol boyunca bulunan üç şey — üçü de ölçüldü, uydurulmadı:**
+
+1. **Connector adları kararlı değil.** `CLAUDE.md` "DP-2 (x=0) / DP-1 (x=1920,
+   birincil)" diyordu; makine artık **DP-4 / DP-3** diyor. Geometri, sıra ve
+   numaralandırma hiç değişmedi, ama `monitor="DP-1"` gibi ada göre seçim bu
+   makinede artık çözülmüyor. Hem Mutter hem `xrandr --listmonitors` aynı şeyi
+   söyledi. **Tasarım sonucu:** `topology_id` connector adını **içermiyor** —
+   içerseydi her yeniden adlandırmada "düzen değişti" derdi. Kalıcı kimlik için
+   monitörün `serial` alanı eklendi.
+2. **Python `round()` bankacı yuvarlaması yapıyor, Rust'ınki yapmıyor.**
+   960,5 → Python 960, Rust 961. Kesirli ölçekte bir piksel sessizce
+   ayrışırdı. Kural iki tarafta da açıkça yazıldı (sıfırdan uzağa) ve
+   fixture'a bir yarım-sınır vakası kondu. **Mutter'ın kendi yarım-sınır
+   davranışı ÖLÇÜLMEDİ:** bu makinede iki monitör de ölçek 1.0, bölme her zaman
+   tam. Kesirli ölçek donanımı olan biri doğrulamalı.
+3. **"connect syscall sayısı 0" kaydı eskimiş.** Task 2.1 öyle ölçmüştü ve o
+   gün doğruydu; **Task 2.4** desktop-state sağlayıcısını ekleyince açılışta
+   oturum veriyoluna bir bağlantı kuruldu ve yeniden ölçülmedi. Bugünkü taban
+   çizgisi **1**. `display.rs` olmadan derlenmiş binary'de de 1 çıktı, yani
+   artış bu task'tan gelmiyor. Protokol belgesine düzeltme olarak yazıldı.
+
+**Ölçümler (gerçek makine, gerçek Mutter):**
+
+- Rust `display.snapshot` ile Python `list_monitors()` **birebir aynı tabloyu**
+  verdi: aynı sıra, aynı boyut, aynı `topology_id`
+  (`v1|0,0,1920,1080,1.0000,0,0|1920,0,1920,1080,1.0000,0,1`), aynı canvas
+  `[3840, 1080]`.
+- İlk `display.snapshot` (D-Bus bağlantısı dahil) **16,7 ms**; ikincisi
+  önbellekten **0,1 ms**.
+- `strace -e trace=connect`: `capabilities` dizisi **1** bağlantı,
+  `display.snapshot` dizisi **2**. Yani oturum veriyolu bağlantısı gerçekten
+  tembel ve tam olarak bir tane ekliyor.
+
+**Test sonuçları:**
+
+- `tests/contracts/test_display_contract.py` (yeni) → **10 test**
+- Rust `display_contract.rs` (yeni) → **7 test**
+- Tam Python contract discovery → **120 tests, OK** (112 → 120)
+- `tests/test_desktop.py` live bayrakları kapalı → **583 geçti, 0 kaldı**
+- `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo test --workspace --all-targets` → temiz
+- `python -m pcbridge.server --check -c config.example.toml` → exit `0`
+
+**Korunanlar:** Birincil sağda olsa da `monitor=2`; `1`, `"primary"`, `"all"`
+ve ada göre seçim davranışları; `capture.to_global()` tek koordinat girişi.
+Varsayılan capture backend **değişmedi** (`[native] capture = "python"`).
+
+**Rollback:** Tek commit; `git revert`. Rust tarafı hiçbir üretim yolunu
+beslemiyor — `display.snapshot` yalnızca istendiğinde çağrılıyor ve Python
+capture yolu ona hiç bakmıyor.
+
+**Sonraki somut adım:** Task 3.2 — Mutter capture session lifecycle. Bu
+snapshot'ı session'a bağlayacak olan task o.
 
 ## Adım 4 — Faz 4: paketleme, parity, varsayılan değişikliği (Gate 4)
 
