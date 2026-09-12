@@ -156,6 +156,10 @@ class CapabilityContractTests(unittest.TestCase):
                 "USER_ACTIVE",
                 "ACTIVITY_UNKNOWN",
                 "RATE_LIMITED",
+                # Icerik kapilari (KURALLAR.md sec. 4, maddeler 7 ve 5):
+                # izinden bagimsiz, hedefin kendisine bakan retler.
+                "PASSWORD_FIELD",
+                "CONFIRMATION_REQUIRED",
                 "PERMISSION_REQUIRED",
                 "PERMISSION_DENIED",
                 "DEVICE_NOT_GRANTED",

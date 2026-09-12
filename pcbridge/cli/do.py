@@ -107,12 +107,16 @@ def main(argv: list[str] | None = None) -> int:
 
     from ..desktop import batch as batchlib
     from ..desktop import ops as opslib
+    from ..desktop.errors import DesktopError
 
     # Ayristirma KAPIDAN ONCE: yalnizca sozdizimi, hicbir yan etkisi yok.
     # Bozuk bir liste "izin yok" degil "bozuk JSON" cevabi almali.
     try:
         plan = batchlib.parse(text, max_actions=cfg.desktop.batch_max_actions)
     except batchlib.BatchError as exc:
+        fail(str(exc), EXIT_BAD_INPUT, args.json)
+    except DesktopError as exc:
+        # Onaylanmamis kapatma kisayolu: liste butunuyle reddedildi.
         fail(str(exc), EXIT_BAD_INPUT, args.json)
 
     if args.dry_run:
@@ -236,6 +240,7 @@ def _run_plan(cfg, args, plan, runtime) -> int:
         min_gap=gap,
         check_focus=check_focus,
         expect_focus=args.expect_focus,
+        repeat_limit=cfg.desktop.repeat_click_limit,
     )
 
     for step in result.steps:

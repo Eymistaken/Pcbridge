@@ -534,6 +534,28 @@ gider ve o yol açıktır — projenin amacı zaten bu.
 | `screen_info`, `system_capabilities` | — | — | — |
 | `shell_run`, `shell_run_background`, `agent_run`, `fs_*`, `tmux_*`, `job_*`, `notify` | — | — | — |
 
+### İzinden bağımsız üç kapı
+
+Yukarıdaki tablo **kimin** eyleyebileceğini söylüyor. Bunun yanında, izin açık
+olsa bile **ne** yapılabileceğine bakan üç kapı var. Üçü de `force` ile
+aşılmaz: `force` "kullanıcı makinedeydi" kontrolünü atlayan bir bayrak, bunlar
+ise eylemin kendisine bakıyor.
+
+| Kapı | Ne olur | Çıkış yolu |
+|---|---|---|
+| **Parola alanı** | AT-SPI rolü `password text` olan bir alana `ui_set_text` yazamaz | Yok. Parolayı kullanıcı ya da parola yöneticisi girer |
+| **Kapatma kısayolu** | `alt+F4`, `ctrl+q`, `ctrl+w`, `ctrl+shift+q`, `super+q` reddedilir | Aynı çağrıyı `confirm_close` ile tekrarla — gerçekten kapatmak istiyorsan |
+| **Tekrar tıklama** | Aynı hedefe üst üste 3. tıklama gönderilmez, dizi durur | Ekranı `ui_dump` / `screen_capture` ile yeniden oku. Sınır `[desktop] repeat_click_limit` |
+
+Kapatma kısayolu `computer_batch` içinde **ayrıştırma sırasında** yakalanır:
+listenin ortasında olsa bile hiçbir eylem çalışmaz. Yarım kalmış bir dizi,
+kapanmış bir pencereden daha zor toparlanır.
+
+"Aynı hedef" = aynı düğüm kimliği (`ui_click`) ya da aynı koordinat + aynı uzay
+(`monitor`/`shot`). Araya `move` gibi bir eylem girerse seri kırılır; `wait`
+kırmaz, çünkü "tıkla-bekle-tıkla" tam da döngüye giren ajanın deseni.
+`double_click` ve `triple_click` tek eylemdir, sayacı doldurmaz.
+
 Bir masaüstü aracı hata verdiğinde istemci bunu MCP düzeyinde `isError=true`
 olarak görür. Önceden görünen Türkçe açıklama korunur; ayrıca hata kodu,
 yeniden denenebilirlik ve izin kapsamı makinece okunabilir biçimde gelir.

@@ -194,6 +194,10 @@ class DesktopSpec:
     # `shot` verilmeden koordinat gonderildiginde, yakinda KUCULTULMUS bir
     # cekim varsa ve koordinat onun icine dusuyorsa cagriyi reddet.
     ambiguous_coord_guard: bool = True
+    # Ayni hedefe ust uste kacinci tiklamada dizi dursun. Ikisi gecer,
+    # ucuncusu hic gonderilmez: ilk iki tiklama beklenen etkiyi yapmadiysa
+    # ucuncusu de yapmaz, ajan ekrani yeniden okumali. 0 = kapali.
+    repeat_click_limit: int = 3
 
 
 @dataclass
@@ -578,10 +582,17 @@ def load_config(explicit: str | None = None) -> Config:
         ambiguous_coord_guard=bool(
             desktop_raw.get("ambiguous_coord_guard", True)
         ),
+        repeat_click_limit=int(desktop_raw.get("repeat_click_limit", 3)),
         agent_shot_max_age_seconds=int(
             desktop_raw.get("agent_shot_max_age_seconds", 60)
         ),
     )
+    if desktop.repeat_click_limit and desktop.repeat_click_limit < 2:
+        raise SystemExit(
+            f"[desktop] ({path}): `repeat_click_limit` "
+            f"({desktop.repeat_click_limit}) ya 0 (kapali) ya da en az 2 "
+            "olmali. 1 verilirse ilk tiklama bile gonderilmez."
+        )
     if desktop.unlock_default_minutes > desktop.unlock_max_minutes:
         raise SystemExit(
             f"[desktop] ({path}): `unlock_default_minutes` "

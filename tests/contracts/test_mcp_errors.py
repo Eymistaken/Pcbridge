@@ -185,6 +185,7 @@ class FakeCapture:
 class FakeInput:
     def __init__(self, *, available: tuple[bool, str] = (True, "")) -> None:
         self.availability = available
+        self.keys_sent: list[str] = []
 
     def capability_token(self):
         return ("input", self.availability[0])
@@ -215,6 +216,15 @@ class FakeInput:
 
     def close(self) -> None:
         return None
+
+    def key(self, combo: str) -> None:
+        self.keys_sent.append(combo)
+
+    def key_down(self, combo: str) -> None:
+        self.keys_sent.append(combo)
+
+    def key_up(self, combo: str) -> None:
+        self.keys_sent.append(combo)
 
     def held(self) -> list[str]:
         return []
@@ -371,6 +381,57 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             result.structured_content["error"]["permission_scope"], "os.pointer"
         )
+
+    async def test_unconfirmed_close_shortcut_is_refused_on_the_wire(self) -> None:
+        """KURALLAR.md sec. 4, madde 5 -- MCP telinde gorunur ve tus gitmez."""
+        input_provider = FakeInput()
+        with tempfile.TemporaryDirectory() as raw:
+            mcp, _tree = build_mcp(Path(raw), input_provider=input_provider)
+            async with Client(mcp) as client:
+                result = await client.call_tool(
+                    "keyboard",
+                    {"action": "key", "keys": "alt+F4"},
+                    raise_on_error=False,
+                )
+
+        self.assertTrue(result.is_error)
+        self.assertEqual(
+            result.structured_content["error"]["code"], "CONFIRMATION_REQUIRED"
+        )
+        self.assertEqual(input_provider.keys_sent, [], "kapiya ragmen tus gonderildi")
+
+    async def test_confirmed_close_shortcut_goes_through(self) -> None:
+        input_provider = FakeInput()
+        with tempfile.TemporaryDirectory() as raw:
+            mcp, _tree = build_mcp(Path(raw), input_provider=input_provider)
+            async with Client(mcp) as client:
+                result = await client.call_tool(
+                    "keyboard",
+                    {"action": "key", "keys": "alt+F4", "confirm_close": True},
+                    raise_on_error=False,
+                )
+
+        self.assertFalse(result.is_error)
+        self.assertEqual(input_provider.keys_sent, ["alt+F4"])
+
+    async def test_batch_refuses_the_whole_plan_on_an_unconfirmed_close(self) -> None:
+        input_provider = FakeInput()
+        with tempfile.TemporaryDirectory() as raw:
+            mcp, _tree = build_mcp(Path(raw), input_provider=input_provider)
+            async with Client(mcp) as client:
+                result = await client.call_tool(
+                    "computer_batch",
+                    {"actions": '[{"a":"key","keys":"ctrl+v"},'
+                                '{"a":"key","keys":"ctrl+q"}]'},
+                    raise_on_error=False,
+                )
+
+        self.assertTrue(result.is_error)
+        self.assertEqual(
+            result.structured_content["error"]["code"], "CONFIRMATION_REQUIRED"
+        )
+        # Kapi AYRISTIRMADA: listenin ilk, zararsiz eylemi bile calismadi.
+        self.assertEqual(input_provider.keys_sent, [])
 
     async def test_batch_preserves_completed_steps_when_final_capture_fails(self) -> None:
         capture = FakeCapture(available=(False, "ekran izni verilmedi"))

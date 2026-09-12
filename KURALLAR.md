@@ -323,12 +323,21 @@ Tartışmaya açık:
 | 2 | `hold` sonrası `release` unutulursa bırak | O | **Var** (`hold_max_seconds = 120`) |
 | 3 | Metin girişi pano yoluyla, ham tuşla değil | O | **Var** (`tr+intl` yüzünden) |
 | 4 | Tıklamadan sonra sonucu doğrula | Y | Kısmen — `ui_click` çıktısı söylüyor, `mouse` söylemiyor |
-| 5 | Pencere kapatma / kaydetmeden çıkma onay istesin | K | **Yok.** 2026-08-02'de 23 öğe çöpe gitti |
-| 6 | Aynı düğüme üst üste 3 kez tıklanırsa dur | K | **Yok.** Döngüye giren ajan hız sınırına takılıyor ama durmuyor |
-| 7 | Parola alanına yazma (`role = password text`) | K | **Yok.** AT-SPI rolü zaten okunuyor, kapı kolay |
+| 5 | Pencere kapatma / kaydetmeden çıkma onay istesin | K | **Var** (2026-09-12). Kapatma kısayolu `confirm_close` ister; `computer_batch`'te ayrıştırmada reddedilir |
+| 6 | Aynı düğüme üst üste 3 kez tıklanırsa dur | K | **Var** (2026-09-12). `[desktop] repeat_click_limit = 3`; 3. tıklama hiç gönderilmez |
+| 7 | Parola alanına yazma (`role = password text`) | K | **Var** (2026-09-12). Rol ölçüldü; `force` ile aşılamıyor |
 
-**5, 6 ve 7 gerçek boşluk.** Özellikle 7 ucuz: `uitree` düğüm rolünü zaten
-biliyor, `ui_set_text` girişine üç satır.
+**Üçü de kapatıldı.** Karar tablosu `pcbridge/desktop/policy.py` içinde, saf ve
+I/O'suz; sözleşmesi `tests/contracts/test_desktop_gates.py`.
+
+Madde 5 bilerek **dar**: yalnızca çağıranın gönderdiği kısayol dizesine bakıyor.
+Pencerenin kapatma **düğmesi** kapsam dışı — AT-SPI'da "close" diye bir rol yok
+ve ada bakmak dile bağlı olurdu ("Close"/"Kapat"/"Fermer"); bir ipucunu kapatan
+zararsız düğmeyi de yakalardı.
+
+Madde 6 **tek dizi içinde** sayıyor. Ayrı ayrı `ui_click` çağrılarıyla dönen
+bir ajan hâlâ yakalanmıyor: süreçler arası sayaç, kiranın (`desktop_unlock.json`)
+ihtiyaç duyduğu dosya + kilit düzeneğini gerektirirdi. Bilinen sınır.
 
 ---
 

@@ -10,9 +10,9 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Yok (`Adım 0 tamamlandı`)
-- **Son tamamlanan adım:** Adım 0 — belge omurgası
-- **Sıradaki uygulanabilir adım:** Adım 1 — `KURALLAR.md` 5/6/7 kapıları
+- **Aktif adım:** Yok (`Adım 1 tamamlandı`)
+- **Son tamamlanan adım:** Adım 1 — `KURALLAR.md` §4'ün 5/6/7 kapıları
+- **Sıradaki uygulanabilir adım:** Adım 2 — `window_focus` hızlı yolu
   (onay bekliyor)
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 2 geçti** (native migration). Task 2.4 typed
@@ -31,7 +31,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | Adım | Ne | Durum |
 |---|---|---|
 | 0 | Belge omurgası: tek giriş noktası, ölü referansların onarımı | `tamamlandı` |
-| 1 | `KURALLAR.md` §4'teki 5/6/7 kapıları (parola alanı, tekrar tıklama, kapatma onayı) | `bekliyor` |
+| 1 | `KURALLAR.md` §4'teki 5/6/7 kapıları (parola alanı, tekrar tıklama, kapatma onayı) | `tamamlandı` |
 | 2 | `window_focus` hızlı yolu (ölçülmüş 6,6 sn → hedef <1 sn) | `bekliyor` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `bekliyor` |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `bekliyor` |
@@ -140,6 +140,8 @@ kopyalanmış durum blokları ve ölü referanslar oldu.
 
 ## Adım 1 — `KURALLAR.md` 5/6/7 kapıları
 
+**Durum:** `tamamlandı`
+
 `PLAN.md` bu üçünü **hiç kapsamıyor** (grep ile doğrulandı). Migration'dan
 bağımsız, ucuz ve gerçek bir kazayı karşılıyorlar.
 
@@ -164,6 +166,82 @@ reddedilir.
 
 **Ölçüt:** üç kapı da sahte provider'la kırmızı→yeşil gösterilir; gerçek girdi
 gönderilmez; `tests/test_desktop.py` bütün live bayrakları kapalıyken tam geçer.
+
+### Yapılanlar
+
+Karar tablosu yeni bir modülde: **`pcbridge/desktop/policy.py`** — saf, I/O
+yok, `models.py` gibi. Bilinçli: kapılar masaüstü olmadan sınanabilmeli ve
+ileride Python olmayan bir accessibility provider aynı tablodan aynı hükmü
+çıkarabilmeli. `SafetyGate` "bu çağıran eyleyebilir mi" sorusuna bakıyor;
+bu modül "bu hedefe dokunulur mu" sorusuna.
+
+**Madde 7 — parola alanı.** Rol **ölçüldü**, varsayılmadı:
+`Atspi.role_get_name(Atspi.Role.PASSWORD_TEXT)` → `'password text'`; adında
+"password" geçen tek rol bu ve parolaya özel bir `StateType` yok. Alan
+`ui_dump`'ta görünüyor (liste `editable` düğümleri alıyor), yani ajan kimliği
+alabiliyor — kapı gerçekten gerekli. Kapı
+`PythonAccessibilityProvider.set_text` içinde, düğüm çözüldükten hemen sonra:
+`ui_set_text` (MCP), `DeviceOps.ui_set_text` (`computer_batch`) ve `pcb-do`
+üçü birden aynı noktadan geçiyor. `force` bu kapıyı **açmıyor** ve açacak bir
+parametre de yok.
+
+**Madde 6 — tekrar tıklama.** `batch.py`'de, eylemden **önce**: 3. tıklama hiç
+gönderilmiyor, `stopped="repeat"` dönüyor, kalan eylemler bugünkü gibi
+raporlanıyor. "Aynı hedef" = düğüm kimliği ya da koordinat + uzay
+(`monitor`/`shot`). `move` seriyi kırıyor, `wait` **kırmıyor** — "tıkla-bekle-
+tıkla" tam da döngüye giren ajanın deseni. Sınır
+`[desktop] repeat_click_limit = 3`; 0 kapatıyor, 1 reddediliyor (ilk tıklama
+bile gönderilmezdi).
+
+**Madde 5 — kapatma onayı.** `expect_focus` deseni tekrarlandı: **niyeti
+söylet.** Ayrı bir `confirm_close`, `force` değil — `force` etkinlik
+kontrolünü atlayan bir bayrak ve onu burada da geçerli kılmak "reddi görünce
+force dene" refleksini ödüllendirirdi. `computer_batch`'te kapı
+**ayrıştırmada**: onaylanmamış kapatma listenin ortasında olsa bile hiçbir
+eylem çalışmıyor. Akor sırası ve büyük/küçük harf önemsiz (`F4+alt` = `alt+f4`).
+
+### Bilinçli olarak yapılmayanlar
+
+- **Kapatma düğmesi kapsam dışı.** AT-SPI'da "close" diye bir rol yok; ada
+  bakmak dile bağlı olurdu ("Close"/"Kapat"/"Fermer") ve bir ipucunu kapatan
+  zararsız düğmeyi de yakalardı. Bu maddede yanlış pozitif en pahalı şey.
+- **Madde 6 yalnızca tek dizi içinde sayıyor.** Ayrı ayrı `ui_click`
+  çağrılarıyla dönen bir ajan hâlâ yakalanmıyor: süreçler arası sayaç,
+  kiranın ihtiyaç duyduğu dosya + kilit düzeneğini gerektirirdi. Bilinen sınır,
+  `KURALLAR.md` §4'e de yazıldı.
+
+### Test sonuçları
+
+- `tests/contracts/test_desktop_gates.py` (yeni) → **25 test**, kırmızı→yeşil
+  her madde için ayrı ayrı gösterildi.
+- `tests/contracts/test_mcp_errors.py`'ye üç wire testi eklendi: onaysız
+  `keyboard` çağrısı `isError` + `CONFIRMATION_REQUIRED` dönüyor **ve sahte
+  input provider'a tek bir tuş gitmiyor**; onaylı çağrı geçiyor; onaysız
+  `computer_batch` listenin zararsız ilk eylemini bile çalıştırmıyor.
+- Tam contract discovery → **100 tests, OK** (72 → 100).
+- `tests/test_desktop.py` live bayrakları kapalı → **582 geçti, 0 kaldı**
+- `tests/test_models.py` → **106 geçti, 0 kaldı**;
+  `tests/test_test_safety.py` → **1 test, OK**
+- `gjs -m gnome-extension/tests/test_state.js` → **31 geçti, 0 kaldı**
+- `python -m pcbridge.server --check -c config.example.toml` → exit `0`
+- Gerçek süreçte (test ikilisi değil) `pcb-do --dry-run`: onaysız `alt+F4`
+  exit `4` ile reddedildi, `confirm_close` ile exit `0`.
+
+**Yol boyunca yakalanan bir şey:** `test_capabilities.py`'deki hata taksonomisi
+sözleşmesi iki yeni kodu (`PASSWORD_FIELD`, `CONFIRMATION_REQUIRED`) reddetti.
+Test doğru davrandı — taksonomi bilinçli genişletildi ve sözleşme gerekçesiyle
+güncellendi.
+
+`tests/test_e2e.py` **çalıştırılmadı** (gerçek `claude -p` kotası yakıyor).
+Rust suite **çalıştırılmadı** (Rust'a dokunulmadı). Hiçbir live masaüstü
+bayrağı açılmadı; gerçek klavye/fare girdisi gönderilmedi.
+
+**Rollback:** Tek commit; `git revert` yeter. `[desktop] repeat_click_limit = 0`
+yalnızca madde 6'yı kapatır, diğer ikisinin anahtarı yok (bilinçli).
+
+**Sonraki somut adım:** Adım 2 — `window_focus`. Önce eklentiye
+`ActivateWindow` ekleyip `audit.log`'un `ms` alanıyla ÖLÇ; koda dal yazmadan
+önce sayıyı gör.
 
 ## Adım 2 — `window_focus` hızlı yolu
 

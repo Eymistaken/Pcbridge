@@ -40,6 +40,9 @@ from typing import Any, Callable, Protocol
 # cihazlari tanimiyor: `shot` bu dosyada yalnizca dogrulanmis bir string,
 # koordinata cevrilmesi `ops.py`nin isi.
 from .capture import SHOT_ID_RE
+# `policy` saf karar tablosu: hata taksonomisinden baskasini import
+# etmiyor, yani motor hala gercek cihaz tanimiyor.
+from . import policy
 
 # Olculen maliyetler (ms). Butce tahmini bunlardan kuruluyor; uydurma
 # sabitlerden degil. Olcum 2026-08-02, bu makine.
@@ -143,7 +146,7 @@ class Result:
     total: int
     remaining: list[Action]
     elapsed: float
-    stopped: str = ""        # "" | "budget" | "error" | "focus"
+    stopped: str = ""        # "" | "budget" | "error" | "focus" | "repeat"
     detail: str = ""
     focus_start: str = ""
     focus_now: str = ""
@@ -253,7 +256,12 @@ def _one(raw: Any, index: int) -> Action:
     if a == "wait":
         return Action(a, {"ms": _int(raw, "ms", required=True, lo=0, hi=MAX_WAIT_MS)})
     if a == "key":
-        return Action(a, {"keys": _text(raw, "keys")})
+        keys = _text(raw, "keys")
+        # Kapi AYRISTIRMADA: onaylanmamis bir kapatma listenin ortasinda da
+        # olsa hicbir eylem calismaz. Yarim kalmis bir dizi, kapanmis bir
+        # pencereden daha zor toparlanir.
+        policy.check_key_combo(keys, confirm_close=bool(raw.get("confirm_close")))
+        return Action(a, {"keys": keys})
     if a == "type":
         # Metin bos olabilir (bir alani temizlemek gecerli bir istek), o yuzden
         # _text degil: yalnizca alanin VARLIGI aranir.
@@ -261,7 +269,12 @@ def _one(raw: Any, index: int) -> Action:
             raise BatchError("`type` eyleminde `text` zorunlu.")
         return Action(a, {"text": str(raw["text"]), "raw": bool(raw.get("raw", False))})
     if a in ("hold", "release"):
-        return Action(a, {"keys": _text(raw, "keys")})
+        keys = _text(raw, "keys")
+        if a == "hold":
+            policy.check_key_combo(
+                keys, confirm_close=bool(raw.get("confirm_close"))
+            )
+        return Action(a, {"keys": keys})
     if a in ("move", "click", "double_click", "triple_click", "right_click",
              "middle_click", "mouse_down"):
         need = a in ("move",)
@@ -434,6 +447,7 @@ def run(
     min_gap: float = 0.0,
     check_focus: bool = True,
     expect_focus: str = "",
+    repeat_limit: int = 3,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> Result:
@@ -464,6 +478,8 @@ def run(
     focus_start = ""
     focus_now = ""
     caught_error: Exception | None = None
+    repeat_key: tuple | None = None   # ayni hedefe ust uste kac tiklama
+    repeat_run = 0
 
     if check_focus:
         try:
@@ -484,6 +500,24 @@ def run(
                 f"butcede {max(0.0, budget - elapsed):.1f} sn kaldi"
             )
             break
+
+        # Ayni hedefe ust uste tiklama: KURALLAR.md sec. 4, madde 6. Kapi
+        # eylemden ONCE calisir -- `repeat_limit`inci tiklama hic gonderilmez.
+        if repeat_limit and act.a in policy.CLICK_ACTIONS:
+            key = policy.click_target_key(act.a, act.args)
+            repeat_run = repeat_run + 1 if key == repeat_key else 1
+            repeat_key = key
+            if repeat_run >= repeat_limit:
+                stopped = "repeat"
+                detail = (
+                    f"ayni hedefe ust uste {repeat_limit}. tiklama "
+                    f"({act.describe()}) durduruldu. Ilk iki tiklama beklenen "
+                    "etkiyi yapmadiysa ucuncusu de yapmaz: once ekrani "
+                    "`ui_dump` ya da `screen_capture` ile yeniden okuyun"
+                )
+                break
+        elif act.a != "wait":
+            repeat_key, repeat_run = None, 0
 
         t0 = clock()
         try:

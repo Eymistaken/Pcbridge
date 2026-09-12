@@ -13,8 +13,9 @@ from ...config import Config
 from .. import capture as capturelib
 from .. import input as inputlib
 from .. import monitors as monitorslib
-from .. import screencast as screencastlib
+from .. import policy
 from .. import safety as safetylib
+from .. import screencast as screencastlib
 from .. import uitree as uitreelib
 from ..capabilities import Capability, CapabilityEvidence, CapabilityState
 from ..errors import DesktopError, ErrorCategory, ErrorCode
@@ -698,7 +699,7 @@ class PythonAccessibilityProvider(uitreelib.UiTree):
 
     def set_text(self, node_id: str, text: str) -> dict:
         try:
-            self.resolve(node_id)
+            node = self.resolve(node_id)
         except uitreelib.UiTreeError as exc:
             raise _desktop_error(
                 exc,
@@ -708,6 +709,9 @@ class PythonAccessibilityProvider(uitreelib.UiTree):
                 retryable=True,
                 suggested_action="Erişilebilirlik ağacını yenileyip kimliği tekrar seçin.",
             ) from exc
+        # Icerik kapisi, izin kapisi degil: `SafetyGate` gecse de burasi
+        # reddeder ve `force` ile asilamaz (KURALLAR.md sec. 4, madde 7).
+        policy.check_text_target(role=node.role, name=node.name)
         return self._translate_accessibility(
             lambda: super(PythonAccessibilityProvider, self).set_text(node_id, text),
             code=ErrorCode.TARGET_MISMATCH,

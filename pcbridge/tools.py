@@ -33,6 +33,7 @@ from .desktop import capture as capturelib
 from .desktop import input as inputlib
 from .desktop import monitors as monitorslib
 from .desktop import ops as opslib
+from .desktop import policy
 from .desktop import presentation as presentationlib
 from .desktop import safety as safetylib
 from .desktop import screencast as screencastlib
@@ -1394,6 +1395,16 @@ def register(
                 "target application ignores paste."
             ),
         ] = False,
+        confirm_close: Annotated[
+            bool,
+            Field(
+                description="Required to send a shortcut that closes a window or "
+                "quits an application (alt+F4, ctrl+q, ctrl+w). Without it the "
+                "call is refused, because unsaved work would be gone without "
+                "anyone being asked. Set it only when closing is the actual "
+                "intent; it is not a retry flag."
+            ),
+        ] = False,
         force: Annotated[
             bool,
             Field(description="Send even if the user was recently active at the machine."),
@@ -1410,7 +1421,12 @@ def register(
         selection, release. Always release what you hold: a key left down makes
         the machine unusable for the user. As a backstop the server releases
         everything by itself after a timeout and says so in the next reply, but
-        that is damage control, not a substitute for releasing."""
+        that is damage control, not a substitute for releasing.
+
+        Shortcuts that close a window or quit an application are refused unless
+        you also pass confirm_close, so unsaved work is never discarded on a
+        guess. If you get that refusal, decide whether closing is really what
+        the user asked for before repeating the call."""
         err = _guard(
             "keyboard",
             write=True,
@@ -1433,6 +1449,10 @@ def register(
             elif act in ("key", "hold", "release"):
                 if not keys:
                     return f"{act} icin `keys` zorunlu (ornek: 'ctrl+v')."
+                if act in ("key", "hold"):
+                    # Icerik kapisi: `force` bunu ACMAZ, ayri bir niyet beyani
+                    # ister (KURALLAR.md sec. 4, madde 5).
+                    policy.check_key_combo(keys, confirm_close=confirm_close)
                 if act == "key":
                     backend.key(keys)
                 elif act == "hold":
@@ -1456,6 +1476,7 @@ def register(
             "keyboard",
             action=act,
             keys=keys,
+            confirmed_close=confirm_close or None,
             chars=len(text) if text else None,
             raw=raw or None,
             forced=force or None,
@@ -1985,8 +2006,9 @@ def register(
             Field(
                 description=(
                     'JSON array of actions, run in order. Each item is '
-                    '{"a": "<kind>", ...}. Kinds: key {keys}, type {text, raw?}, '
-                    'hold {keys}, release {keys}, wait {ms}, '
+                    '{"a": "<kind>", ...}. Kinds: key {keys, confirm_close?}, '
+                    'type {text, raw?}, hold {keys, confirm_close?}, '
+                    'release {keys}, wait {ms}, '
                     'move/click/double_click/triple_click/right_click/middle_click '
                     '{x?, y?, shot?, monitor?}, mouse_down {button?, x?, y?, shot?}, '
                     'mouse_up {button?}, drag {x, y, to_x, to_y, button?, shot?}, '
@@ -1998,6 +2020,9 @@ def register(
                     'converts them for you. hold/mouse_down stay down across later '
                     'actions, so a drag with stops along the way is mouse_down, '
                     'move, move, mouse_up. '
+                    'A key/hold that closes a window or quits an application '
+                    '(alt+F4, ctrl+q, ctrl+w) needs confirm_close on that item; '
+                    'without it the whole list is rejected and nothing runs. '
                     'Example: [{"a":"click","x":640,"y":360,"shot":"m2-a1b2c3"},'
                     '{"a":"wait","ms":400},{"a":"type","text":"hello"}]'
                 )
@@ -2036,6 +2061,20 @@ def register(
         except batchlib.BatchError as exc:
             # Kapidan ONCE: hicbir sey calistirilmiyor, yalnizca sozdizimi.
             return _text(f"⛔ {exc}")
+        except DesktopError as exc:
+            # Icerik kapisi ayristirmada atesLendi (onaylanmamis kapatma):
+            # listenin tamami reddedildi, tek eylem bile calismadi.
+            gate.audit("computer_batch_refused", error=exc.code.value)
+            return _exception_result(
+                exc,
+                text=f"⛔ {exc}",
+                category=exc.category,
+                scope="pcbridge.desktop",
+                backend_name="desktop.input",
+                extra={
+                    "batch": {"done": 0, "total": 0, "stopped": "refused"}
+                },
+            )
 
         kinds = {a.a for a in plan}
         # Yalnizca erisilebilirlik eylemleri varsa /dev/uinput aranmaz --
@@ -2088,6 +2127,7 @@ def register(
             min_gap=gap,
             check_focus=cfg.desktop.batch_check_focus,
             expect_focus=expect_focus or "",
+            repeat_limit=cfg.desktop.repeat_click_limit,
         )
         for step in result.steps:
             # Metin ICERIGI yazilmaz -- `ui_set_text`teki kural aynen gecerli.

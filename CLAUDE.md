@@ -279,6 +279,12 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   bırakıyor.
 - **`Shell.Introspect` kapalı** (GNOME 46, "Access denied"). Pencere listesi ve
   odak yalnızca AT-SPI'dan.
+- **AT-SPI'da parola alanının rolü `password text` ve başka işaret yok.**
+  Ölçüldü 2026-09-12: `Atspi.role_get_name(Atspi.Role.PASSWORD_TEXT)` →
+  `'password text'`; adında "password" geçen **tek** rol bu ve paroloya özel
+  bir `StateType` **yok** (`SENSITIVE` ilgisiz — "etkin" demek). Yani kapı
+  role bakmak zorunda. Alan `ui_dump`'ta görünüyor, çünkü liste `editable`
+  düğümleri alıyor: ajan kimliği alabiliyor, o yüzden kapı gerekli.
 - **AT-SPI `get_extents` koordinatları yanlış.** Tıklama `Action.do_action` ile
   yapılır; `Action` yoksa koordinata **düşülmez**, açıkça hata dönülür.
 - **AT-SPI Electron'un penceresini görür, içini görmez.** Vesktop'ta `ui_dump`

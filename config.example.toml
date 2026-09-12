@@ -389,6 +389,23 @@ agent_shot_dir = ""
 # Yas olcutu asagidaki `agent_shot_max_age_seconds`ten geliyor.
 ambiguous_coord_guard = true
 
+# Ayni hedefe ust uste kacinci tiklamada dizi DURSUN. Ikisi gecer, ucuncusu
+# hic gonderilmez.
+#
+# Sebep: donguye giren bir ajan ayni dugmeye basmayi surduruyor. Hiz siniri
+# onu YAVASLATIYOR ama DURDURMUYOR -- dizinin sonuna kadar ayni yere vurmaya
+# devam ediyor. Ilk iki tiklama beklenen etkiyi yapmadiysa ucuncusu de
+# yapmaz; dogru hamle ekrani `ui_dump` ya da `screen_capture` ile yeniden
+# okumak.
+#
+# "Ayni hedef" = ayni dugum kimligi (`ui_click`) ya da ayni koordinat +
+# ayni uzay (`monitor`/`shot`). Araya `move`, `type` gibi bir eylem girerse
+# seri kirilir; `wait` KIRMAZ, cunku "tikla-bekle-tikla" tam da o desendir.
+#
+# `double_click` / `triple_click` tek eylemdir, bu sayaci doldurmaz.
+# 0 = kapali. En kucuk gecerli deger 2.
+repeat_click_limit = 3
+
 # KOORDINATLI bir pcb-do eylemi gonderilirken en yeni ekran goruntusu en fazla
 # bu kadar saniye eski olabilir. 0 = kontrol kapali.
 #
