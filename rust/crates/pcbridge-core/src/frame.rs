@@ -80,11 +80,12 @@ pub struct FrameSpec {
     pub size: u32,
 }
 
-/// Producer-side identity of a frame, carried through untouched.
+/// Source-side identity of a frame.
 ///
-/// `captured_at_ns` is the producer's clock, not ours. It is reported, never
-/// compared against a local timestamp: deciding whether a frame is new enough
-/// is done with our own monotonic receipt time, in the capture worker.
+/// The clock and sequence domain are reported separately by the platform
+/// adapter. They are never compared against a local timestamp: deciding whether
+/// a frame is new enough is done with our own monotonic receipt time, in the
+/// capture worker.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct FrameId {
     pub sequence: u64,

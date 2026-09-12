@@ -70,7 +70,7 @@ Başarılı response seçilen sürümü ve process kimliğini döndürür:
     "instance_id": "native-12345",
     "native_version": "0.1.0",
     "platform": "linux",
-    "features": [],
+    "features": ["display.snapshot", "capture.on_demand"],
     "lease_bound": true
   },
   "binary_len": 0
@@ -82,17 +82,20 @@ bağlantıyı kapatır. Handshake sonrasında farklı minor sürüm kullanan req
 `UNSUPPORTED_PROTOCOL_MINOR` döndürür. İkinci `initialize` isteği
 `ALREADY_INITIALIZED` ile reddedilir.
 
-## Task 2.1 metotları
+## Metotlar
 
-Harness yalnızca aşağıdaki metotları kabul eder:
+Harness aşağıdaki metotları kabul eder:
 
 - `initialize`: sürümü ve zorunlu handshake alanlarını doğrular.
 - `ping`: `{"pong": true}` döndürür; varsa `params.nonce` değerini aynen
   response'a ekler.
-- `capabilities`: gerçek backend'de `protocol-only` ve boş capability listesi
-  döndürür.
-- `cancel`: `params.target_id` alanını doğrular. Bu task uzun işlem
-  başlatmadığı için `canceled: false` döndürür.
+- `capabilities`: gerçek backend'de `linux.mutter.pipewire` ve
+  `capture.monitor: supported` döndürür; oturum ya da PipeWire akışı açmaz.
+- `display.snapshot`: Task 3.1 monitör tablosunu döndürür.
+- `capture.frame`: Task 3.3 tek monitör PNG'sini binary payload olarak döndürür.
+- `cancel`: `params.target_id` alanını doğrular ve bugün `canceled: false`
+  döndürür. Capture'ın kendi 1–8000 ms zaman aşımı ve lifecycle kapıları vardır;
+  dispatcher henüz eşzamanlı request çalıştırmıyor.
 - `shutdown`: framed başarı response'ını yazdıktan sonra process'i temizce
   kapatır.
 
@@ -138,17 +141,79 @@ Düzen değişikliği Mutter'ın `MonitorsChanged` sinyaliyle yakalanıyor: önb
 zamanlayıcıyla değil, sinyalle geçersizleşiyor. Yani takılan bir monitör bir
 sonraki snapshot'ta görünür, önbellek ömrü kadar sonra değil.
 
-## Task 3.2 — protokolde metot yok
+## Task 3.3 metodu — `capture.frame`
 
-Capture session lifecycle'ı bu sürümde **kütüphane olarak** eklendi; protokolde
-oturum açan, kapatan ya da durumunu soran bir metot **yok**. `capabilities`
-çağrısı hiçbir oturum açmıyor ve açamaz: `dispatch.rs` o modüle hiç dokunmuyor.
-Ölçüldü 2026-09-12, release binary, `strace -e trace=connect`: `initialize` →
-`capabilities` → `shutdown` hâlâ **1** bağlantı, `display.snapshot`'lı dizi hâlâ
-**2** — yani session kodu eklenmesi tek bir bağlantı bile eklemedi.
+İstek tek bir monitörü, çağıranın bildiği düzeni ve `initialize` sırasında
+bağlanan grant snapshot'ını açıkça adlandırır:
 
-Durum makinesi, kapanma tetikleri ve ölçümler: **[capture.md](capture.md)**.
-Oturumu ilk açacak olan metot Task 3.3'ün capture isteği.
+```json
+{
+  "protocol": {"major": 1, "minor": 0},
+  "id": "client-a:18",
+  "method": "capture.frame",
+  "params": {
+    "display_id": "mutter:DP-4",
+    "topology_id": "v1|0,0,1920,1080,1.0000,0,0|1920,0,1920,1080,1.0000,0,1",
+    "session_id": "capture-session-id",
+    "grant_id": "grant-id",
+    "revoke_epoch": 7,
+    "timeout_ms": 8000,
+    "freshness": "after_request",
+    "include_pointer": true
+  },
+  "binary_len": 0
+}
+```
+
+`display_id` scoped ve en fazla 256 byte olmalıdır. `topology_id` boş olamaz ve
+16 KiB ile sınırlıdır; `session_id` ile `grant_id` boş olamaz ve 256 byte ile
+sınırlıdır. Yalnızca `freshness: "after_request"` kabul edilir. Production
+`display_id` şeması `mutter:<connector>`'dır. Düzen kimliği güncel snapshot ile
+eşleşmezse `DISPLAY_CHANGED`; connector çözülemezse
+`DISPLAY_MAPPING_UNKNOWN`; grant kimliği veya revoke epoch helper'ın bağlandığı
+snapshot ile eşleşmezse `REVOKED` döner. Hiçbirinde ilk monitöre düşülmez.
+
+Başarı header'ının hemen ardından `binary_len` kadar ham PNG byte'ı gelir;
+native pipe üzerinde base64 yoktur:
+
+```json
+{
+  "protocol": {"major": 1, "minor": 0},
+  "id": "client-a:18",
+  "result": {
+    "display_id": "mutter:DP-4",
+    "topology_id": "v1|...",
+    "session_id": "capture-session-id",
+    "frame_sequence": 42,
+    "frame_timestamp_ns": 151412335,
+    "frame_identity_source": "source_monotonic_clock",
+    "pixel_size": [1920, 1080],
+    "desktop_rect": [0, 0, 1920, 1080],
+    "stale_frames": 0,
+    "include_pointer": true,
+    "revoke_epoch": 7,
+    "wait_ms": 58.6,
+    "encode_ms": 34.0,
+    "backend": "linux.mutter.pipewire",
+    "mime_type": "image/png"
+  },
+  "binary_len": 248713
+}
+```
+
+Frame identity'nin saat alanı `frame_identity_source` olmadan yorumlanmaz.
+Üretici `SPA_META_Header` verirse sequence ve PTS değiştirilmeden taşınır ve
+kaynak `spa_meta_header` olur. Ölçülen Mutter/GNOME 46 akışı bu metadata'yı
+vermiyor; o durumda sequence PipeWire source ömrü boyunca yerel sayaç,
+timestamp o source'un monotonic başlangıcından beri nanosaniye ve kaynak
+`source_monotonic_clock` olur. Bu değerler tazelik kararı için kullanılmaz;
+kare geldiğinde ayrı bir yerel `Instant` ile damgalanır.
+
+Oturum, PipeWire thread'i ve display reader ilk gerçek capture isteğinde tembel
+kurulur. `initialize`, `capabilities` ve `ping` ekran paylaşımı açmaz. Capture
+başarısız olursa session/node eşlemesi kapatılır; sonraki deneme eski düğüm
+kimliğini kullanmaz. Durum makinesi, kapanma tetikleri ve ölçümler:
+**[capture.md](capture.md)**.
 
 ## Response eşleştirme ve hata zarfı
 
@@ -163,7 +228,7 @@ Hatalar aynı envelope içinde taşınır:
   "id": "client-a:2",
   "error": {
     "code": "UNKNOWN_METHOD",
-    "message": "method 'capture.frame' is not available",
+    "message": "method 'example.unknown' is not available",
     "retryable": false,
     "category": "protocol"
   },
@@ -182,8 +247,9 @@ cargo test --workspace --all-targets \
 ```
 
 Default production derlemesinde feature kapalıdır. Bu binary `--test-mode`
-argümanını kabul etmez; production `capabilities` response'ı fake backend veya
-desktop capability ilan etmez.
+argümanını kabul etmez; production `capabilities` response'ı yalnızca derlenmiş
+`linux.mutter.pipewire` monitor capture desteğini ilan eder ve bu sorgu izin
+istemez ya da oturum açmaz.
 
 Test kipi sabit `test-native-instance` kimliği, `test` platformu ve
 `test.fake` capability backend'i üretir. Fake capability açık bir desktop

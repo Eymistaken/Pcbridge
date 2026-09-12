@@ -4,10 +4,13 @@ use std::fs;
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
+
+static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
 fn now() -> f64 {
     SystemTime::now()
@@ -20,7 +23,7 @@ fn fixture_root() -> PathBuf {
     let root = std::env::temp_dir().join(format!(
         "pcbridge-native-revoke-{}-{}",
         std::process::id(),
-        now()
+        NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed)
     ));
     fs::create_dir_all(root.join("state")).unwrap();
     fs::create_dir_all(root.join("runtime")).unwrap();

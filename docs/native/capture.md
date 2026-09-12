@@ -6,10 +6,10 @@ Bu belge `pcbridge-native`'in Mutter ScreenCast oturumunu anlatır:
 `rust/crates/pcbridge-native/src/platform/linux/session.rs`. Karşılığı Python
 tarafında `pcbridge/desktop/screencast.py` + `screencast_helper.py`.
 
-**Bugün hiçbir üretim yolu bu oturumu açmıyor.** Protokolde oturum açan bir
-metot yok (`dispatch.rs` bu modüle hiç dokunmuyor), `[native] capture` hâlâ
-`"python"` ve ekran paylaşan tek yol Python yardımcısı. Task 3.3 kare isteğini,
-Task 3.4 Python shot pipeline'ına bağlamayı ekleyecek.
+Native protokoldeki `capture.frame` bu oturumu ve PipeWire akışını tembel açar.
+Ancak `[native] capture` hâlâ `"python"`; mevcut Python shot pipeline'ı bu
+metodu henüz çağırmıyor ve kullanıcıya açık capture yolu Python yardımcısı.
+Task 3.4 bu native sonucu mevcut shot/koordinat sözleşmesine bağlayacak.
 
 ## Neden oturum var
 
@@ -172,15 +172,23 @@ geri verilmiş. Ayrıca işçi `detach`'i kodlamadan önce çağırıyor.
    sabitliyor: dört baytlık bir tamponla 3,6 milyar piksellik istek
    `TooManyPixels` döndürüyor, `BufferTooSmall` değil.
 
-### Tazelik neden bizim saatimizle ölçülüyor
+### Tazelik ve frame identity neden ayrı
 
-Kare üreticinin sequence numarasını ve sunum zaman damgasını taşıyor; ikisi de
-çağırana rapor ediliyor. Ama hiçbiri "bu kare bu isteğe mi ait" sorusunu
-cevaplamıyor: o zaman damgası sürücünün saatinden geliyor ve onun bizim saatimiz
-olduğunu **varsaymak**, tam olarak bir önceki ekranın görüntüsünü üretecek türden
-ölçülmemiş bir varsayım. Bunun yerine kaynak her kareyi geldiği anda monotonik
-bir `Instant` ile damgalıyor; istekten eski olan atılıyor ve **sayılıyor**
-(`stale_frames`).
+Kare kimliğinin sequence/timestamp alanı ve kaynağı çağırana rapor edilir. Ama
+bu alanlar "kare bu isteğe mi ait" sorusunu cevaplamaz: üretici PTS'sini bizim
+saatimizle karşılaştırmak ölçülmemiş bir varsayım olur. Bunun yerine kaynak her
+kareyi geldiği anda ayrı bir monotonik `Instant` ile damgalıyor; istekten eski
+olan atılıyor ve **sayılıyor** (`stale_frames`).
+
+Gerçek ölçüm bir ikinci varsayımı da eledi: Mutter'ın GNOME 46 akışı
+`SPA_META_Header` sağlamıyor ve `pw_stream_get_time_n().now` bu portal düğümünde
+`0` dönüyor. Kod metadata varmış ya da sıfır geçerliymiş gibi davranmıyor:
+
+- `SPA_META_Header` varsa sequence ve PTS aynen taşınır;
+  `frame_identity_source = "spa_meta_header"`.
+- Yoksa PipeWire source ömrü boyunca yerel sıra ve source başlangıcından beri
+  monotonic nanosaniye taşınır;
+  `frame_identity_source = "source_monotonic_clock"`.
 
 ### Sınırlar
 
@@ -190,21 +198,51 @@ bir `Instant` ile damgalıyor; istekten eski olan atılıyor ve **sayılıyor**
 | En büyük kare | 32 milyon piksel | Tahsisten önce |
 | IPC yükü | 128 MiB | `MAX_PIXELS * 4 <= MAX_BINARY_BYTES` **derleme zamanında** doğrulanıyor |
 
-### Eksik olan: gerçek PipeWire kaynağı
+### Gerçek PipeWire kaynağı
 
-`FrameSource`'un PipeWire uygulaması **henüz yok**, çünkü bu makinede
-`libpipewire-0.3-dev` kurulu değil — çalışma kütüphanesi (`libpipewire-0.3.so.0`,
-1.0.5) var, başlıklar yok. `pipewire-sys`/`libspa-sys` bindgen ile başlık
-istiyor:
+`pipewire_source.rs` PipeWire `MainLoop`/`Context`/`Stream` nesnelerinin
+tamamını tek adanmış thread'de tutar; thread sınırından yalnızca sahipli RGBA8
+kare geçer. Event kanalı iki öğeyle sınırlıdır. Format pazarlığı gerçek SPA
+enum'larıyla yalnızca BGRx/RGBx/BGRA/RGBA ilan eder; bilinmeyen format,
+CPU-map edilemeyen DMA-BUF, negatif stride ve bozuk/eksik chunk reddedilir.
 
-```bash
-sudo apt install libpipewire-0.3-dev libclang-dev
-```
+Process callback'i tamponu dequeue eder, doğrular ve RGBA8'e kopyalar. Tampon
+RAII ile geri verildikten sonra stream **callback'in içinde disconnect edilir**;
+ancak bundan sonra sahipli kare işçiye gönderilir ve PNG kodlaması başlar. Bu
+sıra yalnızca performans tercihi değil: ilk uygulamada disconnect kontrol
+kanalından istendi ve sürekli process callback'leri komutu 2 saniye aç bıraktı.
+Gerçek testte wait + encode dışındaki ek yük tam **2001 ms** idi. Stream ilk
+kareden sonra kendi callback'inde bırakılınca aynı ek yük **1 ms'nin altına**
+indi.
 
-Trait'in üstündeki her şey yazılı ve sahte kaynakla sınanmış. PNG'yi binary IPC
-yükü olarak gönderen protokol metodu da gerçek kaynakla birlikte gelecek: hiçbir
-zaman çalışamayacak bir metodu şimdiden protokole koymak, olmayan bir yeteneği
-ilan etmek olurdu.
+Build için `libpipewire-0.3-dev` ve bindgen'in kullandığı `libclang-dev`
+gerekiyor. İkisi de 2026-09-12'de kullanıcı tarafından kuruldu; ölçülen
+PipeWire/SPA sürümü 1.0.5. Bunlar build gereksinimleri; paketlenmiş binary'nin
+runtime bağımlılık ayrımı Task 4.1'de belgelenecek.
+
+### Gerçek kare ölçümü (2026-09-12)
+
+İki ardışık kare alan release testi beş ayrı session'da çalıştırıldı; toplam
+**10 gerçek 1920×1080 kare**. Her PNG decode edildi, ilk karenin siyah olmadığı
+ve bütün alfa baytlarının `255` olduğu doğrulandı; her ikilide sequence `1 → 2`
+ve timestamp arttı. Sonuçlar:
+
+| Ölçüm | Rust release |
+|---|---|
+| Kare bekleme (ilk kare) | 57,3–63,2 ms |
+| PNG encoding (ilk kare) | 32,2–34,0 ms |
+| Toplam, session/source zaten açık | 87,1–97,3 ms |
+| Wait + encode dışı stream bırakma ek yükü | 0,2–0,4 ms |
+
+Aynı monitörde Python/GStreamer `screencast_helper.py` ölçümü: **71 ms**,
+1920×1080, siyah değil, alfa tamamen opak. Kareler farklı anlarda alındığı için
+bu bir piksel-birebir parity iddiası değil; Task 4.2 o gate'i ayrı kuracak.
+Bugünkü ölçüm Task 3.3'ün daha dar sorusunu doğruluyor: iki yol da gerçek,
+decode edilebilir ve aynı boyutta görüntü üretiyor; Rust yolu debug değil release
+derlemede ölçüldü.
+
+Koşumlardan sonra Mutter altında Session nesnesi, `pcbridge-native` process'i,
+`screencast_helper.py` process'i ve geçici PNG kalmadı.
 
 ### PNG kodlayıcı: `image` değil `png`
 
@@ -228,9 +266,17 @@ yazmak ve testte geri okumak; aradaki hiçbir şeye dokunmuyoruz. Planın niyeti
   kanal sırası, alfa, taşma, sıfır boyut ve PNG gidiş-dönüşü. Beklenen baytlar
   elle yazıldı; hiçbiri dönüştürücüyü çalıştırıp çıktısını kaydederek
   üretilmedi.
-- `rust/crates/pcbridge-native/tests/capture_worker.rs` — 12 test, sahte kare
+- `rust/crates/pcbridge-native/tests/capture_worker.rs` — 15 test, sahte kare
   kaynağı. Bayat kare, zaman aşımı, iptal, revoke, bozuk tampon, başarısız
-  attach ve her hata yolunda tam bir `detach`.
+  attach, gerçek SPA format eşlemesi, frame identity kaynağı ve her hata yolunda
+  tam bir `detach`.
+- `rust/crates/pcbridge-native/tests/ipc_protocol.rs` — `test-harness` kipinde
+  PNG'nin base64 olmadan tam `binary_len` ile taşındığını, decode edilen kesin
+  pikselleri ve sınırlandırılmış capture parametrelerini doğrular.
+- `rust/crates/pcbridge-native/tests/capture_frame_live.rs` —
+  `PCBRIDGE_TEST_CAPTURE=1` yoksa kare okumadan atlanır. Aynı gerçek session ve
+  source ile iki frame alır; boyut, PNG imzası, siyah olmayan pikseller, opak
+  alfa, artan sequence/timestamp ve her frame sonrası stream kapanışını sınar.
 - `rust/crates/pcbridge-native/tests/capture_session_live.rs` —
   `PCBRIDGE_TEST_CAPTURE=1` yoksa atlanır. Gerçek Mutter'a bağlanır; metot
   adlarının, argüman imzalarının ve sinyal biçiminin doğru olduğunu yalnızca bu
@@ -250,5 +296,5 @@ son kapı noktası ve `Drop` ayrı ayrı bozulunca 6 test kırmızıya döndü.
 
 ## Geri alma
 
-`[native] capture = "python"`. Bu task'ın kodunun üretimde çağıranı olmadığı
-için geri alma bugün zaten etkisiz; 3.4'ten sonra anlamlı hale gelecek.
+`[native] capture = "python"`. Varsayılan zaten budur; Task 3.4'e kadar mevcut
+Python shot pipeline'ı native protokol metodunu çağırmaz.

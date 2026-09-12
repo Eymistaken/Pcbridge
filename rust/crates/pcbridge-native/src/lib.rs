@@ -26,7 +26,7 @@ pub fn run<R: Read, W: Write>(
             return Ok(ExitReason::Eof);
         };
         let outcome = dispatcher.dispatch(frame)?;
-        write_frame(&mut writer, &outcome.response, &[])?;
+        write_frame(&mut writer, &outcome.response, &outcome.binary)?;
         match outcome.close {
             None => {}
             Some(CloseConnection::Shutdown) => return Ok(ExitReason::Shutdown),

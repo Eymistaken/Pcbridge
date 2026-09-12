@@ -11,9 +11,12 @@ use serde_json::{Value, json};
 #[cfg(feature = "test-harness")]
 use crate::lifecycle::LeaseFailure;
 use crate::lifecycle::Lifecycle;
+use crate::platform::linux::capture::{CaptureError, NativeCapture, NativeCaptureError};
 #[cfg(feature = "test-harness")]
 use crate::platform::linux::desktop_state::DeterministicDesktopState;
 use crate::platform::linux::display::DisplayReader;
+use crate::platform::linux::display::DisplaySnapshot;
+use crate::platform::linux::session::SessionFailure;
 
 #[derive(Debug)]
 pub enum BackendMode {
@@ -56,7 +59,7 @@ impl BackendMode {
 
     fn features(&self) -> Vec<&'static str> {
         match self {
-            Self::Production { .. } => Vec::new(),
+            Self::Production { .. } => vec!["display.snapshot", "capture.on_demand"],
             #[cfg(feature = "test-harness")]
             Self::DeterministicTest => vec!["test.fixture", "test.lease"],
         }
@@ -65,8 +68,14 @@ impl BackendMode {
     fn capabilities(&self) -> Value {
         match self {
             Self::Production { .. } => json!({
-                "backend": "protocol-only",
-                "capabilities": [],
+                "backend": "linux.mutter.pipewire",
+                "capabilities": [
+                    {
+                        "name": "capture.monitor",
+                        "status": "supported",
+                        "permission_scope": "os.capture",
+                    }
+                ],
             }),
             #[cfg(feature = "test-harness")]
             Self::DeterministicTest => json!({
@@ -92,6 +101,7 @@ pub enum CloseConnection {
 #[derive(Debug)]
 pub struct DispatchOutcome {
     pub response: ResponseHeader,
+    pub binary: Vec<u8>,
     pub close: Option<CloseConnection>,
 }
 
@@ -101,12 +111,12 @@ pub struct Dispatcher {
     initialized: bool,
     negotiated_minor: Option<u16>,
     lifecycle: Option<Lifecycle>,
-    /// Built on the first `display.snapshot`, never at startup. Task 2.1
-    /// measured zero `connect` syscalls for a default binary that only does
-    /// initialize/capabilities/shutdown, and that has to stay true: a session
-    /// bus connection opened for nothing is a resource the caller never asked
-    /// for.
+    /// Built on the first `display.snapshot`, never by this field at startup.
+    /// Task 3.1 measured one baseline session-bus connection from desktop-state
+    /// monitoring and exactly one additional connection for this reader.
     display: Option<DisplayReader>,
+    /// Session and PipeWire loop, both created only by the first real capture.
+    capture: Option<NativeCapture>,
 }
 
 impl Dispatcher {
@@ -118,6 +128,7 @@ impl Dispatcher {
             negotiated_minor: None,
             lifecycle: None,
             display: None,
+            capture: None,
         }
     }
 
@@ -183,6 +194,7 @@ impl Dispatcher {
             "ping" => self.success(request.id, ping_result(request.params), None),
             "capabilities" => self.success(request.id, self.mode.capabilities(), None),
             "display.snapshot" => self.display_snapshot(request.id),
+            "capture.frame" => self.capture_frame(request.id, request.params),
             "cancel" => match parse_cancel(request.params) {
                 Ok(target_id) => self.success(
                     request.id,
@@ -319,24 +331,7 @@ impl Dispatcher {
     /// Read-only display metadata: no pixels, no grant, no device. Mirrors the
     /// host's `screen_info`, which is likewise outside the desktop grant.
     fn display_snapshot(&mut self, id: String) -> DispatchOutcome {
-        if self.display.is_none() {
-            match DisplayReader::connect() {
-                Ok(reader) => self.display = Some(reader),
-                Err(err) => {
-                    return self.error(
-                        id,
-                        "DISPLAY_MAPPING_UNKNOWN",
-                        format!("display config unavailable: {err}"),
-                        None,
-                    );
-                }
-            }
-        }
-        let reader = self
-            .display
-            .as_ref()
-            .expect("display reader was just constructed");
-        match reader.snapshot() {
+        match self.current_display_snapshot() {
             Ok(snapshot) => {
                 let (width, height) = pcbridge_core::display::canvas_size(&snapshot.monitors);
                 let monitors: Vec<Value> = snapshot
@@ -372,6 +367,20 @@ impl Dispatcher {
         }
     }
 
+    fn current_display_snapshot(&mut self) -> Result<DisplaySnapshot, String> {
+        if self.display.is_none() {
+            self.display = Some(
+                DisplayReader::connect()
+                    .map_err(|error| format!("display config unavailable: {error}"))?,
+            );
+        }
+        self.display
+            .as_ref()
+            .expect("display reader was just constructed")
+            .snapshot()
+            .map_err(|error| error.to_string())
+    }
+
     fn success(
         &self,
         id: String,
@@ -380,7 +389,16 @@ impl Dispatcher {
     ) -> DispatchOutcome {
         DispatchOutcome {
             response: ResponseHeader::success(id, result),
+            binary: Vec::new(),
             close,
+        }
+    }
+
+    fn success_binary(&self, id: String, result: Value, binary: Vec<u8>) -> DispatchOutcome {
+        DispatchOutcome {
+            response: ResponseHeader::success_with_binary(id, result, binary.len() as u64),
+            binary,
+            close: None,
         }
     }
 
@@ -393,7 +411,16 @@ impl Dispatcher {
     ) -> DispatchOutcome {
         DispatchOutcome {
             response: ResponseHeader::error(id, ErrorBody::protocol(code, message)),
+            binary: Vec::new(),
             close,
+        }
+    }
+
+    fn typed_error(&self, id: String, error: ErrorBody) -> DispatchOutcome {
+        DispatchOutcome {
+            response: ResponseHeader::error(id, error),
+            binary: Vec::new(),
+            close: None,
         }
     }
 
@@ -409,8 +436,207 @@ impl Dispatcher {
                     category: "safety".to_owned(),
                 },
             ),
+            binary: Vec::new(),
             close: None,
         }
+    }
+
+    fn capture_frame(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match serde_json::from_value::<CaptureFrameParams>(params) {
+            Ok(params) => params,
+            Err(error) => {
+                return self.error(
+                    id,
+                    "INVALID_PARAMS",
+                    format!("invalid capture parameters: {error}"),
+                    None,
+                );
+            }
+        };
+        if let Err(message) = params.validate() {
+            return self.error(id, "INVALID_PARAMS", message, None);
+        }
+
+        match &self.mode {
+            #[cfg(feature = "test-harness")]
+            BackendMode::DeterministicTest => {
+                let frame = pcbridge_core::frame::RgbaFrame {
+                    width: 2,
+                    height: 1,
+                    id: pcbridge_core::frame::FrameId {
+                        sequence: 42,
+                        captured_at_ns: 4242,
+                    },
+                    pixels: vec![0x11, 0x22, 0x33, 0xFF, 0xAA, 0xBB, 0xCC, 0xFF],
+                };
+                match frame.to_png() {
+                    Ok(png) => self.success_binary(
+                        id,
+                        json!({
+                            "display_id": params.display_id,
+                            "topology_id": params.topology_id,
+                            "session_id": params.session_id,
+                            "frame_sequence": frame.id.sequence,
+                            "frame_timestamp_ns": frame.id.captured_at_ns,
+                            "frame_identity_source": "test_fixture",
+                            "pixel_size": [frame.width, frame.height],
+                            "desktop_rect": [0, 0, frame.width, frame.height],
+                            "stale_frames": 0,
+                            "include_pointer": params.include_pointer,
+                            "revoke_epoch": params.revoke_epoch,
+                            "backend": "test.fake",
+                            "mime_type": "image/png",
+                        }),
+                        png,
+                    ),
+                    Err(error) => self.error(id, "CAPTURE_FAILED", error.to_string(), None),
+                }
+            }
+            BackendMode::Production { .. } => self.capture_frame_production(id, params),
+        }
+    }
+
+    fn capture_frame_production(
+        &mut self,
+        id: String,
+        params: CaptureFrameParams,
+    ) -> DispatchOutcome {
+        let Some(connector) = params.display_id.strip_prefix("mutter:") else {
+            return self.error(
+                id,
+                "INVALID_PARAMS",
+                "production display_id must start with 'mutter:'",
+                None,
+            );
+        };
+        let connector = connector.to_owned();
+        let lifecycle = self
+            .lifecycle
+            .as_ref()
+            .expect("initialized dispatcher has a lifecycle");
+        if !lifecycle.matches_token(&params.grant_id, params.revoke_epoch) {
+            return self.typed_error(
+                id,
+                ErrorBody {
+                    code: "REVOKED".to_owned(),
+                    message: "capture request does not match the bound desktop grant".to_owned(),
+                    retryable: false,
+                    category: "safety".to_owned(),
+                },
+            );
+        }
+
+        let snapshot = match self.current_display_snapshot() {
+            Ok(snapshot) => snapshot,
+            Err(message) => {
+                return self.typed_error(
+                    id,
+                    ErrorBody {
+                        code: "DISPLAY_MAPPING_UNKNOWN".to_owned(),
+                        message,
+                        retryable: true,
+                        category: "capture".to_owned(),
+                    },
+                );
+            }
+        };
+        if self.capture.is_none() {
+            let lifecycle = self
+                .lifecycle
+                .as_ref()
+                .expect("initialized dispatcher has a lifecycle");
+            match NativeCapture::connect(lifecycle) {
+                Ok(capture) => self.capture = Some(capture),
+                Err(error) => return self.native_capture_error(id, error),
+            }
+        }
+        let lifecycle = self
+            .lifecycle
+            .as_ref()
+            .expect("initialized dispatcher has a lifecycle");
+        let capture = self
+            .capture
+            .as_ref()
+            .expect("capture resources were just constructed");
+        match capture.capture(
+            &snapshot,
+            &params.topology_id,
+            &connector,
+            params.include_pointer,
+            std::time::Duration::from_millis(params.timeout_ms),
+            lifecycle,
+        ) {
+            Ok(captured) => {
+                let image = captured.image;
+                self.success_binary(
+                    id,
+                    json!({
+                        "display_id": params.display_id,
+                        "topology_id": params.topology_id,
+                        "session_id": params.session_id,
+                        "frame_sequence": image.id.sequence,
+                        "frame_timestamp_ns": image.id.captured_at_ns,
+                        "frame_identity_source": image.identity_source.as_str(),
+                        "pixel_size": [image.width, image.height],
+                        "desktop_rect": [
+                            captured.x,
+                            captured.y,
+                            captured.expected_width,
+                            captured.expected_height,
+                        ],
+                        "stale_frames": image.stale_frames,
+                        "include_pointer": params.include_pointer,
+                        "revoke_epoch": params.revoke_epoch,
+                        "wait_ms": image.waited.as_secs_f64() * 1000.0,
+                        "encode_ms": image.encoded_in.as_secs_f64() * 1000.0,
+                        "backend": "linux.mutter.pipewire",
+                        "mime_type": "image/png",
+                    }),
+                    image.png,
+                )
+            }
+            Err(error) => self.native_capture_error(id, error),
+        }
+    }
+
+    fn native_capture_error(&self, id: String, error: NativeCaptureError) -> DispatchOutcome {
+        let (code, category, retryable) = match &error {
+            NativeCaptureError::DisplayChanged => ("DISPLAY_CHANGED", "capture", true),
+            NativeCaptureError::DisplayUnknown(_) => ("DISPLAY_MAPPING_UNKNOWN", "capture", true),
+            NativeCaptureError::Session(SessionFailure::Guard(failure))
+            | NativeCaptureError::Capture(CaptureError::Guard(failure)) => {
+                (failure.code(), "safety", true)
+            }
+            NativeCaptureError::Session(SessionFailure::Busy(_)) => ("BUSY", "execution", true),
+            NativeCaptureError::Capture(CaptureError::Timeout(_)) => {
+                ("FRAME_TIMEOUT", "capture", true)
+            }
+            NativeCaptureError::Capture(CaptureError::Canceled) => ("CANCELLED", "execution", true),
+            NativeCaptureError::Capture(CaptureError::UnsupportedFormat(_)) => {
+                ("FRAME_FORMAT_UNSUPPORTED", "capture", false)
+            }
+            NativeCaptureError::Capture(CaptureError::Frame(
+                pcbridge_core::frame::FrameError::TooManyPixels { .. }
+                | pcbridge_core::frame::FrameError::PayloadTooLarge { .. },
+            )) => ("FRAME_TOO_LARGE", "capture", false),
+            NativeCaptureError::Capture(CaptureError::Frame(_)) => {
+                ("INVALID_FRAME", "capture", false)
+            }
+            NativeCaptureError::Session(_)
+            | NativeCaptureError::Capture(CaptureError::Unavailable(_))
+            | NativeCaptureError::Capture(CaptureError::Stream(_)) => {
+                ("BACKEND_UNAVAILABLE", "capability", true)
+            }
+        };
+        self.typed_error(
+            id,
+            ErrorBody {
+                code: code.to_owned(),
+                message: error.to_string(),
+                retryable,
+                category: category.to_owned(),
+            },
+        )
     }
 }
 
@@ -425,6 +651,54 @@ struct InitializeParams {
 #[derive(Debug, Deserialize)]
 struct CancelParams {
     target_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CaptureFrameParams {
+    display_id: String,
+    topology_id: String,
+    session_id: String,
+    grant_id: String,
+    revoke_epoch: u64,
+    timeout_ms: u64,
+    freshness: String,
+    #[serde(default = "default_true")]
+    include_pointer: bool,
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+impl CaptureFrameParams {
+    fn validate(&self) -> Result<(), &'static str> {
+        const MAX_ID_BYTES: usize = 256;
+        const MAX_TOPOLOGY_BYTES: usize = 16 * 1024;
+
+        let display = self
+            .display_id
+            .split_once(':')
+            .filter(|(scheme, target)| !scheme.is_empty() && !target.is_empty());
+        if display.is_none() || self.display_id.len() > MAX_ID_BYTES {
+            return Err("display_id must be a scoped, nonempty identifier");
+        }
+        if self.topology_id.is_empty() || self.topology_id.len() > MAX_TOPOLOGY_BYTES {
+            return Err("topology_id must be nonempty and bounded");
+        }
+        if self.session_id.is_empty() || self.session_id.len() > MAX_ID_BYTES {
+            return Err("session_id must be nonempty and bounded");
+        }
+        if self.grant_id.is_empty() || self.grant_id.len() > MAX_ID_BYTES {
+            return Err("grant_id must be nonempty and bounded");
+        }
+        if !(1..=8_000).contains(&self.timeout_ms) {
+            return Err("timeout_ms must be between 1 and 8000");
+        }
+        if self.freshness != "after_request" {
+            return Err("freshness must be 'after_request'");
+        }
+        Ok(())
+    }
 }
 
 fn parse_cancel(params: Value) -> Result<String, String> {
@@ -450,7 +724,18 @@ mod tests {
     #[test]
     fn production_mode_never_advertises_fake_backend() {
         let mode = BackendMode::production();
-        assert_eq!(mode.capabilities()["backend"], "protocol-only");
-        assert!(mode.features().is_empty());
+        assert_eq!(mode.capabilities()["backend"], "linux.mutter.pipewire");
+        assert_eq!(
+            mode.features(),
+            vec!["display.snapshot", "capture.on_demand"]
+        );
+        assert_eq!(
+            mode.capabilities()["capabilities"][0]["name"],
+            "capture.monitor"
+        );
+        assert_eq!(
+            mode.capabilities()["capabilities"][0]["status"],
+            "supported"
+        );
     }
 }

@@ -267,10 +267,13 @@ Başarılı yanıt, ardından PNG byte’ları:
     "topology_id": "layout-fingerprint",
     "session_id": "capture-session-id",
     "frame_sequence": 42,
+    "frame_timestamp_ns": 151412335,
+    "frame_identity_source": "source_monotonic_clock",
     "pixel_size": [1920, 1080],
     "desktop_rect": [1920, 0, 1920, 1080],
-    "captured_at_unix_ms": 1780000000000,
-    "frame_age_ms": 12,
+    "stale_frames": 0,
+    "wait_ms": 58.6,
+    "encode_ms": 34.0,
     "backend": "linux.mutter.pipewire",
     "mime_type": "image/png"
   },
@@ -1004,6 +1007,14 @@ Ek kurallar:
 **Yapılmayacak:** Nearest-neighbor resize, GPU capture, DMA-BUF fallback, arbitrary format guessing.
 
 PipeWire frame tüketimi ve stream lifecycle için implementation sırasında bu resmi kaynak kullanılacak: [PipeWire video capture tutorial](https://pipewire.pages.freedesktop.org/pipewire/page_tutorial5.html).
+
+> **Ölçümle netleşen timestamp sözleşmesi (2026-09-12):** Mutter/GNOME 46
+> portal akışı `SPA_META_Header` sağlamıyor; ayrıca bu düğümde
+> `pw_stream_get_time_n().now` `0` dönüyor. Header varsa üretici sequence/PTS'si
+> aynen taşınır. Yoksa source-yerel sequence ve source başlangıcından beri
+> monotonic nanosaniye taşınır; hangi alanın geldiği
+> `frame_identity_source` ile zorunlu olarak belirtilir. Unix zamanı veya frame
+> yaşı uydurulmaz. Tazelik her durumda ayrı yerel receipt `Instant` ile ölçülür.
 
 ## Task 3.4 — Rust capture’ı mevcut Python shot pipeline’ına bağla
 

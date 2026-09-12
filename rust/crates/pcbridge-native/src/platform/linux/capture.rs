@@ -20,30 +20,29 @@
 //!
 //! ## Why freshness is measured on our clock
 //!
-//! A frame carries the producer's sequence number and presentation timestamp,
-//! and both are reported to the caller. Neither decides whether the frame
-//! answers *this* request: that timestamp comes from the driver's clock, and
-//! assuming it is the same clock as ours is exactly the kind of unmeasured
-//! assumption that produces a screenshot of the previous screen. Instead the
-//! source stamps each frame with a monotonic `Instant` as it arrives, and
-//! anything older than the request is dropped and counted.
-//!
-//! ## What is not here yet
-//!
-//! The real `FrameSource` -- the one that owns a PipeWire loop on a dedicated
-//! thread -- needs `libpipewire-0.3-dev` to build, which is not installed on
-//! this machine. Everything above that line is written and tested against a
-//! fake in `tests/capture_worker.rs`; the PipeWire implementation lands behind
-//! this same trait.
+//! A frame carries an explicit identity and the source of that identity. Mutter
+//! supplies no `SPA_META_Header` on the measured machine, so that path uses a
+//! source-local sequence and monotonic clock; producers that do supply the
+//! header retain its sequence and PTS unchanged. Neither clock decides whether
+//! the frame answers *this* request. Instead the source stamps each frame with
+//! a separate monotonic `Instant` as it arrives, and anything older than the
+//! request is dropped and counted.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use pcbridge_core::frame::{FrameError, FrameId, RgbaFrame};
+use pipewire::spa::param::video::VideoFormat;
 
+use crate::lifecycle::Lifecycle;
 use crate::lifecycle::LifecycleFailure;
-use crate::platform::linux::session::SessionGuard;
+use crate::platform::linux::display::DisplaySnapshot;
+use crate::platform::linux::pipewire_source::PipeWireFrameSource;
+use crate::platform::linux::session::{
+    CaptureSession, CursorMode, MutterScreenCast, SessionFailure, SessionGuard, SessionHandle,
+    StartRequest,
+};
 
 /// How long a capture waits for a frame.
 ///
@@ -62,6 +61,28 @@ pub struct SourceFrame {
     pub frame: RgbaFrame,
     /// Stamped by the source from our own monotonic clock as the frame arrived.
     pub received_at: Instant,
+    /// States whether `frame.id` came from producer metadata or the explicit
+    /// source-monotonic fallback.
+    pub identity_source: FrameIdentitySource,
+}
+
+/// Provenance of the sequence and timestamp carried in `FrameId`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FrameIdentitySource {
+    /// Sequence and PTS copied from `SPA_META_Header` without conversion.
+    SpaMetaHeader,
+    /// Source-local sequence plus nanoseconds since this source started.
+    SourceMonotonicClock,
+}
+
+impl FrameIdentitySource {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SpaMetaHeader => "spa_meta_header",
+            Self::SourceMonotonicClock => "source_monotonic_clock",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -78,6 +99,24 @@ pub enum CaptureError {
     Unavailable(String),
     #[error("the stream failed: {0}")]
     Stream(String),
+    #[error("SPA video format {0} is unsupported")]
+    UnsupportedFormat(u32),
+}
+
+/// Convert the SPA format type obtained from the installed headers into the
+/// platform-independent packed layout understood by `pcbridge-core`.
+pub fn pixel_format_from_spa(
+    format: VideoFormat,
+) -> Result<pcbridge_core::frame::PixelFormat, CaptureError> {
+    use pcbridge_core::frame::PixelFormat;
+
+    match format {
+        VideoFormat::RGBA => Ok(PixelFormat::Rgba),
+        VideoFormat::RGBx => Ok(PixelFormat::Rgbx),
+        VideoFormat::BGRA => Ok(PixelFormat::Bgra),
+        VideoFormat::BGRx => Ok(PixelFormat::Bgrx),
+        other => Err(CaptureError::UnsupportedFormat(other.as_raw())),
+    }
 }
 
 /// The PipeWire side of a capture.
@@ -128,11 +167,112 @@ pub struct CapturedPng {
     pub width: u32,
     pub height: u32,
     pub id: FrameId,
+    pub identity_source: FrameIdentitySource,
     /// Frames that arrived but predated the request. Non-zero means the stream
     /// was already running; it is reported rather than hidden.
     pub stale_frames: u32,
     pub waited: Duration,
     pub encoded_in: Duration,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum NativeCaptureError {
+    #[error("the display layout changed before capture")]
+    DisplayChanged,
+    #[error("display connector '{0}' is not in the current layout")]
+    DisplayUnknown(String),
+    #[error(transparent)]
+    Session(#[from] SessionFailure),
+    #[error(transparent)]
+    Capture(#[from] CaptureError),
+}
+
+/// A captured monitor plus the snapshot geometry that selected it.
+#[derive(Debug)]
+pub struct CapturedMonitor {
+    pub image: CapturedPng,
+    pub x: i32,
+    pub y: i32,
+    pub expected_width: u32,
+    pub expected_height: u32,
+}
+
+/// The reusable production capture resources.
+///
+/// The Mutter session stays open under the grant, while the PipeWire consumer
+/// attaches only for the duration of one frame. `Lifecycle` owns a second
+/// reference to the session handle so its watchdog can close the visible share
+/// immediately on revoke or lock.
+#[derive(Debug)]
+pub struct NativeCapture {
+    session: Arc<SessionHandle<MutterScreenCast>>,
+    source: PipeWireFrameSource,
+}
+
+impl NativeCapture {
+    pub fn connect(lifecycle: &Lifecycle) -> Result<Self, NativeCaptureError> {
+        let session = Arc::new(SessionHandle::new(CaptureSession::new(
+            MutterScreenCast::connect().map_err(|error| {
+                CaptureError::Unavailable(format!("Mutter ScreenCast unavailable: {error}"))
+            })?,
+        )));
+        let source = PipeWireFrameSource::new()?;
+        lifecycle.register_fail_closed(session.clone());
+        Ok(Self { session, source })
+    }
+
+    pub fn capture(
+        &self,
+        snapshot: &DisplaySnapshot,
+        topology_id: &str,
+        connector: &str,
+        include_pointer: bool,
+        timeout: Duration,
+        lifecycle: &Lifecycle,
+    ) -> Result<CapturedMonitor, NativeCaptureError> {
+        if snapshot.topology_id != topology_id {
+            return Err(NativeCaptureError::DisplayChanged);
+        }
+        let monitor = snapshot
+            .monitors
+            .iter()
+            .find(|monitor| monitor.connector == connector)
+            .ok_or_else(|| NativeCaptureError::DisplayUnknown(connector.to_owned()))?;
+        let request = StartRequest {
+            monitors: snapshot
+                .monitors
+                .iter()
+                .map(|monitor| monitor.connector.clone())
+                .collect(),
+            cursor: CursorMode::embedded(include_pointer),
+            topology_id: snapshot.topology_id.clone(),
+        };
+        self.session.open(&request, lifecycle)?;
+        let node = self
+            .session
+            .node_for(connector)
+            .ok_or_else(|| NativeCaptureError::DisplayUnknown(connector.to_owned()))?;
+
+        let image = match CaptureWorker::new(self.source.clone())
+            .with_frame_timeout(timeout)
+            .capture(node, lifecycle, &CancelFlag::new())
+        {
+            Ok(image) => image,
+            Err(error) => {
+                // A frame timeout or broken node invalidates the session/node
+                // map. A retry must negotiate a new one, not reuse stale ids.
+                let _ = self.session.stop();
+                return Err(error.into());
+            }
+        };
+        Ok(CapturedMonitor {
+            image,
+            x: monitor.x,
+            y: monitor.y,
+            expected_width: monitor.width,
+            expected_height: monitor.height,
+        })
+    }
 }
 
 /// Turns a node id into a PNG, under the desktop grant.
@@ -181,11 +321,16 @@ impl<S: FrameSource> CaptureWorker<S> {
         // Before the error is even looked at: the stream goes back first, and
         // it goes back before anything expensive runs.
         self.source.detach();
-        let (frame, stale_frames, waited) = collected?;
+        let (source_frame, stale_frames, waited) = collected?;
 
         // A revoke that landed while we were waiting must not turn into a PNG.
         self.checkpoint(guard, cancel)?;
 
+        let SourceFrame {
+            frame,
+            identity_source,
+            ..
+        } = source_frame;
         let started = Instant::now();
         let png = frame.to_png()?;
         Ok(CapturedPng {
@@ -193,6 +338,7 @@ impl<S: FrameSource> CaptureWorker<S> {
             width: frame.width,
             height: frame.height,
             id: frame.id,
+            identity_source,
             stale_frames,
             waited,
             encoded_in: started.elapsed(),
@@ -204,7 +350,7 @@ impl<S: FrameSource> CaptureWorker<S> {
         requested_at: Instant,
         guard: &dyn SessionGuard,
         cancel: &CancelFlag,
-    ) -> Result<(RgbaFrame, u32, Duration), CaptureError> {
+    ) -> Result<(SourceFrame, u32, Duration), CaptureError> {
         let deadline = requested_at + self.frame_timeout;
         let mut stale_frames = 0;
         loop {
@@ -218,7 +364,7 @@ impl<S: FrameSource> CaptureWorker<S> {
                 stale_frames += 1;
                 continue;
             }
-            return Ok((source_frame.frame, stale_frames, requested_at.elapsed()));
+            return Ok((source_frame, stale_frames, requested_at.elapsed()));
         }
     }
 

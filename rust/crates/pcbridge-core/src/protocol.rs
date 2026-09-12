@@ -96,6 +96,17 @@ impl ResponseHeader {
     }
 
     #[must_use]
+    pub fn success_with_binary(id: String, result: Value, binary_len: u64) -> Self {
+        Self {
+            protocol: ProtocolVersion::current(),
+            id,
+            result: Some(result),
+            error: None,
+            binary_len,
+        }
+    }
+
+    #[must_use]
     pub fn error(id: String, error: ErrorBody) -> Self {
         Self {
             protocol: ProtocolVersion::current(),

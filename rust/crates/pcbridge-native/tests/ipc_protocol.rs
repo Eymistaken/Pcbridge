@@ -66,7 +66,12 @@ fn run_input(input: &[u8], chunk_size: usize) -> Output {
         .expect("native harness should terminate")
 }
 
-fn decode_frames(bytes: &[u8]) -> Vec<Value> {
+struct DecodedFrame {
+    header: Value,
+    binary: Vec<u8>,
+}
+
+fn decode_wire_frames(bytes: &[u8]) -> Vec<DecodedFrame> {
     let mut cursor = std::io::Cursor::new(bytes);
     let mut frames = Vec::new();
 
@@ -93,14 +98,26 @@ fn decode_frames(bytes: &[u8]) -> Vec<Value> {
         cursor
             .read_exact(&mut binary)
             .expect("response binary payload should be complete");
-        assert!(
-            binary.is_empty(),
-            "Task 2.1 control responses have no binary payload"
-        );
-        frames.push(value);
+        frames.push(DecodedFrame {
+            header: value,
+            binary,
+        });
     }
 
     frames
+}
+
+fn decode_frames(bytes: &[u8]) -> Vec<Value> {
+    decode_wire_frames(bytes)
+        .into_iter()
+        .map(|frame| {
+            assert!(
+                frame.binary.is_empty(),
+                "control responses have no binary payload"
+            );
+            frame.header
+        })
+        .collect()
 }
 
 fn framed_sequence(headers: &[Value]) -> Vec<u8> {
@@ -297,4 +314,100 @@ fn test_mode_responses_are_deterministic() {
     let frames = decode_frames(&first.stdout);
     assert_eq!(frames[0]["result"]["instance_id"], "test-native-instance");
     assert_eq!(frames[1]["result"]["backend"], "test.fake");
+}
+
+#[cfg(feature = "test-harness")]
+#[test]
+fn capture_frame_sends_png_as_the_binary_payload() {
+    let input = framed_sequence(&[
+        initialize("capture:1"),
+        request(
+            "capture:2",
+            "capture.frame",
+            json!({
+                "display_id": "test:monitor-1",
+                "topology_id": "test-layout",
+                "session_id": "test-session",
+                "grant_id": "test-grant",
+                "revoke_epoch": 7,
+                "timeout_ms": 8000,
+                "freshness": "after_request",
+                "include_pointer": true,
+            }),
+        ),
+        request("capture:3", "shutdown", json!({})),
+    ]);
+    let output = run_input(&input, usize::MAX);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let frames = decode_wire_frames(&output.stdout);
+    assert_eq!(frames.len(), 3);
+    let capture = &frames[1];
+    assert_eq!(capture.header["id"], "capture:2");
+    assert_eq!(capture.header["result"]["display_id"], "test:monitor-1");
+    assert_eq!(capture.header["result"]["pixel_size"], json!([2, 1]));
+    assert_eq!(capture.header["result"]["frame_sequence"], 42);
+    assert_eq!(capture.header["result"]["frame_timestamp_ns"], 4242);
+    assert_eq!(
+        capture.header["result"]["frame_identity_source"],
+        "test_fixture"
+    );
+    assert_eq!(capture.header["result"]["mime_type"], "image/png");
+    assert_eq!(
+        capture.header["binary_len"].as_u64(),
+        Some(capture.binary.len() as u64)
+    );
+    assert!(capture.binary.starts_with(b"\x89PNG\r\n\x1a\n"));
+
+    let decoder = png::Decoder::new(std::io::Cursor::new(&capture.binary));
+    let mut reader = decoder.read_info().expect("PNG header");
+    let mut pixels = vec![0; reader.output_buffer_size().expect("output size")];
+    let info = reader.next_frame(&mut pixels).expect("PNG frame");
+    pixels.truncate(info.buffer_size());
+    assert_eq!(pixels, [0x11, 0x22, 0x33, 0xFF, 0xAA, 0xBB, 0xCC, 0xFF]);
+    assert!(frames[0].binary.is_empty());
+    assert!(frames[2].binary.is_empty());
+}
+
+#[cfg(feature = "test-harness")]
+#[test]
+fn capture_frame_rejects_ambiguous_or_unbounded_parameters() {
+    let valid = json!({
+        "display_id": "test:monitor-1",
+        "topology_id": "test-layout",
+        "session_id": "test-session",
+        "grant_id": "test-grant",
+        "revoke_epoch": 7,
+        "timeout_ms": 8000,
+        "freshness": "after_request",
+        "include_pointer": true,
+    });
+    let cases = [
+        ("empty display", "display_id", json!("")),
+        ("unscoped display", "display_id", json!("monitor-1")),
+        ("empty topology", "topology_id", json!("")),
+        ("empty session", "session_id", json!("")),
+        ("empty grant", "grant_id", json!("")),
+        ("zero timeout", "timeout_ms", json!(0)),
+        ("excessive timeout", "timeout_ms", json!(8001)),
+        ("stale freshness", "freshness", json!("latest")),
+    ];
+
+    for (name, key, value) in cases {
+        let mut params = valid.clone();
+        params[key] = value;
+        let input = framed_sequence(&[
+            initialize(&format!("invalid-{name}:1")),
+            request(&format!("invalid-{name}:2"), "capture.frame", params),
+            request(&format!("invalid-{name}:3"), "shutdown", json!({})),
+        ]);
+        let output = run_input(&input, usize::MAX);
+        assert!(output.status.success(), "{name}");
+        let frames = decode_frames(&output.stdout);
+        assert_eq!(frames[1]["error"]["code"], "INVALID_PARAMS", "{name}");
+    }
 }

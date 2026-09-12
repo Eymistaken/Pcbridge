@@ -378,12 +378,11 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   (kullanıcı ajanın masaüstüne erişebildiğini oradan görüyor) ve **çekilen
   karede de görünür**. Yayın `screencast_helper.py` sürecinde yaşıyor: süreç
   ölünce paylaşım da ölüyor.
-- **PipeWire çalışma kütüphanesi var, BAŞLIKLARI YOK.** Ölçüldü 2026-09-12:
-  `libpipewire-0.3.so.0` (1.0.5) kurulu ama `libpipewire-0.3-dev` değil, yani
-  `pkg-config --exists libpipewire-0.3` başarısız ve `pipewire-sys`/`libspa-sys`
-  derlenmiyor. Native capture'ın PipeWire tarafı bu paket olmadan yazılamaz:
-  `sudo apt install libpipewire-0.3-dev libclang-dev`. Kurulum sudo istediği
-  için kullanıcıya söylenerek yapılır.
+- **PipeWire build başlıkları kurulu.** Ölçüldü 2026-09-12:
+  `libpipewire-0.3-dev` 1.0.5 ve `libclang-dev` kurulu;
+  `pkg-config --modversion libpipewire-0.3` → `1.0.5`, `libspa-0.2` → `0.2`.
+  `pipewire` Rust sandığı bindgen kullandığı için ikisi build gereksinimi.
+  Paketlenmiş binary'nin runtime gereksinimleri Task 4.1'de ayrıca ayrılacak.
 - **`cargo test` ilk başarısız HEDEFTEN sonra durur.** Sonraki test ikilileri
   hiç çalışmaz ve "geçti" gibi görünmez, **hiç görünmez**. Bir kez yanıltıcı
   oldu: bir mutasyon denemesinde ikinci test dosyasının sonuçları eksik geldi.

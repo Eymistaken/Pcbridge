@@ -14,6 +14,8 @@ use pcbridge_native::platform::linux::desktop_state::{
 };
 use serde_json::json;
 
+static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+
 fn now() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -25,7 +27,7 @@ fn fixture_root() -> PathBuf {
     let root = std::env::temp_dir().join(format!(
         "pcbridge-desktop-state-{}-{}",
         std::process::id(),
-        now()
+        NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed)
     ));
     fs::create_dir_all(&root).unwrap();
     root
@@ -145,6 +147,23 @@ fn force_bypasses_only_activity() {
         Err(LifecycleFailure::UserActive)
     );
     assert_eq!(lifecycle.validate_write_now(true, 60_000), Ok(()));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn capture_requests_must_name_the_lease_bound_at_initialize() {
+    let root = fixture_root();
+    write_grant(&root);
+    let state = Arc::new(MutableDesktopState::new(
+        ScreenLockState::KnownUnlocked,
+        ActivityState::Known,
+        120_000,
+    ));
+    let lifecycle = Lifecycle::start_with_provider(&root, state).unwrap();
+
+    assert!(lifecycle.matches_token("desktop-state-contract", 0));
+    assert!(!lifecycle.matches_token("another-grant", 0));
+    assert!(!lifecycle.matches_token("desktop-state-contract", 1));
     fs::remove_dir_all(root).unwrap();
 }
 

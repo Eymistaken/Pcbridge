@@ -231,6 +231,15 @@ impl Lifecycle {
         self.expected.is_some()
     }
 
+    /// Whether request metadata names the exact grant snapshot this process
+    /// bound during `initialize`.
+    #[must_use]
+    pub fn matches_token(&self, grant_id: &str, revoke_epoch: u64) -> bool {
+        self.expected.as_ref().is_some_and(|token| {
+            token.grant_id() == grant_id && token.revoke_epoch() == revoke_epoch
+        })
+    }
+
     fn failure(&self) -> LifecycleFailure {
         if self.expected.is_some() {
             LifecycleFailure::Revoked

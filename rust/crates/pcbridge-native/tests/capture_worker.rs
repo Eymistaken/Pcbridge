@@ -16,9 +16,12 @@ use std::time::{Duration, Instant};
 use pcbridge_core::frame::{FrameError, FrameId, FrameSpec, PixelFormat, RgbaFrame};
 use pcbridge_native::lifecycle::LifecycleFailure;
 use pcbridge_native::platform::linux::capture::{
-    CancelFlag, CaptureError, CaptureWorker, FrameSource, SourceFrame,
+    CancelFlag, CaptureError, CaptureWorker, FrameIdentitySource, FrameSource, SourceFrame,
+    pixel_format_from_spa,
 };
+use pcbridge_native::platform::linux::pipewire_source::resolve_frame_identity;
 use pcbridge_native::platform::linux::session::SessionGuard;
+use pipewire::spa::param::video::VideoFormat;
 
 // ---------------------------------------------------------------- fake source
 
@@ -115,10 +118,12 @@ impl FrameSource for FakeSource {
             Some(Scripted::Fresh(frame)) => Ok(Some(SourceFrame {
                 frame,
                 received_at: Instant::now(),
+                identity_source: FrameIdentitySource::SpaMetaHeader,
             })),
             Some(Scripted::Stale(frame)) => Ok(Some(SourceFrame {
                 frame,
                 received_at: Instant::now() - Duration::from_secs(30),
+                identity_source: FrameIdentitySource::SpaMetaHeader,
             })),
             Some(Scripted::Failure(error)) => Err(error),
             None => Ok(None),
@@ -217,6 +222,60 @@ fn worker(source: &FakeSource) -> CaptureWorker<FakeSource> {
 // ---------------------------------------------------------------------- tests
 
 #[test]
+fn spa_formats_are_mapped_without_copying_header_constants() {
+    assert_eq!(
+        pixel_format_from_spa(VideoFormat::RGBA).expect("RGBA"),
+        PixelFormat::Rgba
+    );
+    assert_eq!(
+        pixel_format_from_spa(VideoFormat::RGBx).expect("RGBx"),
+        PixelFormat::Rgbx
+    );
+    assert_eq!(
+        pixel_format_from_spa(VideoFormat::BGRA).expect("BGRA"),
+        PixelFormat::Bgra
+    );
+    assert_eq!(
+        pixel_format_from_spa(VideoFormat::BGRx).expect("BGRx"),
+        PixelFormat::Bgrx
+    );
+
+    let error = pixel_format_from_spa(VideoFormat::YUY2)
+        .expect_err("an unimplemented SPA format must never be guessed");
+    assert_eq!(
+        error,
+        CaptureError::UnsupportedFormat(VideoFormat::YUY2.as_raw())
+    );
+}
+
+#[test]
+fn producer_metadata_wins_when_pipewire_supplies_it() {
+    let producer = FrameId {
+        sequence: 91,
+        captured_at_ns: 123_456,
+    };
+
+    let (id, source) = resolve_frame_identity(Some(producer), 7, 8);
+
+    assert_eq!(id, producer);
+    assert_eq!(source, FrameIdentitySource::SpaMetaHeader);
+}
+
+#[test]
+fn source_monotonic_clock_is_an_explicit_fallback_when_metadata_is_absent() {
+    let (id, source) = resolve_frame_identity(None, 7, 123_456);
+
+    assert_eq!(
+        id,
+        FrameId {
+            sequence: 7,
+            captured_at_ns: 123_456,
+        }
+    );
+    assert_eq!(source, FrameIdentitySource::SourceMonotonicClock);
+}
+
+#[test]
 fn a_capture_returns_a_png_of_the_frame() {
     let source = FakeSource::new();
     source.deliver(frame(4, 3, 11));
@@ -229,6 +288,7 @@ fn a_capture_returns_a_png_of_the_frame() {
     assert_eq!(captured.height, 3);
     assert_eq!(captured.id.sequence, 11);
     assert_eq!(captured.id.captured_at_ns, 4242);
+    assert_eq!(captured.identity_source, FrameIdentitySource::SpaMetaHeader);
     assert_eq!(captured.stale_frames, 0);
     assert_eq!(source.ops(), vec!["attach:79", "next", "detach"]);
 

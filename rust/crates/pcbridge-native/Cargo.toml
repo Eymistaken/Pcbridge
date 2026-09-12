@@ -12,6 +12,7 @@ test-harness = []
 async-io.workspace = true
 futures-lite.workspace = true
 pcbridge-core = { path = "../pcbridge-core" }
+pipewire.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
