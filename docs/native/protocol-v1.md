@@ -137,6 +137,21 @@ bir bağlantı ekliyor ve yalnızca çağrıldığında.
 Düzen değişikliği Mutter'ın `MonitorsChanged` sinyaliyle yakalanıyor: önbellek
 zamanlayıcıyla değil, sinyalle geçersizleşiyor. Yani takılan bir monitör bir
 sonraki snapshot'ta görünür, önbellek ömrü kadar sonra değil.
+
+## Task 3.2 — protokolde metot yok
+
+Capture session lifecycle'ı bu sürümde **kütüphane olarak** eklendi; protokolde
+oturum açan, kapatan ya da durumunu soran bir metot **yok**. `capabilities`
+çağrısı hiçbir oturum açmıyor ve açamaz: `dispatch.rs` o modüle hiç dokunmuyor.
+Ölçüldü 2026-09-12, release binary, `strace -e trace=connect`: `initialize` →
+`capabilities` → `shutdown` hâlâ **1** bağlantı, `display.snapshot`'lı dizi hâlâ
+**2** — yani session kodu eklenmesi tek bir bağlantı bile eklemedi.
+
+Durum makinesi, kapanma tetikleri ve ölçümler: **[capture.md](capture.md)**.
+Oturumu ilk açacak olan metot Task 3.3'ün capture isteği.
+
+## Response eşleştirme ve hata zarfı
+
 Her response request'in string `id` alanını taşır. İstemci birden çok request'i
 cevap beklemeden gönderebilir ve response'ları ID ile eşleştirmelidir.
 
@@ -261,6 +276,14 @@ değerini taşır. Python ve Rust katmanları bu durumları boolean'a indirgemez
 Native lock watcher `org.gnome.ScreenSaver.ActiveChanged` sinyalini dinler ve
 bağlantı kaybını `unknown` kabul eder. Aktif native kaynak, kilitli veya bilinmeyen
 bir observation geldiğinde kapanır. D-Bus method çağrıları sonlu timeout kullanır.
+
+Kapanma artık bir bayrağı sıfırlamakla kalmıyor: grant'e bağlı kaynaklar
+`Lifecycle::register_fail_closed` ile kaydoluyor ve watchdog thread'i revoke ya
+da kilit kenarında onlara **kapan** diyor. Bildirim kenar tetiklemeli — revoke
+edilmiş bir grant kayıtlı kaynakları saniyede on kez uyandırmaz — ve istek
+yolunda revoke'u önce fark eden taraf kenarın sahibi olur, yani kapatma iki kez
+çalışmaz. Kaynağın kilidi meşgulse watchdog beklemez; uçuştaki işlem bir sonraki
+kapı noktasında kendini iptal eder.
 
 `desktop_unlock` grant oluşturmak için uinput desteği istemez. Ekran capture
 kullanılabilir, pointer veya keyboard kullanılamaz durumdaysa grant yine açılır;

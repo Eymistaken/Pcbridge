@@ -10,14 +10,15 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Yok (`Task 3.1 tamamlandı`)
-- **Son tamamlanan adım:** Adım 3 / Task 3.1 — Native display snapshot
-- **Sıradaki uygulanabilir adım:** Task 3.2 — Mutter capture session lifecycle
+- **Aktif adım:** Yok (`Task 3.2 tamamlandı`)
+- **Son tamamlanan adım:** Adım 3 / Task 3.2 — Mutter capture session lifecycle
+- **Sıradaki uygulanabilir adım:** Task 3.3 — OnDemand PipeWire frame + güvenli
+  PNG encoding
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 2 geçti** (native migration). Task 2.4 typed
   desktop state, fail-closed policy ve native lock watcher acceptance'ı dahil.
-- **Native migration içindeki sıradaki task:** 3.2 — Mutter capture session
-  lifecycle (ön koşulları 2.3, 2.4, 3.1 tamam)
+- **Native migration içindeki sıradaki task:** 3.3 — OnDemand PipeWire frame
+  (ön koşulu 3.2 tamam)
 
 Çalışma kuralı (kullanıcı isteği, 2026-09-12): **her adım sonunda ilerleme bu
 dosyaya yazılır ve durulur; devam için onay beklenir.**
@@ -33,7 +34,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 0 | Belge omurgası: tek giriş noktası, ölü referansların onarımı | `tamamlandı` |
 | 1 | `KURALLAR.md` §4'teki 5/6/7 kapıları (parola alanı, tekrar tıklama, kapatma onayı) | `tamamlandı` |
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
-| 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `devam ediyor` (3.1 ✅, sırada 3.2) |
+| 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `devam ediyor` (3.1 ✅, 3.2 ✅, sırada 3.3) |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `bekliyor` |
 | 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `bekliyor` |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
@@ -476,6 +477,129 @@ capture yolu ona hiç bakmıyor.
 
 **Sonraki somut adım:** Task 3.2 — Mutter capture session lifecycle. Bu
 snapshot'ı session'a bağlayacak olan task o.
+
+### Task 3.2 — Mutter capture session lifecycle · `tamamlandı`
+
+**Ne yapıldı.** Ekran paylaşımı oturumunun ömrü Rust'a, kompozitör çağrılarının
+**arkasına** yazıldı: `CaptureSession` durum makinesi
+(`Closed → Starting → Ready → Stopping → Closed`, `Failed` ayrı durum),
+`ScreenCastBus` trait'i ve onun gerçek Mutter uygulaması. Trait sayesinde
+gerçek makinede üretmesi zor olan sıralar — düğüm duyurusunun erken gelmesi,
+hiç gelmemesi, `RecordMonitor` ile `Start` arasında revoke — sıradan birer test.
+
+Oturumu kapatan beş tetiğin beşi de yazıldı: revoke, ekran kilidi, düğüm
+zaman aşımı, host EOF (`Drop`) ve kompozitör bağlantısının kopması. Kayıp
+bağlantıda `Stop` **denenmiyor** — ölü sokete gönderilen `Stop` yalnızca ikinci
+bir hata üretir.
+
+**Yeni:** `rust/crates/pcbridge-native/src/platform/linux/session.rs`,
+`rust/crates/pcbridge-native/tests/capture_session.rs` (27 test, sahte
+veriyolu), `rust/crates/pcbridge-native/tests/capture_session_live.rs`
+(`PCBRIDGE_TEST_CAPTURE=1` ile), `docs/native/capture.md`.
+
+**Değişen:** `lifecycle.rs` (fail-closed kayıt defteri), `display.rs` (aşağıda),
+`platform/linux/mod.rs`, `CLAUDE.md`, `docs/native/protocol-v1.md`.
+
+**Plandan üç bilinçli sapma:**
+
+1. **`lifecycle.rs`'e dokunuldu** — plan dosya listesinde yoktu, ama
+   implementation maddesi 6 "revoke, lock … session'ı kapat" diyor ve watchdog
+   bugüne kadar yalnızca bir `AtomicBool`'u sıfırlıyordu. Bir boolean ekran
+   paylaşımı göstergesini söndürmez. `Lifecycle::register_fail_closed` ile
+   kaynaklar kaydoluyor ve watchdog onlara **kapan** diyor; bildirim kenar
+   tetiklemeli, yani revoke edilmiş bir grant kayıtlı kaynakları saniyede on
+   kez uyandırmıyor.
+2. **Oturum D-Bus zaman aşımı 200 ms değil 10 sn.** `display.rs` 3.2 için
+   `method_timeout()` diye 200 ms'lik bir sabit bırakmıştı, ama o üçlü
+   (`GetActive`/`GetIdletime`/`GetCurrentState`) kompozitörün elindeki bir
+   değeri okuyor; `Start` PipeWire akışı pazarlığı yapıyor. Python yardımcısı —
+   bu sıranın ölçülmüş tek uygulaması — çağrı başına 10 sn veriyor. 200 ms
+   normal bir başlangıcı hataya çevirirdi.
+3. **Bayrak listesinde olmayan bir live test eklendi.** Sahte veriyolu kuralları
+   doğrular; metot adlarının, argüman imzalarının ve sinyal biçiminin Mutter'ın
+   kabul ettiği şeyler olduğunu **yalnızca** gerçek kompozitör gösterebilir.
+
+**Yol boyunca bulunan üç şey:**
+
+1. **PipeWire düğüm numaralarının sırası kararlı değil.** 11 koşumda aynı istek
+   için `DP-4`/`DP-3` bir kez `[83, 82]`, bir kez `[69, 72]` aldı — yani hangi
+   monitörün düğümü önce duyuruluyor, değişiyor. "İlk gelen sinyal ilk
+   kaydettiğim monitördür" varsayımı sessizce yanlış ekranı yakalamak olurdu.
+   Eşleme `RecordMonitor`'ün döndürdüğü stream nesne yoluna göre yapılıyor.
+2. **`display.rs` uygulamadığı bir zaman aşımı ilan ediyordu.** `METHOD_TIMEOUT`
+   tanımlıydı ve yorumu "takılan bir kompozitör korumalı bir isteği açık
+   tutamaz" diyordu, ama `connect()` onu bağlantıya hiç vermiyordu. Koruma
+   yazılıydı, yoktu. Bu task'ta bağlandı; artıkta kalan `method_timeout()`
+   fonksiyonu silindi.
+3. **Fail-closed yolu kendi kendine kilitlenebilirdi.** Başlangıcın içinde
+   danışılan kapı `Lifecycle`, ve `Lifecycle` revoke'u fark ettiği anda kayıtlı
+   kaynaklara "kapan" diyor — yani kapatma çağrısı **oturum kilidini zaten
+   tutan aynı thread'den** gelebiliyor. `try_lock` bunu zararsız kılıyor
+   (uçuştaki çağrı bir sonraki kapı noktasında kendini kapatıyor); `lock()`
+   olsaydı revoke anında kilitlenirdi. `closing_from_inside_the_guard_does_not_deadlock`
+   bunu sabitliyor.
+
+**Acceptance — planın adlandırdığı dört senaryo:**
+
+| Plan senaryosu | Test |
+|---|---|
+| Erken sinyal | `a_stream_announced_before_start_is_not_lost` |
+| Missing stream | `a_missing_node_fails_the_start_and_closes_the_session` |
+| Double start/stop | `opening_twice_with_the_same_request_touches_nothing`, `stopping_twice_is_harmless` |
+| Revoke-during-start | `a_revoke_between_record_monitor_calls_closes_the_created_session`, `a_revoke_after_the_nodes_arrive_still_refuses`, `the_fail_closed_flag_aborts_a_start_in_flight` |
+| Capability sorgusu session açmıyor | `read_only_queries_never_touch_the_bus` + `strace` (aşağıda) |
+
+**Testlerin gerçekten tuttuğu mutasyonla denendi.** Üç şey ayrı ayrı bozuldu —
+`abort`'un `Stop` çağrısı, düğümler geldikten sonraki son kapı noktası, ve
+`Drop` — ve **6 test kırmızıya döndü**. Sonra dosya geri alındı.
+
+**Ölçümler (gerçek Mutter, iki monitör, 11 koşum, her koşum ayrı süreç;
+veriyolu bağlantısı ölçümün dışında):**
+
+| İşlem | Süre |
+|---|---|
+| `open` (CreateSession + 2×RecordMonitor + Start + iki sinyal) | **2,6 – 4,8 ms**, ortalama **3,6** |
+| `open` (aynı istek — yeniden kullanım, veriyoluna gitmiyor) | **0,003 – 0,007 ms** |
+| İmleç kipi değişimi (Stop + tam yeniden kurulum) | **3,8 – 6,4 ms** |
+| `stop` | **0,8 – 1,4 ms** |
+
+Python yardımcısında aynı imleç değişimi **~113 ms** olarak kaydedilmişti; iki
+sayı aynı ölçüm noktasından alınmadı (Python'unki yardımcı sürece JSON gidiş
+dönüşünü içeriyor), yani kıyaslama değil, aynı işlemin iki taraftaki maliyeti.
+
+Koşumlardan sonra `busctl --user tree org.gnome.Mutter.ScreenCast` altında
+Session nesnesi kalmadı; `screencast_helper.py` süreci açılmadı.
+
+`strace -e trace=connect`, release binary: `initialize → capabilities →
+shutdown` **1** bağlantı, `display.snapshot`'lı dizi **2** — Task 3.1'deki
+sayıların ikisi de değişmedi. Session kodu tek bir bağlantı bile eklemedi,
+çünkü onu açan bir üretim yolu yok.
+
+**Test sonuçları:**
+
+- Rust `capture_session.rs` (yeni) → **27 test**
+- Rust `capture_session_live.rs` (yeni, bayraksız atlanır) → **1 test**
+- `cargo test --workspace --locked` → **54 test** (26 → 54)
+- `--features pcbridge-native/test-harness` ile → **60 test**, 0 hata
+- `cargo fmt --check` ve `cargo clippy --workspace --all-targets -- -D warnings`
+  (iki feature kipinde de) → temiz
+- `tests/test_desktop.py` live bayrakları kapalı → **583 geçti, 0 kaldı**
+- Python contract discovery → **122 test, OK**
+- `tests/test_models.py` → **106 geçti**; `test_test_safety.py` → OK
+- `python -m pcbridge.server --check -c config.example.toml` → exit `0`
+
+**Korunanlar:** Varsayılan capture backend `[native] capture = "python"`;
+ekran paylaşan tek üretim yolu hâlâ `screencast_helper.py`. Protokolde oturum
+açan metot **yok** — `dispatch.rs` bu modüle hiç dokunmuyor.
+
+**Bilinçli olarak yapılmayanlar:** RemoteDesktop pointer izni (imleç kipi
+yalnızca 0/1), portal persistence, buffered capture (7.3).
+
+**Rollback:** Tek commit; `git revert`. Üretimde çağıranı olmadığı için geri
+alma bugün zaten etkisiz.
+
+**Sonraki somut adım:** Task 3.3 — OnDemand PipeWire frame alma ve güvenli PNG
+encoding. Oturumu ilk açacak olan metot orada geliyor.
 
 ## Adım 4 — Faz 4: paketleme, parity, varsayılan değişikliği (Gate 4)
 

@@ -378,6 +378,22 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   (kullanıcı ajanın masaüstüne erişebildiğini oradan görüyor) ve **çekilen
   karede de görünür**. Yayın `screencast_helper.py` sürecinde yaşıyor: süreç
   ölünce paylaşım da ölüyor.
+- **PipeWire düğüm numaraları geri dönüşümlü ve sırası KARARLI DEĞİL.**
+  Ölçüldü 2026-09-12, aynı istekle 11 koşum: `DP-4`/`DP-3` bir koşumda
+  `[83, 82]`, başka bir koşumda `[69, 72]` düğümlerini aldı — yani hangi
+  monitörün düğümünün önce geldiği değişiyor. "İlk gelen sinyal ilk
+  kaydettiğim monitördür" varsayımı sessizce yanlış ekranı yakalamak demek
+  olurdu. Eşleme `RecordMonitor`'ün döndürdüğü **stream nesne yoluna** göre
+  yapılır, geliş sırasına göre değil.
+- **Rust'ın ScreenCast oturumu ölçüldü ve Python yardımcısından hızlı.**
+  2026-09-12, gerçek Mutter, iki monitör, veriyolu bağlantısı ölçümün dışında:
+  oturum açma (CreateSession + 2×RecordMonitor + Start + iki sinyal)
+  **2,6–4,8 ms** (ortalama 3,6), kapatma **0,8–1,4 ms**, imleç kipi değişimi
+  (tam yeniden kurulum) **3,8–6,4 ms** — Python yardımcısında aynı değişim
+  ~113 ms olarak kaydedilmişti. İki sayı aynı ölçüm noktasından alınmadı
+  (Python'unki yardımcı sürece JSON gidiş dönüşünü de içeriyor). Ayrıntı:
+  `docs/native/capture.md`. **Üretimde hâlâ Python yolu kullanılıyor**;
+  native oturumu açan bir protokol metodu yok.
 - **Ekran görüntüsünün maliyeti sürücüye göre 20–30 kat değişiyor** — `agy`'de
   tek görüntü ~40 bin girdi jetonu, **Claude'da ~1200–1900**. `ui_dump` yine de
   daha ucuz (~0,1 sn, birkaç yüz jeton) ve koordinat kullanmadığı için
@@ -550,6 +566,7 @@ ve o değişken `--effort` bayrağını sessizce etkisiz kılıyor.
 |---|---|
 | `WALKTHROUGH.md` | **Depodaki tek yapılacak-iş listesi:** yol haritası, kabul ölçütleri, biten işlerin kaydı + `window_focus` ölçümü ve imleç katmanının kurtarılmış bulguları |
 | `docs/native/protocol-v1.md` | Python/native stdio framing, handshake, control metotları ve test harness sınırı |
+| `docs/native/capture.md` | Native Mutter ScreenCast oturumu: durum makinesi, kapanma tetikleri, Python yardımcısından farklar, ölçümler |
 | `ADIMLAR.md` | Ekran görüntüsü koordinatları / temizliği üçlüsünün adım adım kaydı: ne bitti, ne bekliyor, neden |
 | `KULLANIM.md` | Kullanıcıya dönük araç kataloğu + izin haritası — **güncel tutulmalı** |
 | `config.example.toml` | Ayarların belgelenmiş hâli; projenin asıl referansı |

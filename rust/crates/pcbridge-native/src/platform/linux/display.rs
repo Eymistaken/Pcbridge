@@ -142,7 +142,8 @@ impl std::fmt::Debug for DisplayReader {
 
 impl DisplayReader {
     pub fn connect() -> Result<Self, zbus::Error> {
-        let connection = zbus::block_on(Builder::session()?.build())?;
+        let connection =
+            zbus::block_on(Builder::session()?.method_timeout(METHOD_TIMEOUT).build())?;
         let proxy = zbus::block_on(Proxy::new(&connection, DESTINATION, PATH, INTERFACE))?;
         let changes = zbus::block_on(proxy.receive_signal("MonitorsChanged"))?;
         Ok(Self {
@@ -211,10 +212,4 @@ impl DisplayReader {
             *cached = None;
         }
     }
-}
-
-/// Kept so the timeout constant has one documented home even before the capture
-/// session in task 3.2 starts using it.
-pub const fn method_timeout() -> Duration {
-    METHOD_TIMEOUT
 }

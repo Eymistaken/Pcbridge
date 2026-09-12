@@ -3,8 +3,8 @@
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -52,12 +52,53 @@ impl LifecycleFailure {
 
 pub type LeaseFailure = LifecycleFailure;
 
+/// A native resource that must be released the moment the grant stops holding.
+///
+/// The watchdogs used to express this as a single `AtomicBool`, which is enough
+/// while the only "resource" is a test flag. A screencast session is not: it is
+/// visible to the user as the sharing indicator, and clearing a boolean does not
+/// turn that indicator off. So a resource registers itself here and is told,
+/// from the watchdog thread, to let go.
+///
+/// Implementations must return promptly and must tolerate being called twice.
+/// They are invoked while nothing else is locked, but on a 100 ms watchdog:
+/// blocking here delays every later revoke.
+pub trait FailClosed: Send + Sync {
+    fn close_fail_closed(&self, reason: LifecycleFailure);
+}
+
+#[derive(Default)]
+struct FailClosedRegistry {
+    resources: Mutex<Vec<Arc<dyn FailClosed>>>,
+}
+
+impl FailClosedRegistry {
+    fn register(&self, resource: Arc<dyn FailClosed>) {
+        if let Ok(mut resources) = self.resources.lock() {
+            resources.push(resource);
+        }
+    }
+
+    /// Snapshot first, then call: holding the registry lock across a resource's
+    /// own locking is how a fail-closed path turns into a deadlock.
+    fn close_all(&self, reason: LifecycleFailure) {
+        let snapshot = match self.resources.lock() {
+            Ok(resources) => resources.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        };
+        for resource in snapshot {
+            resource.close_fail_closed(reason);
+        }
+    }
+}
+
 pub struct Lifecycle {
     state_path: PathBuf,
     expected: Option<LeaseToken>,
     revoked: Arc<AtomicBool>,
     resource_open: Arc<AtomicBool>,
     desktop_state: Arc<dyn DesktopStateProvider>,
+    resources: Arc<FailClosedRegistry>,
     stop: Arc<AtomicBool>,
     lease_watchdog: Option<JoinHandle<()>>,
     desktop_watchdog: Option<JoinHandle<()>>,
@@ -95,6 +136,7 @@ impl Lifecycle {
             .and_then(|lease| lease.native_token_at(unix_time()));
         let revoked = Arc::new(AtomicBool::new(expected.is_none()));
         let resource_open = Arc::new(AtomicBool::new(false));
+        let resources = Arc::new(FailClosedRegistry::default());
         let stop = Arc::new(AtomicBool::new(false));
 
         let lease_path = state_path.clone();
@@ -102,6 +144,7 @@ impl Lifecycle {
         let lease_revoked = Arc::clone(&revoked);
         let lease_resource = Arc::clone(&resource_open);
         let lease_stop = Arc::clone(&stop);
+        let lease_resources = Arc::clone(&resources);
         let lease_watchdog = thread::Builder::new()
             .name(format!("pcbridge-native-lease-{}", std::process::id()))
             .spawn(move || {
@@ -114,26 +157,46 @@ impl Lifecycle {
                         .as_ref()
                         .is_some_and(|token| token_is_valid(&lease_path, token));
                     if !valid {
-                        lease_revoked.store(true, Ordering::Release);
                         lease_resource.store(false, Ordering::Release);
+                        // Only on the edge. `revoked` starts true when there is
+                        // no grant at all, so a helper that was never granted
+                        // anything does not wake registered resources every
+                        // 100 ms for the rest of its life.
+                        if !lease_revoked.swap(true, Ordering::AcqRel) {
+                            lease_resources.close_all(LifecycleFailure::Revoked);
+                        }
                     }
                 }
             })?;
 
         let desktop_resource = Arc::clone(&resource_open);
         let desktop_stop = Arc::clone(&stop);
+        let desktop_resources = Arc::clone(&resources);
         let watch_desktop_state = Arc::clone(&desktop_state);
         let desktop_watchdog = match thread::Builder::new()
             .name(format!("pcbridge-native-lock-{}", std::process::id()))
             .spawn(move || {
+                // A screen lock is not a revoke: it ends when the user comes
+                // back. So the edge is tracked locally and nothing latches --
+                // resources are told to close, and a later request may open
+                // again once the guard says the screen is unlocked.
+                let mut was_unlocked = true;
                 while !desktop_stop.load(Ordering::Acquire) {
                     let lock = watch_desktop_state.wait_for_lock_change(WATCHDOG_INTERVAL);
                     if desktop_stop.load(Ordering::Acquire) {
                         break;
                     }
-                    if lock.state != ScreenLockState::KnownUnlocked {
+                    let unlocked = lock.state == ScreenLockState::KnownUnlocked;
+                    if !unlocked {
                         desktop_resource.store(false, Ordering::Release);
+                        if was_unlocked {
+                            desktop_resources.close_all(match lock.state {
+                                ScreenLockState::KnownLocked => LifecycleFailure::ScreenLocked,
+                                _ => LifecycleFailure::LockStateUnknown,
+                            });
+                        }
                     }
+                    was_unlocked = unlocked;
                 }
             }) {
             Ok(watchdog) => watchdog,
@@ -150,10 +213,17 @@ impl Lifecycle {
             revoked,
             resource_open,
             desktop_state,
+            resources,
             stop,
             lease_watchdog: Some(lease_watchdog),
             desktop_watchdog: Some(desktop_watchdog),
         })
+    }
+
+    /// Bind a resource to this grant. It is closed, from the watchdog thread,
+    /// as soon as the grant is revoked or the screen stops being known-unlocked.
+    pub fn register_fail_closed(&self, resource: Arc<dyn FailClosed>) {
+        self.resources.register(resource);
     }
 
     #[must_use]
@@ -179,8 +249,13 @@ impl Lifecycle {
         if token_is_valid(&self.state_path, expected) {
             return Ok(());
         }
-        self.revoked.store(true, Ordering::Release);
         self.resource_open.store(false, Ordering::Release);
+        // The request path can notice a revoke before the 100 ms watchdog does.
+        // Whichever sees it first owns the edge, so registered resources are
+        // closed exactly once either way.
+        if !self.revoked.swap(true, Ordering::AcqRel) {
+            self.resources.close_all(LifecycleFailure::Revoked);
+        }
         Err(LifecycleFailure::Revoked)
     }
 
