@@ -10,10 +10,9 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Yok (`Adım 2 nested doğrulamayla tamamlandı`)
+- **Aktif adım:** Yok (`Adım 2 tamamlandı, gerçek oturumda ölçüldü`)
 - **Son tamamlanan adım:** Adım 2 — `window_focus` hızlı yolu
-- **Sıradaki uygulanabilir adım:** Adım 2'nin gerçek oturum ölçümü
-  (çıkış/giriş gerektiriyor), sonra Adım 3 — Native migration Faz 3
+- **Sıradaki uygulanabilir adım:** Adım 3 — Native migration Faz 3 (Task 3.1)
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 2 geçti** (native migration). Task 2.4 typed
   desktop state, fail-closed policy ve native lock watcher acceptance'ı dahil.
@@ -32,7 +31,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 |---|---|---|
 | 0 | Belge omurgası: tek giriş noktası, ölü referansların onarımı | `tamamlandı` |
 | 1 | `KURALLAR.md` §4'teki 5/6/7 kapıları (parola alanı, tekrar tıklama, kapatma onayı) | `tamamlandı` |
-| 2 | `window_focus` hızlı yolu (6701,3 ms → nested 6,8 ms) | `tamamlandı (nested)` |
+| 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `bekliyor` |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `bekliyor` |
 | 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `bekliyor` |
@@ -245,8 +244,7 @@ yalnızca madde 6'yı kapatır, diğer ikisinin anahtarı yok (bilinçli).
 
 ## Adım 2 — `window_focus` hızlı yolu
 
-**Durum:** `tamamlandı (nested)` — gerçek oturuma kurulum ve gerçek oturum
-ölçümü ayrıca açık; bu adımda yapılmadı.
+**Durum:** `tamamlandı` — gerçek oturumda ölçüldü ve doğrulandı (2026-09-12).
 
 Ölçüm ve bozulmaması gerekenler aşağıda, "Kurtarılan kayıtlar" bölümünde.
 
@@ -312,32 +310,51 @@ eklenti kurulu **değilken** davranış bugünküyle aynı · aynı ölçüm
 **Önce — gerçek oturum, 2026-09-02:** aynı hedefe altı `batch_step`:
 6935, 6669, 6674, 6683, 6616, 6631 ms; ortalama **6701,3 ms**.
 
-**Sonra — yalnızca nested GNOME kabuğu, 2026-09-12:** aynı
-`computer_batch` → `focus` → `batch_step.ms` yolu: 11, 9, 6, 4, 6, 5 ms;
-ortalama **6,8 ms**. Bu sayı **gerçek oturumda ölçülmedi**. Son üretim bağı
-aynı nested yolda ikinci kez 6, 7, 6, 7, 4, 5 ms (ortalama 5,8 ms) verdi;
-karşılaştırma için kayıtlı "sonra" sayısı ilk altılı olan 6,8 ms'dir.
+**Sonra — nested GNOME kabuğu, 2026-09-12:** aynı yol: 11, 9, 6, 4, 6, 5 ms;
+ortalama **6,8 ms**. Gerçek oturum ölçümü aşağıda ve daha hızlı çıktı (5,2 ms),
+yani nested burada abartmış — bu, `frame.js` animasyon ölçümündeki nested
+şüphesiyle aynı yönde bir gözlem.
 
-**Açık doğrulama — gerçek oturum.** Ölçüldü 2026-09-12, önemli:
+### Gerçek oturum doğrulaması — 2026-09-12, çıkış/giriş sonrası
 
-```
-./gnome-extension/install.sh --durum   -> kurulu: evet (symlink), etkin: evet
-busctl ... NameHasOwner ...WindowFocus -> b false
-```
+Eklenti **symlink** ile kurulu olduğu için (diskteki eklenti doğrudan bu depo)
+yeni kod, ayrı bir kurulum kararı beklemeden, ilk çıkış/girişte yüklendi.
+`busctl NameHasOwner` → `b true`.
 
-Eklenti gerçek oturumda **zaten kurulu ve etkin** ve kurulum **symlink**, yani
-diskteki eklenti doğrudan bu depo. D-Bus adının sahibi yok: çalışan kabuk hâlâ
-**eski** kodu koşturuyor (GNOME 45+ ESM önbelleği). Bunun anlamı, "kurulum
-kararı" diye bekleyen bir şey **olmadığı**: yeni kod bir sonraki **çıkış/giriş**
-ta kendiliğinden yüklenecek — biri buna karar verse de vermese de, makine
-yeniden başlatıldığında da.
+**Zamanlama.** Ölçüm noktası taban çizgisiyle aynı: `computer_batch` →
+`DeviceOps.focus` → `audit.log`'daki `batch_step.ms`.
 
-Bu yüzden kod şimdi sağlam olmak zorunda. Beş eklenti dosyasının beşi de
-`gjs` ile ayrıştırıldı; `windowcontrol.js` ve `state.js` birim testleriyle
-(13 + 31) kapsanıyor ve `extension.js` nested kabukta fiilen yüklendi.
+| Koşul | N | Değerler (ms) | Ortalama |
+|---|---|---|---|
+| Taban çizgisi, GNOME araması (2026-09-02) | 6 | 6935, 6669, 6674, 6683, 6616, 6631 | **6701,3 ms** |
+| Eklenti, fiilen odak değiştiren çağrılar | 4 | 6, 5, 5, 5 | **5,2 ms** |
+| Eklenti, günün bütün focus adımları | 10 | 3–6 | **4,4 ms** |
 
-Kalan gerçek iş: giriş çıkıştan sonra açık pencere için altı `computer_batch`
-`focus` ölçümünü tekrarlamak ve soğuk başlatmayı yeniden doğrulamak.
+Kabul ölçütü "1 saniyenin altı" idi; sonuç **~1500 kat** hızlanma.
+Nested kabuk 6,8 ms göstermişti — yani nested bu sayıyı **abartmış**, gerçek
+oturum daha hızlı çıktı.
+
+**Davranış doğrulamaları** (hepsi gerçek oturum, doğrudan `busctl` ile, yani
+arama yedeğine düşme riski olmadan):
+
+- **Grant kapalıyken** `ActivateWindow` üç farklı hedef için de `b false`
+  döndü ve hiçbir pencere etkinleşmedi. Boş ve 300 karakterlik hedefler de
+  `false`.
+- **Belirsiz ad reddediliyor:** iki pencereye birden uyan `Desktop Icons` →
+  `false`. Tek eşleşen `Claude` → `true`.
+- **`skip-taskbar` pencereler hedef sayılmıyor:** `Desktop Icons 1` → `false`.
+- **Olmayan hedef** → `false`. Üçünde de pcbridge arama yedeğine düşer.
+- **Soğuk başlatma korundu:** kapalı Text Editor `launch` ile açıldı ve
+  hemen ardından eklenti yoluyla etkinleştirilebildi (`b true`).
+- **`desktop_lock` sonrası** eklenti yine `b false` döndü (`revoke_epoch`
+  7 → 8) ve gerçek yayın yardımcısı süreci kalmadı.
+
+**Yan kazanç — Adım 1'in kapıları da gerçek oturumda sınandı.** Boş bir Text
+Editor taslağında: `ctrl+w` onaysız **reddedildi** (`force=true` verilmiş
+olmasına rağmen — `force` bu kapıyı açmıyor), `confirm_close` ile geçti ve
+belge kapandı. Etkinlik koruması da beklendiği gibi ateşledi: kullanıcı
+makinenin başında olduğu için ilk `launch` çağrısı reddedildi.
+
 Acil geri alma — kabuk açılmazsa Ctrl+Alt+F3 ile TTY'den de çalışır:
 
 ```bash

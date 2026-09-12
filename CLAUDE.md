@@ -295,12 +295,24 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   veya görev başında.
 - **GNOME overview açıkken Wayland panosu bloklanıyor** — `super` sonrası gelen
   `type` eylemleri kendiliğinden ham tuş yoluna geçer (`_auto_raw`).
-- **Pencere öne alma: dar GNOME eklentisi + arama yedeği.** Açık pencere
-  `ActivateWindow(hedef) -> bool` ile nested kabukta ortalama **6,8 ms**;
-  bu sayı gerçek oturumda ölçülmedi. Eklenti yoksa veya hedef kapalıysa
-  GNOME araması (`super` + ad + `Return`) aynen kalır; gerçek oturum taban
-  çizgisi altı çağrıda ortalama **6701,3 ms**. Gerçek oturum eklenti ölçümü
-  ayrıca açık iştir.
+- **Pencere öne alma: dar GNOME eklentisi + arama yedeği.** GERÇEK oturumda
+  ölçüldü 2026-09-12, `batch_step.ms`: fiilen odak değiştiren dört çağrı
+  **5, 5, 5, 6 ms** (ortalama 5,2); günün on focus adımının tamamı 3–6 ms,
+  ortalama **4,4 ms**. Taban çizgisi 2026-09-02'de altı çağrıda ortalama
+  **6701,3 ms** idi — aynı ölçüm noktası, **~1500 kat**. Nested kabuk 6,8 ms
+  göstermişti, yani nested burada abartmış.
+  Eklenti yoksa veya hedef kapalıysa GNOME araması (`super` + ad + `Return`)
+  aynen kalır.
+- **Eklentinin `ActivateWindow`'u grant'i her çağrıda yeniden okuyor ve
+  `until`'e bakması yeterli.** Ölçüldü: izin kapalıyken gerçek oturumda
+  `b false` döndü ve hiçbir pencere etkinleşmedi. `until` tek başına güvenli,
+  çünkü `lease.revoke()` hem `until` hem `hard_until`'ı sıfırlıyor ve
+  `touch()` `until = min(hard_until, …)` tutuyor — yani `until > now`
+  Python'ın kapısından daha geniş olamaz.
+- **Eklenti `skip-taskbar` pencerelerini hedef saymıyor ve belirsiz adı
+  reddediyor.** Ölçüldü: `Desktop Icons 1` (masaüstü arka plan penceresi) →
+  `false`; iki pencereye birden uyan `Desktop Icons` → `false`; olmayan hedef
+  → `false`. Üçünde de pcbridge arama yedeğine düşer.
 - **`systemctl --user stop/restart pcbridge` çalışan işleri de öldürür.**
   `start_new_session` oturum grubunu ayırıyor ama cgroup'u değil. Yani acil
   durdurma gerçekten çalışıyor **ve** restart uzun bir ajan işini keser —

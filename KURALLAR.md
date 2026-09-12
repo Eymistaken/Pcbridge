@@ -203,8 +203,8 @@ Sandığından iyi durumdasın: **dışarıda tek araç, içeride iki yol var.**
 etkinleştiriyor. Eklenti yoksa veya hedef kapalıysa `super` → uygulama adını
 **ham tuşla** yaz → `Return` → AT-SPI ile odağı doğrula yoluna düşüyor;
 tutmazsa `Escape` ile toparlayıp açıkça hata veriyor. Arama yedeğinin gerçek
-oturum taban çizgisi ortalama 6701,3 ms; eklenti yolu nested kabukta 6,8 ms.
-Eklenti yolu gerçek oturumda henüz ölçülmedi.
+oturum taban çizgisi ortalama 6701,3 ms; eklenti yolu **gerçek oturumda**
+ortalama 5,2 ms (ölçüldü 2026-09-12).
 
 `window_focus`'un güncel docstring'i iki yolu da açıkça söylüyor:
 
