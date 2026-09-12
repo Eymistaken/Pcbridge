@@ -25,8 +25,9 @@ dosyada: [PLAN.md](PLAN.md). **Durum özetini başka dosyaya kopyalama.**
 
 `gnome-extension/` altında isteğe bağlı bir **GNOME 46 kabuk eklentisi** var:
 masaüstü izni açıkken her monitörün kenarlarında yumuşak beyaz bir çerçeve
-gösteriyor. Tamamen görsel, `desktop_unlock.json`'ı yalnızca **okuyor**.
-pcbridge koduna hiç dokunmuyor.
+gösteriyor ve açık pencereyi öne alan tek, dar `ActivateWindow` D-Bus
+yöntemini sunuyor. Grant dosyasını yalnızca **okuyor**; listeleme, taşıma,
+kapatma ve boyutlandırma sunmuyor.
 
 Ölçülmüş makine gerçekleri **bu dosyada**, aşağıda. Faz H/I/J'nin sonuçları ve
 neyin neden böyle yapıldığı `PLAN.md` 9b–9d bölümlerinde.
@@ -294,8 +295,12 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   veya görev başında.
 - **GNOME overview açıkken Wayland panosu bloklanıyor** — `super` sonrası gelen
   `type` eylemleri kendiliğinden ham tuş yoluna geçer (`_auto_raw`).
-- **Pencere öne alma: AT-SPI ve D-Bus yolları kapalı.** Çalışan tek yol GNOME
-  araması (`super` + ad + `Return`), ~6,5 saniye.
+- **Pencere öne alma: dar GNOME eklentisi + arama yedeği.** Açık pencere
+  `ActivateWindow(hedef) -> bool` ile nested kabukta ortalama **6,8 ms**;
+  bu sayı gerçek oturumda ölçülmedi. Eklenti yoksa veya hedef kapalıysa
+  GNOME araması (`super` + ad + `Return`) aynen kalır; gerçek oturum taban
+  çizgisi altı çağrıda ortalama **6701,3 ms**. Gerçek oturum eklenti ölçümü
+  ayrıca açık iştir.
 - **`systemctl --user stop/restart pcbridge` çalışan işleri de öldürür.**
   `start_new_session` oturum grubunu ayırıyor ama cgroup'u değil. Yani acil
   durdurma gerçekten çalışıyor **ve** restart uzun bir ajan işini keser —

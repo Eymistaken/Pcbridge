@@ -104,7 +104,7 @@ senin okuduğun piksel ile kayıtlı ölçek ayrışıyor ve `shot` hesabı ~1,2
 {"a":"drag",         "x":.., "y":.., "to_x":.., "to_y":.., "button":"left"}
 {"a":"scroll",       "amount":-3, "horizontal":false}   eksi = aşağı / sola
 {"a":"launch",       "app":"Vesktop"}           uygulama başlat
-{"a":"focus",        "window":"Metin Düzenleyici"}  pencereyi öne al (~6,5 s)
+{"a":"focus",        "window":"Metin Düzenleyici"}  pencereyi öne al (eklenti: ms; arama yedeği: ~6,7 sn)
 {"a":"ui_click",     "id":"90e6"}               erişilebilirlik düğümü
 {"a":"ui_set_text",  "id":"1b72", "text":"..."} metin kutusunu doğrudan doldur
 ```

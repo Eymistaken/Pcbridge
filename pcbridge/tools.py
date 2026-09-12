@@ -1943,8 +1943,9 @@ def register(
             Field(
                 description="Application or window name as a human would say it, "
                 "e.g. 'Text Editor', 'Firefox', 'Vesktop'. The application does "
-                "NOT have to be running — anything the desktop's own search can "
-                "find works, so do not restrict yourself to `window_list`."
+                "NOT have to be running. Already-open windows use the GNOME "
+                "Shell extension when available; closed applications and "
+                "systems without the extension use desktop search."
             ),
         ],
         force: Annotated[
@@ -1953,23 +1954,26 @@ def register(
         ] = False,
     ) -> str | ToolResult:
         """Open a graphical application and bring it to the front, launching it
-        first if it is not already running. This goes through the desktop's own
-        search — exactly what the user would do by hand — and then verifies with
-        the accessibility tree that the right window really came forward.
+        first if it is not already running. An available GNOME Shell extension
+        activates an already-open window directly. If the extension is absent or
+        the target is closed, the existing desktop-search path remains the
+        fallback and verifies the result through the accessibility tree.
 
         Use this when the desktop must own the new process lifetime and keep the
         window discoverable across pcbridge restarts. Shell commands remain valid
         for deterministic work and for handing a request, such as a URL, to an
         application process that is already running.
 
-        Takes a few seconds. If the app is already up and you only need to press
-        a button or fill a field, prefer `ui_click` / `ui_set_text` — those reach
-        the widget directly and do not require the window to be in front at
-        all."""
+        The direct path takes milliseconds; the search fallback takes a few
+        seconds. If the app is already up and you only need to press a button or
+        fill a field, prefer `ui_click` / `ui_set_text` — those reach the widget
+        directly and do not require the window to be in front at all."""
+        fast_focus_available = appslib.extension_focus_available()
         denied = _guard(
             "window_focus",
             write=True,
             force=force,
+            needs_input=not fast_focus_available,
             input_capability="input.keyboard",
             input_scope="os.keyboard",
         )
@@ -2079,8 +2083,16 @@ def register(
         kinds = {a.a for a in plan}
         # Yalnizca erisilebilirlik eylemleri varsa /dev/uinput aranmaz --
         # C bolumunde duzeltilen ayni hata burada tekrarlanmasin.
-        want_kbd, want_ptr = opslib.devices_needed(plan)
-        needs_input = want_kbd or want_ptr
+        # Acik pencere icin eklenti yolu uinput kullanmaz. Servis yoksa eski
+        # GNOME aramasinin klavye on kontrolu ve toplu cihaz acilisi aynen
+        # korunur. Hedef bulunamazsa eklenti False dondurur; apps.focus yedek
+        # arama icin klavyeyi o anda tembel olarak acar.
+        want_kbd, want_ptr = opslib.devices_needed(
+            plan,
+            focus_uses_keyboard=not appslib.extension_focus_available(),
+        )
+        need_kbd = want_kbd
+        needs_input = need_kbd or want_ptr
         input_capability = "input.pointer" if want_ptr else "input.keyboard"
         input_scope = "os.pointer" if want_ptr else "os.keyboard"
         denied = _guard(
@@ -2105,9 +2117,9 @@ def register(
                    kinds=",".join(sorted(kinds)), forced=force or None)
         # Cihazlari bastan ac: iki cihaz gerekiyorsa bekleme tek sefere iner
         # (olculdu 2,61 s -> 1,41 s). Gerekmiyorsa hicbir cihaz acilmaz.
-        if want_kbd or want_ptr:
+        if need_kbd or want_ptr:
             try:
-                backend.ensure(keyboard=want_kbd, pointer=want_ptr)
+                backend.ensure(keyboard=need_kbd, pointer=want_ptr)
             except (inputlib.InputError, DesktopError) as exc:
                 gate.audit("computer_batch_error", error=str(exc)[:160])
                 return _exception_result(
@@ -2146,8 +2158,11 @@ def register(
             if want_ptr:
                 error_scope = "os.pointer"
                 error_category = ErrorCategory.EXECUTION
-            elif want_kbd:
+            elif need_kbd:
                 error_scope = "os.keyboard"
+                error_category = ErrorCategory.EXECUTION
+            elif "focus" in kinds:
+                error_scope = "os.window"
                 error_category = ErrorCategory.EXECUTION
             else:
                 error_scope = "os.accessibility"
@@ -2327,9 +2342,7 @@ def register(
             # ekranla basliyor ve "hangi pencere" belirsizligi bir tur once
             # cozuluyor. Basarisiz olursa is hic baslatilmiyor.
             try:
-                opened = appslib.launch(str(app))
-                time.sleep(1.5)
-                opened += " · " + appslib.focus(
+                opened = appslib.prepare(
                     str(app), backend, tree.focused_window
                 )
             except (appslib.AppError, DesktopError) as exc:

@@ -68,7 +68,9 @@ COST_MS: dict[str, float] = {
     "ui_click": 400.0,    # yardimci surec baslatma dahil
     "ui_set_text": 400.0,
     "launch": 300.0,
-    "focus": 7000.0,      # GNOME aramasi: super + yazma + Return, olculdu 6.5 sn
+    # Eklenti yolu milisaniye; ama hedef kapaliysa GNOME arama yedegi halen
+    # ~6.7 sn. Butce baslamadan once kotumser olmalı, bu yüzden 7000 korunur.
+    "focus": 7000.0,
     "wait": 0.0,          # asagida ms alanindan gelir
 }
 # Ilk fare/klavye eyleminde uinput cihazi yaratiliyor: olculdu ~1.3 sn. Sunucu

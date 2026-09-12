@@ -9,8 +9,9 @@ PENCERE ONE ALMA NEDEN BOYLE
       3. D-Bus `org.freedesktop.Application.Activate` -> `exit=0` donuyor ama
          pencere ONE GELMIYOR. Sessiz basarisizlik, iki kez dogrulandi.
 
-    Calisan tek yol: GNOME'un kendi aramasi (`super` + ad + `Return`), olculen
-    sure ~6,5 saniye. Pahali ama tek secenek.
+    GNOME kabuk eklentisi kuruluysa dar `ActivateWindow` D-Bus yuzu dogrudan
+    `Meta.Window.activate()` kullanir. Yoksa ya da hedefi bulamazsa mevcut
+    GNOME aramasi (`super` + ad + `Return`) aynen yedek olarak kalir.
 
     Arama YANLIS uygulamayi acabilecegi icin sonuc her zaman AT-SPI'dan
     dogrulanir; tutmazsa `Escape` ile toparlanip hata donulur.
@@ -36,10 +37,69 @@ from pathlib import Path
 SEARCH_SETTLE = 1.2      # overview acilmasi
 SEARCH_RESULTS = 1.5     # arama sonuclarinin gelmesi
 SEARCH_ACTIVATE = 3.0    # uygulamanin one gelmesi
+LAUNCH_SETTLE = 1.5       # yeni GUI surecinin ilk penceresini acmasi
+
+_FOCUS_BUS_NAME = "io.github.eymistaken.Pcbridge.WindowFocus"
+_FOCUS_OBJECT_PATH = "/io/github/eymistaken/Pcbridge/WindowFocus"
+_FOCUS_INTERFACE = "io.github.eymistaken.Pcbridge.WindowFocus"
 
 
 class AppError(RuntimeError):
     """Uygulama baslatilamadi ya da pencere one alinamadi."""
+
+
+def _busctl_bool(*args: str) -> bool:
+    """Sinirli bir ``busctl call`` yanitini guvenli bir bool'a cevir."""
+    try:
+        proc = subprocess.run(
+            [
+                "busctl",
+                "--user",
+                "--timeout=500ms",
+                "call",
+                *args,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=1.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0 and proc.stdout.split() == ["b", "true"]
+
+
+def extension_focus_available() -> bool:
+    """Dar pencere odak servisinin bu oturumda bir sahibi var mi?"""
+    return _busctl_bool(
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+        "NameHasOwner",
+        "s",
+        _FOCUS_BUS_NAME,
+    )
+
+
+def _extension_activate(window: str) -> bool:
+    """Kurulu GNOME eklentisinden acik pencereyi etkinlestirmesini iste.
+
+    Servis yoksa, grant kapaliysa veya hedef acik degilse False doner. Bu
+    ayrim bilerek hata degildir: cagiran mevcut GNOME aramasina duser.
+    """
+    return _busctl_bool(
+        _FOCUS_BUS_NAME,
+        _FOCUS_OBJECT_PATH,
+        _FOCUS_INTERFACE,
+        "ActivateWindow",
+        "s",
+        window,
+    )
+
+
+def matches_focus(target: str, app: str, window: str) -> bool:
+    """AT-SPI odak tanimi insanca yazilmis hedefle eslesiyor mu?"""
+    want = _norm(target)
+    return bool(want and (want in _norm(app) or want in _norm(window)))
 
 
 @dataclass(frozen=True)
@@ -418,20 +478,20 @@ def focus(
     focused: "callable",
     settle: float = SEARCH_SETTLE,
 ) -> str:
-    """Bir pencereyi one al: GNOME aramasi + AT-SPI dogrulamasi.
+    """Bir pencereyi one al: eklenti hizli yolu, sonra GNOME arama yedegi.
 
-    `focused()` -> (uygulama, pencere) donduren bir cagirilabilir; sonucun
-    dogrulanmasi icin. Dogrulanamazsa `Escape` ile toparlanip hata atilir --
-    yanlis pencereye tus gondermektense acikca basarisiz olmak dogru.
+    Eklenti kendi bool sonucunu kabugun odak penceresiyle dogrular. Yedekte
+    `focused()` -> (uygulama, pencere) dondurur; GNOME aramasinin sonucunu
+    dogrular. Tutmazsa `Escape` ile toparlanip hata atilir.
     """
-    try:
-        before = " | ".join(focused())
-    except Exception:
-        before = ""
-
     want = _norm(window)
     if not want:
         raise AppError("`focus` icin pencere/uygulama adi gerekli.")
+
+    if _extension_activate(window):
+        # Bool eklentinin icinde `global.display.focus_window` ile dogrulanir;
+        # ikinci bir AT-SPI turu hem gereksiz hem nested GNOME'da yanlistir.
+        return f"{window} GNOME eklentisiyle one alindi"
 
     backend.key("super")
     time.sleep(settle)
@@ -451,7 +511,7 @@ def focus(
             f"{str(exc)[:80]}). Ekrana bakin: screen_capture."
         ) from None
 
-    if want in _norm(app) or want in _norm(win):
+    if matches_focus(window, app, win):
         return f"{now} one alindi"
 
     _escape(backend)
@@ -459,6 +519,28 @@ def focus(
         f"{window!r} one alinamadi; odakta {now!r} var. GNOME aramasi baska "
         "bir sonuc secmis olabilir. Acik pencereleri window_list ile gorun."
     )
+
+
+def prepare(
+    app: str,
+    backend,
+    focused: "callable",
+    launch_settle: float = LAUNCH_SETTLE,
+) -> str:
+    """Uygulamayi baslat; kendi penceresi odaktaysa ikinci kez arama yapma."""
+    opened = launch(app)
+    time.sleep(launch_settle)
+    try:
+        focused_app, focused_window = focused()
+    except Exception:
+        focused_app, focused_window = "", ""
+
+    if matches_focus(app, focused_app, focused_window):
+        return (
+            f"{opened} · {focused_app} | {focused_window} "
+            "acildiktan sonra odakta"
+        )
+    return f"{opened} · {focus(app, backend, focused)}"
 
 
 def _escape(backend) -> None:

@@ -34,19 +34,32 @@ KEYBOARD_ACTIONS = {"key", "type", "hold", "release"}
 MOUSE_ACTIONS = POINTER_ACTIONS | {"move", "scroll", "mouse_up"}
 
 
-def devices_needed(actions: list[Action]) -> tuple[bool, bool]:
+def devices_needed(
+    actions: list[Action],
+    *,
+    focus_uses_keyboard: bool = True,
+) -> tuple[bool, bool]:
     """(klavye gerekli mi, fare gerekli mi).
 
     `InputBackend.ensure()` bununla bir kez cagrilinca iki cihazin beklemesi
     tek sefere iniyor (2,61 s -> 1,41 s, olculdu). Yalnizca `ui_*` iceren bir
     liste hicbir cihaz actirmaz -- C bolumunde duzeltilen "erisilebilirlik
     araci /dev/uinput istiyor" hatasi burada tekrarlanmasin.
+
+    `focus` iki yoldan biriyle calisiyor: GNOME kabuk eklentisi kuruluysa
+    dogrudan `Meta.Window.activate` (cihaz YOK), degilse `super` + ad +
+    `Return` aramasi (klavye VAR). Hangisinin secilecegi bir D-Bus sorusu ve
+    bu modul saf kaliyor, o yuzden cevap parametreyle geliyor.
+
+    VARSAYILAN MUHAFAZAKAR. Cagiran sormadiysa klavye gerekli sayilir: eklenti
+    kurulu OLSA BILE hedef kapaliysa ya da ad birden fazla pencereye uyuyorsa
+    `ActivateWindow` False doner ve aramaya dusulur. Yanlis "gerekmiyor"
+    cevabi cihazi eylemin ortasinda tembel actirir (~1,3 sn, butcede yok).
     """
     kinds = {a.a for a in actions}
     keyboard = bool(kinds & KEYBOARD_ACTIONS)
     pointer = bool(kinds & MOUSE_ACTIONS)
-    if "focus" in kinds:
-        # `focus` GNOME aramasini kullaniyor: super + ad + Return -> klavye.
+    if focus_uses_keyboard and "focus" in kinds:
         keyboard = True
     return keyboard, pointer
 

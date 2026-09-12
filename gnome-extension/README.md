@@ -11,9 +11,12 @@ Bu eklenti aynı durumu **göz kaçırmayacak** biçimde gösteriyor.
   nefes alıyor: 11 saniyede bir, en fazla çizildiği kalınlıkta kalarak %12
   inceliyor ve geri dönüyor.
 
-**Tamamen görsel.** Eklenti hiçbir şeye tıklamaz, hiçbir şey yazmaz, pcbridge'in
-davranışını değiştirmez. Yaptığı tek şey `~/.local/state/pcbridge/desktop_unlock.json`
-dosyasını **okumak**.
+Görsel katmana ek olarak tek, dar bir D-Bus yöntemi sunar:
+`ActivateWindow(hedef) -> bool`. Yöntem yalnızca zaten açık olan tek ve
+belirsiz olmayan eşleşmeyi öne alır. Pencere listelemez, taşımaz, kapatmaz veya
+boyutlandırmaz. Her çağrıda
+`~/.local/state/pcbridge/desktop_unlock.json` grant'ini yeniden okur; izin
+kapalıysa hiçbir şey yapmadan `false` döner. Eklenti grant dosyasını yazmaz.
 
 ## Kurulum
 
@@ -86,6 +89,7 @@ modülü):
 
 ```bash
 gjs -m gnome-extension/tests/test_state.js
+gjs -m gnome-extension/tests/test_window_control.js
 ```
 
 ## Dosyalar
@@ -94,10 +98,27 @@ gjs -m gnome-extension/tests/test_state.js
 |---|---|
 | `pcbridge-gorunur@eymistaken.local/extension.js` | giriş noktası, durum makinesi |
 | `pcbridge-gorunur@eymistaken.local/state.js` | `desktop_unlock.json` izleyici |
+| `pcbridge-gorunur@eymistaken.local/windowcontrol.js` | tek yöntemli D-Bus pencere etkinleştirme yüzü |
 | `pcbridge-gorunur@eymistaken.local/frame.js` | kenar çerçevesi |
 | `pcbridge-gorunur@eymistaken.local/selftest.js` | kabuğun içinden ölçüm (aşağıda) |
 | `install.sh` / `nested.sh` | kurulum / geliştirme döngüsü |
 | `tests/test_state.js` | durum izleyici testi (kabuk gerekmez) |
+| `tests/test_window_control.js` | eşleşme, grant ve yöntem sözleşmesi (kabuk gerekmez) |
+
+### Pencere etkinleştirme yüzü
+
+Oturum veriyolundaki ad, nesne ve arayüz:
+
+```text
+io.github.eymistaken.Pcbridge.WindowFocus
+/io/github/eymistaken/Pcbridge/WindowFocus
+io.github.eymistaken.Pcbridge.WindowFocus.ActivateWindow(s) -> b
+```
+
+`true`, `Meta.Window.activate()` sonrasında GNOME kabuğunun odak penceresinin
+aynı pencere olduğunu doğruladığı anlamına gelir. Hedef yoksa, en iyi eşleşme
+belirsizse, grant kapalıysa veya etkinleştirme doğrulanmazsa `false` döner;
+pcbridge bu durumda mevcut GNOME arama yedeğine düşer.
 
 ### Kabuğun içinden ölçüm
 

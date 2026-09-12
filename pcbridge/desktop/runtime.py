@@ -8,6 +8,7 @@ import time
 from typing import Callable, Hashable
 
 from ..config import Config
+from . import apps as appslib
 from .backends.python import (
     PythonAccessibilityProvider,
     PythonCaptureProvider,
@@ -65,6 +66,7 @@ class DesktopRuntime:
         desktop_state_provider: DesktopStateProvider | None = None,
         screen_lock_probe: Callable[[], bool | None] | None = None,
         user_activity_probe: Callable[[], int | None] | None = None,
+        extension_focus_probe: Callable[[], bool] | None = None,
     ) -> None:
         self.capture_provider = capture_provider
         self.input_provider = input_provider
@@ -73,6 +75,9 @@ class DesktopRuntime:
         self.desktop_state_provider = desktop_state_provider or PythonDesktopStateProvider(
             screen_lock_probe=screen_lock_probe,
             user_activity_probe=user_activity_probe,
+        )
+        self._extension_focus_probe = (
+            extension_focus_probe or appslib.extension_focus_available
         )
         self._capabilities = CapabilityRegistry()
         self._timer: threading.Timer | None = None
@@ -122,22 +127,38 @@ class DesktopRuntime:
 
         keyboard = values.get("input.keyboard")
         accessibility = values.get("accessibility.read")
+        try:
+            extension_focus = bool(self._extension_focus_probe())
+        except Exception:
+            extension_focus = False
         focus_usable = bool(
-            keyboard
-            and keyboard.usable_now
-            and accessibility
-            and accessibility.usable_now
+            extension_focus
+            or (
+                keyboard
+                and keyboard.usable_now
+                and accessibility
+                and accessibility.usable_now
+            )
+        )
+        focus_dependencies = (
+            ()
+            if extension_focus
+            else (keyboard, accessibility)
         )
         focus_blocker = next(
             (
                 capability
-                for capability in (keyboard, accessibility)
+                for capability in focus_dependencies
                 if capability and not capability.usable_now
             ),
             None,
         )
         if focus_usable:
-            focus_state = CapabilityState.DEGRADED
+            focus_state = (
+                CapabilityState.SUPPORTED
+                if extension_focus
+                else CapabilityState.DEGRADED
+            )
             focus_reason = None
         elif (
             focus_blocker
@@ -151,11 +172,20 @@ class DesktopRuntime:
         values["window.focus"] = self._observed_capability(
             "window.focus",
             focus_state,
-            backend="linux.gnome-search",
+            backend=(
+                "linux.gnome-shell-extension"
+                if extension_focus
+                else "linux.gnome-search"
+            ),
             scope="os.window",
             reason_code=focus_reason,
             limitations=(
-                "Focus uses GNOME search and verifies the result through accessibility.",
+                (
+                    "Already-open windows use the GNOME Shell extension; closed "
+                    "applications fall back to GNOME search."
+                    if extension_focus
+                    else "Focus uses GNOME search and verifies the result through accessibility."
+                ),
             )
             if focus_usable
             else (),

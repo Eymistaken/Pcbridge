@@ -161,3 +161,13 @@ export function checkClickThrough() {
     sonuc('ÖZET: çerçeve aktörleri tıklama hedefi değil', hepsiGecti);
     return hepsiGecti;
 }
+
+/** D-Bus etkinleştirmesinin gerçekten odak değiştirdiğini kabuğun içinden doğrula. */
+export function reportWindowActivation(window, target) {
+    const focused = global.display.focus_window;
+    let title = '(başlık yok)';
+    try {
+        title = focused?.get_title?.() || title;
+    } catch { /* yalnızca tanı */ }
+    sonuc(`ActivateWindow odak · ${target}`, focused === window, `→ ${title}`);
+}

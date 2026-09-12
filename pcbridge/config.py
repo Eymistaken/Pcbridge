@@ -600,8 +600,8 @@ def load_config(explicit: str | None = None) -> Config:
             f"({desktop.unlock_max_minutes}) degerini asamaz."
         )
     # 0 = kayan kira kapali. Cok kucuk bir deger izni ajan daha ikinci
-    # cagrisini yapamadan dusururdu: `window_focus` tek basina ~6,5 saniye,
-    # ekran goruntusu ~1,5 saniye suruyor (bu makinede olculdu).
+    # cagrisini yapamadan dusururdu: `window_focus` GNOME arama yedeginde
+    # ~6,7 saniye, ekran goruntusu ~1,5 saniye suruyor (bu makinede olculdu).
     if desktop.unlock_idle_seconds and desktop.unlock_idle_seconds < 10:
         raise SystemExit(
             f"[desktop] ({path}): `unlock_idle_seconds` "

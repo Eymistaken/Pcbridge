@@ -663,9 +663,10 @@ gnome-extensions disable pcbridge-gorunur@eymistaken.local
 
 Bilmeniz gerekenler:
 
-- **Tamamen görsel.** Eklenti hiçbir şeye tıklamaz, hiçbir şey yazmaz,
-  pcbridge'in davranışını değiştirmez. Yaptığı tek şey
-  `~/.local/state/pcbridge/desktop_unlock.json` dosyasını **okumak**.
+- **Dar yetkili.** Görsel çerçevenin yanında yalnızca zaten açık bir pencereyi
+  öne alan `ActivateWindow(hedef) -> bool` D-Bus yöntemini sunar. Listeleme,
+  taşıma, kapatma ve boyutlandırma yoktur. Her çağrı grant dosyasını yeniden
+  okur; izin kapalıysa reddeder ve dosyaya hiçbir zaman yazmaz.
 - **Tıklamayı engellemez.** Çerçeve bandının altındaki pencerelere tıklama
   geçer — gerçek bir tıklamayla ölçüldü (bandın içindeki bir Chrome sekmesine
   tıklandı, sekme değişti).

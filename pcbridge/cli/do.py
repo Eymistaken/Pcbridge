@@ -128,11 +128,25 @@ def main(argv: list[str] | None = None) -> int:
             if "text" in act.args:
                 detail["text_chars"] = len(str(act.args["text"]))
             lines.append(f"  {i}. {act.a} {detail if detail else ''}".rstrip())
-        want_k, want_p = opslib.devices_needed(plan)
+        from ..desktop import apps as appslib
+
+        # Kuru kosuda da GERCEK yolu bildir: eklenti kuruluysa `focus` klavye
+        # actirmaz, degilse actirir. Yanlis bildirmek ajani "cihaz gerekmiyor"
+        # diye yanlis plana sokar.
+        fast_focus = appslib.extension_focus_available()
+        want_k, want_p = opslib.devices_needed(
+            plan, focus_uses_keyboard=not fast_focus
+        )
         lines.append(
             f"gereken cihazlar: klavye={'evet' if want_k else 'hayir'} "
             f"fare={'evet' if want_p else 'hayir'}"
         )
+        if "focus" in {a.a for a in plan}:
+            lines.append(
+                "focus yolu: "
+                + ("GNOME eklentisi (acik pencere)" if fast_focus
+                   else "GNOME aramasi (eklenti yok)")
+            )
         lines.append(f"tahmini sure: {batchlib.estimate(plan):.1f} s")
         if args.json:
             print(json.dumps({
@@ -154,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _run_plan(cfg, args, plan, runtime) -> int:
     """Execute one parsed plan with resources owned by a single runtime."""
+    from ..desktop import apps as appslib
     from ..desktop import batch as batchlib
     from ..desktop import capture as capturelib
     from ..desktop.errors import DesktopError
@@ -208,7 +223,12 @@ def _run_plan(cfg, args, plan, runtime) -> int:
 
     gate = runtime.gate
     kinds = {a.a for a in plan}
-    needs_input = bool(kinds & batchlib.INPUT_ACTIONS) or "focus" in kinds
+    # Tek sorgu, iki karar: kapi ve cihaz on acilisi ayni gercegi kullansin.
+    # Eklenti varsa `focus` uinput istemiyor; yoksa arama yedegi klavye ister.
+    focus_uses_keyboard = not appslib.extension_focus_available()
+    needs_input = bool(kinds & batchlib.INPUT_ACTIONS) or (
+        focus_uses_keyboard and "focus" in kinds
+    )
     # Iki yoldan da yalnizca BOSTA kontrolu atlanir: `--force` elle kullanim
     # icin, `PCBRIDGE_TASK_FORCE` ise `computer_task`in gorev basinda yaptigi
     # kontrolu ajanin her eyleminde tekrarlamamak icin.
@@ -225,7 +245,9 @@ def _run_plan(cfg, args, plan, runtime) -> int:
     tree = runtime.accessibility_provider
 
     # Cihazlari bastan ac: ikisi de gerekiyorsa bekleme tek sefere iner.
-    want_k, want_p = opslib.devices_needed(plan)
+    want_k, want_p = opslib.devices_needed(
+        plan, focus_uses_keyboard=focus_uses_keyboard
+    )
     warmup = backend.ensure(keyboard=want_k, pointer=want_p) if (want_k or want_p) else 0.0
 
     gap = 1.0 / cfg.desktop.max_actions_per_second if cfg.desktop.max_actions_per_second > 0 else 0.0

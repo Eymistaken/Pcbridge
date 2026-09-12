@@ -4,11 +4,10 @@
  * safety.py` yazıyor. İçerik `{"until": <unix saniye>, "reason", "granted"}`,
  * kilitliyken `{"until": 0}`.
  *
- * NEDEN D-BUS DEĞİL: GNOME 46 bu makinede `Shell.Introspect` ve
- * `Shell.Screenshot`'ı dışarıya kapatmış; pcbridge'in kendisi de bir D-Bus
- * arayüzü sunmuyor ve sunması bu işin kapsamı dışında ("yalnızca görsel
- * katman"). Dosya zaten var, zaten diske yazılıyor ve tek yönlü: eklenti
- * OKUR, asla yazmaz.
+ * NEDEN GRANT DOSYADAN: pcbridge'in güvenlik kapısı bu dosyayı zaten atomik
+ * olarak yazıyor. Eklentinin dar pencere etkinleştirme D-Bus yüzü de aynı
+ * gerçeği her çağrıda yeniden okur; ikinci bir izin durumu üretmez. Eklenti
+ * dosyayı OKUR, asla yazmaz.
  *
  * NEDEN SÜRE HESABI BURADA: pcbridge izin süresi dolduğunda dosyayı yeniden
  * YAZMIYOR — `until` geçmişte kalıyor, o kadar. Yalnızca dosya olaylarını
@@ -72,6 +71,12 @@ export class UnlockState {
         return this._until;
     }
 
+    /** Dosyayı şimdi yeniden oku; güvenlik sınırındaki çağrılar bunu kullanır. */
+    refresh() {
+        this._reread();
+        return this._active;
+    }
+
     /** İzlemeyi başlat ve mevcut durumu HEMEN yayınla.
      *
      * İlk okuma şart: eklenti izin açıkken etkinleştirilebilir (oturum açılışı,
@@ -99,7 +104,7 @@ export class UnlockState {
                 return GLib.SOURCE_CONTINUE;
             });
 
-        this._reread();
+        this.refresh();
     }
 
     stop() {

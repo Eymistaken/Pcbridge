@@ -103,7 +103,7 @@ kuralı, bir kere atlanmış.
 ### Karar bekleyen
 
 - **90 saniye doğru mu?** Bir `agent_run` ortasında ajan düşünürken 90 sn
-  sessiz kalabilir mi? `window_focus` tek başına ~6,5 saniye sürüyor,
+  sessiz kalabilir mi? `window_focus` arama yedeğinde ~6,7 saniye sürüyor,
   ekran görüntüsü ~1,5 saniye. Düşünme payıyla 90 sn geniş görünüyor ama
   **ölçülmedi**. Öneri: 90 ile başla, `audit.log`'dan eylemler arası en uzun
   boşluğu ölçüp ayarla.
@@ -197,25 +197,23 @@ der, parlama "şu an bir şey oldu" der).
 
 ### Kök neden docstring — ölçüldü
 
-Sandığından iyi durumdasın: **doğru yol zaten var ve zaten GNOME araması
-kullanıyor.**
+Sandığından iyi durumdasın: **dışarıda tek araç, içeride iki yol var.**
 
-`apps.focus()` şunu yapıyor: `super` → uygulama adını **ham tuşla** yaz →
-`Return` → AT-SPI ile odağı doğrula, tutmazsa `Escape` ile toparla ve açıkça
-hata ver. Ölçülen süre ~6,5 saniye. Bu **birebir senin elinle yaptığın şey**.
+`apps.focus()` kurulu dar GNOME eklentisiyle açık pencereyi doğrudan
+etkinleştiriyor. Eklenti yoksa veya hedef kapalıysa `super` → uygulama adını
+**ham tuşla** yaz → `Return` → AT-SPI ile odağı doğrula yoluna düşüyor;
+tutmazsa `Escape` ile toparlayıp açıkça hata veriyor. Arama yedeğinin gerçek
+oturum taban çizgisi ortalama 6701,3 ms; eklenti yolu nested kabukta 6,8 ms.
+Eklenti yolu gerçek oturumda henüz ölçülmedi.
 
-Ama `window_focus`'un docstring'i şunu diyor:
+`window_focus`'un güncel docstring'i iki yolu da açıkça söylüyor:
 
 > *"Bring an application's window to the front so the next keystrokes go
 > there."*
 
-Ajan bunu okuyunca "bu **açık** pencereler için" diye anlıyor — ki
-`Field(description=...)` de öyle diyor: *"Names from `window_list` work
-best."* Kapalı bir uygulamayı açması gerektiğinde elinde bu araç yokmuş gibi
-davranıp `shell_run`'a düşüyor. **Ajan kuralı çiğnemiyor, aracı bilmiyor.**
-
-Ayrıca `apps.launch()` (`gtk-launch` ile .desktop girdisi) kodda var ama
-**hiçbir MCP aracı onu dışarı vermiyor**.
+Bu metin kapalı uygulama yeteneğini koruyor; `apps.launch()` da
+`computer_task(app=…)` hazırlığında kullanılıyor. Araç uygulamayı kendi
+açtıktan sonra odaktaysa ikinci bir aramaya girmiyor.
 
 ### Neden gerçekten önemli (gerekçe uydurmayalım)
 
@@ -239,10 +237,9 @@ hak ediyor.
 
 **3a. Docstring düzeltmesi (Y, 10 dakika).** `window_focus`:
 
-> *"Bring an application to the front, **launching it if it is not already
-> running** — this goes through the desktop's own search, exactly as the user
-> would. This is the ONLY correct way to open a graphical application; never
-> use `shell_run` for that."*
+> *"Bring an application to the front, launching it if it is not already
+> running. Already-open windows use the GNOME Shell extension when available;
+> closed applications and systems without it use desktop search."*
 
 `Field(description=...)`'daki "Names from `window_list` work best" da
 yanıltıcı: kapalı uygulamalar `window_list`'te yok. Yeniden yazılmalı.
@@ -300,13 +297,9 @@ gui_launch_allowlist = ["code", "gnome-text-editor", "nautilus"]
 
 ### Karar bekleyen
 
-- **`app_open` diye ayrı bir araç açılsın mı?** `window_focus` hem açıyor
-  hem öne alıyor; adı yalnızca ikincisini söylüyor. İki seçenek:
-  (a) docstring'i düzelt, araç sayısı 33'te kalsın;
-  (b) `app_open` ekle (`apps.launch()` → `gtk-launch`, aramadan hızlı:
-  ~6,5 sn yerine ~1 sn), `window_focus` öne almaya odaklansın.
-  **(b) öneriliyor** ama araç sayısını artırıyor ve `gtk-launch` yolunun
-  GNOME araması kadar güvenilir olduğu **bu makinede ölçülmedi**.
+- **`app_open` kararı verildi:** ayrı araç eklenmedi; dışarıda tek
+  `window_focus` kapısı kaldı. `computer_task(app=…)` içeride `apps.launch()`
+  kullanıyor ve yeni pencere zaten odaktaysa arama yapmıyor.
 - **Allowlist'te ne olmalı?** Yukarıdaki üçü tahmin. Sen kabuktan hangi GUI
   uygulamalarını meşru olarak açıyorsun?
 

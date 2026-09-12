@@ -4,8 +4,9 @@
  * işareti GNOME'un üst çubuktaki küçük paylaşım simgesi. Bu eklenti aynı
  * durumu göz kaçırmayacak şekilde gösterir.
  *
- * TAMAMEN GÖRSEL. Hiçbir şeye tıklamaz, hiçbir şey yazmaz, pcbridge'in
- * davranışını değiştirmez. Yalnızca `desktop_unlock.json`'ı OKUR.
+ * Görsel katmana ek olarak tek, dar bir D-Bus yöntemi sunar:
+ * `ActivateWindow(hedef) -> bool`. Pencere listelemez, taşımaz, kapatmaz veya
+ * boyutlandırmaz; her çağrıda `desktop_unlock.json` grant'ini yeniden okur.
  *
  * GNOME 46 / Wayland. Kod değişince kabuk yeniden başlamalı (ESM önbelleği):
  * geliştirme için `./nested.sh`.
@@ -18,6 +19,7 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import {FrameOverlay} from './frame.js';
 import * as SelfTest from './selftest.js';
 import {UnlockState, defaultStatePath} from './state.js';
+import {WindowControl} from './windowcontrol.js';
 
 export const LOG = '[pcbridge-gorunur]';
 
@@ -27,6 +29,7 @@ export default class PcbridgeGorunurExtension extends Extension {
         this._frame = null;
         this._selfTestId = 0;
         this._watchdogId = 0;
+        this._windowControl = null;
         try {
             this._frame = new FrameOverlay();
             this._frame.start();
@@ -39,6 +42,12 @@ export default class PcbridgeGorunurExtension extends Extension {
             const yol = defaultStatePath();
             this._state = new UnlockState(yol, (aktif, until) => this._onState(aktif, until));
             this._state.start();
+            this._windowControl = new WindowControl(this._state, {
+                onActivated: SelfTest.selfTestEnabled()
+                    ? (window, target) => SelfTest.reportWindowActivation(window, target)
+                    : null,
+            });
+            this._windowControl.start();
             console.log(`${LOG} etkin · durum dosyası: ${yol} · başlangıç: ` +
                 `${this._state.active ? 'AKTİF' : 'pasif'}`);
         } catch (error) {
@@ -56,6 +65,8 @@ export default class PcbridgeGorunurExtension extends Extension {
                     this[alan] = 0;
                 }
             }
+            this._windowControl?.stop();
+            this._windowControl = null;
             this._state?.stop();
             this._state = null;
             this._frame?.stop();

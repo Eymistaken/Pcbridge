@@ -285,6 +285,7 @@ class CapabilityContractTests(unittest.TestCase):
             gate=FakeGate(),
             screen_lock_probe=lambda: False,
             user_activity_probe=lambda: 2000,
+            extension_focus_probe=lambda: False,
         )
 
         first = runtime.capabilities()
@@ -335,6 +336,43 @@ class CapabilityContractTests(unittest.TestCase):
         third = runtime.capabilities()
         self.assertEqual(third.last_operations, {})
         self.assertEqual(capture.probe_count, 2)
+        runtime.close()
+
+    def test_extension_reports_supported_focus_without_uinput(self) -> None:
+        capture = FakeProvider({})
+        input_provider = FakeProvider({
+            "input.keyboard": capability(
+                "input.keyboard",
+                CapabilityState.PERMISSION_REQUIRED,
+                backend="synthetic.keyboard",
+                scope="os.keyboard",
+                reason_code=ErrorCode.PERMISSION_REQUIRED,
+                usable_now=False,
+            ),
+        })
+        accessibility = FakeProvider({
+            "accessibility.read": capability(
+                "accessibility.read",
+                CapabilityState.SUPPORTED,
+                backend="linux.atspi",
+                scope="os.accessibility",
+            ),
+        })
+        runtime = DesktopRuntime(
+            capture_provider=capture,
+            input_provider=input_provider,
+            accessibility_provider=accessibility,
+            gate=FakeGate(),
+            screen_lock_probe=lambda: False,
+            user_activity_probe=lambda: 2000,
+            extension_focus_probe=lambda: True,
+        )
+
+        focus = runtime.capabilities().capabilities["window.focus"]
+
+        self.assertEqual(focus.state, CapabilityState.SUPPORTED)
+        self.assertEqual(focus.backend, "linux.gnome-shell-extension")
+        self.assertIn("closed applications", focus.limitations[0].lower())
         runtime.close()
 
     def test_input_probe_never_constructs_or_writes_to_devices(self) -> None:

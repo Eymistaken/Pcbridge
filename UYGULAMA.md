@@ -17,7 +17,7 @@
 > | `computer_task` varsayılanı `opus` + `high` | Değer koda gömülmedi, `config.toml`'a taşındı (`[desktop] computer_task_*`) |
 > | `ocr.py` + tesseract + `screen_find_text` | **Hiç yazılmadı**, bilinçli olarak ertelendi — AT-SPI'ın kör olduğu yerler için `computer_task` daha iyi cevap |
 > | `computer_batch` 110 sn'yi aşarsa job'a çevir | Job'a devir **yapılmadı**; `jm.start()` ayrı süreç istiyor. Yerine kısmi çalıştırma + rapor |
-> | `Component.grab_focus` ile pencere öne alma | **Ölü** — GTK'da hata, Electron'da `False`. Tek yol GNOME araması (~6,5 sn) |
+> | `Component.grab_focus` ile pencere öne alma | **Ölü** — GTK'da hata, Electron'da `False`. Dar GNOME eklentisi açık pencereyi nested ölçümde 6,8 ms'de etkinleştiriyor; GNOME araması kurulum yok/hedef kapalı yedeği |
 >
 > Ayrıca **temel varsayımı değişti**: bu dosya "Gemini görsel göremiyor, o yüzden
 > her şeyi metne çevir" üzerine kurulu. Sınır Gemini'nin *kanalıydı*; Claude Code

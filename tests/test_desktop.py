@@ -2229,8 +2229,11 @@ def test_cli_gate() -> None:
           O.devices_needed(B.parse('[{"a":"type","text":"x"}]')) == (True, False))
     check("click fare istiyor",
           O.devices_needed(B.parse('[{"a":"click","x":1,"y":2}]')) == (False, True))
-    check("focus klavye istiyor (GNOME aramasi)",
+    check("focus VARSAYILAN olarak klavye istiyor (GNOME arama yedegi)",
           O.devices_needed(B.parse('[{"a":"focus","window":"X"}]')) == (True, False))
+    check("eklenti yolu bildirilince focus cihaz istemiyor",
+          O.devices_needed(B.parse('[{"a":"focus","window":"X"}]'),
+                           focus_uses_keyboard=False) == (False, False))
     check("karisik liste ikisini de istiyor",
           O.devices_needed(
               B.parse('[{"a":"click","x":1,"y":2},{"a":"type","text":"x"}]')

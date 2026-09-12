@@ -10,10 +10,10 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Yok (`Adım 1 tamamlandı`)
-- **Son tamamlanan adım:** Adım 1 — `KURALLAR.md` §4'ün 5/6/7 kapıları
-- **Sıradaki uygulanabilir adım:** Adım 2 — `window_focus` hızlı yolu
-  (onay bekliyor)
+- **Aktif adım:** Yok (`Adım 2 nested doğrulamayla tamamlandı`)
+- **Son tamamlanan adım:** Adım 2 — `window_focus` hızlı yolu
+- **Sıradaki uygulanabilir adım:** Adım 2'nin gerçek oturum ölçümü
+  (çıkış/giriş gerektiriyor), sonra Adım 3 — Native migration Faz 3
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 2 geçti** (native migration). Task 2.4 typed
   desktop state, fail-closed policy ve native lock watcher acceptance'ı dahil.
@@ -32,7 +32,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 |---|---|---|
 | 0 | Belge omurgası: tek giriş noktası, ölü referansların onarımı | `tamamlandı` |
 | 1 | `KURALLAR.md` §4'teki 5/6/7 kapıları (parola alanı, tekrar tıklama, kapatma onayı) | `tamamlandı` |
-| 2 | `window_focus` hızlı yolu (ölçülmüş 6,6 sn → hedef <1 sn) | `bekliyor` |
+| 2 | `window_focus` hızlı yolu (6701,3 ms → nested 6,8 ms) | `tamamlandı (nested)` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `bekliyor` |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `bekliyor` |
 | 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `bekliyor` |
@@ -245,6 +245,9 @@ yalnızca madde 6'yı kapatır, diğer ikisinin anahtarı yok (bilinçli).
 
 ## Adım 2 — `window_focus` hızlı yolu
 
+**Durum:** `tamamlandı (nested)` — gerçek oturuma kurulum ve gerçek oturum
+ölçümü ayrıca açık; bu adımda yapılmadı.
+
 Ölçüm ve bozulmaması gerekenler aşağıda, "Kurtarılan kayıtlar" bölümünde.
 
 **Karar (D2, 2026-09-12): GNOME eklentisinin "yalnızca görsel katman" kuralı
@@ -276,8 +279,92 @@ sözleşme metinleri birlikte güncellensin.
 eklenti kurulu **değilken** davranış bugünküyle aynı · aynı ölçüm
 `computer_batch` içindeki `focus` eylemiyle de tekrarlanıyor.
 
-Bu iş bitince `PLAN.md` Task 6.4 "hızlı yolu tasarla"dan "çalışan yolu
-capability arkasına al ve doğrula"ya iner.
+### Yapılanlar ve ölçüm
+
+- Eklentiye tek özel yöntem eklendi:
+  `io.github.eymistaken.Pcbridge.WindowFocus.ActivateWindow(s) -> b`.
+  D-Bus introspection yalnızca bu özel yöntemi gösterdi; pencere listesi,
+  taşıma, kapatma ve boyutlandırma yok.
+- Yöntem her çağrıda `UnlockState.refresh()` ile sahte nested grant dosyasını
+  yeniden okuyor. Grant kapalıyken nested çağrı `b false` döndü ve pencere
+  etkinleştirmedi. `true`, kabuğun `global.display.focus_window` değeriyle
+  yöntemin içinde doğrulanıyor.
+- `apps.focus()` önce bu yolu deniyor; servis yoksa, grant reddederse veya
+  hedef açık değilse eski GNOME araması aynen çalışıyor. Eklenti kurulu değil
+  testi eski `super` → ham yazı → `Return` sırasını ve beklemeleri birebir
+  doğruluyor.
+- `computer_task(app=…)` uygulamayı açtıktan sonra zaten odaktaysa ikinci bir
+  arama yapmıyor. Nested kabukta kapalı Text Editor soğuk başlatıldı;
+  `org.gnome.TextEditor` açıldı ve kabuk içi doğrulama
+  `New Document (Draft) - Text Editor` için `PASS` verdi. Birim sözleşmesi de
+  bu durumda GNOME aramasının çağrılmadığını doğruluyor.
+- `ops.devices_needed()` artık `focus_uses_keyboard` parametresi alıyor.
+  **Varsayılan `True`** — yani sormayan çağıran eski, muhafazakâr cevabı
+  alıyor. Modül saf kalsın diye probe'u çağıran yapıyor: `window_focus`,
+  `computer_batch` ve `pcb-do` üçü de `extension_focus_available()` sonucunu
+  geçiriyor. Eklenti yoksa eski klavye ön kontrolü aynen korunuyor; varsa
+  `/dev/uinput` hiç açılmıyor.
+  `batch.py` içindeki `7000 ms` bütçe tahmini **korundu**, çünkü hedef kapalı
+  olduğunda arama yedeğinin en kötü durum maliyeti hâlâ yaklaşık 6,7 saniye.
+- Capability, eklenti sahibi varken `supported` / `linux.gnome-shell-extension`;
+  eklenti yokken eski `degraded` / `linux.gnome-search` olarak raporlanıyor.
+
+**Önce — gerçek oturum, 2026-09-02:** aynı hedefe altı `batch_step`:
+6935, 6669, 6674, 6683, 6616, 6631 ms; ortalama **6701,3 ms**.
+
+**Sonra — yalnızca nested GNOME kabuğu, 2026-09-12:** aynı
+`computer_batch` → `focus` → `batch_step.ms` yolu: 11, 9, 6, 4, 6, 5 ms;
+ortalama **6,8 ms**. Bu sayı **gerçek oturumda ölçülmedi**. Son üretim bağı
+aynı nested yolda ikinci kez 6, 7, 6, 7, 4, 5 ms (ortalama 5,8 ms) verdi;
+karşılaştırma için kayıtlı "sonra" sayısı ilk altılı olan 6,8 ms'dir.
+
+**Açık doğrulama — gerçek oturum.** Ölçüldü 2026-09-12, önemli:
+
+```
+./gnome-extension/install.sh --durum   -> kurulu: evet (symlink), etkin: evet
+busctl ... NameHasOwner ...WindowFocus -> b false
+```
+
+Eklenti gerçek oturumda **zaten kurulu ve etkin** ve kurulum **symlink**, yani
+diskteki eklenti doğrudan bu depo. D-Bus adının sahibi yok: çalışan kabuk hâlâ
+**eski** kodu koşturuyor (GNOME 45+ ESM önbelleği). Bunun anlamı, "kurulum
+kararı" diye bekleyen bir şey **olmadığı**: yeni kod bir sonraki **çıkış/giriş**
+ta kendiliğinden yüklenecek — biri buna karar verse de vermese de, makine
+yeniden başlatıldığında da.
+
+Bu yüzden kod şimdi sağlam olmak zorunda. Beş eklenti dosyasının beşi de
+`gjs` ile ayrıştırıldı; `windowcontrol.js` ve `state.js` birim testleriyle
+(13 + 31) kapsanıyor ve `extension.js` nested kabukta fiilen yüklendi.
+
+Kalan gerçek iş: giriş çıkıştan sonra açık pencere için altı `computer_batch`
+`focus` ölçümünü tekrarlamak ve soğuk başlatmayı yeniden doğrulamak.
+Acil geri alma — kabuk açılmazsa Ctrl+Alt+F3 ile TTY'den de çalışır:
+
+```bash
+gnome-extensions disable pcbridge-gorunur@eymistaken.local
+```
+
+Sonuç olarak `PLAN.md` Task 6.4 artık "hızlı yolu tasarla" işi değil; gerçek
+oturumda capability ve native orchestration parity'sini doğrulama işidir.
+
+### Devralma sonrası tamamlanan üç şey
+
+Adım 2 kullanım limiti nedeniyle yarıda kaldı ve devralındı. Kalanlar:
+
+1. **Üç sözleşme testi kırmızıydı** (`test_window_focus.py`, yedek yol).
+   Sebep implementation değil fixture'dı: testler `focused()`'ın iki kez
+   çağrıldığını varsayıyordu. Eski `focus()` gerçekten baştan bir kez daha
+   çağırıyordu ama sonucu (`before`) **hiçbir yerde kullanılmıyordu** — ölü
+   kod, `HEAD`'de doğrulandı. Silinmesi doğru; testlerin iddiası değil
+   **kurulumu** düzeltildi ve odağın tek kez okunduğu ayrıca sabitlendi.
+2. **`focus` cihaz ihtiyacı iki yere kopyalanmıştı** ve `pcb-do`'ya hiç
+   uygulanmamıştı. `devices_needed()` parametreli hale getirildi (varsayılan
+   muhafazakâr), satır içi kopya kaldırıldı, `pcb-do` hem kapı hem ön açma
+   hem `--dry-run` çıktısı için aynı tek sorgudan besleniyor. Gerçek süreçte
+   doğrulandı: `pcb-do --dry-run` artık `klavye=evet` ve
+   `focus yolu: GNOME aramasi (eklenti yok)` yazıyor.
+3. **Gerçek oturum kurulum durumu ölçüldü** (yukarıda). Eklentinin zaten
+   kurulu ve etkin olduğu, yeni kodun sonraki girişte yükleneceği bulundu.
 
 ## Adım 3 — Faz 3: ilk Rust capture subsystem (Gate 3)
 
@@ -380,7 +467,8 @@ Zaten **açık ve görünür** bir pencere için:
 | 17:11:17 | PcBridge Desktop | 6616 ms |
 | 17:15:49 | PcBridge Desktop | 6631 ms |
 
-Altı çağrının altısı da **~6,6 saniye**. Doğrudan pencere etkinleştirme
+Altı çağrının ortalaması **6701,3 ms** (en az 6616, en çok 6935 ms).
+Doğrudan pencere etkinleştirme
 milisaniye sürer. Tekrarlamak için:
 
 ```bash

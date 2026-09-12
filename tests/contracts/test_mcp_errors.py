@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from fastmcp import Client, FastMCP
 
@@ -186,6 +187,7 @@ class FakeInput:
     def __init__(self, *, available: tuple[bool, str] = (True, "")) -> None:
         self.availability = available
         self.keys_sent: list[str] = []
+        self.ensure_calls: list[tuple[bool, bool]] = []
 
     def capability_token(self):
         return ("input", self.availability[0])
@@ -212,6 +214,7 @@ class FakeInput:
         return self.availability
 
     def ensure(self, keyboard: bool = False, pointer: bool = False) -> float:
+        self.ensure_calls.append((keyboard, pointer))
         return 0.0
 
     def close(self) -> None:
@@ -306,6 +309,79 @@ def build_mcp(
 
 
 class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
+    async def test_window_focus_extension_does_not_require_uinput(self) -> None:
+        input_provider = FakeInput(available=(False, "/dev/uinput izni yok"))
+        with tempfile.TemporaryDirectory() as raw:
+            mcp, _tree = build_mcp(Path(raw), input_provider=input_provider)
+            with (
+                mock.patch.object(
+                    toolslib.appslib, "extension_focus_available", return_value=True
+                ),
+                mock.patch.object(
+                    toolslib.appslib,
+                    "focus",
+                    return_value="Target GNOME eklentisiyle one alindi",
+                ),
+            ):
+                async with Client(mcp) as client:
+                    result = await client.call_tool(
+                        "window_focus", {"window": "Target", "force": True},
+                        raise_on_error=False,
+                    )
+
+        self.assertFalse(result.is_error)
+        self.assertEqual(input_provider.ensure_calls, [])
+
+    async def test_window_focus_without_extension_keeps_keyboard_preflight(self) -> None:
+        input_provider = FakeInput(available=(False, "/dev/uinput izni yok"))
+        with tempfile.TemporaryDirectory() as raw:
+            mcp, _tree = build_mcp(Path(raw), input_provider=input_provider)
+            with (
+                mock.patch.object(
+                    toolslib.appslib, "extension_focus_available", return_value=False
+                ),
+                mock.patch.object(toolslib.appslib, "focus") as focus,
+            ):
+                async with Client(mcp) as client:
+                    result = await client.call_tool(
+                        "window_focus", {"window": "Target", "force": True},
+                        raise_on_error=False,
+                    )
+
+        self.assertTrue(result.is_error)
+        self.assertEqual(
+            result.structured_content["error"]["permission_scope"], "os.keyboard"
+        )
+        focus.assert_not_called()
+
+    async def test_batch_focus_extension_does_not_preopen_keyboard(self) -> None:
+        input_provider = FakeInput(available=(False, "/dev/uinput izni yok"))
+        with tempfile.TemporaryDirectory() as raw:
+            mcp, _tree = build_mcp(Path(raw), input_provider=input_provider)
+            with (
+                mock.patch.object(
+                    toolslib.appslib, "extension_focus_available", return_value=True
+                ),
+                mock.patch.object(
+                    toolslib.appslib,
+                    "focus",
+                    return_value="Target GNOME eklentisiyle one alindi",
+                ),
+            ):
+                async with Client(mcp) as client:
+                    result = await client.call_tool(
+                        "computer_batch",
+                        {
+                            "actions": '[{"a":"focus","window":"Target"}]',
+                            "final": "none",
+                            "force": True,
+                        },
+                        raise_on_error=False,
+                    )
+
+        self.assertFalse(result.is_error)
+        self.assertEqual(input_provider.ensure_calls, [])
+
     async def test_system_capabilities_is_read_only_and_structured(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             mcp, _tree = build_mcp(Path(raw))
