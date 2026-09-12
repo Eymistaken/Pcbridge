@@ -202,6 +202,11 @@ native pipe üzerinde base64 yoktur:
 ```
 
 Frame identity'nin saat alanı `frame_identity_source` olmadan yorumlanmaz.
+
+Reddedilen bir `capture.frame` **hiçbir zaman** binary payload taşımaz
+(`binary_len: 0`), ve bir ret bağlantıyı kullanılamaz hale getirmez: sonraki
+geçerli istek kareyi verir. İkisi de `capture_frame_ipc_live.rs`'te
+(`PCBRIDGE_TEST_CAPTURE=1`) gerçek binary'ye karşı sınanıyor.
 Üretici `SPA_META_Header` verirse sequence ve PTS değiştirilmeden taşınır ve
 kaynak `spa_meta_header` olur. Ölçülen Mutter/GNOME 46 akışı bu metadata'yı
 vermiyor; o durumda sequence PipeWire source ömrü boyunca yerel sayaç,

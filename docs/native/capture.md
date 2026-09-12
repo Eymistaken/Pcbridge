@@ -264,12 +264,17 @@ düz dolgu ya da gürültü değil. Yanlış `grant_id` ile aynı istek
 `REVOKED`/`safety` döndürdü, stderr boştu, süreç temiz kapandı, arkada Mutter
 Session nesnesi kalmadı.
 
-**Bu yolun otomatik testi yok.** `ipc_protocol.rs`'teki
-`capture_frame_sends_png_as_the_binary_payload` deterministik **fake**
-backend'i sürüyor; `capture_frame_live.rs` ise kütüphaneyi doğrudan çağırıyor.
-`capture_frame_production` (grant eşleşmesi, `mutter:` şeması, snapshot
-araması, `NativeCapture` kablolaması) yalnızca yukarıdaki elle koşumla
-doğrulandı.
+Bu yol artık `capture_frame_ipc_live.rs` ile **otomatik**: aynı diziyi gerçek
+binary'ye karşı sürüyor ve her ret tipini ayrı ayrı sınıyor — yanlış
+`grant_id`/`revoke_epoch` → `REVOKED`, eski düzen → `DISPLAY_CHANGED`, olmayan
+connector → `DISPLAY_MAPPING_UNKNOWN`, şemasız `display_id` ve bilinmeyen
+`freshness` → `INVALID_PARAMS` — sonra bir retten sonra helper'ın hâlâ kare
+verdiğini doğruluyor. Reddedilen çağrı **hiç** binary taşımıyor. Diğer ikisi
+farklı seviyeleri tutuyor: `ipc_protocol.rs` deterministik fake backend'i,
+`capture_frame_live.rs` kütüphaneyi doğrudan.
+
+Kapının gerçekten kapı olduğu mutasyonla denendi: `matches_token` her zaman
+`true` dönecek şekilde bozulunca test kırmızıya döndü.
 
 ### PNG kodlayıcı: `image` değil `png`
 
