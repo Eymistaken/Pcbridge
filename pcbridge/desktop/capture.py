@@ -815,6 +815,14 @@ def _render(
         except (CaptureError, DesktopError):
             raise
         except Exception as exc:  # noqa: BLE001
+            # Tipli bir gerekce tasiyan backend hatasi (native yardimcinin
+            # REVOKED, DISPLAY_CHANGED, FRAME_TIMEOUT... cevaplari) OLDUGU GIBI
+            # gecer. Duz bir CaptureError'a sarilinca provider onu "backend
+            # yok" diye raporluyordu: olculdu 2026-09-13, Task 4.2 -- revoke
+            # edilmis izin BACKEND_UNAVAILABLE/capability olarak geldi.
+            typed = getattr(exc, "desktop_error", None)
+            if isinstance(typed, DesktopError):
+                raise typed from exc
             # Yayin dustu (monitor uykuda, kompozitor yeniden basladi).
             raise CaptureError(
                 f"ekran yayinindan kare alinamadi: {exc}. "

@@ -331,6 +331,17 @@ milisaniye olabiliyor. Damga bayatlık uyarısını sürdüğü için bu fark ö
 İleriye doğru bir saniyeden fazla sapan damga yok sayılıyor — gelecekten gelen
 bir damga bayatlık kontrolünü **sessizce** kapatırdı.
 
+### Tipli red nedenleri provider'dan geçer (2026-09-13 düzeltmesi)
+
+Native yardımcının tipli redleri (REVOKED, DISPLAY_CHANGED, FRAME_TIMEOUT…)
+`NativeCaptureError.desktop_error` olarak geliyor. `capture.py` bu istisnayı düz
+bir `CaptureError`'a sarıyordu ve provider onu `BACKEND_UNAVAILABLE` diye
+raporluyordu: Task 4.2'nin canlı testi revoke edilmiş bir izni
+`BACKEND_UNAVAILABLE`/`capability` olarak gördü. Kural artık `capture.py`'de ve
+backend'den bağımsız: tipli bir neden taşıyan istisna o nedenle yeniden
+fırlatılır. İzin hiç yokken `_grant()` de `GRANT_REQUIRED`/`safety` üretiyor.
+Ayrıntı: [verification-linux.md](verification-linux.md).
+
 ### Paylaşım göstergesi biraz kayıyor (kayıtta)
 
 Python yolunda ekran paylaşımı `desktop_unlock` ile açılıyor, yani üst

@@ -39,7 +39,7 @@ from pcbridge.desktop.backends.rust import (  # noqa: E402
     select_capture_backend,
 )
 from pcbridge.desktop.capabilities import CapabilityState  # noqa: E402
-from pcbridge.desktop.errors import DesktopError, ErrorCode  # noqa: E402
+from pcbridge.desktop.errors import DesktopError, ErrorCategory, ErrorCode  # noqa: E402
 from pcbridge.desktop.lease import LeaseToken  # noqa: E402
 from pcbridge.desktop.runtime import select_capture_provider  # noqa: E402
 from pcbridge.config import load_config  # noqa: E402
@@ -270,8 +270,54 @@ class NativeHandle(unittest.TestCase):
     def test_capture_without_a_grant_is_refused_before_any_request(self):
         handle = NativeScreenCast(self.cfg, gate=None, client=self.client)
         handle.start(["DP-4"])
-        with self.assertRaises(NativeCaptureError):
+        with self.assertRaises(NativeCaptureError) as raised:
             handle.capture("DP-4", Path("/tmp/never-written.png"))
+        self.assertEqual(self.client.requests, [])
+        self.assertIs(raised.exception.desktop_error.code, ErrorCode.GRANT_REQUIRED)
+        self.assertIs(raised.exception.desktop_error.category, ErrorCategory.SAFETY)
+
+    def _provider_refusal(self, handle) -> DesktopError:
+        provider = RustCaptureProvider(self.cfg, screencast=handle)
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(monitorslib, "list_monitors", return_value=MONITORS):
+                with self.assertRaises(DesktopError) as raised:
+                    provider.capture(
+                        1, out_dir=Path(tmp), scale_long_edge=0, include_pointer=False
+                    )
+            self.assertEqual(list(Path(tmp).iterdir()), [], "a refusal leaves nothing")
+        return raised.exception
+
+    def test_a_helper_refusal_keeps_its_code_through_the_provider(self):
+        """What a tool sees, not only what the handle raises.
+
+        Measured 2026-09-13 in the Task 4.2 gate: a revoked grant reached the
+        caller as BACKEND_UNAVAILABLE/capability. `capture.py` wrapped the
+        native exception in a plain CaptureError and the provider reported
+        that as a missing backend, so every typed helper refusal lost its code.
+        """
+        cases = (
+            ("REVOKED", ErrorCode.REVOKED, ErrorCategory.SAFETY),
+            ("DISPLAY_CHANGED", ErrorCode.DISPLAY_CHANGED, ErrorCategory.CAPTURE),
+            ("FRAME_TIMEOUT", ErrorCode.FRAME_TIMEOUT, ErrorCategory.CAPTURE),
+        )
+        for raw_code, code, category in cases:
+            with self.subTest(code=raw_code):
+                self.client.error = {
+                    "code": raw_code,
+                    "message": f"the helper said {raw_code}",
+                    "retryable": False,
+                    "category": category.value,
+                }
+                error = self._provider_refusal(native_handle(self.cfg, self.client))
+                self.assertIs(error.code, code)
+                self.assertIs(error.category, category)
+
+    def test_a_missing_grant_is_a_safety_refusal_through_the_provider(self):
+        handle = NativeScreenCast(self.cfg, gate=None, client=self.client)
+        handle.start([monitor.connector for monitor in MONITORS])
+        error = self._provider_refusal(handle)
+        self.assertIs(error.code, ErrorCode.GRANT_REQUIRED)
+        self.assertIs(error.category, ErrorCategory.SAFETY)
         self.assertEqual(self.client.requests, [])
 
     def test_a_stream_of_the_wrong_size_is_reported_not_rescaled(self):

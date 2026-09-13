@@ -209,9 +209,19 @@ class NativeScreenCast:
         if self.gate is not None:
             token = self.gate.current_token() or self.gate.last_token()
         if token is None:
-            raise NativeCaptureError(
-                "masaustu izni yok: native capture grant kimligi olmadan istenemez"
+            # A missing grant is a safety refusal, not a broken backend. Left
+            # untyped it surfaced as BACKEND_UNAVAILABLE/capability (measured
+            # 2026-09-13, Task 4.2, for a revoked and for an expired grant),
+            # which points an agent at the helper instead of `desktop_unlock`.
+            refusal = DesktopError(
+                code=ErrorCode.GRANT_REQUIRED,
+                message="masaustu izni yok: native capture grant kimligi olmadan istenemez",
+                category=ErrorCategory.SAFETY,
+                retryable=False,
+                suggested_action="Masaustu iznini desktop_unlock ile acip tekrar deneyin.",
+                backend=BACKEND_NAME,
             )
+            raise NativeCaptureError(refusal.message, cause=refusal)
         return str(token.grant_id), int(token.revoke_epoch)
 
     # -------------------------------------------------------------- shape
