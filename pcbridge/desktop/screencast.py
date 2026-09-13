@@ -267,6 +267,13 @@ class ScreenCast:
                     proc.wait(timeout=2)
                 except subprocess.TimeoutExpired:
                     pass
+            # Okuma ucu da kapansin: acik kalinca her kapatma bir ResourceWarning
+            # birakiyordu (Task 4.2 canli testinde goruldu, 2026-09-13).
+            try:
+                if proc.stdout is not None:
+                    proc.stdout.close()
+            except Exception:  # noqa: BLE001
+                pass
 
     def is_open(self) -> bool:
         with self._lock:
