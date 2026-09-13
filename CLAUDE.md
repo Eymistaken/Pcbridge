@@ -158,6 +158,7 @@ apps.py       uygulama baslatma, pencere one alma
 batch.py      toplu eylem motoru -- `Ops` protokolu uzerinden, MCP'yi TANIMAZ
 ops.py        `Ops`un gercek cihazlara baglanan uygulamasi
 safety.py     GUVENLIK KAPISI -- her GUI araci buradan gecer
+execution.py  YURUTME KILIDI -- yazma dizileri surecler arasi sirali, her eylemde izin yeniden
 ```
 
 İki tasarım kararı ısrarla korunuyor:
@@ -181,6 +182,15 @@ safety.py     GUVENLIK KAPISI -- her GUI araci buradan gecer
 (`desktop_unlock`, durum **diskte**) → çakışma koruması (`Mutter.IdleMonitor`)
 → hız sınırı + denetim kaydı. Reddin gerekçesi kullanıcıya **aynen** döner,
 o yüzden gerekçe ne yapılacağını söylesin.
+
+Kapı bir çağrıyı **kabul eder**; yazma dizisi orada bitmez. `computer_batch`,
+`pcb-do` ve tek eylemli yazma araçları sonra `execution.py`'nin süreçler arası
+kilidini alır (aynı anda tek yazıcı, 10 sn bekleyip `BUSY`) ve **her eylemden
+önce** `SafetyGate.verify()` sorulur: aynı izin mi (revoke epoch / grant id),
+süresi doldu mu, ekran kilitli mi. Red kalan eylemleri göndermez. Etkinlik
+yeniden **sorulmaz** — uinput olayı `IdleMonitor`'ü sıfırlıyor; hız penceresi
+kilit altında süreçler arası paylaşılır. Ölçüldü 2026-09-13: ekran kilidi
+sorgusu p50 2,9 ms, lease touch p50 0,03 ms (yazınca 12 ms).
 
 `SafetyGate.audit()` yalnızca masaüstüne ait değil: `shell_run`, `agent_run`,
 `fs_*`, `tmux_send` de buraya yazıyor. Kural: **ne yapıldığı yazılır, İÇERİK

@@ -148,7 +148,7 @@ class Result:
     total: int
     remaining: list[Action]
     elapsed: float
-    stopped: str = ""        # "" | "budget" | "error" | "focus" | "repeat"
+    stopped: str = ""        # "" | "budget" | "error" | "focus" | "repeat" | "safety"
     detail: str = ""
     focus_start: str = ""
     focus_now: str = ""
@@ -450,6 +450,7 @@ def run(
     check_focus: bool = True,
     expect_focus: str = "",
     repeat_limit: int = 3,
+    before_action: Callable[[Action], None] | None = None,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> Result:
@@ -469,6 +470,11 @@ def run(
     gozu olan bir ajan icin her pencereye tiklama tuzaga basiyordu.
     Cozum korumayi kapatmak DEGIL, niyeti soyletmek: kaza tam da beyan
     edilmemis bir niyetten cikmisti.
+
+    `before_action`: yurutme katmaninin kancasi (`execution.SequenceGuard`).
+    Her eylemden ONCE cagrilir; istisna atarsa o eylem gonderilmez ve dizi
+    `stopped="safety"` ile durur. Motor kancanin neye baktigini bilmez --
+    izin, revoke, sure, ekran kilidi -- yani hala gercek cihaz tanimiyor.
     """
     want_focus = (expect_focus or "").strip().lower()
     started = clock()
@@ -483,16 +489,34 @@ def run(
     repeat_key: tuple | None = None   # ayni hedefe ust uste kac tiklama
     repeat_run = 0
 
+    # Odak takibi bir TABAN ister. Taban okunamazsa "odak degisti mi" sorusu
+    # cevaplanamaz; eskiden takip sessizce kapaniyor ve tiklamalar korumasiz
+    # gidiyordu. Artik planda odagi kaydirabilecek bir eylem varsa HICBIR sey
+    # gonderilmez (Task 5.1). Yalnizca tus / ui eylemi olan bir planin
+    # dogrulayacagi bir sey yok; o eskisi gibi takipsiz calisir.
+    focus_known = True
     if check_focus:
         try:
             focus_start = focus_now = ops.focused()
-        except Exception as exc:  # odak okunamiyorsa takip kapanir, batch surer
+        except Exception as exc:  # noqa: BLE001 - gerekce rapora yaziliyor
             focus_start = focus_now = ""
-            check_focus = False
-            detail = f"odak okunamadi, takip kapatildi ({str(exc)[:80]})"
+            focus_known = False
+            if any(a.a in POINTER_ACTIONS for a in actions):
+                stopped = "focus"
+                detail = (
+                    f"odak okunamadi ({str(exc)[:80]}); tiklamadan sonra odagin "
+                    "kaymadigi dogrulanamayacagi icin HICBIR eylem gonderilmedi. "
+                    "`ui_click` odaga bakmaz; koordinatli tiklama gerekiyorsa "
+                    "once erisilebilirligin neden okunamadigina bakin "
+                    "(`system_capabilities`)"
+                )
+            else:
+                check_focus = False
+                detail = f"odak okunamadi, takip kapatildi ({str(exc)[:80]})"
 
+    pending = [] if stopped else actions
     i = 0
-    for i, act in enumerate(actions):
+    for i, act in enumerate(pending):
         elapsed = clock() - started
         need = cost_ms(act, first_input=not seen_input) / 1000.0
         if elapsed + need > budget:
@@ -520,6 +544,28 @@ def run(
                 break
         elif act.a != "wait":
             repeat_key, repeat_run = None, 0
+
+        # Taban bilinmiyorsa (bir `launch` / `focus` sonrasi okunamadi) bu
+        # tiklamanin odagi kaydirip kaydirmadigi dogrulanamaz: GONDERILMEZ.
+        if check_focus and not focus_known and act.a in POINTER_ACTIONS:
+            stopped = "focus"
+            detail = (
+                f"{i}. eylem ({act.describe()}) gonderilmedi: onceki pencere "
+                "degisiminden sonra odak okunamadi, bu tiklamanin sonucu "
+                "dogrulanamazdi"
+            )
+            break
+
+        # Yurutme katmaninin kancasi: izin, revoke, sure ve ekran kilidi HER
+        # eylemden once yeniden okunur. Reddi bir istisnadir; eylem GONDERILMEZ.
+        if before_action is not None:
+            try:
+                before_action(act)
+            except Exception as exc:  # noqa: BLE001 - kapali basarisizlik
+                stopped = "safety"
+                detail = f"{i}. eylem ({act.describe()}) gonderilmedi: {str(exc)[:200]}"
+                caught_error = exc
+                break
 
         t0 = clock()
         try:
@@ -550,13 +596,28 @@ def run(
         if check_focus and act.a in FOCUS_CHANGING:
             try:
                 focus_now = focus_start = ops.focused()
-            except Exception:
-                pass
+                focus_known = True
+            except Exception:  # noqa: BLE001 - sonraki tiklama gonderilmeyecek
+                focus_known = False
         elif check_focus and act.a in POINTER_ACTIONS:
             try:
                 focus_now = ops.focused()
-            except Exception:
-                focus_now = focus_start
+            except Exception as exc:  # noqa: BLE001
+                # Okunamayan odak DEGISMEMIS sayilmaz. Eskiden sayiliyordu, yani
+                # korumanin tam da gerektigi anda (odak bilinmiyor) sonraki
+                # tuslar gidiyordu.
+                focus_known = False
+                if i + 1 < len(actions):
+                    stopped = "focus"
+                    detail = (
+                        f"tiklama sonrasi odak okunamadi ({str(exc)[:80]}); "
+                        "sonraki eylemlerin dogru pencereye gidecegi "
+                        "dogrulanamadi, durduruldu"
+                    )
+                    i += 1
+                    break
+                detail = f"son tiklamadan sonra odak okunamadi ({str(exc)[:80]})"
+                continue
             if focus_now != focus_start:
                 if want_focus and want_focus in focus_now.lower():
                     # Beklenen pencereye gecildi: niyet onceden beyan edilmisti.
@@ -583,7 +644,7 @@ def run(
         if min_gap:
             sleep(min_gap)
     else:
-        i = len(actions)
+        i = len(pending)
 
     # Basili kalan var mi? Liste DUZGUN bittiyse birakilmaz -- "tut, sonraki
     # cagrida tikla" mesru bir kullanim. Ama dizi yarida kaldiysa (hata,
@@ -634,6 +695,8 @@ def describe(result: Result) -> str:
             "budget": "⏱️ Sure butcesi doldu",
             "error": "⛔ Eylem basarisiz",
             "focus": "⚠️ Odak kaydi",
+            "repeat": "🔁 Ayni hedefe tekrar tiklama",
+            "safety": "🔒 Guvenlik kapisi",
         }.get(result.stopped, result.stopped)
         lines.append(f"{reason}: {result.detail}")
 
@@ -661,5 +724,11 @@ def describe(result: Result) -> str:
                 "Once ui_dump ile nerede oldugunuza bakin. Koordinatla "
                 "tiklamak yerine ui_click kullanmak bu sorunu tamamen ortadan "
                 "kaldirir."
+            )
+        elif result.stopped == "safety":
+            lines.append(
+                "Kalanlari gondermeden once izni ve ekrani yeniden dogrulayin: "
+                "`system_capabilities`, gerekiyorsa kullanicidan yeni bir "
+                "`desktop_unlock`."
             )
     return "\n".join(lines)

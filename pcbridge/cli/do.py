@@ -171,7 +171,8 @@ def _run_plan(cfg, args, plan, runtime) -> int:
     from ..desktop import apps as appslib
     from ..desktop import batch as batchlib
     from ..desktop import capture as capturelib
-    from ..desktop.errors import DesktopError
+    from ..desktop import execution as executionlib
+    from ..desktop.errors import DesktopError, ErrorCode
     from ..desktop import ops as opslib
 
     capture_provider = runtime.capture_provider
@@ -255,15 +256,26 @@ def _run_plan(cfg, args, plan, runtime) -> int:
 
     gate.audit("pcb_do_start", count=len(plan), kinds=",".join(sorted(kinds)),
                forced=forced or None, job=job_id())
-    result = batchlib.run(
-        plan,
-        opslib.DeviceOps(backend, tree, cfg, capture_provider),
-        budget=float(cfg.desktop.batch_budget_seconds),
-        min_gap=gap,
-        check_focus=check_focus,
-        expect_focus=args.expect_focus,
-        repeat_limit=cfg.desktop.repeat_click_limit,
-    )
+    # Tek yazma dizisi, butun sureclerle sirali (Task 5.1): MCP sunucusunun
+    # batch'i ile bu surecin tuslari birbirine karismaz ve telefondan gelen
+    # `desktop_lock` KALAN eylemleri de durdurur.
+    try:
+        with runtime.write_sequence("pcb_do") as guard:
+            result = batchlib.run(
+                plan,
+                opslib.DeviceOps(backend, tree, cfg, capture_provider),
+                budget=max(0.0, float(cfg.desktop.batch_budget_seconds) - guard.waited),
+                min_gap=gap,
+                check_focus=check_focus,
+                expect_focus=args.expect_focus,
+                repeat_limit=cfg.desktop.repeat_click_limit,
+                before_action=guard,
+            )
+    except executionlib.SequenceRefused as exc:
+        busy = exc.code == ErrorCode.BUSY
+        gate.audit("pcb_do_busy" if busy else "pcb_do_denied",
+                   error=exc.code.value, job=job_id())
+        fail(str(exc), EXIT_DENIED, args.json)
 
     for step in result.steps:
         # Metin ICERIGI yazilmaz -- `ui_set_text`teki kural aynen gecerli.
@@ -282,6 +294,7 @@ def _run_plan(cfg, args, plan, runtime) -> int:
             "warmup_seconds": round(warmup, 2),
             "stopped": result.stopped or None,
             "detail": result.detail or None,
+            "error_code": getattr(getattr(result.error, "code", None), "value", None),
             "focus_start": result.focus_start or None,
             "focus_now": result.focus_now or None,
             "remaining": [{"a": a.a, **a.args} for a in result.remaining],

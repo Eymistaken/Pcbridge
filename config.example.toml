@@ -226,6 +226,9 @@ idle_guard_seconds = 60
 
 # Saniyede en fazla kac eylem gonderilebilir. Sonsuz donguye giren bir ajan
 # makineyi kilitleyemesin diye. 0 = sinirsiz (onerilmez).
+# Yazma eylemleri icin pencere SURECLER ARASI paylasilir: MCP sunucusu, pcb-do
+# ve tek eylemli araclar ayni yurutme kilidi altinda sayilir; biri bitip digeri
+# hemen baslayinca siniri ikinci kez harcayamaz.
 max_actions_per_second = 10
 
 # monitor= verilmeyen ve monitore ozel yorumlanan cagrilar icin varsayilan.

@@ -10,14 +10,14 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Adım 5 / Task 5.1 — Input parity fixture'ları ve batch safety
-- **Son tamamlanan adım:** Adım 4 / Task 4.3 — Rust capture'ı varsayılan yap
-- **Sıradaki uygulanabilir adım:** Task 5.1
+- **Aktif adım:** yok — kullanıcı isteğiyle Task 5.1'den sonra durduruldu (2026-09-13)
+- **Son tamamlanan adım:** Adım 5 / Task 5.1 — Input parity fixture'ları ve batch safety
+- **Sıradaki uygulanabilir adım:** Task 5.2 — Rust keyboard ve held-key lifecycle
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 4 geçti** (2026-09-13). Varsayılan artık
   `[native] capture = "auto"`; kullanıcının kendi servisi ve stdio istemcileri
   henüz yeniden başlatılmadı, yani çalışan süreçler hâlâ Python yolunda (#5).
-- **Native migration içindeki sıradaki task:** 5.1 → 5.2 → 5.3 → 5.4 → **Gate 5**
+- **Native migration içindeki sıradaki task:** 5.2 → 5.3 → 5.4 → **Gate 5**
 - **Kullanıcı dönünce:** aşağıdaki "Kullanıcıyı bekleyenler" listesi.
 
 Çalışma kuralı (kullanıcı isteği, 2026-09-12 gecesi, öncekinin yerine):
@@ -38,7 +38,7 @@ yapılınca silinmez, `yapıldı` diye işaretlenir.
 | 2 | `.github/workflows/native.yml`'ı ilk kez çalıştırmak | Depo public, push kullanıcının kararı; iş akışı yerelde yalnızca ayrıştırıldı, hiç koşmadı | `bekliyor` |
 | 3 | Task 4.2 ekran kilidi senaryosu: native capture kilitliyken kare vermiyor mu | Kilidi açmak parola istiyor; kullanıcı yokken ekran kilitli kalırdı | `bekliyor` |
 | 4 | Paylaşım göstergesinin kaynak kapanınca kaybolduğunu gözle görmek | Gösterge ekran paylaşımı olmadan görülemiyor; test yalnızca Mutter oturum sayısını doğruladı | `bekliyor` |
-| 5 | Task 4.3 yayılımı: servisi ve stdio istemcilerini yeniden başlatıp native yolu gerçek kullanımda görmek. `config.toml`'da `[native]` bölümü yok, yani yeni süreçler native yolu seçecek. Sıra: `bridgekilit` → `job_list` boş mu → `systemctl --user restart pcbridge` → Claude Code/Codex'i yeniden başlat → `./doctor.sh` 8. bölüm → `desktop_unlock` sonrası üst çubukta gösterge var, `desktop_lock` sonrası yok. Geri alma: `[native]` altına `capture = "python"` + aynı yeniden başlatmalar | Restart çalışan işleri öldürür; stdio süreçleri istemcinin; göstergeyi gözle görmek gerekiyor | `bekliyor` |
+| 5 | Task 4.3 yayılımı: servisi ve stdio istemcilerini yeniden başlatıp native yolu gerçek kullanımda görmek. `config.toml`'da `[native]` bölümü yok, yani yeni süreçler native yolu seçecek. Sıra: `bridgekilit` → `job_list` boş mu → `systemctl --user restart pcbridge` → Claude Code/Codex'i yeniden başlat → `./doctor.sh` 8. bölüm → `desktop_unlock` sonrası üst çubukta gösterge var, `desktop_lock` sonrası yok. Geri alma: `[native]` altına `capture = "python"` + aynı yeniden başlatmalar. Task 5.1'in yürütme kilidi ve eylem başına izin kontrolü de aynı yeniden başlatmayla devreye girer | Restart çalışan işleri öldürür; stdio süreçleri istemcinin; göstergeyi gözle görmek gerekiyor | `bekliyor` |
 
 ---
 
@@ -53,7 +53,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `tamamlandı` (3.1–3.5 ✅, **Gate 3 geçti**) |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
-| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (sırada 5.1) |
+| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1 ✅; sırada 5.2) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
@@ -1186,6 +1186,102 @@ revoke → yardımcıları kapat → yeni süreçler sırası.
 Faz 5.1 (batch safety) Faz 3 ile **paralel** geliştirilebilir; rollout'u 4.3
 sonrasına bağlı. Adım 1'deki kapılar 5.1'in yerine geçmez: 5.1
 grant/lock/revoke/deadline kontrolü, Adım 1 ise eylem içeriği kapısı.
+
+### Task 5.1 — Input parity fixture'ları ve batch safety · `tamamlandı`
+
+**Sorun.** İzin çağrının başında bir kez soruluyordu; kırk eylemlik bir
+`computer_batch` o tek cevapla koşuyordu. Telefondan `desktop_lock` bir sonraki
+çağrıyı durduruyor, çalışan dizinin kalanını durdurmuyordu. Ayrı süreçteki bir
+`pcb-do` ile MCP batch'inin tuşlarını da hiçbir şey sıraya koymuyordu.
+
+**Ne yapıldı.**
+
+- **`pcbridge/desktop/execution.py` (yeni):** `ExecutionLock` —
+  `state_dir/desktop_execution.lock` üzerinde `flock`, yazma dizileri süreçler
+  arası tek sıra. Sahibi ölünce kilit çekirdekle birlikte bırakılıyor, bayat
+  kilit kalmıyor. Bekleyen çağrı 10 sn sonra `BUSY` (retryable) dönüyor ve
+  kilidi kimin tuttuğunu söylüyor. `ExecutionSlot.pace()` saniyedeki eylem
+  penceresini aynı kilit altında süreçler arası paylaşıyor
+  (`desktop_execution.json`). `SequenceGuard` `batch.run`'ın cihaz bilmeyen
+  `before_action` kancası.
+- **`SafetyGate.verify(token)`:** kabul edilmiş dizinin her eylemi öncesi —
+  masaüstü açık mı, ekran kilitli mi, **aynı** izin mi (grant id + revoke
+  epoch), süresi doldu mu. Etkinlik ve hız bilinçli olarak yeniden sorulmuyor:
+  uinput `IdleMonitor`'ü sıfırlıyor (ölçülmüş tuzak), hız kilit altında
+  sayılıyor. Red kodları `REVOKED` (kullanıcı kapattıysa retryable değil, izin
+  yenilendiyse retryable), `GRANT_EXPIRED`, `SCREEN_LOCKED`.
+- **`DesktopRuntime.write_sequence(tool)`:** kilidi alıyor, bekledikten sonra
+  izni yeniden doğruluyor; red gelirse bu sürecin basılı tuttuğu girdiyi
+  bırakıyor.
+- **`batch.run`:** `before_action` kancası (`stopped="safety"`). **Okunamayan
+  odak artık "değişmedi" sayılmıyor:** planda tıklama varken odak baştan
+  okunamazsa hiçbir eylem gitmiyor; tıklamadan sonra okunamazsa sonraki
+  eylemden önce duruyor; `launch`/`focus` sonrası okunamazsa sonraki tıklama
+  gönderilmiyor. Tıklamasız planlar eskisi gibi takipsiz koşuyor.
+- **Bağlantılar:** `computer_batch` ve `pcb-do` kancayla koşuyor, kilit
+  beklemesi bütçeden düşülüyor. Tek eylemli yazma araçları da (`mouse`,
+  `keyboard`, `ui_click`, `ui_set_text`, `window_focus`,
+  `computer_task(app=…)`) aynı kilidi alıyor. `pcb-do --json` `error_code`
+  veriyor. `desktop_lock` ve `bridgekilit` kilidi **beklemiyor**.
+- **Plandan geniş tutulan:** `PLAN.md` "write sequence'leri" diyor; tek
+  eylemli araçlar da kilide alındı. Gerekçe: telefondan gelen tek bir `mouse`
+  tıklaması yerel bir `pcb-do` dizisinin ortasına düşebilirdi — kilidin
+  önlemek için var olduğu şeyin ta kendisi.
+- **Golden fixture:** `tests/fixtures/native/input_events.json`, Python
+  backend'inden bir kez kaydedilip gözden geçirildi; testler onu yeniden
+  üretmiyor. İki sanal cihazın yetenekleri (fare: `BTN_TOUCH`/`BTN_TOOL_PEN`
+  yok, ABS 0..3839 × 0..1079) ve 13 durum: kombinasyon, basılı değiştiriciyle
+  kombinasyon, hold/release, `release_all` sırası, smoothstep yol (960 px → 24
+  nokta), ışınlama, kırpılan ilk hareket, çift tıklama, iki kaydırma yönü,
+  sürükleme, hold zamanlayıcısının otomatik bırakması, ham yazma. Task
+  5.2/5.3'ün Rust tarafı bununla karşılaştırılacak.
+- Belgeler: `CLAUDE.md` (katman tablosu, kapı bölümü), `KULLANIM.md` §8,
+  `config.example.toml` (`max_actions_per_second` yorumu).
+
+**Ölçüldü (2026-09-13, bu makine):** eylem başına ek kontrolün maliyeti —
+ekran kilidi sorgusu p50 **2,9 ms** (maks 4,7), lease touch p50 **0,03 ms**
+(dosyaya yazdığında 12 ms). En ucuz eylem 30 ms; bütçe tahmini değiştirilmedi.
+
+**Acceptance — ölçüldü.**
+
+| Ölçüt (`PLAN.md`) | Kanıt |
+|---|---|
+| Revoke sonrası tek bir ek tuş/tıklama yok | olay kaydı `["key a", "key b"]`, kalan üç eylem gönderilmedi; MCP telinde `computer_batch` → `REVOKED`/`safety`, üç tıklamanın yalnızca biri |
+| Odak hatası sonrası tek bir ek tuş/tıklama yok | odak baştan okunamazsa 0 eylem; tıklamadan sonra okunamazsa `ctrl+a` ve `Delete` gitmiyor; `launch` sonrası okunamazsa tıklama gitmiyor |
+| Her eylemden önce grant/lock/revoke/deadline; etkinlik yeniden sorulmuyor | altı eylemde ekran kilidi sorgusu 1 + 1 + 6, etkinlik sorgusu 1 (yalnızca kabulde); süre dolumu `GRANT_EXPIRED`, kilit `SCREEN_LOCKED` |
+| Süreçler arası sıra, beklemeden sonra yeniden kontrol | başka süreç tutarken `BUSY` (tutanın adıyla); öldürülen sahip bayat kilit bırakmıyor; bekleyen dizi kilidi alınca revoke'u görüyor, 0 eylem |
+| Hız sınırı aynı kilit altında paylaşılıyor, batch aralığı korunuyor | hemen ardından başlayan dizi pencereyi 0,8 sn bekliyor; sınır içindekiler beklemiyor; `min_gap` aynen |
+| Stop/budget/error/revoke'ta basılı girdi bırakılıyor | budget, focus, repeat, error, safety beşinde de `release_all`; düzgün biten dizide bilinçli hold korunuyor; kabul reddinde süreç kendi basılı girdisini bırakıyor |
+| Batch MCP ve gerçek cihaz import etmiyor | alt süreçte `batch` + `execution` import edilince `fastmcp`, `mcp`, `evdev`, `gi`, `pydantic`, `starlette` yüklenmiyor |
+| Korunanlar: `expect_focus`, bütçe, kalan eylemler, `super` sonrası ham yazma, bilinçli hold | `tests/test_desktop.py` 583/583, testler değişmeden |
+
+**Testlerin tuttuğu mutasyonla denendi: 16/16.** Kancanın çağrılmaması,
+okunamayan odağın üç ayrı yerde yok sayılması, `verify`'ın izne ya da ekran
+kilidine bakmaması, kilidin paylaşımlı olması, hız penceresinin hiç
+beklememesi, bekleyen dizinin yeniden kontrol edilmemesi, reddedilen kabulde
+basılı girdinin bırakılmaması, `computer_batch` / `pcb-do`'nun kancasız
+koşması, tek eylemli aracın pencereye sayılmaması; fixture tarafında
+kombinasyonun basma sırasıyla bırakılması, yolun smoothstep'i kaybetmesi ve
+farenin `BTN_TOUCH` ilan etmesi. Dosyalar hash ile geri doğrulandı.
+
+**Test sonuçları:**
+
+- `tests/contracts/test_batch_safety.py` (yeni) → 33;
+  `tests/contracts/test_input_contract.py` (yeni) → 9;
+  `test_mcp_errors.py` → 16 (+5); contract discovery → **218, OK** (171 → 218)
+- integration discovery → 15 koşum, OK (1 canlı atlandı); teslim testinin sahte
+  kapısına `verify` eklendi
+- `tests/test_desktop.py` → **583**; `test_models.py` → **106**;
+  `test_test_safety.py` → OK; `--check` → 0
+- Rust değişmedi. **Gerçek girdi testi çalıştırılmadı:** Task 5.1 istemiyor;
+  gerçek girdi testleri kullanıcı yanındayken (Task 5.4, Gate 5).
+
+**Rollback:** Task 5.1 commit'ini geri almak yeterli. Yeni ayar yok, var olan
+bir dosya biçimi değişmedi; `desktop_execution.lock`/`.json` yalnızca yeni
+dosyalar.
+
+**Sonraki somut adım:** Task 5.2 — Rust keyboard ve held-key lifecycle.
+Kullanıcı isteğiyle burada durduruldu.
 
 ## Adım 6 — İmleç katmanı
 

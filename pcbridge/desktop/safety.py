@@ -340,20 +340,34 @@ class SafetyGate:
         return True
 
     # ------------------------------------------------------------------ kapi
+    def _disabled_decision(self) -> Decision:
+        return Decision(
+            False,
+            "Masaustu kontrolu kapali. Acmak icin config.toml'da "
+            "`[desktop] enabled = true` yapip `systemctl --user restart pcbridge` "
+            "calistirin. (Varsayilan kapali olmasi bilincli: bu ozellik acik "
+            "oturumunuzdaki her uygulamaya erisim demek.)",
+            code=ErrorCode.DESKTOP_DISABLED,
+            permission_scope="pcbridge.desktop",
+            suggested_action="Enable desktop control in config.toml and restart pcbridge.",
+        )
+
+    def _grant_required_decision(self) -> Decision:
+        return Decision(
+            False,
+            "Masaustu kontrolu su an kilitli. Once desktop_unlock ile "
+            f"sureli izin verin (varsayilan {self.spec.unlock_default_minutes} dakika).",
+            code=ErrorCode.GRANT_REQUIRED,
+            permission_scope="pcbridge.desktop",
+            retryable=True,
+            suggested_action="Call desktop_unlock before using desktop tools.",
+        )
+
     def check(self, tool: str, write: bool = True, force: bool = False) -> Decision:
         """GUI araci calisabilir mi? Reddin gerekcesi kullaniciya aynen doner."""
         self._local.token = None
         if not self.spec.enabled:
-            return Decision(
-                False,
-                "Masaustu kontrolu kapali. Acmak icin config.toml'da "
-                "`[desktop] enabled = true` yapip `systemctl --user restart pcbridge` "
-                "calistirin. (Varsayilan kapali olmasi bilincli: bu ozellik acik "
-                "oturumunuzdaki her uygulamaya erisim demek.)",
-                code=ErrorCode.DESKTOP_DISABLED,
-                permission_scope="pcbridge.desktop",
-                suggested_action="Enable desktop control in config.toml and restart pcbridge.",
-            )
+            return self._disabled_decision()
 
         lock_decision = screen_lock_decision(self._state_provider.screen_lock())
         if not lock_decision.allowed:
@@ -361,15 +375,7 @@ class SafetyGate:
 
         token = self.current_token()
         if token is None:
-            return Decision(
-                False,
-                "Masaustu kontrolu su an kilitli. Once desktop_unlock ile "
-                f"sureli izin verin (varsayilan {self.spec.unlock_default_minutes} dakika).",
-                code=ErrorCode.GRANT_REQUIRED,
-                permission_scope="pcbridge.desktop",
-                retryable=True,
-                suggested_action="Call desktop_unlock before using desktop tools.",
-            )
+            return self._grant_required_decision()
 
         if write and not force:
             activity = self._state_provider.user_activity()
@@ -429,6 +435,75 @@ class SafetyGate:
             )
         self._local.token = token
         return Decision(True)
+
+    def verify(self, token: LeaseToken | None) -> Decision:
+        """Re-check an admitted write sequence before one more action.
+
+        `check()` admits a call; this answers whether that admission still
+        holds: desktop enabled, screen unlocked, and the SAME grant still
+        active. A `desktop_lock` (revoke epoch) or a new grant (grant id) ends
+        it. Passing slides the lease, like any other action.
+
+        Two layers of `check()` are deliberately not repeated. Activity: our
+        own uinput events reset `IdleMonitor` (measured 104227 ms -> 151 ms),
+        so the next action would see the previous one as the user. Rate: the
+        sequence paces itself under the execution lock (`execution.py`), and
+        counting here as well would make a batch throttle itself.
+
+        Measured 2026-09-13 on this machine: the screen-lock query p50 2.9 ms,
+        the lease touch p50 0.03 ms (12 ms when it writes), against >= 30 ms for
+        the cheapest action.
+        """
+        if not self.spec.enabled:
+            return self._disabled_decision()
+        lock_decision = screen_lock_decision(self._state_provider.screen_lock())
+        if not lock_decision.allowed:
+            return lock_decision
+        if token is None:
+            return self._grant_required_decision()
+        if self.touch(token):
+            return Decision(True)
+
+        current = self._lease.snapshot()
+        if (current.grant_id, current.revoke_epoch) == (token.grant_id, token.revoke_epoch):
+            return Decision(
+                False,
+                "Masaustu izninin suresi bu eylem dizisi surerken doldu; kalan "
+                "eylemler gonderilmedi. Devam etmek icin once desktop_unlock ile "
+                "yeniden izin verin, sonra ekrani tekrar okuyun.",
+                code=ErrorCode.GRANT_EXPIRED,
+                permission_scope="pcbridge.desktop",
+                retryable=True,
+                suggested_action=(
+                    "Call desktop_unlock again, re-read the screen, then send the "
+                    "remaining actions."
+                ),
+            )
+        if current.is_active():
+            return Decision(
+                False,
+                "Bu eylem dizisi surerken masaustu izni yeniden verildi; eski "
+                "izinle baslayan dizi durduruldu ve kalan eylemler gonderilmedi. "
+                "Ekrani tekrar okuyup kalanlari yeni bir cagriyla gonderin.",
+                code=ErrorCode.REVOKED,
+                permission_scope="pcbridge.desktop",
+                retryable=True,
+                suggested_action=(
+                    "Re-read the screen and send the remaining actions in a new call."
+                ),
+            )
+        return Decision(
+            False,
+            "Masaustu izni bu eylem dizisi surerken kapatildi (desktop_lock); "
+            "kalan eylemler gonderilmedi. Kullanici yeniden izin vermeden devam "
+            "etmeyin.",
+            code=ErrorCode.REVOKED,
+            permission_scope="pcbridge.desktop",
+            retryable=False,
+            suggested_action=(
+                "Stop here; continue only after the user grants desktop_unlock again."
+            ),
+        )
 
     # ---------------------------------------------------------- denetim kaydi
     def audit(self, event: str, **fields: Any) -> None:

@@ -13,6 +13,7 @@ import shlex
 import subprocess
 import threading
 import time
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -29,6 +30,7 @@ from .config import Config
 from .desktop import apps as appslib
 from .desktop import batch as batchlib
 from .desktop import capture as capturelib
+from .desktop import execution as executionlib
 from .desktop import input as inputlib
 from .desktop import monitors as monitorslib
 from .desktop import ops as opslib
@@ -1029,6 +1031,56 @@ def register(
                 )
         return None
 
+    @contextmanager
+    def _sequence(tool: str):
+        """One desktop write, alone and re-checked (Task 5.1).
+
+        Takes the cross-process execution lock after `_guard` admitted the
+        call, re-checks the grant, then counts this action against the shared
+        rate window. A refusal is raised before anything is sent.
+        """
+        with runtime.write_sequence(tool) as guard:
+            guard(tool)
+            yield guard
+
+    def _sequence_refused(
+        tool: str, exc: DesktopError, extra: dict[str, Any] | None = None
+    ) -> ToolResult:
+        busy = exc.code == ErrorCode.BUSY
+        gate.audit(f"{tool}_{'busy' if busy else 'denied'}", error=exc.code.value)
+        return presentationlib.desktop_error_result(
+            exc,
+            text=f"⛔ {exc}",
+            permission_scope="pcbridge.desktop",
+            extra=extra,
+        )
+
+    def _begin_write(tool: str) -> ExitStack | ToolResult:
+        """Start one serialized desktop write, or return why it cannot start.
+
+        The caller closes the returned stack in `finally`. A stack rather than a
+        `with` block keeps each tool body as it was, and the refusal is handled
+        here, before a tool's own `DesktopError` clause could report it as a
+        provider failure.
+        """
+        stack = ExitStack()
+        try:
+            stack.enter_context(_sequence(tool))
+        except executionlib.SequenceRefused as exc:
+            stack.close()
+            return _sequence_refused(tool, exc)
+        except OSError as exc:
+            stack.close()
+            gate.audit(f"{tool}_error", error=str(exc)[:160])
+            return _exception_result(
+                exc,
+                text=f"⛔ Masaustu yurutme kilidi alinamadi: {exc}",
+                category=ErrorCategory.EXECUTION,
+                scope="pcbridge.desktop",
+                backend_name="desktop.execution",
+            )
+        return stack
+
     @mcp.tool(
         output_schema=None,
         annotations={"title": "Desktop capabilities", "readOnlyHint": True},
@@ -1283,6 +1335,9 @@ def register(
                     "middle_click", "drag")
         clicks = {"click": 1, "double_click": 2, "triple_click": 3,
                   "right_click": 1, "middle_click": 1}
+        write = _begin_write("mouse")
+        if isinstance(write, ToolResult):
+            return write
         try:
             if act in needs_xy:
                 if x is None or y is None:
@@ -1340,6 +1395,8 @@ def register(
                 scope="os.pointer",
                 backend_name="desktop.input",
             )
+        finally:
+            write.close()
 
         gate.audit(
             "mouse", action=act, x=x, y=y, monitor=monitor, shot=shot,
@@ -1437,6 +1494,9 @@ def register(
             return err
 
         act = (action or "").strip().lower()
+        write = _begin_write("keyboard")
+        if isinstance(write, ToolResult):
+            return write
         try:
             if act == "type":
                 if not text:
@@ -1470,6 +1530,8 @@ def register(
                 scope="os.keyboard",
                 backend_name="desktop.input",
             )
+        finally:
+            write.close()
 
         gate.audit(
             "keyboard",
@@ -1871,6 +1933,9 @@ def register(
         denied = _guard("ui_click", force=force, needs_input=False)
         if denied:
             return denied
+        write = _begin_write("ui_click")
+        if isinstance(write, ToolResult):
+            return write
         try:
             res = tree.click(str(id))
         except (uitreelib.UiTreeError, DesktopError) as exc:
@@ -1882,6 +1947,8 @@ def register(
                 scope="os.accessibility",
                 backend_name="desktop.accessibility",
             )
+        finally:
+            write.close()
         gate.audit("ui_click", node=str(id)[:40], name=res.get("name", "")[:60],
                    forced=force or None)
         note = ""
@@ -1917,6 +1984,9 @@ def register(
         denied = _guard("ui_set_text", force=force, needs_input=False)
         if denied:
             return denied
+        write = _begin_write("ui_set_text")
+        if isinstance(write, ToolResult):
+            return write
         try:
             res = tree.set_text(str(id), text)
         except (uitreelib.UiTreeError, DesktopError) as exc:
@@ -1928,6 +1998,8 @@ def register(
                 scope="os.accessibility",
                 backend_name="desktop.accessibility",
             )
+        finally:
+            write.close()
         # Metnin KENDISI denetim kaydina yazilmaz; parola girilmis olabilir.
         gate.audit("ui_set_text", node=str(id)[:40], chars=len(text),
                    forced=force or None)
@@ -2020,6 +2092,9 @@ def register(
         )
         if denied:
             return denied
+        write = _begin_write("window_focus")
+        if isinstance(write, ToolResult):
+            return write
         try:
             note = appslib.focus(str(window), backend, tree.focused_window)
         except (appslib.AppError, DesktopError) as exc:
@@ -2032,6 +2107,8 @@ def register(
                 scope="os.window",
                 backend_name="desktop.window",
             )
+        finally:
+            write.close()
         gate.audit("window_focus", target=str(window)[:60], forced=force or None)
         return note
 
@@ -2173,15 +2250,44 @@ def register(
                         "batch": {"done": 0, "total": len(plan), "stopped": "error"}
                     },
                 )
-        result = batchlib.run(
-            plan,
-            batch_ops,
-            budget=float(cfg.desktop.batch_budget_seconds),
-            min_gap=gap,
-            check_focus=cfg.desktop.batch_check_focus,
-            expect_focus=expect_focus or "",
-            repeat_limit=cfg.desktop.repeat_click_limit,
-        )
+        try:
+            with runtime.write_sequence("computer_batch") as guard:
+                result = batchlib.run(
+                    plan,
+                    batch_ops,
+                    # Kilit icin beklenen sure butceden dusulur: bekleme + butce
+                    # yine 110 saniyelik MCP tavaninin altinda kalir.
+                    budget=max(
+                        0.0, float(cfg.desktop.batch_budget_seconds) - guard.waited
+                    ),
+                    min_gap=gap,
+                    check_focus=cfg.desktop.batch_check_focus,
+                    expect_focus=expect_focus or "",
+                    repeat_limit=cfg.desktop.repeat_click_limit,
+                    before_action=guard,
+                )
+        except executionlib.SequenceRefused as exc:
+            return _sequence_refused(
+                "computer_batch",
+                exc,
+                extra={
+                    "batch": {
+                        "done": 0,
+                        "total": len(plan),
+                        "stopped": "busy" if exc.code == ErrorCode.BUSY else "safety",
+                    }
+                },
+            )
+        except OSError as exc:
+            gate.audit("computer_batch_error", error=str(exc)[:160])
+            return _exception_result(
+                exc,
+                text=f"⛔ Masaustu yurutme kilidi alinamadi: {exc}",
+                category=ErrorCategory.EXECUTION,
+                scope="pcbridge.desktop",
+                backend_name="desktop.execution",
+                extra={"batch": {"done": 0, "total": len(plan), "stopped": "error"}},
+            )
         for step in result.steps:
             # Metin ICERIGI yazilmaz -- `ui_set_text`teki kural aynen gecerli.
             gate.audit("batch_step", i=step.index, a=step.action,
@@ -2196,7 +2302,10 @@ def register(
             "stopped": result.stopped,
         }
         if result.error is not None:
-            if want_ptr:
+            if result.stopped == "safety":
+                error_scope = "pcbridge.desktop"
+                error_category = ErrorCategory.SAFETY
+            elif want_ptr:
                 error_scope = "os.pointer"
                 error_category = ErrorCategory.EXECUTION
             elif need_kbd:
@@ -2390,6 +2499,9 @@ def register(
             # Uygulamayi SUNUCU aciyor, ajan degil: boylece ajan bilinen bir
             # ekranla basliyor ve "hangi pencere" belirsizligi bir tur once
             # cozuluyor. Basarisiz olursa is hic baslatilmiyor.
+            write = _begin_write("computer_task")
+            if isinstance(write, ToolResult):
+                return write
             try:
                 opened = appslib.prepare(
                     str(app), backend, tree.focused_window
@@ -2404,6 +2516,8 @@ def register(
                     scope="os.window",
                     backend_name="desktop.window",
                 )
+            finally:
+                write.close()
 
         steps = int(max_steps or spec.computer_task_max_steps)
         prompt = _task_prompt(instructions, str(goal), opened, steps)

@@ -368,7 +368,7 @@ sürükleme (kaydırıcı, seçim dikdörtgeni) `mouse_down` → `move` → `mov
 basılı kalanlar bırakılır, düzgün biterse bırakılmaz — rapor hangisi olduğunu
 söyler.
 
-**Üç durumda kendiliğinden durur** ve nerede kaldığını söyler:
+**Şu durumlarda kendiliğinden durur** ve nerede kaldığını söyler:
 
 - **Bir eylem başarısız olursa.** Kalanlar çalıştırılmaz — yanlış duruma kör
   devam etmek en kötü sonuç.
@@ -378,7 +378,18 @@ söyler.
 - **Bir tıklama odağı başka pencereye kaydırırsa.** Bu koruma gerçek bir
   kazadan doğdu: geliştirme sırasında bir ölçüm tıklaması masaüstüne düştü,
   ardından gönderilen `ctrl+a` + `Delete` masaüstündeki 23 öğeyi çöpe gönderdi.
-  Artık batch o noktada durur ve tuşlar hiç gitmez.
+  Artık batch o noktada durur ve tuşlar hiç gitmez. Odak **okunamıyorsa** da
+  aynısı: okunamayan odak "değişmedi" sayılmaz. Planda tıklama varken odak
+  baştan okunamazsa hiçbir eylem gönderilmez.
+- **İzin dizi sürerken kapanırsa.** İzin, süresi ve ekran kilidi her eylemden
+  önce yeniden okunur: telefondan `desktop_lock` ya da `bridgekilit` kalan
+  eylemleri de durdurur, tek bir tuş bile gitmez (`stopped: "safety"`).
+
+Aynı anda **tek bir yazma dizisi** çalışır: MCP sunucusu, `pcb-do` ve tek
+eylemli araçlar (`mouse`, `keyboard`, `ui_click`, `ui_set_text`,
+`window_focus`) aynı sırayı paylaşır. Başka bir dizi sürerken gelen çağrı 10
+saniye bekler, sonra `BUSY` döner ve kimin meşgul ettiğini söyler; bekleme
+batch'in süre bütçesinden düşülür.
 
 Bu yüzden batch içinde de **koordinatla tıklamak yerine `ui_click` tercih
 edilir**: düğümün kendisine gider, odağın nerede olduğu fark etmez.

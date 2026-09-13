@@ -209,6 +209,9 @@ class OpenGate:
     def touch(self, *args: Any, **kwargs: Any) -> None:
         return None
 
+    def verify(self, *args: Any, **kwargs: Any) -> Decision:
+        return Decision(True)
+
     def current_token(self) -> None:
         return None
 

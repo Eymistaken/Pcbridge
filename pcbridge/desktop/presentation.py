@@ -12,7 +12,7 @@ from fastmcp.tools.base import ToolResult
 from mcp.types import ContentBlock, ImageContent, TextContent
 
 from .capabilities import Capability, CapabilitySnapshot, CapabilityState
-from .errors import DesktopError, ErrorCategory, ErrorCode
+from .errors import DesktopError, ErrorCategory, ErrorCode, error_from_decision
 
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -107,17 +107,7 @@ def desktop_error_result(
 
 def decision_error(decision: Any) -> DesktopError:
     """Turn a typed SafetyGate decision into the common desktop taxonomy."""
-    return DesktopError(
-        code=getattr(decision, "code", None) or ErrorCode.EXECUTION_UNKNOWN,
-        message=decision.reason,
-        category=getattr(decision, "category", ErrorCategory.SAFETY),
-        retryable=bool(getattr(decision, "retryable", False)),
-        suggested_action=(
-            getattr(decision, "suggested_action", "")
-            or "Review the desktop authorization state and retry."
-        ),
-        permission_scope=getattr(decision, "permission_scope", None),
-    )
+    return error_from_decision(decision)
 
 
 def capability_error(

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -24,6 +25,7 @@ from pcbridge.desktop.capabilities import (  # noqa: E402
     CapabilityState,
 )
 from pcbridge.desktop.errors import ErrorCode  # noqa: E402
+from pcbridge.desktop.execution import ExecutionLock  # noqa: E402
 from pcbridge.desktop.runtime import DesktopRuntime  # noqa: E402
 from pcbridge.desktop.safety import Decision  # noqa: E402
 from pcbridge.jobs import JobManager  # noqa: E402
@@ -101,9 +103,18 @@ class FakeGate:
         self.spec = SimpleNamespace(enabled=True)
         self.decision = Decision(True) if decision is None else decision
         self.revoke_epoch = 0
+        # Answers for `verify`, one per call; empty means allowed.
+        self.verify_decisions: list[Decision] = []
+        self.verify_calls = 0
 
     def check(self, *args, **kwargs) -> Decision:
         return self.decision
+
+    def verify(self, token=None) -> Decision:
+        self.verify_calls += 1
+        if self.verify_decisions:
+            return self.verify_decisions.pop(0)
+        return Decision(True)
 
     def audit(self, *args, **kwargs) -> None:
         return None
@@ -282,6 +293,9 @@ def build_mcp(
     capture: FakeCapture | None = None,
     input_provider: FakeInput | None = None,
     accessibility: FakeAccessibility | None = None,
+    execution_lock: ExecutionLock | None = None,
+    execution_wait_seconds: float = 0.1,
+    rate_limit: int = 0,
 ) -> tuple[FastMCP, FakeAccessibility]:
     config = make_config(root)
     gate = gate or FakeGate()
@@ -295,6 +309,9 @@ def build_mcp(
         gate=gate,
         screen_lock_probe=lambda: False,
         user_activity_probe=lambda: 60_000,
+        execution_lock=execution_lock,
+        execution_wait_seconds=execution_wait_seconds,
+        rate_limit=rate_limit,
     )
     mcp = FastMCP("contract")
     toolslib.register(
@@ -532,6 +549,126 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             result.structured_content["error"]["permission_scope"], "os.capture"
         )
+
+    async def test_batch_stops_at_a_mid_sequence_revoke_and_says_so_typed(self) -> None:
+        """Task 5.1 -- the grant is read again before every action."""
+        gate = FakeGate()
+        gate.verify_decisions = [
+            Decision(True),  # admission, once the execution lock is held
+            Decision(True),  # before the first ui_click
+            Decision(
+                False,
+                "Masaustu izni bu eylem dizisi surerken kapatildi (desktop_lock).",
+                code=ErrorCode.REVOKED,
+                permission_scope="pcbridge.desktop",
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as raw:
+            mcp, tree = build_mcp(Path(raw), gate=gate)
+            async with Client(mcp) as client:
+                result = await client.call_tool(
+                    "computer_batch",
+                    {
+                        "actions": '[{"a":"ui_click","id":"a"},'
+                                   '{"a":"ui_click","id":"b"},'
+                                   '{"a":"ui_click","id":"c"}]',
+                        "final": "none",
+                    },
+                    raise_on_error=False,
+                )
+
+        self.assertTrue(result.is_error)
+        self.assertEqual(tree.click_count, 1, "a click went out after the revoke")
+        error = result.structured_content["error"]
+        self.assertEqual(error["code"], "REVOKED")
+        self.assertEqual(error["category"], "safety")
+        self.assertEqual(error["permission_scope"], "pcbridge.desktop")
+        self.assertEqual(
+            result.structured_content["batch"],
+            {"done": 1, "total": 3, "stopped": "safety"},
+        )
+        self.assertIn("Guvenlik kapisi", result.content[0].text)
+
+    async def test_a_write_tool_answers_busy_while_another_sequence_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            mcp, tree = build_mcp(root, execution_lock=ExecutionLock(root))
+            with ExecutionLock(root).hold("pcb_do"):
+                async with Client(mcp) as client:
+                    result = await client.call_tool(
+                        "ui_click", {"id": "save"}, raise_on_error=False
+                    )
+
+        self.assertTrue(result.is_error)
+        self.assertEqual(tree.click_count, 0)
+        error = result.structured_content["error"]
+        self.assertEqual(error["code"], "BUSY")
+        self.assertTrue(error["retryable"])
+        self.assertEqual(error["permission_scope"], "pcbridge.desktop")
+        self.assertIn("pcb_do", result.content[0].text)
+
+    async def test_batch_is_refused_whole_while_another_sequence_runs(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            mcp, tree = build_mcp(root, execution_lock=ExecutionLock(root))
+            with ExecutionLock(root).hold("computer_task"):
+                async with Client(mcp) as client:
+                    result = await client.call_tool(
+                        "computer_batch",
+                        {
+                            "actions": '[{"a":"ui_click","id":"a"},'
+                                       '{"a":"ui_click","id":"b"}]',
+                            "final": "none",
+                        },
+                        raise_on_error=False,
+                    )
+
+        self.assertTrue(result.is_error)
+        self.assertEqual(tree.click_count, 0)
+        self.assertEqual(result.structured_content["error"]["code"], "BUSY")
+        self.assertEqual(
+            result.structured_content["batch"],
+            {"done": 0, "total": 2, "stopped": "busy"},
+        )
+
+    async def test_single_write_tools_count_against_the_shared_rate_window(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            mcp, tree = build_mcp(
+                root, execution_lock=ExecutionLock(root), rate_limit=10
+            )
+            async with Client(mcp) as client:
+                for node in ("a", "b"):
+                    result = await client.call_tool(
+                        "ui_click", {"id": node}, raise_on_error=False
+                    )
+                    self.assertFalse(result.is_error)
+            state = json.loads((root / "desktop_execution.json").read_text())
+
+        self.assertEqual(tree.click_count, 2)
+        self.assertEqual(len(state["recent"]), 2)
+        self.assertIsNone(state["holder"])
+
+    async def test_a_grant_lost_while_waiting_sends_nothing(self) -> None:
+        gate = FakeGate()
+        gate.verify_decisions = [
+            Decision(
+                False,
+                "Masaustu izni bu eylem dizisi surerken kapatildi (desktop_lock).",
+                code=ErrorCode.REVOKED,
+                permission_scope="pcbridge.desktop",
+            )
+        ]
+        with tempfile.TemporaryDirectory() as raw:
+            mcp, tree = build_mcp(Path(raw), gate=gate)
+            async with Client(mcp) as client:
+                result = await client.call_tool(
+                    "ui_click", {"id": "save"}, raise_on_error=False
+                )
+
+        self.assertTrue(result.is_error)
+        self.assertEqual(tree.click_count, 0)
+        self.assertEqual(result.structured_content["error"]["code"], "REVOKED")
 
 
 if __name__ == "__main__":

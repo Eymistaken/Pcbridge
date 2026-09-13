@@ -5,10 +5,12 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Callable, Hashable
+from contextlib import contextmanager
+from typing import Callable, Hashable, Iterator
 
 from ..config import Config
 from . import apps as appslib
+from . import execution as executionlib
 from .backends.python import (
     PythonAccessibilityProvider,
     PythonCaptureProvider,
@@ -67,6 +69,9 @@ class DesktopRuntime:
         screen_lock_probe: Callable[[], bool | None] | None = None,
         user_activity_probe: Callable[[], int | None] | None = None,
         extension_focus_probe: Callable[[], bool] | None = None,
+        execution_lock: executionlib.ExecutionLock | None = None,
+        rate_limit: int = 0,
+        execution_wait_seconds: float = executionlib.EXECUTION_WAIT_SECONDS,
     ) -> None:
         self.capture_provider = capture_provider
         self.input_provider = input_provider
@@ -83,6 +88,12 @@ class DesktopRuntime:
         self._timer: threading.Timer | None = None
         self._lock = threading.RLock()
         self._closed = False
+        # One desktop write at a time across processes (Task 5.1). A runtime
+        # built by hand without a lock still re-checks every action; it only
+        # does not serialize against other processes.
+        self._execution_lock = execution_lock
+        self._rate_limit = int(rate_limit or 0)
+        self._execution_wait_seconds = float(execution_wait_seconds)
 
     def _capability_token(self) -> tuple[Hashable, ...]:
         return tuple(
@@ -322,6 +333,52 @@ class DesktopRuntime:
         self.refresh_capture_deadline()
         return True
 
+    @contextmanager
+    def write_sequence(self, tool: str) -> Iterator[executionlib.SequenceGuard]:
+        """Run one desktop write alone and keep re-checking its admission.
+
+        Call only after `gate.check()` admitted the call: the grant identity
+        captured there is what every later action is held to. Raises
+        `SequenceRefused` -- BUSY, or the refusal -- before yielding, so a
+        refused call has sent nothing.
+        """
+        last_token = getattr(self.gate, "last_token", None)
+        token = last_token() if callable(last_token) else None
+
+        def verify() -> object:
+            decision = self.gate.verify(token)
+            if getattr(decision, "allowed", False):
+                # The check slid the lease; the capture deadline follows it.
+                self.refresh_capture_deadline()
+            return decision
+
+        if self._execution_lock is None:
+            guard = executionlib.SequenceGuard(verify, None)
+            self._admit(guard)
+            yield guard
+            return
+        with self._execution_lock.hold(
+            tool, timeout=self._execution_wait_seconds
+        ) as slot:
+            guard = executionlib.SequenceGuard(
+                verify, slot, rate_limit=self._rate_limit
+            )
+            self._admit(guard)
+            yield guard
+
+    def _admit(self, guard: executionlib.SequenceGuard) -> None:
+        try:
+            guard.admit()
+        except executionlib.SequenceRefused:
+            # Keys or buttons this process still holds from an earlier call
+            # belong to a grant that no longer admits anything: let them go now
+            # instead of when the hold timer fires.
+            try:
+                self.input_provider.release_all()
+            except Exception as exc:  # noqa: BLE001 - the refusal is still raised
+                logger.warning("held input release after refusal failed: %s", exc)
+            raise
+
     def release_resources(self) -> None:
         """Release reusable desktop resources without retiring the runtime."""
         with self._lock:
@@ -412,6 +469,8 @@ def create_runtime(
         ),
         gate=resolved_gate,
         desktop_state_provider=state_provider,
+        execution_lock=executionlib.ExecutionLock(cfg.state_dir),
+        rate_limit=int(cfg.desktop.max_actions_per_second),
     )
 
 

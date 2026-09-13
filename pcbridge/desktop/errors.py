@@ -109,4 +109,23 @@ class DesktopError(RuntimeError):
         return data
 
 
-__all__ = ["DesktopError", "ErrorCategory", "ErrorCode"]
+def error_from_decision(decision: Any) -> DesktopError:
+    """Turn a typed `SafetyGate` decision into the common taxonomy.
+
+    Duck-typed on purpose: contract tests hand in look-alike decisions, and
+    this module must not import `safety`.
+    """
+    return DesktopError(
+        code=getattr(decision, "code", None) or ErrorCode.EXECUTION_UNKNOWN,
+        message=str(getattr(decision, "reason", "") or ""),
+        category=getattr(decision, "category", ErrorCategory.SAFETY),
+        retryable=bool(getattr(decision, "retryable", False)),
+        suggested_action=(
+            getattr(decision, "suggested_action", "")
+            or "Review the desktop authorization state and retry."
+        ),
+        permission_scope=getattr(decision, "permission_scope", None),
+    )
+
+
+__all__ = ["DesktopError", "ErrorCategory", "ErrorCode", "error_from_decision"]
