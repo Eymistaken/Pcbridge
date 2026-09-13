@@ -186,6 +186,8 @@ class CaptureContractTests(unittest.TestCase):
             self.assertTrue(payload["ok"])
             shot = payload["shots"][0]
             self.assertRegex(shot["id"], r"^m2-[0-9a-f]{6}$")
+            self.assertEqual(payload["backend"], "gnome-screenshot")
+            self.assertIsNone(payload["degraded"])
             self.assertEqual(shot["offset"], [160, 0])
             self.assertTrue((custom_output / f"{shot['id']}.json").is_file())
             copied = json.loads(

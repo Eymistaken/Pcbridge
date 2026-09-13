@@ -110,6 +110,7 @@ class InMemoryDelivery(DeliveryChecks, unittest.IsolatedAsyncioTestCase):
                 result = await client.call_tool("screen_capture", {"monitor": "all"})
 
             ids = self.assert_fixture_images(result)
+            self.assertNotIn("Native yakalama kullanılamadı", text_of(result))
             # The record a later `shot=` click maps through describes exactly
             # the picture the client decoded.
             for shot_id, block in zip(ids, images_of(result)):
@@ -120,6 +121,23 @@ class InMemoryDelivery(DeliveryChecks, unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(
                     Path(record["png"]).read_bytes(), base64.b64decode(block.data)
                 )
+
+    async def test_a_python_fallback_says_so_in_the_result_and_the_audit(self) -> None:
+        """Task 4.3: `auto` without a helper captures through Python, visibly."""
+        with tempfile.TemporaryDirectory() as raw:
+            server = fixture.build(
+                Path(raw), degraded_reason="Pcbridge native helper bulunamadi."
+            )
+            async with Client(server.mcp) as client:
+                result = await client.call_tool("screen_capture", {"monitor": "all"})
+
+            self.assert_fixture_images(result)
+            text = text_of(result)
+            self.assertIn("Native yakalama kullanılamadı", text)
+            self.assertIn("bulunamadi", text)
+            audited = [fields for event, fields in server.gate.events if event == "screen_capture"]
+            self.assertEqual(len(audited), 1)
+            self.assertEqual(audited[0]["backend"], "screencast (PipeWire)")
 
     async def test_stdio_never_hands_out_a_link_that_nothing_serves(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -386,7 +404,7 @@ def live_config(root: Path, binary: Path) -> Path:
     text = (ROOT / "config.example.toml").read_text(encoding="utf-8")
     for pattern, value in (
         (r"^state_dir = .*$", f'state_dir = "{root / "state"}"'),
-        (r'^capture = "python"$', 'capture = "rust"'),
+        (r'^capture = "[a-z]+"$', 'capture = "rust"'),
         (r'^binary_path = ""$', f'binary_path = "{binary}"'),
         (r'^agent_shot_dir = ""$', f'agent_shot_dir = "{root / "agent-shots"}"'),
         (r"^include_pointer = true$", "include_pointer = false"),

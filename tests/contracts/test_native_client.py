@@ -59,9 +59,10 @@ class TwoByteWriter:
 
 
 class NativeConfigContractTests(unittest.TestCase):
-    def test_config_defaults_to_python_and_explicit_binary_has_priority(self) -> None:
+    def test_config_defaults_to_auto_and_explicit_binary_has_priority(self) -> None:
+        # Task 4.3 changed the shipped default after the Linux parity gate.
         public = load_config(str(ROOT / "config.example.toml"))
-        self.assertEqual(public.native, NativeSpec(capture="python"))
+        self.assertEqual(public.native, NativeSpec(capture="auto"))
 
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
@@ -140,7 +141,7 @@ class NativeConfigContractTests(unittest.TestCase):
             root = Path(raw)
             binary = root / "native"
             text = (ROOT / "config.example.toml").read_text()
-            text = text.replace('capture = "python"', 'capture = "rust"', 1)
+            text = text.replace('capture = "auto"', 'capture = "rust"', 1)
             text = text.replace(
                 'binary_path = ""',
                 f'binary_path = "{binary}"',

@@ -573,6 +573,12 @@ bir çekim al. Bir `all` çekiminde monitörlerden biri alınamazsa diğerleri d
 yayımlanmaz: diskte yarım bir çekim ve arkasında görüntü olmayan bir `shot`
 kimliği kalmaz.
 
+Ham kareyi varsayılan olarak `pcbridge-native` yardımcısı alır
+(`[native] capture = "auto"`). Yardımcı yoksa pcbridge eski Python yoluna düşer ve
+bunu gizlemez: `system_capabilities` durumu `degraded` gösterir, `screen_capture`
+sonucu da "Native yakalama kullanılamadı" satırını taşır. İki yolda da ekran
+paylaşımı `desktop_unlock` ile açılır ve izin kapanınca kapanır.
+
 `computer_task`'in ikinci satırda ayrı durmasının sebebi ölçülmüş bir gerçek:
 **pcbridge'in gönderdiği tuş, "kullanıcı makinede mi" sayacını sıfırlıyor**
 (104227 ms → 151 ms). Yani ajan ikinci eylemine geldiğinde kendi ilk tuşunu

@@ -140,8 +140,9 @@ class FixtureCaptureProvider(PythonCaptureProvider):
         cfg: Config,
         *,
         after_capture: Callable[[list[Any]], None] | None = None,
+        degraded_reason: str = "",
     ) -> None:
-        super().__init__(cfg, FixtureScreenCast())
+        super().__init__(cfg, FixtureScreenCast(), degraded_reason=degraded_reason)
         self.after_capture = after_capture
 
     def capability_token(self) -> tuple[Any, ...]:
@@ -322,9 +323,12 @@ def fixture_runtime(
     config: Config,
     *,
     after_capture: Callable[[list[Any]], None] | None = None,
+    degraded_reason: str = "",
 ) -> DesktopRuntime:
     return DesktopRuntime(
-        capture_provider=FixtureCaptureProvider(config, after_capture=after_capture),
+        capture_provider=FixtureCaptureProvider(
+            config, after_capture=after_capture, degraded_reason=degraded_reason
+        ),
         input_provider=QuietInput(),
         accessibility_provider=QuietAccessibility(),
         gate=OpenGate(),
@@ -339,11 +343,14 @@ def build(
     *,
     transport: str = "stdio",
     after_capture: Callable[[list[Any]], None] | None = None,
+    degraded_reason: str = "",
 ) -> SimpleNamespace:
     """The fixture server: `mcp`, its `store`, `gate`, `config` and `runtime`."""
     config = make_config(root)
     store = ShotStore(config)
-    runtime = fixture_runtime(config, after_capture=after_capture)
+    runtime = fixture_runtime(
+        config, after_capture=after_capture, degraded_reason=degraded_reason
+    )
     mcp = FastMCP("capture-delivery")
     toolslib.register(
         mcp,

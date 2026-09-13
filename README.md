@@ -25,7 +25,7 @@ It is a personal tool, built and measured on one machine: **Zorin OS 18.1
 | **Drive a live terminal** | Attach to a tmux session, send keys, read the pane back. |
 | **Shell and files** | Run commands (foreground or background), read, write, search. |
 | **Use the desktop** | Virtual keyboard and absolute mouse via `uinput`, window focus, app launch. |
-| **Read the screen** | Accessibility tree as text (cheap, coordinate-free) or a silent screenshot (PipeWire screencast, no flash). |
+| **Read the screen** | Accessibility tree as text (cheap, coordinate-free) or a silent screenshot (PipeWire screencast, no flash). Frames come from a small Rust helper, `pcbridge-native`, when it is installed, and from the Python helper otherwise. |
 | **Click what you see** | Every screenshot carries a short id. Send the pixel you see plus that id — the server applies the offset and the scale, so the model never does the arithmetic. |
 | **Batch it** | Run a whole sequence of GUI actions in one call, with budget and focus guards. |
 

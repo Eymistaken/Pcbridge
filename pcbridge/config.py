@@ -204,10 +204,11 @@ class DesktopSpec:
 class NativeSpec:
     """Private native helper selection.
 
-    Python remains the default until the native capture parity gate passes.
+    `auto` since Task 4.3, after the Linux parity gate passed: the packaged
+    native helper when it is there, the Python helper otherwise.
     """
 
-    capture: str = "python"
+    capture: str = "auto"
     binary_path: Path | None = None
 
 
@@ -664,7 +665,7 @@ def load_config(explicit: str | None = None) -> Config:
             "baglantiyi telefonda acmaya yetmez."
         )
 
-    native_capture = str(native_raw.get("capture", "python")).strip().lower()
+    native_capture = str(native_raw.get("capture", "auto")).strip().lower()
     if native_capture not in ("python", "rust", "auto"):
         raise SystemExit(
             f"[native] ({path}): `capture` ({native_capture!r}) "

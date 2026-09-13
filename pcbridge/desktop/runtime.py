@@ -366,9 +366,14 @@ def select_capture_provider(cfg: Config, gate: GrantProvider) -> CaptureProvider
         select_capture_backend,
     )
 
+    requested = cfg.native.capture
+    if requested == "auto" and cfg.desktop.capture_backend == "gnome-screenshot":
+        # An explicitly chosen screenshot program is kept: `auto` must not
+        # quietly open a screen share the user configured away (Task 4.3).
+        requested = "python"
     ready, reason = native_binary_ready(cfg)
     selection = select_capture_backend(
-        requested=cfg.native.capture,
+        requested=requested,
         native_ready=ready,
         native_reason=reason,
     )

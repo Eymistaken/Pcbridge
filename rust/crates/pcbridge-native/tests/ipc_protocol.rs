@@ -411,3 +411,53 @@ fn capture_frame_rejects_ambiguous_or_unbounded_parameters() {
         assert_eq!(frames[1]["error"]["code"], "INVALID_PARAMS", "{name}");
     }
 }
+
+#[cfg(feature = "test-harness")]
+#[test]
+fn capture_session_open_carries_no_binary_and_validates_its_parameters() {
+    let input = framed_sequence(&[
+        initialize("session:1"),
+        request(
+            "session:2",
+            "capture.session_open",
+            json!({
+                "topology_id": "v1|0,0,1920,1080,1.0000,0,1",
+                "session_id": "session-contract",
+                "grant_id": "grant-contract",
+                "revoke_epoch": 3,
+                "include_pointer": false,
+            }),
+        ),
+        request(
+            "session:3",
+            "capture.session_open",
+            json!({
+                "topology_id": "",
+                "session_id": "session-contract",
+                "grant_id": "grant-contract",
+                "revoke_epoch": 3,
+            }),
+        ),
+        request(
+            "session:4",
+            "capture.session_open",
+            json!({"session_id": "missing-grant-and-topology"}),
+        ),
+    ]);
+    let output = run_input(&input, 17);
+    assert!(output.status.success(), "{output:?}");
+
+    let responses = decode_frames(&output.stdout);
+    assert_eq!(responses.len(), 4, "{responses:?}");
+    let opened = &responses[1];
+    assert_eq!(opened["id"], "session:2");
+    assert_eq!(
+        opened["binary_len"], 0,
+        "opening a session carries no pixels"
+    );
+    assert_eq!(opened["result"]["outcome"], "opened");
+    assert_eq!(opened["result"]["include_pointer"], false);
+    for response in &responses[2..] {
+        assert_eq!(response["error"]["code"], "INVALID_PARAMS", "{response}");
+    }
+}

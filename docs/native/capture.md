@@ -6,10 +6,11 @@ Bu belge `pcbridge-native`'in Mutter ScreenCast oturumunu anlatır:
 `rust/crates/pcbridge-native/src/platform/linux/session.rs`. Karşılığı Python
 tarafında `pcbridge/desktop/screencast.py` + `screencast_helper.py`.
 
-Native protokoldeki `capture.frame` bu oturumu ve PipeWire akışını tembel açar.
-Ancak `[native] capture` hâlâ `"python"`; mevcut Python shot pipeline'ı bu
-metodu henüz çağırmıyor ve kullanıcıya açık capture yolu Python yardımcısı.
-Task 3.4 bu native sonucu mevcut shot/koordinat sözleşmesine bağlayacak.
+Native protokolde oturum `capture.session_open` ile `desktop_unlock` anında
+(Task 4.3) ya da ilk `capture.frame` ile açılır. Task 4.3'ten beri
+`[native] capture` varsayılanı `auto`: paketlenmiş yardımcı varsa kullanıcıya açık
+capture yolu native, yoksa Python yardımcısı. Kareyi hangisi alırsa alsın shot ve
+koordinat sözleşmesi aynı (Task 3.4).
 
 ## Neden oturum var
 
@@ -344,6 +345,10 @@ Ayrıntı: [verification-linux.md](verification-linux.md).
 
 ### Paylaşım göstergesi biraz kayıyor (kayıtta)
 
+**Task 4.3'te kapandı:** `capture.session_open` ile native oturum da
+`desktop_unlock` anında açılıyor; aşağıdaki fark artık yok (bkz. "Varsayılan
+`auto` ve paylaşım izinle birlikte").
+
 Python yolunda ekran paylaşımı `desktop_unlock` ile açılıyor, yani üst
 çubuktaki gösterge izinle birlikte beliriyor. Native oturum **istek üzerine**:
 ilk `capture.frame` ile açılıyor ve revoke/kilide kadar açık kalıyor. Yani izin
@@ -369,7 +374,8 @@ yeniden bakılacak.
 | Kayıt dosyası | yazıldı, geri okundu, `to_global(10,10)` → `(12,12)` |
 | `capture()` toplam | **414 ms** (kare + kırpma + ölçekleme + PNG yazma) |
 
-Varsayılan **değişmedi**: `config.example.toml` hâlâ `capture = "python"`.
+Varsayılan **değişmedi**: `config.example.toml` hâlâ `capture = "python"`
+(Task 3.4 anında; Task 4.3'te `auto` oldu).
 
 ### PNG kodlayıcı: `image` değil `png`
 
@@ -515,6 +521,36 @@ panel, görev çubuğu ya da tek bir pencere bunu sağlıyor; iki monitörü
 tamamen aynı gösteren bir kurulumda test yanlış alarm verir ve mesajı bunu
 söylüyor.
 
+## Varsayılan `auto` ve paylaşım izinle birlikte (Task 4.3)
+
+**Önce gösterge.** Task 3.4'te native oturum ilk çekimde açılıyordu; izin ile ilk
+çekim arasında paylaşım göstergesi yoktu. Varsayılan değişmeden önce bu fark
+kapatıldı: protokole `capture.session_open` eklendi (kare okumaz; `capture.frame`
+ile aynı izin, düzen ve oturum kuralları, çünkü ikisi de
+`NativeCapture::open_session`'dan geçiyor) ve `NativeScreenCast.start()` onu
+`desktop_unlock` sırasında çağırıyor. İki yolda da gösterge izinle birlikte
+beliriyor, izin kapanınca kayboluyor. Eski bir yardımcı `UNKNOWN_METHOD` dönerse
+Python tarafı paylaşımı ilk kareye bırakır. Açılış reddedilirse (`REVOKED`, izin
+yok…) `desktop_unlock` bunu tipli hata olarak raporlar ve tutamak kapalı kalır.
+
+**Sonra varsayılan.** `[native] capture` artık `auto`: paketlenmiş yardımcı varsa
+native, yoksa Python. Üç kural:
+
+- Açıkça `python` ya da `rust` yazılmışsa o korunur.
+- `[desktop] capture_backend = "gnome-screenshot"` seçilmişse `auto` Python
+  yolunda kalır: kullanıcının kapattığı ekran paylaşımı sessizce açılmaz.
+- Geri dönüş görünür: `system_capabilities` → `degraded` + gerekçe;
+  `screen_capture` sonucu → "Native yakalama kullanılamadı" satırı; denetim
+  kaydında `backend`; `pcb-shot --json` çıktısında `backend` ve `degraded`.
+
+**Ölçüldü (2026-09-13, canlı).** Rust testi gerçek Mutter'da `session_open`'ın kare
+okumadan tam bir oturum açtığını, ikinci çağrının onu yeniden kullandığını,
+yanlış iznin `REVOKED` aldığını ve sonraki karenin aynı oturumu kullandığını
+gösterdi. `tests/live/test_capture_default.py` örnek config'le başlatılan üç taze
+süreçte: stdio ve servis tarzı HTTP süreci native yolu seçti ve Mutter oturumu
+`desktop_unlock` anında, çekimden önce açıldı; yardımcısız süreç Python'a düştü
+ve bunu söyledi. Süre dökümü ve yayılım: [verification-linux.md](verification-linux.md).
+
 ## Testler
 
 - `tests/contracts/test_shot_artifacts.py` — 15 test (Task 3.5). Yayımın
@@ -570,5 +606,6 @@ son kapı noktası ve `Drop` ayrı ayrı bozulunca 6 test kırmızıya döndü.
 
 ## Geri alma
 
-`[native] capture = "python"`. Varsayılan zaten budur; Task 3.4'e kadar mevcut
-Python shot pipeline'ı native protokol metodunu çağırmaz.
+`config.toml`'da `[native]` altına `capture = "python"` yazıp süreçleri yeniden
+başlatmak. Task 4.3'ten beri varsayılan `auto`; `python` seçiliyken Python shot
+pipeline'ı native protokol metodlarını hiç çağırmaz.

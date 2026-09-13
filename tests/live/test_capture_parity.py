@@ -221,7 +221,7 @@ def scratch_config(root: Path, binary: Path, *, port: int | None = None,
     text = (ROOT / "config.example.toml").read_text(encoding="utf-8")
     replacements = [
         (r"^state_dir = .*$", f'state_dir = "{root / "state"}"'),
-        (r'^capture = "python"$', 'capture = "rust"'),
+        (r'^capture = "[a-z]+"$', 'capture = "rust"'),
         (r'^binary_path = ""$', f'binary_path = "{binary}"'),
         (r'^agent_shot_dir = ""$', f'agent_shot_dir = "{root / "agent-shots"}"'),
         (r"^include_pointer = true$", "include_pointer = false"),

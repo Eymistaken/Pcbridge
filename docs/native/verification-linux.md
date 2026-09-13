@@ -74,8 +74,59 @@ görüntü; gerçek masaüstünde iki yol da Python'un `save(optimize=True)` bed
 MCP düzeyinde, gerçek masaüstünde, GI engelli stdio sunucusunda iki monitörlük
 `screen_capture` release ile **5,1–5,2 sn** sürdü, soğuk ve sıcak aynı. Bunun ne
 kadarının Python kodlaması, ne kadarının MCP serileştirmesi olduğu bu koşumda
-ayrılmadı ve aynı ölçüm eski backend için yapılmadı. Task 4.3'ten önce
-yapılacak.
+ayrılmadı ve aynı ölçüm eski backend için yapılmadı. Ayrı bir ölçümle
+parçalandı: aşağıda, "Varsayılan değişikliği (Task 4.3)".
+
+## Varsayılan değişikliği (Task 4.3)
+
+### MCP düzeyinde süre, iki backend
+
+Gerçek masaüstü, iki monitör, stdio sunucusu, release yardımcı, yük ~1,0;
+ısınmadan sonra 5 çağrı, p50 (ms):
+
+| | stdio `screen_capture(all)` | bellek içi toplam | çekim hattı | görüntü doğrulama | kalan (FastMCP) | stdio borusu |
+|---|---|---|---|---|---|---|
+| eski | 4.684 | 4.658 | 4.628 | 2 | 28 | 26 |
+| native | 5.113 | 5.082 | 5.053 | 2 | 27 | 31 |
+
+Oran **1,09**. Sürenin ~%99'u çekim hattında: iki yolda da Python'un
+`save(optimize=True)` kaydı, gerçek içerikte monitör başına ~2,2 sn. MCP katmanı
+~30 ms, stdio borusu ~30 ms. Yukarıda ayrılmadığı yazılan fark buydu: daha basit
+bir karede ~1 sn ölçülen Python kaydı gerçek içerikte iki katına çıkıyor.
+
+### Gösterge ve varsayılan, taze süreçlerde
+
+`tests/live/test_capture_default.py` (3/3) ve Rust
+`session_open_shows_the_share_before_any_frame`:
+
+- stdio ve servis tarzı HTTP süreci, örnek config'le, native yolu seçti; Mutter
+  oturumu `desktop_unlock` anında açıldı, çekim o oturumu kullandı,
+  `desktop_lock` kapattı;
+- yardımcı bulunamayınca süreç Python'a düştü: `system_capabilities` `degraded`
+  + gerekçe, `screen_capture` sonucunda not;
+- parity gate'i `start()` oturum açtıktan sonra yeniden koştu: 11/11, piksel
+  %100, tazelik 12/12, p95 oranı 1,405 (yük 1,38–1,44).
+
+### Yayılım
+
+Değişiklik **yalnızca yeni başlayan süreçlerde** etkili; çalışan hiçbir süreç
+kendiliğinden yeni varsayılana geçmez.
+
+- `config.toml`'da `[native]` bölümü yoksa ya da `capture = "auto"` ise yeni
+  süreçler native yolu kullanır. `capture = "python"` yazılıysa değişen bir şey
+  yok.
+- **Servis:** önce `job_list` ile çalışan iş olmadığını doğrulayın (restart
+  işleri öldürür), sonra `systemctl --user restart pcbridge`.
+- **stdio istemcileri** (Claude Code, Codex, Claude Desktop): istemciyi yeniden
+  başlatın. `ps -eo pid,lstart,args | grep 'pcbridge.server --stdio'` eski
+  süreçleri gösterir; kapanana kadar eski ayarla çalışırlar.
+- **Doğrulama:** `./doctor.sh` → 8. bölüm; `system_capabilities` →
+  `capture.monitor` backend `linux.mutter.pipewire`; `desktop_unlock` sonrası
+  üst çubukta paylaşım göstergesi var, `desktop_lock` sonrası yok.
+- **Geri alma:** `[native]` altında `capture = "python"`, ardından aynı yeniden
+  başlatmalar.
+- Revoke ve eski yardımcı kayıtlarının kontrolü dahil adım adım sıra:
+  [protocol-v1.md → Native yola geçiş runbook'u](protocol-v1.md#native-yola-geçiş-runbooku).
 
 ## İlk koşumun bulduğu hata
 

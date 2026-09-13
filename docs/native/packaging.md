@@ -50,7 +50,8 @@ Betik şunları yapar, başka hiçbir şey yapmaz:
    ve yanına `build-info.json` yazar.
 
 Çalışan servisi ve stdio süreçlerini **yeniden başlatmaz**. Yeni binary yalnızca
-bir sonraki başlatmada ve `[native] capture` `auto` ya da `rust` ise seçilir.
+bir sonraki başlatmada seçilir: varsayılan `[native] capture = "auto"` (Task 4.3)
+onu kendiliğinden kullanır, `python` seçiliyse kullanılmaz.
 
 Neden yalnızca release: debug derlemede PNG kodlama monitör başına ~1755 ms,
 release'te ~200 ms (ölçüldü 2026-09-13, [capture.md](capture.md)).
@@ -101,7 +102,8 @@ açmaz, gerçek izin dosyasına dokunmaz. Söyledikleri:
 
 Ölçüldü (2026-09-13, bu makine, gerçek config): yardımcı paketten bulundu,
 `release`, kütüphaneler tamam, `capture.monitor: supported`; `[native] capture
-= "python"` olduğu için "hazır ama kullanılmıyor" notu.
+= "python"` olduğu için "hazır ama kullanılmıyor" notu (o gün varsayılan `python`
+idi; Task 4.3'ten sonra aynı kurulumda yardımcı kullanılıyor).
 
 ## `capabilities` artık çalışma zamanında
 
@@ -143,5 +145,6 @@ yazılacak.
 
 ## Geri alma
 
-`[native] capture = "python"` (varsayılan). Binary'yi kaldırmak gerekmiyor:
-bulunsa da `python` seçiliyken kullanılmıyor.
+`[native]` altına `capture = "python"` yazıp süreçleri yeniden başlatmak (Task
+4.3'ten beri varsayılan `auto`). Binary'yi kaldırmak gerekmiyor: bulunsa da
+`python` seçiliyken kullanılmıyor.

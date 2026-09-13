@@ -10,13 +10,14 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Adım 4 / Task 4.3 — Rust capture'ı varsayılan yap
-- **Son tamamlanan adım:** Adım 4 / Task 4.2 — Gerçek Linux capture parity gate
-- **Sıradaki uygulanabilir adım:** Task 4.3
+- **Aktif adım:** Adım 5 / Task 5.1 — Input parity fixture'ları ve batch safety
+- **Son tamamlanan adım:** Adım 4 / Task 4.3 — Rust capture'ı varsayılan yap
+- **Sıradaki uygulanabilir adım:** Task 5.1
 - **Blocker:** Yok
-- **Son doğrulanan gate:** **Gate 3 geçti** (2026-09-13). Yolda native yolun
-  ikinci monitörde yanlış ekranı verdiği bulundu ve düzeltildi — Task 3.5.
-- **Native migration içindeki sıradaki task:** 4.3 → **Gate 4**
+- **Son doğrulanan gate:** **Gate 4 geçti** (2026-09-13). Varsayılan artık
+  `[native] capture = "auto"`; kullanıcının kendi servisi ve stdio istemcileri
+  henüz yeniden başlatılmadı, yani çalışan süreçler hâlâ Python yolunda (#5).
+- **Native migration içindeki sıradaki task:** 5.1 → 5.2 → 5.3 → 5.4 → **Gate 5**
 - **Kullanıcı dönünce:** aşağıdaki "Kullanıcıyı bekleyenler" listesi.
 
 Çalışma kuralı (kullanıcı isteği, 2026-09-12 gecesi, öncekinin yerine):
@@ -37,6 +38,7 @@ yapılınca silinmez, `yapıldı` diye işaretlenir.
 | 2 | `.github/workflows/native.yml`'ı ilk kez çalıştırmak | Depo public, push kullanıcının kararı; iş akışı yerelde yalnızca ayrıştırıldı, hiç koşmadı | `bekliyor` |
 | 3 | Task 4.2 ekran kilidi senaryosu: native capture kilitliyken kare vermiyor mu | Kilidi açmak parola istiyor; kullanıcı yokken ekran kilitli kalırdı | `bekliyor` |
 | 4 | Paylaşım göstergesinin kaynak kapanınca kaybolduğunu gözle görmek | Gösterge ekran paylaşımı olmadan görülemiyor; test yalnızca Mutter oturum sayısını doğruladı | `bekliyor` |
+| 5 | Task 4.3 yayılımı: servisi ve stdio istemcilerini yeniden başlatıp native yolu gerçek kullanımda görmek. `config.toml`'da `[native]` bölümü yok, yani yeni süreçler native yolu seçecek. Sıra: `bridgekilit` → `job_list` boş mu → `systemctl --user restart pcbridge` → Claude Code/Codex'i yeniden başlat → `./doctor.sh` 8. bölüm → `desktop_unlock` sonrası üst çubukta gösterge var, `desktop_lock` sonrası yok. Geri alma: `[native]` altına `capture = "python"` + aynı yeniden başlatmalar | Restart çalışan işleri öldürür; stdio süreçleri istemcinin; göstergeyi gözle görmek gerekiyor | `bekliyor` |
 
 ---
 
@@ -50,8 +52,8 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 1 | `KURALLAR.md` §4'teki 5/6/7 kapıları (parola alanı, tekrar tıklama, kapatma onayı) | `tamamlandı` |
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `tamamlandı` (3.1–3.5 ✅, **Gate 3 geçti**) |
-| 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `devam ediyor` (4.1 ✅, 4.2 ✅; sırada 4.3) |
-| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `bekliyor` |
+| 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
+| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (sırada 5.1) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
@@ -942,7 +944,7 @@ Varsayılan hâlâ `python`; Rust varsayılanı Gate 4'e (Task 4.2 + 4.3) bağl�
 ## Adım 4 — Faz 4: paketleme, parity, varsayılan değişikliği (Gate 4)
 
 Task 4.1 (build/package/`doctor.sh` tanısı) → 4.2 (gerçek Linux capture
-parity, `PCBRIDGE_TEST_CAPTURE=1`) → 4.3 (varsayılan `native.capture = "rust"`).
+parity, `PCBRIDGE_TEST_CAPTURE=1`) → 4.3 (varsayılan `native.capture = "auto"`).
 
 **Gerçek makinede ölçüm ister.** `systemctl --user restart pcbridge` çalışan
 işleri öldürür — önce `job_list`. Bu oturumun `--stdio` süreci yeni kodu
@@ -1077,6 +1079,100 @@ backend'deki karşılığı ölçülmedi → Task 4.3'ten önce.
 
 **Sonraki somut adım:** Task 4.3 — Rust capture'ı varsayılan yap. Önce MCP
 düzeyinde iki backend'in süresi aynı koşulda ölçülecek.
+
+### Task 4.3 — Rust capture'ı varsayılan yap · `tamamlandı`
+
+**Ne yapıldı.** `[native] capture` varsayılanı `python` → `auto`. Paketlenmiş,
+uyumlu bir yardımcı bulunursa yeni süreçler native yolu seçiyor; bulunmazsa
+Python'a görünür biçimde düşüyor. Yayılım: `docs/native/verification-linux.md`
+→ "Varsayılan değişikliği (Task 4.3)"; adım adım sıra `docs/native/protocol-v1.md`
+→ "Native yola geçiş runbook'u".
+
+- **Varsayılan:** `config.py` (`NativeSpec` ve yükleyici) + `config.example.toml`
+  yorumu.
+- **Kullanıcının seçimi korunuyor:** `capture = "python"` aynen; `[desktop]
+  capture_backend = "gnome-screenshot"` açıkça seçilmişse `auto` Python yolunda
+  kalıyor (`runtime.select_capture_provider`).
+- **Kullanılan backend görünüyor:** `screen_capture` denetim kaydında
+  `backend=`; düşüşte sonuç metninde "Native yakalama kullanılamadı (…)" notu;
+  `pcb-shot --json` çıktısında `backend` ve `degraded`; `system_capabilities`'te
+  `degraded` + gerekçe (Task 4.1'den).
+- **Paylaşım göstergesi yine izinle birlikte açılıyor.** Python yolu yayını
+  `desktop_unlock` anında açıyor; native yol oturumu ilk çekime kadar
+  açmıyordu. Varsayılanı öylece değiştirmek "izin açık ama gösterge yok"
+  durumunu yaratırdı — gösterge kullanıcıya "ajan ekranını görebiliyor" diyen
+  tek işaret. Yeni protokol metodu **`capture.session_open`** (yardımcı
+  `features`'ta ilan ediyor) grant'i ve revoke epoch'unu doğrulayıp Mutter
+  oturumunu kare almadan açıyor; `NativeScreenCast.start()` onu çağırıyor. Eski
+  bir yardımcı `UNKNOWN_METHOD` dönerse ilk çekimde açma davranışına düşülüyor.
+  Rust'ta `NativeCapture::open_session`, `capture()`'ın oturum kısmından ayrıldı;
+  ikisi aynı topoloji ve eşleme kontrollerinden geçiyor.
+- `RustCaptureProvider.start()` native redlerini tipli `DesktopError`'a
+  çeviriyor (Task 4.2'deki kaybın `start` yolundaki karşılığı).
+- Belgeler: `README.md`, `KURULUM.md` 2b, `KULLANIM.md`, `CLAUDE.md`,
+  `docs/native/capture.md`, `packaging.md`, `verification-linux.md`,
+  `protocol-v1.md` (üretim `capabilities` iddiası ve "varsayılan `python`"
+  satırı eskimişti; opt-in runbook'u geçiş runbook'u oldu).
+
+**Acceptance — ölçüldü.**
+
+| Ölçüt (`PLAN.md`) | Kanıt |
+|---|---|
+| Temiz kurulum Rust capture seçiyor | `tests/live/test_capture_default.py`: örnek config'le başlayan taze stdio süreci ve servis tarzı HTTP süreci native yolu seçti; contract `test_the_shipped_default_is_auto` |
+| Eksik binary → görünür degraded fallback | `PCBRIDGE_NATIVE_BIN` olmayan bir yolu gösterirken çekim teslim edildi, `system_capabilities` `degraded` + gerekçe, sonuçta not |
+| Kullanıcının `python` / `gnome-screenshot` seçimi korunuyor | contract testleri, ikisi ayrı |
+| Fallback'te sonuç/capability/audit backend'i gösteriyor | audit `backend=`, sonuç notu, `pcb-shot --json`; üçü de mutasyonla sınandı |
+| stdio ve servis için ayrı talimat | `verification-linux.md` → Yayılım; `protocol-v1.md` runbook'u |
+| Job kontrolü olmadan restart yok | kullanıcının servisi yeniden başlatılmadı; talimat `job_list` ile başlıyor |
+| Eski MCP tool contract'ları geçiyor | contract discovery **171, OK**; teslim entegrasyonu geçiyor |
+
+**Ölçümler.** MCP düzeyinde iki monitörlük `screen_capture`, aynı koşulda p50:
+eski **4.684 ms**, native **5.113 ms** (oran 1,09). Sürenin ~%99'u çekim
+hattında, iki yolda da Python'un `save(optimize=True)` kaydı (gerçek içerikte
+~2,2 sn/monitör); MCP katmanı ~30 ms. Task 4.2'de "ayrılmadı" diye bırakılan
+5,1 sn buydu. `start()` oturumu açtıktan sonra parity gate yeniden koştu:
+**11/11**, piksel %100, tazelik 12/12, sıcak p95 181,4 / 129,1 ms = **1,405**;
+oturum açılışı p50 native **94,8 ms**, eski 146,1 ms.
+
+**Testlerin tuttuğu mutasyonla denendi: 9/9.** Varsayılanın `python`'a
+dönmesi, `auto`'nun açık `gnome-screenshot` seçimini ezmesi, `start()`'ın
+oturum açmaması, eski yardımcının `UNKNOWN_METHOD`'unun hata sayılması,
+reddedilen `start`'ın tipsiz kaçması, düşüş notunun gösterilmemesi, audit'in
+backend'i unutması, `pcb-shot --json`'ın backend'i unutması, yardımcının
+`capture.session_open`'ı yönlendirmemesi. Dosyalar hash ile geri doğrulandı.
+
+**Test sonuçları:**
+
+- Canlı: `tests/live/test_capture_default.py` (yeni) → **3/3**;
+  `capture_frame_ipc_live` → **2/2** (yeni
+  `session_open_shows_the_share_before_any_frame`: oturum sayısı kareden önce
+  artıyor); `test_capture_parity.py` → **11/11**; `LiveNativeDelivery` → 1/1
+- Python contract discovery → **171, OK** (166 → 171); integration discovery →
+  15 koşum, OK (1 canlı atlandı)
+- `tests/test_desktop.py` → **583**; `test_models.py` → **106**;
+  `test_test_safety.py` → OK; `--check` → 0
+- Rust → **97** (varsayılan) / **107** (`test-harness`); fmt ve clippy iki kipte
+  temiz; `ipc_protocol.rs` +1 (`capture.session_open` ikili yük taşımıyor ve
+  parametrelerini doğruluyor)
+
+### Gate 4 — Default rollout · `geçti` (2026-09-13)
+
+| Gate ölçütü (`PLAN.md`) | Kanıt |
+|---|---|
+| Paketleme smoke | `tests/integration/test_native_packaging.py` 5/5 — paketlenmiş release binary ilgisiz bir dizinde |
+| Görünür fallback | yardımcı yokken `degraded` + gerekçe ve sonuç notu; `rust` seçiliyse düşmeden hata |
+| Yeni stdio/service process doğrulaması | taze stdio ve servis tarzı HTTP süreci (izole state, örnek config) native yolu seçti; Mutter oturumu `desktop_unlock` anında açıldı, `desktop_lock` kapattı (D-Bus'tan sayıldı) |
+
+**Sınır.** Doğrulama taze, izole süreçlerle yapıldı. Kullanıcının gerçek
+systemd servisi ve açık stdio istemcileri **yeniden başlatılmadı**: restart
+çalışan işleri öldürür ve kullanıcı yokken canlı davranışı değiştirirdi.
+Gerçek kullanımdaki geçiş ve göstergenin gözle görülmesi → "Kullanıcıyı
+bekleyenler" #5.
+
+**Rollback:** `[native]` altına `capture = "python"`, ardından runbook'taki
+revoke → yardımcıları kapat → yeni süreçler sırası.
+
+**Sonraki somut adım:** Task 5.1 — input parity fixture'ları ve batch safety.
 
 ## Adım 5 — Faz 5–8
 

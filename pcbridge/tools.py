@@ -1675,7 +1675,18 @@ def register(
                 )
 
         gate.audit("screen_capture", monitor=str(monitor), shots=len(shots),
-                   swept=swept or None, inline=inline_images or None)
+                   swept=swept or None, inline=inline_images or None,
+                   backend=capture_provider.backend_name())
+
+        degraded = getattr(capture_provider, "degraded_reason", "")
+        if degraded:
+            # GORUNUR geri donus (Task 4.3): `auto` native yardimciyi
+            # bulamadi ve kare Python yoluyla alindi. Sessiz kalsaydi "neden
+            # yavas" ya da "neden farkli" sorusunun cevabi hicbir yerde olmazdi.
+            out.append(
+                f"⚠️ Native yakalama kullanılamadı ({degraded}); kare Python "
+                "yoluyla alındı."
+            )
 
         out.append("")
         if links:

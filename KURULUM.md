@@ -121,9 +121,11 @@ başlayacak şekilde etkinleştirir** (yalnızca `127.0.0.1`; tünel açılmaz),
 ### 2b. Native yardımcı (isteğe bağlı)
 
 Ekran görüntüsünün ham karesini Python yerine Rust'ta alan `pcbridge-native`
-yardımcısı **zorunlu değil**: yoksa pcbridge Python yoluyla aynen çalışır ve
-varsayılan hâlâ o (`[native] capture = "python"`). `install.sh`, yardımcı yoksa
-ve derleme araçları kuruluysa derlemeyi sorar. Elle:
+yardımcısı **zorunlu değil**. Varsayılan `[native] capture = "auto"`: paketlenmiş
+yardımcı varsa o kullanılır; yoksa pcbridge Python yoluyla aynen çalışır ve bunu
+`system_capabilities` ile `screen_capture` sonucunda söyler. Eski yola dönmek
+için `config.toml`'da `[native]` altına `capture = "python"` yazın. `install.sh`,
+yardımcı yoksa ve derleme araçları kuruluysa derlemeyi sorar. Elle:
 
 ```bash
 sudo apt install libpipewire-0.3-dev libspa-0.2-dev libclang-dev pkg-config   # yalnizca derlemek icin, bir kez

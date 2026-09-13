@@ -42,7 +42,7 @@ from pcbridge.desktop.capabilities import CapabilityState  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCategory, ErrorCode  # noqa: E402
 from pcbridge.desktop.lease import LeaseToken  # noqa: E402
 from pcbridge.desktop.runtime import select_capture_provider  # noqa: E402
-from pcbridge.config import load_config  # noqa: E402
+from pcbridge.config import NativeSpec, load_config  # noqa: E402
 from pcbridge.native import NativeResponse  # noqa: E402
 
 try:
@@ -107,10 +107,29 @@ class FakeNativeClient:
         self.wait_ms = wait_ms
         self.requests: list[dict] = []
         self.error: dict | None = None
+        self.session_error: dict | None = None
         self.pixel_size_override: list[int] | None = None
 
     def request(self, method, params=None, *, binary=b"", timeout=None):
         self.requests.append({"method": method, "params": dict(params or {})})
+        if method == "capture.session_open":
+            if self.session_error is not None:
+                return NativeResponse(
+                    request_id="fake", result=None, binary=b"", error=self.session_error
+                )
+            return NativeResponse(
+                request_id="fake",
+                result={
+                    "outcome": "opened",
+                    "session_id": params["session_id"],
+                    "topology_id": params["topology_id"],
+                    "monitors": sorted(self.frames),
+                    "include_pointer": params["include_pointer"],
+                    "backend": BACKEND_NAME,
+                },
+                binary=b"",
+                error=None,
+            )
         if self.error is not None:
             return NativeResponse(
                 request_id="fake", result=None, binary=b"", error=self.error
@@ -140,7 +159,8 @@ class FakeNativeClient:
 
 def native_handle(cfg, client) -> NativeScreenCast:
     handle = NativeScreenCast(cfg, gate=FakeGate(), client=client)
-    handle.start([monitor.connector for monitor in MONITORS], cursor=True)
+    with mock.patch.object(monitorslib, "list_monitors", return_value=MONITORS):
+        handle.start([monitor.connector for monitor in MONITORS], cursor=True)
     return handle
 
 
@@ -213,9 +233,21 @@ class ProviderSelection(unittest.TestCase):
         ):
             return select_capture_provider(cfg, gate=None)
 
-    def test_the_shipped_default_is_still_python(self):
+    def test_the_shipped_default_is_auto(self):
+        """Task 4.3: after the Linux parity gate, `auto` ships as the default."""
         cfg = load_config(str(ROOT / "config.example.toml"))
-        self.assertEqual(cfg.native.capture, "python")
+        self.assertEqual(cfg.native.capture, "auto")
+        self.assertEqual(
+            NativeSpec().capture, "auto", "a config without [native] gets the same"
+        )
+
+    def test_auto_keeps_an_explicit_gnome_screenshot_choice(self):
+        object.__setattr__(self.cfg.desktop, "capture_backend", "gnome-screenshot")
+        chosen = self._provider("auto", True)
+        self.assertIsInstance(chosen, PythonCaptureProvider)
+        self.assertNotIsInstance(chosen, RustCaptureProvider)
+        self.assertEqual(chosen.degraded_reason, "", "an explicit choice is not a fallback")
+        self.assertIsInstance(self._provider("rust", True), RustCaptureProvider)
 
     def test_each_setting_builds_the_provider_it_names(self):
         self.assertIsInstance(self._provider("python", True), PythonCaptureProvider)
@@ -256,7 +288,11 @@ class NativeHandle(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.object(monitorslib, "list_monitors", return_value=MONITORS):
                 handle.capture("DP-4", Path(tmp) / "frame.png")
-        params = self.client.requests[0]["params"]
+        params = next(
+            request["params"]
+            for request in self.client.requests
+            if request["method"] == "capture.frame"
+        )
         self.assertEqual(params["display_id"], "mutter:DP-4")
         self.assertEqual(params["grant_id"], "fixture-grant")
         self.assertEqual(params["revoke_epoch"], 4)
@@ -267,12 +303,74 @@ class NativeHandle(unittest.TestCase):
             "the helper must be told the layout this target was chosen from",
         )
 
-    def test_capture_without_a_grant_is_refused_before_any_request(self):
+    def test_start_opens_the_session_before_any_frame(self):
+        """Task 4.3: the share, and so the indicator, starts with the grant."""
+        handle = native_handle(self.cfg, self.client)
+        self.assertTrue(handle.is_open())
+        self.assertEqual(
+            [request["method"] for request in self.client.requests],
+            ["capture.session_open"],
+            "opening must not read a frame",
+        )
+        params = self.client.requests[0]["params"]
+        self.assertEqual(params["grant_id"], "fixture-grant")
+        self.assertEqual(params["revoke_epoch"], 4)
+        self.assertEqual(params["topology_id"], monitorslib.topology_id(MONITORS))
+        self.assertIs(params["include_pointer"], True)
+
+    def test_an_older_helper_without_session_open_still_captures_on_demand(self):
+        self.client.session_error = {
+            "code": "UNKNOWN_METHOD",
+            "message": "unknown method capture.session_open",
+            "retryable": False,
+            "category": "protocol",
+        }
+        handle = NativeScreenCast(self.cfg, gate=FakeGate(), client=self.client)
+        with mock.patch.object(monitorslib, "list_monitors", return_value=MONITORS):
+            started = handle.start([monitor.connector for monitor in MONITORS])
+            self.assertTrue(handle.is_open())
+            self.assertIs(started["on_demand"], True)
+            with tempfile.TemporaryDirectory() as tmp:
+                frame = handle.capture("DP-4", Path(tmp) / "frame.png")
+        self.assertTrue(frame["ok"])
+
+    def test_a_refused_session_leaves_the_share_closed_and_the_error_typed(self):
+        self.client.session_error = {
+            "code": "REVOKED",
+            "message": "session request does not match the bound desktop grant",
+            "retryable": False,
+            "category": "safety",
+        }
+        provider = RustCaptureProvider(
+            self.cfg,
+            screencast=NativeScreenCast(self.cfg, gate=FakeGate(), client=self.client),
+        )
+        with mock.patch.object(monitorslib, "list_monitors", return_value=MONITORS):
+            with self.assertRaises(DesktopError) as raised:
+                provider.start(cursor=True)
+        self.assertIs(raised.exception.code, ErrorCode.REVOKED)
+        self.assertIs(raised.exception.category, ErrorCategory.SAFETY)
+        self.assertFalse(provider.is_open())
+
+    def test_start_without_a_grant_is_refused_before_any_request(self):
         handle = NativeScreenCast(self.cfg, gate=None, client=self.client)
-        handle.start(["DP-4"])
+        with mock.patch.object(monitorslib, "list_monitors", return_value=MONITORS):
+            with self.assertRaises(NativeCaptureError) as raised:
+                handle.start(["DP-4"])
+        self.assertEqual(self.client.requests, [])
+        self.assertFalse(handle.is_open())
+        self.assertIs(raised.exception.desktop_error.code, ErrorCode.GRANT_REQUIRED)
+        self.assertIs(raised.exception.desktop_error.category, ErrorCategory.SAFETY)
+
+    def test_capture_after_the_grant_is_gone_is_refused_before_any_frame(self):
+        handle = native_handle(self.cfg, self.client)
+        handle.gate = None
         with self.assertRaises(NativeCaptureError) as raised:
             handle.capture("DP-4", Path("/tmp/never-written.png"))
-        self.assertEqual(self.client.requests, [])
+        self.assertEqual(
+            [request["method"] for request in self.client.requests],
+            ["capture.session_open"],
+        )
         self.assertIs(raised.exception.desktop_error.code, ErrorCode.GRANT_REQUIRED)
         self.assertIs(raised.exception.desktop_error.category, ErrorCategory.SAFETY)
 
@@ -313,12 +411,15 @@ class NativeHandle(unittest.TestCase):
                 self.assertIs(error.category, category)
 
     def test_a_missing_grant_is_a_safety_refusal_through_the_provider(self):
-        handle = NativeScreenCast(self.cfg, gate=None, client=self.client)
-        handle.start([monitor.connector for monitor in MONITORS])
+        handle = native_handle(self.cfg, self.client)
+        handle.gate = None
         error = self._provider_refusal(handle)
         self.assertIs(error.code, ErrorCode.GRANT_REQUIRED)
         self.assertIs(error.category, ErrorCategory.SAFETY)
-        self.assertEqual(self.client.requests, [])
+        self.assertEqual(
+            [request["method"] for request in self.client.requests],
+            ["capture.session_open"],
+        )
 
     def test_a_stream_of_the_wrong_size_is_reported_not_rescaled(self):
         self.client.pixel_size_override = [1280, 720]

@@ -8,8 +8,8 @@ stdout yalnızca aşağıda tanımlanan framed response'ları taşır.
 
 Executable Linux'ta monitör tablosunu okur (Task 3.1) ve Mutter ScreenCast +
 PipeWire üzerinden tek monitör karesi alır (Task 3.3); uinput ve erişilebilirlik
-henüz native değil. Varsayılan capture backend'i hâlâ Python
-(`[native] capture = "python"`). Native process grant/revoke lifecycle'ına ek
+henüz native değil. Task 4.3'ten beri varsayılan capture backend'i `auto`
+(paketlenmiş yardımcı varsa native). Native process grant/revoke lifecycle'ına ek
 olarak GNOME session D-Bus üzerinden ekran kilidini ve kullanıcı etkinliğini
 typed observation olarak izler; sonraki backend'ler aynı fail-closed güvenlik
 sınırını kullanır.
@@ -73,7 +73,7 @@ Başarılı response seçilen sürümü ve process kimliğini döndürür:
     "native_version": "0.1.0",
     "build_id": "2294156a1b2c",
     "platform": "linux",
-    "features": ["display.snapshot", "capture.on_demand"],
+    "features": ["display.snapshot", "capture.on_demand", "capture.session_open"],
     "lease_bound": true
   },
   "binary_len": 0
@@ -107,6 +107,15 @@ Harness aşağıdaki metotları kabul eder:
   sabit bir `supported` idi — capture'ın hiç çalışamayacağı makinede de.
 - `display.snapshot`: Task 3.1 monitör tablosunu döndürür.
 - `capture.frame`: Task 3.3 tek monitör PNG'sini binary payload olarak döndürür.
+- `capture.session_open`: Task 4.3. Kare okumadan Mutter oturumunu mevcut
+  düzendeki bütün monitörler için açar, yeniden kullanır ya da yeniden kurar.
+  Parametreler `topology_id`, `session_id`, `grant_id`, `revoke_epoch`,
+  `include_pointer`; izin, düzen ve oturum kuralları `capture.frame` ile aynı
+  (yanlış izin `REVOKED`, eski düzen `DISPLAY_CHANGED`). Binary taşımaz. Sonuç:
+  `outcome` (`opened` / `reused` / `recreated`), `monitors`, `include_pointer`,
+  `backend`. `desktop_unlock` bunu çağırır, böylece paylaşım göstergesi izinle
+  birlikte belirir. Bu metodu bilmeyen eski bir yardımcı `UNKNOWN_METHOD` döndürür;
+  Python istemcisi o durumda oturumu ilk kareye bırakır.
 - `cancel`: `params.target_id` alanını doğrular ve bugün `canceled: false`
   döndürür. Capture'ın kendi 1–8000 ms zaman aşımı ve lifecycle kapıları vardır;
   dispatcher henüz eşzamanlı request çalıştırmıyor.
@@ -283,9 +292,11 @@ cargo test --workspace --all-targets \
 ```
 
 Default production derlemesinde feature kapalıdır. Bu binary `--test-mode`
-argümanını kabul etmez; production `capabilities` response'ı yalnızca derlenmiş
-`linux.mutter.pipewire` monitor capture desteğini ilan eder ve bu sorgu izin
-istemez ya da oturum açmaz.
+argümanını kabul etmez; production `capabilities` response'ı
+`linux.mutter.pipewire` monitor capture desteğini her istekte çalışma zamanında
+yoklar (Task 4.1): oturum veriyolunda `org.gnome.Mutter.ScreenCast` adının
+sahibi ve PipeWire soketi. Biri yoksa `unavailable` + `reason_code` döner. Bu
+sorgu izin istemez ya da oturum açmaz.
 
 Test kipi sabit `test-native-instance` kimliği, `test` platformu ve
 `test.fake` capability backend'i üretir. Fake capability açık bir desktop
@@ -302,8 +313,11 @@ ve yalnızca ilk native request geldiğinde başlatır. Binary arama sırası sa
 
 İlk iki explicit yol geçersizse daha düşük öncelikli bir binary'ye sessizce
 düşülmez; `NATIVE_NOT_FOUND` döner. Helper çalışma anında indirilmez, derlenmez
-ve `PATH` içinde aranmaz. `[native].capture = "python"` varsayılandır; Task 2.2
-runtime capture seçimini değiştirmez.
+ve `PATH` içinde aranmaz. Task 4.3'ten beri `[native].capture = "auto"`
+varsayılandır: helper bulunur ve `capture.monitor` destekleniyorsa native yol,
+değilse `system_capabilities`'te görünür bir `degraded` gerekçesiyle Python
+yolu. `[desktop] capture_backend = "gnome-screenshot"` açıkça seçilmişse `auto`
+o seçimi korur ve Python yolunda kalır. `rust` seçimi düşmez, hata verir.
 
 Supervisor'ın reader, writer ve stderr drainer thread'leri birbirinden
 ayrıdır. Request ID'leri process yeniden başlasa bile tekrar kullanılmaz ve
@@ -400,9 +414,12 @@ eşleştirir; yeniden kullanılmış PID'ye sinyal göndermez. Geçiş süresinc
 screencast için exact executable path ve aynı UID kullanan legacy
 `kill_helpers()` ayrıca korunur.
 
-### İlk native opt-in runbook'u
+### Native yola geçiş runbook'u
 
-İlk kez `[native] capture = "rust"` veya `"auto"` seçilmeden önce:
+Task 4.3 varsayılanı `auto` yaptı, yani `[native]` bölümü olmayan bir kurulum
+**bir sonraki başlatmada** native yola geçer; ayrıca bir seçim yapılması
+gerekmez. Çalışan süreçler kendiliğinden geçmez. Güncellemeden sonraki ilk
+yeniden başlatmada (ya da `rust`/`auto` elle seçildiğinde):
 
 1. `./.venv/bin/python -m pcbridge.cli.lock` çalıştırarak grant'i revoke edin.
 2. MCP istemcisinin açtığı eski `python -m pcbridge.server --stdio`

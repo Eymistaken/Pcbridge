@@ -17,7 +17,7 @@ use crate::platform::linux::desktop_state::DeterministicDesktopState;
 use crate::platform::linux::display::DisplayReader;
 use crate::platform::linux::display::DisplaySnapshot;
 use crate::platform::linux::readiness;
-use crate::platform::linux::session::SessionFailure;
+use crate::platform::linux::session::{OpenOutcome, SessionFailure};
 
 #[derive(Debug)]
 pub enum BackendMode {
@@ -60,7 +60,11 @@ impl BackendMode {
 
     fn features(&self) -> Vec<&'static str> {
         match self {
-            Self::Production { .. } => vec!["display.snapshot", "capture.on_demand"],
+            Self::Production { .. } => vec![
+                "display.snapshot",
+                "capture.on_demand",
+                "capture.session_open",
+            ],
             #[cfg(feature = "test-harness")]
             Self::DeterministicTest => vec!["test.fixture", "test.lease"],
         }
@@ -193,6 +197,7 @@ impl Dispatcher {
             "capabilities" => self.success(request.id, self.mode.capabilities(), None),
             "display.snapshot" => self.display_snapshot(request.id),
             "capture.frame" => self.capture_frame(request.id, request.params),
+            "capture.session_open" => self.capture_session_open(request.id, request.params),
             "cancel" => match parse_cancel(request.params) {
                 Ok(target_id) => self.success(
                     request.id,
@@ -598,6 +603,133 @@ impl Dispatcher {
         }
     }
 
+    fn capture_session_open(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match serde_json::from_value::<SessionOpenParams>(params) {
+            Ok(params) => params,
+            Err(error) => {
+                return self.error(
+                    id,
+                    "INVALID_PARAMS",
+                    format!("invalid session parameters: {error}"),
+                    None,
+                );
+            }
+        };
+        if let Err(message) = params.validate() {
+            return self.error(id, "INVALID_PARAMS", message, None);
+        }
+
+        match &self.mode {
+            #[cfg(feature = "test-harness")]
+            BackendMode::DeterministicTest => self.success(
+                id,
+                json!({
+                    "session_id": params.session_id,
+                    "topology_id": params.topology_id,
+                    "outcome": "opened",
+                    "monitors": ["TEST-1"],
+                    "include_pointer": params.include_pointer,
+                    "backend": "test.fake",
+                }),
+                None,
+            ),
+            BackendMode::Production { .. } => self.capture_session_open_production(id, params),
+        }
+    }
+
+    /// Open the share without reading a frame (Task 4.3).
+    ///
+    /// `desktop_unlock` reaches this, so GNOME's sharing indicator appears with
+    /// the grant, when the Python path has always shown it. The grant, layout
+    /// and session rules are the ones `capture.frame` uses, because both go
+    /// through `NativeCapture::open_session`.
+    fn capture_session_open_production(
+        &mut self,
+        id: String,
+        params: SessionOpenParams,
+    ) -> DispatchOutcome {
+        let lifecycle = self
+            .lifecycle
+            .as_ref()
+            .expect("initialized dispatcher has a lifecycle");
+        if !lifecycle.matches_token(&params.grant_id, params.revoke_epoch) {
+            return self.typed_error(
+                id,
+                ErrorBody {
+                    code: "REVOKED".to_owned(),
+                    message: "session request does not match the bound desktop grant".to_owned(),
+                    retryable: false,
+                    category: "safety".to_owned(),
+                },
+            );
+        }
+
+        let snapshot = match self.current_display_snapshot() {
+            Ok(snapshot) => snapshot,
+            Err(message) => {
+                return self.typed_error(
+                    id,
+                    ErrorBody {
+                        code: "DISPLAY_MAPPING_UNKNOWN".to_owned(),
+                        message,
+                        retryable: true,
+                        category: "capture".to_owned(),
+                    },
+                );
+            }
+        };
+        if self.capture.is_none() {
+            let lifecycle = self
+                .lifecycle
+                .as_ref()
+                .expect("initialized dispatcher has a lifecycle");
+            match NativeCapture::connect(lifecycle) {
+                Ok(capture) => self.capture = Some(capture),
+                Err(error) => return self.native_capture_error(id, error),
+            }
+        }
+        let lifecycle = self
+            .lifecycle
+            .as_ref()
+            .expect("initialized dispatcher has a lifecycle");
+        let capture = self
+            .capture
+            .as_ref()
+            .expect("capture resources were just constructed");
+        match capture.open_session(
+            &snapshot,
+            &params.topology_id,
+            params.include_pointer,
+            lifecycle,
+        ) {
+            Ok(outcome) => {
+                let outcome = match outcome {
+                    OpenOutcome::Opened => "opened",
+                    OpenOutcome::Reused => "reused",
+                    OpenOutcome::Recreated => "recreated",
+                };
+                let monitors: Vec<&str> = snapshot
+                    .monitors
+                    .iter()
+                    .map(|monitor| monitor.connector.as_str())
+                    .collect();
+                self.success(
+                    id,
+                    json!({
+                        "session_id": params.session_id,
+                        "topology_id": params.topology_id,
+                        "outcome": outcome,
+                        "monitors": monitors,
+                        "include_pointer": params.include_pointer,
+                        "backend": "linux.mutter.pipewire",
+                    }),
+                    None,
+                )
+            }
+            Err(error) => self.native_capture_error(id, error),
+        }
+    }
+
     fn native_capture_error(&self, id: String, error: NativeCaptureError) -> DispatchOutcome {
         let (code, category, retryable) = match &error {
             NativeCaptureError::DisplayChanged => ("DISPLAY_CHANGED", "capture", true),
@@ -665,6 +797,34 @@ struct CaptureFrameParams {
     include_pointer: bool,
 }
 
+#[derive(Debug, Deserialize)]
+struct SessionOpenParams {
+    topology_id: String,
+    session_id: String,
+    grant_id: String,
+    revoke_epoch: u64,
+    #[serde(default = "default_true")]
+    include_pointer: bool,
+}
+
+impl SessionOpenParams {
+    fn validate(&self) -> Result<(), &'static str> {
+        const MAX_ID_BYTES: usize = 256;
+        const MAX_TOPOLOGY_BYTES: usize = 16 * 1024;
+
+        if self.topology_id.is_empty() || self.topology_id.len() > MAX_TOPOLOGY_BYTES {
+            return Err("topology_id must be nonempty and bounded");
+        }
+        if self.session_id.is_empty() || self.session_id.len() > MAX_ID_BYTES {
+            return Err("session_id must be nonempty and bounded");
+        }
+        if self.grant_id.is_empty() || self.grant_id.len() > MAX_ID_BYTES {
+            return Err("grant_id must be nonempty and bounded");
+        }
+        Ok(())
+    }
+}
+
 const fn default_true() -> bool {
     true
 }
@@ -727,7 +887,11 @@ mod tests {
         assert_eq!(capabilities["backend"], "linux.mutter.pipewire");
         assert_eq!(
             mode.features(),
-            vec!["display.snapshot", "capture.on_demand"]
+            vec![
+                "display.snapshot",
+                "capture.on_demand",
+                "capture.session_open"
+            ]
         );
         let monitor = &capabilities["capabilities"][0];
         assert_eq!(monitor["name"], "capture.monitor");

@@ -375,7 +375,8 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   **tam yolu** geçen bütün süreçleri sonlandırıyor; `desktop_lock` ve
   `cli.lock` ikisi de çağırıyor.
 - **Yayın `desktop_unlock` ile açılır, `desktop_lock`/süre dolumuyla kapanır**
-  (Python yolunda; native yolda ilk çekimde açılır — `docs/native/capture.md`).
+  (iki yolda da; native yol Task 4.3'ten beri `capture.session_open` ile, kare
+  okumadan — `docs/native/capture.md`).
   Açıkken GNOME üst çubukta paylaşım göstergesi durur — bu istenen bir şey
   (kullanıcı ajanın masaüstüne erişebildiğini oradan görüyor) ve **çekilen
   karede de görünür**. Yayın `screencast_helper.py` sürecinde yaşıyor: süreç
@@ -403,9 +404,10 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   (tam yeniden kurulum) **3,8–6,4 ms** — Python yardımcısında aynı değişim
   ~113 ms olarak kaydedilmişti. İki sayı aynı ölçüm noktasından alınmadı
   (Python'unki yardımcı sürece JSON gidiş dönüşünü de içeriyor). Ayrıntı:
-  `docs/native/capture.md`. **Varsayılan hâlâ Python yolu**
-  (`[native] capture = "python"`); native yol `capture.frame` ile seçilebilir
-  (Task 3.3/3.4).
+  `docs/native/capture.md`. **Task 4.3'ten beri varsayılan `auto`:**
+  paketlenmiş yardımcı varsa native yol, yoksa Python yolu; geri dönüş
+  `system_capabilities` ve `screen_capture` sonucunda görünür. Geri almak:
+  `[native] capture = "python"`.
 - **Native capture'ı debug binary ile ölçme; asıl maliyet Python'un PNG
   kaydı.** Ölçüldü 2026-09-13, gerçek Mutter, 1920×1080, yük ~1,0, governor
   `powersave`: `capture.frame` monitör başına debug binary ile **~1915 ms**
@@ -432,7 +434,9 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   1536'da **%100,000** eşleşme; tazelik 12/12; sıcak `capture()` p95 oranı
   native/eski **1,34–1,42** (native karede ~35–40 ms yavaş, oturum açılışında
   ~60 ms hızlı); revoke ve süre dolumu sonrası kare yok. Gerçek masaüstünde
-  oran ölçülmedi. Ayrıntı: `docs/native/verification-linux.md`.
+  MCP düzeyinde iki monitör: eski 4.684 ms, native 5.113 ms (**1,09×**);
+  sürenin ~%99'u Python'un PNG kaydı (gerçek içerikte ~2,2 sn/monitör), MCP
+  katmanı ~30 ms. Ayrıntı: `docs/native/verification-linux.md`.
 - **Ekran görüntüsünün maliyeti sürücüye göre 20–30 kat değişiyor** — `agy`'de
   tek görüntü ~40 bin girdi jetonu, **Claude'da ~1200–1900**. `ui_dump` yine de
   daha ucuz (~0,1 sn, birkaç yüz jeton) ve koordinat kullanmadığı için

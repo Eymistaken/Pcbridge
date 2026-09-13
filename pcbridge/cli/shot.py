@@ -239,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
             monitor=str(args.monitor),
             shots=len(shots),
             swept=swept or None,
+            backend=capture_provider.backend_name(),
             job=job_id(),
         )
 
@@ -259,6 +260,9 @@ def main(argv: list[str] | None = None) -> int:
                     }
                     for s in shots
                 ],
+                # Hangi yolun kareyi aldigi: `auto` geri dustuyse burada gorunur.
+                "backend": capture_provider.backend_name(),
+                "degraded": getattr(capture_provider, "degraded_reason", "") or None,
                 "primary_monitor": next(
                     (m.index for m in mons if m.primary), None
                 ),

@@ -40,8 +40,8 @@ use crate::lifecycle::LifecycleFailure;
 use crate::platform::linux::display::DisplaySnapshot;
 use crate::platform::linux::pipewire_source::PipeWireFrameSource;
 use crate::platform::linux::session::{
-    CaptureSession, CursorMode, MutterScreenCast, SessionFailure, SessionGuard, SessionHandle,
-    StartRequest,
+    CaptureSession, CursorMode, MutterScreenCast, OpenOutcome, SessionFailure, SessionGuard,
+    SessionHandle, StartRequest,
 };
 
 /// How long a capture waits for a frame.
@@ -221,6 +221,37 @@ impl NativeCapture {
         Ok(Self { session, source })
     }
 
+    /// Open, reuse or recreate the Mutter session for every monitor in
+    /// `snapshot`, without reading a frame.
+    ///
+    /// `desktop_unlock` reaches this (Task 4.3), so the sharing indicator
+    /// appears with the grant, exactly when the Python path shows it.
+    /// `capture` goes through the same call, so the two cannot build
+    /// different sessions.
+    pub fn open_session(
+        &self,
+        snapshot: &DisplaySnapshot,
+        topology_id: &str,
+        include_pointer: bool,
+        lifecycle: &Lifecycle,
+    ) -> Result<OpenOutcome, NativeCaptureError> {
+        if snapshot.topology_id != topology_id {
+            return Err(NativeCaptureError::DisplayChanged);
+        }
+        let request = StartRequest {
+            monitors: snapshot
+                .monitors
+                .iter()
+                .map(|monitor| monitor.connector.clone())
+                .collect(),
+            cursor: CursorMode::embedded(include_pointer),
+            topology_id: snapshot.topology_id.clone(),
+        };
+        self.session
+            .open(&request, lifecycle)
+            .map_err(NativeCaptureError::from)
+    }
+
     pub fn capture(
         &self,
         snapshot: &DisplaySnapshot,
@@ -238,16 +269,7 @@ impl NativeCapture {
             .iter()
             .find(|monitor| monitor.connector == connector)
             .ok_or_else(|| NativeCaptureError::DisplayUnknown(connector.to_owned()))?;
-        let request = StartRequest {
-            monitors: snapshot
-                .monitors
-                .iter()
-                .map(|monitor| monitor.connector.clone())
-                .collect(),
-            cursor: CursorMode::embedded(include_pointer),
-            topology_id: snapshot.topology_id.clone(),
-        };
-        self.session.open(&request, lifecycle)?;
+        self.open_session(snapshot, topology_id, include_pointer, lifecycle)?;
         let node = self
             .session
             .node_for(connector)

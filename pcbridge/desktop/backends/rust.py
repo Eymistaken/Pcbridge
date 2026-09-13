@@ -16,18 +16,17 @@ WHAT MOVES AND WHAT DOES NOT
     injected, overriding only what genuinely differs: availability, the
     capability report and the backend name.
 
-THE SHARING INDICATOR MOVES SLIGHTLY, AND IT IS RECORDED
+THE SHARING INDICATOR APPEARS WITH THE GRANT
     On the Python path the screen share opens at `desktop_unlock`, so GNOME's
-    top-bar indicator appears the moment the grant does. The native session is
-    on demand: it opens on the first `capture.frame` and then stays open until
-    revoke or lock. So between unlocking and the first screenshot there is a
-    window with a grant and no indicator.
-
-    That is a real difference from the documented behavior and it is not hidden.
-    It is arguably the more truthful signal -- during that window nothing can
-    read the screen, because no session exists -- but the indicator is the
-    user's evidence, so the change is written down rather than discovered.
-    Revisit before `[native] capture` becomes the default (Task 4.3).
+    top-bar indicator appears the moment the grant does. Until Task 4.3 the
+    native session opened on the first `capture.frame` instead, which left a
+    stretch with a grant and no indicator. Before `auto` became the default
+    that difference was closed rather than only written down: `start()` asks
+    the helper for `capture.session_open`, which opens the Mutter session
+    without reading a frame, and the session stays open until revoke, lock or
+    expiry. The indicator is the user's evidence that an agent can see the
+    screen, so both paths now show it at the same moment. A helper from before
+    Task 4.3 answers UNKNOWN_METHOD and keeps opening on demand.
 """
 
 from __future__ import annotations
@@ -229,11 +228,53 @@ class NativeScreenCast:
         return self._open
 
     def start(self, monitors: list[str], cursor: bool = True) -> dict:
-        """Mark this handle usable. No session opens yet -- see the module note."""
+        """Open the Mutter session now, so the share starts with the grant.
+
+        Until Task 4.3 this only marked the handle usable and the session
+        opened at the first capture, which left a stretch after
+        `desktop_unlock` with a grant and no sharing indicator. The indicator
+        is the user's evidence that an agent can see the screen, so the native
+        path now shows it exactly when the Python path does. No frame is read.
+        A helper from before Task 4.3 answers UNKNOWN_METHOD and keeps opening
+        on demand.
+        """
         self._monitors = [str(name) for name in monitors]
         self._cursor = bool(cursor)
+        grant_id, revoke_epoch = self._grant()
+        table = monitorslib.list_monitors()
+        client = self._ensure_client()
+        response = client.request(
+            "capture.session_open",
+            {
+                "topology_id": monitorslib.topology_id(table),
+                "session_id": self._session_id,
+                "grant_id": grant_id,
+                "revoke_epoch": revoke_epoch,
+                "include_pointer": self._cursor,
+            },
+            # CreateSession, RecordMonitor per monitor and Start, each bounded
+            # by the helper's own 10 s D-Bus call timeout.
+            timeout=45.0,
+        )
+        outcome = ""
+        on_demand = False
+        if response.error:
+            if response.error.get("code") != "UNKNOWN_METHOD":
+                raise NativeCaptureError(
+                    str(response.error.get("message") or response.error.get("code")),
+                    cause=_error_from_response(response.error),
+                )
+            on_demand = True
+        else:
+            result = response.result if isinstance(response.result, dict) else {}
+            outcome = str(result.get("outcome") or "")
         self._open = True
-        return {"already": False, "monitors": list(self._monitors), "on_demand": True}
+        return {
+            "already": outcome == "reused",
+            "monitors": list(self._monitors),
+            "on_demand": on_demand,
+            "outcome": outcome,
+        }
 
     def stop(self) -> None:
         self._open = False
@@ -376,6 +417,26 @@ class RustCaptureProvider(PythonCaptureProvider):
             if screencast is not None
             else NativeScreenCast(cfg, gate=gate),
         )
+
+    def start(self, *, cursor: bool | None = None) -> dict:
+        """Open the share; a refusal comes back typed, never as a crash.
+
+        `desktop_unlock` catches DesktopError and reports it. A bare
+        NativeCaptureError would escape the tool instead.
+        """
+        try:
+            return super().start(cursor=cursor)
+        except NativeCaptureError as exc:
+            if exc.desktop_error is not None:
+                raise exc.desktop_error from exc
+            raise _desktop_error(
+                exc,
+                code=ErrorCode.BACKEND_UNAVAILABLE,
+                category=ErrorCategory.CAPABILITY,
+                backend=BACKEND_NAME,
+                retryable=True,
+                suggested_action="Native capture yardimcisini ve masaustu iznini denetleyin.",
+            ) from exc
 
     def capability_token(self) -> tuple[Any, ...]:
         topology: tuple[Any, ...]

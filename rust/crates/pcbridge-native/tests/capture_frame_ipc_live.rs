@@ -292,3 +292,115 @@ fn a_client_receives_a_real_png_and_every_refusal_is_typed() {
     assert!(stderr.is_empty(), "helper wrote to stderr: {stderr}");
     let _ = fs::remove_dir_all(&root);
 }
+
+/// Mutter ScreenCast sessions alive right now, counted on the session bus.
+fn screencast_sessions() -> usize {
+    let output = Command::new("gdbus")
+        .args([
+            "introspect",
+            "--session",
+            "--dest",
+            "org.gnome.Mutter.ScreenCast",
+            "--object-path",
+            "/org/gnome/Mutter/ScreenCast/Session",
+        ])
+        .output()
+        .expect("gdbus should run");
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| {
+            line.starts_with(char::is_whitespace) && line.trim_start().starts_with("node ")
+        })
+        .count()
+}
+
+fn wait_for(mut condition: impl FnMut() -> bool, timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if condition() {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    condition()
+}
+
+/// Task 4.3: `desktop_unlock` opens the share -- and so the indicator -- with
+/// the grant, before any frame, the way the Python path always has.
+#[test]
+fn session_open_shows_the_share_before_any_frame() {
+    if !enabled() {
+        eprintln!("skipped: set PCBRIDGE_TEST_CAPTURE=1 to open a real screen share");
+        return;
+    }
+
+    let root = fixture_root();
+    let state = root.join("state");
+    write_grant(&state);
+    let before = screencast_sessions();
+    let mut helper = Helper::start(&state, &root.join("runtime"));
+
+    let (snapshot, _) = helper.call("display.snapshot", json!({}));
+    let topology = snapshot["topology_id"]
+        .as_str()
+        .expect("topology")
+        .to_owned();
+    let session = |grant: &str| {
+        json!({
+            "topology_id": topology,
+            "session_id": "capture-ipc-live-session",
+            "grant_id": grant,
+            "revoke_epoch": REVOKE_EPOCH,
+            "include_pointer": false,
+        })
+    };
+
+    let (opened, pixels) = helper.call("capture.session_open", session(GRANT_ID));
+    assert_eq!(opened["outcome"], json!("opened"), "{opened:?}");
+    assert!(pixels.is_empty(), "opening a session must not carry pixels");
+    assert!(
+        wait_for(
+            || screencast_sessions() == before + 1,
+            std::time::Duration::from_secs(5)
+        ),
+        "the share should be open before any frame: {} sessions, {before} before",
+        screencast_sessions()
+    );
+
+    let (reused, _) = helper.call("capture.session_open", session(GRANT_ID));
+    assert_eq!(reused["outcome"], json!("reused"), "{reused:?}");
+    assert_eq!(screencast_sessions(), before + 1);
+
+    let (refused, _) = helper.call("capture.session_open", session("some-other-grant"));
+    assert_eq!(refused["code"], json!("REVOKED"), "{refused:?}");
+
+    let connector = snapshot["monitors"][0]["connector"]
+        .as_str()
+        .expect("connector")
+        .to_owned();
+    let (frame, png) = helper.call(
+        "capture.frame",
+        capture_params(&format!("mutter:{connector}"), &topology),
+    );
+    assert!(
+        frame["code"].is_null(),
+        "capture after session_open: {frame:?}"
+    );
+    assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+    assert_eq!(
+        screencast_sessions(),
+        before + 1,
+        "the frame must reuse the session opened for the grant"
+    );
+
+    let stderr = helper.shutdown();
+    assert!(stderr.is_empty(), "helper wrote to stderr: {stderr}");
+    assert!(
+        wait_for(
+            || screencast_sessions() <= before,
+            std::time::Duration::from_secs(5)
+        ),
+        "shutdown must close the share"
+    );
+    let _ = fs::remove_dir_all(&root);
+}
