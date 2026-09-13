@@ -6,11 +6,13 @@ Bu belge, Python host ile `pcbridge-native` child process'i arasındaki yerel
 stdio sözleşmesini tanımlar. Bu pipe, MCP stdio taşımasından ayrıdır. Native
 stdout yalnızca aşağıda tanımlanan framed response'ları taşır.
 
-Executable henüz Wayland, PipeWire veya uinput üzerinden desktop işlemi yapmaz;
-Python desktop backend varsayılan ve çalışan tek backend olarak kalır. Native
-process grant/revoke lifecycle'ına ek olarak GNOME session D-Bus üzerinden ekran
-kilidini ve kullanıcı etkinliğini typed observation olarak izler. Böylece sonraki
-backend'ler aynı fail-closed güvenlik sınırını kullanabilir.
+Executable Linux'ta monitör tablosunu okur (Task 3.1) ve Mutter ScreenCast +
+PipeWire üzerinden tek monitör karesi alır (Task 3.3); uinput ve erişilebilirlik
+henüz native değil. Varsayılan capture backend'i hâlâ Python
+(`[native] capture = "python"`). Native process grant/revoke lifecycle'ına ek
+olarak GNOME session D-Bus üzerinden ekran kilidini ve kullanıcı etkinliğini
+typed observation olarak izler; sonraki backend'ler aynı fail-closed güvenlik
+sınırını kullanır.
 
 ## Frame biçimi ve sınırlar
 
@@ -69,6 +71,7 @@ Başarılı response seçilen sürümü ve process kimliğini döndürür:
   "result": {
     "instance_id": "native-12345",
     "native_version": "0.1.0",
+    "build_id": "2294156a1b2c",
     "platform": "linux",
     "features": ["display.snapshot", "capture.on_demand"],
     "lease_bound": true
@@ -76,6 +79,11 @@ Başarılı response seçilen sürümü ve process kimliğini döndürür:
   "binary_len": 0
 }
 ```
+
+`build_id` Task 4.1'de eklendi: `scripts/build-native.sh` ile derlenmiş
+binary'de commit (Rust tarafında commit'lenmemiş değişiklik varsa `-dirty`),
+başka derlemelerde `dev`. İsteğe bağlı bir alandır; eski yardımcılar göndermez
+ve Python istemcisi yokluğunu kabul eder.
 
 Bilinmeyen major sürüm `UNSUPPORTED_PROTOCOL` error response'ından sonra
 bağlantıyı kapatır. Handshake sonrasında farklı minor sürüm kullanan request
@@ -89,8 +97,14 @@ Harness aşağıdaki metotları kabul eder:
 - `initialize`: sürümü ve zorunlu handshake alanlarını doğrular.
 - `ping`: `{"pong": true}` döndürür; varsa `params.nonce` değerini aynen
   response'a ekler.
-- `capabilities`: gerçek backend'de `linux.mutter.pipewire` ve
-  `capture.monitor: supported` döndürür; oturum ya da PipeWire akışı açmaz.
+- `capabilities`: `backend: linux.mutter.pipewire` ve `capture.monitor`
+  durumunu döndürür. Durum her istekte **çalışma zamanında**, ucuz bir
+  denetimle belirlenir (Task 4.1): oturum veriyolunda
+  `org.gnome.Mutter.ScreenCast` adının sahibi ve PipeWire soketi. İkisi de
+  varsa `supported`; değilse `unavailable` + `reason_code`
+  (`BACKEND_UNAVAILABLE` ya da `DEPENDENCY_MISSING`) + `reason`. Oturum,
+  PipeWire akışı ya da paylaşım göstergesi açmaz, izin istemez. Task 4.1'e kadar
+  sabit bir `supported` idi — capture'ın hiç çalışamayacağı makinede de.
 - `display.snapshot`: Task 3.1 monitör tablosunu döndürür.
 - `capture.frame`: Task 3.3 tek monitör PNG'sini binary payload olarak döndürür.
 - `cancel`: `params.target_id` alanını doğrular ve bugün `canceled: false`
@@ -100,6 +114,23 @@ Harness aşağıdaki metotları kabul eder:
   kapatır.
 
 Diğer metotlar `UNKNOWN_METHOD` döndürür ve bağlantı kullanılabilir kalır.
+
+## Komut satırı
+
+Argümansız çalıştırma protokolü stdin/stdout üzerinde başlatır. Bunun dışında
+yalnızca iki bayrak kabul edilir (Task 4.1). İkisi de protokol başlatmaz,
+oturum veriyoluna, PipeWire'a ya da state dizinine dokunmaz ve `0` ile çıkar:
+
+- `--version` → tek satır:
+  `pcbridge-native 0.1.0 (build …, protocol 1.0, x86_64-unknown-linux-gnu, release)`
+- `--build-info` → tek JSON nesnesi: `name`, `version`, `build_id`,
+  `protocol {major, minor}`, `target`, `profile`, `test_harness`.
+
+Başka her argüman stderr'e `unsupported command-line arguments` yazar ve `2`
+ile çıkar. `test-harness` özelliğiyle derlenmiş binary ayrıca `--test-mode`
+kabul eder ve `--build-info`'da `"test_harness": true` der: deterministik sahte
+backend'le cevap veren, gerçek ekran okumayan bir derleme. `scripts/build-native.sh`
+böyle bir binary'yi paketlemeyi reddeder, `doctor.sh` onu hata olarak işaretler.
 
 ## Task 3.1 metodu — `display.snapshot`
 

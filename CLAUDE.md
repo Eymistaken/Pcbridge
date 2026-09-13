@@ -40,6 +40,7 @@ journalctl --user -u pcbridge -f       # canli log
 ./doctor.sh                            # 35 baslikta tani
 ./run.sh                               # on planda calistir (hata ayiklama)
 ./run.sh --check                       # yalnizca config'i dogrula ve cik
+scripts/build-native.sh                # native yardimci: release derle, pcbridge/_native'e kur (istege bagli)
 ```
 
 Testler (hepsi düz betik; `.venv`'de pytest **kurulu değil**):
@@ -599,6 +600,7 @@ ve o değişken `--effort` bayrağını sessizce etkisiz kılıyor.
 | `WALKTHROUGH.md` | **Depodaki tek yapılacak-iş listesi:** yol haritası, kabul ölçütleri, biten işlerin kaydı + `window_focus` ölçümü ve imleç katmanının kurtarılmış bulguları |
 | `docs/native/protocol-v1.md` | Python/native stdio framing, handshake, control metotları ve test harness sınırı |
 | `docs/native/capture.md` | Native Mutter ScreenCast oturumu: durum makinesi, kapanma tetikleri, Python yardımcısından farklar, ölçümler |
+| `docs/native/packaging.md` | Native yardımcının derlenmesi, paketi, çalışma zamanı bağımlılıkları, `doctor.sh` tanısı ve CI |
 | `ADIMLAR.md` | Ekran görüntüsü koordinatları / temizliği üçlüsünün adım adım kaydı: ne bitti, ne bekliyor, neden |
 | `KULLANIM.md` | Kullanıcıya dönük araç kataloğu + izin haritası — **güncel tutulmalı** |
 | `config.example.toml` | Ayarların belgelenmiş hâli; projenin asıl referansı |

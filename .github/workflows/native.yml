@@ -1,0 +1,82 @@
+# Build, test and package pcbridge-native on the Ubuntu base it targets.
+#
+# Live capture and input tests never run here: they need a desktop session and
+# an explicit opt-in (PCBRIDGE_TEST_CAPTURE / PCBRIDGE_TEST_INPUT), and CI has
+# neither. See docs/native/packaging.md.
+name: native
+
+on:
+  push:
+    paths:
+      - "rust/**"
+      - "scripts/build-native.sh"
+      - "pcbridge/native/**"
+      - "tests/integration/test_native_packaging.py"
+      - ".github/workflows/native.yml"
+  pull_request:
+    paths:
+      - "rust/**"
+      - "scripts/build-native.sh"
+      - "pcbridge/native/**"
+      - "tests/integration/test_native_packaging.py"
+      - ".github/workflows/native.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-x86_64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build dependencies (not needed at runtime)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpipewire-0.3-dev libspa-0.2-dev libclang-dev pkg-config
+
+      # rust/rust-toolchain.toml pins 1.95.0 with clippy and rustfmt. It is
+      # selected by working directory, so every cargo step runs inside rust/.
+      - name: Toolchain
+        working-directory: rust
+        run: rustup toolchain install && cargo --version
+
+      - name: Format
+        working-directory: rust
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        working-directory: rust
+        run: |
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo clippy --workspace --all-targets --locked \
+            --features pcbridge-native/test-harness -- -D warnings
+
+      - name: Tests
+        working-directory: rust
+        run: |
+          cargo test --workspace --locked --no-fail-fast
+          cargo test --workspace --locked --no-fail-fast \
+            --features pcbridge-native/test-harness
+
+      - name: Package release helper
+        run: scripts/build-native.sh
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Packaging smoke test
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          PCBRIDGE_TEST_REQUIRE_RELEASE=1 \
+            .venv/bin/python -m unittest tests/integration/test_native_packaging.py -v
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pcbridge-native-x86_64-unknown-linux-gnu
+          path: pcbridge/_native/x86_64-unknown-linux-gnu/
+          if-no-files-found: error

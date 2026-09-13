@@ -118,6 +118,24 @@ okuyup `public_url`'i doldurur, systemd birimini tanımlar ve **açılışta
 başlayacak şekilde etkinleştirir** (yalnızca `127.0.0.1`; tünel açılmaz),
 `bridge*` alias'larını `~/.bashrc`'ye ekler.
 
+### 2b. Native yardımcı (isteğe bağlı)
+
+Ekran görüntüsünün ham karesini Python yerine Rust'ta alan `pcbridge-native`
+yardımcısı **zorunlu değil**: yoksa pcbridge Python yoluyla aynen çalışır ve
+varsayılan hâlâ o (`[native] capture = "python"`). `install.sh`, yardımcı yoksa
+ve derleme araçları kuruluysa derlemeyi sorar. Elle:
+
+```bash
+sudo apt install libpipewire-0.3-dev libspa-0.2-dev libclang-dev pkg-config   # yalnizca derlemek icin, bir kez
+scripts/build-native.sh --check   # eksik var mi
+scripts/build-native.sh           # release derle, pcbridge/_native/ altina kur
+```
+
+Rust araç zinciri (rustup) yalnızca **derlemek** için gerekir; çalıştırmak için
+Ubuntu 24.04'te zaten kurulu gelen `libpipewire-0.3-0t64` yeterli. Betik çalışan
+servisi yeniden başlatmaz. Durumu `./doctor.sh` → "8. Native yardimci" gösterir.
+Ayrıntı: [docs/native/packaging.md](docs/native/packaging.md).
+
 ### 3. İstemcilere bağla — asıl adım
 
 ```bash

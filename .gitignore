@@ -8,6 +8,8 @@ state/
 *.log
 *.db
 rust/target/
+# scripts/build-native.sh ciktisi: derlenmis native yardimci, depoya girmiyor.
+pcbridge/_native/
 
 # Belgeler artik HEPSI izleniyor (2026-09-06). JARVIS.md, KURALLAR.md ve
 # GOREV-kurallar.md daha once burada duruyordu; icerikleri okundu, hassas veri

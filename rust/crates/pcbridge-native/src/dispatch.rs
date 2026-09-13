@@ -16,6 +16,7 @@ use crate::platform::linux::capture::{CaptureError, NativeCapture, NativeCapture
 use crate::platform::linux::desktop_state::DeterministicDesktopState;
 use crate::platform::linux::display::DisplayReader;
 use crate::platform::linux::display::DisplaySnapshot;
+use crate::platform::linux::readiness;
 use crate::platform::linux::session::SessionFailure;
 
 #[derive(Debug)]
@@ -67,15 +68,12 @@ impl BackendMode {
 
     fn capabilities(&self) -> Value {
         match self {
+            // Probed on every request, and cheaply: a bus name owner and a
+            // socket, never a session. This used to be a fixed `supported`,
+            // true even where capture could not work.
             Self::Production { .. } => json!({
                 "backend": "linux.mutter.pipewire",
-                "capabilities": [
-                    {
-                        "name": "capture.monitor",
-                        "status": "supported",
-                        "permission_scope": "os.capture",
-                    }
-                ],
+                "capabilities": [readiness::capture_monitor(&readiness::probe())],
             }),
             #[cfg(feature = "test-harness")]
             Self::DeterministicTest => json!({
@@ -319,7 +317,8 @@ impl Dispatcher {
             request.id,
             json!({
                 "instance_id": self.mode.instance_id(),
-                "native_version": env!("CARGO_PKG_VERSION"),
+                "native_version": crate::build_info::VERSION,
+                "build_id": crate::build_info::build_id(),
                 "platform": self.mode.platform(),
                 "features": self.mode.features(),
                 "lease_bound": lease_bound,
@@ -724,18 +723,24 @@ mod tests {
     #[test]
     fn production_mode_never_advertises_fake_backend() {
         let mode = BackendMode::production();
-        assert_eq!(mode.capabilities()["backend"], "linux.mutter.pipewire");
+        let capabilities = mode.capabilities();
+        assert_eq!(capabilities["backend"], "linux.mutter.pipewire");
         assert_eq!(
             mode.features(),
             vec!["display.snapshot", "capture.on_demand"]
         );
-        assert_eq!(
-            mode.capabilities()["capabilities"][0]["name"],
-            "capture.monitor"
-        );
-        assert_eq!(
-            mode.capabilities()["capabilities"][0]["status"],
-            "supported"
-        );
+        let monitor = &capabilities["capabilities"][0];
+        assert_eq!(monitor["name"], "capture.monitor");
+        // A runtime probe now: `supported` needs Mutter and PipeWire on this
+        // machine, and anything else has to say why.
+        match monitor["status"].as_str() {
+            Some("supported") => assert!(monitor.get("reason").is_none()),
+            Some("unavailable") => assert!(
+                monitor["reason"]
+                    .as_str()
+                    .is_some_and(|reason| !reason.is_empty())
+            ),
+            other => panic!("unexpected capture.monitor status {other:?}"),
+        }
     }
 }

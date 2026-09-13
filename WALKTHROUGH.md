@@ -10,14 +10,14 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Adım 4 / Task 4.1 — Native binary build/package ve tanı
-- **Son tamamlanan adım:** Adım 3 / Task 3.5 — Screenshot artifact ve MCP image
-  delivery bütünlüğü
-- **Sıradaki uygulanabilir adım:** Task 4.1
+- **Aktif adım:** Adım 4 / Task 4.2 — Gerçek Linux capture parity gate
+- **Son tamamlanan adım:** Adım 4 / Task 4.1 — Native binary build/package ve
+  tanı
+- **Sıradaki uygulanabilir adım:** Task 4.2
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 3 geçti** (2026-09-13). Yolda native yolun
   ikinci monitörde yanlış ekranı verdiği bulundu ve düzeltildi — Task 3.5.
-- **Native migration içindeki sıradaki task:** 4.1 → 4.2 → 4.3 → **Gate 4**
+- **Native migration içindeki sıradaki task:** 4.2 → 4.3 → **Gate 4**
 - **Kullanıcı dönünce:** aşağıdaki "Kullanıcıyı bekleyenler" listesi.
 
 Çalışma kuralı (kullanıcı isteği, 2026-09-12 gecesi, öncekinin yerine):
@@ -35,6 +35,7 @@ yapılınca silinmez, `yapıldı` diye işaretlenir.
 | # | Ne | Neden bekliyor | Durum |
 |---|---|---|---|
 | 1 | Adım 6 — imleç katmanı: fiziksel farenin olay hızını ölçmek | Fareyi elle oynatmak gerekiyor; eklenti değişikliği oturumdan çıkış/giriş istiyor | `bekliyor` |
+| 2 | `.github/workflows/native.yml`'ı ilk kez çalıştırmak | Depo public, push kullanıcının kararı; iş akışı yerelde yalnızca ayrıştırıldı, hiç koşmadı | `bekliyor` |
 
 ---
 
@@ -48,7 +49,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 1 | `KURALLAR.md` §4'teki 5/6/7 kapıları (parola alanı, tekrar tıklama, kapatma onayı) | `tamamlandı` |
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `tamamlandı` (3.1–3.5 ✅, **Gate 3 geçti**) |
-| 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `devam ediyor` (sırada 4.1) |
+| 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `devam ediyor` (4.1 ✅; sırada 4.2) |
 | 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `bekliyor` |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
@@ -946,6 +947,72 @@ parity, `PCBRIDGE_TEST_CAPTURE=1`) → 4.3 (varsayılan `native.capture = "rust"
 işleri öldürür — önce `job_list`. Bu oturumun `--stdio` süreci yeni kodu
 **çalıştırmaz**; doğrulama servise HTTP + statik token ile gider
 (`tests/test_e2e.py` kalıbı).
+
+### Task 4.1 — Native binary build/package ve tanı · `tamamlandı`
+
+**Ne yapıldı.** Native yardımcı derlenip kurulabilir, kendini anlatabilir ve
+izin istemeden teşhis edilebilir hâle geldi. Ayrıntı:
+`docs/native/packaging.md`.
+
+- **`scripts/build-native.sh`:** gereksinim kontrolü (`--check`), `rust/`
+  içinden release derleme (`x86_64-unknown-linux-gnu`), build kimliği (commit
+  + `-dirty`), derlenen binary'yi `--build-info` ile doğrulayıp debug,
+  test-harness ya da yanlış hedefse reddetme, `pcbridge/_native/<hedef>/`
+  altına atomik kurulum. Servisi yeniden başlatmıyor.
+- **Binary kendini anlatıyor:** `--version` ve `--build-info` (protokol
+  başlatmıyor, oturum veriyoluna dokunmuyor); `initialize` cevabında
+  `build_id`; Python `NativeHandshake.build_id` (isteğe bağlı).
+- **`capabilities` artık çalışma zamanında:** `org.gnome.Mutter.ScreenCast`
+  adının sahibi + PipeWire soketi; oturum açmıyor. Task 3.3 incelemesinde açık
+  kalan "`supported` bir derleme iddiası" noktası kapandı.
+- **`doctor.sh` → 8. Native yardimci** (`pcbridge.native.diagnostics`):
+  seçim, bulunduğu yer, build bilgisi, kütüphaneler, handshake + capability,
+  legacy GI notu. Gerçek izin dosyasına dokunmuyor.
+- **`install.sh` 3/8:** paketlenmiş yardımcı varsa bildiriyor; yoksa ve
+  araçlar kuruluysa derlemeyi soruyor; değilse Python yolunun kullanılacağını
+  söylüyor.
+- `.github/workflows/native.yml` (Ubuntu 24.04), `.gitignore` →
+  `pcbridge/_native/`, `KURULUM.md` 2b, `docs/native/protocol-v1.md` (komut
+  satırı, `build_id`, `capabilities`; girişteki "PipeWire kullanmaz" iddiası
+  Task 3.3'ten beri eskimişti, düzeltildi).
+
+**Acceptance — ölçüldü.**
+
+| Ölçüt (`PLAN.md`) | Kanıt |
+|---|---|
+| Native capture için `python3-gi`, GStreamer, `pipewiresrc` gerekmiyor | release binary'nin bütün NEEDED listesi `libpipewire-0.3.so.0`, `libgcc_s.so.1`, `libc.so.6`, `ld-linux-x86-64.so.2`; paketleme testi GI/GStreamer/GLib/Python bağlanmasını reddediyor. Gate 3'ün canlı testi `gi` engelliyken capture'ı zaten kanıtlamıştı |
+| Legacy accessibility GI bağımlılığı ayrıca raporlanıyor | `doctor.sh` 8. bölümün son satırı |
+| Build ve runtime bağımlılıkları ayrı | `docs/native/packaging.md`; runtime: `libpipewire-0.3-0t64`, `libc6 ≥ 2.39` (`GLIBC_2.39`), `libgcc-s1` |
+| Smoke test repo cwd'sine güvenmiyor | binary ilgisiz bir dizine kopyalanıp orada, süzülmüş ortamla çalıştırılıyor; handshake'teki build kimliği `--build-info` ile aynı |
+| `doctor.sh` izin istemeden raporluyor | gerçek koşum: paketten bulundu, `release`, kütüphaneler tamam, `capture.monitor: supported`, çıkış 0 |
+| Native yoksa Python kurulumu çalışıyor | `auto` → Python + `degraded` gerekçesi; `rust` → seçili kalıp nedenini söylüyor |
+| Kurulum servisi yeniden başlatmıyor | `install.sh` ve `build-native.sh` restart çağırmıyor; betik bunu çıktısında da söylüyor |
+
+Ölçüldü: bağımlılıklar önbellekteyken derleme **16,8 sn**, binary
+**5.339.112 bayt**. Temiz derleme süresi ölçülmedi.
+
+**Testlerin tuttuğu mutasyonla denendi: 6/6.** PipeWire soketi yokken
+`supported` demek, bilinmeyen argümanla yine de başlamak, test-harness
+derlemesini işaretlememek, zorunlu yardımcının yokluğunu yalnızca not etmek,
+belgelenmemiş kütüphaneyi söylememek, istemcinin `build_id`'yi düşürmesi.
+
+**Test sonuçları:**
+
+- `tests/contracts/test_native_diagnostics.py` (yeni) → 9; Python contract
+  discovery → **164, OK** (155 → 164)
+- `tests/integration/test_native_packaging.py` (yeni) → **5/5**, gerçek
+  paketlenmiş binary ile; integration discovery → 14 OK + 1 canlı atlandı
+- `tests/test_desktop.py` → **583**; `test_models.py` → **106**;
+  `test_test_safety.py` → OK; `--check` → 0
+- Rust → **96** (varsayılan) / **105** (`test-harness`), fmt ve clippy iki
+  kipte temiz; `tests/build_info.rs` 5 yeni test
+- `bash -n` üç betikte temiz; CI YAML ayrıştırıldı (10 adım)
+- **CI çalıştırılmadı:** push yok — "Kullanıcıyı bekleyenler" #2
+
+**Rollback:** `[native] capture = "python"` (varsayılan); paketlenmiş binary
+bulunsa da kullanılmıyor.
+
+**Sonraki somut adım:** Task 4.2 — gerçek Linux capture parity gate.
 
 ## Adım 5 — Faz 5–8
 

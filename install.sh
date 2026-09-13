@@ -11,7 +11,7 @@ blue() { printf "\033[1;34m%s\033[0m\n" "$*"; }
 warn() { printf "\033[1;33m%s\033[0m\n" "$*"; }
 ok()   { printf "\033[1;32m%s\033[0m\n" "$*"; }
 
-blue "==> 1/7  Gerekli paketler"
+blue "==> 1/8  Gerekli paketler"
 MISSING=()
 command -v python3 >/dev/null || MISSING+=(python3)
 python3 -c "import venv" 2>/dev/null || MISSING+=(python3-venv)
@@ -40,13 +40,34 @@ else
   ok "Hepsi zaten kurulu."
 fi
 
-blue "==> 2/7  Sanal ortam (.venv)"
+blue "==> 2/8  Sanal ortam (.venv)"
 [ -d .venv ] || python3 -m venv .venv
 ./.venv/bin/pip install --upgrade pip >/dev/null
 ./.venv/bin/pip install -r requirements.txt >/dev/null
 ok "Bagimliliklar kuruldu."
 
-blue "==> 3/7  Yapilandirma"
+blue "==> 3/8  Native yardimci (istege bagli)"
+# Ekran goruntusunun ham karesini Python yerine Rust'ta alan yardimci. ZORUNLU
+# DEGIL: yoksa pcbridge Python yoluyla calismaya devam eder. Rust arac zinciri
+# yalnizca DERLEMEK icin gerekir, calistirmak icin degil (docs/native/packaging.md).
+NATIVE_BIN="pcbridge/_native/x86_64-unknown-linux-gnu/pcbridge-native"
+if [ -x "$NATIVE_BIN" ]; then
+  ok "native yardimci hazir: $("$NATIVE_BIN" --version 2>/dev/null || echo "$NATIVE_BIN")"
+elif scripts/build-native.sh --check >/dev/null 2>&1; then
+  read -rp "Native yardimci derlensin mi? (birkac dakika) [e/H] " yn
+  if [[ "${yn:-h}" =~ ^[Ee]$ ]]; then
+    scripts/build-native.sh || warn "Derlenemedi; Python yolu kullanilir."
+  else
+    warn "Atlandi. Sonra: scripts/build-native.sh"
+  fi
+else
+  warn "Native yardimci yok, derleme araclari da eksik — sorun degil, Python yolu kullanilir."
+  echo "    Ayrinti: scripts/build-native.sh --check"
+fi
+# Kurulum calisan servisi YENIDEN BASLATMAZ: yeni binary yalnizca bir sonraki
+# baslatmada ve [native] capture "auto" ya da "rust" ise secilir.
+
+blue "==> 4/8  Yapilandirma"
 NEWPW=""
 if [ ! -f config.toml ]; then
   cp config.example.toml config.toml
@@ -67,7 +88,7 @@ else
   ok "config.toml zaten var, dokunulmadi."
 fi
 
-blue "==> 4/7  Tailscale"
+blue "==> 5/8  Tailscale"
 TS_DNS=""
 if command -v tailscale >/dev/null; then
   TS_DNS="$(tailscale status --json 2>/dev/null \
@@ -91,7 +112,7 @@ else
   echo "    curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up"
 fi
 
-blue "==> 5/7  systemd kullanici servisi (otomatik baslatma KAPALI)"
+blue "==> 6/8  systemd kullanici servisi (otomatik baslatma KAPALI)"
 UNIT_DIR="$HOME/.config/systemd/user"
 mkdir -p "$UNIT_DIR"
 sed "s|__DIR__|$DIR|g" systemd/pcbridge.service > "$UNIT_DIR/pcbridge.service"
@@ -109,7 +130,7 @@ if [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
   ok "Oturum ortami systemd kullanici yoneticisine aktarildi."
 fi
 
-blue "==> 6/7  Masaustu kontrolu (klavye/fare) - OPSIYONEL"
+blue "==> 7/8  Masaustu kontrolu (klavye/fare) - OPSIYONEL"
 if [ -e /dev/uinput ] && getfacl -p /dev/uinput 2>/dev/null | grep -q "^user:$USER:.*w"; then
   ok "/dev/uinput erisimi hazir."
 else
@@ -140,8 +161,8 @@ mkdir -p "$HOME/.claude/skills"
 ln -sfn "$DIR/skills/computer-use" "$HOME/.claude/skills/computer-use"
 ok "computer-use skill'i ~/.claude/skills'e baglandi."
 
-blue "==> 7/7  Servisi acilista baslat"
-chmod +x remote.sh run.sh doctor.sh connect.sh 2>/dev/null || true
+blue "==> 8/8  Servisi acilista baslat"
+chmod +x remote.sh run.sh doctor.sh connect.sh scripts/build-native.sh 2>/dev/null || true
 
 # Servis acilista basliyor. Bu bir DAVRANIS DEGISIKLIGI: proje Gemini Spark
 # icin yazilirken bilincle reddedilmisti (sunucu bosuna acik kalmasin diye).

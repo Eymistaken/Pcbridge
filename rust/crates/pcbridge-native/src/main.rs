@@ -1,19 +1,44 @@
 #![forbid(unsafe_code)]
 
+use std::ffi::OsString;
 use std::io;
 use std::process::ExitCode;
 
+use pcbridge_native::build_info;
 use pcbridge_native::dispatch::{BackendMode, Dispatcher};
 
+enum Command {
+    Serve(BackendMode),
+    Version,
+    BuildInfo,
+}
+
 fn main() -> ExitCode {
-    let mode = match mode_from_args() {
-        Ok(mode) => mode,
+    let command = match command_from_args(std::env::args_os().skip(1).collect()) {
+        Ok(command) => command,
         Err(message) => {
             eprintln!("pcbridge-native: {message}");
             return ExitCode::from(2);
         }
     };
 
+    match command {
+        // Neither of these opens the session bus, PipeWire or a state
+        // directory: `doctor.sh` uses them to describe an install without
+        // asking for anything.
+        Command::Version => {
+            println!("{}", build_info::version_line());
+            ExitCode::SUCCESS
+        }
+        Command::BuildInfo => {
+            println!("{}", build_info::build_info());
+            ExitCode::SUCCESS
+        }
+        Command::Serve(mode) => serve(mode),
+    }
+}
+
+fn serve(mode: BackendMode) -> ExitCode {
     let stdin = io::stdin();
     let stdout = io::stdout();
     match pcbridge_native::run(stdin.lock(), stdout.lock(), Dispatcher::new(mode)) {
@@ -25,20 +50,14 @@ fn main() -> ExitCode {
     }
 }
 
-fn mode_from_args() -> Result<BackendMode, &'static str> {
-    let mut arguments = std::env::args_os();
-    let _program = arguments.next();
-    let first = arguments.next();
-    let has_more = arguments.next().is_some();
-
-    if first.is_none() && !has_more {
-        return Ok(BackendMode::production());
+fn command_from_args(arguments: Vec<OsString>) -> Result<Command, &'static str> {
+    let flags: Vec<Option<&str>> = arguments.iter().map(|argument| argument.to_str()).collect();
+    match flags.as_slice() {
+        [] => Ok(Command::Serve(BackendMode::production())),
+        [Some("--version")] => Ok(Command::Version),
+        [Some("--build-info")] => Ok(Command::BuildInfo),
+        #[cfg(feature = "test-harness")]
+        [Some("--test-mode")] => Ok(Command::Serve(BackendMode::deterministic_test())),
+        _ => Err("unsupported command-line arguments"),
     }
-
-    #[cfg(feature = "test-harness")]
-    if first.as_deref() == Some(std::ffi::OsStr::new("--test-mode")) && !has_more {
-        return Ok(BackendMode::deterministic_test());
-    }
-
-    Err("unsupported command-line arguments")
 }

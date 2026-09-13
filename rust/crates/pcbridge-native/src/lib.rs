@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod build_info;
 pub mod dispatch;
 pub mod lifecycle;
 pub mod platform;

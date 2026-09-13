@@ -75,6 +75,9 @@ class NativeHandshake:
     native_version: str
     platform: str
     features: frozenset[str]
+    # Commit the helper was built from ("dev" for ad-hoc builds). Helpers from
+    # before Task 4.1 do not send it, so it stays optional.
+    build_id: str = ""
 
 
 def _desktop_error(
@@ -672,11 +675,13 @@ class NativeClient:
             not isinstance(feature, str) or not feature for feature in raw_features
         ):
             raise self._invalid_initialize_response()
+        raw_build_id = result.get("build_id", "")
         return NativeHandshake(
             instance_id=values["instance_id"],
             native_version=values["native_version"],
             platform=values["platform"],
             features=frozenset(raw_features),
+            build_id=raw_build_id if isinstance(raw_build_id, str) else "",
         )
 
     @staticmethod

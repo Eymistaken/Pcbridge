@@ -326,7 +326,22 @@ else
   pass "birimde model/effort ortam degiskeni yok (dogru)"
 fi
 
-head_ "8. Istemci kayitlari (stdio)"
+head_ "8. Native yardimci (pcbridge-native)"
+# Izin istemez, ekran paylasimi acmaz: yardimci --build-info ile kendini
+# anlatir; `capabilities` gecici bir state dizininde yapilan handshake ile
+# sorulur, gercek izin dosyasina hic dokunulmaz.
+NATIVE_OUT="$(./.venv/bin/python -m pcbridge.native.diagnostics 2>&1)"
+while IFS=$'\t' read -r level message; do
+  case "$level" in
+    pass) pass "$message" ;;
+    warn) warn "$message" ;;
+    fail) fail "$message" ;;
+    info) info "$message" ;;
+    *)    [ -n "$level" ] && fail "native tanisi calismadi: $level${message:+ $message}" ;;
+  esac
+done <<< "$NATIVE_OUT"
+
+head_ "9. Istemci kayitlari (stdio)"
 
 # stdio gercekten baslatilabiliyor mu: initialize + tools/list el sikismasi.
 # Yaniti SATIR SATIR okuyor -- stdin'i erken kapatmak sunucuyu tools/list
@@ -455,7 +470,7 @@ PY
 )"
 info "inline_images = $INLINE"
 
-head_ "9. Son 15 gunluk kaydi"
+head_ "10. Son 15 gunluk kaydi"
 journalctl --user -u pcbridge -n 15 --no-pager 2>/dev/null | sed 's/^/  /'
 
 echo
