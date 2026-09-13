@@ -18,7 +18,9 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
   `[native] capture = "auto"`; kullanıcının kendi servisi ve stdio istemcileri
   henüz yeniden başlatılmadı, yani çalışan süreçler hâlâ Python yolunda (#5).
 - **Native migration içindeki sıradaki task:** 5.2 → 5.3 → 5.4 → **Gate 5**
-- **Kullanıcı dönünce:** aşağıdaki "Kullanıcıyı bekleyenler" listesi.
+- **Kullanıcıyla yapılan kontroller (2026-09-13):** #1, #3, #4 yapıldı; #5'in
+  servis tarafı yapıldı; #2 (GitHub) kullanıcının kararıyla bekliyor. Ayrıntı:
+  Adım 4 → "Kullanıcıyla yapılan kontroller".
 
 Çalışma kuralı (kullanıcı isteği, 2026-09-12 gecesi, öncekinin yerine):
 kullanıcı yokken **onay beklemeden sıradaki adıma geçilir**; her adım yine bu
@@ -34,11 +36,11 @@ yapılınca silinmez, `yapıldı` diye işaretlenir.
 
 | # | Ne | Neden bekliyor | Durum |
 |---|---|---|---|
-| 1 | Adım 6 — imleç katmanı: fiziksel farenin olay hızını ölçmek | Fareyi elle oynatmak gerekiyor; eklenti değişikliği oturumdan çıkış/giriş istiyor | `bekliyor` |
-| 2 | `.github/workflows/native.yml`'ı ilk kez çalıştırmak | Depo public, push kullanıcının kararı; iş akışı yerelde yalnızca ayrıştırıldı, hiç koşmadı | `bekliyor` |
-| 3 | Task 4.2 ekran kilidi senaryosu: native capture kilitliyken kare vermiyor mu | Kilidi açmak parola istiyor; kullanıcı yokken ekran kilitli kalırdı | `bekliyor` |
-| 4 | Paylaşım göstergesinin kaynak kapanınca kaybolduğunu gözle görmek | Gösterge ekran paylaşımı olmadan görülemiyor; test yalnızca Mutter oturum sayısını doğruladı | `bekliyor` |
-| 5 | Task 4.3 yayılımı: servisi ve stdio istemcilerini yeniden başlatıp native yolu gerçek kullanımda görmek. `config.toml`'da `[native]` bölümü yok, yani yeni süreçler native yolu seçecek. Sıra: `bridgekilit` → `job_list` boş mu → `systemctl --user restart pcbridge` → Claude Code/Codex'i yeniden başlat → `./doctor.sh` 8. bölüm → `desktop_unlock` sonrası üst çubukta gösterge var, `desktop_lock` sonrası yok. Geri alma: `[native]` altına `capture = "python"` + aynı yeniden başlatmalar. Task 5.1'in yürütme kilidi ve eylem başına izin kontrolü de aynı yeniden başlatmayla devreye girer | Restart çalışan işleri öldürür; stdio süreçleri istemcinin; göstergeyi gözle görmek gerekiyor | `bekliyor` |
+| 1 | Adım 6 — imleç katmanı: fiziksel farenin olay hızını ölçmek | Fareyi elle oynatmak gerekiyor; eklenti değişikliği oturumdan çıkış/giriş istiyor | ölçüm `yapıldı` (~1000 Hz); eklenti değişikliği Adım 6'da bekliyor |
+| 2 | `.github/workflows/native.yml`'ı ilk kez çalıştırmak | Depo public, push kullanıcının kararı; iş akışı yerelde yalnızca ayrıştırıldı, hiç koşmadı | `bekliyor` — 2026-09-13: kullanıcı "şimdilik gönderme" dedi; gönderilecek 42 commit'te sır taraması temiz |
+| 3 | Task 4.2 ekran kilidi senaryosu: native capture kilitliyken kare vermiyor mu | Kilidi açmak parola istiyor; kullanıcı yokken ekran kilitli kalırdı | `yapıldı` (2026-09-13) |
+| 4 | Paylaşım göstergesinin kaynak kapanınca kaybolduğunu gözle görmek | Gösterge ekran paylaşımı olmadan görülemiyor; test yalnızca Mutter oturum sayısını doğruladı | `yapıldı` (2026-09-13) |
+| 5 | Task 4.3 yayılımı: servisi ve stdio istemcilerini yeniden başlatıp native yolu gerçek kullanımda görmek. `config.toml`'da `[native]` bölümü yok, yani yeni süreçler native yolu seçecek. Sıra: `bridgekilit` → `job_list` boş mu → `systemctl --user restart pcbridge` → Claude Code/Codex'i yeniden başlat → `./doctor.sh` 8. bölüm → `desktop_unlock` sonrası sağ alttaki görev çubuğunda gösterge var, `desktop_lock` sonrası yok. Geri alma: `[native]` altına `capture = "python"` + aynı yeniden başlatmalar. Task 5.1'in yürütme kilidi ve eylem başına izin kontrolü de aynı yeniden başlatmayla devreye girer | Restart çalışan işleri öldürür; stdio süreçleri istemcinin; göstergeyi gözle görmek gerekiyor | servis `yapıldı` (2026-09-13); Claude Desktop ve Claude Code'un stdio süreçleri uygulama bir kez kapatılıp açılınca geçer |
 
 ---
 
@@ -1174,6 +1176,53 @@ revoke → yardımcıları kapat → yeni süreçler sırası.
 
 **Sonraki somut adım:** Task 5.1 — input parity fixture'ları ve batch safety.
 
+### Kullanıcıyla yapılan kontroller (2026-09-13)
+
+Kullanıcı başındayken "Kullanıcıyı bekleyenler" listesinden yapılabilenler.
+Paylaşım açan süreçlerin hepsi ayrı bir state dizininde çalıştı; kullanıcının
+gerçek iznine dokunulmadı. Kullanılan betikler geçiciydi, depoya girmedi.
+
+- **#5 — yayılım.** İzin zaten kapalıydı, servisin cgroup'unda iş yoktu.
+  `systemctl --user restart pcbridge` (08:52) sonrası servis HTTP + statik
+  token ile sorgulandı: `capture.monitor: supported / linux.mutter.pipewire`.
+  `doctor.sh` 8. bölüm tamamen yeşil (build `0cb5bcb46051`, release,
+  kütüphaneler tamam). Açık kalan: Claude Desktop'un iki ve Claude Code'un iki
+  stdio süreci dünden beri eski kodla çalışıyor; uygulama yeniden başlatılınca
+  geçer.
+- **#4 — gösterge gözle.** Ayrı bir süreç native paylaşımı açtı; kendi
+  paylaşımını açmayan `gnome-screenshot` ile üç kare alındı: önce simge yok,
+  paylaşım açıkken **sağ monitörün altındaki görev çubuğunda turuncu paylaşım
+  simgesi** var, süreç `SIGKILL` ile öldürülünce yok. Mutter oturumu
+  öldürmeden 0,11 sn sonra kapandı, native yardımcı da çıktı.
+- **#3 — ekran kilidi.** Native paylaşım açıkken ekran
+  `org.gnome.ScreenSaver.Lock` ile kilitlendi; kullanıcı 27,5 sn sonra
+  parolasıyla açtı. Kilitliyken 3. ve 11. saniyede: Mutter oturum sayısı 0
+  (native kilit gözcüsü paylaşımı kapattı), `SafetyGate.check` →
+  `SCREEN_LOCKED`, kapıyı atlayan doğrudan `capture_provider.capture` →
+  yardımcıdan `SCREEN_LOCKED`, **0 PNG**. Kilit açılınca oturum kendiliğinden
+  açılmadı; sonraki çekim normal geldi.
+- **#1 — farenin olay hızı.** Glorious Model D Wireless, USB 12 Mbit/s, uç
+  nokta `bInterval 1` (1 ms). Kullanıcı fareyi gezdirirken `/dev/input/event5`
+  cihaz kapılmadan okundu: 3,21 sn'de 1003 hareket raporu, en yoğun 1 sn'de
+  686, hareket halinde **medyan aralık 1,00 ms (~998 Hz)**, p10 0,89 ms, p90
+  2,87 ms. Adım 6'nın hipotezi güçlendi.
+
+**Bulunan iki küçük şey (düzeltilmedi, kayıtta):**
+
+1. **Kilit native oturumu kapatınca Python tarafı haberdar olmuyor.**
+   `NativeScreenCast.is_open()` `True` kalıyor, oysa paylaşım kapalı.
+   `runtime.py`'deki süre dolumu zamanlayıcısı için zararsız (kapatmayı yine
+   dener), ama `tools.py`'de `is_open()`'a bakan iki durum metni yayını açık
+   gösterebilir. Hata güvenli yönde (erişimi olduğundan fazla gösteriyor), yine
+   de gösterge gerçeği söylemeli.
+2. **Belgeler ve iki çıktı metni "GNOME üst çubuğu" diyor** (`CLAUDE.md`,
+   `KULLANIM.md`, `KURULUM.md`, `config.example.toml`,
+   `skills/computer-use/SKILL.md`, `monitors.py`, `cli/shot.py`; son ikisi
+   testle sabitlenmiş). Bu makinede saat, sistem simgeleri ve paylaşım
+   göstergesi sağ monitörün **altındaki** Zorin görev çubuğunda. Monitör
+   bilgisi doğru, "üst" değil. Toplu düzeltme ayrı iş; `CLAUDE.md`'deki ölçüm
+   satırı düzeltildi.
+
 ## Adım 5 — Faz 5–8
 
 | Faz | Ne | Gate |
@@ -1290,7 +1339,8 @@ Bulgular ve tasarım kararları aşağıda, "Kurtarılan kayıtlar" bölümünde
 
 1. Fiziksel farenin gerçek olay hızını ölç (`/dev/input/eventN`'den saniyedeki
    olay sayısı). 1000 Hz çıkarsa hipotez güçlenir, 125 Hz çıkarsa çürür ve
-   başka yere bakmak gerekir.
+   başka yere bakmak gerekir. **Ölçüldü 2026-09-13: ~998 Hz** (medyan aralık
+   1,00 ms) — hipotez güçlendi, sıradaki 2. madde.
 2. Hipotez tutarsa konum **kare saatinde bir kez** uygulanır, her olayda değil.
 3. `Main.layoutManager.addTopChrome` yerine `Main.uiGroup` denenir.
 

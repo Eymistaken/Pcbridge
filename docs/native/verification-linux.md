@@ -122,7 +122,7 @@ kendiliğinden yeni varsayılana geçmez.
   süreçleri gösterir; kapanana kadar eski ayarla çalışırlar.
 - **Doğrulama:** `./doctor.sh` → 8. bölüm; `system_capabilities` →
   `capture.monitor` backend `linux.mutter.pipewire`; `desktop_unlock` sonrası
-  üst çubukta paylaşım göstergesi var, `desktop_lock` sonrası yok.
+  sağ alttaki görev çubuğunda paylaşım göstergesi var, `desktop_lock` sonrası yok.
 - **Geri alma:** `[native]` altında `capture = "python"`, ardından aynı yeniden
   başlatmalar.
 - Revoke ve eski yardımcı kayıtlarının kontrolü dahil adım adım sıra:
@@ -146,11 +146,23 @@ alınınca testler kırmızıya döndü. Üretimde araçlar önce `SafetyGate`'t
 için bu yanlış kategori kullanıcıya ulaşmıyordu; savunma katmanında ise ajanı
 `desktop_unlock` yerine yardımcıyı onarmaya yönlendirirdi.
 
-## Kapsanmayanlar (bir kişi gerektiriyor)
+## Kullanıcıyla yapılan kontroller (2026-09-13)
 
-- **Ekran kilidi senaryosu.** Kilidi açmak kullanıcının parolasını istiyor;
-  kullanıcı yokken ekran kilitli kalırdı.
-- **Paylaşım göstergesinin gözle görülmesi.** Gösterge ekran paylaşımı olmadan
-  görülemiyor; test kapanışı Mutter'ın D-Bus oturum sayısından doğruluyor.
+Önceden "kapsanmayanlar" olarak kalan iki senaryo kullanıcı başındayken
+yapıldı. Paylaşımı açan süreç iki kontrolde de ayrı bir state dizininde
+çalıştı, kullanıcının gerçek iznine dokunmadı.
 
-İkisi `WALKTHROUGH.md` → "Kullanıcıyı bekleyenler" listesinde.
+- **Ekran kilidi.** Native paylaşım açıkken ekran kilitlendi
+  (`org.gnome.ScreenSaver.Lock`), kullanıcı 27,5 sn sonra parolasıyla açtı.
+  Kilitliyken 3. ve 11. saniyede: Mutter oturumu 0 (native kilit gözcüsü
+  kapattı), `SafetyGate.check` → `SCREEN_LOCKED`, kapıyı atlayan doğrudan
+  provider çağrısı → `SCREEN_LOCKED`, 0 PNG. Kilit açılınca oturum
+  kendiliğinden açılmadı; sonraki çekim normal geldi.
+- **Paylaşım göstergesi.** Kendi paylaşımını açmayan `gnome-screenshot` ile üç
+  kare: önce simge yok; native paylaşım açıkken sağ monitörün altındaki görev
+  çubuğunda turuncu paylaşım simgesi var; süreç `SIGKILL` ile öldürülünce yok.
+  Mutter oturumu 0,11 sn'de kapandı.
+
+Kalan küçük tutarsızlık: kilit native oturumu kapatınca Python tarafındaki
+`is_open()` `True` kalıyor (`WALKTHROUGH.md` → Adım 4 → "Kullanıcıyla yapılan
+kontroller").

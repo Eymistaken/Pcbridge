@@ -57,8 +57,8 @@ Gerçek testler varsayılan olarak atlanır. Yalnızca ekran yakalamayı açmak 
 PCBRIDGE_TEST_CAPTURE=1 ./.venv/bin/python tests/test_desktop.py
 ```
 
-Bu seçim ekranı diske yazar ve kısa süreliğine ekran yayını açar (üst çubukta
-paylaşım göstergesi belirir), fakat uinput aygıtı açmaz. Gerçek uinput testleri
+Bu seçim ekranı diske yazar ve kısa süreliğine ekran yayını açar (görev
+çubuğunda paylaşım göstergesi belirir), fakat uinput aygıtı açmaz. Gerçek uinput testleri
 ayrı izin ister:
 
 ```bash
@@ -251,7 +251,9 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
 - **Zorin OS 18.1 = Ubuntu 24.04 + GNOME Shell 46, Wayland.** X11 seçenek değil.
 - İki monitör, 1920×1080, ölçek 1.0. Numaralandırma **x konumuna göre soldan
   sağa**: DP-2 (x=0) → `monitor=1`, DP-1 (x=1920, **birincil**) → `monitor=2`.
-  GNOME üst çubuğu sağdaki monitörde.
+  Saat, sistem simgeleri ve paylaşım göstergesi sağdaki monitörde, **altta**:
+  Zorin görev çubuğu (`zorin-taskbar`), ölçüldü 2026-09-13. Eski metinlerdeki
+  "GNOME üst çubuğu" monitör için doğru, konum için değil.
 - **Klavye düzeni `tr+intl`.** uinput ham keycode gönderir → ASCII bozulur.
   Metin girişinin varsayılan yolu **`wl-copy` + Ctrl+V**. Tuş
   *kombinasyonları* (Return, ctrl+v, oklar) keycode düzeyinde düzenden bağımsız.
@@ -387,7 +389,7 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
 - **Yayın `desktop_unlock` ile açılır, `desktop_lock`/süre dolumuyla kapanır**
   (iki yolda da; native yol Task 4.3'ten beri `capture.session_open` ile, kare
   okumadan — `docs/native/capture.md`).
-  Açıkken GNOME üst çubukta paylaşım göstergesi durur — bu istenen bir şey
+  Açıkken görev çubuğunda (sağ alt) paylaşım göstergesi durur — bu istenen bir şey
   (kullanıcı ajanın masaüstüne erişebildiğini oradan görüyor) ve **çekilen
   karede de görünür**. Yayın `screencast_helper.py` sürecinde yaşıyor: süreç
   ölünce paylaşım da ölüyor.
@@ -447,6 +449,11 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   MCP düzeyinde iki monitör: eski 4.684 ms, native 5.113 ms (**1,09×**);
   sürenin ~%99'u Python'un PNG kaydı (gerçek içerikte ~2,2 sn/monitör), MCP
   katmanı ~30 ms. Ayrıntı: `docs/native/verification-linux.md`.
+- **Ekran kilitlenince native paylaşım kendiliğinden kapanıyor.** Ölçüldü
+  2026-09-13, kullanıcı başında: kilitten 3 sn sonra Mutter oturumu 0; kapı da,
+  kapıyı atlayan doğrudan çağrı da `SCREEN_LOCKED`; hiç PNG yok. Kilit
+  açılınca oturum kendiliğinden açılmıyor. Açık kusur: Python tarafındaki
+  `is_open()` bunu görmüyor ve `True` kalıyor.
 - **Ekran görüntüsünün maliyeti sürücüye göre 20–30 kat değişiyor** — `agy`'de
   tek görüntü ~40 bin girdi jetonu, **Claude'da ~1200–1900**. `ui_dump` yine de
   daha ucuz (~0,1 sn, birkaç yüz jeton) ve koordinat kullanmadığı için
@@ -548,7 +555,8 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   gizli kalıyor** (gerçek oturum, gerçek donanım). Görsel kanıt: gizli/görünür
   kareleri arasındaki fark tam olarak imlecin bulunduğu noktada, 13×21 px.
   Ama imleç katmanı fiziksel fareyle tıklamayı bozdu — ayrıntı ve devam yolu
-  `WALKTHROUGH.md`'de.
+  `WALKTHROUGH.md`'de. Fiziksel fare hareket halinde **~1000 Hz** rapor
+  ediyor (ölçüldü 2026-09-13, medyan aralık 1,00 ms).
 - **`Clutter.Canvas` mutter çatalında YOK**; çizim `St.DrawingArea` + Cairo.
   GJS'de Cairo bağlamı `cr.$dispose()` ile bırakılmazsa sızıyor.
 - **GNOME'un monitör sırası pcbridge'inkiyle aynı değil.** `Main.layoutManager.monitors`
