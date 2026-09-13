@@ -427,6 +427,12 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   monitörü çapraz sınıyor. Düğümü kimliğiyle hedeflemek libpipewire'da
   eskimiş (`target.object` = `object.serial` isteniyor); bir yükseltme bunu
   bozarsa yol registry'den serial okumak. Ayrıntı: `docs/native/capture.md`.
+- **Rust capture eski yolla aynı pikselleri veriyor.** Ölçüldü 2026-09-13
+  (Task 4.2, iki monitörü kaplayan statik desen, release): tam boyutta ve
+  1536'da **%100,000** eşleşme; tazelik 12/12; sıcak `capture()` p95 oranı
+  native/eski **1,34–1,42** (native karede ~35–40 ms yavaş, oturum açılışında
+  ~60 ms hızlı); revoke ve süre dolumu sonrası kare yok. Gerçek masaüstünde
+  oran ölçülmedi. Ayrıntı: `docs/native/verification-linux.md`.
 - **Ekran görüntüsünün maliyeti sürücüye göre 20–30 kat değişiyor** — `agy`'de
   tek görüntü ~40 bin girdi jetonu, **Claude'da ~1200–1900**. `ui_dump` yine de
   daha ucuz (~0,1 sn, birkaç yüz jeton) ve koordinat kullanmadığı için
@@ -601,6 +607,7 @@ ve o değişken `--effort` bayrağını sessizce etkisiz kılıyor.
 | `docs/native/protocol-v1.md` | Python/native stdio framing, handshake, control metotları ve test harness sınırı |
 | `docs/native/capture.md` | Native Mutter ScreenCast oturumu: durum makinesi, kapanma tetikleri, Python yardımcısından farklar, ölçümler |
 | `docs/native/packaging.md` | Native yardımcının derlenmesi, paketi, çalışma zamanı bağımlılıkları, `doctor.sh` tanısı ve CI |
+| `docs/native/verification-linux.md` | Rust capture'ın gerçek masaüstünde eski yolla karşılaştırması: parity, tazelik, gecikme, revoke ve çökme senaryoları (Task 4.2) |
 | `ADIMLAR.md` | Ekran görüntüsü koordinatları / temizliği üçlüsünün adım adım kaydı: ne bitti, ne bekliyor, neden |
 | `KULLANIM.md` | Kullanıcıya dönük araç kataloğu + izin haritası — **güncel tutulmalı** |
 | `config.example.toml` | Ayarların belgelenmiş hâli; projenin asıl referansı |

@@ -10,14 +10,13 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Adım 4 / Task 4.2 — Gerçek Linux capture parity gate
-- **Son tamamlanan adım:** Adım 4 / Task 4.1 — Native binary build/package ve
-  tanı
-- **Sıradaki uygulanabilir adım:** Task 4.2
+- **Aktif adım:** Adım 4 / Task 4.3 — Rust capture'ı varsayılan yap
+- **Son tamamlanan adım:** Adım 4 / Task 4.2 — Gerçek Linux capture parity gate
+- **Sıradaki uygulanabilir adım:** Task 4.3
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 3 geçti** (2026-09-13). Yolda native yolun
   ikinci monitörde yanlış ekranı verdiği bulundu ve düzeltildi — Task 3.5.
-- **Native migration içindeki sıradaki task:** 4.2 → 4.3 → **Gate 4**
+- **Native migration içindeki sıradaki task:** 4.3 → **Gate 4**
 - **Kullanıcı dönünce:** aşağıdaki "Kullanıcıyı bekleyenler" listesi.
 
 Çalışma kuralı (kullanıcı isteği, 2026-09-12 gecesi, öncekinin yerine):
@@ -36,6 +35,8 @@ yapılınca silinmez, `yapıldı` diye işaretlenir.
 |---|---|---|---|
 | 1 | Adım 6 — imleç katmanı: fiziksel farenin olay hızını ölçmek | Fareyi elle oynatmak gerekiyor; eklenti değişikliği oturumdan çıkış/giriş istiyor | `bekliyor` |
 | 2 | `.github/workflows/native.yml`'ı ilk kez çalıştırmak | Depo public, push kullanıcının kararı; iş akışı yerelde yalnızca ayrıştırıldı, hiç koşmadı | `bekliyor` |
+| 3 | Task 4.2 ekran kilidi senaryosu: native capture kilitliyken kare vermiyor mu | Kilidi açmak parola istiyor; kullanıcı yokken ekran kilitli kalırdı | `bekliyor` |
+| 4 | Paylaşım göstergesinin kaynak kapanınca kaybolduğunu gözle görmek | Gösterge ekran paylaşımı olmadan görülemiyor; test yalnızca Mutter oturum sayısını doğruladı | `bekliyor` |
 
 ---
 
@@ -49,7 +50,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 1 | `KURALLAR.md` §4'teki 5/6/7 kapıları (parola alanı, tekrar tıklama, kapatma onayı) | `tamamlandı` |
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `tamamlandı` (3.1–3.5 ✅, **Gate 3 geçti**) |
-| 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `devam ediyor` (4.1 ✅; sırada 4.2) |
+| 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `devam ediyor` (4.1 ✅, 4.2 ✅; sırada 4.3) |
 | 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `bekliyor` |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
@@ -1013,6 +1014,69 @@ belgelenmemiş kütüphaneyi söylememek, istemcinin `build_id`'yi düşürmesi.
 bulunsa da kullanılmıyor.
 
 **Sonraki somut adım:** Task 4.2 — gerçek Linux capture parity gate.
+
+### Task 4.2 — Gerçek Linux capture parity gate · `tamamlandı`
+
+**Ne yapıldı.** Rust capture gerçek masaüstünde eski Python yoluyla, iki
+monitörü kaplayan statik bir test deseni üzerinde karşılaştırıldı. Sonuçlar,
+koşullar ve yeniden koşma: `docs/native/verification-linux.md`.
+
+**Yeni:** `tests/live/test_capture_parity.py` (11 canlı test),
+`tests/live/pattern_window.py` (GTK4 desen, girdi göndermez, kendi zaman
+aşımıyla kapanır), `docs/native/verification-linux.md`.
+**Değişen:** `capture.py` (tipli red nedeni korunuyor), `backends/rust.py`
+(`_grant` → `GRANT_REQUIRED`/`safety`), `screencast.py` (`close()` stdout'u da
+kapatıyor), `test_capture_backend_selection.py` (+2 provider düzeyi test),
+`test_mcp_capture_delivery.py` (canlı test yardımcısını `--build-info` ile
+doğruluyor), `docs/native/capture.md`, `CLAUDE.md`.
+
+**Acceptance — ölçüldü** (iki tam koşum):
+
+| Ölçüt (`PLAN.md`) | Sonuç |
+|---|---|
+| Monitör kimliği, ofset, boyut, shot→global | 6/6 birebir |
+| Statik kırpmada ≥ %99,5 | **%100,000**, iki monitör, tam boyut ve 1536 |
+| Her OnDemand kare istekten sonra | 12/12 |
+| Hata oranı 0 | 0 |
+| Sıcak p95 ≤ 1,5 × eski | **1,42** ve **1,34** |
+| Revoke/süre dolumu sonrası kare yok | yok; `GRANT_REQUIRED`/`safety` |
+| Kaynak kapanınca paylaşım bitiyor | Mutter oturumu 0,12–0,13 sn'de kapandı (D-Bus); **gözle doğrulama bekliyor** (#4) |
+| Native arızasında kabuk/iş araçları | `shell_run` ve `job_list` çalıştı, sonraki çekimler teslim edildi |
+| GI olmadan gerçek capture; stdio + HTTP teslim | stdio `gi` engelliyken 2 görüntü; HTTP statik token ile 2 görüntü |
+
+**Bulunan ve düzeltilen.** İlk koşumda revoke ve süre dolumu kare vermedi ama
+`BACKEND_UNAVAILABLE`/`capability` olarak geldi. İki kök: `capture.py` native
+yardımcının **bütün** tipli redlerini düz `CaptureError`'a sarıyordu (REVOKED,
+DISPLAY_CHANGED, FRAME_TIMEOUT hepsi "backend yok" oluyordu) ve `_grant()` izin
+yokken tipsiz hata fırlatıyordu. İkisi düzeltildi; **mutasyon 2/2**. Üretimde
+araçlar önce `SafetyGate`'ten geçtiği için kullanıcıya ulaşmamıştı.
+
+**Bir tuzak kayda geçti.** `tests/integration/test_native_revoke.py` her
+koşumda `rust/target/debug/pcbridge-native`'i test-harness özelliğiyle yeniden
+derliyor; o binary ekran okumadan sahte kare veriyor. Canlı testler artık
+yardımcılarını `--build-info` ile doğruluyor ve paketlenmiş release'i
+tercih ediyor.
+
+**Kapsanmayan.** Ekran kilidi senaryosu (kilidi açmak parola istiyor) ve
+göstergenin gözle görülmesi → "Kullanıcıyı bekleyenler" #3, #4. MCP düzeyinde
+iki monitörlük `screen_capture` release ile 5,1 sn sürdü; bunun parçaları ve eski
+backend'deki karşılığı ölçülmedi → Task 4.3'ten önce.
+
+**Test sonuçları:**
+
+- Canlı: `tests/live/test_capture_parity.py` → 1. koşum 10/11 (yukarıdaki hata),
+  düzeltmeden sonra **11/11**; `LiveNativeDelivery` (GI engelli, release) → 1/1
+- `tests/contracts/test_capture_backend_selection.py` → 20 (18 → 20); Python
+  contract discovery → **166, OK**; integration discovery → 14 OK + 1 canlı
+  atlandı
+- `tests/test_desktop.py` → **583**; `test_models.py` → **106**;
+  `test_test_safety.py` → OK; `--check` → 0
+
+**Rollback:** revoke → native shutdown → `[native] capture = "python"`
+(zaten varsayılan).
+
+**Sonraki somut adım:** Task 4.3 — Rust capture'ı varsayılan yap. Önce MCP
+düzeyinde iki backend'in süresi aynı koşulda ölçülecek.
 
 ## Adım 5 — Faz 5–8
 

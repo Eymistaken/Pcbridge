@@ -299,7 +299,10 @@ class StdioWire(DeliveryChecks, unittest.TestCase):
 
 # ------------------------------------------------------------------- live
 LIVE = os.environ.get("PCBRIDGE_TEST_CAPTURE") == "1"
-NATIVE_BINARY = ROOT / "rust" / "target" / "debug" / "pcbridge-native"
+PACKAGED_BINARY = (
+    ROOT / "pcbridge" / "_native" / "x86_64-unknown-linux-gnu" / "pcbridge-native"
+)
+DEBUG_BINARY = ROOT / "rust" / "target" / "debug" / "pcbridge-native"
 BLOCKED = "blocked by the capture delivery test"
 SIZE_LINE = re.compile(
     r"\*\*(\d+) · (\S+?)(?: \(birincil\))?\*\* · (\d+)x(\d+) @ \((-?\d+), (-?\d+)\) → "
@@ -357,13 +360,34 @@ def screencast_sessions() -> int:
     return len(re.findall(r"^\s+node\s+\S+", proc.stdout, re.M))
 
 
-def live_config(root: Path) -> Path:
+def real_native_binary() -> tuple[Path | None, str]:
+    """A helper that really reads the screen, or why there is none.
+
+    `rust/target/debug/pcbridge-native` cannot be trusted by path alone:
+    `test_native_revoke.py` rebuilds it with the test-harness feature, whose
+    backend answers with fixtures and reads no screen. `--build-info` says.
+    """
+    from pcbridge.native.diagnostics import read_build_info
+
+    for candidate in (PACKAGED_BINARY, DEBUG_BINARY):
+        if not os.access(candidate, os.X_OK):
+            continue
+        info = read_build_info(candidate)
+        if isinstance(info, dict) and info.get("test_harness") is False:
+            return candidate, ""
+    return None, (
+        "no helper that reads the screen: run scripts/build-native.sh "
+        "(the debug binary may be a test-harness build)"
+    )
+
+
+def live_config(root: Path, binary: Path) -> Path:
     """The example config, pointed at a scratch state and the Rust backend."""
     text = (ROOT / "config.example.toml").read_text(encoding="utf-8")
     for pattern, value in (
         (r"^state_dir = .*$", f'state_dir = "{root / "state"}"'),
         (r'^capture = "python"$', 'capture = "rust"'),
-        (r'^binary_path = ""$', f'binary_path = "{NATIVE_BINARY}"'),
+        (r'^binary_path = ""$', f'binary_path = "{binary}"'),
         (r'^agent_shot_dir = ""$', f'agent_shot_dir = "{root / "agent-shots"}"'),
         (r"^include_pointer = true$", "include_pointer = false"),
     ):
@@ -412,22 +436,20 @@ class LiveNativeDelivery(unittest.TestCase):
         return 100.0 * worst.histogram()[0] / (left.width * left.height)
 
     def test_the_real_server_delivers_native_frames_without_python_gi(self) -> None:
-        if not os.access(NATIVE_BINARY, os.X_OK):
-            self.skipTest(
-                "build the helper first: cargo build --manifest-path "
-                "rust/Cargo.toml -p pcbridge-native"
-            )
+        binary, why = real_native_binary()
+        if binary is None:
+            self.skipTest(why)
         helpers_before = processes("screencast_helper.py")
         if helpers_before:
             # `desktop_lock` stops every helper of this user; one running now
             # belongs to a real grant, and this test must not close it.
             self.skipTest("a Python screencast helper is running (a real grant is open)")
-        natives_before = processes(str(NATIVE_BINARY))
+        natives_before = processes(str(binary))
         sessions_before = screencast_sessions()
 
         with tempfile.TemporaryDirectory(prefix="pcb-delivery-live-") as raw:
             root = Path(raw)
-            config = live_config(root)
+            config = live_config(root, binary)
             env = hostile_environment(root)
 
             probe = subprocess.run(
@@ -534,10 +556,10 @@ class LiveNativeDelivery(unittest.TestCase):
             self.assertEqual(images_of(after), [])
 
         deadline = time.time() + 10.0
-        while time.time() < deadline and processes(str(NATIVE_BINARY)) - natives_before:
+        while time.time() < deadline and processes(str(binary)) - natives_before:
             time.sleep(0.1)
         self.assertEqual(
-            processes(str(NATIVE_BINARY)) - natives_before, set(),
+            processes(str(binary)) - natives_before, set(),
             "the native helper outlived its server",
         )
         self.assertEqual(processes("screencast_helper.py"), set())
