@@ -123,6 +123,16 @@ default_agent = "claude"
 # sure dolumu) kaybolur. Olcum ve parite: docs/native/verification-linux.md.
 capture = "auto"
 
+# Klavye injection backend'i. Task 5.2'de varsayilan bilincli olarak Python:
+# pointer ve clipboard parity gate'leri Task 5.3/5.4'te tamamlanmadan input
+# topluca native yola gecmez.
+#
+#   "python"  VARSAYILAN: mevcut Python evdev klavyesi.
+#   "rust"    yalnizca klavyeyi native yardimciya tasiyan acik test secimi;
+#             pointer ve clipboard mevcut Python provider'da kalir. Yardimci
+#             yoksa sessiz fallback yapmaz, cagri hata verir.
+input = "python"
+
 # pcbridge-native icin istege bagli mutlak yol. PCBRIDGE_NATIVE_BIN ortam
 # degiskeni onceliklidir. Bos deger paketlenmis executable yolunu kullanir.
 binary_path = ""

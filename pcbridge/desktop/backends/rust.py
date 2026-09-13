@@ -1,4 +1,4 @@
-"""Native capture provider: the frame comes from Rust, everything else does not.
+"""Native capture and keyboard providers with narrow Python adapters.
 
 WHAT MOVES AND WHAT DOES NOT
     Only the acquisition of the raw frame changes. Cropping, scaling, the PNG
@@ -15,6 +15,12 @@ WHAT MOVES AND WHAT DOES NOT
     apart. `RustCaptureProvider` is the Python provider with that handle
     injected, overriding only what genuinely differs: availability, the
     capability report and the backend name.
+
+KEYBOARD MOVES WITHOUT POINTER OR CLIPBOARD
+    Task 5.2 adds `RustKeyboardInputProvider`, selected only by the explicit
+    `[native] input = "rust"` setting. It sends keyboard writes to the helper
+    while inheriting the Python pointer and clipboard paths. The shipped
+    default remains Python until the later input gates are complete.
 
 THE SHARING INDICATOR APPEARS WITH THE GRANT
     On the Python path the screen share opens at `desktop_unlock`, so GNOME's
@@ -42,8 +48,9 @@ from typing import Any
 from ..capabilities import Capability, CapabilityState
 from ..errors import DesktopError, ErrorCategory, ErrorCode
 from .. import capture as capturelib
+from .. import input as inputlib
 from .. import monitors as monitorslib
-from .python import PythonCaptureProvider, _capability, _desktop_error
+from .python import PythonCaptureProvider, PythonInputProvider, _capability, _desktop_error
 from ...config import Config
 from ...native import NativeClient, discover_native_binary
 
@@ -549,12 +556,220 @@ class RustCaptureProvider(PythonCaptureProvider):
             ) from exc
 
 
+class RustKeyboardInputProvider(PythonInputProvider):
+    """Native keyboard with the existing Python pointer and clipboard paths.
+
+    Task 5.2 deliberately moves only keyboard events. Inheriting the Python
+    provider keeps pointer state, motion, clipboard save/restore and raw-text
+    orchestration unchanged; `key`, `key_down` and `key_up` are the only event
+    writes redirected to the helper.
+    """
+
+    def __init__(
+        self,
+        cfg: Config,
+        *,
+        gate: Any | None = None,
+        client: NativeClient | None = None,
+    ) -> None:
+        super().__init__(cfg)
+        self.cfg = cfg
+        self.gate = gate
+        self._keyboard_client = client
+        self._keyboard_used = False
+        self._keyboard_closed = False
+
+    def _ensure_keyboard_client(self) -> NativeClient:
+        if self._keyboard_client is not None:
+            return self._keyboard_client
+        binary = discover_native_binary(
+            self.cfg.native,
+            package_root=Path(__file__).resolve().parents[2],
+        )
+        self._keyboard_client = NativeClient(
+            binary,
+            state_dir=self.cfg.state_dir,
+            runtime_dir=runtime_dir(),
+        )
+        return self._keyboard_client
+
+    def _grant_params(self) -> dict[str, Any]:
+        token = None
+        if self.gate is not None:
+            token = self.gate.current_token() or self.gate.last_token()
+        if token is None:
+            raise DesktopError(
+                code=ErrorCode.GRANT_REQUIRED,
+                message="masaustu izni yok: native klavye grant kimligi olmadan kullanilamaz",
+                category=ErrorCategory.SAFETY,
+                retryable=False,
+                suggested_action="Masaustu iznini desktop_unlock ile acip tekrar deneyin.",
+                backend="linux.uinput.native",
+            )
+        return {
+            "grant_id": str(token.grant_id),
+            "revoke_epoch": int(token.revoke_epoch),
+            "hold_max_seconds": int(self.cfg.desktop.hold_max_seconds),
+        }
+
+    @staticmethod
+    def _result_dict(response: Any) -> dict[str, Any]:
+        if getattr(response, "error", None):
+            error = response.error
+            raise DesktopError(
+                code=ErrorCode.INVALID_FRAME,
+                message=str(error.get("message") or error.get("code")),
+                category=ErrorCategory.IPC,
+                retryable=False,
+                suggested_action="Native klavye yanitini denetleyin.",
+                backend="pcbridge-native",
+            )
+        result = getattr(response, "result", None)
+        if not isinstance(result, dict):
+            raise DesktopError(
+                code=ErrorCode.INVALID_FRAME,
+                message="Native klavye gecersiz bir yanit dondurdu.",
+                category=ErrorCategory.IPC,
+                retryable=False,
+                suggested_action="Native klavye protokolunu denetleyin.",
+                backend="pcbridge-native",
+            )
+        return result
+
+    def _write_request(self, method: str, combo: str | None = None) -> dict[str, Any]:
+        params = self._grant_params()
+        if combo is not None:
+            params["combo"] = str(combo)
+        # One call, once. NativeClient never replays a failed request across a
+        # helper restart; input operations must not add a retry above it.
+        self._keyboard_used = True
+        response = self._ensure_keyboard_client().request(method, params, timeout=5.0)
+        return self._result_dict(response)
+
+    def _read_request(self, method: str) -> dict[str, Any]:
+        client = self._keyboard_client
+        if not self._keyboard_used or client is None:
+            key = "held" if method.endswith("held") else "released"
+            return {key: []}
+        if not bool(getattr(client, "is_running", True)):
+            self._keyboard_used = False
+            key = "held" if method.endswith("held") else "released"
+            return {key: []}
+        response = client.request(method, {}, timeout=2.0)
+        return self._result_dict(response)
+
+    def ensure(self, keyboard: bool = False, pointer: bool = False) -> float:
+        waited = 0.0
+        if keyboard:
+            result = self._write_request("input.keyboard.ensure")
+            waited += float(result.get("waited_seconds") or 0.0)
+        if pointer:
+            waited += super().ensure(keyboard=False, pointer=True)
+        return waited
+
+    def key(self, combo: str) -> None:
+        self._write_request("input.keyboard.key", combo)
+
+    def key_down(self, combo: str) -> None:
+        self._write_request("input.keyboard.key_down", combo)
+
+    def key_up(self, combo: str) -> None:
+        self._write_request("input.keyboard.key_up", combo)
+
+    def held(self) -> list[str]:
+        native = list(self._read_request("input.keyboard.held").get("held") or [])
+        return native + super().held()
+
+    def release_all(self) -> list[str]:
+        released: list[str] = []
+        native_error: Exception | None = None
+        if self._keyboard_used:
+            try:
+                released.extend(
+                    self._read_request("input.keyboard.release_all").get("released") or []
+                )
+            except Exception as exc:  # cleanup must still release the pointer
+                native_error = exc
+            finally:
+                self._keyboard_used = False
+        released.extend(super().release_all())
+        if native_error is not None:
+            raise native_error
+        return released
+
+    def take_auto_released(self) -> list[str]:
+        native = list(
+            self._read_request("input.keyboard.take_auto_released").get("released") or []
+        )
+        return native + super().take_auto_released()
+
+    def close(self) -> None:
+        if self._keyboard_closed:
+            return
+        self._keyboard_closed = True
+        cleanup_error: Exception | None = None
+        try:
+            self.release_all()
+        except Exception as exc:
+            cleanup_error = exc
+        try:
+            super().close()
+        finally:
+            client, self._keyboard_client = self._keyboard_client, None
+            if client is not None:
+                client.close()
+        if cleanup_error is not None:
+            raise cleanup_error
+
+    def capability_token(self) -> tuple[Any, ...]:
+        ready, reason = native_binary_ready(self.cfg)
+        return ("rust-keyboard", ready, reason, super().capability_token())
+
+    def probe_capabilities(self) -> dict[str, Capability]:
+        values = super().probe_capabilities()
+        ready, reason = native_binary_ready(self.cfg)
+        if not ready:
+            values["input.keyboard"] = _capability(
+                "input.keyboard",
+                CapabilityState.UNAVAILABLE,
+                backend="linux.uinput.native",
+                scope="os.keyboard",
+                reason_code=ErrorCode.DEPENDENCY_MISSING,
+                limitations=(reason,) if reason else (),
+            )
+        elif not os.path.exists(inputlib.UINPUT_NODE):
+            values["input.keyboard"] = _capability(
+                "input.keyboard",
+                CapabilityState.UNAVAILABLE,
+                backend="linux.uinput.native",
+                scope="os.keyboard",
+                reason_code=ErrorCode.DEPENDENCY_MISSING,
+            )
+        elif not os.access(inputlib.UINPUT_NODE, os.W_OK):
+            values["input.keyboard"] = _capability(
+                "input.keyboard",
+                CapabilityState.PERMISSION_REQUIRED,
+                backend="linux.uinput.native",
+                scope="os.keyboard",
+                reason_code=ErrorCode.DEVICE_NOT_GRANTED,
+            )
+        else:
+            values["input.keyboard"] = _capability(
+                "input.keyboard",
+                CapabilityState.SUPPORTED,
+                backend="linux.uinput.native",
+                scope="os.keyboard",
+            )
+        return values
+
+
 __all__ = [
     "BackendSelection",
     "BACKEND_NAME",
     "NativeCaptureError",
     "NativeScreenCast",
     "RustCaptureProvider",
+    "RustKeyboardInputProvider",
     "native_binary_ready",
     "runtime_dir",
     "select_capture_backend",

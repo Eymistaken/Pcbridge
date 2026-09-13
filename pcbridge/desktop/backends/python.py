@@ -511,7 +511,10 @@ class PythonInputProvider(inputlib.InputBackend):
         )
 
     def _availability(self) -> tuple[bool, str, ErrorCode | None]:
-        ok, reason = self.available()
+        # This method describes the Python uinput path specifically. Calling
+        # `self.available()` would let a hybrid provider's native keyboard
+        # readiness incorrectly hide its still-Python pointer capability.
+        ok, reason = inputlib.InputBackend.available(self)
         if ok:
             return True, reason, None
         if not inputlib.EVDEV_AVAILABLE or not os.path.exists(inputlib.UINPUT_NODE):

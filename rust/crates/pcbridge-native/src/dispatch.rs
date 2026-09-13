@@ -1,6 +1,6 @@
 use std::path::Path;
-#[cfg(feature = "test-harness")]
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
+use std::time::Duration;
 
 use pcbridge_core::{
     ErrorBody, Frame, PROTOCOL_MAJOR, PROTOCOL_MINOR, ProtocolError, RequestHeader, ResponseHeader,
@@ -10,12 +10,17 @@ use serde_json::{Value, json};
 
 #[cfg(feature = "test-harness")]
 use crate::lifecycle::LeaseFailure;
-use crate::lifecycle::Lifecycle;
+use crate::lifecycle::{FailClosed, Lifecycle, LifecycleFailure};
 use crate::platform::linux::capture::{CaptureError, NativeCapture, NativeCaptureError};
 #[cfg(feature = "test-harness")]
 use crate::platform::linux::desktop_state::DeterministicDesktopState;
 use crate::platform::linux::display::DisplayReader;
 use crate::platform::linux::display::DisplaySnapshot;
+use crate::platform::linux::input::{
+    DEVICE_SETTLE, EvdevKeyboardDevice, KeyboardError, KeyboardService, NativeKeyboard, SystemClock,
+};
+#[cfg(feature = "test-harness")]
+use crate::platform::linux::input::{Keyboard, KeyboardDevice, KeyboardEvent};
 use crate::platform::linux::readiness;
 use crate::platform::linux::session::{OpenOutcome, SessionFailure};
 
@@ -64,9 +69,10 @@ impl BackendMode {
                 "display.snapshot",
                 "capture.on_demand",
                 "capture.session_open",
+                "input.keyboard",
             ],
             #[cfg(feature = "test-harness")]
-            Self::DeterministicTest => vec!["test.fixture", "test.lease"],
+            Self::DeterministicTest => vec!["test.fixture", "test.lease", "input.keyboard"],
         }
     }
 
@@ -77,7 +83,10 @@ impl BackendMode {
             // true even where capture could not work.
             Self::Production { .. } => json!({
                 "backend": "linux.mutter.pipewire",
-                "capabilities": [readiness::capture_monitor(&readiness::probe())],
+                "capabilities": [
+                    readiness::capture_monitor(&readiness::probe()),
+                    readiness::input_keyboard(),
+                ],
             }),
             #[cfg(feature = "test-harness")]
             Self::DeterministicTest => json!({
@@ -107,6 +116,39 @@ pub struct DispatchOutcome {
     pub close: Option<CloseConnection>,
 }
 
+struct KeyboardFailClosed(Weak<dyn KeyboardService>);
+
+impl FailClosed for KeyboardFailClosed {
+    fn close_fail_closed(&self, reason: LifecycleFailure) {
+        if let Some(keyboard) = self.0.upgrade() {
+            keyboard.close_fail_closed(reason);
+        }
+    }
+}
+
+#[cfg(feature = "test-harness")]
+#[derive(Debug)]
+struct NullKeyboardDevice;
+
+#[cfg(feature = "test-harness")]
+impl KeyboardDevice for NullKeyboardDevice {
+    fn emit(&mut self, _events: &[KeyboardEvent]) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
+enum KeyAction {
+    Key,
+    Down,
+    Up,
+}
+
+enum KeyboardSetupError {
+    HoldChanged,
+    Device(std::io::Error),
+}
+
 #[derive(Debug)]
 pub struct Dispatcher {
     mode: BackendMode,
@@ -119,6 +161,9 @@ pub struct Dispatcher {
     display: Option<DisplayReader>,
     /// Session and PipeWire loop, both created only by the first real capture.
     capture: Option<NativeCapture>,
+    /// Created only by the first explicit native keyboard request. Capability
+    /// probes and the default Python input selection never open `/dev/uinput`.
+    keyboard: Option<(u64, Arc<dyn KeyboardService>)>,
 }
 
 impl Dispatcher {
@@ -131,6 +176,7 @@ impl Dispatcher {
             lifecycle: None,
             display: None,
             capture: None,
+            keyboard: None,
         }
     }
 
@@ -198,6 +244,19 @@ impl Dispatcher {
             "display.snapshot" => self.display_snapshot(request.id),
             "capture.frame" => self.capture_frame(request.id, request.params),
             "capture.session_open" => self.capture_session_open(request.id, request.params),
+            "input.keyboard.ensure" => self.keyboard_ensure(request.id, request.params),
+            "input.keyboard.key" => {
+                self.keyboard_action(request.id, request.params, KeyAction::Key)
+            }
+            "input.keyboard.key_down" => {
+                self.keyboard_action(request.id, request.params, KeyAction::Down)
+            }
+            "input.keyboard.key_up" => {
+                self.keyboard_action(request.id, request.params, KeyAction::Up)
+            }
+            "input.keyboard.held" => self.keyboard_held(request.id),
+            "input.keyboard.release_all" => self.keyboard_release_all(request.id),
+            "input.keyboard.take_auto_released" => self.keyboard_take_auto_released(request.id),
             "cancel" => match parse_cancel(request.params) {
                 Ok(target_id) => self.success(
                     request.id,
@@ -206,11 +265,14 @@ impl Dispatcher {
                 ),
                 Err(message) => self.error(request.id, "INVALID_PARAMS", message, None),
             },
-            "shutdown" => self.success(
-                request.id,
-                json!({"shutdown": true}),
-                Some(CloseConnection::Shutdown),
-            ),
+            "shutdown" => {
+                self.close_keyboard();
+                self.success(
+                    request.id,
+                    json!({"shutdown": true}),
+                    Some(CloseConnection::Shutdown),
+                )
+            }
             #[cfg(feature = "test-harness")]
             "test.hold_resource" => match self.lifecycle.as_ref() {
                 Some(lifecycle) => match lifecycle.open_test_resource() {
@@ -730,6 +792,279 @@ impl Dispatcher {
         }
     }
 
+    fn keyboard_ensure(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match serde_json::from_value::<KeyboardGrantParams>(params) {
+            Ok(params) => params,
+            Err(error) => {
+                return self.error(
+                    id,
+                    "INVALID_PARAMS",
+                    format!("invalid keyboard parameters: {error}"),
+                    None,
+                );
+            }
+        };
+        if let Err(message) = params.validate() {
+            return self.error(id, "INVALID_PARAMS", message, None);
+        }
+        if let Err(failure) = self.validate_keyboard_grant(&params) {
+            return self.keyboard_lifecycle_error(id, failure);
+        }
+        match self.ensure_keyboard(params.hold_max_seconds) {
+            Ok((keyboard, waited_seconds)) => {
+                // Device creation includes a 1.2 s compositor settle. The
+                // grant can be revoked during that wait, so validate again
+                // before reporting the keyboard as ready.
+                if let Err(failure) = self.validate_keyboard_grant(&params) {
+                    self.close_keyboard();
+                    return self.keyboard_lifecycle_error(id, failure);
+                }
+                self.success(
+                    id,
+                    json!({
+                        "already": waited_seconds == 0.0,
+                        "waited_seconds": waited_seconds,
+                        "held": keyboard.held(),
+                        "backend": "linux.uinput.native",
+                    }),
+                    None,
+                )
+            }
+            Err(error) => self.keyboard_setup_error(id, error),
+        }
+    }
+
+    fn keyboard_action(&mut self, id: String, params: Value, action: KeyAction) -> DispatchOutcome {
+        let params = match serde_json::from_value::<KeyboardActionParams>(params) {
+            Ok(params) => params,
+            Err(error) => {
+                return self.error(
+                    id,
+                    "INVALID_PARAMS",
+                    format!("invalid keyboard parameters: {error}"),
+                    None,
+                );
+            }
+        };
+        if let Err(message) = params.validate() {
+            return self.error(id, "INVALID_PARAMS", message, None);
+        }
+        if let Err(failure) = self.validate_keyboard_grant(&params.grant) {
+            return self.keyboard_lifecycle_error(id, failure);
+        }
+        let keyboard = match self.ensure_keyboard(params.grant.hold_max_seconds) {
+            Ok((keyboard, _)) => keyboard,
+            Err(error) => return self.keyboard_setup_error(id, error),
+        };
+        // The first request may spend DEVICE_SETTLE constructing the device.
+        // Recheck after that wait so a revoke cannot be followed by a key.
+        if let Err(failure) = self.validate_keyboard_grant(&params.grant) {
+            self.close_keyboard();
+            return self.keyboard_lifecycle_error(id, failure);
+        }
+        let result = match action {
+            KeyAction::Key => keyboard.key(&params.combo),
+            KeyAction::Down => keyboard.key_down(&params.combo),
+            KeyAction::Up => keyboard.key_up(&params.combo),
+        };
+        match result {
+            Ok(()) => self.success(
+                id,
+                json!({
+                    "held": keyboard.held(),
+                    "backend": "linux.uinput.native",
+                }),
+                None,
+            ),
+            Err(error) => self.keyboard_operation_error(id, error),
+        }
+    }
+
+    fn keyboard_held(&self, id: String) -> DispatchOutcome {
+        self.success(
+            id,
+            json!({
+                "held": self
+                    .keyboard
+                    .as_ref()
+                    .map_or_else(Vec::new, |(_, keyboard)| keyboard.held()),
+                "backend": "linux.uinput.native",
+            }),
+            None,
+        )
+    }
+
+    fn keyboard_release_all(&self, id: String) -> DispatchOutcome {
+        let Some((_, keyboard)) = self.keyboard.as_ref() else {
+            return self.success(
+                id,
+                json!({"released": [], "backend": "linux.uinput.native"}),
+                None,
+            );
+        };
+        match keyboard.release_all() {
+            Ok(released) => self.success(
+                id,
+                json!({"released": released, "backend": "linux.uinput.native"}),
+                None,
+            ),
+            Err(error) => self.keyboard_operation_error(id, error),
+        }
+    }
+
+    fn keyboard_take_auto_released(&self, id: String) -> DispatchOutcome {
+        self.success(
+            id,
+            json!({
+                "released": self.keyboard.as_ref().map_or_else(
+                    Vec::new,
+                    |(_, keyboard)| keyboard.take_auto_released(),
+                ),
+                "backend": "linux.uinput.native",
+            }),
+            None,
+        )
+    }
+
+    fn validate_keyboard_grant(
+        &self,
+        params: &KeyboardGrantParams,
+    ) -> Result<(), LifecycleFailure> {
+        let lifecycle = self
+            .lifecycle
+            .as_ref()
+            .expect("initialized dispatcher has a lifecycle");
+        if !lifecycle.matches_token(&params.grant_id, params.revoke_epoch) {
+            return Err(LifecycleFailure::Revoked);
+        }
+        lifecycle.validate_now()
+    }
+
+    fn keyboard_lifecycle_error(&self, id: String, failure: LifecycleFailure) -> DispatchOutcome {
+        self.typed_error(
+            id,
+            ErrorBody {
+                code: failure.code().to_owned(),
+                message: "the desktop grant or session is not usable".to_owned(),
+                retryable: failure != LifecycleFailure::Revoked,
+                category: "safety".to_owned(),
+            },
+        )
+    }
+
+    fn ensure_keyboard(
+        &mut self,
+        hold_max_seconds: u64,
+    ) -> Result<(Arc<dyn KeyboardService>, f64), KeyboardSetupError> {
+        if self
+            .keyboard
+            .as_ref()
+            .is_some_and(|(_, keyboard)| keyboard.is_closed())
+        {
+            self.keyboard.take();
+        }
+        if let Some((configured, keyboard)) = self.keyboard.as_ref() {
+            if *configured != hold_max_seconds {
+                return Err(KeyboardSetupError::HoldChanged);
+            }
+            return Ok((Arc::clone(keyboard), 0.0));
+        }
+
+        let (keyboard, settle): (Arc<dyn KeyboardService>, Duration) = match &self.mode {
+            BackendMode::Production { .. } => {
+                let device = EvdevKeyboardDevice::create().map_err(KeyboardSetupError::Device)?;
+                (
+                    Arc::new(NativeKeyboard::new(
+                        device,
+                        SystemClock::default(),
+                        Duration::from_secs(hold_max_seconds),
+                    )),
+                    DEVICE_SETTLE,
+                )
+            }
+            #[cfg(feature = "test-harness")]
+            BackendMode::DeterministicTest => (
+                Arc::new(Keyboard::new(
+                    NullKeyboardDevice,
+                    SystemClock::default(),
+                    Duration::from_secs(hold_max_seconds),
+                )),
+                Duration::ZERO,
+            ),
+        };
+        let lifecycle = self
+            .lifecycle
+            .as_ref()
+            .expect("initialized dispatcher has a lifecycle");
+        lifecycle.register_fail_closed(Arc::new(KeyboardFailClosed(Arc::downgrade(&keyboard))));
+        self.keyboard = Some((hold_max_seconds, Arc::clone(&keyboard)));
+        // Register before waiting: a revoke during device settling reaches
+        // this resource, and the caller revalidates before any key write.
+        std::thread::sleep(settle);
+        Ok((keyboard, settle.as_secs_f64()))
+    }
+
+    fn keyboard_setup_error(&self, id: String, error: KeyboardSetupError) -> DispatchOutcome {
+        match error {
+            KeyboardSetupError::HoldChanged => self.error(
+                id,
+                "INVALID_PARAMS",
+                "hold_max_seconds cannot change while the native keyboard is open",
+                None,
+            ),
+            KeyboardSetupError::Device(error) => {
+                let (code, category, retryable) = match error.kind() {
+                    std::io::ErrorKind::NotFound => ("DEPENDENCY_MISSING", "capability", false),
+                    std::io::ErrorKind::PermissionDenied => {
+                        ("DEVICE_NOT_GRANTED", "permission", true)
+                    }
+                    _ => ("BACKEND_UNAVAILABLE", "capability", true),
+                };
+                self.typed_error(
+                    id,
+                    ErrorBody {
+                        code: code.to_owned(),
+                        message: format!("native keyboard could not open /dev/uinput: {error}"),
+                        retryable,
+                        category: category.to_owned(),
+                    },
+                )
+            }
+        }
+    }
+
+    fn keyboard_operation_error(&self, id: String, error: KeyboardError) -> DispatchOutcome {
+        match error {
+            KeyboardError::UnknownKey(_) | KeyboardError::EmptyCombo => {
+                self.error(id, "INVALID_PARAMS", error.to_string(), None)
+            }
+            KeyboardError::Closed => self.typed_error(
+                id,
+                ErrorBody {
+                    code: "BACKEND_UNAVAILABLE".to_owned(),
+                    message: error.to_string(),
+                    retryable: true,
+                    category: "capability".to_owned(),
+                },
+            ),
+            KeyboardError::Device(source) => self.typed_error(
+                id,
+                ErrorBody {
+                    code: "EXECUTION_UNKNOWN".to_owned(),
+                    message: format!("native keyboard write failed: {source}"),
+                    retryable: false,
+                    category: "execution".to_owned(),
+                },
+            ),
+        }
+    }
+
+    fn close_keyboard(&mut self) {
+        if let Some((_, keyboard)) = self.keyboard.take() {
+            let _ = keyboard.close();
+        }
+    }
+
     fn native_capture_error(&self, id: String, error: NativeCaptureError) -> DispatchOutcome {
         let (code, category, retryable) = match &error {
             NativeCaptureError::DisplayChanged => ("DISPLAY_CHANGED", "capture", true),
@@ -771,6 +1106,12 @@ impl Dispatcher {
     }
 }
 
+impl Drop for Dispatcher {
+    fn drop(&mut self) {
+        self.close_keyboard();
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct InitializeParams {
     client_version: String,
@@ -805,6 +1146,43 @@ struct SessionOpenParams {
     revoke_epoch: u64,
     #[serde(default = "default_true")]
     include_pointer: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct KeyboardGrantParams {
+    grant_id: String,
+    revoke_epoch: u64,
+    hold_max_seconds: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct KeyboardActionParams {
+    #[serde(flatten)]
+    grant: KeyboardGrantParams,
+    combo: String,
+}
+
+impl KeyboardGrantParams {
+    fn validate(&self) -> Result<(), &'static str> {
+        const MAX_ID_BYTES: usize = 256;
+        if self.grant_id.is_empty() || self.grant_id.len() > MAX_ID_BYTES {
+            return Err("grant_id must be nonempty and bounded");
+        }
+        if self.hold_max_seconds != 0 && !(5..=3_600).contains(&self.hold_max_seconds) {
+            return Err("hold_max_seconds must be zero or between 5 and 3600");
+        }
+        Ok(())
+    }
+}
+
+impl KeyboardActionParams {
+    fn validate(&self) -> Result<(), &'static str> {
+        self.grant.validate()?;
+        if self.combo.is_empty() || self.combo.len() > 256 {
+            return Err("combo must be nonempty and at most 256 bytes");
+        }
+        Ok(())
+    }
 }
 
 impl SessionOpenParams {
@@ -890,7 +1268,8 @@ mod tests {
             vec![
                 "display.snapshot",
                 "capture.on_demand",
-                "capture.session_open"
+                "capture.session_open",
+                "input.keyboard"
             ]
         );
         let monitor = &capabilities["capabilities"][0];
@@ -905,6 +1284,19 @@ mod tests {
                     .is_some_and(|reason| !reason.is_empty())
             ),
             other => panic!("unexpected capture.monitor status {other:?}"),
+        }
+        let keyboard = &capabilities["capabilities"][1];
+        assert_eq!(keyboard["name"], "input.keyboard");
+        match keyboard["status"].as_str() {
+            Some("degraded") => assert!(
+                keyboard["reason"]
+                    .as_str()
+                    .is_some_and(|reason| !reason.is_empty())
+            ),
+            Some("unavailable") => {
+                assert_eq!(keyboard["reason_code"], "DEPENDENCY_MISSING")
+            }
+            other => panic!("unexpected input.keyboard status {other:?}"),
         }
     }
 }

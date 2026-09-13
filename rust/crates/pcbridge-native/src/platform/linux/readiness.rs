@@ -9,7 +9,7 @@
 //! `capture.frame` still report their own failures when they run.
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -117,4 +117,29 @@ pub fn capture_monitor(readiness: &CaptureReadiness) -> Value {
         "status": "supported",
         "permission_scope": "os.capture",
     })
+}
+
+/// The `input.keyboard` entry of a `capabilities` response.
+///
+/// This intentionally checks only whether the node exists. Opening it here
+/// would make a default, read-only capability request touch `/dev/uinput`;
+/// access is therefore verified only by an explicit keyboard request.
+#[must_use]
+pub fn input_keyboard() -> Value {
+    if Path::new("/dev/uinput").exists() {
+        json!({
+            "name": "input.keyboard",
+            "status": "degraded",
+            "permission_scope": "os.keyboard",
+            "reason": "device access is checked on the first explicit keyboard request",
+        })
+    } else {
+        json!({
+            "name": "input.keyboard",
+            "status": "unavailable",
+            "permission_scope": "os.keyboard",
+            "reason_code": "DEPENDENCY_MISSING",
+            "reason": "the /dev/uinput device is missing",
+        })
+    }
 }

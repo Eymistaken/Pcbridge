@@ -198,3 +198,49 @@ fn expiry_releases_an_idle_resource_within_one_second() {
     native.shutdown();
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn revoke_releases_held_keyboard_keys_without_another_input_action() {
+    let root = fixture_root();
+    let state_dir = root.join("state");
+    let runtime_dir = root.join("runtime");
+    write_grant(&state_dir, "keyboard-grant", 0, 60.0);
+    let mut native = Harness::start(&state_dir, &runtime_dir);
+
+    let held = native.request(
+        "input.keyboard.key_down",
+        json!({
+            "grant_id": "keyboard-grant",
+            "revoke_epoch": 0,
+            "hold_max_seconds": 120,
+            "combo": "shift"
+        }),
+    );
+    assert_eq!(held["result"]["held"], json!(["shift"]));
+
+    write_grant(&state_dir, "keyboard-grant", 1, -1.0);
+    let started = Instant::now();
+    loop {
+        let status = native.request("input.keyboard.held", json!({}));
+        if status["result"]["held"] == json!([]) {
+            break;
+        }
+        assert!(started.elapsed() < Duration::from_secs(1));
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(started.elapsed() <= Duration::from_millis(250));
+
+    let stale = native.request(
+        "input.keyboard.key",
+        json!({
+            "grant_id": "keyboard-grant",
+            "revoke_epoch": 0,
+            "hold_max_seconds": 120,
+            "combo": "a"
+        }),
+    );
+    assert_eq!(stale["error"]["code"], "REVOKED");
+
+    native.shutdown();
+    fs::remove_dir_all(root).unwrap();
+}

@@ -6,13 +6,15 @@ Bu belge, Python host ile `pcbridge-native` child process'i arasındaki yerel
 stdio sözleşmesini tanımlar. Bu pipe, MCP stdio taşımasından ayrıdır. Native
 stdout yalnızca aşağıda tanımlanan framed response'ları taşır.
 
-Executable Linux'ta monitör tablosunu okur (Task 3.1) ve Mutter ScreenCast +
-PipeWire üzerinden tek monitör karesi alır (Task 3.3); uinput ve erişilebilirlik
-henüz native değil. Task 4.3'ten beri varsayılan capture backend'i `auto`
-(paketlenmiş yardımcı varsa native). Native process grant/revoke lifecycle'ına ek
-olarak GNOME session D-Bus üzerinden ekran kilidini ve kullanıcı etkinliğini
-typed observation olarak izler; sonraki backend'ler aynı fail-closed güvenlik
-sınırını kullanır.
+Executable Linux'ta monitör tablosunu okur (Task 3.1), Mutter ScreenCast +
+PipeWire üzerinden tek monitör karesi alır (Task 3.3) ve seçildiğinde uinput
+klavye olaylarını üretir (Task 5.2); pointer ve erişilebilirlik henüz native
+değil. Task 4.3'ten beri varsayılan capture backend'i `auto` (paketlenmiş
+yardımcı varsa native). Klavyenin varsayılanı ise Task 5.4 gate'ine kadar
+`python`; `rust` yalnızca açık seçimle etkinleşir. Native process grant/revoke
+lifecycle'ına ek olarak GNOME session D-Bus üzerinden ekran kilidini ve
+kullanıcı etkinliğini typed observation olarak izler; sonraki backend'ler aynı
+fail-closed güvenlik sınırını kullanır.
 
 ## Frame biçimi ve sınırlar
 
@@ -73,7 +75,7 @@ Başarılı response seçilen sürümü ve process kimliğini döndürür:
     "native_version": "0.1.0",
     "build_id": "2294156a1b2c",
     "platform": "linux",
-    "features": ["display.snapshot", "capture.on_demand", "capture.session_open"],
+    "features": ["display.snapshot", "capture.on_demand", "capture.session_open", "input.keyboard"],
     "lease_bound": true
   },
   "binary_len": 0
@@ -97,14 +99,19 @@ Harness aşağıdaki metotları kabul eder:
 - `initialize`: sürümü ve zorunlu handshake alanlarını doğrular.
 - `ping`: `{"pong": true}` döndürür; varsa `params.nonce` değerini aynen
   response'a ekler.
-- `capabilities`: `backend: linux.mutter.pipewire` ve `capture.monitor`
-  durumunu döndürür. Durum her istekte **çalışma zamanında**, ucuz bir
+- `capabilities`: `backend: linux.mutter.pipewire`, `capture.monitor` ve
+  `input.keyboard` durumunu döndürür. Capture durumu her istekte **çalışma
+  zamanında**, ucuz bir
   denetimle belirlenir (Task 4.1): oturum veriyolunda
   `org.gnome.Mutter.ScreenCast` adının sahibi ve PipeWire soketi. İkisi de
   varsa `supported`; değilse `unavailable` + `reason_code`
   (`BACKEND_UNAVAILABLE` ya da `DEPENDENCY_MISSING`) + `reason`. Oturum,
   PipeWire akışı ya da paylaşım göstergesi açmaz, izin istemez. Task 4.1'e kadar
   sabit bir `supported` idi — capture'ın hiç çalışamayacağı makinede de.
+  Klavye denetimi `/dev/uinput` düğümünün varlığını metadata üzerinden okur;
+  default capability isteği aygıtı açmaz. Düğüm varsa erişimin ancak ilk açık
+  klavye isteğinde doğrulanacağını anlatan `degraded`, yoksa
+  `DEPENDENCY_MISSING` döner.
 - `display.snapshot`: Task 3.1 monitör tablosunu döndürür.
 - `capture.frame`: Task 3.3 tek monitör PNG'sini binary payload olarak döndürür.
 - `capture.session_open`: Task 4.3. Kare okumadan Mutter oturumunu mevcut
@@ -116,6 +123,18 @@ Harness aşağıdaki metotları kabul eder:
   `backend`. `desktop_unlock` bunu çağırır, böylece paylaşım göstergesi izinle
   birlikte belirir. Bu metodu bilmeyen eski bir yardımcı `UNKNOWN_METHOD` döndürür;
   Python istemcisi o durumda oturumu ilk kareye bırakır.
+- `input.keyboard.ensure`: Klavye aygıtını tembel açar. `grant_id`,
+  `revoke_epoch` ve `hold_max_seconds` ister; bekleme süresini ve tutulmuş
+  tuşları döndürür.
+- `input.keyboard.key`, `input.keyboard.key_down`, `input.keyboard.key_up`:
+  Aynı grant alanlarına ek olarak `combo` ister. Alias ve kombinasyon sırası
+  Python provider ile aynıdır; sonuç güncel `held` listesini taşır.
+- `input.keyboard.held`: Native tarafta tutulmuş tuşları okur.
+- `input.keyboard.release_all`: Tutulmuş bütün tuşlara açık release gönderir ve
+  bırakılan canonical adları döndürür. Cleanup yolu olduğu için yeni grant
+  istemez.
+- `input.keyboard.take_auto_released`: Monotonic hold zamanlayıcısının bıraktığı
+  tuşları bir kez döndürüp temizler.
 - `cancel`: `params.target_id` alanını doğrular ve bugün `canceled: false`
   döndürür. Capture'ın kendi 1–8000 ms zaman aşımı ve lifecycle kapıları vardır;
   dispatcher henüz eşzamanlı request çalıştırmıyor.
@@ -123,6 +142,12 @@ Harness aşağıdaki metotları kabul eder:
   kapatır.
 
 Diğer metotlar `UNKNOWN_METHOD` döndürür ve bağlantı kullanılabilir kalır.
+
+State değiştiren klavye istekleri helper'ın `initialize` sırasında bağlandığı
+grant kimliği ve revoke epoch'u ile birebir eşleşir. Revoke, shutdown veya event
+write hatası tutulmuş tuşlara release gönderir. Hold zamanlayıcısı başka IPC
+isteği beklemeden çalışır. Input request'leri process restart'ı üzerinden
+otomatik tekrar edilmez; belirsiz bir write ikinci kez gönderilmez.
 
 ## Komut satırı
 
@@ -300,7 +325,9 @@ sorgu izin istemez ya da oturum açmaz.
 
 Test kipi sabit `test-native-instance` kimliği, `test` platformu ve
 `test.fake` capability backend'i üretir. Fake capability açık bir desktop
-desteği iddia etmez. Bu kip yalnızca byte-düzeyi contract testleri içindir.
+desteği iddia etmez; `input.keyboard` feature'ı gerçek `/dev/uinput` yerine
+event üretmeyen sahte aygıta bağlıdır. Bu kip yalnızca byte-düzeyi contract
+testleri içindir.
 
 ## Python supervisor yaşam döngüsü
 
@@ -318,6 +345,12 @@ varsayılandır: helper bulunur ve `capture.monitor` destekleniyorsa native yol,
 değilse `system_capabilities`'te görünür bir `degraded` gerekçesiyle Python
 yolu. `[desktop] capture_backend = "gnome-screenshot"` açıkça seçilmişse `auto`
 o seçimi korur ve Python yolunda kalır. `rust` seçimi düşmez, hata verir.
+
+Task 5.2'de `[native].input` seçimi ayrıca eklenmiştir. Varsayılan `python`
+klavyeyi mevcut Python provider'da tutar ve native helper'ı input için
+başlatmaz. Açık `rust` seçimi yalnızca keyboard çağrılarını helper'a yollar;
+pointer ve clipboard Tasks 5.3/5.4 tamamlanana kadar Python provider'da kalır.
+Helper yoksa veya `/dev/uinput` açılamıyorsa sessiz fallback yapılmaz.
 
 Supervisor'ın reader, writer ve stderr drainer thread'leri birbirinden
 ayrıdır. Request ID'leri process yeniden başlasa bile tekrar kullanılmaz ve

@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""Native keyboard selection and IPC adapter contracts (Task 5.2).
+
+No test opens `/dev/uinput` or starts the helper. The native client and grant
+are deterministic fakes; pointer and clipboard behavior remain in the Python
+provider until Tasks 5.3 and 5.4.
+"""
+
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from pcbridge.config import NativeSpec, load_config  # noqa: E402
+from pcbridge.desktop.backends.python import PythonInputProvider  # noqa: E402
+from pcbridge.desktop.backends.rust import RustKeyboardInputProvider  # noqa: E402
+from pcbridge.desktop.capabilities import CapabilityState  # noqa: E402
+from pcbridge.desktop.lease import LeaseToken  # noqa: E402
+from pcbridge.desktop.runtime import select_input_provider  # noqa: E402
+from pcbridge.native import NativeResponse  # noqa: E402
+
+
+class FakeGate:
+    def current_token(self):
+        return LeaseToken(grant_id="keyboard-fixture", revoke_epoch=7)
+
+    def last_token(self):
+        return self.current_token()
+
+
+class FakeNativeClient:
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, dict]] = []
+        self.closed = False
+        self.is_running = True
+        self.auto_released = ["shift"]
+
+    def request(self, method, params=None, *, binary=b"", timeout=None):
+        self.requests.append((method, dict(params or {})))
+        results = {
+            "input.keyboard.ensure": {"waited_seconds": 0.0},
+            "input.keyboard.key": {"held": []},
+            "input.keyboard.key_down": {"held": ["shift"]},
+            "input.keyboard.key_up": {"held": []},
+            "input.keyboard.held": {"held": ["shift"]},
+            "input.keyboard.release_all": {"released": ["shift"]},
+            "input.keyboard.take_auto_released": {
+                "released": list(self.auto_released)
+            },
+        }
+        if method == "input.keyboard.take_auto_released":
+            self.auto_released.clear()
+        return NativeResponse(
+            request_id="fixture",
+            result=results[method],
+            binary=b"",
+            error=None,
+        )
+
+    def close(self) -> None:
+        self.closed = True
+        self.is_running = False
+
+
+class NativeInputSelectionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.cfg = load_config(str(ROOT / "config.example.toml"))
+
+    def test_the_shipped_and_implicit_default_remain_python(self) -> None:
+        self.assertEqual(self.cfg.native.input, "python")
+        self.assertEqual(NativeSpec().input, "python")
+
+    def test_each_explicit_setting_builds_the_provider_it_names(self) -> None:
+        object.__setattr__(self.cfg.native, "input", "python")
+        self.assertIsInstance(select_input_provider(self.cfg, FakeGate()), PythonInputProvider)
+
+        object.__setattr__(self.cfg.native, "input", "rust")
+        with mock.patch(
+            "pcbridge.desktop.backends.rust.native_binary_ready",
+            return_value=(True, ""),
+        ):
+            self.assertIsInstance(
+                select_input_provider(self.cfg, FakeGate()), RustKeyboardInputProvider
+            )
+
+    def test_default_selection_never_constructs_or_starts_native_input(self) -> None:
+        with mock.patch(
+            "pcbridge.desktop.backends.rust.RustKeyboardInputProvider",
+            side_effect=AssertionError("default input selection reached Rust"),
+        ):
+            self.assertIsInstance(
+                select_input_provider(self.cfg, FakeGate()), PythonInputProvider
+            )
+
+
+class RustKeyboardAdapterTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.cfg = load_config(str(ROOT / "config.example.toml"))
+        self.client = FakeNativeClient()
+        self.provider = RustKeyboardInputProvider(
+            self.cfg,
+            gate=FakeGate(),
+            client=self.client,
+        )
+
+    def tearDown(self) -> None:
+        self.provider.close()
+
+    def test_keyboard_calls_are_single_non_replayed_grant_bound_requests(self) -> None:
+        self.provider.key("ctrl+shift+t")
+        self.assertEqual(len(self.client.requests), 1)
+        method, params = self.client.requests[0]
+        self.assertEqual(method, "input.keyboard.key")
+        self.assertEqual(
+            params,
+            {
+                "combo": "ctrl+shift+t",
+                "grant_id": "keyboard-fixture",
+                "revoke_epoch": 7,
+                "hold_max_seconds": 120,
+            },
+        )
+
+    def test_held_and_auto_release_keep_the_python_provider_semantics(self) -> None:
+        self.provider.key_down("shift")
+        self.assertEqual(self.provider.held(), ["shift"])
+        self.assertEqual(self.provider.take_auto_released(), ["shift"])
+        self.assertEqual(self.provider.take_auto_released(), [])
+        methods = [method for method, _params in self.client.requests]
+        self.assertEqual(
+            methods,
+            [
+                "input.keyboard.key_down",
+                "input.keyboard.held",
+                "input.keyboard.take_auto_released",
+                "input.keyboard.take_auto_released",
+            ],
+        )
+
+    def test_pointer_methods_stay_on_the_python_side(self) -> None:
+        with mock.patch.object(PythonInputProvider, "move", return_value=(12, 34)) as move:
+            self.assertEqual(self.provider.move(12, 34), (12, 34))
+        move.assert_called_once_with(12, 34)
+        self.assertEqual(self.client.requests, [])
+
+    def test_missing_native_helper_does_not_hide_the_python_pointer(self) -> None:
+        with (
+            mock.patch(
+                "pcbridge.desktop.input.InputBackend.available",
+                return_value=(True, ""),
+            ),
+            mock.patch(
+                "pcbridge.desktop.backends.rust.native_binary_ready",
+                return_value=(False, "native helper missing"),
+            ),
+        ):
+            capabilities = self.provider.probe_capabilities()
+            available = self.provider.available()
+
+        self.assertEqual(
+            capabilities["input.pointer"].state,
+            CapabilityState.SUPPORTED,
+        )
+        self.assertEqual(
+            capabilities["input.keyboard"].state,
+            CapabilityState.UNAVAILABLE,
+        )
+        self.assertEqual(available, (True, ""))
+
+    def test_native_keyboard_does_not_depend_on_the_python_evdev_package(self) -> None:
+        with (
+            mock.patch(
+                "pcbridge.desktop.input.InputBackend.available",
+                return_value=(False, "python evdev missing"),
+            ),
+            mock.patch(
+                "pcbridge.desktop.backends.python.inputlib.EVDEV_AVAILABLE",
+                False,
+            ),
+            mock.patch(
+                "pcbridge.desktop.backends.rust.native_binary_ready",
+                return_value=(True, ""),
+            ),
+            mock.patch("pcbridge.desktop.backends.rust.os.path.exists", return_value=True),
+            mock.patch("pcbridge.desktop.backends.rust.os.access", return_value=True),
+        ):
+            capabilities = self.provider.probe_capabilities()
+
+        self.assertEqual(
+            capabilities["input.pointer"].state,
+            CapabilityState.UNAVAILABLE,
+        )
+        self.assertEqual(
+            capabilities["input.keyboard"].state,
+            CapabilityState.SUPPORTED,
+        )
+
+    def test_close_releases_before_stopping_the_native_client(self) -> None:
+        self.provider.key_down("shift")
+        self.provider.close()
+        methods = [method for method, _params in self.client.requests]
+        self.assertEqual(methods[-1], "input.keyboard.release_all")
+        self.assertTrue(self.client.closed)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

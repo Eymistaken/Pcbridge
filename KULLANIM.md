@@ -590,6 +590,13 @@ bunu gizlemez: `system_capabilities` durumu `degraded` gösterir, `screen_captur
 sonucu da "Native yakalama kullanılamadı" satırını taşır. İki yolda da ekran
 paylaşımı `desktop_unlock` ile açılır ve izin kapanınca kapanır.
 
+Klavye için Task 5.2 geçiş seçeneği `[native] input = "rust"` biçimindedir.
+Varsayılan hâlâ `python` olduğu için mevcut kurulum davranışı değişmez. `rust`
+yalnızca keyboard olaylarını native helper'a taşır; pointer ve clipboard kendi
+Tasks 5.3/5.4 gate'leri tamamlanana kadar Python yolunda kalır. Açık `rust`
+seçiminde helper veya `/dev/uinput` kullanılamıyorsa sessizce Python'a düşülmez.
+Değişiklik yeni pcbridge process'lerinde geçerli olur.
+
 `computer_task`'in ikinci satırda ayrı durmasının sebebi ölçülmüş bir gerçek:
 **pcbridge'in gönderdiği tuş, "kullanıcı makinede mi" sayacını sıfırlıyor**
 (104227 ms → 151 ms). Yani ajan ikinci eylemine geldiğinde kendi ilk tuşunu

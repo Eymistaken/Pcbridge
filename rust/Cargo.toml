@@ -12,6 +12,7 @@ rust-version = "1.95"
 
 [workspace.dependencies]
 async-io = "2.6"
+evdev = "0.13.2"
 futures-lite = "2.6"
 png = "0.18"
 pipewire = "0.10.1"

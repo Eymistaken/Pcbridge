@@ -142,6 +142,7 @@ class NativeConfigContractTests(unittest.TestCase):
             binary = root / "native"
             text = (ROOT / "config.example.toml").read_text()
             text = text.replace('capture = "auto"', 'capture = "rust"', 1)
+            text = text.replace('input = "python"', 'input = "rust"', 1)
             text = text.replace(
                 'binary_path = ""',
                 f'binary_path = "{binary}"',
@@ -153,11 +154,19 @@ class NativeConfigContractTests(unittest.TestCase):
             loaded = load_config(str(path))
             self.assertEqual(
                 loaded.native,
-                NativeSpec(capture="rust", binary_path=binary.resolve()),
+                NativeSpec(
+                    capture="rust",
+                    input="rust",
+                    binary_path=binary.resolve(),
+                ),
             )
 
             path.write_text(text.replace('capture = "rust"', 'capture = "magic"', 1))
             with self.assertRaisesRegex(SystemExit, "python, rust ya da auto"):
+                load_config(str(path))
+
+            path.write_text(text.replace('input = "rust"', 'input = "magic"', 1))
+            with self.assertRaisesRegex(SystemExit, "python ya da rust"):
                 load_config(str(path))
 
 

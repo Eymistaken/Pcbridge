@@ -10,6 +10,7 @@ test-harness = []
 
 [dependencies]
 async-io.workspace = true
+evdev.workspace = true
 futures-lite.workspace = true
 pcbridge-core = { path = "../pcbridge-core" }
 pipewire.workspace = true

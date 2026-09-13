@@ -10,9 +10,9 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** yok — kullanıcı isteğiyle Task 5.1'den sonra durduruldu (2026-09-13)
-- **Son tamamlanan adım:** Adım 5 / Task 5.1 — Input parity fixture'ları ve batch safety
-- **Sıradaki uygulanabilir adım:** Task 5.2 — Rust keyboard ve held-key lifecycle
+- **Aktif adım:** Task 5.2 tamamlandı; Task 5.3 için kullanıcı onayı bekleniyor
+- **Son tamamlanan adım:** Adım 5 / Task 5.2 — Rust keyboard ve held-key lifecycle
+- **Sıradaki uygulanabilir adım:** Task 5.3 — Rust pointer, motion path ve native koordinat adapter'ı
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 4 geçti** (2026-09-13). Varsayılan artık
   `[native] capture = "auto"`; kullanıcının kendi servisi ve stdio istemcileri
@@ -22,12 +22,11 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
   servis tarafı yapıldı; #2 (GitHub) kullanıcının kararıyla bekliyor. Ayrıntı:
   Adım 4 → "Kullanıcıyla yapılan kontroller".
 
-Çalışma kuralı (kullanıcı isteği, 2026-09-12 gecesi, öncekinin yerine):
-kullanıcı yokken **onay beklemeden sıradaki adıma geçilir**; her adım yine bu
-dosyaya yazılır ve commit'lenir. Kullanıcının fiilen test etmesi zorunlu bir
-adım atlanabiliyorsa atlanır ve aşağıdaki listeye yazılır, atlanamıyorsa
-durulur. Oturumdan çıkış/giriş gerektiren işler beklenmez. Kalıcı silme
-(Shift+Delete, `rm`) zorunlu olmadıkça yapılmaz.
+Çalışma kuralı (kullanıcı isteği, 2026-09-13, öncekinin yerine): her task
+sonunda güvenli testler çalıştırılır, sonuç bu dosyaya yazılır ve değişiklikler
+yalnızca yerel commit'lenir. **Push yapılmaz ve cloud GitHub'a dokunulmaz.**
+Gerçek klavye/fare testi çalıştırılmaz. Her task bitince durulur ve sonraki task
+için kullanıcı onayı beklenir.
 
 ## Kullanıcıyı bekleyenler
 
@@ -55,7 +54,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `tamamlandı` (3.1–3.5 ✅, **Gate 3 geçti**) |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
-| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1 ✅; sırada 5.2) |
+| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.2 ✅; sırada 5.3) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
@@ -1331,6 +1330,89 @@ dosyalar.
 
 **Sonraki somut adım:** Task 5.2 — Rust keyboard ve held-key lifecycle.
 Kullanıcı isteğiyle burada durduruldu.
+
+### Task 5.2 — Rust keyboard ve held-key lifecycle · `tamamlandı`
+
+**Başlangıç kapsamı (2026-09-13, kullanıcı onaylı):** Yalnızca klavye
+injection Rust'a taşınacak. Açıkça `[native] input = "rust"` seçildiğinde
+klavye native yardımcıdan, pointer ve clipboard mevcut Python provider'dan
+gelecek; varsayılan `python` kalacak. Task 5.3 pointer'ı, Task 5.4 clipboard ve
+varsayılan değişikliği kapsıyor.
+
+**Ne yapıldı.**
+
+- `evdev 0.13.2` ile `pcbridge-keyboard` virtual device wrapper'ı eklendi;
+  custom ioctl binding yazılmadı. Cihaz yalnızca ilk açık native keyboard
+  isteğinde kuruluyor, capability isteği `/dev/uinput` açmıyor.
+- Python key tablosunun bütün Linux kodları, alias'ları, kombinasyon basma ve
+  ters sırada bırakma davranışı korundu. Önceden tutulmuş modifier bir `key()`
+  kombinasyonunca bırakılmıyor.
+- `held()` ve tek okumalık `take_auto_released()` native process'e taşındı.
+  Ayrı monotonic worker, yeni IPC isteği gelmesini beklemeden
+  `hold_max_seconds` sonunda açık release gönderiyor.
+- Shutdown, revoke/screen-lock ve event write hatası release'i açıkça deniyor;
+  ardından virtual device kapanıyor. İlk device'ın 1,2 saniyelik settle
+  aralığından sonra grant yeniden doğrulanıyor; bu aralıkta revoke olmuşsa key
+  gönderilmiyor.
+- Native IPC'ye `input.keyboard.ensure`, `key`, `key_down`, `key_up`, `held`,
+  `release_all` ve `take_auto_released` metotları eklendi. State değiştiren
+  istekler helper'ın initialize sırasında bağlandığı grant id/revoke epoch ile
+  eşleşiyor. Python adapter her input write'ı tek `NativeClient.request` olarak
+  gönderiyor; process restart'ı üzerinden replay yok.
+- `[native] input = "python"` shipped ve implicit default olarak eklendi. Açık
+  `rust` seçimi yalnızca keyboard'u native helper'a taşıyor; pointer ve
+  clipboard Python provider'da kalıyor. Helper yokluğu pointer capability'sini
+  gizlemiyor ve keyboard için sessiz fallback yapılmıyor.
+- Public config, kullanım notu ve native protocol belgesi güncellendi.
+
+**Kod incelemesinde bulunan ve kapatılan iki hata:** Hybrid provider'ın native
+helper eksikliğini Python pointer'a da yansıtması regression testiyle önce
+kırmızı yakalandı. Ayrıca device settle aralığındaki revoke için ikinci grant
+kontrolü ve revoke sonrası kapalı device yeniden kurma yolu eklendi.
+
+**Test sonuçları (2026-09-13):**
+
+- TDD kırmızı koşum: Rust sözleşmesi eksik `platform::linux::input` modülünde,
+  Python sözleşmesi eksik `RustKeyboardInputProvider` import'unda beklenen
+  şekilde durdu; uygulama sonrasında yeşile döndü.
+- `keyboard_contract.rs` → **9 geçti**: golden event/capability eşliği,
+  alias'lar, tutulmuş modifier, sahte monotonic saat, shutdown/revoke/error
+  cleanup. `native_revoke.rs` → **3 geçti**; tutulmuş tuş revoke sonrası
+  250 ms sınırında başka input isteği olmadan bırakıldı ve eski grant reddedildi.
+- Rust workspace bütün target'lar: default → **106 geçti**, test-harness →
+  **117 geçti**. `strace -f -e trace=openat` ile default Rust test setinde
+  `/dev/uinput` açılmadığı ayrıca doğrulandı.
+- Python contract discovery → **227 tests, OK**; integration discovery →
+  **15 tests, OK (1 live capture skipped)**; `tests/test_desktop.py` →
+  **583 geçti**; `tests/test_models.py` → **106 geçti**;
+  `tests/test_test_safety.py` → **1 test, OK**.
+- GNOME `test_state.js` → **31 geçti**. `python -m compileall`, örnek config
+  ile server `--check`, `git diff --check` ve American English spelling taraması
+  → exit `0`.
+- `cargo fmt --check`; default ve all-features için `cargo clippy -- -D warnings`;
+  locked release build → exit `0`. Default release'in `--test-mode` reddi
+  beklendiği gibi exit `2`.
+- `cargo audit --no-fetch`, yerel 1243 advisory kaydıyla 146 dependency'yi
+  taradı; bilinen vulnerability yok. Yeni `evdev` dependency'si
+  `Apache-2.0 OR MIT` lisanslı; lockfile Cargo tarafından üretildi.
+- `tests/test_e2e.py` ve gerçek input/capture/AT-SPI seçimleri çalıştırılmadı;
+  `PCBRIDGE_TEST_INPUT` ve `PCBRIDGE_TEST_BATCH` dahil bütün live bayraklar
+  unset kaldı. Gerçek klavye/fare olayı gönderilmedi.
+
+**Acceptance:** Task 5.1 golden event'leri Rust'ta aynı sırada üretildi. Hold
+timer sahte monotonic saatle bağımsız çalıştı ve bildirimi yalnızca bir kez
+döndürdü. Revoke, shutdown ve event hatası release + close yaptı; settle sonrası
+grant kontrolü revoke edilmiş isteğin key göndermesini engelledi. Default
+`python`; `rust` yalnızca açık test seçimi; pointer/clipboard migration dışı.
+
+**Commit:** Bu kayıtla aynı yerel Task 5.2 commit'i; push yapılmadı.
+
+**Rollback:** Önce desktop grant'i revoke edip native helper'ı kapat; sonra
+`[native] input = "python"` ile yeni pcbridge process'i başlat. Python keyboard
+silinmedi ve default zaten bu yol.
+
+**Sonraki somut adım:** Kullanıcı onayından sonra Task 5.3 — Rust pointer,
+motion path ve native koordinat adapter'ı. Burada durduruldu.
 
 ## Adım 6 — İmleç katmanı
 

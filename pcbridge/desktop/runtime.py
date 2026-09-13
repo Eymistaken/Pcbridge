@@ -439,6 +439,15 @@ def select_capture_provider(cfg: Config, gate: GrantProvider) -> CaptureProvider
     return PythonCaptureProvider(cfg, degraded_reason=selection.reason if selection.degraded else "")
 
 
+def select_input_provider(cfg: Config, gate: GrantProvider) -> InputProvider:
+    """Choose keyboard injection once; pointer/clipboard remain Python in 5.2."""
+    if cfg.native.input == "python":
+        return PythonInputProvider(cfg)
+    from .backends.rust import RustKeyboardInputProvider
+
+    return RustKeyboardInputProvider(cfg, gate=gate)
+
+
 def create_runtime(
     cfg: Config,
     *,
@@ -460,7 +469,9 @@ def create_runtime(
             else select_capture_provider(cfg, resolved_gate)
         ),
         input_provider=(
-            input_provider if input_provider is not None else PythonInputProvider(cfg)
+            input_provider
+            if input_provider is not None
+            else select_input_provider(cfg, resolved_gate)
         ),
         accessibility_provider=(
             accessibility_provider
@@ -474,4 +485,9 @@ def create_runtime(
     )
 
 
-__all__ = ["DesktopRuntime", "create_runtime", "select_capture_provider"]
+__all__ = [
+    "DesktopRuntime",
+    "create_runtime",
+    "select_capture_provider",
+    "select_input_provider",
+]
