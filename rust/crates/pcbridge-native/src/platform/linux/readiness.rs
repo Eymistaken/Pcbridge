@@ -143,3 +143,27 @@ pub fn input_keyboard() -> Value {
         })
     }
 }
+
+/// The `input.pointer` entry of a `capabilities` response.
+///
+/// As with the keyboard probe, this never opens `/dev/uinput`; explicit input
+/// requests are the only operations allowed to create a virtual device.
+#[must_use]
+pub fn input_pointer() -> Value {
+    if Path::new("/dev/uinput").exists() {
+        json!({
+            "name": "input.pointer",
+            "status": "degraded",
+            "permission_scope": "os.pointer",
+            "reason": "device access is checked on the first explicit pointer request",
+        })
+    } else {
+        json!({
+            "name": "input.pointer",
+            "status": "unavailable",
+            "permission_scope": "os.pointer",
+            "reason_code": "DEPENDENCY_MISSING",
+            "reason": "the /dev/uinput device is missing",
+        })
+    }
+}

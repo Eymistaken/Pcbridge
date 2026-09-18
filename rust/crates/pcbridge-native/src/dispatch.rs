@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
@@ -6,6 +6,7 @@ use pcbridge_core::{
     ErrorBody, Frame, PROTOCOL_MAJOR, PROTOCOL_MINOR, ProtocolError, RequestHeader, ResponseHeader,
 };
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 #[cfg(feature = "test-harness")]
@@ -17,10 +18,14 @@ use crate::platform::linux::desktop_state::DeterministicDesktopState;
 use crate::platform::linux::display::DisplayReader;
 use crate::platform::linux::display::DisplaySnapshot;
 use crate::platform::linux::input::{
-    DEVICE_SETTLE, EvdevKeyboardDevice, KeyboardError, KeyboardService, NativeKeyboard, SystemClock,
+    DEVICE_SETTLE, EvdevKeyboardDevice, EvdevPointerDevice, KeyboardError, KeyboardService,
+    NativeKeyboard, NativePointer, PointerConfig, PointerError, PointerGeometry, PointerService,
+    SystemClock, SystemPointerClock,
 };
 #[cfg(feature = "test-harness")]
-use crate::platform::linux::input::{Keyboard, KeyboardDevice, KeyboardEvent};
+use crate::platform::linux::input::{
+    Keyboard, KeyboardDevice, KeyboardEvent, Pointer, PointerDevice, PointerEvent,
+};
 use crate::platform::linux::readiness;
 use crate::platform::linux::session::{OpenOutcome, SessionFailure};
 
@@ -70,9 +75,15 @@ impl BackendMode {
                 "capture.on_demand",
                 "capture.session_open",
                 "input.keyboard",
+                "input.pointer",
             ],
             #[cfg(feature = "test-harness")]
-            Self::DeterministicTest => vec!["test.fixture", "test.lease", "input.keyboard"],
+            Self::DeterministicTest => vec![
+                "test.fixture",
+                "test.lease",
+                "input.keyboard",
+                "input.pointer",
+            ],
         }
     }
 
@@ -86,6 +97,7 @@ impl BackendMode {
                 "capabilities": [
                     readiness::capture_monitor(&readiness::probe()),
                     readiness::input_keyboard(),
+                    readiness::input_pointer(),
                 ],
             }),
             #[cfg(feature = "test-harness")]
@@ -126,6 +138,16 @@ impl FailClosed for KeyboardFailClosed {
     }
 }
 
+struct PointerFailClosed(Weak<dyn PointerService>);
+
+impl FailClosed for PointerFailClosed {
+    fn close_fail_closed(&self, reason: LifecycleFailure) {
+        if let Some(pointer) = self.0.upgrade() {
+            pointer.close_fail_closed(reason);
+        }
+    }
+}
+
 #[cfg(feature = "test-harness")]
 #[derive(Debug)]
 struct NullKeyboardDevice;
@@ -133,6 +155,17 @@ struct NullKeyboardDevice;
 #[cfg(feature = "test-harness")]
 impl KeyboardDevice for NullKeyboardDevice {
     fn emit(&mut self, _events: &[KeyboardEvent]) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(feature = "test-harness")]
+#[derive(Debug)]
+struct NullPointerDevice;
+
+#[cfg(feature = "test-harness")]
+impl PointerDevice for NullPointerDevice {
+    fn emit(&mut self, _events: &[PointerEvent]) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -146,6 +179,15 @@ enum KeyAction {
 
 enum KeyboardSetupError {
     HoldChanged,
+    Device(std::io::Error),
+}
+
+enum PointerRequestError {
+    Lifecycle(LifecycleFailure),
+    DisplayChanged,
+    DisplayUnknown(String),
+    SettingsChanged,
+    Geometry(PointerError),
     Device(std::io::Error),
 }
 
@@ -164,6 +206,10 @@ pub struct Dispatcher {
     /// Created only by the first explicit native keyboard request. Capability
     /// probes and the default Python input selection never open `/dev/uinput`.
     keyboard: Option<(u64, Arc<dyn KeyboardService>)>,
+    /// Created only by an explicit pointer request. The topology id and
+    /// geometry are replaced together when the display layout changes.
+    pointer: Option<(String, PointerConfig, Arc<dyn PointerService>)>,
+    state_dir: Option<PathBuf>,
 }
 
 impl Dispatcher {
@@ -177,6 +223,8 @@ impl Dispatcher {
             display: None,
             capture: None,
             keyboard: None,
+            pointer: None,
+            state_dir: None,
         }
     }
 
@@ -257,6 +305,17 @@ impl Dispatcher {
             "input.keyboard.held" => self.keyboard_held(request.id),
             "input.keyboard.release_all" => self.keyboard_release_all(request.id),
             "input.keyboard.take_auto_released" => self.keyboard_take_auto_released(request.id),
+            "input.pointer.ensure" => self.pointer_ensure(request.id, request.params),
+            "input.pointer.move" => self.pointer_move(request.id, request.params),
+            "input.pointer.click" => self.pointer_click(request.id, request.params),
+            "input.pointer.drag" => self.pointer_drag(request.id, request.params),
+            "input.pointer.scroll" => self.pointer_scroll(request.id, request.params),
+            "input.pointer.mouse_down" => self.pointer_button(request.id, request.params, true),
+            "input.pointer.mouse_up" => self.pointer_button(request.id, request.params, false),
+            "input.pointer.held" => self.pointer_held(request.id),
+            "input.pointer.release_all" => self.pointer_release_all(request.id),
+            "input.pointer.take_auto_released" => self.pointer_take_auto_released(request.id),
+            "input.pointer.position" => self.pointer_position(request.id),
             "cancel" => match parse_cancel(request.params) {
                 Ok(target_id) => self.success(
                     request.id,
@@ -267,6 +326,7 @@ impl Dispatcher {
             },
             "shutdown" => {
                 self.close_keyboard();
+                self.close_pointer();
                 self.success(
                     request.id,
                     json!({"shutdown": true}),
@@ -378,6 +438,7 @@ impl Dispatcher {
         };
         let lease_bound = lifecycle.lease_bound();
         self.lifecycle = Some(lifecycle);
+        self.state_dir = Some(PathBuf::from(&params.state_dir));
         self.initialized = true;
         self.negotiated_minor = Some(PROTOCOL_MINOR);
         self.success(
@@ -1065,6 +1126,462 @@ impl Dispatcher {
         }
     }
 
+    fn pointer_ensure(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match parse_pointer_params::<PointerGrantParams>(params, &[]) {
+            Ok(params) => params,
+            Err(error) => {
+                return self.error(
+                    id,
+                    "INVALID_PARAMS",
+                    format!("invalid pointer parameters: {error}"),
+                    None,
+                );
+            }
+        };
+        if let Err(message) = params.validate() {
+            return self.error(id, "INVALID_PARAMS", message, None);
+        }
+        match self.pointer_for_request(&params) {
+            Ok((pointer, waited_seconds)) => self.success(
+                id,
+                json!({
+                    "already": waited_seconds == 0.0,
+                    "waited_seconds": waited_seconds,
+                    "position": pointer.position(),
+                    "held": pointer.held(),
+                    "backend": "linux.uinput.native",
+                }),
+                None,
+            ),
+            Err(error) => self.pointer_request_error(id, error),
+        }
+    }
+
+    fn pointer_move(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match parse_pointer_params::<PointerMoveParams>(params, &["x", "y", "smooth"])
+        {
+            Ok(params) => params,
+            Err(error) => {
+                return self.error(
+                    id,
+                    "INVALID_PARAMS",
+                    format!("invalid pointer parameters: {error}"),
+                    None,
+                );
+            }
+        };
+        if let Err(message) = params.grant.validate() {
+            return self.error(id, "INVALID_PARAMS", message, None);
+        }
+        let pointer = match self.pointer_for_request(&params.grant) {
+            Ok((pointer, _)) => pointer,
+            Err(error) => return self.pointer_request_error(id, error),
+        };
+        match pointer.move_to(params.x, params.y, params.smooth, 1) {
+            Ok(position) => self.success(
+                id,
+                json!({"position": position, "backend": "linux.uinput.native"}),
+                None,
+            ),
+            Err(error) => self.pointer_operation_error(id, error),
+        }
+    }
+
+    fn pointer_click(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match parse_pointer_params::<PointerClickParams>(params, &["button", "count"])
+        {
+            Ok(params) => params,
+            Err(error) => {
+                return self.error(
+                    id,
+                    "INVALID_PARAMS",
+                    format!("invalid pointer parameters: {error}"),
+                    None,
+                );
+            }
+        };
+        if let Err(message) = params.grant.validate() {
+            return self.error(id, "INVALID_PARAMS", message, None);
+        }
+        let pointer = match self.pointer_for_request(&params.grant) {
+            Ok((pointer, _)) => pointer,
+            Err(error) => return self.pointer_request_error(id, error),
+        };
+        match pointer.click(&params.button, params.count) {
+            Ok(()) => self.success(
+                id,
+                json!({"held": pointer.held(), "backend": "linux.uinput.native"}),
+                None,
+            ),
+            Err(error) => self.pointer_operation_error(id, error),
+        }
+    }
+
+    fn pointer_drag(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match parse_pointer_params::<PointerDragParams>(
+            params,
+            &["x1", "y1", "x2", "y2", "button"],
+        ) {
+            Ok(params) => params,
+            Err(error) => {
+                return self.error(
+                    id,
+                    "INVALID_PARAMS",
+                    format!("invalid pointer parameters: {error}"),
+                    None,
+                );
+            }
+        };
+        if let Err(message) = params.grant.validate() {
+            return self.error(id, "INVALID_PARAMS", message, None);
+        }
+        let pointer = match self.pointer_for_request(&params.grant) {
+            Ok((pointer, _)) => pointer,
+            Err(error) => return self.pointer_request_error(id, error),
+        };
+        match pointer.drag(params.x1, params.y1, params.x2, params.y2, &params.button) {
+            Ok(()) => self.success(
+                id,
+                json!({"position": pointer.position(), "backend": "linux.uinput.native"}),
+                None,
+            ),
+            Err(error) => self.pointer_operation_error(id, error),
+        }
+    }
+
+    fn pointer_scroll(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params =
+            match parse_pointer_params::<PointerScrollParams>(params, &["amount", "horizontal"]) {
+                Ok(params) => params,
+                Err(error) => {
+                    return self.error(
+                        id,
+                        "INVALID_PARAMS",
+                        format!("invalid pointer parameters: {error}"),
+                        None,
+                    );
+                }
+            };
+        if let Err(message) = params.grant.validate() {
+            return self.error(id, "INVALID_PARAMS", message, None);
+        }
+        let pointer = match self.pointer_for_request(&params.grant) {
+            Ok((pointer, _)) => pointer,
+            Err(error) => return self.pointer_request_error(id, error),
+        };
+        match pointer.scroll(params.amount, params.horizontal) {
+            Ok(()) => self.success(
+                id,
+                json!({"position": pointer.position(), "backend": "linux.uinput.native"}),
+                None,
+            ),
+            Err(error) => self.pointer_operation_error(id, error),
+        }
+    }
+
+    fn pointer_button(&mut self, id: String, params: Value, down: bool) -> DispatchOutcome {
+        let params = match parse_pointer_params::<PointerButtonParams>(params, &["button"]) {
+            Ok(params) => params,
+            Err(error) => {
+                return self.error(
+                    id,
+                    "INVALID_PARAMS",
+                    format!("invalid pointer parameters: {error}"),
+                    None,
+                );
+            }
+        };
+        if let Err(message) = params.grant.validate() {
+            return self.error(id, "INVALID_PARAMS", message, None);
+        }
+        let pointer = match self.pointer_for_request(&params.grant) {
+            Ok((pointer, _)) => pointer,
+            Err(error) => return self.pointer_request_error(id, error),
+        };
+        let result = if down {
+            pointer.mouse_down(&params.button)
+        } else {
+            pointer.mouse_up(&params.button)
+        };
+        match result {
+            Ok(()) => self.success(
+                id,
+                json!({"held": pointer.held(), "backend": "linux.uinput.native"}),
+                None,
+            ),
+            Err(error) => self.pointer_operation_error(id, error),
+        }
+    }
+
+    fn pointer_held(&self, id: String) -> DispatchOutcome {
+        self.success(
+            id,
+            json!({
+                "held": self.pointer.as_ref().map_or_else(
+                    Vec::new,
+                    |(_, _, pointer)| pointer.held(),
+                ),
+                "backend": "linux.uinput.native",
+            }),
+            None,
+        )
+    }
+
+    fn pointer_release_all(&self, id: String) -> DispatchOutcome {
+        let Some((_, _, pointer)) = self.pointer.as_ref() else {
+            return self.success(
+                id,
+                json!({"released": [], "backend": "linux.uinput.native"}),
+                None,
+            );
+        };
+        match pointer.release_all() {
+            Ok(released) => self.success(
+                id,
+                json!({"released": released, "backend": "linux.uinput.native"}),
+                None,
+            ),
+            Err(error) => self.pointer_operation_error(id, error),
+        }
+    }
+
+    fn pointer_take_auto_released(&self, id: String) -> DispatchOutcome {
+        self.success(
+            id,
+            json!({
+                "released": self.pointer.as_ref().map_or_else(
+                    Vec::new,
+                    |(_, _, pointer)| pointer.take_auto_released(),
+                ),
+                "backend": "linux.uinput.native",
+            }),
+            None,
+        )
+    }
+
+    fn pointer_position(&self, id: String) -> DispatchOutcome {
+        self.success(
+            id,
+            json!({
+                "position": self.pointer.as_ref().and_then(
+                    |(_, _, pointer)| pointer.position(),
+                ),
+                "backend": "linux.uinput.native",
+            }),
+            None,
+        )
+    }
+
+    fn pointer_for_request(
+        &mut self,
+        params: &PointerGrantParams,
+    ) -> Result<(Arc<dyn PointerService>, f64), PointerRequestError> {
+        self.validate_pointer_grant(params)
+            .map_err(PointerRequestError::Lifecycle)?;
+        let geometry = self.pointer_geometry(&params.topology_id)?;
+        let (pointer, waited_seconds) =
+            self.ensure_pointer(&params.topology_id, geometry, params.config())?;
+        if let Err(failure) = self.validate_pointer_grant(params) {
+            self.close_pointer();
+            return Err(PointerRequestError::Lifecycle(failure));
+        }
+        if let Err(error) = self.pointer_geometry(&params.topology_id) {
+            self.close_pointer();
+            return Err(error);
+        }
+        Ok((pointer, waited_seconds))
+    }
+
+    fn validate_pointer_grant(&self, params: &PointerGrantParams) -> Result<(), LifecycleFailure> {
+        let lifecycle = self
+            .lifecycle
+            .as_ref()
+            .expect("initialized dispatcher has a lifecycle");
+        if !lifecycle.matches_token(&params.grant_id, params.revoke_epoch) {
+            return Err(LifecycleFailure::Revoked);
+        }
+        lifecycle.validate_now()
+    }
+
+    fn pointer_geometry(
+        &mut self,
+        expected_topology: &str,
+    ) -> Result<PointerGeometry, PointerRequestError> {
+        #[cfg(feature = "test-harness")]
+        if matches!(self.mode, BackendMode::DeterministicTest) {
+            let (width, height) = match expected_topology {
+                "test-layout" => (3840, 1080),
+                "test-layout-wide" => (5120, 1440),
+                _ => return Err(PointerRequestError::DisplayChanged),
+            };
+            return PointerGeometry::new(width, height).map_err(PointerRequestError::Geometry);
+        }
+
+        let snapshot = self
+            .current_display_snapshot()
+            .map_err(PointerRequestError::DisplayUnknown)?;
+        if snapshot.topology_id != expected_topology {
+            return Err(PointerRequestError::DisplayChanged);
+        }
+        let (width, height) = pcbridge_core::display::canvas_size(&snapshot.monitors);
+        PointerGeometry::new(width, height).map_err(PointerRequestError::Geometry)
+    }
+
+    fn ensure_pointer(
+        &mut self,
+        topology_id: &str,
+        geometry: PointerGeometry,
+        config: PointerConfig,
+    ) -> Result<(Arc<dyn PointerService>, f64), PointerRequestError> {
+        if self
+            .pointer
+            .as_ref()
+            .is_some_and(|(_, _, pointer)| pointer.is_closed())
+        {
+            self.pointer.take();
+        }
+        if self
+            .pointer
+            .as_ref()
+            .is_some_and(|(open_topology, _, _)| open_topology != topology_id)
+        {
+            self.close_pointer();
+        }
+        if let Some((_, configured, pointer)) = self.pointer.as_ref() {
+            if *configured != config {
+                return Err(PointerRequestError::SettingsChanged);
+            }
+            return Ok((Arc::clone(pointer), 0.0));
+        }
+
+        let state_file = self
+            .state_dir
+            .as_ref()
+            .expect("initialized dispatcher has a state directory")
+            .join("pointer.json");
+        let (pointer, settle): (Arc<dyn PointerService>, Duration) = match &self.mode {
+            BackendMode::Production { .. } => {
+                let device =
+                    EvdevPointerDevice::create(geometry).map_err(PointerRequestError::Device)?;
+                (
+                    Arc::new(NativePointer::new(
+                        device,
+                        SystemPointerClock::default(),
+                        geometry,
+                        config,
+                        Some(state_file),
+                    )),
+                    DEVICE_SETTLE,
+                )
+            }
+            #[cfg(feature = "test-harness")]
+            BackendMode::DeterministicTest => (
+                Arc::new(Pointer::new(
+                    NullPointerDevice,
+                    SystemPointerClock::default(),
+                    geometry,
+                    config,
+                    Some(state_file),
+                )),
+                Duration::ZERO,
+            ),
+        };
+        let lifecycle = self
+            .lifecycle
+            .as_ref()
+            .expect("initialized dispatcher has a lifecycle");
+        lifecycle.register_fail_closed(Arc::new(PointerFailClosed(Arc::downgrade(&pointer))));
+        self.pointer = Some((topology_id.to_owned(), config, Arc::clone(&pointer)));
+        std::thread::sleep(settle);
+        Ok((pointer, settle.as_secs_f64()))
+    }
+
+    fn pointer_request_error(&self, id: String, error: PointerRequestError) -> DispatchOutcome {
+        match error {
+            PointerRequestError::Lifecycle(failure) => self.keyboard_lifecycle_error(id, failure),
+            PointerRequestError::DisplayChanged => self.typed_error(
+                id,
+                ErrorBody {
+                    code: "DISPLAY_CHANGED".to_owned(),
+                    message: "the pointer topology no longer matches the resolved coordinate"
+                        .to_owned(),
+                    retryable: true,
+                    category: "coordinate".to_owned(),
+                },
+            ),
+            PointerRequestError::DisplayUnknown(message) => self.typed_error(
+                id,
+                ErrorBody {
+                    code: "DISPLAY_MAPPING_UNKNOWN".to_owned(),
+                    message,
+                    retryable: true,
+                    category: "coordinate".to_owned(),
+                },
+            ),
+            PointerRequestError::SettingsChanged => self.error(
+                id,
+                "INVALID_PARAMS",
+                "pointer settings cannot change while the native pointer is open",
+                None,
+            ),
+            PointerRequestError::Geometry(error) => {
+                self.error(id, "INVALID_PARAMS", error.to_string(), None)
+            }
+            PointerRequestError::Device(error) => {
+                let (code, category, retryable) = match error.kind() {
+                    std::io::ErrorKind::NotFound => ("DEPENDENCY_MISSING", "capability", false),
+                    std::io::ErrorKind::PermissionDenied => {
+                        ("DEVICE_NOT_GRANTED", "permission", true)
+                    }
+                    _ => ("BACKEND_UNAVAILABLE", "capability", true),
+                };
+                self.typed_error(
+                    id,
+                    ErrorBody {
+                        code: code.to_owned(),
+                        message: format!("native pointer could not open /dev/uinput: {error}"),
+                        retryable,
+                        category: category.to_owned(),
+                    },
+                )
+            }
+        }
+    }
+
+    fn pointer_operation_error(&self, id: String, error: PointerError) -> DispatchOutcome {
+        match error {
+            PointerError::InvalidGeometry
+            | PointerError::UnknownButton(_)
+            | PointerError::InvalidClickCount => {
+                self.error(id, "INVALID_PARAMS", error.to_string(), None)
+            }
+            PointerError::Closed => self.typed_error(
+                id,
+                ErrorBody {
+                    code: "BACKEND_UNAVAILABLE".to_owned(),
+                    message: error.to_string(),
+                    retryable: true,
+                    category: "capability".to_owned(),
+                },
+            ),
+            PointerError::Device(source) => self.typed_error(
+                id,
+                ErrorBody {
+                    code: "EXECUTION_UNKNOWN".to_owned(),
+                    message: format!("native pointer write failed: {source}"),
+                    retryable: false,
+                    category: "execution".to_owned(),
+                },
+            ),
+        }
+    }
+
+    fn close_pointer(&mut self) {
+        if let Some((_, _, pointer)) = self.pointer.take() {
+            let _ = pointer.close();
+        }
+    }
+
     fn native_capture_error(&self, id: String, error: NativeCaptureError) -> DispatchOutcome {
         let (code, category, retryable) = match &error {
             NativeCaptureError::DisplayChanged => ("DISPLAY_CHANGED", "capture", true),
@@ -1109,6 +1626,7 @@ impl Dispatcher {
 impl Drop for Dispatcher {
     fn drop(&mut self) {
         self.close_keyboard();
+        self.close_pointer();
     }
 }
 
@@ -1162,6 +1680,61 @@ struct KeyboardActionParams {
     combo: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct PointerGrantParams {
+    grant_id: String,
+    revoke_epoch: u64,
+    hold_max_seconds: u64,
+    topology_id: String,
+    pointer_speed: f64,
+    pointer_max_ms: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct PointerMoveParams {
+    #[serde(flatten)]
+    grant: PointerGrantParams,
+    x: i32,
+    y: i32,
+    #[serde(default)]
+    smooth: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PointerClickParams {
+    #[serde(flatten)]
+    grant: PointerGrantParams,
+    button: String,
+    count: u8,
+}
+
+#[derive(Debug, Deserialize)]
+struct PointerDragParams {
+    #[serde(flatten)]
+    grant: PointerGrantParams,
+    x1: i32,
+    y1: i32,
+    x2: i32,
+    y2: i32,
+    button: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PointerScrollParams {
+    #[serde(flatten)]
+    grant: PointerGrantParams,
+    amount: i32,
+    #[serde(default)]
+    horizontal: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct PointerButtonParams {
+    #[serde(flatten)]
+    grant: PointerGrantParams,
+    button: String,
+}
+
 impl KeyboardGrantParams {
     fn validate(&self) -> Result<(), &'static str> {
         const MAX_ID_BYTES: usize = 256;
@@ -1183,6 +1756,65 @@ impl KeyboardActionParams {
         }
         Ok(())
     }
+}
+
+impl PointerGrantParams {
+    fn validate(&self) -> Result<(), &'static str> {
+        const MAX_ID_BYTES: usize = 256;
+        const MAX_TOPOLOGY_BYTES: usize = 16 * 1024;
+        if self.grant_id.is_empty() || self.grant_id.len() > MAX_ID_BYTES {
+            return Err("grant_id must be nonempty and bounded");
+        }
+        if self.topology_id.is_empty() || self.topology_id.len() > MAX_TOPOLOGY_BYTES {
+            return Err("topology_id must be nonempty and bounded");
+        }
+        if self.hold_max_seconds != 0 && !(5..=3_600).contains(&self.hold_max_seconds) {
+            return Err("hold_max_seconds must be zero or between 5 and 3600");
+        }
+        if !self.pointer_speed.is_finite()
+            || (self.pointer_speed != 0.0 && !(200.0..=100_000.0).contains(&self.pointer_speed))
+        {
+            return Err("pointer_speed must be zero or between 200 and 100000");
+        }
+        if !self.pointer_max_ms.is_finite() || !(20.0..=5_000.0).contains(&self.pointer_max_ms) {
+            return Err("pointer_max_ms must be between 20 and 5000");
+        }
+        Ok(())
+    }
+
+    fn config(&self) -> PointerConfig {
+        PointerConfig {
+            speed: self.pointer_speed,
+            max_ms: self.pointer_max_ms,
+            step: Duration::from_millis(8),
+            hold_max: Duration::from_secs(self.hold_max_seconds),
+            drag_min_steps: 10,
+        }
+    }
+}
+
+const POINTER_GRANT_FIELDS: &[&str] = &[
+    "grant_id",
+    "revoke_epoch",
+    "hold_max_seconds",
+    "topology_id",
+    "pointer_speed",
+    "pointer_max_ms",
+];
+
+fn parse_pointer_params<T: DeserializeOwned>(
+    params: Value,
+    action_fields: &[&str],
+) -> Result<T, String> {
+    let object = params
+        .as_object()
+        .ok_or_else(|| "pointer parameters must be an object".to_owned())?;
+    if let Some(field) = object.keys().find(|field| {
+        !POINTER_GRANT_FIELDS.contains(&field.as_str()) && !action_fields.contains(&field.as_str())
+    }) {
+        return Err(format!("unknown pointer parameter '{field}'"));
+    }
+    serde_json::from_value(params).map_err(|error| error.to_string())
 }
 
 impl SessionOpenParams {
@@ -1269,7 +1901,8 @@ mod tests {
                 "display.snapshot",
                 "capture.on_demand",
                 "capture.session_open",
-                "input.keyboard"
+                "input.keyboard",
+                "input.pointer"
             ]
         );
         let monitor = &capabilities["capabilities"][0];
@@ -1297,6 +1930,19 @@ mod tests {
                 assert_eq!(keyboard["reason_code"], "DEPENDENCY_MISSING")
             }
             other => panic!("unexpected input.keyboard status {other:?}"),
+        }
+        let pointer = &capabilities["capabilities"][2];
+        assert_eq!(pointer["name"], "input.pointer");
+        match pointer["status"].as_str() {
+            Some("degraded") => assert!(
+                pointer["reason"]
+                    .as_str()
+                    .is_some_and(|reason| !reason.is_empty())
+            ),
+            Some("unavailable") => {
+                assert_eq!(pointer["reason_code"], "DEPENDENCY_MISSING")
+            }
+            other => panic!("unexpected input.pointer status {other:?}"),
         }
     }
 }

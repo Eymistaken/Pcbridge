@@ -4,6 +4,10 @@
 //! above that device boundary: the existing key aliases, combo ordering,
 //! held-key accounting, and an independent monotonic auto-release timer.
 
+mod pointer;
+
+pub use pointer::*;
+
 use std::collections::BTreeSet;
 use std::fmt;
 use std::io;

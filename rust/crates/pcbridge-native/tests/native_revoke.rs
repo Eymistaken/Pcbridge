@@ -244,3 +244,135 @@ fn revoke_releases_held_keyboard_keys_without_another_input_action() {
     native.shutdown();
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn pointer_ipc_accepts_only_resolved_global_points_under_the_current_topology() {
+    let root = fixture_root();
+    let state_dir = root.join("state");
+    let runtime_dir = root.join("runtime");
+    write_grant(&state_dir, "pointer-grant", 0, 60.0);
+    let mut native = Harness::start(&state_dir, &runtime_dir);
+    let base = json!({
+        "grant_id": "pointer-grant",
+        "revoke_epoch": 0,
+        "hold_max_seconds": 120,
+        "topology_id": "test-layout",
+        "pointer_speed": 5000,
+        "pointer_max_ms": 500
+    });
+
+    let mut move_params = base.clone();
+    move_params["x"] = json!(2500);
+    move_params["y"] = json!(500);
+    move_params["smooth"] = json!(false);
+    let moved = native.request("input.pointer.move", move_params);
+    assert_eq!(moved["result"]["position"], json!([2500, 500]));
+
+    let mut stale = base.clone();
+    stale["topology_id"] = json!("stale-layout");
+    stale["x"] = json!(2500);
+    stale["y"] = json!(500);
+    assert_eq!(
+        native.request("input.pointer.move", stale)["error"]["code"],
+        "DISPLAY_CHANGED"
+    );
+
+    let mut unresolved = base;
+    unresolved["x"] = json!(10);
+    unresolved["y"] = json!(10);
+    unresolved["shot"] = json!("m2-forbidden");
+    assert_eq!(
+        native.request("input.pointer.move", unresolved)["error"]["code"],
+        "INVALID_PARAMS"
+    );
+
+    native.shutdown();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_new_valid_topology_rebuilds_pointer_geometry_without_erasing_fresh_state() {
+    let root = fixture_root();
+    let state_dir = root.join("state");
+    let runtime_dir = root.join("runtime");
+    write_grant(&state_dir, "pointer-topology", 0, 60.0);
+    let mut native = Harness::start(&state_dir, &runtime_dir);
+    let mut first = json!({
+        "grant_id": "pointer-topology",
+        "revoke_epoch": 0,
+        "hold_max_seconds": 120,
+        "topology_id": "test-layout",
+        "pointer_speed": 5000,
+        "pointer_max_ms": 500,
+        "x": 2500,
+        "y": 500,
+        "smooth": false
+    });
+    assert_eq!(
+        native.request("input.pointer.move", first.clone())["result"]["position"],
+        json!([2500, 500])
+    );
+    let mut held = first.clone();
+    held.as_object_mut().unwrap().remove("x");
+    held.as_object_mut().unwrap().remove("y");
+    held.as_object_mut().unwrap().remove("smooth");
+    held["button"] = json!("left");
+    assert_eq!(
+        native.request("input.pointer.mouse_down", held)["result"]["held"],
+        json!(["left"])
+    );
+
+    first["topology_id"] = json!("test-layout-wide");
+    let rebuilt = native.request("input.pointer.ensure", {
+        let mut params = first;
+        params.as_object_mut().unwrap().remove("x");
+        params.as_object_mut().unwrap().remove("y");
+        params.as_object_mut().unwrap().remove("smooth");
+        params
+    });
+    assert_eq!(rebuilt["result"]["held"], json!([]));
+    assert_eq!(rebuilt["result"]["position"], json!([2500, 500]));
+
+    native.shutdown();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn revoke_releases_held_pointer_buttons_without_another_input_action() {
+    let root = fixture_root();
+    let state_dir = root.join("state");
+    let runtime_dir = root.join("runtime");
+    write_grant(&state_dir, "pointer-revoke", 0, 60.0);
+    let mut native = Harness::start(&state_dir, &runtime_dir);
+    let context = json!({
+        "grant_id": "pointer-revoke",
+        "revoke_epoch": 0,
+        "hold_max_seconds": 120,
+        "topology_id": "test-layout",
+        "pointer_speed": 5000,
+        "pointer_max_ms": 500,
+        "button": "left"
+    });
+
+    let held = native.request("input.pointer.mouse_down", context.clone());
+    assert_eq!(held["result"]["held"], json!(["left"]));
+
+    write_grant(&state_dir, "pointer-revoke", 1, -1.0);
+    let started = Instant::now();
+    loop {
+        let status = native.request("input.pointer.held", json!({}));
+        if status["result"]["held"] == json!([]) {
+            break;
+        }
+        assert!(started.elapsed() < Duration::from_secs(1));
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(started.elapsed() <= Duration::from_millis(250));
+
+    assert_eq!(
+        native.request("input.pointer.mouse_down", context)["error"]["code"],
+        "REVOKED"
+    );
+    native.shutdown();
+    fs::remove_dir_all(root).unwrap();
+}

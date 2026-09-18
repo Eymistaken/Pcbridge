@@ -10,14 +10,14 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Task 5.2 tamamlandı; Task 5.3 için kullanıcı onayı bekleniyor
-- **Son tamamlanan adım:** Adım 5 / Task 5.2 — Rust keyboard ve held-key lifecycle
-- **Sıradaki uygulanabilir adım:** Task 5.3 — Rust pointer, motion path ve native koordinat adapter'ı
+- **Aktif adım:** Kullanıcı onayı bekleniyor
+- **Son tamamlanan adım:** Adım 5 / Task 5.3 — Rust pointer, motion path ve native koordinat adapter'ı
+- **Sıradaki uygulanabilir adım:** Kullanıcı onayından sonra Task 5.4 — text/clipboard adapter'ı ve input default gate
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 4 geçti** (2026-09-13). Varsayılan artık
   `[native] capture = "auto"`; kullanıcının kendi servisi ve stdio istemcileri
   henüz yeniden başlatılmadı, yani çalışan süreçler hâlâ Python yolunda (#5).
-- **Native migration içindeki sıradaki task:** 5.2 → 5.3 → 5.4 → **Gate 5**
+- **Native migration içindeki sıradaki task:** 5.4 → **Gate 5**
 - **Kullanıcıyla yapılan kontroller (2026-09-13):** #1, #3, #4 yapıldı; #5'in
   servis tarafı yapıldı; #2 (GitHub) kullanıcının kararıyla bekliyor. Ayrıntı:
   Adım 4 → "Kullanıcıyla yapılan kontroller".
@@ -54,7 +54,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `tamamlandı` (3.1–3.5 ✅, **Gate 3 geçti**) |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
-| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.2 ✅; sırada 5.3) |
+| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.3 ✅; sırada 5.4) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
@@ -1413,6 +1413,103 @@ silinmedi ve default zaten bu yol.
 
 **Sonraki somut adım:** Kullanıcı onayından sonra Task 5.3 — Rust pointer,
 motion path ve native koordinat adapter'ı. Burada durduruldu.
+
+### Task 5.3 — Rust pointer, motion path ve native koordinat adapter'ı · `tamamlandı`
+
+**Başlangıç kapsamı (2026-09-13, kullanıcı onaylı):** PLAN.md'deki Task 5.3
+sözleşmesi uygulanacak. `capture.to_global()` shot/monitor matematiğinin tek
+girişi olarak kalacak; native IPC shot veya monitor kabul etmeyecek, yalnızca
+çözülmüş global nokta ile enjeksiyon öncesi topoloji korumasını alacak.
+`pointer.json`, canvas clamp'i, smoothstep hareket yolu, drag/scroll olay sırası
+ve mevcut absolute-device capability seti korunacak. Gerçek klavye/fare testi
+çalıştırılmayacak.
+
+**Onaylanmış test dikişleri:** Saf `pcbridge-core` hareket/koordinat sözleşmesi;
+kayıt aygıtlı native pointer event sözleşmesi; deterministic helper IPC sınırı;
+sahte `NativeClient` kullanan Python Rust provider seçimi. Beklenen değerlerin
+kaynağı Task 5.1'de kaydedilip gözden geçirilen
+`tests/fixtures/native/input_events.json` golden fixture'ıdır.
+
+**Ne yapıldı (2026-09-18):**
+
+- Saf Rust core'a Python ile aynı smoothstep `move_path` ve tek
+  global→absolute-device clamp'i eklendi. `speed=0`, 60 ms taban, yapılandırılan
+  tavan, ties-to-even rounding ve drag'in 10 minimum adımı golden fixture ile
+  birebir korunuyor.
+- `evdev 0.13.2` üzerinde `pcbridge-pointer` virtual device eklendi. Capability
+  seti yalnızca `BTN_LEFT/RIGHT/MIDDLE`, `ABS_X/Y`, `REL_WHEEL/HWHEEL`; bilinçli
+  olarak `BTN_TOUCH` ve `BTN_TOOL_PEN` yok. Custom ioctl binding eklenmedi.
+- Move, click, double click, drag, dikey/yatay scroll, mouse down/up ve
+  held/auto-release sözleşmeleri native oldu. Revoke, shutdown, topology rebuild
+  ve event write hatasında tutulmuş/geçici düğmelere explicit release gönderiliyor.
+  Uzun motion/scroll boyunca mutex uyku süresince tutulmuyor; revoke kalan yolu
+  beklemeden hareketi kesiyor.
+- Mevcut `pointer.json` `{x,y,t}` biçimi, 300 saniyelik yaşı ve atomik
+  `pointer.tmp` replace yolu korundu. Device açılışı state'i silmiyor. Geçerli
+  yeni topology eski aygıtı release+close edip yeni geometry ile kuruyor ve taze
+  persisted konumu koruyor.
+- Native IPC'ye `input.pointer.ensure/move/click/drag/scroll/mouse_down/mouse_up`,
+  `held`, `release_all`, `take_auto_released` ve `position` eklendi. State
+  değiştiren her istek grant/revoke epoch, bounded ayarlar ve güncel
+  `topology_id` ile iki kez korunuyor; uyuşmazlık injection öncesi typed
+  `DISPLAY_CHANGED` oluyor. Allowlist `shot`, `monitor` ve diğer bilinmeyen
+  alanları reddediyor.
+- Python `RustInputProvider`, `[native] input = "rust"` seçiminde keyboard ve
+  pointer'ı aynı helper'a bağlıyor; clipboard Task 5.4'e kadar Python'da.
+  Adapter her eylemde Python monitor tablosundan taze topology kimliği alıyor,
+  yalnızca çözülmüş global noktayı bir kez gönderiyor ve başarısız write'ı
+  process restart'ı üzerinden tekrar oynamıyor. Shipped default `python` kaldı.
+- Native protokol belgesi, örnek config ve runtime seçim açıklamaları yeni
+  pointer sınırıyla güncellendi. PLAN zaten mimari kararı kaydettiği için ayrı
+  ADR oluşturulmadı.
+
+**Kod incelemesinde bulunan ve kapatılan hata:** İlk uygulama smooth move ve
+scroll boyunca pointer mutex'ini sleep sürelerinde de tutuyordu; 5 saniyelik bir
+yolda lifecycle watchdog revoke sonrası aygıtı hemen kapatamıyordu. Kilit tek event
+yazımına daraltıldı, click'in geçici basışı cleanup state'ine alındı ve event
+hatası timer worker'ını uyandırıyor. Regresyon testi uzun yolu revoke ile 250 ms
+sınırının altında kesiyor.
+
+**Test sonuçları (2026-09-18):**
+
+- `pointer_path.rs` → **4 geçti**; `pointer_contract.rs` → **12 geçti**:
+  golden path/event sırası, capability seti, clamp, teleport/drag, click/scroll,
+  state yaşı, monotonic timer, revoke ve error cleanup.
+- Rust workspace bütün target'lar: default → **122 geçti**; test-harness →
+  **136 geçti**. Harness IPC'de monitor 2 global `2500` ikinci offset olmadan
+  `2500` kaldı; stale topology injection'dan önce reddedildi; geçerli topology
+  rebuild held düğmeyi bıraktı ve state'i korudu.
+- Python contract discovery → **230 tests, OK**; integration discovery →
+  **15 tests, OK (1 live capture skipped)**; `tests/test_desktop.py` →
+  **583 geçti**; `tests/test_models.py` → **106 geçti**;
+  `tests/test_test_safety.py` → **1 test, OK**.
+- GNOME `test_state.js` → **31 geçti**. `python -m compileall`, örnek config
+  ile server `--check`, `git diff --check` ve American English spelling taraması
+  → exit `0`.
+- `cargo fmt --check`; default ve all-features için `cargo clippy -- -D warnings`;
+  locked release build → exit `0`. Default release'in `--test-mode` reddi
+  beklendiği gibi exit `2`.
+- `cargo audit --no-fetch`, yerel 1243 advisory kaydıyla 146 dependency'yi
+  taradı; bilinen vulnerability yok. Yeni dependency eklenmedi.
+- `strace -f -e trace=openat` ile default Rust test setinde `/dev/uinput`
+  açılmadığı doğrulandı. `tests/test_e2e.py` ve gerçek
+  input/capture/AT-SPI seçimleri çalıştırılmadı; bütün live bayraklar unset
+  kaldı. Gerçek klavye/fare olayı gönderilmedi.
+
+**Acceptance:** Golden path/event sequence aynı; ikinci monitörde offset yalnızca
+Python `capture.to_global()` sınırında bir kez uygulanıyor; native caller shot veya
+monitor gönderemiyor. Raw global koordinatlar native canvas'ta bir kez clamp
+ediliyor. Topology mismatch event öncesi typed reddediliyor; topology rebuild,
+persisted state, revoke ve release fail-closed.
+
+**Commit:** Bu kayıtla aynı yerel Task 5.3 commit'i; push yapılmadı.
+
+**Rollback:** Önce desktop grant'i revoke edip native helper'ı kapat; sonra
+`[native] input = "python"` ile yeni pcbridge process'i başlat. Python keyboard,
+pointer ve clipboard yolu silinmedi; shipped default zaten bu yol.
+
+**Sonraki somut adım:** Kullanıcı onayından sonra Task 5.4 — text/clipboard
+adapter'ı ve input default gate. Burada durduruldu.
 
 ## Adım 6 — İmleç katmanı
 

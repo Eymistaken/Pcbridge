@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Native keyboard selection and IPC adapter contracts (Task 5.2).
+"""Native input selection and keyboard IPC adapter contracts (Tasks 5.2-5.3).
 
 No test opens `/dev/uinput` or starts the helper. The native client and grant
-are deterministic fakes; pointer and clipboard behavior remain in the Python
-provider until Tasks 5.3 and 5.4.
+are deterministic fakes; clipboard behavior remains in Python until Task 5.4.
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 
 from pcbridge.config import NativeSpec, load_config  # noqa: E402
 from pcbridge.desktop.backends.python import PythonInputProvider  # noqa: E402
-from pcbridge.desktop.backends.rust import RustKeyboardInputProvider  # noqa: E402
+from pcbridge.desktop.backends.rust import RustInputProvider  # noqa: E402
 from pcbridge.desktop.capabilities import CapabilityState  # noqa: E402
 from pcbridge.desktop.lease import LeaseToken  # noqa: E402
 from pcbridge.desktop.runtime import select_input_provider  # noqa: E402
@@ -52,6 +51,8 @@ class FakeNativeClient:
             "input.keyboard.take_auto_released": {
                 "released": list(self.auto_released)
             },
+            "input.pointer.move": {"position": [12, 34]},
+            "input.pointer.release_all": {"released": []},
         }
         if method == "input.keyboard.take_auto_released":
             self.auto_released.clear()
@@ -85,12 +86,12 @@ class NativeInputSelectionTests(unittest.TestCase):
             return_value=(True, ""),
         ):
             self.assertIsInstance(
-                select_input_provider(self.cfg, FakeGate()), RustKeyboardInputProvider
+                select_input_provider(self.cfg, FakeGate()), RustInputProvider
             )
 
     def test_default_selection_never_constructs_or_starts_native_input(self) -> None:
         with mock.patch(
-            "pcbridge.desktop.backends.rust.RustKeyboardInputProvider",
+            "pcbridge.desktop.backends.rust.RustInputProvider",
             side_effect=AssertionError("default input selection reached Rust"),
         ):
             self.assertIsInstance(
@@ -102,7 +103,7 @@ class RustKeyboardAdapterTests(unittest.TestCase):
     def setUp(self) -> None:
         self.cfg = load_config(str(ROOT / "config.example.toml"))
         self.client = FakeNativeClient()
-        self.provider = RustKeyboardInputProvider(
+        self.provider = RustInputProvider(
             self.cfg,
             gate=FakeGate(),
             client=self.client,
@@ -142,13 +143,23 @@ class RustKeyboardAdapterTests(unittest.TestCase):
             ],
         )
 
-    def test_pointer_methods_stay_on_the_python_side(self) -> None:
-        with mock.patch.object(PythonInputProvider, "move", return_value=(12, 34)) as move:
+    def test_pointer_methods_move_to_the_native_side_in_task_5_3(self) -> None:
+        with (
+            mock.patch(
+                "pcbridge.desktop.backends.rust.monitorslib.list_monitors",
+                return_value=[object()],
+            ),
+            mock.patch(
+                "pcbridge.desktop.backends.rust.monitorslib.topology_id",
+                return_value="layout",
+            ),
+        ):
             self.assertEqual(self.provider.move(12, 34), (12, 34))
-        move.assert_called_once_with(12, 34)
-        self.assertEqual(self.client.requests, [])
+        self.assertEqual(self.client.requests[0][0], "input.pointer.move")
 
-    def test_missing_native_helper_does_not_hide_the_python_pointer(self) -> None:
+    def test_missing_native_helper_marks_both_native_input_capabilities_unavailable(
+        self,
+    ) -> None:
         with (
             mock.patch(
                 "pcbridge.desktop.input.InputBackend.available",
@@ -164,13 +175,13 @@ class RustKeyboardAdapterTests(unittest.TestCase):
 
         self.assertEqual(
             capabilities["input.pointer"].state,
-            CapabilityState.SUPPORTED,
+            CapabilityState.UNAVAILABLE,
         )
         self.assertEqual(
             capabilities["input.keyboard"].state,
             CapabilityState.UNAVAILABLE,
         )
-        self.assertEqual(available, (True, ""))
+        self.assertEqual(available, (False, "native helper missing"))
 
     def test_native_keyboard_does_not_depend_on_the_python_evdev_package(self) -> None:
         with (
@@ -193,7 +204,7 @@ class RustKeyboardAdapterTests(unittest.TestCase):
 
         self.assertEqual(
             capabilities["input.pointer"].state,
-            CapabilityState.UNAVAILABLE,
+            CapabilityState.SUPPORTED,
         )
         self.assertEqual(
             capabilities["input.keyboard"].state,

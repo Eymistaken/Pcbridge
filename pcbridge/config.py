@@ -209,9 +209,8 @@ class NativeSpec:
     """
 
     capture: str = "auto"
-    # Keyboard stays on the Python provider until the full input gate (5.4).
-    # `rust` is an explicit Task 5.2 test selection; pointer/clipboard remain
-    # Python until their own tasks.
+    # Input stays on Python until the full gate (5.4). `rust` is an explicit
+    # Task 5.3 keyboard/pointer selection; clipboard remains Python.
     input: str = "python"
     binary_path: Path | None = None
 

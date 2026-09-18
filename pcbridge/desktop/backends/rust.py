@@ -16,11 +16,12 @@ WHAT MOVES AND WHAT DOES NOT
     injected, overriding only what genuinely differs: availability, the
     capability report and the backend name.
 
-KEYBOARD MOVES WITHOUT POINTER OR CLIPBOARD
-    Task 5.2 adds `RustKeyboardInputProvider`, selected only by the explicit
-    `[native] input = "rust"` setting. It sends keyboard writes to the helper
-    while inheriting the Python pointer and clipboard paths. The shipped
-    default remains Python until the later input gates are complete.
+KEYBOARD AND POINTER MOVE WITHOUT CLIPBOARD
+    Tasks 5.2 and 5.3 add `RustInputProvider`, selected only by the explicit
+    `[native] input = "rust"` setting. Keyboard and already-resolved global
+    pointer coordinates go to the helper; shot and monitor identities never
+    cross that boundary. Clipboard orchestration remains in Python. The shipped
+    default remains Python until the final input gate is complete.
 
 THE SHARING INDICATOR APPEARS WITH THE GRANT
     On the Python path the screen share opens at `desktop_unlock`, so GNOME's
@@ -556,14 +557,8 @@ class RustCaptureProvider(PythonCaptureProvider):
             ) from exc
 
 
-class RustKeyboardInputProvider(PythonInputProvider):
-    """Native keyboard with the existing Python pointer and clipboard paths.
-
-    Task 5.2 deliberately moves only keyboard events. Inheriting the Python
-    provider keeps pointer state, motion, clipboard save/restore and raw-text
-    orchestration unchanged; `key`, `key_down` and `key_up` are the only event
-    writes redirected to the helper.
-    """
+class RustInputProvider(PythonInputProvider):
+    """Native keyboard and pointer with Python clipboard orchestration."""
 
     def __init__(
         self,
@@ -575,23 +570,24 @@ class RustKeyboardInputProvider(PythonInputProvider):
         super().__init__(cfg)
         self.cfg = cfg
         self.gate = gate
-        self._keyboard_client = client
+        self._input_client = client
         self._keyboard_used = False
-        self._keyboard_closed = False
+        self._pointer_used = False
+        self._input_closed = False
 
-    def _ensure_keyboard_client(self) -> NativeClient:
-        if self._keyboard_client is not None:
-            return self._keyboard_client
+    def _ensure_input_client(self) -> NativeClient:
+        if self._input_client is not None:
+            return self._input_client
         binary = discover_native_binary(
             self.cfg.native,
             package_root=Path(__file__).resolve().parents[2],
         )
-        self._keyboard_client = NativeClient(
+        self._input_client = NativeClient(
             binary,
             state_dir=self.cfg.state_dir,
             runtime_dir=runtime_dir(),
         )
-        return self._keyboard_client
+        return self._input_client
 
     def _grant_params(self) -> dict[str, Any]:
         token = None
@@ -600,7 +596,7 @@ class RustKeyboardInputProvider(PythonInputProvider):
         if token is None:
             raise DesktopError(
                 code=ErrorCode.GRANT_REQUIRED,
-                message="masaustu izni yok: native klavye grant kimligi olmadan kullanilamaz",
+                message="masaustu izni yok: native input grant kimligi olmadan kullanilamaz",
                 category=ErrorCategory.SAFETY,
                 retryable=False,
                 suggested_action="Masaustu iznini desktop_unlock ile acip tekrar deneyin.",
@@ -616,22 +612,32 @@ class RustKeyboardInputProvider(PythonInputProvider):
     def _result_dict(response: Any) -> dict[str, Any]:
         if getattr(response, "error", None):
             error = response.error
+            raw_code = str(error.get("code") or "")
+            raw_category = str(error.get("category") or "")
+            try:
+                code = ErrorCode(raw_code)
+            except ValueError:
+                code = ErrorCode.BACKEND_UNAVAILABLE
+            try:
+                category = ErrorCategory(raw_category)
+            except ValueError:
+                category = ErrorCategory.IPC
             raise DesktopError(
-                code=ErrorCode.INVALID_FRAME,
-                message=str(error.get("message") or error.get("code")),
-                category=ErrorCategory.IPC,
-                retryable=False,
-                suggested_action="Native klavye yanitini denetleyin.",
+                code=code,
+                message=str(error.get("message") or raw_code),
+                category=category,
+                retryable=bool(error.get("retryable", False)),
+                suggested_action="Native input grant ve display topology durumunu denetleyin.",
                 backend="pcbridge-native",
             )
         result = getattr(response, "result", None)
         if not isinstance(result, dict):
             raise DesktopError(
                 code=ErrorCode.INVALID_FRAME,
-                message="Native klavye gecersiz bir yanit dondurdu.",
+                message="Native input gecersiz bir yanit dondurdu.",
                 category=ErrorCategory.IPC,
                 retryable=False,
-                suggested_action="Native klavye protokolunu denetleyin.",
+                suggested_action="Native input protokolunu denetleyin.",
                 backend="pcbridge-native",
             )
         return result
@@ -643,20 +649,75 @@ class RustKeyboardInputProvider(PythonInputProvider):
         # One call, once. NativeClient never replays a failed request across a
         # helper restart; input operations must not add a retry above it.
         self._keyboard_used = True
-        response = self._ensure_keyboard_client().request(method, params, timeout=5.0)
+        response = self._ensure_input_client().request(method, params, timeout=5.0)
         return self._result_dict(response)
 
     def _read_request(self, method: str) -> dict[str, Any]:
-        client = self._keyboard_client
-        if not self._keyboard_used or client is None:
+        client = self._input_client
+        pointer = method.startswith("input.pointer.")
+        used = self._pointer_used if pointer else self._keyboard_used
+        if not used or client is None:
+            if method.endswith("position"):
+                return {"position": None}
             key = "held" if method.endswith("held") else "released"
             return {key: []}
         if not bool(getattr(client, "is_running", True)):
             self._keyboard_used = False
+            self._pointer_used = False
+            if method.endswith("position"):
+                return {"position": None}
             key = "held" if method.endswith("held") else "released"
             return {key: []}
         response = client.request(method, {}, timeout=2.0)
         return self._result_dict(response)
+
+    def _pointer_params(self, **action: Any) -> dict[str, Any]:
+        try:
+            table = monitorslib.list_monitors(use_cache=False)
+            topology = monitorslib.topology_id(table)
+        except monitorslib.MonitorError as exc:
+            raise DesktopError(
+                code=ErrorCode.DISPLAY_MAPPING_UNKNOWN,
+                message=str(exc),
+                category=ErrorCategory.COORDINATE,
+                retryable=True,
+                suggested_action="Display topology durumunu yenileyip tekrar deneyin.",
+                backend="linux.uinput.native",
+            ) from exc
+        params = self._grant_params()
+        params.update(
+            {
+                "topology_id": topology,
+                "pointer_speed": int(self.cfg.desktop.pointer_speed),
+                "pointer_max_ms": int(self.cfg.desktop.pointer_move_max_ms),
+            }
+        )
+        params.update(action)
+        return params
+
+    def _write_pointer_request(self, method: str, **action: Any) -> dict[str, Any]:
+        params = self._pointer_params(**action)
+        # Exactly one request. A failed pointer write is never replayed across
+        # a helper restart because the first write may already have landed.
+        self._pointer_used = True
+        response = self._ensure_input_client().request(method, params, timeout=5.0)
+        return self._result_dict(response)
+
+    @staticmethod
+    def _position_tuple(result: dict[str, Any]) -> tuple[int, int] | None:
+        position = result.get("position")
+        if position is None:
+            return None
+        if not isinstance(position, (list, tuple)) or len(position) != 2:
+            raise DesktopError(
+                code=ErrorCode.INVALID_FRAME,
+                message="Native pointer gecersiz bir konum dondurdu.",
+                category=ErrorCategory.IPC,
+                retryable=False,
+                suggested_action="Native pointer protokolunu denetleyin.",
+                backend="pcbridge-native",
+            )
+        return int(position[0]), int(position[1])
 
     def ensure(self, keyboard: bool = False, pointer: bool = False) -> float:
         waited = 0.0
@@ -664,7 +725,8 @@ class RustKeyboardInputProvider(PythonInputProvider):
             result = self._write_request("input.keyboard.ensure")
             waited += float(result.get("waited_seconds") or 0.0)
         if pointer:
-            waited += super().ensure(keyboard=False, pointer=True)
+            result = self._write_pointer_request("input.pointer.ensure")
+            waited += float(result.get("waited_seconds") or 0.0)
         return waited
 
     def key(self, combo: str) -> None:
@@ -676,9 +738,75 @@ class RustKeyboardInputProvider(PythonInputProvider):
     def key_up(self, combo: str) -> None:
         self._write_request("input.keyboard.key_up", combo)
 
+    @property
+    def position(self) -> tuple[int, int] | None:
+        return self._position_tuple(self._read_request("input.pointer.position"))
+
+    def move(
+        self,
+        x: int,
+        y: int,
+        smooth: bool | None = None,
+    ) -> tuple[int, int]:
+        result = self._write_pointer_request(
+            "input.pointer.move",
+            x=int(x),
+            y=int(y),
+            smooth=smooth,
+        )
+        position = self._position_tuple(result)
+        if position is None:
+            raise DesktopError(
+                code=ErrorCode.INVALID_FRAME,
+                message="Native pointer hareketi konum dondurmedi.",
+                category=ErrorCategory.IPC,
+                retryable=False,
+                suggested_action="Native pointer protokolunu denetleyin.",
+                backend="pcbridge-native",
+            )
+        return position
+
+    def click(self, button: str = "left", count: int = 1) -> None:
+        self._write_pointer_request(
+            "input.pointer.click",
+            button=str(button),
+            count=int(count),
+        )
+
+    def drag(
+        self,
+        x: int,
+        y: int,
+        to_x: int,
+        to_y: int,
+        button: str = "left",
+    ) -> None:
+        self._write_pointer_request(
+            "input.pointer.drag",
+            x1=int(x),
+            y1=int(y),
+            x2=int(to_x),
+            y2=int(to_y),
+            button=str(button),
+        )
+
+    def scroll(self, amount: int, horizontal: bool = False) -> None:
+        self._write_pointer_request(
+            "input.pointer.scroll",
+            amount=int(amount),
+            horizontal=bool(horizontal),
+        )
+
+    def mouse_down(self, button: str = "left") -> None:
+        self._write_pointer_request("input.pointer.mouse_down", button=str(button))
+
+    def mouse_up(self, button: str = "left") -> None:
+        self._write_pointer_request("input.pointer.mouse_up", button=str(button))
+
     def held(self) -> list[str]:
-        native = list(self._read_request("input.keyboard.held").get("held") or [])
-        return native + super().held()
+        keyboard = list(self._read_request("input.keyboard.held").get("held") or [])
+        pointer = list(self._read_request("input.pointer.held").get("held") or [])
+        return keyboard + pointer
 
     def release_all(self) -> list[str]:
         released: list[str] = []
@@ -692,21 +820,36 @@ class RustKeyboardInputProvider(PythonInputProvider):
                 native_error = exc
             finally:
                 self._keyboard_used = False
+        if self._pointer_used:
+            try:
+                released.extend(
+                    self._read_request("input.pointer.release_all").get("released") or []
+                )
+            except Exception as exc:
+                if native_error is None:
+                    native_error = exc
+            finally:
+                self._pointer_used = False
+        # No event path remains in Python, but close any legacy object created
+        # before a runtime switched providers in the same process.
         released.extend(super().release_all())
         if native_error is not None:
             raise native_error
         return released
 
     def take_auto_released(self) -> list[str]:
-        native = list(
+        keyboard = list(
             self._read_request("input.keyboard.take_auto_released").get("released") or []
         )
-        return native + super().take_auto_released()
+        pointer = list(
+            self._read_request("input.pointer.take_auto_released").get("released") or []
+        )
+        return keyboard + pointer + super().take_auto_released()
 
     def close(self) -> None:
-        if self._keyboard_closed:
+        if self._input_closed:
             return
-        self._keyboard_closed = True
+        self._input_closed = True
         cleanup_error: Exception | None = None
         try:
             self.release_all()
@@ -715,7 +858,7 @@ class RustKeyboardInputProvider(PythonInputProvider):
         try:
             super().close()
         finally:
-            client, self._keyboard_client = self._keyboard_client, None
+            client, self._input_client = self._input_client, None
             if client is not None:
                 client.close()
         if cleanup_error is not None:
@@ -723,44 +866,63 @@ class RustKeyboardInputProvider(PythonInputProvider):
 
     def capability_token(self) -> tuple[Any, ...]:
         ready, reason = native_binary_ready(self.cfg)
-        return ("rust-keyboard", ready, reason, super().capability_token())
+        return ("rust-input", ready, reason, super().capability_token())
+
+    def available(self) -> tuple[bool, str]:
+        ready, reason = native_binary_ready(self.cfg)
+        if not ready:
+            return False, reason or "native input yardimcisi bulunamadi"
+        if not os.path.exists(inputlib.UINPUT_NODE):
+            return False, f"{inputlib.UINPUT_NODE} yok"
+        if not os.access(inputlib.UINPUT_NODE, os.W_OK):
+            return False, f"{inputlib.UINPUT_NODE} icin yazma izni yok"
+        return True, ""
 
     def probe_capabilities(self) -> dict[str, Capability]:
         values = super().probe_capabilities()
         ready, reason = native_binary_ready(self.cfg)
-        if not ready:
-            values["input.keyboard"] = _capability(
-                "input.keyboard",
-                CapabilityState.UNAVAILABLE,
-                backend="linux.uinput.native",
-                scope="os.keyboard",
-                reason_code=ErrorCode.DEPENDENCY_MISSING,
-                limitations=(reason,) if reason else (),
-            )
-        elif not os.path.exists(inputlib.UINPUT_NODE):
-            values["input.keyboard"] = _capability(
-                "input.keyboard",
-                CapabilityState.UNAVAILABLE,
-                backend="linux.uinput.native",
-                scope="os.keyboard",
-                reason_code=ErrorCode.DEPENDENCY_MISSING,
-            )
-        elif not os.access(inputlib.UINPUT_NODE, os.W_OK):
-            values["input.keyboard"] = _capability(
-                "input.keyboard",
-                CapabilityState.PERMISSION_REQUIRED,
-                backend="linux.uinput.native",
-                scope="os.keyboard",
-                reason_code=ErrorCode.DEVICE_NOT_GRANTED,
-            )
-        else:
-            values["input.keyboard"] = _capability(
-                "input.keyboard",
-                CapabilityState.SUPPORTED,
-                backend="linux.uinput.native",
-                scope="os.keyboard",
-            )
+        for name, scope in (
+            ("input.keyboard", "os.keyboard"),
+            ("input.pointer", "os.pointer"),
+        ):
+            if not ready:
+                values[name] = _capability(
+                    name,
+                    CapabilityState.UNAVAILABLE,
+                    backend="linux.uinput.native",
+                    scope=scope,
+                    reason_code=ErrorCode.DEPENDENCY_MISSING,
+                    limitations=(reason,) if reason else (),
+                )
+            elif not os.path.exists(inputlib.UINPUT_NODE):
+                values[name] = _capability(
+                    name,
+                    CapabilityState.UNAVAILABLE,
+                    backend="linux.uinput.native",
+                    scope=scope,
+                    reason_code=ErrorCode.DEPENDENCY_MISSING,
+                )
+            elif not os.access(inputlib.UINPUT_NODE, os.W_OK):
+                values[name] = _capability(
+                    name,
+                    CapabilityState.PERMISSION_REQUIRED,
+                    backend="linux.uinput.native",
+                    scope=scope,
+                    reason_code=ErrorCode.DEVICE_NOT_GRANTED,
+                )
+            else:
+                values[name] = _capability(
+                    name,
+                    CapabilityState.SUPPORTED,
+                    backend="linux.uinput.native",
+                    scope=scope,
+                )
         return values
+
+
+# Task 5.2 exposed this internal class name. Keep it as an alias while runtime
+# construction moves to the accurate Task 5.3 name.
+RustKeyboardInputProvider = RustInputProvider
 
 
 __all__ = [
@@ -769,6 +931,7 @@ __all__ = [
     "NativeCaptureError",
     "NativeScreenCast",
     "RustCaptureProvider",
+    "RustInputProvider",
     "RustKeyboardInputProvider",
     "native_binary_ready",
     "runtime_dir",

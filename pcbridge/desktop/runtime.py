@@ -440,12 +440,12 @@ def select_capture_provider(cfg: Config, gate: GrantProvider) -> CaptureProvider
 
 
 def select_input_provider(cfg: Config, gate: GrantProvider) -> InputProvider:
-    """Choose keyboard injection once; pointer/clipboard remain Python in 5.2."""
+    """Choose input injection once; clipboard remains Python through Task 5.3."""
     if cfg.native.input == "python":
         return PythonInputProvider(cfg)
-    from .backends.rust import RustKeyboardInputProvider
+    from .backends.rust import RustInputProvider
 
-    return RustKeyboardInputProvider(cfg, gate=gate)
+    return RustInputProvider(cfg, gate=gate)
 
 
 def create_runtime(
