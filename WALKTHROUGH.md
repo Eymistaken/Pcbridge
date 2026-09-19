@@ -16,8 +16,8 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
   düzeltildi: izin değişince native helper eski izinde kalıyordu ve bu,
   varsayılan capture yolunu da etkiliyordu. Ayrıntı: Adım 5 → "Codex'in 5.2/5.3
   işinin kontrolü".
-- **Sıradaki uygulanabilir adım:** Task 5.4 / 4 — gerçek girdi testleri
-  (kullanıcı başındayken). 5.4 / 0–3 bitti.
+- **Sıradaki uygulanabilir adım:** Task 5.4 / 4 — gerçek girdi testi hazır,
+  koşum kullanıcıyı bekliyor (Kullanıcıyı bekleyenler #6). 5.4 / 0–3 bitti.
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 4 geçti** (2026-09-13). Varsayılan artık
   `[native] capture = "auto"`. Servis 2026-09-13'te yeniden başlatıldı. stdio
@@ -45,6 +45,7 @@ yapılınca silinmez, `yapıldı` diye işaretlenir.
 | 3 | Task 4.2 ekran kilidi senaryosu: native capture kilitliyken kare vermiyor mu | Kilidi açmak parola istiyor; kullanıcı yokken ekran kilitli kalırdı | `yapıldı` (2026-09-13) |
 | 4 | Paylaşım göstergesinin kaynak kapanınca kaybolduğunu gözle görmek | Gösterge ekran paylaşımı olmadan görülemiyor; test yalnızca Mutter oturum sayısını doğruladı | `yapıldı` (2026-09-13) |
 | 5 | Task 4.3 yayılımı: servisi ve stdio istemcilerini yeniden başlatıp native yolu gerçek kullanımda görmek. `config.toml`'da `[native]` bölümü yok, yani yeni süreçler native yolu seçecek. Sıra: `bridgekilit` → `job_list` boş mu → `systemctl --user restart pcbridge` → Claude Code/Codex'i yeniden başlat → `./doctor.sh` 8. bölüm → `desktop_unlock` sonrası sağ alttaki görev çubuğunda gösterge var, `desktop_lock` sonrası yok. Geri alma: `[native]` altına `capture = "python"` + aynı yeniden başlatmalar. Task 5.1'in yürütme kilidi ve eylem başına izin kontrolü de aynı yeniden başlatmayla devreye girer | Restart çalışan işleri öldürür; stdio süreçleri istemcinin; göstergeyi gözle görmek gerekiyor | servis `yapıldı` (2026-09-13); Claude Desktop ve Claude Code'un stdio süreçleri uygulama bir kez kapatılıp açılınca geçer |
+| 6 | Task 5.4 / 4 — gerçek girdi testi: `PCBRIDGE_TEST_INPUT=1 PCBRIDGE_INPUT_REPORT=<yol> ./.venv/bin/python -m unittest tests/live/test_input_parity.py -v`. İki ekranı ~1 dk kaplayan test penceresi; fare kendiliğinden hareket eder, pencereye tıklar, pencerenin içindeki kutuya Türkçe metin yazar, Shift'i kısa süre basılı tutar | Gerçek tuş ve tıklama gönderiyor; kullanıcı başında olmalı ve o sırada klavye/fareye dokunmamalı. Acil durdurma: Super+L (ekran kilidi native aygıtları anında kapatır) | `bekliyor` |
 
 ---
 
@@ -1605,7 +1606,7 @@ bölündü:
 | 1 | Pano işlemleri Python'da ayrı arayüzde (`clipboard.py`), davranış aynı; restore fixture'ı | `tamamlandı` |
 | 2 | Rust'ta aynı `wl-copy`/`wl-paste` programlarını yöneten adapter; wl-copy boru tuzağı; tek MIME sınırı capability'de | `tamamlandı` |
 | 3 | `[native] input = "rust"` seçilince pano native adapter'dan. `type_text` orkestrasyonu Python'da kalır: pano → native `ctrl+v` → geri yükleme | `tamamlandı` |
-| 4 | Gerçek girdi testleri, kullanıcı başındayken: Türkçe metin, değiştirici tuşlar, move→doğrulama→click, drag, süre dolumu/revoke, ≤1 px sapma | bekliyor (kullanıcı) |
+| 4 | Gerçek girdi testleri, kullanıcı başındayken: Türkçe metin, değiştirici tuşlar, move→doğrulama→click, drag, süre dolumu/revoke, ≤1 px sapma | test hazır, **koşum kullanıcıyı bekliyor** (#6) |
 | 5 | Gate 5 kararı. Geçerse `[native] input` varsayılanı değişir | bekliyor |
 
 Kod okurken bulunan: `[native] input = "rust"` seçildiğinde `type_text` zaten
@@ -1792,6 +1793,42 @@ koy → `ctrl+v` → geri yükle. `ctrl+v` zaten native klavyeye gidiyordu. Böy
 
 **Rollback:** Commit'i geri almak yeter. Varsayılan `python` olduğu için
 kurulu davranış değişmedi.
+
+#### 4 — Gerçek girdi testi · `hazır, koşulmadı`
+
+`tests/live/test_input_parity.py` + `tests/live/input_window.py`. Yalnızca
+`PCBRIDGE_TEST_INPUT=1` ile çalışır. Bayrak yoksa 8 testin 8'i de atlanıyor
+(denendi).
+
+**Nasıl sınırlanıyor.**
+
+- `input_window.py` (sistem `python3`, GTK4) **her monitörü** tam ekran bir
+  pencereyle kaplıyor ve aldığı her olayı global koordinatla raporluyor. Yanlış
+  yere giden bir fare olayı kullanıcının penceresine değil bu pencereye düşer
+  ve nereye düştüğü görünür. Pencere `quit`, stdin EOF ya da 300 sn sonunda
+  kendiliğinden kapanıyor.
+- Her tuştan önce pencereden gelen son rapor okunuyor: test alanı odakta
+  olmalı, yoksa test **tuş göndermeden** başarısız oluyor. Düzenleyen ya da
+  silen hiçbir kombinasyon gönderilmiyor. Alanı temizlemek pencerenin kendi
+  `clear` komutuyla yapılıyor. Fare sıcak köşelere 5 px'ten fazla yaklaşmıyor.
+- İzin geçici bir state dizininde. Kullanıcının kendi izni, `pointer.json`'ı
+  ve denetim kaydı kullanılmıyor.
+- Kullanıcının panosu yazmadan önce okunuyor ve sonra karşılaştırılıyor; test
+  edilen geri yükleme bu. Her zamanki gibi yalnızca ilk temsil kalıyor.
+
+**Ne ölçüyor** (PLAN 5.4 acceptance + Gate 5): iki monitörde 8 hedefte ≤1 px
+sapma ve uzun hareketin ışınlanmadığı; move → pencereden gelen konum raporu →
+click; Türkçe metnin birebir gelmesi ve panonun geri yüklenmesi; ham yazma;
+Shift/Ctrl değiştiricileri; drag ve iki yönde scroll; revoke'ta basılı tuş ve
+düğmenin başka istek olmadan bırakılması (<1 sn); süre dolumunda bırakılması
+(<1,5 sn); hold zamanlayıcısının 5 sn'de bırakması ve bunun tek kez
+raporlanması. `PCBRIDGE_INPUT_REPORT=<yol>` ölçümleri JSON olarak yazıyor.
+
+**Hazırlık (girdi göndermeden yapıldı):** paketlenmiş yardımcı
+`scripts/build-native.sh` ile yeniden derlendi (build `2395da38f310`, release,
+test-harness değil). `capabilities` yanıtında `clipboard` özelliği var,
+`clipboard.write` tek MIME sınırlamasını taşıyor. Servis boştu (cgroup'ta tek
+süreç), yeniden başlatıldı, `healthz` 200.
 
 ## Adım 6 — İmleç katmanı
 
