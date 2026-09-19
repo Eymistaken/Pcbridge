@@ -1962,6 +1962,16 @@ bekleyenler #5 ile aynı yol). `system_capabilities` → `input.keyboard` backen
 yazılır ve aynı yeniden başlatmalar yapılır. Önce `desktop_lock`, böylece basılı
 girdi bırakılır.
 
+**Yayılım, yapıldı (2026-09-19).** Kullanıcının `config.toml`'unda
+`[native]` bölümü yok, yani varsayılanlar geçerli. Servis boştu (cgroup'ta tek
+süreç), yeniden başlatıldı, `healthz` 200, logda hata yok. HTTP + statik token
+üzerinden `system_capabilities` çağrıldı; token ekrana basılmadı ve hiç girdi
+gönderilmedi: `input.keyboard` ve `input.pointer` → `linux.uinput.native`,
+`clipboard.read` ve `clipboard.write` → `linux.wl-clipboard.native`
+(`write`'ta tek MIME sınırlaması), `capture.monitor` → `linux.mutter.pipewire`.
+stdio istemcileri (Claude Code, Claude Desktop, Codex) uygulama kapatılıp
+açılınca geçer.
+
 **Rollback:** Commit'i geri almak yeter. Kod, `rust` ve `python` seçimlerini
 aynen koruyor.
 
