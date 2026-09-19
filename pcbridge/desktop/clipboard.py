@@ -15,6 +15,11 @@ BORU TUZAGI
     bekleyerek zaman asimina ugrar. Olculdu: 10 s timeout ile "keyboard type"
     araci tamamen kilitleniyordu. Yazma yolunda bu yuzden DEVNULL.
 
+SATIR SONU
+    Icerik HER TIPTE `--no-newline` ile okunur. wl-paste metin saydigi her
+    tipe (yalnizca `text/*` degil: UTF8_STRING, STRING, TEXT) satir sonu
+    ekliyor ve wl-copy geri yuklemeden sonra bu takma adlari BASA koyuyor.
+
 TEK MIME TIPI
     `save()` yalnizca listedeki ILK tipi saklar. Hem text/html hem text/plain
     sunan bir pano yalnizca text/html olarak geri gelir: metin kalir, diger
@@ -85,10 +90,13 @@ class WlClipboard:
         if types.returncode != 0 or not types.stdout.strip():
             return None
         mime = types.stdout.decode("utf-8", "replace").splitlines()[0].strip()
-        args = ["wl-paste", "--type", mime]
-        if mime.startswith("text/"):
-            args.append("--no-newline")
-        got = _read(args)
+        # Always `--no-newline`. wl-paste appends a newline to every type it
+        # counts as text, and that is more than `text/*`: after one restore
+        # wl-copy lists UTF8_STRING, STRING and TEXT first (measured
+        # 2026-09-19), so the next save read `UTF8_STRING` with a newline and
+        # the restore after it put one on the user's clipboard. For a binary
+        # type the flag changes nothing.
+        got = _read(["wl-paste", "--type", mime, "--no-newline"])
         if got.returncode != 0:
             return None
         return Saved(mime, got.stdout)

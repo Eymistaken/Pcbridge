@@ -30,6 +30,11 @@ from pcbridge.desktop import input as inputlib  # noqa: E402
 FIXTURE = ROOT / "tests" / "fixtures" / "native" / "clipboard_cases.json"
 
 
+def is_text(mime: str) -> bool:
+    """What wl-paste counts as text, and so ends with a newline unless told not to."""
+    return mime.startswith("text/") or mime in {"UTF8_STRING", "STRING", "TEXT"}
+
+
 def entry_bytes(entry: dict) -> bytes:
     if "base64" in entry:
         return base64.b64decode(entry["base64"])
@@ -63,7 +68,7 @@ class ModelClipboard:
             mime = argv[2]
             for offered, data, fails in self.offers:
                 if offered == mime and not fails:
-                    if mime.startswith("text/") and "--no-newline" not in argv:
+                    if is_text(mime) and "--no-newline" not in argv:
                         data += b"\n"  # what wl-paste appends by default
                     return subprocess.CompletedProcess(argv, 0, data, b"")
             return subprocess.CompletedProcess(argv, 1, b"", b"cannot read\n")

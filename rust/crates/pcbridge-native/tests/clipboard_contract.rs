@@ -10,6 +10,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use pcbridge_native::platform::linux::clipboard::{
@@ -20,6 +21,16 @@ use serde_json::{Value, json};
 const FIXTURE: &str = include_str!("../../../../tests/fixtures/native/clipboard_cases.json");
 
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+
+/// Tests that write a script and then run it take turns. While one thread
+/// still has a new script open for writing, a fork by another thread inherits
+/// that descriptor until its exec, and running the script in that window
+/// fails with ETXTBSY. Seen once here as a `put` that could not start.
+static PROCESS_TESTS: Mutex<()> = Mutex::new(());
+
+fn one_at_a_time() -> MutexGuard<'static, ()> {
+    PROCESS_TESTS.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// The compositor's clipboard as the two programs see it.
 #[derive(Default)]
@@ -79,7 +90,10 @@ impl Programs for ModelPrograms<'_> {
         Ok(match found {
             Some((mime, data, _)) => {
                 let mut stdout = data.clone();
-                if mime.starts_with("text/") && !args.contains(&"--no-newline") {
+                // What wl-paste counts as text gets a newline unless told not to.
+                let text = mime.starts_with("text/")
+                    || matches!(mime.as_str(), "UTF8_STRING" | "STRING" | "TEXT");
+                if text && !args.contains(&"--no-newline") {
                     stdout.push(b'\n'); // what wl-paste appends by default
                 }
                 Pasted {
@@ -233,6 +247,7 @@ fn quoted(path: &Path) -> String {
 
 #[test]
 fn wl_copy_gets_dev_null_and_returns_while_its_owner_lives_on() {
+    let _turn = one_at_a_time();
     let scratch = Scratch::new();
     let dir = quoted(&scratch.0);
     // Like the real wl-copy: read stdin, leave a background owner behind that
@@ -275,6 +290,7 @@ type Operation<'a> = dyn Fn() -> Result<(), ClipboardError> + 'a;
 
 #[test]
 fn a_program_that_hangs_is_killed_at_the_timeout() {
+    let _turn = one_at_a_time();
     let scratch = Scratch::new();
     let paste = scratch.script("wl-paste", "exec sleep 30\n");
     let copy = scratch.script("wl-copy", "exec sleep 30\n");
@@ -306,6 +322,7 @@ fn a_program_that_hangs_is_killed_at_the_timeout() {
 
 #[test]
 fn content_over_the_limit_is_refused_without_waiting_for_the_timeout() {
+    let _turn = one_at_a_time();
     let scratch = Scratch::new();
     let paste = scratch.script(
         "wl-paste",
@@ -329,6 +346,7 @@ fn content_over_the_limit_is_refused_without_waiting_for_the_timeout() {
 
 #[test]
 fn missing_and_failing_programs_are_reported_not_ignored() {
+    let _turn = one_at_a_time();
     let scratch = Scratch::new();
     let absent = Clipboard::new(SystemPrograms::with_programs(
         scratch.0.join("no-wl-paste"),
@@ -368,6 +386,7 @@ fn missing_and_failing_programs_are_reported_not_ignored() {
 
 #[test]
 fn an_invalid_mime_type_never_reaches_a_program() {
+    let _turn = one_at_a_time();
     let scratch = Scratch::new();
     let copy = scratch.script("wl-copy", &format!("touch {}/ran\n", quoted(&scratch.0)));
     let clipboard = Clipboard::new(SystemPrograms::with_programs(

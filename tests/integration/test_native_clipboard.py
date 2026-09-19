@@ -53,7 +53,8 @@ if name == "wl-paste":
         for mime, data, fails in offers:
             if mime == args[1] and not fails:
                 raw = base64.b64decode(data)
-                if mime.startswith("text/") and "--no-newline" not in args:
+                text = mime.startswith("text/") or mime in ("UTF8_STRING", "STRING", "TEXT")
+                if text and "--no-newline" not in args:
                     raw += b"\n"
                 sys.stdout.buffer.write(raw)
                 sys.exit(0)

@@ -12,12 +12,17 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+
+/// One test at a time: a script written by one thread and run by a helper
+/// another thread is forking can fail with ETXTBSY (see clipboard_contract.rs).
+static PROCESS_TESTS: Mutex<()> = Mutex::new(());
 
 struct Fixture {
     root: PathBuf,
@@ -225,6 +230,7 @@ fn grant(id: &str, epoch: u64) -> Value {
 
 #[test]
 fn write_then_read_round_trips_type_and_bytes() {
+    let _turn = PROCESS_TESTS.lock().unwrap_or_else(PoisonError::into_inner);
     let fixture = Fixture::new();
     fixture.grant("clip-grant", 0, 60.0);
     let mut native = Harness::start(&fixture, Some(fixture.programs()));
@@ -256,6 +262,7 @@ fn write_then_read_round_trips_type_and_bytes() {
 
 #[test]
 fn a_stale_grant_is_refused_before_any_program_runs() {
+    let _turn = PROCESS_TESTS.lock().unwrap_or_else(PoisonError::into_inner);
     let fixture = Fixture::new();
     fixture.grant("current", 3, 60.0);
     fixture.store("text/plain;charset=utf-8", b"kullanicinin panosu");
@@ -290,6 +297,7 @@ fn a_stale_grant_is_refused_before_any_program_runs() {
 
 #[test]
 fn a_revoke_while_the_clipboard_is_read_returns_no_content() {
+    let _turn = PROCESS_TESTS.lock().unwrap_or_else(PoisonError::into_inner);
     let fixture = Fixture::new();
     fixture.grant("clip-grant", 0, 60.0);
     fixture.store("text/plain;charset=utf-8", b"kullanicinin gizli panosu");
@@ -319,6 +327,7 @@ fn a_revoke_while_the_clipboard_is_read_returns_no_content() {
 
 #[test]
 fn only_clipboard_write_accepts_a_binary_payload() {
+    let _turn = PROCESS_TESTS.lock().unwrap_or_else(PoisonError::into_inner);
     let fixture = Fixture::new();
     fixture.grant("clip-grant", 0, 60.0);
     let mut native = Harness::start(&fixture, Some(fixture.programs()));
@@ -332,6 +341,7 @@ fn only_clipboard_write_accepts_a_binary_payload() {
 
 #[test]
 fn content_and_unknown_fields_never_travel_in_the_header() {
+    let _turn = PROCESS_TESTS.lock().unwrap_or_else(PoisonError::into_inner);
     let fixture = Fixture::new();
     fixture.grant("clip-grant", 0, 60.0);
     let mut native = Harness::start(&fixture, Some(fixture.programs()));
@@ -356,6 +366,7 @@ fn content_and_unknown_fields_never_travel_in_the_header() {
 
 #[test]
 fn the_harness_without_named_programs_never_reaches_a_clipboard() {
+    let _turn = PROCESS_TESTS.lock().unwrap_or_else(PoisonError::into_inner);
     let fixture = Fixture::new();
     fixture.grant("clip-grant", 0, 60.0);
     let mut native = Harness::start(&fixture, None);
@@ -369,6 +380,7 @@ fn the_harness_without_named_programs_never_reaches_a_clipboard() {
 
 #[test]
 fn clipboard_is_advertised_as_a_feature() {
+    let _turn = PROCESS_TESTS.lock().unwrap_or_else(PoisonError::into_inner);
     let fixture = Fixture::new();
     let native = Harness::start(&fixture, None);
     let features = native.handshake["result"]["features"].as_array().unwrap();

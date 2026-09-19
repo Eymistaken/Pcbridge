@@ -14,8 +14,10 @@
 //!   Measured on the Python side, a 10 s timeout locked the keyboard tool.
 //! * Only the first offered MIME type is saved. Other representations are
 //!   lost on restore, and the capability report says so.
-//! * Text types are read with `--no-newline`; without it `wl-paste` appends a
-//!   newline and the restore is no longer byte-exact.
+//! * Content is read with `--no-newline`, for every type: `wl-paste` appends
+//!   a newline to anything it counts as text (`UTF8_STRING` too, which
+//!   `wl-copy` lists first after a restore), and the restore would no longer
+//!   be byte-exact.
 //!
 //! Clipboard bytes never appear in a log line or an error message.
 
@@ -124,11 +126,12 @@ impl<P: Programs> Clipboard<P> {
         }
         let text = String::from_utf8_lossy(&listing.stdout);
         let mime = text.lines().next().unwrap_or_default().trim().to_owned();
-        let mut args = vec!["--type", mime.as_str()];
-        if mime.starts_with("text/") {
-            args.push("--no-newline");
-        }
-        let content = self.programs.paste(&args, self.max_content)?;
+        // Always `--no-newline`: wl-paste appends a newline to every type it
+        // counts as text, not only `text/*`, and after one restore wl-copy
+        // lists UTF8_STRING, STRING and TEXT first (measured 2026-09-19).
+        let content = self
+            .programs
+            .paste(&["--type", mime.as_str(), "--no-newline"], self.max_content)?;
         if !content.success {
             return Ok(None);
         }

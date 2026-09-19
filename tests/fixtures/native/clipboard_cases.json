@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "about": "Clipboard save, put and restore around one paste (Task 5.4). Shared by the Python WlClipboard contract and the Rust wl-clipboard adapter: the same programs, the same arguments, the same clipboard afterwards. \"PASTE\" marks where the paste key goes; only Python orchestrates it. An entry's content is \"text\" (UTF-8) or \"base64\"; \"read_fails\" makes reading that type exit nonzero. Reviewed by hand, never regenerated.",
+  "about": "Clipboard save, put and restore around one paste (Task 5.4). Shared by the Python WlClipboard contract and the Rust wl-clipboard adapter: the same programs, the same arguments, the same clipboard afterwards. \"PASTE\" marks where the paste key goes; only Python orchestrates it. An entry's content is \"text\" (UTF-8) or \"base64\"; \"read_fails\" makes reading that type exit nonzero. Like wl-paste, the model appends a newline to text types (text/*, UTF8_STRING, STRING, TEXT) unless --no-newline is given. Reviewed by hand, never regenerated.",
   "text_mime": "text/plain;charset=utf-8",
   "cases": [
     {
@@ -84,7 +84,8 @@
         [
           "wl-paste",
           "--type",
-          "image/png"
+          "image/png",
+          "--no-newline"
         ],
         [
           "wl-copy",
@@ -190,6 +191,58 @@
       ]
     },
     {
+      "name": "a_text_alias_listed_first_keeps_its_bytes",
+      "initial": [
+        {
+          "mime": "UTF8_STRING",
+          "text": "değer, sonunda satır sonu yok"
+        },
+        {
+          "mime": "STRING",
+          "text": "değer, sonunda satır sonu yok"
+        },
+        {
+          "mime": "TEXT",
+          "text": "değer, sonunda satır sonu yok"
+        },
+        {
+          "mime": "text/plain;charset=utf-8",
+          "text": "değer, sonunda satır sonu yok"
+        }
+      ],
+      "restore": true,
+      "text": "ikinci yazma",
+      "calls": [
+        [
+          "wl-paste",
+          "--list-types"
+        ],
+        [
+          "wl-paste",
+          "--type",
+          "UTF8_STRING",
+          "--no-newline"
+        ],
+        [
+          "wl-copy",
+          "--type",
+          "text/plain;charset=utf-8"
+        ],
+        "PASTE",
+        [
+          "wl-copy",
+          "--type",
+          "UTF8_STRING"
+        ]
+      ],
+      "final": [
+        {
+          "mime": "UTF8_STRING",
+          "text": "değer, sonunda satır sonu yok"
+        }
+      ]
+    },
+    {
       "name": "without_restore_the_typed_text_stays",
       "initial": [
         {
@@ -233,7 +286,8 @@
         [
           "wl-paste",
           "--type",
-          "application/x-unreadable"
+          "application/x-unreadable",
+          "--no-newline"
         ],
         [
           "wl-copy",
