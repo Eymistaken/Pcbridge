@@ -11,9 +11,11 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 ## Durum özeti
 
 - **Aktif adım:** Faz 7 — Task 7.2 (XDG ScreenCast portal backend'i).
-- **Son tamamlanan adım:** Task 7.1 (2026-09-20): tuval kökeni normalleştirildi,
-  çekim kaydı v2, karışık ölçek tanımlı, boşluğa ve görüntü dışına düşen
-  koordinat reddediliyor. **Gate 6** aynı gün geçti. Pencere öne alma tek sırada
+- **Son tamamlanan adım:** Task 7.3 ölçüldü ve **uygulanmadı** (2026-09-20):
+  buffered'ın kazancı 64,5 ms / 3698 ms. Bunun yerine ölçülen darboğaz
+  düzeltildi — `optimize=True` kaldırıldı, çekim 3698 ms'den **850 ms**'ye
+  indi. 7.4 ön koşulu düştüğü için uygulanmadı. Task 7.1 aynı gün tamamlandı,
+  **Gate 6** geçti. Pencere öne alma tek sırada
   toplandı: eklenti → zaten öndeyse tuş yok → kapalıysa tuşsuz başlatma →
   arama yedeği. Aramaya yalnızca kurulu uygulama adı yazılıyor, sonuç
   uygulamanın kimliğiyle doğrulanıyor. Başlatılan uygulama kendi systemd
@@ -93,7 +95,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `tamamlandı` (3.1–3.5 ✅, **Gate 3 geçti**) |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
-| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅ **Gate 5**; 6.1–6.4 ✅ **Gate 6**; 7.1 ✅; sırada 7.2) |
+| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅ **Gate 5**; 6.1–6.4 ✅ **Gate 6**; 7.1 ✅, 7.3/7.4 ölçülüp uygulanmadı; sırada 7.2) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
@@ -2703,6 +2705,53 @@ bir süreç yeni kaydı okur (fazladan alanları yok sayar), yeni süreç eski k
 okur (v1 testiyle sabit). Yani eski süreçler kapatılmadan da güvenli.
 
 **Sıradaki:** Task 7.2 — XDG ScreenCast portal backend'i.
+
+### Task 7.3 — Buffered capture · `ölçüldü, uygulanmadı` (2026-09-20) · Task 7.4 · `uygulanmadı`
+
+Task'ın amacı "**ölçülmüş ihtiyaç varsa** tekrarlı çekimin gecikmesini
+azaltmak" idi. Ölçüm ihtiyacın buffered'da olmadığını gösterdi ve asıl
+darboğazın yerini söyledi.
+
+**Bir monitörün çekimi, parça parça** (bu makine, paketlenmiş yardımcı,
+gerçek ekran, 8–20 koşum):
+
+| Parça | Süre | Kim |
+|---|---|---|
+| Kare beklemesi (`wait_ms`) | **64,5 ms** | yardımcı — *buffered'ın kaldıracağı tek şey* |
+| PNG kodlama (`encode_ms`) | 445 ms | yardımcı |
+| Native çağrı toplamı | ~525 ms | yardımcı + IPC |
+| PNG'yi çöz + 1536'ya küçült | 34 + 27 ms | Python |
+| **`save(optimize=True)`** | **3106 ms** | Python |
+| **Uçtan uca** | **3698 ms** | |
+
+Yani buffered en iyi ihtimalle **%1,7** kazandırırdı; karşılığında sürekli
+açık bir PipeWire akışı, monitör başına bir tam kare bellek ve bayat kare
+riski. `capture_mode` ayarı, `capture_mode.rs` ve buffered testleri
+yazılmadı. Task 7.4 (adaptive) ön koşulu "7.3'ün ölçümleri fayda gösteriyor"
+olduğu için kendiliğinden düştü.
+
+**Bunun yerine ölçülen darboğaz düzeltildi.** `optimize=True` kaydı 3106 ms
+sürüp dosyayı yalnızca %5 küçültüyordu (906 KiB'a karşı 957 KiB). PNG
+kayıpsız olduğu için pikseller aynı; değişen tek şey dosya boyutu ve
+bekleme. `_write_crop` artık varsayılan sıkıştırmayla yazıyor.
+
+| Ölçüm | Önce | Sonra |
+|---|---|---|
+| Python'un PNG payı | 3171 ms | **330 ms** |
+| Tek monitör, uçtan uca | 3698 ms | **850 ms** |
+| İki monitör, uçtan uca | (ölçülmedi) | **1348 ms** |
+
+Sözleşme testi kaydın `optimize` ile yapılmadığını ve yazılan PNG'nin
+pikselinin kaynakla aynı olduğunu sabitliyor; yorumda ölçüm duruyor, geri
+koyan önce ölçsün.
+
+**Testler.** `test_capture_contract.py` (+1), `test_desktop.py` 602 (capture
+açık), canlı `test_capture_parity.py` + `test_capture_default.py` 14 test
+geçti (piksel eşitliği, tazelik, revoke, varsayılan seçim).
+
+**Sıradaki:** Task 7.2 — XDG ScreenCast portal backend'i. Sıra bilinçli
+değiştirildi: 7.2 bu makinede doğrulanamıyor (portal penceresine kullanıcının
+tıklaması gerekir), 7.3 ölçülebiliyordu.
 
 ## Adım 6 — İmleç katmanı
 

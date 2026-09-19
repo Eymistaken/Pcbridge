@@ -712,7 +712,12 @@ def _write_crop(
     # Saydamlik PNG'yi buyutuyor ve ekran goruntusunde anlami yok.
     if img.mode not in ("RGB", "L"):
         img = img.convert("RGB")
-    img.save(dest, format="PNG", optimize=True)
+    # `optimize=True` YOK. OLCULDU 2026-09-20, gercek bir 1920x1080 ekran
+    # goruntusu, 1536'ya kucultulmus: kayit optimize ile 3106 ms surdu ve
+    # dosya 906 KiB oldu; varsayilan sikistirmayla 259 ms ve 957 KiB. Yani
+    # bir cekimin 3,7 saniyesinin 3,1 saniyesi %5 dosya boyutu icin
+    # harcaniyordu. Cozme 34 ms, kucultme 27 ms.
+    img.save(dest, format="PNG")
     return (cw, ch), (sw, sh), (sw / cw if cw else 1.0)
 
 

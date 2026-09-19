@@ -121,6 +121,34 @@ class CaptureContractTests(unittest.TestCase):
                         center = image.getpixel((image.width // 2, image.height // 2))
                     self.assertEqual(center, expected_colors[shot.monitor.connector])
 
+    def test_the_png_is_written_without_the_slow_optimize_pass(self) -> None:
+        """Pillow's `optimize` cost 3.1 s to save 5% (measured 2026-09-20).
+
+        A real 1920x1080 screenshot scaled to 1536: saving with `optimize=True`
+        took 3106 ms and wrote 906 KiB, the default compression took 259 ms and
+        wrote 957 KiB. That was 84% of a capture's whole time. The pixels are
+        the same either way -- PNG is lossless -- so only the file size and the
+        wait changed.
+        """
+        source = Image.new("RGB", (40, 20), (12, 34, 56))
+        saved: list[dict] = []
+        real_save = Image.Image.save
+
+        def save(self, fp, format=None, **params):  # noqa: A002 - Pillow's name
+            saved.append(params)
+            return real_save(self, fp, format, **params)
+
+        with tempfile.TemporaryDirectory() as raw:
+            dest = Path(raw) / "out.png"
+            with mock.patch.object(Image.Image, "save", save):
+                size, scaled, scale = capturelib._write_crop(source, None, dest, 0)
+            self.assertEqual((size, scaled, scale), ((40, 20), (40, 20), 1.0))
+            with Image.open(dest) as written:
+                self.assertEqual(list(written.convert("RGB").getdata()),
+                                 list(source.getdata()))
+        self.assertEqual(len(saved), 1)
+        self.assertNotIn("optimize", saved[0])
+
     def test_cli_out_copies_metadata_to_default_search_directory(self) -> None:
         case = load_display_case("primary_on_right")
         monitors = make_monitors(case)

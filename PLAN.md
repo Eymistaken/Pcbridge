@@ -1629,6 +1629,10 @@ Stream geometry’nin pixel boyutuyla aynı olmak zorunda olmadığı ve yeni s�
 
 **Yapılmayacak:** Buffered’ı ölçüm olmadan default yapmak.
 
+**Not (2026-09-20, ÖLÇÜLDÜ, UYGULANMADI):** Task'ın amacı "ölçülmüş ihtiyaç varsa" diyor; ölçüm ihtiyacın **buffered'da olmadığını** gösterdi. Bu makinede bir monitörün çekimi uçtan uca 3698 ms sürüyordu ve parçaları şöyleydi: yardımcının kare beklemesi **64,5 ms** (buffered'ın kaldıracağı tek şey), yardımcının PNG kodlaması 445 ms, Python'un PNG kaydı **3171 ms**. Yani buffered en iyi ihtimalle %1,7 kazandırırdı; karşılığında sürekli açık bir PipeWire akışı (kompozitör yükü), monitör başına bir tam kare bellek ve bayat kare riski getirirdi.
+
+Asıl darboğaz ölçülüp düzeltildi: `save(optimize=True)` 3106 ms sürüp dosyayı yalnızca %5 küçültüyordu (906 KiB'a karşı 957 KiB); kaldırıldı. Sonuç: tek monitör **3698 → 850 ms**, iki monitör **1348 ms**. `capture_mode` ayarı, `capture_mode.rs` ve buffered testleri **yazılmadı**: ölçülmemiş bir kazanç için kalıcı bir kaynak maliyeti eklemek bu planın kendi kuralına aykırı olurdu. Buffered'a dönülürse ilk iş bu ölçümü tekrarlamak — kare beklemesi toplam sürenin yanında anlamlı hale geldiyse (örneğin Python'un PNG payı yardımcıya taşınırsa 64 ms'lik bekleme %8'e çıkar) karar değişebilir.
+
 ## Task 7.4 — Adaptive mode
 
 **Amaç:** Buffered kazanımını yalnızca aktif kullanım sırasında almak.  
@@ -1652,6 +1656,8 @@ Stream geometry’nin pixel boyutuyla aynı olmak zorunda olmadığı ve yeni s�
 **Rollback:** OnDemand.
 
 **Yapılmayacak:** ML tabanlı tahmin, background screenshot history, video recording.
+
+**Not (2026-09-20, UYGULANMADI):** Ön koşulu "7.3'ün ölçümleri fayda gösteriyor" idi ve göstermedi (yukarıdaki not). Adaptive, buffered'ın kazancını *bazen* almak için var; kazanç 64,5 ms / 3698 ms iken mod geçişi mantığı, sahte saatli testleri ve ikinci bir kaynak maliyeti karşılıksız kalır. Buffered ölçümü bir gün faydayı gösterirse bu task yeniden açılır.
 
 ---
 

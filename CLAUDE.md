@@ -541,11 +541,18 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   `powersave`: `capture.frame` monitör başına debug binary ile **~1915 ms**
   (`encode_ms` ~1755, `wait_ms` ~145), release ile **271–294 ms** (`encode_ms`
   ~200, `wait_ms` 60–68). `rust/Cargo.toml`'da `[profile]` yok, yani debug
-  derlemede PNG kodlayıcı optimizasyonsuz. Aynı karenin Python tarafı: çözme
-  ~20 ms, 1536'ya küçültme ~40 ms, `save(optimize=True)` **~1000 ms** — ve bu
-  Python backend'inde de aynen ödeniyor. MCP üzerinden iki monitörlük
+  derlemede PNG kodlayıcı optimizasyonsuz. MCP üzerinden iki monitörlük
   `screen_capture` debug binary ile 6,0–6,3 sn sürdü; sıcak çağrı soğuk kadar
   yavaştı, yani süre oturum açılışından gelmiyor.
+- **`optimize=True` bir çekimin süresinin %84'ünü yiyordu; kaldırıldı.**
+  Ölçüldü 2026-09-20 (Task 7.3), gerçek 1920×1080 ekran görüntüsü, 1536'ya
+  küçültülmüş: çözme 34 ms, küçültme 27 ms, kayıt **`optimize=True` ile 3106
+  ms → 906 KiB**, varsayılan sıkıştırmayla **259 ms → 957 KiB**. Yani 3,1
+  saniye, %5 dosya boyutu içindi. PNG kayıpsız olduğu için pikseller aynı.
+  Sonuç: tek monitör çekimi uçtan uca **3698 ms → 850 ms**, iki monitör
+  **1348 ms**. Aynı koşumda yardımcının kendi payı: `wait_ms` 64,5 ms,
+  `encode_ms` 445 ms (native çağrı toplam ~525 ms). Sözleşme testi kaydın
+  `optimize` ile yapılmadığını sabitliyor — geri koyan önce ölçsün.
 - **Tek bir PipeWire akışı başka düğüme YENİDEN BAĞLANMIYOR.** Ölçüldü
   2026-09-13 (PipeWire 1.0.5, WirePlumber 0.4.17): native kaynak tek bir
   `pw_stream`'i tutup her çekimde başka düğüme `connect` ettiğinde akış **ilk
