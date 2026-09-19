@@ -30,8 +30,16 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
 # What a release helper links against, measured 2026-09-13 with `readelf -d`.
 # Anything outside this set is a dependency the packaging notes do not list.
+# `libm.so.6` since Task 5.3 (measured 2026-09-19): its only symbol is `hypot`,
+# the pointer path's distance, and it ships with `libc6` like `libc.so.6`.
 EXPECTED_LIBRARIES = frozenset(
-    {"libpipewire-0.3.so.0", "libgcc_s.so.1", "libc.so.6", "ld-linux-x86-64.so.2"}
+    {
+        "libpipewire-0.3.so.0",
+        "libgcc_s.so.1",
+        "libm.so.6",
+        "libc.so.6",
+        "ld-linux-x86-64.so.2",
+    }
 )
 
 Runner = Callable[..., subprocess.CompletedProcess]

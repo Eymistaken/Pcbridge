@@ -18,6 +18,9 @@ duyduğunu ve bir kurulumun nasıl teşhis edildiğini anlatıyor (Task 4.1).
 
 Çalışma zamanı kütüphaneleri ölçüldü (2026-09-13, release, `readelf -d`):
 `libpipewire-0.3.so.0`, `libgcc_s.so.1`, `libc.so.6`, `ld-linux-x86-64.so.2`.
+Task 5.3'ten beri buna `libm.so.6` ekleniyor (ölçüldü 2026-09-19). Ondan
+kullanılan tek sembol `hypot`: fare yolunun mesafe hesabı. `libm`, `libc6`
+paketinin parçası; yeni bir paket gerekmiyor.
 En yüksek glibc sembol sürümü `GLIBC_2.39` (`objdump -T`): Ubuntu 24.04'te
 derlenen binary daha eski bir glibc'de (ör. 22.04) **çalışmaz**. İlk artifact
 hedefi yalnızca `x86_64-unknown-linux-gnu`.
