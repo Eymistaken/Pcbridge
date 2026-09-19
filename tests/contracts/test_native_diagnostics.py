@@ -47,6 +47,18 @@ SUPPORTED = (
     "2294156a1b2c",
     {
         "backend": "linux.mutter.pipewire",
+        "capabilities": [
+            {"name": "capture.monitor", "status": "supported"},
+            {"name": "accessibility.read", "status": "supported"},
+            {"name": "accessibility.action", "status": "supported"},
+        ],
+    },
+)
+# A helper built before Task 6.2: no accessibility methods at all.
+BEFORE_ACCESSIBILITY = (
+    "2294156a1b2c",
+    {
+        "backend": "linux.mutter.pipewire",
         "capabilities": [{"name": "capture.monitor", "status": "supported"}],
     },
 )
@@ -81,18 +93,31 @@ class NativeDiagnostics(unittest.TestCase):
         self.binary.chmod(0o755)
         self.cfg = load_config(str(ROOT / "config.example.toml"))
 
-    def config(self, capture: str, binary: Path | None, typing: str | None = None):
-        # One selection for both unless a test sets input on its own.
+    def config(
+        self,
+        capture: str,
+        binary: Path | None,
+        typing: str | None = None,
+        reading: str | None = None,
+    ):
+        # One selection for all three unless a test sets one on its own.
         return replace(
             self.cfg,
-            native=NativeSpec(capture=capture, input=typing or capture, binary_path=binary),
+            native=NativeSpec(
+                capture=capture,
+                input=typing or capture,
+                accessibility=reading or capture,
+                binary_path=binary,
+            ),
         )
 
-    def run_diagnose(self, capture="auto", binary="present", typing=None, **kwargs):
+    def run_diagnose(
+        self, capture="auto", binary="present", typing=None, reading=None, **kwargs
+    ):
         runner = kwargs.pop("runner", FakeRunner())
         probe = kwargs.pop("probe", lambda _path: SUPPORTED)
         return diagnostics.diagnose(
-            self.config(capture, self.binary if binary == "present" else None, typing),
+            self.config(capture, self.binary if binary == "present" else None, typing, reading),
             environ={},
             run=runner,
             probe=probe,
@@ -121,6 +146,32 @@ class NativeDiagnostics(unittest.TestCase):
                 self.assertEqual([f.level for f in missing], [level])
                 infos = " | ".join(self.levels(findings, "info"))
                 self.assertIn(f"[native] input = {typing}", infos)
+
+    def test_the_accessibility_setting_needs_the_helper_too(self) -> None:
+        """Since Task 6.3 accessibility is `auto` as well."""
+        for reading, level in (("python", "info"), ("auto", "warn"), ("rust", "fail")):
+            with self.subTest(accessibility=reading):
+                findings = self.run_diagnose("python", binary=None, reading=reading)
+                missing = [f for f in findings if "native yardimci yok" in f.message]
+                self.assertEqual([f.level for f in missing], [level])
+                infos = " | ".join(self.levels(findings, "info"))
+                self.assertIn(f"[native] accessibility = {reading}", infos)
+
+    def test_a_helper_older_than_the_accessibility_methods_is_called_out(self) -> None:
+        # `auto` takes any helper it finds, so an old one breaks ui_dump.
+        for reading, level in (("auto", "warn"), ("rust", "fail")):
+            with self.subTest(accessibility=reading):
+                findings = self.run_diagnose(
+                    "auto", reading=reading, probe=lambda _path: BEFORE_ACCESSIBILITY
+                )
+                stale = [f for f in findings if "eski bir derleme" in f.message]
+                self.assertEqual([f.level for f in stale], [level])
+                self.assertIn("accessibility.action", stale[0].message)
+                self.assertIn("scripts/build-native.sh", stale[0].message)
+        quiet = self.run_diagnose(
+            "auto", reading="python", probe=lambda _path: BEFORE_ACCESSIBILITY
+        )
+        self.assertFalse([f for f in quiet if "eski bir derleme" in f.message])
 
     def test_a_healthy_release_build_raises_nothing(self) -> None:
         findings = self.run_diagnose("auto")
@@ -174,6 +225,23 @@ class NativeDiagnostics(unittest.TestCase):
         )
         warnings = self.levels(self.run_diagnose(probe=lambda _path: unavailable), "warn")
         self.assertTrue(any("not a Mutter session" in m for m in warnings), warnings)
+
+    def test_a_degraded_entry_shows_its_limitation(self) -> None:
+        degraded = (
+            "2294156a1b2c",
+            {
+                "backend": "linux.mutter.pipewire",
+                "capabilities": [
+                    *SUPPORTED[1]["capabilities"],
+                    {"name": "window.list", "status": "degraded",
+                     "limitations": ["Only accessibility-visible applications are listed."]},
+                ],
+            },
+        )
+        warnings = self.levels(self.run_diagnose(probe=lambda _path: degraded), "warn")
+        self.assertTrue(
+            any("window.list" in m and "accessibility-visible" in m for m in warnings), warnings
+        )
 
     def test_a_failed_handshake_is_a_failure(self) -> None:
         failures = self.levels(

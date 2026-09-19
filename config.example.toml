@@ -146,16 +146,19 @@ input = "auto"
 # fixture'da Python yardimcisiyla ayni listeyi, ayni hatalari veriyor. Eylem,
 # dokumu yapan yardimciya gider.
 #
-#   "python"  VARSAYILAN (Gate 6'ya kadar): sistem python3'unde calisan
-#             atspi_helper.py.
-#   "auto"    paketlenmis yardimci varsa native, yoksa Python yolu (gorunur
-#             sekilde: system_capabilities accessibility.read'i `degraded`
-#             gosterir).
+#   "auto"    VARSAYILAN (Task 6.3'ten beri): paketlenmis yardimci varsa
+#             native, yoksa Python yolu (gorunur sekilde: system_capabilities
+#             accessibility.read'i `degraded` gosterir). Eski bir yardimci
+#             (Task 6.3 oncesi derleme) ui_dump/ui_click'te hata verir;
+#             doctor.sh bunu soyler, scripts/build-native.sh ile yeniden
+#             derleyin.
+#   "python"  sistem python3'unde calisan atspi_helper.py (eski yol; geri
+#             almak icin).
 #   "rust"    native zorunlu; yardimci yoksa cagri hata verir.
 #
 # Izin (desktop_unlock) yokken screen_info'nun pencere listesi her durumda
 # Python yardimcisindan okunur: native yardimci yalnizca bir izne bagli calisir.
-accessibility = "python"
+accessibility = "auto"
 
 # pcbridge-native icin istege bagli mutlak yol. PCBRIDGE_NATIVE_BIN ortam
 # degiskeni onceliklidir. Bos deger paketlenmis executable yolunu kullanir.

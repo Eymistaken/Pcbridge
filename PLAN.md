@@ -1452,6 +1452,7 @@ PipeWire frame tüketimi ve stream lifecycle için implementation sırasında bu
 - **Zaman aşımları.** `DoAction` ve `SetTextContents` 5 sn bekliyor, okumalar 2 sn. Hedef 8 sn içinde bulunamazsa `TIMEOUT`, hiçbir şey gönderilmemiş. Gönderilip cevaplanmayan çağrı `EXECUTION_UNKNOWN`: tekrarlanmıyor. Python tarafında isteğin kendi zaman aşımı ve helper'ın çökmesi de aynı kodu alıyor.
 - **Ölçümler (canlı, test penceresi, release helper).** Tıklama native 13 ms, Python 52 ms. Metin yazma native 5 ms, Python 50 ms. Döküm native 17–32 ms, Python 84–137 ms. Helper eylem sırasında `/dev/uinput` açmıyor (sürecin `/proc/<pid>/fd` listesiyle doğrulandı).
 - **Doğrulanamayan tek kontrol:** izin, hedef bulunduktan sonra eylemden hemen önce bir kez daha doğrulanıyor. Bu aralığa deterministik olarak girilemediği için kontrol mutasyon testiyle sınanmadı.
+- **7. madde:** varsayılan ayrı bir commit ile `auto` yapıldı. Paketlenmiş yardımcı yeniden kuruldu ve kurulu yardımcıyla canlı test 20/20 geçti. Servis boştayken yeniden başlatıldı; `system_capabilities` artık `accessibility.read`/`accessibility.action` için `linux.atspi.native` bildiriyor. `doctor.sh` seçimi gösteriyor ve erişilebilirlik yöntemleri olmayan eski bir yardımcıyı uyarıyor: `auto` her yardımcıyı alır, eskisi `ui_dump`'ı bozardı.
 
 AT-SPI API ve interface ayrıntıları için resmi referans: [AT-SPI documentation](https://gnome.pages.gitlab.gnome.org/at-spi2-core/libatspi/).
 

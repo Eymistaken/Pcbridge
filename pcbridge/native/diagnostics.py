@@ -137,9 +137,15 @@ def handshake_capabilities(binary: Path) -> tuple[str, dict[str, Any]] | str:
 def _legacy_note() -> Finding:
     return Finding(
         "info",
-        "native capture python3-gi, GStreamer ve pipewiresrc istemez; "
-        "erisilebilirlik (ui_dump/ui_click) ve Python ekran yayini hala python3-gi ister",
+        "native capture ve erisilebilirlik python3-gi, GStreamer ve pipewiresrc "
+        "istemez; izin oncesi pencere listesi (screen_info), Python erisilebilirlik "
+        "yolu ve Python ekran yayini hala python3-gi ister",
     )
+
+
+# What a helper must offer for `[native] accessibility`: reads since Task 6.2,
+# clicks and text since Task 6.3. An older build answers neither.
+ACCESSIBILITY_CAPABILITIES = ("accessibility.read", "accessibility.action")
 
 
 def diagnose(
@@ -153,10 +159,12 @@ def diagnose(
     environment = os.environ if environ is None else environ
     capture = cfg.native.capture
     typing = cfg.native.input
-    # The helper is needed as much as the strictest of the two settings says.
+    reading = cfg.native.accessibility
+    # The helper is needed as much as the strictest setting says.
+    choices = (capture, typing, reading)
     selected = (
-        "rust" if "rust" in (capture, typing)
-        else "auto" if "auto" in (capture, typing)
+        "rust" if "rust" in choices
+        else "auto" if "auto" in choices
         else "python"
     )
     findings = [
@@ -177,6 +185,15 @@ def diagnose(
                 "rust": " (native yardimci ZORUNLU)",
                 "auto": " (varsayilan: varsa native, yoksa Python)",
             }.get(typing, ""),
+        ),
+        Finding(
+            "info",
+            f"[native] accessibility = {reading}"
+            + {
+                "python": " (ui_dump/ui_click Python yardimcisinda)",
+                "rust": " (native yardimci ZORUNLU)",
+                "auto": " (varsayilan: varsa native, yoksa Python)",
+            }.get(reading, ""),
         ),
     ]
 
@@ -260,7 +277,13 @@ def diagnose(
             if capability.get("status") == "supported":
                 findings.append(Finding("pass", text))
             else:
-                reason = capability.get("reason") or "neden bildirilmedi"
+                # A degraded entry may carry its limitation instead of a reason
+                # (`window.list`: only accessibility-visible applications).
+                reason = (
+                    capability.get("reason")
+                    or "; ".join(capability.get("limitations") or [])
+                    or "neden bildirilmedi"
+                )
                 findings.append(Finding("warn", f"{text} — {reason}"))
         if not isinstance(info, str) and build_id and build_id != info.get("build_id"):
             findings.append(Finding(
@@ -268,12 +291,23 @@ def diagnose(
                 f"handshake build {build_id}, --build-info {info.get('build_id')}: "
                 "binary arada degismis olabilir",
             ))
+        offered = {capability.get("name") for capability in result.get("capabilities", [])}
+        lacking = [name for name in ACCESSIBILITY_CAPABILITIES if name not in offered]
+        if reading in ("auto", "rust") and lacking:
+            # `auto` takes the helper whenever it is there, old or new: an old
+            # one then fails every ui_dump instead of falling back.
+            findings.append(Finding(
+                "fail" if reading == "rust" else "warn",
+                "yardimci eski bir derleme: " + ", ".join(lacking) + " yok; "
+                "ui_dump/ui_click native yolda hata verir. Yeniden derleyin: "
+                "scripts/build-native.sh",
+            ))
 
     if selected == "python":
         findings.append(Finding(
             "info",
-            "yardimci hazir ama kullanilmiyor; secmek icin [native] capture ve "
-            'input icin "auto" ya da "rust"',
+            "yardimci hazir ama kullanilmiyor; secmek icin [native] capture, "
+            'input ve accessibility icin "auto" ya da "rust"',
         ))
     findings.append(_legacy_note())
     return findings

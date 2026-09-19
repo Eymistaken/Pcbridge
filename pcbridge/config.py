@@ -213,10 +213,11 @@ class NativeSpec:
     # programs in the native helper when it is packaged, Python otherwise,
     # visibly. `rust` forbids the fallback, `python` keeps the old path.
     input: str = "auto"
-    # Task 6.2 (2026-09-19): accessibility reads (dump, window list, focus)
-    # through the native helper. `python` until Gate 6: actions still go
-    # through the Python helper either way until Task 6.3.
-    accessibility: str = "python"
+    # `auto` since Task 6.3 (2026-09-19): accessibility reads (Task 6.2) and
+    # clicks and text (Task 6.3) through the native helper when it is
+    # packaged, the Python helper otherwise, visibly. Live on the GTK4 test
+    # window both gave the same answers for every case.
+    accessibility: str = "auto"
     binary_path: Path | None = None
 
 
@@ -685,7 +686,7 @@ def load_config(explicit: str | None = None) -> Config:
             f"[native] ({path}): `input` ({native_input!r}) "
             "python, rust ya da auto olmali."
         )
-    native_accessibility = str(native_raw.get("accessibility", "python")).strip().lower()
+    native_accessibility = str(native_raw.get("accessibility", "auto")).strip().lower()
     if native_accessibility not in ("python", "rust", "auto"):
         raise SystemExit(
             f"[native] ({path}): `accessibility` ({native_accessibility!r}) "

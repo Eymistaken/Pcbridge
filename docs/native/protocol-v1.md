@@ -10,7 +10,7 @@ Executable Linux'ta monitör tablosunu okur (Task 3.1), Mutter ScreenCast +
 PipeWire üzerinden tek monitör karesi alır (Task 3.3) ve seçildiğinde uinput
 klavye (Task 5.2) ve pointer (Task 5.3) olaylarını üretir, erişilebilirlik
 ağacını GI olmadan D-Bus'tan okur (Task 6.2) ve listelediği öğelere tıklar,
-metin yazar (Task 6.3; varsayılan hâlâ Python). Task 4.3'ten beri varsayılan
+metin yazar (Task 6.3'ten beri varsayılan `auto`). Task 4.3'ten beri varsayılan
 capture backend'i `auto`
 (paketlenmiş yardımcı varsa native). Input varsayılanı Gate 5'ten beri
 (2026-09-19) `auto`: paketlenmiş yardımcı varsa klavye, fare ve pano
@@ -505,8 +505,11 @@ taşındı. Gate 5'ten beri (2026-09-19) varsayılan `auto`: helper varsa native
 yoksa görünür bir `degraded` gerekçesiyle Python yolu. `rust` seçiminde helper
 yoksa ya da `/dev/uinput` açılamıyorsa sessiz fallback yapılmaz.
 
-Task 6.2'de `[native].accessibility` seçimi eklendi. Gate 6'ya kadar varsayılan
-`python`; `auto` ve `rust` aynı kurallarla çalışır. Native okuyucu bir izne
+Task 6.2'de `[native].accessibility` seçimi eklendi. Task 6.3'ten beri
+(2026-09-19) varsayılan `auto`; `rust` ve `python` aynı kurallarla çalışır.
+`doctor.sh` seçimi gösterir. Seçim `auto` ya da `rust` iken helper
+`accessibility.read` ya da `accessibility.action` sunmuyorsa uyarır; `rust`'ta
+bu hatadır. Native okuyucu bir izne
 bağlı helper'dan okur. İzin yokken (`screen_info` pencere listesini
 `desktop_unlock`'tan önce okur) pencere listesi ve odaktaki pencere Python
 yardımcısından gelir: helper izin olmadan yaşamaz. Kısa kimlikler ve son döküm

@@ -361,8 +361,9 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   - Pencere listesi: 6,6 ms'ye karşı 102 ms.
   - gnome-shell'in ağacı: 827 ms'ye karşı 1354 ms.
 
-  Native okuyucu izne bağlı yardımcıda çalışıyor. Gate 6'ya kadar varsayılan
-  `[native] accessibility = "python"`.
+  Native okuyucu izne bağlı yardımcıda çalışıyor. Task 6.3'ten beri
+  (2026-09-19) varsayılan `[native] accessibility = "auto"`; geri almak için
+  `accessibility = "python"`.
 - **Uygulamanın eyleme verdiği cevap bir şey kanıtlamıyor.** Ölçüldü
   2026-09-19, GTK4 4.14 test penceresi, ham D-Bus:
   - Devre dışı düğmede `DoAction` `false` dönüyor ve hiçbir şey tıklanmıyor.

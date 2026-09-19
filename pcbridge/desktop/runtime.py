@@ -469,8 +469,9 @@ def select_input_provider(cfg: Config, gate: GrantProvider) -> InputProvider:
 def select_accessibility_provider(cfg: Config, gate: GrantProvider) -> AccessibilityProvider:
     """Choose who reads the accessibility tree, once, like capture and input.
 
-    `python` is the default until Gate 6. `auto` takes the native helper when
-    it is packaged and says so when it is not; `rust` never falls back.
+    `auto` is the default since Task 6.3: the native helper when it is
+    packaged, the Python helper otherwise, and it says so. `rust` never falls
+    back; `python` keeps the old path.
     The provider chosen here also acts: a click or a text write goes to the
     helper that made the dump it names (Task 6.3).
     """

@@ -10,20 +10,19 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Task 6.3 — eylemler yapıldı ve commit'lendi; varsayılanın
-  `auto` yapılması ayrı commit olarak sırada.
-- **Son tamamlanan adım:** Task 6.2 — erişilebilirlik ağacını Rust okuyor (GI
-  ve GTK yok, AT-SPI'a doğrudan D-Bus). Aynı fixture'da ve gerçek pencerede
-  Python yardımcısıyla düğüm düğüm aynı, ~7 kat hızlı. Ayrıntı: Adım 5 → Task
-  6.2.
-- **Sıradaki uygulanabilir adım:** Task 6.3'ün ikinci commit'i
-  (`accessibility = "auto"`, yardımcının kurulması). Sonra durulur; Task 6.4
-  için onay beklenir.
+- **Aktif adım:** yok. Task 6.3 tamamlandı (2026-09-19). Kullanıcının
+  isteğiyle burada durulup Task 6.4 için onay bekleniyor.
+- **Son tamamlanan adım:** Task 6.3 — tıklama ve metin yazma da Rust'ta;
+  uygulamanın cevabı ve yazılan metin denetleniyor. Varsayılan artık
+  `[native] accessibility = "auto"`, yardımcı kuruldu, servis native yolda.
+  Ayrıntı: Adım 5 → Task 6.3.
+- **Sıradaki uygulanabilir adım:** Task 6.4 — uygulama/pencere işlemlerini
+  yetenek arkasına almak. Sonra **Gate 6**. Onay bekleniyor.
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 5 geçti** (2026-09-19), `[native] input`
   varsayılanı `auto`. Gate 4 2026-09-13'te geçti. stdio istemcileri, uygulama
   kapatılıp açılınca yeni koda geçer (#5).
-- **Native migration içindeki sıradaki task:** 6.3 → 6.4 → **Gate 6**
+- **Native migration içindeki sıradaki task:** 6.4 → **Gate 6**
 - **Kullanıcıyla yapılan kontroller (2026-09-13):** #1, #3, #4 yapıldı; #5'in
   servis tarafı yapıldı; #2 (GitHub) kullanıcının kararıyla bekliyor. Ayrıntı:
   Adım 4 → "Kullanıcıyla yapılan kontroller".
@@ -68,6 +67,7 @@ yapılınca silinmez, `yapıldı` diye işaretlenir.
 | 3 | Task 4.2 ekran kilidi senaryosu: native capture kilitliyken kare vermiyor mu | Kilidi açmak parola istiyor; kullanıcı yokken ekran kilitli kalırdı | `yapıldı` (2026-09-13) |
 | 4 | Paylaşım göstergesinin kaynak kapanınca kaybolduğunu gözle görmek | Gösterge ekran paylaşımı olmadan görülemiyor; test yalnızca Mutter oturum sayısını doğruladı | `yapıldı` (2026-09-13) |
 | 5 | Task 4.3 yayılımı: servisi ve stdio istemcilerini yeniden başlatıp native yolu gerçek kullanımda görmek. `config.toml`'da `[native]` bölümü yok, yani yeni süreçler native yolu seçecek. Sıra: `bridgekilit` → `job_list` boş mu → `systemctl --user restart pcbridge` → Claude Code/Codex'i yeniden başlat → `./doctor.sh` 8. bölüm → `desktop_unlock` sonrası sağ alttaki görev çubuğunda gösterge var, `desktop_lock` sonrası yok. Geri alma: `[native]` altına `capture = "python"` + aynı yeniden başlatmalar. Task 5.1'in yürütme kilidi ve eylem başına izin kontrolü de aynı yeniden başlatmayla devreye girer | Restart çalışan işleri öldürür; stdio süreçleri istemcinin; göstergeyi gözle görmek gerekiyor | servis `yapıldı` (2026-09-13); Claude Desktop ve Claude Code'un stdio süreçleri uygulama bir kez kapatılıp açılınca geçer |
+| 7 | Task 6.3 yayılımı: native erişilebilirlik (`ui_dump`, `ui_click`, `ui_set_text`, `window_list`) stdio istemcilerinde. Servis yeniden başlatıldı ve native yolda; Claude Code ve Claude Desktop'un stdio süreçleri eski kodu çalıştırıyor | stdio süreçleri istemcinin; uygulama kapatılıp açılınca yeni koda geçer | servis `yapıldı` (2026-09-19); stdio uygulama yeniden başlayınca |
 | 6 | Task 5.4 / 4 — gerçek girdi testi (`yapıldı` 2026-09-19, 8/8): `PCBRIDGE_TEST_INPUT=1 PCBRIDGE_INPUT_REPORT=<yol> ./.venv/bin/python -m unittest tests/live/test_input_parity.py -v`. İki ekranı ~1 dk kaplayan test penceresi; fare kendiliğinden hareket eder, pencereye tıklar, pencerenin içindeki kutuya Türkçe metin yazar, Shift'i kısa süre basılı tutar | Gerçek tuş ve tıklama gönderiyor; kullanıcı başında olmalı ve o sırada klavye/fareye dokunmamalı. Acil durdurma: Super+L (ekran kilidi native aygıtları anında kapatır) | `yapıldı` (2026-09-19) |
 
 ---
@@ -83,7 +83,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `tamamlandı` (3.1–3.5 ✅, **Gate 3 geçti**) |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
-| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅, **Gate 5 geçti**; 6.1–6.2 ✅; sırada 6.3) |
+| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅, **Gate 5 geçti**; 6.1–6.3 ✅; sırada 6.4) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
@@ -2262,7 +2262,7 @@ ile kurulum, varsayılan değiştiğinde (6.3) yapılacak.
 Canlı eylem testleri test penceresinde yapılacak ve önce kullanıcıya
 sorulacak.
 
-### Task 6.3 — Rust accessibility actions ve parity · eylemler `tamamlandı` (2026-09-19)
+### Task 6.3 — Rust accessibility actions ve parity · `tamamlandı` (2026-09-19)
 
 **Önce ölçüm: uygulamanın cevabı bir şey kanıtlamıyor.** GTK4 test
 penceresine ham D-Bus ile gidildi. Pencereye iki şey eklendi: 5 karakter tutan
@@ -2403,9 +2403,46 @@ Tasarımı bunlar belirledi:
 - Metin kırpılmıyor: ✓. Türkçe metin birebir geri okundu. Kırpan bir alan
   artık sessizce geçmiyor.
 
-**Rollback.** Varsayılan hâlâ `python`, yani bu commit çalışan servis için
-davranış değiştirmiyor. Python yolunda iki fark var: `false` dönen eylem
-artık hata, metin geri okunuyor. Geri almak için commit'i geri almak yeter.
+Eylemler `8431bd1`'de. Varsayılan orada hâlâ `python`; Python yolunda iki
+fark var: `false` dönen eylem artık hata, metin geri okunuyor.
+
+**Varsayılan `auto` (planın 7. maddesi, ayrı commit).**
+- `NativeSpec.accessibility` ve yükleme varsayılanı `auto`.
+  `config.example.toml` bunu yorumuyla anlatıyor: eski bir yardımcı
+  `ui_dump`'ta hata verir, geri almak için `python`.
+- `doctor.sh` 8. bölüm (`pcbridge.native.diagnostics`):
+  - `[native] accessibility` seçimini gösteriyor. Yardımcıya ne kadar
+    ihtiyaç olduğunu capture ve input ile birlikte o belirliyor.
+  - `auto`/`rust` iken `accessibility.read` ya da `accessibility.action`
+    sunmayan eski bir yardımcıyı uyarıyor (`rust`'ta hata). Bu önemli, çünkü
+    `auto` her yardımcıyı alır ve eskisi `ui_dump`'ı bozardı.
+  - Bir de küçük düzeltme: sebebi olmayan `degraded` satırı artık yardımcının
+    bildirdiği sınırlamayı gösteriyor (`window.list`). Önceden "neden
+    bildirilmedi" yazıyordu.
+- Yardımcı `scripts/build-native.sh` ile kuruldu. Build `0c2799c0b003`
+  (Task 5.4) → `8431bd1b707a`. Tanı: `accessibility.read` ve
+  `accessibility.action` `supported`.
+- Kurulu yardımcıyla canlı test 20/20. Tıklama native 11 ms, Python 53 ms.
+  Metin 8 ms'ye karşı 51 ms. Döküm 16–35 ms'ye karşı 83–142 ms.
+- **Yayılım, yapıldı.** Kullanıcının `config.toml`'unda `[native]` bölümü yok,
+  yani varsayılan geçerli.
+  - Servis boştaydı (cgroup'ta tek süreç) ve yeniden başlatıldı. `healthz`
+    200, logda hata yok.
+  - HTTP + statik token ile `system_capabilities` çağrıldı; token ekrana
+    basılmadı, hiçbir girdi gönderilmedi. Önce `linux.atspi`, sonra
+    `accessibility.read`, `accessibility.action` ve `window.list` için
+    `linux.atspi.native`.
+  - stdio istemcileri uygulama kapatılıp açılınca geçer (#7).
+- Takımlar: contract 317, integration 24 (1 atlandı), `test_desktop.py` 583,
+  models 106, safety OK, `--check` 0.
+
+**Rollback.** `[native]` altına `accessibility = "python"` yazıp servisi ve
+stdio istemcilerini yeniden başlatmak yeter. Yardımcıyı geri almak gerekmez:
+yeni derleme capture ve input için aynı protokolü konuşuyor.
+
+**Sıradaki:** Task 6.4 — uygulama/pencere işlemlerini (`window_focus`, launch,
+pencere listesi) yetenek arkasına almak, sonra **Gate 6**. Kullanıcı onayı
+bekleniyor.
 
 ## Adım 6 — İmleç katmanı
 

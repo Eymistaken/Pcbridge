@@ -20,7 +20,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from pcbridge.config import load_config  # noqa: E402
+from pcbridge.config import NativeSpec, load_config  # noqa: E402
 from pcbridge.desktop import runtime as runtimelib  # noqa: E402
 from pcbridge.desktop import uitree as uitreelib  # noqa: E402
 from pcbridge.desktop.backends import rust as rustlib  # noqa: E402
@@ -448,10 +448,18 @@ class SelectionTests(unittest.TestCase):
         with mock.patch.object(rustlib, "native_binary_ready", return_value=ready):
             return runtimelib.select_accessibility_provider(cfg, Gate())
 
-    def test_python_is_the_default_until_gate_6(self) -> None:
-        self.assertEqual(self.cfg.native.accessibility, "python")
-        provider = self.select("python")
-        self.assertIs(type(provider), PythonAccessibilityProvider)
+    def test_auto_is_the_default_since_task_6_3(self) -> None:
+        self.assertEqual(self.cfg.native.accessibility, "auto")
+        self.assertEqual(NativeSpec().accessibility, "auto")
+        self.assertIs(type(self.select("python")), PythonAccessibilityProvider)
+
+    def test_a_config_without_the_setting_gets_auto(self) -> None:
+        path = Path(self.tmp.name) / "config.toml"
+        text = (ROOT / "config.example.toml").read_text(encoding="utf-8")
+        without = text.replace('accessibility = "auto"\n', "")
+        self.assertNotEqual(without, text, "the example must carry the setting")
+        path.write_text(without, encoding="utf-8")
+        self.assertEqual(load_config(str(path)).native.accessibility, "auto")
 
     def test_auto_takes_the_native_reader_when_it_is_there(self) -> None:
         self.assertIsInstance(self.select("auto"), RustAccessibilityProvider)
@@ -471,7 +479,7 @@ class SelectionTests(unittest.TestCase):
     def test_unknown_value_is_refused_at_load(self) -> None:
         path = Path(self.tmp.name) / "config.toml"
         text = (ROOT / "config.example.toml").read_text(encoding="utf-8")
-        swapped = text.replace('accessibility = "python"', 'accessibility = "gtk"')
+        swapped = text.replace('accessibility = "auto"', 'accessibility = "gtk"')
         self.assertNotEqual(swapped, text, "the example must carry the setting")
         path.write_text(swapped, encoding="utf-8")
         with self.assertRaises(SystemExit) as raised:

@@ -642,7 +642,12 @@ ms (52 ms), metin yazma 5 ms (50 ms). İki yol aynı fixture'da ve gerçek
 pencerede aynı listeyi, aynı kimlikleri ve aynı hataları veriyor. Native
 yardımcı yalnızca kendi yaptığı dökümdeki öğeye dokunur: izin yenilendiyse
 (yeni `desktop_unlock`) eski listeyle eylem reddedilir, yeni `ui_dump` istenir.
-Varsayılan şimdilik `[native] accessibility = "python"`.
+Varsayılan 2026-09-19'dan beri `[native] accessibility = "auto"`: paketlenmiş
+yardımcı varsa native yol, yoksa Python yolu, ve bu `system_capabilities`'te
+görünür. Eski bir yardımcı (bu değişiklikten önceki derleme) `ui_dump`'ta
+hata verir; `./doctor.sh` 8. bölüm bunu söyler, `scripts/build-native.sh` ile
+yeniden derlenir. Geri almak için `[native]` altına `accessibility =
+"python"`. Değişiklik yeni pcbridge süreçlerinde geçerli olur.
 
 `computer_task`'in ikinci satırda ayrı durmasının sebebi ölçülmüş bir gerçek:
 **pcbridge'in gönderdiği tuş, "kullanıcı makinede mi" sayacını sıfırlıyor**
