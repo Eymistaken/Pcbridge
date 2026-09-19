@@ -399,15 +399,29 @@ edilir**: düğümün kendisine gider, odağın nerede olduğu fark etmez.
 
 > not defterini aç ve içine alışveriş listemi yaz
 
-`launch` uygulamayı açar (Türkçe adıyla da bulur: "metin düzenleyici"),
-`focus` açık bir pencereyi öne alır.
+`launch` uygulamayı açar (Türkçe adıyla da bulur: "metin düzenleyici") ve
+penceresi görünene kadar bekler; pencere görünmezse başarı değil hata döner.
+`focus`, `window_focus` ile aynı sırayı izler.
 
 **`window_list`** açık pencereleri gösterir, odaktaki `▸` ile işaretli.
-**`window_focus`** bir uygulamayı öne getirir — **kapalıysa açar da.**
-Masaüstünün kendi aramasından geçiyor (`super` + ad + Return), yani senin
-elinle yaptığının aynısı; bu yüzden birkaç saniye sürüyor. AT-SPI'nin ve
-D-Bus'ın pencere öne alma çağrıları bu sistemde çalışmıyor (ölçüldü), tek yol
-bu.
+**`window_focus`** bir uygulamayı öne getirir — **kapalıysa açar da.** Sırası:
+
+1. GNOME kabuk eklentisi kuruluysa açık pencereyi doğrudan öne alır
+   (milisaniyeler).
+2. Hedef zaten öndeyse hiçbir tuşa basılmaz.
+3. Kapalı bir uygulama doğrudan başlatılır: tuşa basılmaz, bir saniyeden kısa
+   sürer. Uygulama kendi systemd kapsamında yaşar, pcbridge yeniden başlasa da
+   kapanmaz.
+4. Açık ama eklentinin öne alamadığı pencere için masaüstünün araması
+   (`super` + ad + Return) kullanılır. Senin elinle yaptığının aynısı; birkaç
+   saniye sürer ve klavye ister.
+
+Aramaya yalnızca **kurulu bir uygulamanın adı** yazılır, çünkü arama kutusu
+Claude sohbetlerini, dosyaları, uçbirim sekmelerini ve web aramasını da bulur.
+Uygulama adı olmayan ya da birden fazla uygulamaya uyan bir ad hiçbir tuşa
+basılmadan reddedilir. Pencere başlığıyla öne almak için eklenti gerekir.
+Sonuç her zaman öne gelen pencerenin **uygulamasına** bakılarak doğrulanır:
+arama bir web araması sekmesi açarsa bu başarı değil, hata sayılır.
 
 Yeni grafik sürecinin pcbridge yeniden başlasa da yaşaması ve pencere
 araçlarınca bulunması gerekiyorsa `window_focus` kullan. Kabuktan yeni açılan

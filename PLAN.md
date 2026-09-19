@@ -1492,6 +1492,28 @@ AT-SPI API ve interface ayrıntıları için resmi referans: [AT-SPI documentati
 
 **Not (2026-09-12):** Hızlı focus yolunun kendisi bu task’tan önce, `WALKTHROUGH.md` Adım 2’de ele alınıyor. Adım 2 tamamlanmışsa bu task “hızlı yolu tasarla” değil, “çalışan yolu capability arkasına al ve doğrula” işidir.
 
+**Not (2026-09-19, uygulandı):**
+- **1. ve 7. madde.** `apps.py`'de dört iç işlem var: `resolve_application`, `launch_application`, `activate_window` (eklenti), `observe_focus`. Bunları `bring_to_front` tek sırada birleştiriyor. `window_focus`, `computer_task(app=…)` ve toplu `focus`/`launch` eylemleri (`DeviceOps`, yani `pcb-do` de) aynı işlemlerden geçiyor. `apps.focus()` eski imzasıyla duruyor; rollback noktası o.
+- **Sıra:**
+  1. Eklenti.
+  2. Hedef zaten öndeyse hiçbir tuş gönderilmez (3. madde).
+  3. Uygulama kapalıysa `gtk-launch` ile açılır; tuş gönderilmez.
+  4. Açık ama eklentinin öne alamadığı pencere için GNOME araması (4. madde, `degraded`).
+
+  Kapalı uygulamayı açmak (2. madde) artık aramaya bağlı değil.
+- **Ölçülen iki gerçek başlatma yolunu belirledi.** Arka plandaki bir süreçten `gtk-launch` ile başlatılan pencere 0,68 sn'de odağı aldı. Ama D-Bus ile etkinleşmeyen uygulama çağıranın cgroup'unda kaldı; servisten çağrılınca `systemctl --user restart pcbridge` uygulamayı da öldürürdü. Bu, `window_focus`'un vaadinin tam tersi ve toplu `launch` eyleminde zaten vardı. Uygulama artık `systemd-run --user --scope` ile kendi `app-pcbridge-*.scope`'una giriyor (+60 ms).
+- **Aramaya yalnızca kurulu bir uygulamanın adı yazılıyor.** Bu makinede arama sağlayıcıları Claude sohbetlerini, dosyaları, uçbirim sekmelerini ve ayarları da tarıyor, uygulama bulunamazsa Enter web aramasına düşüyor. Ad `find()`'in turlarıyla çözülüyor. Aynı turda birden fazla uygulamaya uyan ad (bu makinede "Desktop" üç girdiye uyuyor) `ELEMENT_AMBIGUOUS`, uygulama olmayan ad `TARGET_MISMATCH` alıyor; ikisinde de `execution_state=not_started` ve hiçbir tuş gitmiyor. Odak okunamazsa `BACKEND_UNAVAILABLE`, yine hiçbir şey gönderilmeden. Yeni hata kodu yok.
+- **5. madde.** Doğrulama uygulamanın kimliğiyle yapılıyor: AT-SPI uygulama adı `.desktop` girdisinin ikili adına, kimliğine ya da adına denk olmalı; `gnome-terminal-server` için ikili adının öneki de sayılıyor. Başlık tek başına ancak pencerenin süreci başka hiçbir kurulu uygulamaya ait değilse yetiyor (LibreOffice `soffice` olarak çalışıyor). Böylece başlığı aranan metin olan web araması sekmesi başarı sayılmıyor. `launch` başarısı pencerenin listede görülmesi; `gtk-launch`'ın 0 dönmesi yetmiyor. Görülmezse `EXECUTION_UNKNOWN`. Aramadan sonra yanlış pencere öndeyse de `EXECUTION_UNKNOWN`: tuşlar gitti, bir şey açılmış olabilir, tekrarlanmıyor.
+- **6. madde.** Cihaz ihtiyacı Adım 2'den beri seçilen yoldan geliyor. Artık maliyet de öyle: eklenti varken `focus` 200 ms, yokken 7000 ms. Yavaş adımlar (başlatma, arama) motorun verdiği kalan süreye kendileri bakıyor ve sığmıyorsa `BudgetExceeded` ile hiç başlamıyor. Böylece iyimser tahmin MCP tavanını aşamaz. `launch` maliyeti 300 ms'den 1500 ms'ye çıktı, çünkü artık pencereyi bekliyor.
+- **8. madde.** `window.move_resize` `unsupported` kaldı (`test_capabilities.py`).
+- `window_focus` denetim kaydı artık `path` ve `ms` taşıyor. 2026-09-02 ölçümü yalnızca toplu eylemin `batch_step`'inden yapılabilmişti.
+- **Kabul.**
+  - Zaten öndeki hedefe tuş gitmiyor: sözleşme testinde ve canlı olarak.
+  - Soğuk başlatma korunuyor: canlı, tuşsuz.
+  - Yanlış arama sonucu başarı sayılmıyor: sözleşme testinde, web araması sekmesi senaryosuyla. Canlı üretilmedi, çünkü kullanıcının tarayıcısında sekme açmak gerekirdi.
+
+  Eklenti yolu değişmedi. Canlı testte kapatıldı ki arkasındaki yollar koşsun; kendi ölçümü 2026-09-12'de yapılmıştı. "Yapılmayacak" satırına uyuldu: eklentiye dokunulmadı.
+
 ---
 
 # Phase 7 — Capture kapsamını genişlet

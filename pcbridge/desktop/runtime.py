@@ -193,9 +193,13 @@ class DesktopRuntime:
             limitations=(
                 (
                     "Already-open windows use the GNOME Shell extension; closed "
-                    "applications fall back to GNOME search."
+                    "applications are launched directly; GNOME search is the "
+                    "fallback for a window the extension cannot activate. Results "
+                    "are verified through accessibility."
                     if extension_focus
-                    else "Focus uses GNOME search and verifies the result through accessibility."
+                    else "Closed applications are launched directly; open windows "
+                    "come forward through GNOME search, for installed applications "
+                    "only. Results are verified through accessibility."
                 ),
             )
             if focus_usable

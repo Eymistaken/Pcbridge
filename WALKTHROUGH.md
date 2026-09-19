@@ -10,19 +10,18 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** yok. Task 6.3 tamamlandı (2026-09-19). Kullanıcının
-  isteğiyle burada durulup Task 6.4 için onay bekleniyor.
-- **Son tamamlanan adım:** Task 6.3 — tıklama ve metin yazma da Rust'ta;
-  uygulamanın cevabı ve yazılan metin denetleniyor. Varsayılan artık
-  `[native] accessibility = "auto"`, yardımcı kuruldu, servis native yolda.
-  Ayrıntı: Adım 5 → Task 6.3.
-- **Sıradaki uygulanabilir adım:** Task 6.4 — uygulama/pencere işlemlerini
-  yetenek arkasına almak. Sonra **Gate 6**. Onay bekleniyor.
+- **Aktif adım:** Gate 6.
+- **Son tamamlanan adım:** Task 6.4 (2026-09-19). Pencere öne alma tek sırada
+  toplandı: eklenti → zaten öndeyse tuş yok → kapalıysa tuşsuz başlatma →
+  arama yedeği. Aramaya yalnızca kurulu uygulama adı yazılıyor, sonuç
+  uygulamanın kimliğiyle doğrulanıyor. Başlatılan uygulama kendi systemd
+  kapsamında. Ayrıntı: Adım 5 → Task 6.4.
+- **Sıradaki uygulanabilir adım:** Gate 6, sonra Faz 7.
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 5 geçti** (2026-09-19), `[native] input`
   varsayılanı `auto`. Gate 4 2026-09-13'te geçti. stdio istemcileri, uygulama
   kapatılıp açılınca yeni koda geçer (#5).
-- **Native migration içindeki sıradaki task:** 6.4 → **Gate 6**
+- **Native migration içindeki sıradaki task:** **Gate 6**
 - **Kullanıcıyla yapılan kontroller (2026-09-13):** #1, #3, #4 yapıldı; #5'in
   servis tarafı yapıldı; #2 (GitHub) kullanıcının kararıyla bekliyor. Ayrıntı:
   Adım 4 → "Kullanıcıyla yapılan kontroller".
@@ -54,6 +53,14 @@ verilerek koşulur.
    onaylandı ve canlı testler yeniden sorulmadan koşuyor. Başlamadan önce ne
    açılıp ne kıpırdayacağı tek satırla haber veriliyor. Task'lar hâlâ tek tek
    onaylanıyor: 6.3 bitince durulur.
+4. Aynı gece, uyumaya giderken (Task 6.4 sürerken): durmadan, onay istemeden
+   ilerlenebildiği kadar ilerlenecek. Testler için asla onay sorulmayacak,
+   adımlar arasında onay beklenmeyecek. Her adımda yerel commit, GitHub'a
+   dokunulmaz. Kullanıcı açıkça "geldim" demedikçe yok sayılır; dönünce durum
+   raporu verilir. Kullanıcıyı gerçekten gerektiren işler (oturumdan
+   çıkış/giriş, sudo, portal penceresine tıklamak, fiziksel fare, push)
+   "Kullanıcıyı bekleyenler"e yazılıp atlanır, beklenmez. Bu madde 3'teki
+   "her task bitince dur" kuralının yerine geçer.
 
 ## Kullanıcıyı bekleyenler
 
@@ -67,7 +74,7 @@ yapılınca silinmez, `yapıldı` diye işaretlenir.
 | 3 | Task 4.2 ekran kilidi senaryosu: native capture kilitliyken kare vermiyor mu | Kilidi açmak parola istiyor; kullanıcı yokken ekran kilitli kalırdı | `yapıldı` (2026-09-13) |
 | 4 | Paylaşım göstergesinin kaynak kapanınca kaybolduğunu gözle görmek | Gösterge ekran paylaşımı olmadan görülemiyor; test yalnızca Mutter oturum sayısını doğruladı | `yapıldı` (2026-09-13) |
 | 5 | Task 4.3 yayılımı: servisi ve stdio istemcilerini yeniden başlatıp native yolu gerçek kullanımda görmek. `config.toml`'da `[native]` bölümü yok, yani yeni süreçler native yolu seçecek. Sıra: `bridgekilit` → `job_list` boş mu → `systemctl --user restart pcbridge` → Claude Code/Codex'i yeniden başlat → `./doctor.sh` 8. bölüm → `desktop_unlock` sonrası sağ alttaki görev çubuğunda gösterge var, `desktop_lock` sonrası yok. Geri alma: `[native]` altına `capture = "python"` + aynı yeniden başlatmalar. Task 5.1'in yürütme kilidi ve eylem başına izin kontrolü de aynı yeniden başlatmayla devreye girer | Restart çalışan işleri öldürür; stdio süreçleri istemcinin; göstergeyi gözle görmek gerekiyor | servis `yapıldı` (2026-09-13); Claude Desktop ve Claude Code'un stdio süreçleri uygulama bir kez kapatılıp açılınca geçer |
-| 7 | Task 6.3 yayılımı: native erişilebilirlik (`ui_dump`, `ui_click`, `ui_set_text`, `window_list`) stdio istemcilerinde. Servis yeniden başlatıldı ve native yolda; Claude Code ve Claude Desktop'un stdio süreçleri eski kodu çalıştırıyor | stdio süreçleri istemcinin; uygulama kapatılıp açılınca yeni koda geçer | servis `yapıldı` (2026-09-19); stdio uygulama yeniden başlayınca |
+| 7 | Task 6.3 ve 6.4 yayılımı: native erişilebilirlik (`ui_dump`, `ui_click`, `ui_set_text`, `window_list`) ve yeni pencere sırası (`window_focus`, `launch`, `focus`) stdio istemcilerinde. Servis iki kez yeniden başlatıldı ve yeni kodda; Claude Code ve Claude Desktop'un stdio süreçleri eski kodu çalıştırıyor | stdio süreçleri istemcinin; uygulama kapatılıp açılınca yeni koda geçer | servis `yapıldı` (2026-09-19, 6.3 ve 6.4); stdio uygulama yeniden başlayınca |
 | 6 | Task 5.4 / 4 — gerçek girdi testi (`yapıldı` 2026-09-19, 8/8): `PCBRIDGE_TEST_INPUT=1 PCBRIDGE_INPUT_REPORT=<yol> ./.venv/bin/python -m unittest tests/live/test_input_parity.py -v`. İki ekranı ~1 dk kaplayan test penceresi; fare kendiliğinden hareket eder, pencereye tıklar, pencerenin içindeki kutuya Türkçe metin yazar, Shift'i kısa süre basılı tutar | Gerçek tuş ve tıklama gönderiyor; kullanıcı başında olmalı ve o sırada klavye/fareye dokunmamalı. Acil durdurma: Super+L (ekran kilidi native aygıtları anında kapatır) | `yapıldı` (2026-09-19) |
 
 ---
@@ -83,7 +90,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `tamamlandı` (3.1–3.5 ✅, **Gate 3 geçti**) |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
-| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅, **Gate 5 geçti**; 6.1–6.3 ✅; sırada 6.4) |
+| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅, **Gate 5 geçti**; 6.1–6.4 ✅; sırada Gate 6) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
@@ -2441,8 +2448,142 @@ stdio istemcilerini yeniden başlatmak yeter. Yardımcıyı geri almak gerekmez:
 yeni derleme capture ve input için aynı protokolü konuşuyor.
 
 **Sıradaki:** Task 6.4 — uygulama/pencere işlemlerini (`window_focus`, launch,
-pencere listesi) yetenek arkasına almak, sonra **Gate 6**. Kullanıcı onayı
-bekleniyor.
+pencere listesi) yetenek arkasına almak, sonra **Gate 6**. (Kullanıcı 6.4'ü
+"devam et" ile onayladı.)
+
+### Task 6.4 — App/window orchestration'ı capability arkasına al · `tamamlandı` (2026-09-19)
+
+Adım 2 hızlı yolu (eklenti) zaten kurmuştu, yani bu task "çalışan yolu
+yetenek arkasına al ve doğrula" işiydi. Ama doğrularken üç şey ortaya çıktı.
+
+**Önce ölçüm.**
+
+| Ne | Sonuç |
+|---|---|
+| Açık pencerelerin AT-SPI uygulama adı ↔ `.desktop` girdisi | `claude-desktop` ikili adına denk; `gnome-text-editor` (fixture) de öyle; `gnome-terminal-server` ikili adı + ek (audit.log 2026-08-23). `find()` ikili adına bakmıyor |
+| `entries()` | 266 girdi, ilk okuma 58,6 ms, sonra 18 ms |
+| Bu makinedeki adlar | "Desktop" üç girdiye uyuyor (GitHub Desktop, OpenCode, Pcbridge Desktop); "Firefox" kurulu değil; "PcBridge Desktop" kurulu bir uygulama (2026-09-02 ölçümünün hedefi) |
+| GNOME arama sağlayıcıları | Claude sohbetleri, dosyalar (Nautilus), uçbirim sekmeleri, ayarlar, hesap makinesi, kişiler… Varsayılan tarayıcı `google-chrome` |
+| Arka plandaki bir süreçten `gtk-launch` | pencere 0,56 sn'de listede, 0,68 sn'de odakta, tuş yok |
+| `gtk-launch`'ın başlattığı uygulamanın cgroup'u | **çağıranınki** (ölçümde Claude'un kapsamı; serviste `pcbridge.service` olurdu) |
+| `systemd-run --user --scope gtk-launch …` | `app-pcbridge-…scope`, +60 ms (125 ms'ye karşı 64 ms) |
+
+Buradan çıkan üç sorun:
+1. **Yanlış arama sonucu başarı sayılıyordu.** Doğrulama "hedef adı
+   başlıkta ya da uygulama adında geçiyor mu" idi. GNOME araması web
+   aramasına düşünce tarayıcıda başlığı tam da aranan metin olan bir sekme
+   açılıyor, yani doğrulama geçiyordu. Kullanıcının 2026-09-02'de gördüğü
+   belirti buydu.
+2. **Aramaya her ad yazılıyordu.** Pencere başlığı ya da uygulama olmayan bir
+   ad Claude sohbeti, dosya ya da web araması açabilir.
+3. **`gtk-launch` uygulamayı çağıranın cgroup'unda bırakıyordu.** Servisten
+   açılan uygulamayı servisin restart'ı öldürürdü. Bu `window_focus`'un
+   vaadinin tam tersi ve toplu `launch` eyleminde ve `computer_task(app=…)`'ta
+   zaten vardı.
+
+**Ne yapıldı.**
+
+- `apps.py`: dört iç işlem ve onları birleştiren `bring_to_front`.
+  - `resolve_application`: `find()`'in turları, ama belirsizlik açık. Aynı
+    turda birden fazla uygulamaya uyan ad `rivals` taşıyor. Aynı görünen adlı
+    iki girdi (`google-chrome`, `com.google.Chrome`) tek uygulama sayılıyor.
+  - `activate_window`: eklenti (değişmedi).
+  - `observe_focus`: odak okunamazsa `BACKEND_UNAVAILABLE`, hiçbir şey
+    gönderilmeden. Eskiden arama önce yapılıyor, odak sonra okunuyordu.
+  - `launch_application`: `gtk-launch`, sonra pencere görülene kadar izleme
+    (0,1 sn aralık, en çok 10 sn). Görülmezse `EXECUTION_UNKNOWN`; çıkış kodu
+    başarı sayılmıyor. Uygulama `systemd-run --user --scope` ile kendi
+    `app-pcbridge-<kimlik>-<rastgele>.scope`'una giriyor; `systemd-run`
+    yoksa eskisi gibi.
+  - Sıra: eklenti → hedef zaten öndeyse hiçbir tuş yok → kapalıysa tuşsuz
+    başlatma → açık ama eklentinin öne alamadığı pencere için GNOME araması.
+  - Aramaya yalnızca kurulu bir uygulamanın adı yazılıyor. Uygulama olmayan
+    ad `TARGET_MISMATCH`, belirsiz ad `ELEMENT_AMBIGUOUS` alıyor. İkisinde de
+    `execution_state=not_started` ve tuş yok.
+  - Kimlik kuralı (`_shows`): kurulu uygulama için AT-SPI uygulama adı
+    girdinin kimliğine, kimlik sonuna, ikili adına ya da adına denk olmalı;
+    ikili adı 6 karakterden uzunsa öneki de sayılıyor (`gnome-terminal` →
+    `gnome-terminal-server`). Başlık tek başına ancak pencerenin süreci başka
+    hiçbir kurulu uygulamaya ait değilse yetiyor (LibreOffice `soffice`).
+    Yanlış pencere öne gelirse `EXECUTION_UNKNOWN` ve `Escape`: tuşlar gitti,
+    tekrarlanmıyor.
+  - `apps.focus()` eski imzasıyla duruyor (rollback noktası). `prepare()`
+    (`computer_task`) artık aynı sıra: açık uygulamayı yeniden başlatmıyor,
+    eskiden ikinci pencere açıyordu.
+- `batch.py`:
+  - `focus` maliyeti seçilen yoldan geliyor: eklenti varken 200 ms, yokken
+    7000 ms.
+  - `launch` 300 ms'den 1500 ms'ye çıktı, çünkü artık pencereyi bekliyor.
+  - `launch`/`focus` kalan süreyi `budget_left` olarak alıyor. Sığmayan yavaş
+    adım (başlatma, arama) `BudgetExceeded` ile hiç başlamıyor ve motor bunu
+    `stopped="budget"` sayıyor. İyimser tahmin MCP tavanını aşamaz.
+- `ops.py`: `DeviceOps.focus`/`launch` aynı işlemleri kullanıyor (`pcb-do`
+  dahil).
+- `tools.py`: `window_focus` sonucu hangi yoldan gidildiğini söylüyor. Denetim
+  kaydı `path` ve `ms` taşıyor; 2026-09-02 ölçümü yalnızca `batch_step`'ten
+  yapılabilmişti. `computer_batch` ve `pcb-do` seçilen yolu motora veriyor.
+  Araç açıklaması yeni sırayı anlatıyor.
+- `runtime.py`: `window.focus` sınırlama metni yeni sırayı söylüyor.
+  `window.move_resize` `unsupported` kaldı.
+- Yeni test penceresi `tests/live/window_app.py`: stdin okumuyor, çünkü
+  `gtk-launch` uygulamayı stdin kapalı başlatıyor. `a11y_window.py` stdin
+  EOF'ta kapanıyordu.
+- Belgeler: `PLAN.md` notu, `CLAUDE.md` (üç ölçülmüş gerçek + canlı test
+  komutu), `KULLANIM.md` (`window_focus` bölümü Adım 2'den beri eskiydi).
+- Yan düzeltme: `tests/test_e2e.py`'de `ui_dump` açıklama kontrolü
+  `fe355b2`'den beri kırmızıydı. "structured controls" ifadesi docstring'de
+  iki satıra bölünmüştü. Açıklamalar artık boşlukları tek boşluğa
+  indirilerek aranıyor.
+
+**Testler.**
+
+- `tests/contracts/test_window_operations.py` (yeni, 46 test): ad çözümü
+  (belirsizlik, gizli girdi, `find()` ile aynı tur), kimlik kuralı (web
+  araması sekmesi, `soffice`, kısa ikili adı), sıranın her dalı, süre
+  sınırları, `gtk-launch` argümanları (systemd kapsamı, boru yok), `DeviceOps`
+  ve motorun bütçe davranışı.
+- `test_window_focus.py`: arama yedeği testleri kurulu bir uygulamayla. Odak
+  iki kez okunuyor ve ikisi de kullanılıyor; eski kodun kullanılmayan
+  okumasıyla karıştırılmasın diye yorumlu. `prepare` testleri yeni dosyaya
+  taşındı.
+- `test_mcp_errors.py` (+3): denetim kaydında `path`/`ms`, retin
+  `not_started`'ı, `computer_batch`'in seçilen yolu motora vermesi.
+- Mutasyon denemesi: **20 bozulmanın 20'si** yakalandı (`apps` 13, `batch` 3,
+  `ops` 1, `tools` 3); dosyalar SHA-256 ile doğrulanarak geri yüklendi.
+- Canlı (`tests/live/test_window_operations.py`, 9 geçti, 4 tasarım gereği
+  atlandı). Kendi test pencereleri, geçici `.desktop` girdileri; eklenti
+  kapalı (`activate_window` → False) ki arkasındaki yollar koşsun:
+
+  | Ölçüm | Python okuyucu | Native okuyucu |
+  |---|---|---|
+  | Kapalı uygulama → açık ve odakta, tuş yok | 935 ms | **379 ms** |
+  | Zaten öndeki hedef, tuş yok | 132 ms | **31 ms** |
+  | Toplu `launch` (pencere görülene kadar) | 578 ms | **340 ms** |
+  | Arama yedeği (Super + ad + Enter, açık pencere) | 7266 ms | — |
+
+  Açılan pencerenin cgroup'u `app-pcbridge-…scope` (testin kendi kapsamı
+  değil). Uygulama olmayan ad hiçbir tuş göndermeden `TARGET_MISMATCH`
+  aldı. Arama yedeği ikinci örnek başlatmadan var olan pencereyi öne aldı.
+- Takımlar: contract 364, integration 24 (1 atlandı), `test_desktop.py` 583,
+  models 106, safety OK, `--check` 0. Uçtan uca (servis, ajan kapalı) **256
+  geçti, 0 kaldı, 9 atlandı**. Rust'a dokunulmadı.
+
+**Kabul ölçütleri (PLAN 6.4).**
+- Zaten öndeki hedef için `super` gönderilmiyor: ✓ (sözleşme + canlı).
+- Soğuk başlatma korunuyor: ✓ (canlı, artık tuşsuz).
+- Yanlış arama sonucu başarı sayılmıyor: ✓ (sözleşme, web araması sekmesi
+  senaryosu). Canlı üretilmedi, çünkü kullanıcının tarayıcısında sekme açmak
+  gerekirdi.
+
+**Yayılım, yapıldı.** Servis boştaydı (cgroup'ta tek süreç) ve yeniden
+başlatıldı. HTTP + statik token ile `system_capabilities`: `window.focus`
+`supported`/`linux.gnome-shell-extension`, `window.move_resize`
+`unsupported`. stdio istemcileri uygulama kapatılıp açılınca geçer (#7).
+
+**Rollback.** `git revert` yeter: yeni ayar yok. Eski davranışın tek girişi
+`apps.focus()` ve imzası değişmedi.
+
+**Sıradaki:** Gate 6.
 
 ## Adım 6 — İmleç katmanı
 

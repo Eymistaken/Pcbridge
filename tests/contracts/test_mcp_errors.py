@@ -24,7 +24,7 @@ from pcbridge.desktop.capabilities import (  # noqa: E402
     CapabilityEvidence,
     CapabilityState,
 )
-from pcbridge.desktop.errors import ErrorCode  # noqa: E402
+from pcbridge.desktop.errors import DesktopError, ErrorCategory, ErrorCode  # noqa: E402
 from pcbridge.desktop.execution import ExecutionLock  # noqa: E402
 from pcbridge.desktop.runtime import DesktopRuntime  # noqa: E402
 from pcbridge.desktop.safety import Decision  # noqa: E402
@@ -282,8 +282,22 @@ class FakeAccessibility:
     def focused_window(self) -> tuple[str, str]:
         return "fake", "window"
 
+    def windows(self) -> list:
+        return []
+
     def close(self) -> None:
         return None
+
+
+class AuditingGate(FakeGate):
+    """A gate that keeps what was written to the audit log."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.events: list[tuple[str, dict]] = []
+
+    def audit(self, event: str, **fields) -> None:
+        self.events.append((event, fields))
 
 
 def build_mcp(
@@ -336,8 +350,10 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
                 ),
                 mock.patch.object(
                     toolslib.appslib,
-                    "focus",
-                    return_value="Target GNOME eklentisiyle one alindi",
+                    "bring_to_front",
+                    return_value=toolslib.appslib.Outcome(
+                        "extension", "Target GNOME eklentisiyle one alindi"
+                    ),
                 ),
             ):
                 async with Client(mcp) as client:
@@ -357,7 +373,7 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
                 mock.patch.object(
                     toolslib.appslib, "extension_focus_available", return_value=False
                 ),
-                mock.patch.object(toolslib.appslib, "focus") as focus,
+                mock.patch.object(toolslib.appslib, "bring_to_front") as focus,
             ):
                 async with Client(mcp) as client:
                     result = await client.call_tool(
@@ -381,8 +397,10 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
                 ),
                 mock.patch.object(
                     toolslib.appslib,
-                    "focus",
-                    return_value="Target GNOME eklentisiyle one alindi",
+                    "bring_to_front",
+                    return_value=toolslib.appslib.Outcome(
+                        "extension", "Target GNOME eklentisiyle one alindi"
+                    ),
                 ),
             ):
                 async with Client(mcp) as client:
@@ -398,6 +416,100 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(result.is_error)
         self.assertEqual(input_provider.ensure_calls, [])
+
+    async def test_window_focus_audits_its_path_and_duration(self) -> None:
+        # Task 6.4: the 2026-09-02 measurement could only be made from batch
+        # steps, because `window_focus` events carried no duration.
+        gate = AuditingGate()
+        with tempfile.TemporaryDirectory() as raw:
+            mcp, _tree = build_mcp(Path(raw), gate=gate)
+            with (
+                mock.patch.object(
+                    toolslib.appslib, "extension_focus_available", return_value=True
+                ),
+                mock.patch.object(
+                    toolslib.appslib,
+                    "bring_to_front",
+                    return_value=toolslib.appslib.Outcome(
+                        "already", "app | pencere zaten odakta", "app", "pencere"
+                    ),
+                ) as front,
+            ):
+                async with Client(mcp) as client:
+                    result = await client.call_tool(
+                        "window_focus", {"window": "Target", "force": True},
+                        raise_on_error=False,
+                    )
+
+        self.assertFalse(result.is_error)
+        self.assertIn("zaten odakta", result.content[0].text)
+        event = dict(gate.events)["window_focus"]
+        self.assertEqual(event["path"], "already")
+        self.assertIsInstance(event["ms"], int)
+        # The window list goes in: without it a closed application cannot be
+        # told apart from an open one.
+        self.assertEqual(len(front.call_args.args), 4)
+
+    async def test_window_focus_refusal_says_nothing_was_done(self) -> None:
+        gate = AuditingGate()
+        refusal = DesktopError(
+            code=ErrorCode.TARGET_MISMATCH,
+            message="'Target' ne kurulu bir uygulama ne de acik bir pencere.",
+            category=ErrorCategory.ACCESSIBILITY,
+            retryable=True,
+            suggested_action="window_list ile bakin.",
+            permission_scope="os.window",
+            backend="desktop.window",
+            execution_state="not_started",
+        )
+        with tempfile.TemporaryDirectory() as raw:
+            mcp, _tree = build_mcp(Path(raw), gate=gate)
+            with (
+                mock.patch.object(
+                    toolslib.appslib, "extension_focus_available", return_value=True
+                ),
+                mock.patch.object(
+                    toolslib.appslib, "bring_to_front", side_effect=refusal
+                ),
+            ):
+                async with Client(mcp) as client:
+                    result = await client.call_tool(
+                        "window_focus", {"window": "Target", "force": True},
+                        raise_on_error=False,
+                    )
+
+        self.assertTrue(result.is_error)
+        error = result.structured_content["error"]
+        self.assertEqual(error["code"], "TARGET_MISMATCH")
+        self.assertEqual(error["execution_state"], "not_started")
+        self.assertIn("ms", dict(gate.events)["window_focus_error"])
+
+    async def test_batch_budget_uses_the_selected_focus_path(self) -> None:
+        seen: dict[str, bool] = {}
+        real_run = toolslib.batchlib.run
+
+        def run(*args, **kwargs):
+            seen["fast_focus"] = kwargs.get("fast_focus", False)
+            return real_run(*args, **kwargs)
+
+        for extension in (True, False):
+            with tempfile.TemporaryDirectory() as raw:
+                mcp, _tree = build_mcp(Path(raw))
+                with (
+                    mock.patch.object(
+                        toolslib.appslib, "extension_focus_available",
+                        return_value=extension,
+                    ),
+                    mock.patch.object(toolslib.batchlib, "run", side_effect=run),
+                ):
+                    async with Client(mcp) as client:
+                        await client.call_tool(
+                            "computer_batch",
+                            {"actions": '[{"a":"wait","ms":1}]', "final": "none",
+                             "force": True},
+                            raise_on_error=False,
+                        )
+            self.assertEqual(seen["fast_focus"], extension)
 
     async def test_system_capabilities_is_read_only_and_structured(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

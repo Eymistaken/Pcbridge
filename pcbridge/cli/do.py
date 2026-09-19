@@ -144,16 +144,19 @@ def main(argv: list[str] | None = None) -> int:
         if "focus" in {a.a for a in plan}:
             lines.append(
                 "focus yolu: "
-                + ("GNOME eklentisi (acik pencere)" if fast_focus
-                   else "GNOME aramasi (eklenti yok)")
+                + ("GNOME eklentisi (acik pencere); kapali uygulama dogrudan "
+                   "acilir, eklenti one alamazsa GNOME aramasi" if fast_focus
+                   else "zaten odaktaysa tus yok; kapali uygulama dogrudan "
+                   "acilir, acik pencere GNOME aramasiyla (eklenti yok)")
             )
-        lines.append(f"tahmini sure: {batchlib.estimate(plan):.1f} s")
+        estimate = batchlib.estimate(plan, fast_focus=fast_focus)
+        lines.append(f"tahmini sure: {estimate:.1f} s")
         if args.json:
             print(json.dumps({
                 "ok": True, "dry_run": True, "count": len(plan),
                 "actions": [{"a": a.a, **a.args} for a in plan],
                 "needs_keyboard": want_k, "needs_pointer": want_p,
-                "estimate_seconds": round(batchlib.estimate(plan), 1),
+                "estimate_seconds": round(estimate, 1),
             }, ensure_ascii=False, indent=2))
         else:
             print("\n".join(lines))
@@ -270,6 +273,7 @@ def _run_plan(cfg, args, plan, runtime) -> int:
                 expect_focus=args.expect_focus,
                 repeat_limit=cfg.desktop.repeat_click_limit,
                 before_action=guard,
+                fast_focus=not focus_uses_keyboard,
             )
     except executionlib.SequenceRefused as exc:
         busy = exc.code == ErrorCode.BUSY

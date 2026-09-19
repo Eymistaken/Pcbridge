@@ -16,7 +16,7 @@ import time
 from typing import Any
 
 from . import apps as appslib
-from .batch import INPUT_ACTIONS, POINTER_ACTIONS, Action
+from .batch import INPUT_ACTIONS, POINTER_ACTIONS, Action, BudgetExceeded
 from .contracts import CaptureProvider
 
 # Fareyi tasidiktan sonra tiklamadan once verilen soluklanma. Kompozitorun
@@ -46,15 +46,18 @@ def devices_needed(
     liste hicbir cihaz actirmaz -- C bolumunde duzeltilen "erisilebilirlik
     araci /dev/uinput istiyor" hatasi burada tekrarlanmasin.
 
-    `focus` iki yoldan biriyle calisiyor: GNOME kabuk eklentisi kuruluysa
-    dogrudan `Meta.Window.activate` (cihaz YOK), degilse `super` + ad +
-    `Return` aramasi (klavye VAR). Hangisinin secilecegi bir D-Bus sorusu ve
-    bu modul saf kaliyor, o yuzden cevap parametreyle geliyor.
+    `focus` dort yoldan biriyle bitiyor (`apps.bring_to_front`): GNOME kabuk
+    eklentisi (cihaz YOK), hedef zaten odakta (cihaz YOK), kapali uygulamayi
+    `gtk-launch` ile acmak (cihaz YOK) ya da acik ama eklentinin one
+    alamadigi pencere icin `super` + ad + `Return` aramasi (klavye VAR).
+    Hangisinin secilecegi ancak eylem aninda bilinir. Eklentinin varligi bir
+    D-Bus sorusu ve bu modul saf kaliyor, o yuzden cevap parametreyle geliyor.
 
     VARSAYILAN MUHAFAZAKAR. Cagiran sormadiysa klavye gerekli sayilir: eklenti
-    kurulu OLSA BILE hedef kapaliysa ya da ad birden fazla pencereye uyuyorsa
-    `ActivateWindow` False doner ve aramaya dusulur. Yanlis "gerekmiyor"
-    cevabi cihazi eylemin ortasinda tembel actirir (~1,3 sn, butcede yok).
+    kurulu OLSA BILE ad birden fazla pencereye uyuyorsa `ActivateWindow`
+    False doner ve aramaya dusulebilir. Yanlis "gerekmiyor" cevabi cihazi
+    eylemin ortasinda tembel actirir (~1,3 sn; aramanin kalan-sure kontrolu
+    bunu hesaba katiyor, `apps.SEARCH_COST`).
     """
     kinds = {a.a for a in actions}
     keyboard = bool(kinds & KEYBOARD_ACTIONS)
@@ -62,6 +65,11 @@ def devices_needed(
     if focus_uses_keyboard and "focus" in kinds:
         keyboard = True
     return keyboard, pointer
+
+
+def _deadline(budget_left: float | None) -> float | None:
+    """Motorun verdigi kalan sureyi bu surecin saatinde bir son tarihe cevir."""
+    return None if budget_left is None else time.monotonic() + budget_left
 
 
 class DeviceOps:
@@ -185,11 +193,30 @@ class DeviceOps:
         )
 
     # ------------------------------------------------------------ uygulama
-    def launch(self, app: str) -> str:
-        return appslib.launch(app)
+    # Ikisi de `window_focus` ile ayni `apps` islemlerinden geciyor (Task 6.4):
+    # baslatma penceresini gorerek dogrulanir, `focus` ayni sirayi izler.
+    def launch(self, app: str, budget_left: float | None = None) -> str:
+        try:
+            return appslib.launch_application(
+                appslib.resolve_application(app),
+                self.tree.focused_window,
+                self.tree.windows,
+                deadline=_deadline(budget_left),
+            ).note
+        except appslib.NoTimeLeft as exc:
+            raise BudgetExceeded(str(exc)) from exc
 
-    def focus(self, window: str) -> str:
-        return appslib.focus(window, self.backend, self.tree.focused_window)
+    def focus(self, window: str, budget_left: float | None = None) -> str:
+        try:
+            return appslib.bring_to_front(
+                window,
+                self.backend,
+                self.tree.focused_window,
+                self.tree.windows,
+                deadline=_deadline(budget_left),
+            ).note
+        except appslib.NoTimeLeft as exc:
+            raise BudgetExceeded(str(exc)) from exc
 
     def focused(self) -> str:
         app, win = self.tree.focused_window()

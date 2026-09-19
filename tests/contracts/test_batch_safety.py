@@ -190,10 +190,10 @@ class RecordingOps:
     def ui_set_text(self, node_id, text):
         return self._do("ui_set_text", node_id)
 
-    def launch(self, app):
+    def launch(self, app, budget_left=None):
         return self._do("launch", app)
 
-    def focus(self, window):
+    def focus(self, window, budget_left=None):
         return self._do("focus", window)
 
     def focused(self):

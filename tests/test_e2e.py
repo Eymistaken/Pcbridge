@@ -496,6 +496,12 @@ def main() -> int:
 
     # Masaustu araclarinin semasi -- Gemini bunlari dogru doldurabilmeli
     by_name = {t["name"]: t for t in tools}
+    # Aciklamalar docstring'den geliyor ve satir sonlarini tasiyor: aranan bir
+    # ifade ("structured controls") iki satira bolunebilir. Ifadeler
+    # bosluklari tek bosluga indirilmis metinde aranir.
+    for tool in by_name.values():
+        if isinstance(tool.get("description"), str):
+            tool["description"] = " ".join(tool["description"].split())
     for tool_name, must_have in (
         ("mouse", ("action", "x", "y", "shot", "monitor", "force")),
         ("keyboard", ("action", "text", "keys", "raw", "force")),

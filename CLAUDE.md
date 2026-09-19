@@ -85,6 +85,17 @@ PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_INPUT=1 \
   ./.venv/bin/python -m unittest tests/live/test_accessibility_parity.py -v
 ```
 
+Pencere işlemlerinin canlı testi (Task 6.4) kendi küçük pencerelerini
+`~/.local/share/applications` altına yazdığı geçici girdilerle açar, sonra
+pencereleri kapatır ve girdileri siler. Okuma `PCBRIDGE_TEST_ATSPI=1` ister.
+Arama yedeği testi ayrıca `PCBRIDGE_TEST_INPUT=1` ister: kendi test penceresi
+öndeyken Super'e basar, test uygulamasının adını yazar ve Enter'a basar.
+
+```bash
+PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_INPUT=1 \
+  ./.venv/bin/python -m unittest tests/live/test_window_operations.py -v
+```
+
 Bütün live testleri bilinçli olarak birlikte çalıştırmak için dört bayrağı da
 açıkça ver:
 
@@ -105,7 +116,7 @@ sunucusuz olarak zaten kontrol ediyor.
 ```bash
 export PCBRIDGE_TEST_PASSWORD="$(./.venv/bin/python -c 'import sys; sys.path.insert(0,"."); from pcbridge.config import load_config; print(load_config().password)')"
 export PCBRIDGE_TEST_STATIC="$(./.venv/bin/python -c 'import sys; sys.path.insert(0,"."); from pcbridge.config import load_config; print(load_config().static_token or "")')"
-PCBRIDGE_TEST_NO_AGENT=1 ./.venv/bin/python tests/test_e2e.py   # 231 gecer + 9 ATLA
+PCBRIDGE_TEST_NO_AGENT=1 ./.venv/bin/python tests/test_e2e.py   # 256 gecer + 9 ATLA
 ```
 
 Tek bir kontrolü koşturmak için dosyalar pytest ile toplanabilir yazıldı:
@@ -397,8 +408,32 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   ortalama **4,4 ms**. Taban çizgisi 2026-09-02'de altı çağrıda ortalama
   **6701,3 ms** idi — aynı ölçüm noktası, **~1500 kat**. Nested kabuk 6,8 ms
   göstermişti, yani nested burada abartmış.
-  Eklenti yoksa veya hedef kapalıysa GNOME araması (`super` + ad + `Return`)
-  aynen kalır.
+  Task 6.4'ten beri (2026-09-19) sıra şöyle: önce eklenti; hedef zaten öndeyse
+  hiçbir tuş gönderilmez; kapalı uygulama `gtk-launch` ile tuşsuz açılır; açık
+  ama eklentinin öne alamadığı pencere için GNOME araması (`super` + ad +
+  `Return`) açık bir `degraded` yedek olarak kalır. Ayrıntı `apps.py`'nin
+  başında.
+- **`gtk-launch` ile açılan pencere odağı alıyor, ama uygulama çağıranın
+  cgroup'unda kalıyor.** Ölçüldü 2026-09-19, küçük GTK4 test penceresi:
+  - Arka plandaki bir süreçten başlatılınca 0,56 sn'de erişilebilirlik
+    listesinde görüldü, 0,68 sn'de odağı aldı.
+  - D-Bus ile etkinleşmeyen uygulamayı `gtk-launch` kendi çocuğu olarak
+    başlatıyor ve pencere çağıranın cgroup'unda kaldı. Servisten çağrılınca
+    bu `pcbridge.service` demek: restart uygulamayı da öldürürdü. Bu açık
+    toplu `launch` eyleminde ve `computer_task(app=…)`'ta da vardı.
+  - `systemd-run --user --scope` ile açılan pencere kendi kapsamına
+    (`app-pcbridge-*.scope`) düştü, maliyeti +60 ms. GNOME Shell de
+    uygulamaları `app-gnome-*.scope` içinde başlatıyor.
+- **GNOME araması uygulamadan fazlasını buluyor.** Bu makinedeki arama
+  sağlayıcıları Claude sohbetlerini, dosyaları, uçbirim sekmelerini ve
+  ayarları da tarıyor. Uygulama bulunamazsa Enter web aramasına düşüyor ve
+  tarayıcıda başlığı aranan metin olan bir sekme açılıyor; eski doğrulama
+  ("hedef adı başlıkta geçiyor mu") bunu başarı sayardı. Bu yüzden aramaya
+  yalnızca kurulu bir uygulamanın adı yazılıyor. Sonuç, AT-SPI'daki uygulama
+  adı `.desktop` girdisiyle eşleştirilerek doğrulanıyor. Ölçülen uygulama
+  adları girdinin bir alanına denk: `gnome-text-editor` ve `claude-desktop`
+  ikili adı, `gnome-terminal-server` ise ikili adı + ek (audit.log
+  2026-08-23).
 - **Eklentinin `ActivateWindow`'u grant'i her çağrıda yeniden okuyor ve
   `until`'e bakması yeterli.** Ölçüldü: izin kapalıyken gerçek oturumda
   `b false` döndü ve hiçbir pencere etkinleşmedi. `until` tek başına güvenli,

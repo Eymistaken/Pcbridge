@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Contracts for the GNOME extension window-focus fast path and fallback."""
+"""Contracts for the GNOME extension window-focus fast path and fallback.
+
+The order around them (already in front, cold launch, which names may be
+searched) is in `test_window_operations.py` (Task 6.4).
+"""
 
 from __future__ import annotations
 
@@ -14,6 +18,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from pcbridge.desktop import apps  # noqa: E402
+
+# An installed application: only those are ever typed into GNOME search.
+TARGET = apps.Entry("org.example.Target", "Target", False, ("Target",), (), "target-app")
 
 
 class RecordingBackend:
@@ -43,9 +50,12 @@ class FocusFastPathTests(unittest.TestCase):
 
     def test_extension_not_installed_preserves_existing_search_path(self) -> None:
         backend = RecordingBackend()
-        focused = mock.Mock(side_effect=[("Target App", "Target Window")])
+        focused = mock.Mock(side_effect=[
+            ("Other", "Other"), ("target-app", "Target Window"),
+        ])
         with (
             mock.patch.object(apps.subprocess, "run", side_effect=FileNotFoundError),
+            mock.patch.object(apps, "entries", return_value=[TARGET]),
             mock.patch.object(apps.time, "sleep") as sleep,
         ):
             result = apps.focus("Target", backend, focused, settle=0)
@@ -58,18 +68,23 @@ class FocusFastPathTests(unittest.TestCase):
             sleep.call_args_list,
             [mock.call(0), mock.call(apps.SEARCH_RESULTS), mock.call(apps.SEARCH_ACTIVATE)],
         )
-        self.assertEqual(result, "Target App | Target Window one alindi")
-        # Odak TEK kez okunuyor. Eski kodda bastan bir `focused()` cagrisi
-        # daha vardi ve sonucu hicbir yerde kullanilmiyordu; AT-SPI turu
-        # ucuz degil, geri gelmesin.
-        self.assertEqual(focused.call_count, 1)
+        self.assertEqual(
+            result, "target-app | Target Window one alindi (GNOME aramasi, yedek yol)"
+        )
+        # Odak IKI kez okunuyor ve ikisi de kullaniliyor: once "zaten odakta
+        # mi" (oyleyse hic tus gitmez, Task 6.4), sonra aramanin sonucu. Eski
+        # koddaki bastaki okuma kullanilmiyordu ve silinmisti; bu o degil.
+        self.assertEqual(focused.call_count, 2)
 
     def test_extension_target_miss_falls_back_to_search(self) -> None:
         backend = RecordingBackend()
-        focused = mock.Mock(side_effect=[("Target App", "Target Window")])
+        focused = mock.Mock(side_effect=[
+            ("Other", "Other"), ("target-app", "Target Window"),
+        ])
         reply = SimpleNamespace(returncode=0, stdout="b false\n", stderr="")
         with (
             mock.patch.object(apps.subprocess, "run", return_value=reply),
+            mock.patch.object(apps, "entries", return_value=[TARGET]),
             mock.patch.object(apps.time, "sleep"),
         ):
             apps.focus("Target", backend, focused, settle=0)
@@ -81,9 +96,12 @@ class FocusFastPathTests(unittest.TestCase):
 
     def test_extension_false_falls_back_to_search(self) -> None:
         backend = RecordingBackend()
-        focused = mock.Mock(side_effect=[("Target App", "Target Window")])
+        focused = mock.Mock(side_effect=[
+            ("Other", "Other"), ("target-app", "Target Window"),
+        ])
         with (
             mock.patch.object(apps, "_extension_activate", return_value=False),
+            mock.patch.object(apps, "entries", return_value=[TARGET]),
             mock.patch.object(apps.time, "sleep"),
         ):
             apps.focus("Target", backend, focused, settle=0)
@@ -113,47 +131,6 @@ class FocusFastPathTests(unittest.TestCase):
         self.assertEqual(argv[-3:-1], ["NameHasOwner", "s"])
         self.assertEqual(argv[-1], apps._FOCUS_BUS_NAME)
         self.assertEqual(run.call_args.kwargs["timeout"], 1.0)
-
-    def test_prepare_cold_launch_skips_search_when_new_window_has_focus(self) -> None:
-        backend = RecordingBackend()
-        state = {"open": False}
-
-        def launch(_app: str) -> str:
-            self.assertFalse(state["open"])
-            state["open"] = True
-            return "Text Editor baslatildi"
-
-        def focused() -> tuple[str, str]:
-            return ("Text Editor", "Untitled Document") if state["open"] else ("", "")
-
-        with (
-            mock.patch.object(apps, "launch", side_effect=launch) as start,
-            mock.patch.object(apps, "focus") as search,
-            mock.patch.object(apps.time, "sleep"),
-        ):
-            result = apps.prepare("Text Editor", backend, focused)
-
-        start.assert_called_once_with("Text Editor")
-        search.assert_not_called()
-        self.assertIn("acildiktan sonra odakta", result)
-        self.assertEqual(backend.events, [])
-
-    def test_prepare_keeps_search_fallback_when_launch_does_not_focus(self) -> None:
-        with (
-            mock.patch.object(apps, "launch", return_value="Target baslatildi"),
-            mock.patch.object(apps.time, "sleep"),
-            mock.patch.object(
-                apps, "focus", return_value="Target | Window one alindi"
-            ) as search,
-        ):
-            result = apps.prepare(
-                "Target", RecordingBackend(), lambda: ("Other", "Other")
-            )
-
-        search.assert_called_once()
-        self.assertEqual(
-            result, "Target baslatildi · Target | Window one alindi"
-        )
 
 
 if __name__ == "__main__":

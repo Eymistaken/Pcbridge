@@ -67,12 +67,19 @@ COST_MS: dict[str, float] = {
     "release": 30.0,
     "ui_click": 400.0,    # yardimci surec baslatma dahil
     "ui_set_text": 400.0,
-    "launch": 300.0,
-    # Eklenti yolu milisaniye; ama hedef kapaliysa GNOME arama yedegi halen
-    # ~6.7 sn. Butce baslamadan once kotumser olmalı, bu yüzden 7000 korunur.
+    # `gtk-launch` (~0,13 sn) + penceresi gorulene kadar izleme (Task 6.4).
+    # Olculdu 2026-09-19: kucuk bir GTK4 penceresi 0,68 sn'de odakta. Buyuk
+    # uygulamalar daha yavas; izleme batch'in kalan suresiyle sinirli.
+    "launch": 1500.0,
+    # GNOME aramasi (eklenti yok): olculdu 6616-6935 ms.
     "focus": 7000.0,
     "wait": 0.0,          # asagida ms alanindan gelir
 }
+# Eklenti kuruluyken `focus`: eklenti 3-6 ms (olculdu 2026-09-12), "zaten
+# odakta mi" okumasi native ~7 ms / Python ~100 ms. Hedef kapaliysa baslatma,
+# eklenti one alamazsa arama gerekir; o yavas adimlar kalan sureye kendileri
+# bakar ve sigmiyorsa `BudgetExceeded` ile hic baslamaz.
+FOCUS_FAST_MS = 200.0
 # Ilk fare/klavye eyleminde uinput cihazi yaratiliyor: olculdu ~1.3 sn. Sunucu
 # omrunde bir kez odenir ama ilk batch'te gorunur, tahmine katiliyor.
 FIRST_INPUT_MS = 1350.0
@@ -99,6 +106,15 @@ MAX_WAIT_MS = 30_000
 
 class BatchError(ValueError):
     """Eylem listesi okunamadi. Hicbir sey calistirilmadan atilir."""
+
+
+class BudgetExceeded(Exception):
+    """Bir `Ops` adimi kalan sureye sigmayacak. HICBIR SEY yapilmadi.
+
+    Yalnizca geri alinamaz bir sey yapilmadan ONCE atilir. Motor bunu kendi
+    eylem-oncesi butce kontrolu gibi sayar: `stopped="budget"`, eylem
+    yapilmayanlara girer.
+    """
 
 
 @dataclass(frozen=True)
@@ -185,8 +201,10 @@ class Ops(Protocol):
     def release_all(self) -> list[str]: ...
     def ui_click(self, node_id: str) -> str: ...
     def ui_set_text(self, node_id: str, text: str) -> str: ...
-    def launch(self, app: str) -> str: ...
-    def focus(self, window: str) -> str: ...
+    # `budget_left`: bu eylemin surebilecegi en fazla sure (sn). Sigmayacak
+    # yavas bir adim `BudgetExceeded` ile hic baslatilmaz.
+    def launch(self, app: str, budget_left: float | None = None) -> str: ...
+    def focus(self, window: str, budget_left: float | None = None) -> str: ...
     def focused(self) -> str: ...
 
 
@@ -371,10 +389,16 @@ def parse(raw: Any, max_actions: int = 40) -> list[Action]:
 
 
 # ------------------------------------------------------------------- tahmin
-def cost_ms(action: Action, first_input: bool = False) -> float:
-    """Tek bir eylemin tahmini maliyeti (ms)."""
+def cost_ms(action: Action, first_input: bool = False, fast_focus: bool = False) -> float:
+    """Tek bir eylemin tahmini maliyeti (ms).
+
+    `fast_focus`: `focus` icin secilen yol eklenti mi (Task 6.4). Cagiran
+    `apps.extension_focus_available()` ile sorar; motor D-Bus tanimaz.
+    """
     if action.a == "wait":
         return float(action.args.get("ms") or 0)
+    if action.a == "focus" and fast_focus:
+        return FOCUS_FAST_MS
     base = COST_MS.get(action.a, 200.0)
     if first_input and action.a in INPUT_ACTIONS:
         base += FIRST_INPUT_MS
@@ -383,12 +407,14 @@ def cost_ms(action: Action, first_input: bool = False) -> float:
     return base
 
 
-def estimate(actions: list[Action], min_gap: float = 0.0) -> float:
+def estimate(actions: list[Action], min_gap: float = 0.0,
+             fast_focus: bool = False) -> float:
     """Listenin tahmini toplam suresi (saniye)."""
     total = 0.0
     seen_input = False
     for act in actions:
-        total += cost_ms(act, first_input=not seen_input) / 1000.0
+        total += cost_ms(act, first_input=not seen_input,
+                         fast_focus=fast_focus) / 1000.0
         if act.a in INPUT_ACTIONS:
             seen_input = True
         total += min_gap
@@ -397,7 +423,7 @@ def estimate(actions: list[Action], min_gap: float = 0.0) -> float:
 
 # ----------------------------------------------------------------- calisma
 def _dispatch(ops: Ops, act: Action, sleep: Callable[[float], None],
-              auto_raw: bool) -> str:
+              auto_raw: bool, budget_left: float | None = None) -> str:
     a, kw = act.a, act.args
     if a == "wait":
         sleep((kw.get("ms") or 0) / 1000.0)
@@ -435,9 +461,9 @@ def _dispatch(ops: Ops, act: Action, sleep: Callable[[float], None],
     if a == "ui_set_text":
         return ops.ui_set_text(kw["id"], kw["text"])
     if a == "launch":
-        return ops.launch(kw["app"])
+        return ops.launch(kw["app"], budget_left=budget_left)
     if a == "focus":
-        return ops.focus(kw["window"])
+        return ops.focus(kw["window"], budget_left=budget_left)
     raise BatchError(f"Calistirilamayan eylem: {a}")
 
 
@@ -451,6 +477,7 @@ def run(
     expect_focus: str = "",
     repeat_limit: int = 3,
     before_action: Callable[[Action], None] | None = None,
+    fast_focus: bool = False,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> Result:
@@ -475,6 +502,10 @@ def run(
     Her eylemden ONCE cagrilir; istisna atarsa o eylem gonderilmez ve dizi
     `stopped="safety"` ile durur. Motor kancanin neye baktigini bilmez --
     izin, revoke, sure, ekran kilidi -- yani hala gercek cihaz tanimiyor.
+
+    `fast_focus`: `focus` icin secilen yol eklenti mi. Butce kontrolu o yolun
+    maliyetini kullanir; `launch`/`focus` kalan sureyi `budget_left` olarak
+    alir ve sigmayan yavas adimi `BudgetExceeded` ile hic baslatmaz.
     """
     want_focus = (expect_focus or "").strip().lower()
     started = clock()
@@ -518,7 +549,8 @@ def run(
     i = 0
     for i, act in enumerate(pending):
         elapsed = clock() - started
-        need = cost_ms(act, first_input=not seen_input) / 1000.0
+        need = cost_ms(act, first_input=not seen_input,
+                       fast_focus=fast_focus) / 1000.0
         if elapsed + need > budget:
             stopped = "budget"
             detail = (
@@ -569,8 +601,15 @@ def run(
 
         t0 = clock()
         try:
-            note = _dispatch(ops, act, sleep, auto_raw and act.a == "type")
+            note = _dispatch(ops, act, sleep, auto_raw and act.a == "type",
+                             budget_left=max(0.0, budget - (t0 - started)))
             ok = True
+        except BudgetExceeded as exc:
+            # Adim kendi sigmayacagini gordu ve HICBIR SEY yapmadi: eylem-oncesi
+            # butce kontrolu gibi, eylem yapilmayanlara girer.
+            stopped = "budget"
+            detail = f"{act.describe()}: {str(exc)[:160]}"
+            break
         except Exception as exc:
             note = str(exc)
             ok = False

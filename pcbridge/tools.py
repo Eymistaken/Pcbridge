@@ -2063,10 +2063,10 @@ def register(
             str,
             Field(
                 description="Application or window name as a human would say it, "
-                "e.g. 'Text Editor', 'Firefox', 'Vesktop'. The application does "
-                "NOT have to be running. Already-open windows use the GNOME "
-                "Shell extension when available; closed applications and "
-                "systems without the extension use desktop search."
+                "e.g. 'Text Editor', 'Google Chrome', 'Vesktop'. The application "
+                "does NOT have to be running: a closed application is launched. "
+                "A window title only works while the GNOME Shell extension is "
+                "available; without it, give the installed application's name."
             ),
         ],
         force: Annotated[
@@ -2074,21 +2074,24 @@ def register(
             Field(description="Go ahead even if the user just used the machine."),
         ] = False,
     ) -> str | ToolResult:
-        """Open a graphical application and bring it to the front, launching it
-        first if it is not already running. An available GNOME Shell extension
-        activates an already-open window directly. If the extension is absent or
-        the target is closed, the existing desktop-search path remains the
-        fallback and verifies the result through the accessibility tree.
+        """Bring an application's window to the front, launching the application
+        first if it is not running. Nothing is typed when the target is already
+        in front. An open window is activated through the GNOME Shell extension
+        when available; a closed application is started directly. Only when an
+        open window cannot be activated that way does desktop search run, as a
+        slower fallback. Every result is checked against the window that ends up
+        in front, and a wrong window is reported as an error, not as success.
 
         Use this when the desktop must own the new process lifetime and keep the
         window discoverable across pcbridge restarts. Shell commands remain valid
         for deterministic work and for handing a request, such as a URL, to an
         application process that is already running.
 
-        The direct path takes milliseconds; the search fallback takes a few
-        seconds. If the app is already up and you only need to press a button or
-        fill a field, prefer `ui_click` / `ui_set_text` — those reach the widget
-        directly and do not require the window to be in front at all."""
+        The extension path takes milliseconds, a cold launch about a second, the
+        search fallback several seconds. If the app is already up and you only
+        need to press a button or fill a field, prefer `ui_click` /
+        `ui_set_text` — those reach the widget directly and do not require the
+        window to be in front at all."""
         fast_focus_available = appslib.extension_focus_available()
         denied = _guard(
             "window_focus",
@@ -2103,11 +2106,17 @@ def register(
         write = _begin_write("window_focus")
         if isinstance(write, ToolResult):
             return write
+        # `ms` denetim kaydina yaziliyor: 2026-09-02 olcumu yalnizca toplu
+        # eylemin `batch_step`inden yapilabilmisti, bu olaylar sure tasimiyordu.
+        started = time.monotonic()
         try:
-            note = appslib.focus(str(window), backend, tree.focused_window)
+            outcome = appslib.bring_to_front(
+                str(window), backend, tree.focused_window, tree.windows
+            )
         except (appslib.AppError, DesktopError) as exc:
             gate.audit("window_focus_error", target=str(window)[:60],
-                       error=str(exc)[:160])
+                       error=str(exc)[:160],
+                       ms=round((time.monotonic() - started) * 1000))
             return _exception_result(
                 exc,
                 text=f"Hata: {exc}",
@@ -2117,8 +2126,10 @@ def register(
             )
         finally:
             write.close()
-        gate.audit("window_focus", target=str(window)[:60], forced=force or None)
-        return note
+        gate.audit("window_focus", target=str(window)[:60], path=outcome.path,
+                   ms=round((time.monotonic() - started) * 1000),
+                   forced=force or None)
+        return outcome.note
 
     # ------------------------------------------------------------ toplu eylem
     # `DeviceOps` artik `desktop/ops.py`'de: ayni uygulamayi `bin/pcb-do`
@@ -2209,13 +2220,16 @@ def register(
         kinds = {a.a for a in plan}
         # Yalnizca erisilebilirlik eylemleri varsa /dev/uinput aranmaz --
         # C bolumunde duzeltilen ayni hata burada tekrarlanmasin.
-        # Acik pencere icin eklenti yolu uinput kullanmaz. Servis yoksa eski
-        # GNOME aramasinin klavye on kontrolu ve toplu cihaz acilisi aynen
-        # korunur. Hedef bulunamazsa eklenti False dondurur; apps.focus yedek
-        # arama icin klavyeyi o anda tembel olarak acar.
+        # Acik pencere icin eklenti yolu uinput kullanmaz; kapali uygulama da
+        # `gtk-launch` ile tussuz acilir. Servis yoksa GNOME aramasinin klavye
+        # on kontrolu ve toplu cihaz acilisi aynen korunur. Eklenti bir
+        # pencereyi one alamazsa `apps.bring_to_front` yedek arama icin
+        # klavyeyi o anda tembel olarak acar. Ayni cevap butce tahmininin
+        # hangi `focus` yolunu sayacagini da belirler (Task 6.4).
+        fast_focus = appslib.extension_focus_available()
         want_kbd, want_ptr = opslib.devices_needed(
             plan,
-            focus_uses_keyboard=not appslib.extension_focus_available(),
+            focus_uses_keyboard=not fast_focus,
         )
         need_kbd = want_kbd
         needs_input = need_kbd or want_ptr
@@ -2273,6 +2287,7 @@ def register(
                     expect_focus=expect_focus or "",
                     repeat_limit=cfg.desktop.repeat_click_limit,
                     before_action=guard,
+                    fast_focus=fast_focus,
                 )
         except executionlib.SequenceRefused as exc:
             return _sequence_refused(
@@ -2512,7 +2527,7 @@ def register(
                 return write
             try:
                 opened = appslib.prepare(
-                    str(app), backend, tree.focused_window
+                    str(app), backend, tree.focused_window, tree.windows
                 )
             except (appslib.AppError, DesktopError) as exc:
                 gate.audit("computer_task_app_error", app=str(app)[:60],

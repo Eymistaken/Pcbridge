@@ -13,8 +13,28 @@ PENCERE ONE ALMA NEDEN BOYLE
     `Meta.Window.activate()` kullanir. Yoksa ya da hedefi bulamazsa mevcut
     GNOME aramasi (`super` + ad + `Return`) aynen yedek olarak kalir.
 
-    Arama YANLIS uygulamayi acabilecegi icin sonuc her zaman AT-SPI'dan
-    dogrulanir; tutmazsa `Escape` ile toparlanip hata donulur.
+DORT IC ISLEM (Task 6.4)
+    `resolve_application` adi kurulu bir uygulamaya cevirir, `launch_application`
+    onu `gtk-launch` ile acar ve penceresini gorene kadar bekler,
+    `activate_window` eklentiye sorar, `observe_focus` odagi AT-SPI'dan okur.
+    `window_focus`, `computer_task(app=...)` ve toplu `focus` eylemi ucu de
+    `bring_to_front` uzerinden ayni sirayi izler:
+
+      1. Eklenti acik pencereyi etkinlestirir (tus yok, olculdu 3-6 ms).
+      2. Hedef zaten odaktaysa HICBIR tus gonderilmez.
+      3. Kapali bir uygulama `gtk-launch` ile acilir (tus yok). Olculdu
+         2026-09-19: arka plandaki bir surecin baslattigi pencere 0,56 sn'de
+         listede goruldu, 0,68 sn'de odagi aldi.
+      4. Acik ama eklentinin one alamadigi pencere icin GNOME aramasi: acik
+         bir `degraded` yedek, klavye ister.
+
+    Arama kutusu uygulamadan fazlasini bulur: bu makinede Claude sohbetleri,
+    dosyalar, ucbirim sekmeleri, ayarlar ve web aramasi da oraya dusuyor. Bu
+    yuzden aramaya YALNIZCA kurulu bir uygulamanin adi yazilir; baska bir ad
+    tus gonderilmeden reddedilir. Sonuc her zaman AT-SPI'dan, o uygulamanin
+    kimligiyle dogrulanir (bkz. `_shows`); tutmazsa `Escape` ile toparlanip
+    hata donulur. Baslik tek basina yetmez: web aramasi, basligi tam da aranan
+    metin olan bir tarayici sekmesi aciyor.
 
     NOT: overview acikken Wayland panosu bloklaniyor (`wl-paste` 5 sn'de cevap
     vermedi), bu yuzden arama kutusuna HAM tus yoluyla yaziliyor. Uygulama
@@ -26,6 +46,7 @@ from __future__ import annotations
 import gettext
 import os
 import re
+import secrets
 import shlex
 import shutil
 import subprocess
@@ -33,11 +54,27 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Callable
+
+from .errors import DesktopError, ErrorCategory, ErrorCode
 
 SEARCH_SETTLE = 1.2      # overview acilmasi
 SEARCH_RESULTS = 1.5     # arama sonuclarinin gelmesi
 SEARCH_ACTIVATE = 3.0    # uygulamanin one gelmesi
-LAUNCH_SETTLE = 1.5       # yeni GUI surecinin ilk penceresini acmasi
+# Aramanin butun maliyeti: olculdu 6616-6935 ms (2026-09-02), ustune klavye
+# cihazi henuz acik degilse ~1,3 sn. Bir son tarih varsa arama bu kadar sure
+# kalmadan BASLAMAZ.
+SEARCH_COST = 8.0
+# `gtk-launch` sonrasi pencereyi bekleme. Olculdu 2026-09-19: kucuk bir GTK4
+# penceresi 0,56 sn'de listede, 0,68 sn'de odakta. Buyuk uygulamalar daha
+# yavas; bekleme ust siniri bu.
+LAUNCH_OBSERVE = 10.0
+LAUNCH_POLL = 0.1
+# Pencere listede goruldukten sonra odagi almasi icin taninan sure (olculdu:
+# ~0,12 sn sonra aldi).
+LAUNCH_FOCUS_GRACE = 1.0
+# Baslatmanin anlamli olmasi icin kalmasi gereken en az sure.
+LAUNCH_COST = 1.5
 
 _FOCUS_BUS_NAME = "io.github.eymistaken.Pcbridge.WindowFocus"
 _FOCUS_OBJECT_PATH = "/io/github/eymistaken/Pcbridge/WindowFocus"
@@ -46,6 +83,14 @@ _FOCUS_INTERFACE = "io.github.eymistaken.Pcbridge.WindowFocus"
 
 class AppError(RuntimeError):
     """Uygulama baslatilamadi ya da pencere one alinamadi."""
+
+
+class NoTimeLeft(AppError):
+    """Yavas adima (baslatma, arama) yetecek sure kalmadi. HICBIR SEY yapilmadi.
+
+    Yalnizca geri alinamaz bir adimdan ONCE atilir; toplu eylem motoru bunu
+    butcenin bitmesi sayar ve eylemi yapilmamislara koyar.
+    """
 
 
 def _busctl_bool(*args: str) -> bool:
@@ -96,10 +141,14 @@ def _extension_activate(window: str) -> bool:
     )
 
 
-def matches_focus(target: str, app: str, window: str) -> bool:
-    """AT-SPI odak tanimi insanca yazilmis hedefle eslesiyor mu?"""
-    want = _norm(target)
-    return bool(want and (want in _norm(app) or want in _norm(window)))
+def activate_window(window: str) -> bool:
+    """Acik pencereyi eklentiyle one al. False: yapilmadi, tus da gonderilmedi.
+
+    Eklenti adi kendisi eslestiriyor (tek, belirsiz olmayan pencere) ve True'yu
+    kabugun odak penceresiyle dogruluyor. Ikinci bir AT-SPI turu hem gereksiz
+    hem nested GNOME'da yanlis.
+    """
+    return _extension_activate(window)
 
 
 @dataclass(frozen=True)
@@ -312,6 +361,105 @@ def find(name: str, pool: list[Entry] | None = None) -> Entry | None:
     return None
 
 
+def _tiers(want: str, pool: list[Entry]):
+    """`find()`'in dort turu, her biri butun adaylariyla. Sira ayni."""
+    yield [e for e in pool if any(_norm(n) == want for n in e.names)]
+    yield [e for e in pool
+           if _norm(e.entry_id) == want or _norm(e.entry_id).endswith(want)]
+    yield [e for e in pool if any(_norm(n) == want for n in e.alt_names)]
+    yield [e for e in pool
+           if any(want in _norm(n) for n in e.names) or want in _norm(e.entry_id)]
+
+
+@dataclass(frozen=True)
+class Application:
+    """Cagiranin yazdigi ad, kurulu uygulamalara gore cozulmus hali."""
+
+    text: str                     # cagiranin yazdigi gibi
+    key: str                      # `_norm(text)`
+    entry: Entry | None = None    # ad TEK bir uygulamaya gidiyorsa
+    # Ad ayni turda birden fazla uygulamaya uyuyorsa onlarin adlari. Bos
+    # degilse ne baslatilir ne aranir: "Desktop" bu makinede GitHub Desktop,
+    # OpenCode ve Pcbridge Desktop'a uyuyor.
+    rivals: tuple[str, ...] = ()
+    pool: tuple[Entry, ...] = ()
+
+
+def resolve_application(name: str, pool: list[Entry] | None = None) -> Application:
+    """Adi kurulu bir uygulamaya cevir: `find()` ile ayni turlar, belirsizlik acik.
+
+    `find()` bir turdaki ILK adayi dondurur; baslatmak ve aramak icin bu
+    yetmez, cunku hangisinin ilk geldigi XDG sirasina bagli. Ayni gorunen
+    adi tasiyan girdiler (`google-chrome` ve `com.google.Chrome`) tek uygulama
+    sayilir.
+    """
+    want = _norm(name)
+    havuz = entries() if pool is None else list(pool)
+    if not want:
+        return Application(str(name), want, pool=tuple(havuz))
+    visible = [e for e in havuz if not e.no_display]
+    for tier in _tiers(want, visible):
+        if not tier:
+            continue
+        names = tuple(dict.fromkeys(e.name for e in tier))
+        if len(names) == 1:
+            return Application(str(name), want, tier[0], (), tuple(havuz))
+        return Application(str(name), want, None, names, tuple(havuz))
+    return Application(str(name), want, pool=tuple(havuz))
+
+
+# gnome-terminal'in pencereleri `gnome-terminal-server` surecine ait (olculdu,
+# audit.log 2026-08-23): surec adi girdinin ikilisi arti bir ek. Yalnizca
+# ikili adina ve yalnizca bu uzunluktan itibaren on ek olarak bakilir; "code"
+# gibi kisa bir ad baska uygulamalarin on eki olabilir.
+_EXEC_PREFIX_MIN = 6
+
+
+def _is_app(entry: Entry, app: str) -> bool:
+    """AT-SPI'daki uygulama adi bu girdinin uygulamasi mi?
+
+    Olculen adlar girdinin alanlarindan birine denk: `gnome-text-editor`
+    (ikili), `claude-desktop` (ikili), test penceresinin kimligi (girdi adi).
+    """
+    got = _norm(app)
+    if not got:
+        return False
+    keys = {_norm(entry.entry_id), _norm(entry.entry_id.rsplit(".", 1)[-1]),
+            _norm(entry.exec_name), *(_norm(n) for n in entry.names)}
+    keys.discard("")
+    if got in keys:
+        return True
+    exe = _norm(entry.exec_name)
+    return len(exe) >= _EXEC_PREFIX_MIN and got.startswith(exe)
+
+
+def _shows(target: Application, app: str, window: str) -> bool:
+    """Bu (uygulama, pencere basligi) cifti adi verilen hedef mi?
+
+    Kurulu bir uygulama icin kanit uygulamanin KIMLIGIDIR. Baslik tek basina
+    yetmez: GNOME aramasi web arama saglayicisina dusunce tarayicida basligi
+    tam da aranan metin olan bir sekme aciliyor ve eski kural (`hedef
+    baslikta geciyor mu`) bunu basari sayiyordu. Baslik yalnizca pencerenin
+    sureci BASKA hicbir kurulu uygulamaya ait degilse sayilir: LibreOffice
+    `soffice` adiyla calisiyor ve penceresini ancak basligi taniyor.
+
+    Uygulama olmayan bir ad (pencere basliginin bir parcasi) icin baslik ya
+    da uygulama adi yeter; bu yalnizca "zaten odakta mi" sorusunda kullanilir,
+    boyle bir ad icin hicbir tus gonderilmez.
+    """
+    if not target.key:
+        return False
+    if target.entry is None:
+        return target.key in _norm(window) or target.key == _norm(app)
+    if _is_app(target.entry, app):
+        return True
+    title = _norm(window)
+    if not any(_norm(n) and _norm(n) in title for n in target.entry.names):
+        return False
+    return not any(_is_app(e, app) for e in target.pool
+                   if e.entry_id != target.entry.entry_id)
+
+
 # Kabuk komutunu parcalara bolen ayiricilar. `||` ve `&&` TEK karakterli
 # karsiliklarindan once denenmeli, yoksa `&&` iki bos parcaya bolunur.
 _CMD_SEP = re.compile(r"\|\||&&|[;|\n&]")
@@ -396,7 +544,8 @@ def looks_like_gui_launch(
     oturum grubunu ayiriyor ama cgroup'u degil). Ayrica cogu zaman uygulama
     kimligi olusmadigi icin `window_list`/`window_focus` pencereyi sonradan
     bulamiyor -- yani ajan kendi actigi pencereyi kaybediyor. Dogru yol
-    `window_focus`: masaustunun kendi aramasindan geciyor.
+    `window_focus`: uygulamayi masaustu girdisiyle ve kendi systemd kapsaminda
+    baslatiyor (`_launch_argv`).
 
     LISTE BOSSA HICBIR SEY ENGELLENMEZ. Bilincli: yanlis pozitif riski sifir
     baslasin, kullanici sürtünme yaratan adi kendisi eklesin.
@@ -419,22 +568,151 @@ def looks_like_gui_launch(
     return None
 
 
-def launch(name: str, timeout: int = 15) -> str:
-    """Uygulamayi .desktop girdisiyle baslat.
+LAUNCH_TIMEOUT = 15      # `gtk-launch`in kendisinin bitmesi (uygulama degil)
 
-    Keyfi komut CALISTIRILMAZ: `launch` bir GUI uygulamasi acmak icin, kabuk
-    icin `shell_run` var. Boylece batch icindeki bir `launch` eylemi asla
-    beklenmedik bir komuta donusemez.
+
+def _refused(
+    code: ErrorCode,
+    message: str,
+    suggested: str,
+    *,
+    category: ErrorCategory = ErrorCategory.ACCESSIBILITY,
+    retryable: bool = True,
+) -> DesktopError:
+    """Hicbir sey yapilmadan donen ret: ne tus gitti ne uygulama acildi."""
+    return DesktopError(
+        code=code,
+        message=message,
+        category=category,
+        retryable=retryable,
+        suggested_action=suggested,
+        permission_scope="os.window",
+        backend="desktop.window",
+        execution_state="not_started",
+    )
+
+
+def _unknown(message: str, suggested: str) -> DesktopError:
+    """Bir sey YAPILDI (tus gitti ya da uygulama baslatildi), sonuc istenen degil.
+
+    Tekrarlanmaz: arama bir sekme ya da dosya acmis, baslatma ikinci bir
+    pencere acmis olabilir. Once bakilir.
     """
-    entry = find(name)
-    if entry is None:
-        raise AppError(
-            f"{name!r} adinda bir uygulama girdisi yok. Tam adi icin "
-            "`shell_run(\"ls /usr/share/applications\")` bakabilir ya da "
-            "uygulamayi dogrudan `shell_run` ile baslatabilirsiniz."
+    return DesktopError(
+        code=ErrorCode.EXECUTION_UNKNOWN,
+        message=message,
+        category=ErrorCategory.EXECUTION,
+        retryable=False,
+        suggested_action=suggested,
+        permission_scope="os.window",
+        backend="desktop.window",
+        execution_state="unknown",
+    )
+
+
+def _not_an_app(target: Application) -> DesktopError:
+    if target.rivals:
+        shown = ", ".join(target.rivals[:5])
+        more = f" (+{len(target.rivals) - 5})" if len(target.rivals) > 5 else ""
+        return _refused(
+            ErrorCode.ELEMENT_AMBIGUOUS,
+            f"{target.text!r} birden fazla uygulamaya uyuyor: {shown}{more}. "
+            "Hicbir sey baslatilmadi ve aranmadi.",
+            "Uygulamanin tam adini verin; acik pencereler icin window_list.",
         )
+    return _refused(
+        ErrorCode.TARGET_MISMATCH,
+        f"{target.text!r} ne kurulu bir uygulamanin adi ne de one alinabilen "
+        "tek bir acik pencere. Hicbir tus gonderilmedi: GNOME aramasina yazilan "
+        "ad bir uygulama degilse dosya, sohbet ya da web aramasi acabilir. "
+        "Pencere basligiyla one almak GNOME kabuk eklentisini ister.",
+        "window_list ile acik pencerelere bakip adi oradaki gibi verin; kapali "
+        "bir uygulamaysa kurulu adini verin.",
+    )
+
+
+def _check_time(deadline: float | None, need: float, what: str) -> None:
+    """Son tarihe `need` saniye sigmiyorsa HICBIR SEY yapmadan `NoTimeLeft`."""
+    if deadline is None:
+        return
+    left = deadline - time.monotonic()
+    if left < need:
+        raise NoTimeLeft(
+            f"{what} icin ~{need:.1f} sn gerekiyor, {max(0.0, left):.1f} sn "
+            "kaldi; hicbir sey yapilmadi"
+        )
+
+
+def _until(deadline: float | None) -> float:
+    until = time.monotonic() + LAUNCH_OBSERVE
+    return until if deadline is None else min(until, deadline)
+
+
+def observe_focus(focused: Callable[[], tuple[str, str]]) -> tuple[str, str]:
+    """Odaktaki (uygulama, pencere). Okunamazsa ret: hicbir sey gonderilmez.
+
+    Eskiden once arama yapiliyor, odak SONRA okunuyordu; odak okunamazsa tuslar
+    gitmis ama sonuc dogrulanamamis oluyordu. Toplu eylemdeki kararla ayni
+    (Task 5.1): dogrulanamayacak bir eylem gonderilmez.
+    """
+    try:
+        app, window = focused()
+    except Exception as exc:  # noqa: BLE001 - gerekce mesajda
+        raise _refused(
+            ErrorCode.BACKEND_UNAVAILABLE,
+            f"Odaktaki pencere okunamadi ({str(exc)[:80]}). Sonuc "
+            "dogrulanamayacagi icin hicbir tus gonderilmedi ve hicbir sey "
+            "baslatilmadi.",
+            "Erisilebilirligin neden okunamadigina system_capabilities ile bakin.",
+            category=ErrorCategory.CAPABILITY,
+        ) from None
+    return str(app or ""), str(window or "")
+
+
+def _windows_of(
+    target: Application, windows: Callable[[], list[Any]]
+) -> list[Any] | None:
+    """Hedef uygulamanin listedeki pencereleri; liste okunamazsa None."""
+    try:
+        listed = windows()
+    except Exception:  # noqa: BLE001 - bilinmiyor, cagiran eski yola duser
+        return None
+    return [
+        w for w in listed
+        if _shows(target, getattr(w, "app", ""), getattr(w, "title", ""))
+    ]
+
+
+def _launch_argv(entry: Entry) -> list[str]:
+    """`gtk-launch` komutu; varsa uygulamaya kendi systemd kapsamini ver.
+
+    OLCULDU 2026-09-19: D-Bus ile etkinlesmeyen bir uygulamayi `gtk-launch`
+    kendi cocugu olarak baslatiyor ve uygulama CAGIRANIN cgroup'unda kaliyor.
+    Servisten cagrilinca bu `pcbridge.service` demek: `systemctl --user
+    restart pcbridge` uygulamayi da oldururdu -- `window_focus`un vaadinin
+    tam tersi. `systemd-run --user --scope` ile acilan pencere kendi
+    kapsamina dustu (+60 ms). GNOME Shell de uygulamalari `app-gnome-*.scope`
+    icinde baslatiyor; burada ayni kalip `app-pcbridge-*.scope`.
+    """
+    argv = ["gtk-launch", entry.entry_id]
+    if not shutil.which("systemd-run"):
+        return argv
+    name = re.sub(r"[^A-Za-z0-9_.:]", "_", entry.entry_id)
+    unit = f"app-pcbridge-{name}-{secrets.token_hex(4)}.scope"
+    return ["systemd-run", "--user", "--scope", "--collect", "--quiet",
+            f"--unit={unit}", *argv]
+
+
+def _gtk_launch(entry: Entry, timeout: int) -> None:
+    """`gtk-launch` ile baslat. Cikis kodu yalnizca "istek gitti" demek."""
     if not shutil.which("gtk-launch"):
-        raise AppError("`gtk-launch` kurulu degil (paket: libgtk-3-bin).")
+        raise _refused(
+            ErrorCode.DEPENDENCY_MISSING,
+            "`gtk-launch` kurulu degil (paket: libgtk-3-bin).",
+            "libgtk-3-bin paketini kurun.",
+            category=ErrorCategory.CAPABILITY,
+            retryable=False,
+        )
 
     # Cikti BORUYA degil DOSYAYA gidiyor ve `wait()` kullaniliyor -- `run()`
     # degil. Sebebi olculdu 2026-08-02: `capture_output=True` boru yaratir,
@@ -449,7 +727,7 @@ def launch(name: str, timeout: int = 15) -> str:
     # iki yolda da hizli; fark yalnizca gercek cocuk baslatan uygulamalarda.
     with tempfile.TemporaryFile() as errf:
         proc = subprocess.Popen(
-            ["gtk-launch", entry.entry_id],
+            _launch_argv(entry),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=errf,
@@ -457,90 +735,258 @@ def launch(name: str, timeout: int = 15) -> str:
         )
         try:
             code = proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired as exc:
+        except subprocess.TimeoutExpired:
             # gtk-launch OLDURULMEZ: uygulama onun cocugu olabilir ve
             # oldurmek yeni acilan pencereyi de goturur.
-            raise AppError(f"{entry.name} {timeout} saniyede baslamadi.") from exc
+            raise _unknown(
+                f"{entry.name} {timeout} saniyede baslamadi.",
+                "Uygulama hala aciliyor olabilir; tekrar baslatmadan once "
+                "window_list ya da screen_capture ile bakin.",
+            ) from None
         errf.seek(0)
         err_text = errf.read().decode("utf-8", "replace").strip()
 
     if code != 0:
         lines = err_text.splitlines()
-        raise AppError(
-            f"{entry.name} baslatilamadi: {lines[-1] if lines else 'bilinmiyor'}"
+        raise _unknown(
+            f"{entry.name} baslatilamadi: {lines[-1] if lines else 'bilinmiyor'}",
+            "Tekrar denemeden once window_list ile uygulamanin acilip "
+            "acilmadigina bakin.",
         )
-    return f"{entry.name} baslatildi ({entry.entry_id})"
 
 
-def focus(
+def _watch(
+    target: Application,
+    focused: Callable[[], tuple[str, str]],
+    windows: Callable[[], list[Any]],
+    until: float,
+) -> tuple[str, str, str] | None:
+    """Baslatilan uygulamanin penceresini `until`e kadar izle.
+
+    ("focused", uygulama, baslik): penceresi odakta. ("listed", ...): listede
+    ama odak baska yerde, `LAUNCH_FOCUS_GRACE` boyunca beklendi. None: hic
+    gorulmedi. Okuma hatalari gecici sayilir: acilmakta olan bir uygulama
+    agaci bir an bozuk verebilir.
+    """
+    listed: tuple[str, str] | None = None
+    listed_at = 0.0
+    while True:
+        now = time.monotonic()
+        try:
+            app, window = focused()
+            if _shows(target, app, window):
+                return "focused", str(app), str(window)
+        except Exception:  # noqa: BLE001 - bir sonraki turda yeniden okunur
+            pass
+        if listed is None:
+            mine = _windows_of(target, windows)
+            if mine:
+                listed = (str(mine[0].app), str(mine[0].title))
+                listed_at = now
+        if listed is not None and now - listed_at >= LAUNCH_FOCUS_GRACE:
+            return "listed", *listed
+        if now >= until:
+            return ("listed", *listed) if listed is not None else None
+        time.sleep(LAUNCH_POLL)
+
+
+def _launched_unseen(entry: Entry, waited: float) -> DesktopError:
+    return _unknown(
+        f"{entry.name} baslatildi (gtk-launch 0 dondu) ama {waited:.0f} sn "
+        "icinde penceresi erisilebilirlik listesinde gorulmedi. Uygulama hala "
+        "aciliyor, acilip kapanmis ya da agac yayinlamiyor olabilir.",
+        "Tekrar baslatmayin (ikinci bir pencere acilabilir); once screen_capture "
+        "ya da window_list ile bakin.",
+    )
+
+
+@dataclass(frozen=True)
+class Outcome:
+    """Bir pencere isleminin sonucu: hangi yoldan gidildi ve ne goruldu."""
+
+    path: str      # "extension" | "already" | "launch" | "search"
+    note: str      # cagirana donen metin
+    app: str = ""
+    window: str = ""
+
+
+def launch_application(
+    target: Application,
+    focused: Callable[[], tuple[str, str]],
+    windows: Callable[[], list[Any]],
+    *,
+    timeout: int = LAUNCH_TIMEOUT,
+    deadline: float | None = None,
+) -> Outcome:
+    """Uygulamayi `gtk-launch` ile ac ve penceresini GOREREK dogrula.
+
+    Keyfi komut CALISTIRILMAZ: `launch` bir GUI uygulamasi acmak icin, kabuk
+    icin `shell_run` var. Boylece batch icindeki bir `launch` eylemi asla
+    beklenmedik bir komuta donusemez.
+
+    `gtk-launch`in cikis kodu basari sayilmaz (Task 6.4): istek gitti demek,
+    uygulama acildi demek degil. Basari, uygulamanin bir penceresinin
+    erisilebilirlik listesinde gorulmesi. Uygulama zaten aciksa var olan
+    penceresi de sayilir.
+    """
+    if target.entry is None:
+        raise _not_an_app(target)
+    _check_time(deadline, LAUNCH_COST, f"{target.entry.name} baslatmak")
+    started = time.monotonic()
+    _gtk_launch(target.entry, timeout)
+    seen = _watch(target, focused, windows, _until(deadline))
+    if seen is None:
+        raise _launched_unseen(target.entry, time.monotonic() - started)
+    state, app, window = seen
+    where = "odakta" if state == "focused" else "listede"
+    return Outcome(
+        "launch",
+        f"{target.entry.name} baslatildi, penceresi {where}: {app} | {window}",
+        app,
+        window,
+    )
+
+
+def bring_to_front(
     window: str,
     backend,
-    focused: "callable",
+    focused: Callable[[], tuple[str, str]],
+    windows: Callable[[], list[Any]] | None = None,
+    *,
     settle: float = SEARCH_SETTLE,
-) -> str:
-    """Bir pencereyi one al: eklenti hizli yolu, sonra GNOME arama yedegi.
+    deadline: float | None = None,
+    pool: list[Entry] | None = None,
+) -> Outcome:
+    """Pencereyi one al; uygulama kapaliysa ac. Sira modul basinda.
 
-    Eklenti kendi bool sonucunu kabugun odak penceresiyle dogrular. Yedekte
-    `focused()` -> (uygulama, pencere) dondurur; GNOME aramasinin sonucunu
-    dogrular. Tutmazsa `Escape` ile toparlanip hata atilir.
+    `windows` verilmezse kapali/acik ayrimi yapilamaz ve eski davranis kalir:
+    GNOME aramasi hem acar hem one alir. `deadline` (monotonic) yavas bir
+    adima yetecek sure kalmadiysa o adimi `NoTimeLeft` ile hic baslatmaz.
     """
-    want = _norm(window)
-    if not want:
+    if not _norm(window):
         raise AppError("`focus` icin pencere/uygulama adi gerekli.")
 
-    if _extension_activate(window):
-        # Bool eklentinin icinde `global.display.focus_window` ile dogrulanir;
-        # ikinci bir AT-SPI turu hem gereksiz hem nested GNOME'da yanlistir.
-        return f"{window} GNOME eklentisiyle one alindi"
+    if activate_window(window):
+        return Outcome("extension", f"{window} GNOME eklentisiyle one alindi")
 
+    target = resolve_application(window, pool)
+    app, title = observe_focus(focused)
+    if _shows(target, app, title):
+        return Outcome(
+            "already",
+            f"{app} | {title} zaten odakta; hicbir tus gonderilmedi",
+            app,
+            title,
+        )
+    if target.entry is None:
+        raise _not_an_app(target)
+
+    mine = _windows_of(target, windows) if windows is not None else None
+    if mine == []:
+        # Listede hic penceresi yok: kapali. Tus gondermeden ac.
+        _check_time(deadline, LAUNCH_COST, f"{target.entry.name} baslatmak")
+        started = time.monotonic()
+        _gtk_launch(target.entry, LAUNCH_TIMEOUT)
+        seen = _watch(target, focused, windows, _until(deadline))
+        if seen is None:
+            raise _launched_unseen(target.entry, time.monotonic() - started)
+        state, app, title = seen
+        if state == "focused":
+            return Outcome(
+                "launch",
+                f"{target.entry.name} baslatildi ve odakta: {app} | {title}",
+                app,
+                title,
+            )
+        # Acildi ama odak baska yerde: artik acik bir pencere.
+        if activate_window(window):
+            return Outcome(
+                "launch",
+                f"{target.entry.name} baslatildi ve GNOME eklentisiyle one alindi",
+                app,
+                title,
+            )
+
+    _check_time(deadline, SEARCH_COST, "GNOME aramasi")
+    return _search(target, backend, focused, settle)
+
+
+def _search(
+    target: Application,
+    backend,
+    focused: Callable[[], tuple[str, str]],
+    settle: float,
+) -> Outcome:
+    """GNOME aramasi: acik `degraded` yedek, yalnizca kurulu bir uygulama icin.
+
+    Sonuc o uygulamanin kimligiyle dogrulanir (`_shows`). Tutmazsa `Escape`
+    ile toparlanip hata atilir; arama bir seyi acmis olabilecegi icin sonuc
+    `EXECUTION_UNKNOWN`, tekrarlanmaz.
+    """
     backend.key("super")
     time.sleep(settle)
     # Overview'da pano bloklu -> ham yol. Olculdu 2026-08-02.
-    backend.type_text(window, raw=True)
+    backend.type_text(target.text, raw=True)
     time.sleep(SEARCH_RESULTS)
     backend.key("Return")
     time.sleep(SEARCH_ACTIVATE)
 
     try:
-        app, win = focused()
-        now = f"{app} | {win}"
-    except Exception as exc:
+        app, title = focused()
+    except Exception as exc:  # noqa: BLE001 - gerekce mesajda
         _escape(backend)
-        raise AppError(
-            f"{window!r} arandi ama sonuc dogrulanamadi (odak okunamadi: "
-            f"{str(exc)[:80]}). Ekrana bakin: screen_capture."
+        raise _unknown(
+            f"{target.text!r} arandi ama sonuc dogrulanamadi (odak okunamadi: "
+            f"{str(exc)[:80]}).",
+            "Ekrana bakin: screen_capture. Tekrar aramadan once neyin "
+            "acildigini gorun.",
         ) from None
 
-    if matches_focus(window, app, win):
-        return f"{now} one alindi"
+    if _shows(target, app, title):
+        return Outcome(
+            "search",
+            f"{app} | {title} one alindi (GNOME aramasi, yedek yol)",
+            str(app),
+            str(title),
+        )
 
     _escape(backend)
-    raise AppError(
-        f"{window!r} one alinamadi; odakta {now!r} var. GNOME aramasi baska "
-        "bir sonuc secmis olabilir. Acik pencereleri window_list ile gorun."
+    raise _unknown(
+        f"{target.text!r} one alinamadi; odakta {app} | {title!r} var. GNOME "
+        "aramasi baska bir sonuc secmis olabilir (bir dosya, bir sohbet ya da "
+        "web aramasi).",
+        "Acik pencereleri window_list ile gorun; arama bir sekme ya da dosya "
+        "acmis olabilir.",
     )
+
+
+def focus(
+    window: str,
+    backend,
+    focused: Callable[[], tuple[str, str]],
+    settle: float = SEARCH_SETTLE,
+    *,
+    windows: Callable[[], list[Any]] | None = None,
+    deadline: float | None = None,
+) -> str:
+    """Eski arayuz ve geri donus noktasi: `bring_to_front`un metni."""
+    return bring_to_front(
+        window, backend, focused, windows, settle=settle, deadline=deadline
+    ).note
 
 
 def prepare(
     app: str,
     backend,
-    focused: "callable",
-    launch_settle: float = LAUNCH_SETTLE,
+    focused: Callable[[], tuple[str, str]],
+    windows: Callable[[], list[Any]] | None = None,
 ) -> str:
-    """Uygulamayi baslat; kendi penceresi odaktaysa ikinci kez arama yapma."""
-    opened = launch(app)
-    time.sleep(launch_settle)
-    try:
-        focused_app, focused_window = focused()
-    except Exception:
-        focused_app, focused_window = "", ""
+    """`computer_task(app=...)`: `window_focus` ile ayni sira.
 
-    if matches_focus(app, focused_app, focused_window):
-        return (
-            f"{opened} · {focused_app} | {focused_window} "
-            "acildiktan sonra odakta"
-        )
-    return f"{opened} · {focus(app, backend, focused)}"
+    Eskiden her seferinde once baslatiyordu; acik bir uygulamada bu ikinci
+    bir pencere demekti. Artik acik pencere one alinir, kapali uygulama acilir.
+    """
+    return bring_to_front(app, backend, focused, windows).note
 
 
 def _escape(backend) -> None:
