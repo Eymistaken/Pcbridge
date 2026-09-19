@@ -8,8 +8,9 @@ stdout yalnızca aşağıda tanımlanan framed response'ları taşır.
 
 Executable Linux'ta monitör tablosunu okur (Task 3.1), Mutter ScreenCast +
 PipeWire üzerinden tek monitör karesi alır (Task 3.3) ve seçildiğinde uinput
-klavye (Task 5.2) ve pointer (Task 5.3) olaylarını üretir; erişilebilirlik
-henüz native değil. Task 4.3'ten beri varsayılan capture backend'i `auto`
+klavye (Task 5.2) ve pointer (Task 5.3) olaylarını üretir, erişilebilirlik
+ağacını GI olmadan D-Bus'tan okur (Task 6.2; varsayılan hâlâ Python, eylemler
+Task 6.3'e kadar Python'da). Task 4.3'ten beri varsayılan capture backend'i `auto`
 (paketlenmiş yardımcı varsa native). Input varsayılanı Gate 5'ten beri
 (2026-09-19) `auto`: paketlenmiş yardımcı varsa klavye, fare ve pano
 programları native, yoksa Python yolu (görünür şekilde). Native process
@@ -80,7 +81,7 @@ Başarılı response seçilen sürümü ve process kimliğini döndürür:
     "native_version": "0.1.0",
     "build_id": "2294156a1b2c",
     "platform": "linux",
-    "features": ["display.snapshot", "capture.on_demand", "capture.session_open", "input.keyboard", "input.pointer", "clipboard"],
+    "features": ["display.snapshot", "capture.on_demand", "capture.session_open", "input.keyboard", "input.pointer", "clipboard", "accessibility.read"],
     "lease_bound": true
   },
   "binary_len": 0
@@ -118,7 +119,11 @@ Harness aşağıdaki metotları kabul eder:
   Klavye ve pointer denetimleri `/dev/uinput` düğümünün varlığını metadata
   üzerinden okur; default capability isteği aygıt açmaz. Düğüm varsa erişimin
   ancak ilk açık input isteğinde doğrulanacağını anlatan `degraded`, yoksa
-  `DEPENDENCY_MISSING` döner.
+  `DEPENDENCY_MISSING` döner. `accessibility.read` ve `window.list` (Task
+  6.2) yalnızca oturum veriyolunda `org.a11y.Bus` adının sahibi olup olmadığına
+  bakar; hiçbir uygulama okunmaz. Sahibi varsa `accessibility.read`
+  `supported`, `window.list` ise `degraded` olur. Sebebi, yalnızca erişilebilirlik
+  ağacı yayınlayan uygulamaların görünmesi.
 - `display.snapshot`: Task 3.1 monitör tablosunu döndürür.
 - `capture.frame`: Task 3.3 tek monitör PNG'sini binary payload olarak döndürür.
 - `capture.session_open`: Task 4.3. Kare okumadan Mutter oturumunu mevcut
@@ -178,6 +183,39 @@ Harness aşağıdaki metotları kabul eder:
   `limitations` alanında bildirir. Capability denetimi hiçbir programı
   çalıştırmaz, `PATH`'e ve Wayland soketine bakar. Ortak fixture:
   `tests/fixtures/native/clipboard_cases.json`.
+- `accessibility.dump`, `accessibility.windows`, `accessibility.focused` (Task
+  6.2). Erişilebilirlik ağacını AT-SPI'ın kendi D-Bus veriyolundan okurlar; GI,
+  GTK ve GLib ana döngüsü yok. Veriyolunun adresi oturum veriyolundan
+  `org.a11y.Bus.GetAddress` ile bulunur, bağlantı ilk istekte kurulur. Üçü de
+  `grant_id` ve `revoke_epoch` ister. İzin okuma bittikten sonra bir kez daha
+  doğrulanır; okuma sırasında geri alınmışsa ağaç döndürülmez. Bilinmeyen alan
+  `INVALID_PARAMS` olur.
+  - `dump` ayrıca `target`, `interactive_only`, `max_nodes` ve `deadline_ms`
+    alır. Varsayılanlar: `focused`, `true`, 400 (en fazla 2000) ve 15000 ms
+    (en fazla 20000).
+  - Cevap, Python yardımcısının `dump` cevabıyla aynı biçimde: `app`,
+    `app_bus`, `app_pid`, `same_name`, `scope`, `window`, `window_ref`,
+    `nodes`, `truncated`. Her düğüm `path`, `ref`, `role`, `name`, `states`,
+    `actions`, `editable` ve `depth` taşır.
+  - Yürüyüş yardımcınınkiyle adım adım aynı: derinlik önce, soldan sağa, en
+    fazla `max_nodes * 25` ziyaret ve derinlik 100. Tek fark, bir düğümün
+    çocuklarının birlikte okunması (bir kerede en fazla 32 düğüm).
+  - Her çağrının 2 sn zaman aşımı var; süre dolarsa `TIMEOUT` döner, yarım
+    liste döndürülmez.
+  - Rol, `GetRole` numarasından libatspi'nin tablosuyla adlandırılır.
+    `GetRoleName` yalnızca tablonun dışındaki roller için sorulur: GTK4 o
+    çağrıda pencere çerçevesine "application", düğmeye "button" diyor.
+  - Eylem adları `Action.GetName(i)` ile alınır. `GetActions` yerelleştirilmiş
+    ad veriyor ("Click").
+
+  `windows` iki seviye iner: uygulamalar ve pencereleri. `focused` odaktaki
+  pencereyi ağaç gezmeden bulur. Hata kodları:
+  - Uygulama ya da odakta pencere bulunamazsa `TARGET_MISMATCH`.
+  - Kısmi ad iki farklı uygulamaya uyarsa `ELEMENT_AMBIGUOUS`.
+  - Veriyolu yoksa `BACKEND_UNAVAILABLE`.
+
+  Mesajlar Python yardımcısınınkiyle birebir aynı. Ortak fixture:
+  `tests/fixtures/native/accessibility_cases.json`.
 - `cancel`: `params.target_id` alanını doğrular ve bugün `canceled: false`
   döndürür. Capture'ın kendi 1–8000 ms zaman aşımı ve lifecycle kapıları vardır;
   dispatcher henüz eşzamanlı request çalıştırmıyor.
@@ -387,8 +425,13 @@ desteği iddia etmez; `input.keyboard` ve `input.pointer` feature'ları gerçek
 `/dev/uinput` yerine event üretmeyen sahte aygıtlara bağlıdır. `clipboard`
 yalnızca testin `PCBRIDGE_TEST_WL_PASTE` ve `PCBRIDGE_TEST_WL_COPY` ile adını
 verdiği programları çalıştırır. Bunlar verilmemişse `UNSUPPORTED` döner, yani
-test kipi kullanıcının panosuna hiç ulaşmaz. Bu kip yalnızca byte-düzeyi
-contract testleri içindir.
+test kipi kullanıcının panosuna hiç ulaşmaz. `accessibility.*` de yalnızca
+`PCBRIDGE_TEST_A11Y_FIXTURE` dosyasındaki `PCBRIDGE_TEST_A11Y_DESKTOP`
+masaüstünü okur. Yalnızca test kipinde olan `test.accessibility_desktop`
+(`{"desktop": ...}`) sonraki okumaları başka bir fixture masaüstüne çevirir;
+bir uygulamanın ağacının döküm ile eylem arasında değişmesini böyle taklit
+eder. Fixture verilmemişse `UNSUPPORTED` döner, yani test kipi gerçek bir
+uygulamayı hiç okumaz. Bu kip yalnızca byte-düzeyi contract testleri içindir.
 
 ## Python supervisor yaşam döngüsü
 
@@ -407,11 +450,21 @@ değilse `system_capabilities`'te görünür bir `degraded` gerekçesiyle Python
 yolu. `[desktop] capture_backend = "gnome-screenshot"` açıkça seçilmişse `auto`
 o seçimi korur ve Python yolunda kalır. `rust` seçimi düşmez, hata verir.
 
-Task 5.2'de `[native].input` seçimi eklenmiştir. Varsayılan `python`, input'u
-mevcut Python provider'da tutar ve native helper'ı input için başlatmaz. Task
-5.3'te açık `rust` seçimi keyboard ve pointer çağrılarını helper'a yollar;
-clipboard Task 5.4 tamamlanana kadar Python provider'da kalır. Helper yoksa
-veya `/dev/uinput` açılamıyorsa sessiz fallback yapılmaz.
+Task 5.2'de `[native].input` seçimi eklenmiştir. Task 5.3'te `rust` seçimi
+klavye ve pointer çağrılarını helper'a yollar, Task 5.4'te pano da oraya
+taşındı. Gate 5'ten beri (2026-09-19) varsayılan `auto`: helper varsa native,
+yoksa görünür bir `degraded` gerekçesiyle Python yolu. `rust` seçiminde helper
+yoksa ya da `/dev/uinput` açılamıyorsa sessiz fallback yapılmaz.
+
+Task 6.2'de `[native].accessibility` seçimi eklendi. Gate 6'ya kadar varsayılan
+`python`; `auto` ve `rust` aynı kurallarla çalışır. Native okuyucu bir izne
+bağlı helper'dan okur. İzin yokken (`screen_info` pencere listesini
+`desktop_unlock`'tan önce okur) pencere listesi ve odaktaki pencere Python
+yardımcısından gelir: helper izin olmadan yaşamaz. Kısa kimlikler, snapshot ve
+son döküm kaydı iki okuyucuda da Python'da, `uitree`'de üretilir. `ui_click` ve
+`ui_set_text` Task 6.3'e kadar iki seçimde de Python yardımcısından gider. Hedef
+kimliği (uygulama veriyolu adı + öğe nesne yolu) iki okuyucuda aynı anlamı
+taşır.
 
 Supervisor'ın reader, writer ve stderr drainer thread'leri birbirinden
 ayrıdır. Request ID'leri process yeniden başlasa bile tekrar kullanılmaz ve

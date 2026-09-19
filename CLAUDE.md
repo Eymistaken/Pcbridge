@@ -342,6 +342,25 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   pencerede üç "Kapat" vardı ve üçüncüsü pencerenin kendi kapatma düğmesiydi.
   Kimlik tutmazsa ya da ad/rol değiştiyse eylem reddedilir, yeni `ui_dump`
   istenir. Kısa kimlik (`#1b72`) yalnızca son dökümde öğe **seçer**.
+- **Ham AT-SPI D-Bus'ı libatspi'nin söylediğini söylemiyor.** Ölçüldü
+  2026-09-19, GTK4 test penceresi, aynı düğümler:
+  - GTK4'ün `GetRoleName`'i kendi adlarını veriyor: pencere çerçevesine
+    "application", panele "generic"/"group", düğmeye "button" diyor. libatspi
+    `GetRole` numarasını kendi tablosuyla çeviriyor: "frame", "panel", "push
+    button".
+  - `Action.GetActions` yerelleştirilmiş adı veriyor ("Click"). libatspi'nin
+    adı `GetName(i)` ("click").
+
+  Durum bitleri ve rol numaraları ikisinde de aynı. Native okuyucu
+  (`accessibility.rs`) bu yüzden numarayı libatspi'nin 131 girdilik tablosuyla
+  adlandırıyor ve `GetName` kullanıyor. Aynı pencereyi Python okuyucusuyla
+  düğüm düğüm aynı döküyor. Süreler:
+  - Döküm: native **14–18 ms**, Python 100–112 ms.
+  - Pencere listesi: 6,6 ms'ye karşı 102 ms.
+  - gnome-shell'in ağacı: 827 ms'ye karşı 1354 ms.
+
+  Native okuyucu izne bağlı yardımcıda çalışıyor. Gate 6'ya kadar varsayılan
+  `[native] accessibility = "python"`.
 - **AT-SPI Electron'un penceresini görür, içini görmez.** Vesktop'ta `ui_dump`
   0 düğüm — orada tek yol görüntü.
 - **uinput olayı `IdleMonitor`'ü sıfırlıyor** (104227 ms → 151 ms). "Kullanıcı

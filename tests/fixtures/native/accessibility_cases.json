@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "about": "Accessibility target identity (Task 6.1). \"apps\" are fake AT-SPI applications with a bus name and pid; an app's children are its windows, every node has its D-Bus object path as \"ref\". A desktop is an ordered list of app keys. Node defaults: name \"\", states [], actions [], children []. \"text\" gives a node the Text interface, \"editable_text\" the EditableText one. dump_cases run one dump request; action_cases dump \"dump.desktop\", switch the desktop to \"then\", and act on the dumped node whose ref is \"act.ref\", with the dump's identity fields (\"override\" replaces request fields). \"performed\" lists every action the fake desktop saw, in order: an error must leave it empty. id_cases cover the short public ids Python derives from a dump. Shared by the Python helper contract and the Rust provider (Task 6.2). Reviewed by hand; edit it directly, nothing regenerates it.",
+  "about": "Accessibility target identity (Task 6.1). \"apps\" are fake AT-SPI applications with a bus name and pid; an app's children are its windows, every node has its D-Bus object path as \"ref\". A desktop is an ordered list of app keys. Node defaults: name \"\", states [], actions [], children []. \"text\" gives a node the Text interface, \"editable_text\" the EditableText one. dump_cases run one dump request; action_cases dump \"dump.desktop\", switch the desktop to \"then\", and act on the dumped node whose ref is \"act.ref\", with the dump's identity fields (\"override\" replaces request fields). \"performed\" lists every action the fake desktop saw, in order: an error must leave it empty. id_cases cover the short public ids Python derives from a dump; window_cases the window list and the focused window, read without walking a tree. Shared by the Python helper contract and the Rust provider (Task 6.2). Reviewed by hand; edit it directly, nothing regenerates it.",
   "apps": {
     "shell": {
       "name": "gnome-shell",
@@ -27,6 +27,238 @@
             }
           ]
         }
+      ]
+    },
+    "wrapped": {
+      "name": "pcbridge-wrapped",
+      "bus": ":1.50",
+      "pid": 3500,
+      "windows": [
+        {
+          "ref": "/org/pcbridge/Wrapped/a11y/w",
+          "role": "frame",
+          "name": "Sarmalayici",
+          "states": ["active", "showing"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Wrapped/a11y/outer",
+              "role": "push button",
+              "name": "Aç",
+              "states": ["showing", "enabled"],
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Wrapped/a11y/inner",
+                  "role": "toggle button",
+                  "name": "Aç",
+                  "states": ["showing", "enabled"],
+                  "actions": ["click"]
+                }
+              ]
+            },
+            {
+              "ref": "/org/pcbridge/Wrapped/a11y/other",
+              "role": "push button",
+              "name": "Başka",
+              "states": ["showing", "enabled"],
+              "actions": ["click"]
+            }
+          ]
+        }
+      ]
+    },
+    "deep": {
+      "name": "pcbridge-deep",
+      "bus": ":1.51",
+      "pid": 3600,
+      "windows": [
+        {
+          "ref": "/org/pcbridge/Deep/a11y/1",
+          "role": "frame",
+          "name": "Derin",
+          "states": ["active", "showing"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Deep/a11y/2",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Deep/a11y/3",
+                  "role": "panel",
+                  "children": [
+                    {
+                      "ref": "/org/pcbridge/Deep/a11y/4",
+                      "role": "panel",
+                      "children": [
+                        {
+                          "ref": "/org/pcbridge/Deep/a11y/5",
+                          "role": "panel",
+                          "children": [
+                            {
+                              "ref": "/org/pcbridge/Deep/a11y/6",
+                              "role": "panel",
+                              "children": [
+                                {
+                                  "ref": "/org/pcbridge/Deep/a11y/7",
+                                  "role": "panel",
+                                  "children": [
+                                    {
+                                      "ref": "/org/pcbridge/Deep/a11y/8",
+                                      "role": "panel",
+                                      "children": [
+                                        {
+                                          "ref": "/org/pcbridge/Deep/a11y/9",
+                                          "role": "panel",
+                                          "children": [
+                                            {
+                                              "ref": "/org/pcbridge/Deep/a11y/10",
+                                              "role": "panel",
+                                              "children": [
+                                                {
+                                                  "ref": "/org/pcbridge/Deep/a11y/11",
+                                                  "role": "panel",
+                                                  "children": [
+                                                    {
+                                                      "ref": "/org/pcbridge/Deep/a11y/12",
+                                                      "role": "panel",
+                                                      "children": [
+                                                        {
+                                                          "ref": "/org/pcbridge/Deep/a11y/13",
+                                                          "role": "panel",
+                                                          "children": [
+                                                            {
+                                                              "ref": "/org/pcbridge/Deep/a11y/14",
+                                                              "role": "panel",
+                                                              "children": [
+                                                                {
+                                                                  "ref": "/org/pcbridge/Deep/a11y/15",
+                                                                  "role": "panel",
+                                                                  "children": [
+                                                                    {
+                                                                      "ref": "/org/pcbridge/Deep/a11y/16",
+                                                                      "role": "panel",
+                                                                      "children": [
+                                                                        {
+                                                                          "ref": "/org/pcbridge/Deep/a11y/17",
+                                                                          "role": "panel",
+                                                                          "children": [
+                                                                            {
+                                                                              "ref": "/org/pcbridge/Deep/a11y/18",
+                                                                              "role": "panel",
+                                                                              "children": [
+                                                                                {
+                                                                                  "ref": "/org/pcbridge/Deep/a11y/19",
+                                                                                  "role": "panel",
+                                                                                  "children": [
+                                                                                    {
+                                                                                      "ref": "/org/pcbridge/Deep/a11y/20",
+                                                                                      "role": "panel",
+                                                                                      "children": [
+                                                                                        {
+                                                                                          "ref": "/org/pcbridge/Deep/a11y/21",
+                                                                                          "role": "panel",
+                                                                                          "children": [
+                                                                                            {
+                                                                                              "ref": "/org/pcbridge/Deep/a11y/22",
+                                                                                              "role": "panel",
+                                                                                              "children": [
+                                                                                                {
+                                                                                                  "ref": "/org/pcbridge/Deep/a11y/23",
+                                                                                                  "role": "panel",
+                                                                                                  "children": [
+                                                                                                    {
+                                                                                                      "ref": "/org/pcbridge/Deep/a11y/24",
+                                                                                                      "role": "push button",
+                                                                                                      "name": "Derin",
+                                                                                                      "states": ["showing", "enabled"],
+                                                                                                      "actions": ["click"],
+                                                                                                      "children": [
+                                                                                                        {
+                                                                                                          "ref": "/org/pcbridge/Deep/a11y/25",
+                                                                                                          "role": "panel",
+                                                                                                          "children": [
+                                                                                                            {
+                                                                                                              "ref": "/org/pcbridge/Deep/a11y/26",
+                                                                                                              "role": "panel"
+                                                                                                            }
+                                                                                                          ]
+                                                                                                        }
+                                                                                                      ]
+                                                                                                    }
+                                                                                                  ]
+                                                                                                }
+                                                                                              ]
+                                                                                            }
+                                                                                          ]
+                                                                                        }
+                                                                                      ]
+                                                                                    }
+                                                                                  ]
+                                                                                }
+                                                                              ]
+                                                                            }
+                                                                          ]
+                                                                        }
+                                                                      ]
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              ]
+                                                            }
+                                                          ]
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "electron": {
+      "name": "claude-desktop",
+      "bus": ":1.44",
+      "pid": 14271,
+      "windows": [
+        {
+          "ref": "/org/a11y/atspi/accessible/1",
+          "role": "frame",
+          "name": "Claude",
+          "states": ["active", "showing"],
+          "children": [
+            {
+              "ref": "/org/a11y/atspi/accessible/5",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/a11y/atspi/accessible/6",
+                  "role": "document web",
+                  "states": ["showing"],
+                  "actions": ["doDefault", "showContextMenu"],
+                  "children": [{"ref": "/org/a11y/atspi/accessible/7", "role": "panel"}]
+                }
+              ]
+            }
+          ]
+        },
+        {"ref": "/org/a11y/atspi/accessible/2", "role": "frame", "states": ["showing"]}
       ]
     },
     "shell_active": {
@@ -1087,7 +1319,10 @@
     "chrome_restarted": ["shell", "chromium_restarted"],
     "similar_names": ["terminal", "text_editor"],
     "two_pythons": ["python_a", "python_b"],
-    "nothing_active": ["shell"]
+    "nothing_active": ["shell"],
+    "electron": ["shell", "electron"],
+    "wrapped": ["wrapped"],
+    "deep": ["deep"]
   },
   "dump_cases": [
     {
@@ -1246,7 +1481,165 @@
       "name": "focused_dump_without_an_active_window_fails",
       "desktop": "nothing_active",
       "request": {"target": "focused", "interactive_only": true, "max_nodes": 400},
-      "expect": {"ok": false}
+      "expect": {"ok": false, "code": "TARGET_MISMATCH"}
+    },
+    {
+      "name": "unknown_application_is_a_target_mismatch",
+      "desktop": "editor",
+      "request": {"target": "firefox", "interactive_only": true, "max_nodes": 400},
+      "expect": {"ok": false, "code": "TARGET_MISMATCH"}
+    },
+    {
+      "name": "electron_window_without_a_tree_is_empty_and_named",
+      "desktop": "electron",
+      "request": {"target": "focused", "interactive_only": true, "max_nodes": 400},
+      "expect": {
+        "ok": true,
+        "app": "claude-desktop",
+        "app_bus": ":1.44",
+        "app_pid": 14271,
+        "same_name": 1,
+        "scope": "window",
+        "window": "Claude",
+        "window_ref": "/org/a11y/atspi/accessible/1",
+        "truncated": false,
+        "nodes": []
+      }
+    },
+    {
+      "name": "labels_are_listed_when_asked_for",
+      "desktop": "editor",
+      "request": {"target": "focused", "interactive_only": false, "max_nodes": 400},
+      "expect": {
+        "ok": true,
+        "app": "pcbridge-editor",
+        "scope": "window",
+        "truncated": false,
+        "nodes": [
+          {"ref": "/org/pcbridge/Editor/a11y/label-a", "path": [0, 0, 0, 0], "role": "label", "name": "Belge A", "actions": [], "editable": false},
+          {
+            "ref": "/org/pcbridge/Editor/a11y/close-a",
+            "path": [0, 0, 0, 1],
+            "role": "push button",
+            "name": "Kapat",
+            "actions": ["click"],
+            "editable": false
+          },
+          {"ref": "/org/pcbridge/Editor/a11y/label-b", "path": [0, 0, 1, 0], "role": "label", "name": "Belge B", "actions": [], "editable": false},
+          {
+            "ref": "/org/pcbridge/Editor/a11y/close-b",
+            "path": [0, 0, 1, 1],
+            "role": "push button",
+            "name": "Kapat",
+            "actions": ["click"],
+            "editable": false
+          },
+          {"ref": "/org/pcbridge/Editor/a11y/label-name", "path": [0, 0, 2, 0], "role": "label", "name": "Ad", "actions": [], "editable": false},
+          {"ref": "/org/pcbridge/Editor/a11y/field-name", "path": [0, 0, 2, 1], "role": "text", "name": "Ad", "actions": [], "editable": true},
+          {
+            "ref": "/org/pcbridge/Editor/a11y/label-password",
+            "path": [0, 0, 3, 0],
+            "role": "label",
+            "name": "Parola",
+            "actions": [],
+            "editable": false
+          },
+          {
+            "ref": "/org/pcbridge/Editor/a11y/field-password",
+            "path": [0, 0, 3, 1],
+            "role": "password text",
+            "name": "Parola",
+            "actions": [],
+            "editable": true
+          },
+          {"ref": "/org/pcbridge/Editor/a11y/ok", "path": [0, 0, 4], "role": "push button", "name": "Tamam", "actions": ["click"], "editable": false},
+          {"ref": "/org/pcbridge/Editor/a11y/status", "path": [0, 0, 5], "role": "label", "name": "Hazır", "actions": [], "editable": false},
+          {
+            "ref": "/org/pcbridge/Editor/a11y/header-title",
+            "path": [0, 1, 0],
+            "role": "label",
+            "name": "Belge — Düzenleyici",
+            "actions": [],
+            "editable": false
+          },
+          {
+            "ref": "/org/pcbridge/Editor/a11y/close-window",
+            "path": [0, 1, 1],
+            "role": "push button",
+            "name": "Kapat",
+            "actions": ["click"],
+            "editable": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "gtk4_wrapper_without_action_is_dropped",
+      "desktop": "wrapped",
+      "request": {"target": "focused", "interactive_only": true, "max_nodes": 400},
+      "expect": {
+        "ok": true,
+        "app": "pcbridge-wrapped",
+        "truncated": false,
+        "nodes": [
+          {
+            "ref": "/org/pcbridge/Wrapped/a11y/inner",
+            "path": [0, 0, 0],
+            "role": "toggle button",
+            "name": "Aç",
+            "actions": ["click"],
+            "editable": false
+          },
+          {"ref": "/org/pcbridge/Wrapped/a11y/other", "path": [0, 1], "role": "push button", "name": "Başka", "actions": ["click"], "editable": false}
+        ]
+      }
+    },
+    {
+      "name": "the_visit_cap_still_reads_its_last_visit",
+      "desktop": "deep",
+      "request": {"target": "pcbridge-deep", "interactive_only": true, "max_nodes": 1},
+      "expect": {
+        "ok": true,
+        "app": "pcbridge-deep",
+        "truncated": true,
+        "nodes": [
+          {
+            "ref": "/org/pcbridge/Deep/a11y/24",
+            "path": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            "role": "push button",
+            "name": "Derin",
+            "actions": ["click"],
+            "editable": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "max_nodes_truncates_the_list",
+      "desktop": "editor",
+      "request": {"target": "focused", "interactive_only": true, "max_nodes": 2},
+      "expect": {
+        "ok": true,
+        "truncated": true,
+        "nodes": [
+          {
+            "ref": "/org/pcbridge/Editor/a11y/close-a",
+            "path": [0, 0, 0, 1],
+            "role": "push button",
+            "name": "Kapat",
+            "actions": ["click"],
+            "editable": false
+          },
+          {
+            "ref": "/org/pcbridge/Editor/a11y/close-b",
+            "path": [0, 0, 1, 1],
+            "role": "push button",
+            "name": "Kapat",
+            "actions": ["click"],
+            "editable": false
+          }
+        ]
+      }
     }
   ],
   "action_cases": [
@@ -1409,6 +1802,73 @@
         {"id": "765b2", "index": 1},
         {"id": "b6cf", "index": 3},
         {"id": "0000", "code": "ELEMENT_STALE"}
+      ]
+    }
+  ],
+  "window_cases": [
+    {
+      "name": "focused_window_is_read_without_a_walk",
+      "desktop": "editor",
+      "expect_focused": {
+        "ok": true,
+        "app": "pcbridge-editor",
+        "app_bus": ":1.30",
+        "app_pid": 3100,
+        "window": "Belge — Düzenleyici",
+        "window_ref": "/org/pcbridge/Editor/a11y/w1"
+      },
+      "expect_windows": [
+        {
+          "app": "gnome-shell",
+          "app_bus": ":1.0",
+          "app_pid": 4591,
+          "window": "",
+          "ref": "/org/a11y/atspi/accessible/1026",
+          "index": 0,
+          "role": "window",
+          "active": false,
+          "children": 1
+        },
+        {
+          "app": "pcbridge-editor",
+          "app_bus": ":1.30",
+          "app_pid": 3100,
+          "window": "Belge — Düzenleyici",
+          "ref": "/org/pcbridge/Editor/a11y/w1",
+          "index": 0,
+          "role": "frame",
+          "active": true,
+          "children": 2
+        },
+        {
+          "app": "pcbridge-editor",
+          "app_bus": ":1.30",
+          "app_pid": 3100,
+          "window": "Tercihler",
+          "ref": "/org/pcbridge/Editor/a11y/w2",
+          "index": 1,
+          "role": "frame",
+          "active": false,
+          "children": 1
+        }
+      ]
+    },
+    {
+      "name": "no_active_window",
+      "desktop": "nothing_active",
+      "expect_focused": {"ok": false, "code": "TARGET_MISMATCH"},
+      "expect_windows": [
+        {
+          "app": "gnome-shell",
+          "app_bus": ":1.0",
+          "app_pid": 4591,
+          "window": "",
+          "ref": "/org/a11y/atspi/accessible/1026",
+          "index": 0,
+          "role": "window",
+          "active": false,
+          "children": 1
+        }
       ]
     }
   ]

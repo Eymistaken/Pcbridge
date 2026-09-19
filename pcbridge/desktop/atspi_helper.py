@@ -507,7 +507,8 @@ def cmd_dump(req: dict) -> dict:
             _fail(
                 "Odakta pencere yok (AT-SPI hicbir pencereyi ACTIVE "
                 "isaretlemiyor). Bir pencereye tiklayin ya da target ile "
-                "uygulama adi verin."
+                "uygulama adi verin.",
+                "TARGET_MISMATCH",
             )
         root, base, same_name = win, [widx], 1
         scope, window_ref = "window", _ref(win)
@@ -516,7 +517,10 @@ def cmd_dump(req: dict) -> dict:
         app, same_name = _find_app(desk, target)
         if app is None:
             names = sorted({_name(a) for a in _apps(desk) if _name(a)})
-            _fail(f"Uygulama bulunamadi: {target!r}. Acik olanlar: " + ", ".join(names))
+            _fail(
+                f"Uygulama bulunamadi: {target!r}. Acik olanlar: " + ", ".join(names),
+                "TARGET_MISMATCH",
+            )
         root, base = app, []
         scope, window_ref = "app", ""
         app_name = _name(app)

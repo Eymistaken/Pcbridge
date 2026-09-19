@@ -12,14 +12,21 @@ pointer device is opened.
       ./.venv/bin/python -m unittest tests/live/test_accessibility_parity.py -v
 
 `PCBRIDGE_A11Y_REPORT=<path>` writes the measured timings there as JSON.
+
+The native reader (Task 6.2) is compared with the Python one on the same
+window when a helper with `accessibility.read` is found (`PCBRIDGE_NATIVE_BIN`
+or the packaged one). It runs under a grant written to a scratch state
+directory, so the user's own grant is never touched and no screen is shared.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -29,9 +36,12 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT))
 
+from pcbridge.config import load_config  # noqa: E402
 from pcbridge.desktop import uitree as uitreelib  # noqa: E402
 from pcbridge.desktop.backends.python import PythonAccessibilityProvider  # noqa: E402
+from pcbridge.desktop.backends.rust import RustAccessibilityProvider  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCode  # noqa: E402
+from pcbridge.desktop.safety import SafetyGate  # noqa: E402
 
 SYSTEM_PYTHON = "/usr/bin/python3"
 APP = "pcbridge-a11y-test"
@@ -264,6 +274,76 @@ class LiveActionTests(_LiveCase):
         self.assertFalse(
             [e for e in self.window.since(mark) if e.get("field") == "password"]
         )
+
+
+NODE_FIELDS = ("node_id", "ref", "path", "role", "name", "states", "actions", "editable", "depth")
+
+
+def summary(dump: uitreelib.Dump) -> dict:
+    return {
+        "app": dump.app,
+        "window": dump.window,
+        "app_bus": dump.app_bus,
+        "app_pid": dump.app_pid,
+        "scope": dump.scope,
+        "window_ref": dump.window_ref,
+        "truncated": dump.truncated,
+        "nodes": [{field: getattr(node, field) for field in NODE_FIELDS} for node in dump.nodes],
+    }
+
+
+@unittest.skipUnless(READ, "set PCBRIDGE_TEST_ATSPI=1: reads a test window's accessibility tree")
+class LiveNativeReadTests(_LiveCase):
+    """The native reader against the Python one, on the real accessibility bus."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        cfg = dataclasses.replace(
+            load_config(str(ROOT / "config.example.toml")), state_dir=Path(scratch.name)
+        )
+        gate = SafetyGate(cfg)
+        gate.unlock(5, reason="accessibility parity")
+        self.native = RustAccessibilityProvider(cfg, gate=gate)
+        self.addCleanup(self.native.close)
+        try:
+            self.native.windows()
+        except DesktopError as exc:
+            self.skipTest(f"no native helper with accessibility.read: {exc.message}")
+
+    def timed(self, name: str, read):
+        started = time.monotonic()
+        result = read()
+        _measure(name, started)
+        return result
+
+    def test_both_readers_list_the_same_window_node_for_node(self) -> None:
+        self.dump()  # wait until the window is visible to AT-SPI
+        for _round in range(3):
+            python = self.timed("python_dump_ms", lambda: self.tree.dump(target=APP))
+            native = self.timed("native_dump_ms", lambda: self.native.dump(target=APP))
+            self.assertEqual(summary(native), summary(python))
+            self.assertEqual(native.backend, "linux.atspi.native")
+        self.window.command("prepend")
+        python = self.tree.dump(target=APP, interactive_only=False)
+        native = self.native.dump(target=APP, interactive_only=False)
+        self.assertEqual(summary(native), summary(python))
+
+    def test_both_readers_see_the_same_test_window(self) -> None:
+        self.dump()
+        python = self.timed("python_windows_ms", self.tree.windows)
+        native = self.timed("native_windows_ms", self.native.windows)
+        mine = lambda windows: [w for w in windows if w.app_pid == self.window.ready["pid"]]  # noqa: E731
+        self.assertEqual(mine(native), mine(python))
+        self.assertEqual(len(mine(native)), 1)
+
+    def test_a_large_tree_for_timing(self) -> None:
+        # gnome-shell's tree changes by itself (the clock), so only time it.
+        python = self.timed("python_shell_dump_ms", lambda: self.tree.dump(target="gnome-shell"))
+        native = self.timed("native_shell_dump_ms", lambda: self.native.dump(target="gnome-shell"))
+        REPORT.setdefault("shell_nodes", []).extend([len(python.nodes), len(native.nodes)])
+        self.assertEqual(native.app, "gnome-shell")
 
 
 def tearDownModule() -> None:

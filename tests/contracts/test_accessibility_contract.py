@@ -422,6 +422,23 @@ class ProviderActionTests(_ThroughUiTree):
         self.assertFalse(error.retryable)
 
 
+class WindowReadTests(_ThroughUiTree):
+    def test_window_cases(self) -> None:
+        for case in FIXTURE["window_cases"]:
+            with self.subTest(case=case["name"]):
+                self.atspi.use(case["desktop"])
+                got = HELPER.handle({"cmd": "windows"})
+                self.assertEqual(got["windows"], case["expect_windows"])
+                expect = case["expect_focused"]
+                tree = uitreelib.UiTree()
+                if expect["ok"]:
+                    self.assertEqual(tree.focused_window(), (expect["app"], expect["window"]))
+                else:
+                    with self.assertRaises(uitreelib.UiTreeError) as raised:
+                        tree.focused_window()
+                    self.assertEqual(raised.exception.code.value, expect["code"])
+
+
 class DumpRegistryTests(_ThroughUiTree):
     def test_dump_records_backend_app_window_and_snapshot(self) -> None:
         tree = uitreelib.UiTree()

@@ -1,3 +1,4 @@
+pub mod accessibility;
 pub mod capture;
 pub mod clipboard;
 pub mod desktop_state;

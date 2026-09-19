@@ -385,10 +385,16 @@ class DesktopRuntime:
             if self._timer is not None:
                 self._timer.cancel()
                 self._timer = None
+        # The native accessibility reader is a helper bound to the grant that
+        # just ended; the Python reader has nothing to close.
+        close_accessibility = getattr(self.accessibility_provider, "close", None)
         for name, close in (
             ("input", self.input_provider.close),
             ("capture", self.capture_provider.close),
+            ("accessibility", close_accessibility),
         ):
+            if not callable(close):
+                continue
             try:
                 close()
             except Exception as exc:  # noqa: BLE001 - lifecycle cleanup continues
@@ -402,12 +408,6 @@ class DesktopRuntime:
                 return
             self._closed = True
         self.release_resources()
-        close_accessibility = getattr(self.accessibility_provider, "close", None)
-        if callable(close_accessibility):
-            try:
-                close_accessibility()
-            except Exception as exc:  # noqa: BLE001 - lifecycle cleanup continues
-                logger.warning("accessibility provider cleanup failed: %s", exc)
 
 
 def select_capture_provider(cfg: Config, gate: GrantProvider) -> CaptureProvider:
@@ -466,6 +466,32 @@ def select_input_provider(cfg: Config, gate: GrantProvider) -> InputProvider:
     )
 
 
+def select_accessibility_provider(cfg: Config, gate: GrantProvider) -> AccessibilityProvider:
+    """Choose who reads the accessibility tree, once, like capture and input.
+
+    `python` is the default until Gate 6. `auto` takes the native helper when
+    it is packaged and says so when it is not; `rust` never falls back.
+    Actions (`click`, `set_text`) stay on the Python helper either way until
+    Task 6.3.
+    """
+    choice = cfg.native.accessibility
+    if choice == "python":
+        return PythonAccessibilityProvider()
+    from .backends.rust import RustAccessibilityProvider, native_binary_ready
+
+    if choice == "rust":
+        return RustAccessibilityProvider(cfg, gate=gate)
+    ready, reason = native_binary_ready(cfg)
+    if ready:
+        return RustAccessibilityProvider(cfg, gate=gate)
+    return PythonAccessibilityProvider(
+        degraded_reason=(
+            "Native erisilebilirlik yardimcisi kullanilamiyor, Python yolu "
+            "seciliyor: " + (reason or "yardimci bulunamadi")
+        ),
+    )
+
+
 def create_runtime(
     cfg: Config,
     *,
@@ -494,7 +520,7 @@ def create_runtime(
         accessibility_provider=(
             accessibility_provider
             if accessibility_provider is not None
-            else PythonAccessibilityProvider()
+            else select_accessibility_provider(cfg, resolved_gate)
         ),
         gate=resolved_gate,
         desktop_state_provider=state_provider,
@@ -506,6 +532,7 @@ def create_runtime(
 __all__ = [
     "DesktopRuntime",
     "create_runtime",
+    "select_accessibility_provider",
     "select_capture_provider",
     "select_input_provider",
 ]

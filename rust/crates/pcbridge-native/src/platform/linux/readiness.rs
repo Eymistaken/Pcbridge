@@ -42,6 +42,12 @@ pub fn probe() -> CaptureReadiness {
 }
 
 fn screencast_owned() -> Result<bool, String> {
+    name_owned(SCREENCAST_SERVICE)
+}
+
+/// Is `service` owned on the session bus? A question to the bus daemon only;
+/// the service itself is not called.
+fn name_owned(service: &str) -> Result<bool, String> {
     zbus::block_on(async {
         let connection = Builder::session()
             .map_err(|error| error.to_string())?
@@ -52,7 +58,7 @@ fn screencast_owned() -> Result<bool, String> {
         let proxy = DBusProxy::new(&connection)
             .await
             .map_err(|error| error.to_string())?;
-        let name = BusName::try_from(SCREENCAST_SERVICE).map_err(|error| error.to_string())?;
+        let name = BusName::try_from(service).map_err(|error| error.to_string())?;
         proxy
             .name_has_owner(name)
             .await
@@ -235,4 +241,54 @@ fn wayland_socket() -> Option<PathBuf> {
         PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?).join(display)
     };
     path.exists().then_some(path)
+}
+
+/// The session's accessibility bus launcher.
+pub const ACCESSIBILITY_BUS: &str = "org.a11y.Bus";
+
+/// Shown with a usable window list: only what publishes a tree is seen.
+pub const WINDOW_LIST_LIMITATION: &str = "Only accessibility-visible applications are listed.";
+
+/// Can the accessibility bus be found? Asked of the bus daemon only: no
+/// application is read and no accessibility connection is opened.
+pub fn accessibility_bus_owned() -> Result<bool, String> {
+    name_owned(ACCESSIBILITY_BUS)
+}
+
+/// The `accessibility.read` and `window.list` entries of a `capabilities`
+/// response. The Python provider reports the window list as degraded for the
+/// same reason: an application that publishes no tree has no window here.
+#[must_use]
+pub fn accessibility(owned: &Result<bool, String>) -> [Value; 2] {
+    let reason = match owned {
+        Ok(true) => None,
+        Ok(false) => Some(format!(
+            "{ACCESSIBILITY_BUS} has no owner on the session bus"
+        )),
+        Err(error) => Some(format!("the session bus could not be asked: {error}")),
+    };
+    match reason {
+        None => [
+            json!({
+                "name": "accessibility.read",
+                "status": "supported",
+                "permission_scope": "os.accessibility",
+            }),
+            json!({
+                "name": "window.list",
+                "status": "degraded",
+                "permission_scope": "os.accessibility",
+                "limitations": [WINDOW_LIST_LIMITATION],
+            }),
+        ],
+        Some(reason) => ["accessibility.read", "window.list"].map(|name| {
+            json!({
+                "name": name,
+                "status": "unavailable",
+                "permission_scope": "os.accessibility",
+                "reason_code": "BACKEND_UNAVAILABLE",
+                "reason": reason,
+            })
+        }),
+    }
 }

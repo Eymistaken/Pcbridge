@@ -1404,6 +1404,11 @@ PipeWire frame tüketimi ve stream lifecycle için implementation sırasında bu
 
 **Yapılmayacak:** Window enumeration’ı bütün GNOME pencerelerini görüyormuş gibi sunmak; action migration’ı aynı commit’e katmak.
 
+**Not (2026-09-19, uygulandı):**
+- 6\. madde (native referansları snapshot bazında saklamak) Task 6.3'e taşındı. Okuma istekleri içeri referans taşımıyor. Referansı kabul edecek ilk istek eylem olacak ve sakladığı döküme o yazacak.
+- Snapshot kimliği iki okuyucuda da Python'da (`uitree.dump_from_response`) üretiliyor.
+- İzin yokken pencere listesi Python yardımcısından okunuyor, çünkü native yardımcı yalnızca bir izne bağlı yaşıyor. `screen_info` izinden önce pencereleri gösteriyor.
+
 ## Task 6.3 — Rust accessibility actions ve parity
 
 **Amaç:** Native action ve editable text yolunu koruyarak GI action helper’ını değiştirmek.  

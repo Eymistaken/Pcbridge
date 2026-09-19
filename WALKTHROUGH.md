@@ -10,19 +10,20 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Faz 6. Kullanıcı 2026-09-19'da Faz 6'nın tamamını ve Adım 6'yı
-  (imleç katmanı) task'lar arasında durmadan yapmayı onayladı (aşağıda çalışma
-  kuralı).
-- **Son tamamlanan adım:** Task 6.1 — element target bütünlüğü (2026-09-19).
-  `ui_click`/`ui_set_text` artık öğenin AT-SPI kimliğine gidiyor; ada göre
-  arama ve odaktaki uygulamaya düşme kalktı. Ayrıntı: Adım 5 → Task 6.1.
-- **Sıradaki uygulanabilir adım:** Task 6.2 — Rust AT-SPI read/window/focus
-  provider.
+- **Aktif adım:** yok. Task 6.2 tamamlandı (2026-09-19); kullanıcının isteğiyle
+  burada duruldu, Task 6.3 için onay bekleniyor.
+- **Son tamamlanan adım:** Task 6.2 — erişilebilirlik ağacını Rust okuyor (GI
+  ve GTK yok, AT-SPI'a doğrudan D-Bus). Aynı fixture'da ve gerçek pencerede
+  Python yardımcısıyla düğüm düğüm aynı, ~7 kat hızlı. Varsayılan hâlâ
+  `python`. Ayrıntı: Adım 5 → Task 6.2.
+- **Sıradaki uygulanabilir adım:** Task 6.3 — Rust erişilebilirlik eylemleri
+  ve parity. Canlı eylem testleri istiyor; başlamadan önce kullanıcıya
+  sorulacak.
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 5 geçti** (2026-09-19), `[native] input`
   varsayılanı `auto`. Gate 4 2026-09-13'te geçti. stdio istemcileri, uygulama
   kapatılıp açılınca yeni koda geçer (#5).
-- **Native migration içindeki sıradaki task:** 6.2 → 6.3 → 6.4 → **Gate 6**
+- **Native migration içindeki sıradaki task:** 6.3 → 6.4 → **Gate 6**
 - **Kullanıcıyla yapılan kontroller (2026-09-13):** #1, #3, #4 yapıldı; #5'in
   servis tarafı yapıldı; #2 (GitHub) kullanıcının kararıyla bekliyor. Ayrıntı:
   Adım 4 → "Kullanıcıyla yapılan kontroller".
@@ -36,12 +37,20 @@ canlı testler için "bundan sonra sormadan test yap hepsini kabul ediyorum" ded
 kullanıcı başındayken canlı testler sorulmadan, ama başlamadan önce haber
 verilerek koşulur.
 
-2026-09-19 ekleri, kullanıcının sözleriyle: "github yok. tamamen bitirene kadar
-yok. adım 7'ye kadar olan adımları da yapalım. dediğim gibi test için sorma."
-Bu yüzden Faz 6 (6.1–6.4, Gate 6) ve Adım 6 (imleç katmanı) task'lar arasında
-durmadan yapılıyor. Her task yine ayrı yerel commit ve bu dosyada ayrı kayıt.
-İsteğe bağlı Faz 7 ve iki sürüm bekleyen Faz 8 bu onayın dışında. Push, iş
-tamamen bitene kadar yok.
+2026-09-19 ekleri, kullanıcının sözleriyle ve sırasıyla:
+
+1. "github yok. tamamen bitirene kadar yok. adım 7'ye kadar olan adımları da
+   yapalım. dediğim gibi test için sorma." Push, iş tamamen bitene kadar yok.
+   Faz 6 ve Adım 6 arka arkaya yapılmaya başlandı; Task 6.1 bu onayla yapıldı.
+2. Task 6.2 sürerken iki geri alma geldi:
+   - "tamam bundan sonra testler için sormaya devam edersen sevinirim": gerçek
+     masaüstüne dokunan her testten önce yeniden onay istenir (pencere açan,
+     gerçek erişilebilirlik ağacını okuyan, girdi gönderen, ekran yakalayan).
+     Masaüstüne dokunmayan otomatik testler (birim, sözleşme, `cargo test`,
+     test kipindeki yardımcıyla entegrasyon) her task sonunda sorulmadan
+     koşar.
+   - "ve bu adımı da bitirince dur sonraki adıma geçme hemen": her task
+     bitince yine durulur ve sonraki task için onay beklenir.
 
 ## Kullanıcıyı bekleyenler
 
@@ -70,7 +79,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `tamamlandı` (3.1–3.5 ✅, **Gate 3 geçti**) |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
-| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅, **Gate 5 geçti**; 6.1 ✅; sırada 6.2) |
+| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅, **Gate 5 geçti**; 6.1–6.2 ✅; sırada 6.3) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
@@ -2092,6 +2101,162 @@ değişti, birlikte geri dönerler.
 
 **Sıradaki:** Task 6.2 — Rust AT-SPI read/window/focus provider
 (`native.accessibility = "python"` varsayılanıyla).
+
+### Task 6.2 — Rust AT-SPI read/window/focus provider · `tamamlandı` (2026-09-19)
+
+**Önce ölçüm: ham D-Bus, libatspi'nin söylediğini söylemiyor.** GTK4 test
+penceresinde aynı düğümler iki yoldan okundu:
+
+- **Rol adı:** GTK4'ün `GetRoleName`'i kendi kelimelerini veriyor. Pencere
+  çerçevesine "application", panele "generic"/"group", düğmeye "button" diyor.
+  libatspi ise `GetRole` numarasını kendi tablosuyla çeviriyor: "frame",
+  "panel", "push button".
+- **Eylem adı:** `Action.GetActions` yerelleştirilmiş adı veriyor ("Click").
+  libatspi'nin adı `GetName(i)`: "click".
+- **Aynı olanlar:** rol numarası ve durum bitleri iki yolda da aynı.
+
+Bütün süzgeçler ve kayıtlı roller libatspi'nin adlarıyla karşılaştırıyor. Bu
+yüzden Rust okuyucu numarayı libatspi'nin 131 girdilik tablosuyla adlandırıyor
+(`atspi_role_get_name`, at-spi2-core 2.52). Eylem adlarını `GetName` ile alıyor.
+`GetRoleName` yalnızca tablonun dışındaki roller için soruluyor; libatspi de
+böyle yapıyor. Veriyolunun adresi `org.a11y.Bus.GetAddress`'ten, pid
+veriyolunun `GetConnectionUnixProcessID`'sinden geliyor.
+
+**Ne yapıldı.**
+
+- Rust, `platform/linux/accessibility.rs`:
+  - Yürüyüş Python yardımcısının `_walk`/`_dedup`/`_find_app`/`windows` koduyla
+    adım adım aynı: derinlik önce, en fazla `max_nodes * 25` ziyaret, derinlik
+    100, GAction ve kapsayıcı süzgeci.
+  - Toplam süre sınırı var. Süre dolarsa `TIMEOUT` döner, yarım liste dönmez.
+- `accessibility/bus.rs` (zbus):
+  - Çağrı başına 2 sn zaman aşımı.
+  - Bir düğümün çocukları birlikte okunuyor (bir kerede en fazla 32 düğüm).
+    Bunun için yeni bağımlılık eklenmedi; 20 satırlık bir `join_all` yazıldı.
+  - `GetChildren` yanıt vermezse çocuklar tek tek okunuyor.
+- `accessibility/fixture.rs`: fixture masaüstünü okuyan ağaç. Rust testleri ve
+  test kipindeki yardımcı bunu kullanıyor.
+- `dispatch.rs`:
+  - Yeni yöntemler `accessibility.dump`, `accessibility.windows` ve
+    `accessibility.focused`. Üçü de izne bağlı; bilinmeyen alan reddediliyor.
+  - İzin okuma bittikten sonra yeniden doğrulanıyor: okuma sırasında izin geri
+    alınırsa ağaç döndürülmüyor.
+  - `capabilities`'e `accessibility.read` ve `window.list` eklendi.
+    Yalnızca `org.a11y.Bus` adının sahibine bakılıyor; hiçbir uygulama
+    okunmuyor.
+  - Test kipi yalnızca fixture okuyor (`PCBRIDGE_TEST_A11Y_FIXTURE`,
+    `test.accessibility_desktop`).
+- Python `RustAccessibilityProvider`:
+  - Döküm, pencere listesi ve odaktaki pencere izin altında native'den okunuyor.
+  - İzin yokken (`screen_info`, `desktop_unlock`'tan önce) Python yardımcısına
+    düşüyor, çünkü native yardımcı izin olmadan yaşamıyor.
+  - Eylemler 6.3'e kadar Python'da. Kimlik (veriyolu adı + nesne yolu) iki
+    okuyucuda aynı anlamı taşıyor.
+  - Hata kodları Python yoluyla aynı öneriyi taşıyor. Eski bir yardımcıda
+    derleme ipucu veriliyor.
+- `uitree`: `dump_from_response`/`windows_from_response` paylaşıldı. Kısa
+  kimlik, snapshot ve son döküm kaydı iki okuyucuda da tek yerde üretiliyor.
+- Yeni ayar `[native] accessibility`:
+  - Gate 6'ya kadar varsayılan `python`; `auto` geri düşüşü görünür
+    (`degraded`), `rust` zorunlu.
+  - `config.py` bunu yükleme sırasında doğruluyor. `config.example.toml`'da
+    yorumuyla var.
+  - `runtime.select_accessibility_provider` seçimi yapıyor.
+- `release_resources`: izin kapanınca erişilebilirlik yardımcısı da girdi ve
+  yakalamayla birlikte kapanıyor.
+- Python yardımcısında eşitlik düzeltmeleri:
+  - Bulunamayan uygulama ve odakta pencere olmaması artık iki okuyucuda da
+    `TARGET_MISMATCH`.
+  - Zaman aşımına uğrayan okuma `TIMEOUT`. Eylem zaman aşımı
+    `EXECUTION_UNKNOWN` kalıyor.
+- Belgeler: `docs/native/protocol-v1.md` (yöntemler, test kipi, seçim;
+  bayatlamış "input varsayılanı python" cümlesi de düzeltildi), `CLAUDE.md`
+  (ham D-Bus farkı ve ölçümler), `KULLANIM.md`, `PLAN.md` notu.
+
+**Testler.**
+
+- Fixture büyüdü: 19 uygulama, 17 masaüstü, 12 döküm vakası, 19 eylem vakası
+  ve 2 pencere vakası. Yeni vakalar:
+  - Electron benzeri boş ağaç: hata değil, uygulama ve pencere adıyla boş
+    liste.
+  - Bilinmeyen uygulama.
+  - Etiketli döküm.
+  - `max_nodes` kırpması.
+  - GTK4 sarmalayıcısı.
+  - Ziyaret tavanının 25. ziyareti.
+- Rust `tests/accessibility_read.rs` (9 test): fixture'daki döküm ve pencere
+  vakaları, pencere okumasının ağaç gezmemesi, derinlik ve ziyaret sınırları,
+  süre sınırı, rol tablosu, durum bitleri, GAction süzgeci.
+- Rust mutasyon denemesi: ilk turda 12 bozulmanın 10'u yakalandı. GTK4
+  sarmalayıcı eleme ve ziyaret tavanındaki bir kaymanın fixture'da vakası
+  yoktu. İkisi eklendi, sonra 12/12. Dosya SHA-256 ile doğrulanarak geri
+  yüklendi.
+- Python `tests/contracts/test_native_accessibility.py` (18 test) şunları
+  kapsıyor:
+  - istek parametreleri;
+  - izin altında native okuma ve GI yardımcısının hiç çağrılmaması;
+  - izinsiz geri düşüş;
+  - izin yokken dökümün yardımcı başlamadan reddi;
+  - eylemin kimlikle Python'a gitmesi;
+  - hata eşlemesi ve eski yardımcıya derleme ipucu;
+  - yeni izinde yeni yardımcı;
+  - seçim kuralları ve yapılandırma reddi.
+
+  `test_accessibility_contract.py`'ye pencere vakaları eklendi.
+- `tests/integration/test_native_accessibility.py` (yeni, 3 test): test
+  kipindeki gerçek yardımcı + fixture. Her döküm ve pencere vakasında iki
+  okuyucu **aynı sonucu** veriyor:
+  - kimlikler, derinlik, durumlar;
+  - hata kodları;
+  - hata mesajları, birebir.
+
+  İzin geri alınınca ağaç dönmüyor.
+- Canlı, yalnızca okuma, 5/5 (kullanıcı onayı geri almadan önce koşuldu;
+  testin kendi penceresi ve gnome-shell okundu; izin geçici bir durum
+  dizinine yazıldı, ekran paylaşılmadı). İki okuyucu test penceresini
+  düğüm düğüm aynı döktü: 3 tur, bir de ağaç değiştikten sonra etiketli döküm.
+  Aynı pencereyi ikisi de listeledi. Süreler:
+
+  | Ölçüm | Python | Native |
+  |---|---|---|
+  | Döküm | 100–112 ms | **14–18 ms** |
+  | Pencere listesi | 102 ms | 6,6 ms |
+  | gnome-shell (13 düğüm, büyük ağaç) | 1354 ms | 827 ms |
+
+- Takımlar:
+  - Python: contract 305 (+19), integration 21 (+3, 1 atlandı), `test_desktop.py`
+    583, models 106, safety OK, `--check` 0; canlı testler bayraksız 32/32
+    atlanıyor.
+  - Rust: `cargo fmt`, iki türde `clippy -D warnings` ve iki türde
+    `cargo test --no-fail-fast` temiz.
+
+**Kabul ölçütleri (PLAN 6.2).**
+
+- İki okuyucu aynı fixture takımını geçiyor: ✓ (Rust'ta ve test kipi
+  üzerinden uçtan uca).
+- Electron'un boş ağacı doğru hedef adıyla dönüyor: ✓ (fixture vakası).
+- GUI thread ya da GTK başlatma yok: ✓ (zbus; izin varken GI yardımcısı hiç
+  çağrılmıyor, sözleşme testi bunu sınıyor).
+
+Planın 6. maddesi (referansları snapshot bazında saklamak) 6.3'e taşındı.
+Okumalar içeri referans taşımıyor; referansı kabul edecek ilk istek eylem.
+Gerekçe `PLAN.md` notunda.
+
+**Kurulmadı.** Paketlenmiş yardımcı (`pcbridge/_native`) hâlâ Task 5.4
+derlemesi; yeni yöntemler yalnızca `rust/target`'ta. Varsayılan `python`
+olduğu için çalışan servis için hiçbir şey değişmedi. `scripts/build-native.sh`
+ile kurulum, varsayılan değiştiğinde (6.3) yapılacak.
+
+**Rollback.** Commit'i geri almak yeter. Varsayılan zaten `python`.
+
+**Sıradaki:** Task 6.3 — Rust erişilebilirlik eylemleri ve parity. İşler:
+- Eylem anında kimliği doğrulamak ve `do_action` sonucunu denetlemek.
+- EditableText ile Türkçe metni yazıp geri okuyarak doğrulamak.
+- Zaman aşımından sonra eylemi tekrarlamamak.
+- Başarılı olursa ayrı commit'le `accessibility = "auto"` yapmak.
+
+Canlı eylem testleri test penceresinde yapılacak ve önce kullanıcıya
+sorulacak.
 
 ## Adım 6 — İmleç katmanı
 

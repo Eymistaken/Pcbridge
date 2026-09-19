@@ -140,6 +140,23 @@ capture = "auto"
 # calisir.
 input = "auto"
 
+# Erisilebilirlik agacini (ui_dump, window_list, odaktaki pencere) kim okusun.
+# Task 6.2'den beri native yardimci da okuyabiliyor: GI ve GTK yok, AT-SPI'a
+# dogrudan D-Bus ile gider; ayni fixture'da Python yardimcisiyla ayni listeyi
+# veriyor. ui_click / ui_set_text Task 6.3'e kadar iki secenekte de Python
+# yardimcisindan gider.
+#
+#   "python"  VARSAYILAN (Gate 6'ya kadar): sistem python3'unde calisan
+#             atspi_helper.py.
+#   "auto"    paketlenmis yardimci varsa native, yoksa Python yolu (gorunur
+#             sekilde: system_capabilities accessibility.read'i `degraded`
+#             gosterir).
+#   "rust"    native zorunlu; yardimci yoksa cagri hata verir.
+#
+# Izin (desktop_unlock) yokken screen_info'nun pencere listesi her durumda
+# Python yardimcisindan okunur: native yardimci yalnizca bir izne bagli calisir.
+accessibility = "python"
+
 # pcbridge-native icin istege bagli mutlak yol. PCBRIDGE_NATIVE_BIN ortam
 # degiskeni onceliklidir. Bos deger paketlenmis executable yolunu kullanir.
 binary_path = ""

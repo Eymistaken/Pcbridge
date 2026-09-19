@@ -625,6 +625,14 @@ sunan bir kopya düz metin olmadan geri gelir. `system_capabilities` bunu
 seçiminde yardımcı ya da `/dev/uinput` kullanılamıyorsa sessizce Python'a
 düşülmez. Değişiklik yeni pcbridge süreçlerinde geçerli olur.
 
+Erişilebilirlik ağacını (`ui_dump`, `window_list`) native yardımcı da
+okuyabiliyor (2026-09-19). AT-SPI'a doğrudan D-Bus ile gidiyor, GI ya da GTK
+kullanmıyor. pcbridge'in test penceresinde döküm ~15 ms sürdü; Python
+yardımcısıyla ~105 ms idi. İki yol aynı fixture'da ve gerçek pencerede aynı
+listeyi, aynı kimliklerle veriyor. Varsayılan şimdilik `[native] accessibility =
+"python"`; `auto` Gate 6'dan sonra gelecek. `ui_click` ve `ui_set_text` şimdilik
+her iki seçimde de Python yardımcısından gidiyor.
+
 `computer_task`'in ikinci satırda ayrı durmasının sebebi ölçülmüş bir gerçek:
 **pcbridge'in gönderdiği tuş, "kullanıcı makinede mi" sayacını sıfırlıyor**
 (104227 ms → 151 ms). Yani ajan ikinci eylemine geldiğinde kendi ilk tuşunu

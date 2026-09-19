@@ -145,7 +145,19 @@ def _accessibility_error(
             category=ErrorCategory.ACCESSIBILITY,
             backend="linux.atspi",
             retryable=True,
-            suggested_action="Erişilebilirlik ağacını yenileyip (ui_dump) kimliği tekrar seçin.",
+            suggested_action=(
+                "Hedefi yeniden belirleyin: ui_dump ile listeyi yenileyin ya da "
+                "window_list ile açık pencerelere bakın."
+            ),
+        )
+    if code is ErrorCode.TIMEOUT:
+        return _desktop_error(
+            exc,
+            code=code,
+            category=ErrorCategory.EXECUTION,
+            backend="linux.atspi",
+            retryable=True,
+            suggested_action="Uygulama donmuş olabilir; screen_capture ile bakın.",
         )
     if code is ErrorCode.EXECUTION_UNKNOWN:
         # The helper timed out: the action may or may not have happened, so
@@ -727,6 +739,11 @@ class PythonInputProvider(inputlib.InputBackend):
 class PythonAccessibilityProvider(uitreelib.UiTree):
     """Expose the legacy AT-SPI client through the provider contract."""
 
+    def __init__(self, *, degraded_reason: str = "") -> None:
+        super().__init__()
+        # Set when `auto` wanted the native reader and could not have it.
+        self.degraded_reason = degraded_reason
+
     def available(self) -> tuple[bool, str]:
         return uitreelib.available()
 
@@ -775,6 +792,20 @@ class PythonAccessibilityProvider(uitreelib.UiTree):
             if ok
             else (),
         )
+        if self.degraded_reason:
+            # A fallback is shown, never hidden, as input and capture show theirs.
+            for name in ("accessibility.read", "window.list"):
+                value = values[name]
+                values[name] = _capability(
+                    name,
+                    CapabilityState.DEGRADED
+                    if value.state is CapabilityState.SUPPORTED
+                    else value.state,
+                    backend=value.backend,
+                    scope=value.scope,
+                    reason_code=value.reason_code or ErrorCode.BACKEND_UNAVAILABLE,
+                    limitations=tuple(value.limitations) + (self.degraded_reason,),
+                )
         return values
 
     def _translate_accessibility(

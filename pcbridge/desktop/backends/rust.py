@@ -57,9 +57,12 @@ from .. import capture as capturelib
 from .. import clipboard as clipboardlib
 from .. import input as inputlib
 from .. import monitors as monitorslib
+from .. import uitree as uitreelib
 from .python import (
+    PythonAccessibilityProvider,
     PythonCaptureProvider,
     PythonInputProvider,
+    _accessibility_error,
     _capability,
     _clipboard_capabilities,
     _desktop_error,
@@ -1114,11 +1117,205 @@ class RustInputProvider(PythonInputProvider):
 RustKeyboardInputProvider = RustInputProvider
 
 
+#: The helper gives up on a dump after 15 s; the request waits longer, so the
+#: helper's TIMEOUT arrives with its reason instead of a bare IPC timeout.
+ACCESSIBILITY_TIMEOUT_SECONDS = 20.0
+ACCESSIBILITY_BACKEND = "linux.atspi.native"
+
+# The helper's own verdicts about a target. They reach the caller with the
+# same wording and advice as the Python helper's.
+_ACCESSIBILITY_CODES = frozenset({
+    ErrorCode.ELEMENT_STALE,
+    ErrorCode.ELEMENT_AMBIGUOUS,
+    ErrorCode.TARGET_MISMATCH,
+    ErrorCode.TIMEOUT,
+})
+
+
+class RustAccessibilityProvider(PythonAccessibilityProvider):
+    """Accessibility reads through the grant-bound native helper (Task 6.2).
+
+    The dump, the window list and the focused window come from the helper,
+    which reads AT-SPI over D-Bus with no GI and no GTK. Everything after the
+    read stays in `uitree`: short ids, the snapshot, the last-dump registry
+    and the text shown to the model -- one copy for both readers.
+
+    Actions (`click`, `set_text`) still go through the Python helper until
+    Task 6.3. They carry the element's own identity, the bus name and object
+    path, which means the same thing to either reader.
+
+    Without a grant there is no helper to ask. `screen_info` lists windows
+    before `desktop_unlock`, so the window list and the focused window fall
+    back to the Python helper then -- exactly what that call read before.
+    """
+
+    def __init__(
+        self,
+        cfg: Config,
+        *,
+        gate: Any | None = None,
+        client: NativeClient | None = None,
+        client_factory: Callable[[], NativeClient] | None = None,
+    ) -> None:
+        super().__init__()
+        self.cfg = cfg
+        self.gate = gate
+        self._helper = GrantBoundHelper(client_factory or self._new_client, client)
+
+    def _new_client(self) -> NativeClient:
+        binary = discover_native_binary(
+            self.cfg.native,
+            package_root=Path(__file__).resolve().parents[2],
+        )
+        return NativeClient(binary, state_dir=self.cfg.state_dir, runtime_dir=runtime_dir())
+
+    def _current_grant(self) -> tuple[str, int] | None:
+        token = self.gate.current_token() if self.gate is not None else None
+        if token is None:
+            return None
+        return str(token.grant_id), int(token.revoke_epoch)
+
+    def _dump_grant(self) -> tuple[str, int]:
+        # The last grant too: the helper then answers why it is refused
+        # (expired, revoked) instead of this side guessing.
+        token = None
+        if self.gate is not None:
+            token = self.gate.current_token() or self.gate.last_token()
+        if token is None:
+            raise DesktopError(
+                code=ErrorCode.GRANT_REQUIRED,
+                message="masaustu izni yok: erisilebilirlik agaci izin olmadan okunmaz",
+                category=ErrorCategory.SAFETY,
+                retryable=False,
+                suggested_action="Masaustu iznini desktop_unlock ile acip tekrar deneyin.",
+                backend=ACCESSIBILITY_BACKEND,
+            )
+        return str(token.grant_id), int(token.revoke_epoch)
+
+    def _request(self, method: str, grant: tuple[str, int], **params: Any) -> dict[str, Any]:
+        grant_id, revoke_epoch = grant
+        client = self._helper.for_grant(grant)
+        try:
+            response = client.request(
+                method,
+                {"grant_id": grant_id, "revoke_epoch": revoke_epoch, **params},
+                timeout=ACCESSIBILITY_TIMEOUT_SECONDS,
+            )
+        except DesktopError as exc:
+            if exc.code is ErrorCode.UNSUPPORTED and "accessibility.read" not in client.features:
+                raise DesktopError(
+                    code=ErrorCode.BACKEND_UNAVAILABLE,
+                    message=(
+                        "Native yardimci erisilebilirlik metotlarini tanimiyor (Task "
+                        "6.2 oncesi bir derleme). `scripts/build-native.sh` ile "
+                        "yeniden derleyin."
+                    ),
+                    category=ErrorCategory.CAPABILITY,
+                    retryable=False,
+                    suggested_action="scripts/build-native.sh",
+                    backend=ACCESSIBILITY_BACKEND,
+                ) from exc
+            if exc.code in _ACCESSIBILITY_CODES:
+                raise _accessibility_error(
+                    uitreelib.UiTreeError(exc.message, exc.code),
+                    exc.code,
+                    ErrorCategory.ACCESSIBILITY,
+                    exc.retryable,
+                ) from exc
+            raise
+        result = getattr(response, "result", None)
+        if not isinstance(result, dict) or not result.get("ok"):
+            raise DesktopError(
+                code=ErrorCode.INVALID_FRAME,
+                message="Native erisilebilirlik yardimcisi gecersiz bir yanit dondurdu.",
+                category=ErrorCategory.IPC,
+                retryable=False,
+                suggested_action="check_native_protocol",
+                backend=ACCESSIBILITY_BACKEND,
+            )
+        return result
+
+    def dump(
+        self,
+        target: str = "focused",
+        interactive_only: bool = True,
+        max_nodes: int = 400,
+    ) -> uitreelib.Dump:
+        result = self._request(
+            "accessibility.dump",
+            self._dump_grant(),
+            target=str(target),
+            interactive_only=bool(interactive_only),
+            max_nodes=int(max_nodes),
+        )
+        dump = uitreelib.dump_from_response(result, backend=ACCESSIBILITY_BACKEND)
+        self._last = dump
+        return dump
+
+    def focused_window(self) -> tuple[str, str]:
+        grant = self._current_grant()
+        if grant is None:
+            return super().focused_window()
+        result = self._request("accessibility.focused", grant)
+        return result.get("app") or "?", result.get("window") or ""
+
+    def windows(self) -> list[uitreelib.Window]:
+        grant = self._current_grant()
+        if grant is None:
+            return super().windows()
+        return uitreelib.windows_from_response(self._request("accessibility.windows", grant))
+
+    def close(self) -> None:
+        self._helper.close()
+
+    def available(self) -> tuple[bool, str]:
+        ready, reason = native_binary_ready(self.cfg)
+        if not ready:
+            return False, reason or "native erisilebilirlik yardimcisi bulunamadi"
+        return True, ""
+
+    def capability_token(self) -> tuple[Any, ...]:
+        ready, reason = native_binary_ready(self.cfg)
+        return ("rust-accessibility", ready, reason, super().capability_token())
+
+    def probe_capabilities(self) -> dict[str, Capability]:
+        # `accessibility.action` stays the Python helper's until Task 6.3.
+        values = super().probe_capabilities()
+        ready, reason = native_binary_ready(self.cfg)
+        if not ready:
+            for name in ("accessibility.read", "window.list"):
+                values[name] = _capability(
+                    name,
+                    CapabilityState.UNAVAILABLE,
+                    backend=ACCESSIBILITY_BACKEND,
+                    scope="os.accessibility",
+                    reason_code=ErrorCode.DEPENDENCY_MISSING,
+                    limitations=(reason,) if reason else (),
+                )
+            return values
+        values["accessibility.read"] = _capability(
+            "accessibility.read",
+            CapabilityState.SUPPORTED,
+            backend=ACCESSIBILITY_BACKEND,
+            scope="os.accessibility",
+        )
+        values["window.list"] = _capability(
+            "window.list",
+            CapabilityState.DEGRADED,
+            backend=ACCESSIBILITY_BACKEND,
+            scope="os.accessibility",
+            limitations=("Only accessibility-visible applications are listed.",),
+        )
+        return values
+
+
 __all__ = [
+    "ACCESSIBILITY_BACKEND",
     "BackendSelection",
     "BACKEND_NAME",
     "NativeCaptureError",
     "NativeScreenCast",
+    "RustAccessibilityProvider",
     "RustCaptureProvider",
     "RustInputProvider",
     "RustKeyboardInputProvider",

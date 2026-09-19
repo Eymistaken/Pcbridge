@@ -174,12 +174,14 @@ def _call(payload: dict, timeout: int) -> dict:
         )
     except subprocess.TimeoutExpired as exc:
         # Zaman asimi SESSIZCE yutulmaz: AT-SPI cevap vermeyen bir uygulamada
-        # bloklayabiliyor ve kullanicinin bunu bilmesi lazim. Eylem gitmis de
-        # olabilir, gitmemis de: TEKRARLANMAZ.
+        # bloklayabiliyor ve kullanicinin bunu bilmesi lazim. Bir eylemde
+        # eylem gitmis de olabilir, gitmemis de: TEKRARLANMAZ. Okuma ise
+        # yalnizca zaman asimi.
+        acting = payload.get("cmd") in ("act", "settext")
         raise UiTreeError(
             f"Uygulama {timeout} saniyede cevap vermedi. Donmus olabilir; "
             "ekran goruntusuyle bakin (screen_capture).",
-            ErrorCode.EXECUTION_UNKNOWN,
+            ErrorCode.EXECUTION_UNKNOWN if acting else ErrorCode.TIMEOUT,
         ) from exc
     if not proc.stdout.strip():
         # Yardimci stdout'a her zaman JSON yazar. Bos ise gercekten cokmustur;
@@ -269,6 +271,54 @@ def _to_nodes(raw: list[dict]) -> list[Node]:
     ]
 
 
+def dump_from_response(resp: dict, backend: str = BACKEND) -> Dump:
+    """Bir okuyucunun `dump` cevabini `Dump`a cevir.
+
+    Python yardimcisi da native yardimci da ayni bicimde cevap veriyor; kisa
+    kimlikler ve snapshot HER IKISINDE burada, tek yerde uretiliyor.
+    """
+    nodes = _to_nodes(resp.get("nodes") or [])
+    return Dump(
+        app=resp.get("app") or "?",
+        window=resp.get("window") or "",
+        nodes=nodes,
+        truncated=bool(resp.get("truncated")),
+        by_id={n.node_id: n for n in nodes},
+        backend=backend,
+        snapshot=secrets.token_hex(6),
+        app_bus=str(resp.get("app_bus") or ""),
+        app_pid=int(resp.get("app_pid") or 0),
+        scope="app" if resp.get("scope") == "app" else "window",
+        window_ref=str(resp.get("window_ref") or ""),
+        same_name=int(resp.get("same_name") or 1),
+    )
+
+
+def windows_from_response(resp: dict) -> list[Window]:
+    """Pencere listesi cevabini `Window` listesine cevir.
+
+    Penceresi olmayan arka plan servisleri (gsd-*, ibus-*) ve isimsiz
+    yardimci pencereler elenir: model icin gurultu, kullanici icin anlamsiz.
+    """
+    out = []
+    for item in resp.get("windows") or []:
+        title = (item.get("window") or "").strip()
+        app = (item.get("app") or "").strip()
+        if not title and not item.get("active"):
+            continue
+        out.append(Window(
+            app=app or "?",
+            title=title,
+            role=item.get("role") or "",
+            active=bool(item.get("active")),
+            children=int(item.get("children") or 0),
+            app_bus=str(item.get("app_bus") or ""),
+            app_pid=int(item.get("app_pid") or 0),
+            ref=str(item.get("ref") or ""),
+        ))
+    return out
+
+
 class UiTree:
     """Agac okuma + eylem. Son dokumu, kimliklerden dugume donebilmek icin tutar."""
 
@@ -293,20 +343,7 @@ class UiTree:
         )
         if not resp.get("ok"):
             raise UiTreeError(resp.get("error") or "Agac okunamadi.", _code(resp.get("code")))
-        nodes = _to_nodes(resp.get("nodes") or [])
-        dump = Dump(
-            app=resp.get("app") or "?",
-            window=resp.get("window") or "",
-            nodes=nodes,
-            truncated=bool(resp.get("truncated")),
-            by_id={n.node_id: n for n in nodes},
-            snapshot=secrets.token_hex(6),
-            app_bus=str(resp.get("app_bus") or ""),
-            app_pid=int(resp.get("app_pid") or 0),
-            scope="app" if resp.get("scope") == "app" else "window",
-            window_ref=str(resp.get("window_ref") or ""),
-            same_name=int(resp.get("same_name") or 1),
-        )
+        dump = dump_from_response(resp)
         self._last = dump
         return dump
 
@@ -339,23 +376,7 @@ class UiTree:
             raise UiTreeError(
                 resp.get("error") or "Pencere listesi okunamadi.", _code(resp.get("code"))
             )
-        out = []
-        for item in resp.get("windows") or []:
-            title = (item.get("window") or "").strip()
-            app = (item.get("app") or "").strip()
-            if not title and not item.get("active"):
-                continue
-            out.append(Window(
-                app=app or "?",
-                title=title,
-                role=item.get("role") or "",
-                active=bool(item.get("active")),
-                children=int(item.get("children") or 0),
-                app_bus=str(item.get("app_bus") or ""),
-                app_pid=int(item.get("app_pid") or 0),
-                ref=str(item.get("ref") or ""),
-            ))
-        return out
+        return windows_from_response(resp)
 
     def resolve(self, node_id: str) -> Node:
         """Kisa kimligi SON dokumdeki dugume cevir.

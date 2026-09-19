@@ -12,6 +12,10 @@ use serde_json::{Value, json};
 #[cfg(feature = "test-harness")]
 use crate::lifecycle::LeaseFailure;
 use crate::lifecycle::{FailClosed, Lifecycle, LifecycleFailure};
+use crate::platform::linux::accessibility::bus::AtspiBus;
+#[cfg(feature = "test-harness")]
+use crate::platform::linux::accessibility::fixture::FixtureTree;
+use crate::platform::linux::accessibility::{self, AccessibilityError, DumpRequest, Tree};
 use crate::platform::linux::capture::{CaptureError, NativeCapture, NativeCaptureError};
 use crate::platform::linux::clipboard::{self, Clipboard, ClipboardError, SystemPrograms};
 #[cfg(feature = "test-harness")]
@@ -78,6 +82,7 @@ impl BackendMode {
                 "input.keyboard",
                 "input.pointer",
                 "clipboard",
+                "accessibility.read",
             ],
             #[cfg(feature = "test-harness")]
             Self::DeterministicTest => vec![
@@ -86,6 +91,7 @@ impl BackendMode {
                 "input.keyboard",
                 "input.pointer",
                 "clipboard",
+                "accessibility.read",
             ],
         }
     }
@@ -95,16 +101,22 @@ impl BackendMode {
             // Probed on every request, and cheaply: a bus name owner and a
             // socket, never a session. This used to be a fixed `supported`,
             // true even where capture could not work.
-            Self::Production { .. } => json!({
-                "backend": "linux.mutter.pipewire",
-                "capabilities": [
-                    readiness::capture_monitor(&readiness::probe()),
-                    readiness::input_keyboard(),
-                    readiness::input_pointer(),
-                    readiness::clipboard("clipboard.read", "wl-paste"),
-                    readiness::clipboard("clipboard.write", "wl-copy"),
-                ],
-            }),
+            Self::Production { .. } => {
+                let [read, windows] =
+                    readiness::accessibility(&readiness::accessibility_bus_owned());
+                json!({
+                    "backend": "linux.mutter.pipewire",
+                    "capabilities": [
+                        readiness::capture_monitor(&readiness::probe()),
+                        readiness::input_keyboard(),
+                        readiness::input_pointer(),
+                        readiness::clipboard("clipboard.read", "wl-paste"),
+                        readiness::clipboard("clipboard.write", "wl-copy"),
+                        read,
+                        windows,
+                    ],
+                })
+            }
             #[cfg(feature = "test-harness")]
             Self::DeterministicTest => json!({
                 "backend": "test.fake",
@@ -196,6 +208,25 @@ enum PointerRequestError {
     Device(std::io::Error),
 }
 
+/// Where accessibility reads come from: the session's bus, or in the test
+/// harness a fixture desktop and never the user's applications.
+#[derive(Debug)]
+enum AccessibilitySource {
+    Bus(AtspiBus),
+    #[cfg(feature = "test-harness")]
+    Fixture(FixtureTree),
+}
+
+impl AccessibilitySource {
+    fn tree(&self) -> &dyn Tree {
+        match self {
+            Self::Bus(bus) => bus,
+            #[cfg(feature = "test-harness")]
+            Self::Fixture(fixture) => fixture,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Dispatcher {
     mode: BackendMode,
@@ -214,6 +245,8 @@ pub struct Dispatcher {
     /// Created only by an explicit pointer request. The topology id and
     /// geometry are replaced together when the display layout changes.
     pointer: Option<(String, PointerConfig, Arc<dyn PointerService>)>,
+    /// Connected by the first accessibility request, never at startup.
+    accessibility: Option<AccessibilitySource>,
     state_dir: Option<PathBuf>,
 }
 
@@ -229,6 +262,7 @@ impl Dispatcher {
             capture: None,
             keyboard: None,
             pointer: None,
+            accessibility: None,
             state_dir: None,
         }
     }
@@ -326,6 +360,21 @@ impl Dispatcher {
             "clipboard.read" => self.clipboard_read(request.id, request.params),
             "clipboard.write" => self.clipboard_write(request.id, request.params, frame.binary),
             "clipboard.clear" => self.clipboard_clear(request.id, request.params),
+            "accessibility.dump" => self.accessibility_dump(request.id, request.params),
+            "accessibility.windows" => {
+                self.accessibility_read(request.id, request.params, |tree| {
+                    accessibility::windows(tree)
+                })
+            }
+            "accessibility.focused" => {
+                self.accessibility_read(request.id, request.params, |tree| {
+                    accessibility::focused(tree)
+                })
+            }
+            #[cfg(feature = "test-harness")]
+            "test.accessibility_desktop" => {
+                self.test_accessibility_desktop(request.id, request.params)
+            }
             "cancel" => match parse_cancel(request.params) {
                 Ok(target_id) => self.success(
                     request.id,
@@ -1129,6 +1178,135 @@ impl Dispatcher {
         )
     }
 
+    /// The tree an accessibility request reads, connected on first use.
+    ///
+    /// The harness never reaches the user's applications: it reads only the
+    /// fixture desktop a test names, and refuses when none is named.
+    fn accessibility_tree(&mut self) -> Result<&dyn Tree, ErrorBody> {
+        if self.accessibility.is_none() {
+            let source = match &self.mode {
+                BackendMode::Production { .. } => AtspiBus::connect()
+                    .map(AccessibilitySource::Bus)
+                    .map_err(|error| accessibility_error_body(&error))?,
+                #[cfg(feature = "test-harness")]
+                BackendMode::DeterministicTest => {
+                    let desktop = std::env::var("PCBRIDGE_TEST_A11Y_DESKTOP").unwrap_or_default();
+                    AccessibilitySource::Fixture(load_fixture_desktop(&desktop)?)
+                }
+            };
+            self.accessibility = Some(source);
+        }
+        Ok(self
+            .accessibility
+            .as_ref()
+            .expect("accessibility source was just set")
+            .tree())
+    }
+
+    fn accessibility_grant<T: DeserializeOwned + AccessibilityGrant>(
+        &self,
+        id: &str,
+        params: Value,
+    ) -> Result<T, Box<DispatchOutcome>> {
+        let params = serde_json::from_value::<T>(params).map_err(|error| {
+            Box::new(self.error(
+                id.to_owned(),
+                "INVALID_PARAMS",
+                format!("invalid accessibility parameters: {error}"),
+                None,
+            ))
+        })?;
+        validate_grant_id(params.grant_id()).map_err(|message| {
+            Box::new(self.error(id.to_owned(), "INVALID_PARAMS", message, None))
+        })?;
+        self.validate_grant_token(params.grant_id(), params.revoke_epoch())
+            .map_err(|failure| Box::new(self.keyboard_lifecycle_error(id.to_owned(), failure)))?;
+        Ok(params)
+    }
+
+    /// Answer with what was read, unless the grant ended while reading:
+    /// the tree names what is on screen, and a revoke in that window must
+    /// not be answered with it.
+    fn accessibility_reply(
+        &self,
+        id: String,
+        grant: (&str, u64),
+        read: Result<Value, AccessibilityError>,
+    ) -> DispatchOutcome {
+        if let Err(failure) = self.validate_grant_token(grant.0, grant.1) {
+            return self.keyboard_lifecycle_error(id, failure);
+        }
+        match read {
+            Ok(result) => self.success(id, result, None),
+            Err(error) => self.typed_error(id, accessibility_error_body(&error)),
+        }
+    }
+
+    fn accessibility_dump(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match self.accessibility_grant::<AccessibilityDumpParams>(&id, params) {
+            Ok(params) => params,
+            Err(outcome) => return *outcome,
+        };
+        let deadline_ms = match params.deadline_ms {
+            0 => DUMP_DEADLINE_MS,
+            value => value.min(DUMP_DEADLINE_MS_MAX),
+        };
+        let request = DumpRequest {
+            target: match params.target.trim() {
+                "" => "focused".to_owned(),
+                target => target.to_owned(),
+            },
+            interactive_only: params.interactive_only,
+            max_nodes: match params.max_nodes {
+                0 => accessibility::DEFAULT_MAX_NODES,
+                value => usize::try_from(value.min(MAX_DUMP_NODES))
+                    .unwrap_or(accessibility::DEFAULT_MAX_NODES),
+            },
+            deadline: Some(std::time::Instant::now() + Duration::from_millis(deadline_ms)),
+            deadline_seconds: deadline_ms.div_ceil(1000),
+        };
+        let read = match self.accessibility_tree() {
+            Ok(tree) => accessibility::dump(tree, &request),
+            Err(error) => return self.typed_error(id, error),
+        };
+        self.accessibility_reply(id, (&params.grant_id, params.revoke_epoch), read)
+    }
+
+    fn accessibility_read(
+        &mut self,
+        id: String,
+        params: Value,
+        read: fn(&dyn Tree) -> Result<Value, AccessibilityError>,
+    ) -> DispatchOutcome {
+        let params = match self.accessibility_grant::<AccessibilityGrantParams>(&id, params) {
+            Ok(params) => params,
+            Err(outcome) => return *outcome,
+        };
+        let result = match self.accessibility_tree() {
+            Ok(tree) => read(tree),
+            Err(error) => return self.typed_error(id, error),
+        };
+        self.accessibility_reply(id, (&params.grant_id, params.revoke_epoch), result)
+    }
+
+    /// Harness only: read another fixture desktop from now on, the way an
+    /// application changes its tree between a dump and an action.
+    #[cfg(feature = "test-harness")]
+    fn test_accessibility_desktop(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let desktop = params
+            .get("desktop")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        match load_fixture_desktop(&desktop) {
+            Ok(tree) => {
+                self.accessibility = Some(AccessibilitySource::Fixture(tree));
+                self.success(id, json!({"desktop": desktop}), None)
+            }
+            Err(error) => self.typed_error(id, error),
+        }
+    }
+
     fn validate_grant_token(
         &self,
         grant_id: &str,
@@ -1892,6 +2070,98 @@ struct PointerButtonParams {
     button: String,
 }
 
+/// A dump gives up after this long unless the request asks for less; the
+/// host's own request timeout is longer, so the reason arrives as TIMEOUT.
+const DUMP_DEADLINE_MS: u64 = 15_000;
+const DUMP_DEADLINE_MS_MAX: u64 = 20_000;
+/// The largest list one dump may return (the walk visits 25 times more).
+const MAX_DUMP_NODES: u64 = 2_000;
+
+fn accessibility_error_body(error: &AccessibilityError) -> ErrorBody {
+    let (category, retryable) = match error.code {
+        "ELEMENT_STALE" | "ELEMENT_AMBIGUOUS" | "TARGET_MISMATCH" => ("accessibility", true),
+        "TIMEOUT" => ("execution", true),
+        _ => ("capability", true),
+    };
+    ErrorBody {
+        code: error.code.to_owned(),
+        message: error.message.clone(),
+        retryable,
+        category: category.to_owned(),
+    }
+}
+
+#[cfg(feature = "test-harness")]
+fn load_fixture_desktop(desktop: &str) -> Result<FixtureTree, ErrorBody> {
+    let unsupported = |message: String| ErrorBody {
+        code: "UNSUPPORTED".to_owned(),
+        message,
+        retryable: false,
+        category: "capability".to_owned(),
+    };
+    let path = std::env::var_os("PCBRIDGE_TEST_A11Y_FIXTURE")
+        .ok_or_else(|| unsupported("the test harness has no accessibility fixture".to_owned()))?;
+    let text = std::fs::read_to_string(&path).map_err(|error| {
+        unsupported(format!("the accessibility fixture is unreadable: {error}"))
+    })?;
+    let fixture: Value = serde_json::from_str(&text)
+        .map_err(|error| unsupported(format!("the accessibility fixture is not JSON: {error}")))?;
+    FixtureTree::from_fixture(&fixture, desktop).map_err(unsupported)
+}
+
+trait AccessibilityGrant {
+    fn grant_id(&self) -> &str;
+    fn revoke_epoch(&self) -> u64;
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AccessibilityGrantParams {
+    grant_id: String,
+    revoke_epoch: u64,
+}
+
+fn default_target() -> String {
+    "focused".to_owned()
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AccessibilityDumpParams {
+    grant_id: String,
+    revoke_epoch: u64,
+    #[serde(default = "default_target")]
+    target: String,
+    #[serde(default = "default_true")]
+    interactive_only: bool,
+    /// 0 means the default, as in the Python helper.
+    #[serde(default)]
+    max_nodes: u64,
+    /// 0 means the default.
+    #[serde(default)]
+    deadline_ms: u64,
+}
+
+impl AccessibilityGrant for AccessibilityGrantParams {
+    fn grant_id(&self) -> &str {
+        &self.grant_id
+    }
+
+    fn revoke_epoch(&self) -> u64 {
+        self.revoke_epoch
+    }
+}
+
+impl AccessibilityGrant for AccessibilityDumpParams {
+    fn grant_id(&self) -> &str {
+        &self.grant_id
+    }
+
+    fn revoke_epoch(&self) -> u64 {
+        self.revoke_epoch
+    }
+}
+
 const CLIPBOARD_BACKEND: &str = "linux.wl-clipboard.native";
 
 trait ClipboardGrant {
@@ -2123,7 +2393,8 @@ mod tests {
                 "capture.session_open",
                 "input.keyboard",
                 "input.pointer",
-                "clipboard"
+                "clipboard",
+                "accessibility.read"
             ]
         );
         let monitor = &capabilities["capabilities"][0];
@@ -2179,6 +2450,25 @@ mod tests {
                     } else {
                         json!([])
                     }
+                ),
+                Some("unavailable") => assert!(
+                    entry["reason"]
+                        .as_str()
+                        .is_some_and(|reason| !reason.is_empty())
+                ),
+                other => panic!("unexpected {name} status {other:?}"),
+            }
+        }
+        // Asked of the bus daemon only: no application tree is read.
+        for (index, name) in [(5, "accessibility.read"), (6, "window.list")] {
+            let entry = &capabilities["capabilities"][index];
+            assert_eq!(entry["name"], name);
+            assert_eq!(entry["permission_scope"], "os.accessibility");
+            match entry["status"].as_str() {
+                Some("supported") => assert_eq!(name, "accessibility.read"),
+                Some("degraded") => assert_eq!(
+                    entry["limitations"],
+                    json!([readiness::WINDOW_LIST_LIMITATION])
                 ),
                 Some("unavailable") => assert!(
                     entry["reason"]

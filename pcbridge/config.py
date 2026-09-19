@@ -213,6 +213,10 @@ class NativeSpec:
     # programs in the native helper when it is packaged, Python otherwise,
     # visibly. `rust` forbids the fallback, `python` keeps the old path.
     input: str = "auto"
+    # Task 6.2 (2026-09-19): accessibility reads (dump, window list, focus)
+    # through the native helper. `python` until Gate 6: actions still go
+    # through the Python helper either way until Task 6.3.
+    accessibility: str = "python"
     binary_path: Path | None = None
 
 
@@ -681,10 +685,17 @@ def load_config(explicit: str | None = None) -> Config:
             f"[native] ({path}): `input` ({native_input!r}) "
             "python, rust ya da auto olmali."
         )
+    native_accessibility = str(native_raw.get("accessibility", "python")).strip().lower()
+    if native_accessibility not in ("python", "rust", "auto"):
+        raise SystemExit(
+            f"[native] ({path}): `accessibility` ({native_accessibility!r}) "
+            "python, rust ya da auto olmali."
+        )
     native_binary = str(native_raw.get("binary_path", "")).strip()
     native = NativeSpec(
         capture=native_capture,
         input=native_input,
+        accessibility=native_accessibility,
         binary_path=_expand(native_binary) if native_binary else None,
     )
 
