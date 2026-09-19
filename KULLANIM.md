@@ -234,6 +234,9 @@ geliyor, ajan ekrana bakıyor. Yanında her görüntünün kısa bir **kimliği*
 duruyor (`shot: m2-a1b2c3`) — ajan "şuraya tıkla" derken gördüğü pikseli
 olduğu gibi veriyor ve bu kimliği ekliyor, ofseti ve ölçeği pcbridge kendisi
 uyguluyor. Ayrıca PNG'nin disk yolu veriliyor, istersen sen de açabilirsin.
+Görüntü alındıktan sonra monitör düzeni değişirse (monitör takıldı, çıkarıldı,
+yeri ya da çözünürlüğü değişti) o kimlikle tıklama `DISPLAY_CHANGED` ile
+reddedilir. Ajan yeni bir görüntü almalıdır.
 
 **Uzaktan (HTTP):** görüntünün yanında **tıklanabilir bir bağlantı** da
 geliyor — telefondan açınca ekranını kendi gözünle görürsün.

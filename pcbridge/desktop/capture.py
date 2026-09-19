@@ -150,6 +150,10 @@ class CaptureError(RuntimeError):
     """Ekran goruntusu alinamadi."""
 
 
+class ShotLayoutChanged(CaptureError):
+    """Cekimden sonra monitor duzeni degisti; koordinati artik baska yere duser."""
+
+
 @dataclass(frozen=True)
 class Shot:
     """Tek bir kirpilmis (ve muhtemelen olceklenmis) goruntu.
@@ -167,6 +171,10 @@ class Shot:
     scale: float  # scaled / size
     id: str = ""  # "m2-a1b2c3" — `shot=` ile geri bulunan kimlik
     taken_at: float = 0.0  # time.time(); bayatlik uyarisi buradan
+    # Cekim anindaki `monitors.topology_id()`. `offset` O duzene ait: duzen
+    # degistiyse ayni ofset baska bir ekranin ustune duser. Bos: pencere
+    # cekimi ya da bu alandan once (2026-09-19) yazilmis bir kayit.
+    topology: str = ""
 
     @property
     def label(self) -> str:
@@ -216,6 +224,7 @@ class Shot:
             "scaled": list(self.scaled),
             "scale": self.scale,
             "taken_at": self.taken_at,
+            "topology_id": self.topology,
         }
 
 
@@ -303,6 +312,7 @@ def load_shot(shot_id: str, dirs: Sequence[Path]) -> Shot:
             scale=float(data["scale"]),
             id=str(data.get("id") or shot_id),
             taken_at=float(data.get("taken_at") or 0.0),
+            topology=str(data.get("topology_id") or ""),
         )
     raise CaptureError(
         f"`{shot_id}` diye bir ekran goruntusu yok (bakilan yerler: "
@@ -391,6 +401,19 @@ def to_global(
                 f"`{shot}` odaktaki pencerenin goruntusu; ekranin neresinde "
                 "oldugu bilinmiyor, ondan koordinat turetilemez. Monitor "
                 "goruntusu alin (`monitor='all'`) ya da `ui_click` kullanin."
+            )
+        # Kayittaki ofset CEKIM ANINDAKI duzene ait. Monitor eklendi, cikti,
+        # tasindi ya da cozunurlugu degistiyse ayni ofset artik baska bir
+        # ekranin ustune duser ve tiklama sessizce yanlis yere gider (PLAN.md
+        # Task 5.3, madde 7). Kimligi olmayan eski kayit eskisi gibi gecer.
+        if found.topology and found.topology != monitorslib.topology_id(
+            monitorslib.list_monitors()
+        ):
+            raise ShotLayoutChanged(
+                f"`{shot}` cekildikten sonra ekran duzeni degisti (monitor "
+                "eklendi, cikarildi, tasindi ya da cozunurlugu degisti). O "
+                "goruntudeki koordinat artik baska bir yere duser; yeni bir "
+                "ekran goruntusu alin."
             )
         return point
 
@@ -668,6 +691,7 @@ class _Pending:
     scaled: tuple[int, int]
     scale: float
     taken_at: float
+    topology: str = ""
 
     def shot(self, out_dir: Path, stamp: str, suffix: str) -> Shot:
         if self.monitor is None:
@@ -691,6 +715,7 @@ class _Pending:
             scale=self.scale,
             id=f"m{mon.index}-{suffix}",
             taken_at=self.taken_at,
+            topology=self.topology,
         )
 
 
@@ -770,6 +795,7 @@ def _render(
 
     # Monitor tablosu monitors.py'dan gelir; burada ikinci bir okuma YOK.
     mons = monitorslib.list_monitors()
+    topology = monitorslib.topology_id(mons)
     want_all = monitor is None or (
         isinstance(monitor, str) and monitor.strip().lower() in ("all", "hepsi")
     )
@@ -809,6 +835,7 @@ def _render(
                         # yuzlerce milisaniye olabiliyor. Bilmiyorsa dizinin
                         # baslangici, eskisi gibi.
                         _frame_taken_at(frame, taken_at),
+                        topology,
                     )
                 )
             return pending
@@ -848,7 +875,9 @@ def _render(
             size, scaled, scale = _write_crop(
                 canvas, mon.bbox, staged, scale_long_edge
             )
-            pending.append(_Pending(staged, mon, size, scaled, scale, taken_at))
+            pending.append(
+                _Pending(staged, mon, size, scaled, scale, taken_at, topology)
+            )
     return pending
 
 

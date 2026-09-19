@@ -437,6 +437,15 @@ class PythonCaptureProvider:
                 dirs=dirs,
                 guard_age=guard_age,
             )
+        except capturelib.ShotLayoutChanged as exc:
+            raise _desktop_error(
+                exc,
+                code=ErrorCode.DISPLAY_CHANGED,
+                category=ErrorCategory.COORDINATE,
+                backend="python.shot-coordinate",
+                retryable=True,
+                suggested_action="Yeni bir ekran görüntüsü alıp onun kimliğini kullanın.",
+            ) from exc
         except capturelib.CaptureError as exc:
             raise _desktop_error(
                 exc,

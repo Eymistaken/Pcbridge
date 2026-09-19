@@ -16,9 +16,8 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
   düzeltildi: izin değişince native helper eski izinde kalıyordu ve bu,
   varsayılan capture yolunu da etkiliyordu. Ayrıntı: Adım 5 → "Codex'in 5.2/5.3
   işinin kontrolü".
-- **Sıradaki uygulanabilir adım:** Task 5.4 — text/clipboard adapter'ı ve input
-  default gate. Gate 5'ten önce: çekim kaydına `topology_id` (Task 5.3'ün yarım
-  7. maddesi).
+- **Sıradaki uygulanabilir adım:** Task 5.4 / 1 — pano işlemleri ayrı Python
+  arayüzünde (`clipboard.py`). 5.4 / 0 (çekim kaydına `topology_id`) bitti.
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 4 geçti** (2026-09-13). Varsayılan artık
   `[native] capture = "auto"`. Servis 2026-09-13'te yeniden başlatıldı. stdio
@@ -1582,19 +1581,67 @@ gerçekler).
 - Gerçek klavye/fare olayı gönderilmedi. Capture ölçümü geçici bir state
   dizininde, kullanıcının iznine dokunmadan birkaç saniyelik paylaşımla yapıldı.
 
-**Kontrolde bulunan, düzeltilmeyen:**
+**Kontrolde bulunan, bu commit'te düzeltilmeyen:**
 
 - **Task 5.3'ün 7. maddesi yarım.** PLAN.md bunu istiyor: "Capture'dan gelen
   koordinat için topology uyuşmazlığını injection öncesinde reddet". Uygulanan
   kontrol ise Python'un **şu anki** monitör tablosunu Rust'ın **şu anki**
   tablosuyla karşılaştırıyor. Çekim ile tıklama arasında düzen değişirse bunu
   görmüyor, çünkü çekim kaydında (`<id>.json`) `topology_id` yok. Python yolunda
-  da bu kontrol hiç yoktu. Gate 5'ten önce kapatılmalı: kayda `topology_id`
-  yazılır, `capture.to_global()` `shot=` ile gelen koordinatta karşılaştırır.
+  da bu kontrol hiç yoktu. **Kapatıldı:** Task 5.4 → 0.
 - `is_open()`, gözcü paylaşımı kapattıktan sonra da `True` kalıyor. Bilinen
   kusur, Adım 4'te kayıtlı.
 
 **Rollback:** Bu commit'i geri almak yeter. Yeni ayar yok, dosya biçimi değişmedi.
+
+### Task 5.4 — Text/clipboard adapter'ı ve input default gate · `devam ediyor`
+
+**Başlangıç (2026-09-19, kullanıcı onaylı).** PLAN.md 5.4 küçük commit'lere
+bölündü:
+
+| # | Ne | Durum |
+|---|---|---|
+| 0 | Task 5.3'ün yarım 7. maddesi: çekim kaydına `topology_id`; düzen değişince `shot=` koordinatı `DISPLAY_CHANGED` | `tamamlandı` |
+| 1 | Pano işlemleri Python'da ayrı arayüzde (`clipboard.py`), davranış aynı; restore fixture'ı | bekliyor |
+| 2 | Rust'ta aynı `wl-copy`/`wl-paste` programlarını yöneten adapter; wl-copy boru tuzağı; tek MIME sınırı capability'de | bekliyor |
+| 3 | `[native] input = "rust"` seçilince pano native adapter'dan. `type_text` orkestrasyonu Python'da kalır: pano → native `ctrl+v` → geri yükleme | bekliyor |
+| 4 | Gerçek girdi testleri, kullanıcı başındayken: Türkçe metin, değiştirici tuşlar, move→doğrulama→click, drag, süre dolumu/revoke, ≤1 px sapma | bekliyor (kullanıcı) |
+| 5 | Gate 5 kararı. Geçerse `[native] input` varsayılanı değişir | bekliyor |
+
+Kod okurken bulunan: `[native] input = "rust"` seçildiğinde `type_text` zaten
+native `ctrl+v` gönderiyor. `RustInputProvider` `key()`'i eziyor,
+`InputBackend._type_clipboard` de `self.key("ctrl+v")` çağırıyor. Yani 3'ün
+orkestrasyon kısmı hazır; eksik olan panonun kendisi.
+
+#### 0 — Çekim kaydında ekran düzeni · `tamamlandı`
+
+**Sorun.** Çekim kaydı monitörün çekim anındaki ofsetini ve ölçeğini tutuyor.
+`load_shot` bunu bilerek canlı tablodan değil kayıttan kuruyor. Arada monitör
+takılırsa, çıkarılırsa, yer ya da çözünürlük değişirse aynı ofset başka bir
+ekrana düşer ve tıklama ajanın hiç görmediği bir yere gider.
+
+**Ne yapıldı.** `Shot.topology` ve kayıtta `topology_id` alanı eklendi. Değer,
+çekimde kullanılan monitör tablosundan geliyor ve üç yakalama yolunun üçünde
+de yazılıyor (Python yayını, native, `gnome-screenshot`). `capture.to_global()`
+`shot=` ile gelen koordinatı güncel tabloyla karşılaştırıyor ve fark varsa
+`ShotLayoutChanged` fırlatıyor. Provider bunu `DISPLAY_CHANGED` / `coordinate`
+olarak, retryable ve "yeni görüntü al" önerisiyle döndürüyor. `mouse`,
+`computer_batch` ve `pcb-do` aynı provider'dan geçtiği için üçü de kazanıyor.
+Alanı olmayan eski kayıt eskisi gibi geçiyor. `monitor=` ve global
+koordinatlar çekime bakmıyor. Belgeler: `KULLANIM.md`, `CLAUDE.md`.
+
+**Testler.** `tests/contracts/test_shot_layout.py` (yeni) → **6**: üç yol da
+düzeni yazıyor; değişmeyen düzende dönüşüm birebir aynı; yer değiştirmiş ve
+çözünürlüğü değişmiş düzen reddediliyor; provider `DISPLAY_CHANGED` ve
+retryable; eski kayıt geçiyor; `monitor=`/global etkilenmiyor. `gnome-screenshot`
+testte gölgelendi, gerçek çekim yapılmadı. **Mutasyon 8/8 yakalandı**: kontrolün
+kaldırılması, kayda/yükleyiciye yazılmaması, iki yakalama yolundan birinin ve
+`_Pending.shot()`'un alanı düşürmesi, provider'ın yanlış kod ya da retryable
+vermesi. Sonuçlar: contract **251** (+6), integration **16**, `test_desktop.py`
+**583** (değişmeden), `test_models.py` **106**, `--check` 0.
+
+**Rollback:** Commit'i geri almak yeter. Yeni kayıtlardaki fazladan alanı eski
+kod yok sayar.
 
 ## Adım 6 — İmleç katmanı
 

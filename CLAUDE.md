@@ -480,7 +480,10 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   dönüştüğü için biçimi **süzülüyor** (`SHOT_ID_RE`) — süzülmeseydi
   `shot="../.."` dizin dışına çıkardı. `shot` ile `monitor` birlikte
   verilemez: farklı uzaylar, sessizce birini seçmek tam da bu katmanın
-  önlemeye çalıştığı hata olurdu.
+  önlemeye çalıştığı hata olurdu. Kayıt çekim anındaki `topology_id`'yi de
+  taşıyor (2026-09-19'dan beri). Düzen değiştiyse `to_global()` `shot=`
+  koordinatını `DISPLAY_CHANGED` ile reddediyor, çünkü aynı ofset artık başka
+  bir ekrana düşer. Alanı olmayan eski kayıtlar eskisi gibi geçiyor.
 - **`shot` unutulursa çağrı reddediliyor, tahmin edilmiyor.** `shot` da
   `monitor` da verilmemişse koordinat global sayılır — ama yakında
   **küçültülmüş** bir çekim varsa ve koordinat onun kutusuna düşüyorsa bu
