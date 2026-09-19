@@ -524,7 +524,7 @@ ya da bir işin bittiğini fark etmek için.
 | `screen_info` | Monitör tablosu, koordinat uzayı, odaktaki pencere |
 | `screen_capture` | Ekran görüntüsü alır (sessiz — flaş/ses yok): görüntünün kendisi, uzaktan bağlıysan ayrıca 5 dakikalık bağlantı |
 | `ui_dump` | Ekrandaki düğme/menü/kutuları metin olarak listeler |
-| `ui_click` | Listedeki bir öğeye tıklar (koordinat kullanmadan; **imleç kıpırdamaz**, tıklama uygulamaya doğrudan gider) |
+| `ui_click` | Listedeki bir öğeye tıklar (koordinat kullanmadan; **imleç kıpırdamaz**, tıklama uygulamaya doğrudan gider). Öğe kaybolmuş ya da değişmişse reddeder |
 | `ui_set_text` | Metin kutusunu doğrudan doldurur (klavye taklidi yok) |
 | `computer_batch` | Bir eylem listesini tek onayda sırayla çalıştırır |
 | `window_list` | Açık pencereler, odaktaki işaretli |
@@ -569,6 +569,25 @@ kapanmış bir pencereden daha zor toparlanır.
 (`monitor`/`shot`). Araya `move` gibi bir eylem girerse seri kırılır; `wait`
 kırmaz, çünkü "tıkla-bekle-tıkla" tam da döngüye giren ajanın deseni.
 `double_click` ve `triple_click` tek eylemdir, sayacı doldurmaz.
+
+`ui_click` ve `ui_set_text` ayrıca **hedefin kendisini** doğruluyor. `#1b72`
+gibi bir kimlik son `ui_dump` listesindeki bir öğeyi seçer; eylem ise o öğenin
+uygulamadaki kalıcı kimliğine gider (uygulamanın D-Bus adı + öğenin nesne
+yolu). Şu durumlarda hiçbir şeye basılmaz ve yeni bir `ui_dump` istenir:
+
+| Durum | Hata kodu |
+|---|---|
+| Uygulama kapandı ya da yeniden başladı; odak dökümünde pencere kapandı | `ELEMENT_STALE` |
+| Öğe kayboldu ya da yeniden çizildi (yeni nesne) | `ELEMENT_STALE` |
+| Öğe duruyor ama adı ya da rolü değişti ("Takip et" → "Takibi bırak") | `TARGET_MISMATCH` |
+| Kimlik listede birden fazla öğeye uyuyor | `ELEMENT_AMBIGUOUS` |
+
+Arayüze araya öğe eklendiyse (yeni sekme gibi) aynı öğe yeni yerinde bulunur ve
+tıklanır. Eskiden bulunamayan öğe **adıyla** aranıyor ve ilk eşleşmeye
+basılıyordu. pcbridge'in GTK4 test penceresinde üç "Kapat" düğmesi ölçüldü
+(2026-09-19): üçüncüsü pencerenin kendi kapatma düğmesiydi. Uygulama kapanınca da odaktaki
+uygulamaya düşülüyordu. Kimlikler çoğunlukla 4 karakter. Aynı listede iki
+öğenin kimliği çakışırsa ikisi de ayrışana kadar uzar (`#765bc`, `#765b2`).
 
 Bir masaüstü aracı hata verdiğinde istemci bunu MCP düzeyinde `isError=true`
 olarak görür. Önceden görünen Türkçe açıklama korunur; ayrıca hata kodu,

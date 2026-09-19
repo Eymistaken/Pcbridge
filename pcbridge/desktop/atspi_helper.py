@@ -13,12 +13,25 @@ PROTOKOL
     stdout'a yazilmaz (GLib'in `dbind-WARNING` gurultusu stderr'de kalir).
 
         {"cmd": "dump", "target": "focused", "interactive_only": true}
-        {"cmd": "act",  "app": "...", "path": [0,1,2], "role": "...", "name": "..."}
+        {"cmd": "act", "app_bus": ":1.30", "ref": "/org/.../a11y/1b71...",
+         "scope": "window", "window_ref": "...", "path": [0,1,2],
+         "role": "...", "name": "..."}
         {"cmd": "settext", ..., "text": "..."}
 
-    Cevap her zaman `ok` alani tasir; `ok: false` ise `error` da vardir.
-    Metin JSON'un icinde stdin'den geliyor -- argv'ye KONMAZ, yoksa `ps`
-    ciktisinda gorunurdu.
+    Cevap her zaman `ok` alani tasir; `ok: false` ise `error` da vardir,
+    kararli bir sebep varsa `code` da (`ELEMENT_STALE`, `TARGET_MISMATCH`,
+    `ELEMENT_AMBIGUOUS`). Metin JSON'un icinde stdin'den geliyor -- argv'ye
+    KONMAZ, yoksa `ps` ciktisinda gorunurdu.
+
+HEDEF KIMLIGI (olculdu 2026-09-19, GTK4 4.14 ve gnome-shell)
+    Her dugumun bir D-Bus nesne yolu var (`node.path`), uygulamanin da tekil
+    bir veriyolu adi (`node.app.bus_name`, `:1.44` gibi). Ikisi birlikte
+    dugumun KENDISINI gosterir: araya dugum eklenince 33 nesnenin 20'sinin
+    indeks yolu kaydi ama 33'unun de nesne yolu ayni kaldi; pencere basligi
+    degisince pencerenin yolu degismedi; yeniden yaratilan dugme YENI bir yol
+    aldi. Eylem bu kimlige gore cozulur. Eskiden yol tutmazsa rol+etiketle
+    ARANIYORDU ve ilk eslesme seciliyordu: test penceresinde uc tane
+    "Kapat" vardi, ucuncusu pencerenin kendi kapatma dugmesiydi.
 
 OLCULDU (2026-08-02)
     GTK4 agaci DERIN: gnome-text-editor'de duzenlenebilir `text` dugumu 16.
@@ -31,6 +44,7 @@ from __future__ import annotations
 import json
 import sys
 import warnings
+from typing import NoReturn
 
 # `get_action_name` deprecated ama yerine onerilen `get_localized_name` Turkce
 # donduruyor ("tikla"), oysa bize kanonik "click" lazim. Uyariyi bastiriyoruz.
@@ -38,6 +52,9 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 MAX_DEPTH = 100  # dongusel agaca karsi emniyet, gercek sinir dugum sayisi
 DEFAULT_MAX_NODES = 400
+# Yeri degismis bir dugumu kimligiyle ararken gezilecek en fazla dugum. Dokum
+# tavaniyla ayni (DEFAULT_MAX_NODES * 25): dokumde gorunen her dugum bulunur.
+SEARCH_LIMIT = 10_000
 
 # Adi olmasa bile modele anlatilmaya deger roller (metin tasiyanlar).
 TEXT_ROLES = {
@@ -73,10 +90,19 @@ STATE_FLAGS = (
 )
 
 
-def _fail(msg: str) -> None:
-    json.dump({"ok": False, "error": msg}, sys.stdout, ensure_ascii=False)
-    sys.stdout.write("\n")
-    sys.exit(0)  # protokol hatasi degil, ISLEM hatasi -> cikis kodu 0
+class Failure(Exception):
+    """Bir islem hatasi: `handle()` bunu `ok: false` cevabina cevirir."""
+
+    def __init__(self, message: str, code: str = "") -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _fail(msg: str, code: str = "") -> NoReturn:
+    # Cikis degil istisna: komutlar surecsiz, ayni modul icinde test
+    # edilebilsin. Cevabi `handle()` yaziyor; cikis kodu yine 0 kaliyor
+    # (protokol hatasi degil, ISLEM hatasi).
+    raise Failure(msg, code)
 
 
 # Ice aktarma hatasi burada CIKISA cevrilmez: modul, saf yardimcilari (filtre
@@ -154,6 +180,33 @@ def _name(node) -> str:
         return ""
 
 
+def _ref(node) -> str:
+    """Dugumun D-Bus nesne yolu: uygulama icinde dugumun kendisi.
+
+    Yerel bir alan okumasi, D-Bus cagrisi degil; her dugumde okumak bedava.
+    """
+    try:
+        return str(node.path or "")
+    except Exception:
+        return ""
+
+
+def _bus(node) -> str:
+    """Uygulamanin tekil veriyolu adi (`:1.44`). Uygulama yeniden baslarsa
+    degisir; Chromium nesne yollarini 1'den yeniden saydigi icin bu sart."""
+    try:
+        return str(node.app.bus_name or "")
+    except Exception:
+        return ""
+
+
+def _pid(app) -> int:
+    try:
+        return int(app.get_process_id() or 0)
+    except Exception:
+        return 0
+
+
 def _desktop():
     try:
         Atspi.init()
@@ -162,16 +215,34 @@ def _desktop():
         _fail(f"AT-SPI masaustune baglanilamadi: {exc}")
 
 
-def _apps(desk) -> list:
+def _children(node) -> list:
     out = []
-    for i in range(desk.get_child_count()):
+    try:
+        n = node.get_child_count()
+    except Exception:
+        return out
+    for i in range(n):
         try:
-            a = desk.get_child_at_index(i)
+            c = node.get_child_at_index(i)
         except Exception:
             continue
-        if a is not None:
-            out.append(a)
+        if c is not None:
+            out.append(c)
     return out
+
+
+def _apps(desk) -> list:
+    return _children(desk)
+
+
+def _is_active(app) -> bool:
+    for w in _children(app):
+        try:
+            if w.get_state_set().contains(Atspi.StateType.ACTIVE):
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def _find_active(desk):
@@ -194,15 +265,30 @@ def _find_active(desk):
     return None, None, -1
 
 
-def _find_app(desk, name: str):
+def _find_app(desk, name: str) -> tuple[object | None, int]:
+    """Okunacak uygulamayi ada gore sec -> (uygulama, ayni adli kac tane).
+
+    Tam eslesme once. Kismi eslesme FARKLI adli birden fazla uygulamaya
+    uyuyorsa sessizce ilki secilmez: model hangisini okudugunu bilemezdi.
+    Ayni adli birden fazla surec varsa (iki `python3` gibi) odakta olan,
+    yoksa ilki okunur ve sayi dokume yazilir.
+    """
     want = name.strip().lower()
-    for app in _apps(desk):
-        if (_name(app) or "").lower() == want:
-            return app
-    for app in _apps(desk):  # kismi eslesme, ikinci tur
-        if want in (_name(app) or "").lower():
-            return app
-    return None
+    apps = _apps(desk)
+    found = [a for a in apps if (_name(a) or "").lower() == want]
+    if not found:
+        found = [a for a in apps if want and want in (_name(a) or "").lower()]
+        names = sorted({_name(a) for a in found})
+        if len(names) > 1:
+            _fail(
+                f"{name!r} birden fazla uygulamaya uyuyor: {', '.join(names)}. "
+                "Tam adi verin.",
+                "ELEMENT_AMBIGUOUS",
+            )
+    if not found:
+        return None, 0
+    active = [a for a in found if _is_active(a)]
+    return (active or found)[0], len(found)
 
 
 # ------------------------------------------------------------------- gezinme
@@ -246,6 +332,7 @@ def _walk(root, base_path: list[int], interactive_only: bool, max_nodes: int) ->
             else:
                 out.append({
                     "path": path,
+                    "ref": _ref(node),
                     "role": role,
                     "name": name,
                     "states": states,
@@ -308,61 +395,100 @@ def _node_at(app, path: list[int]):
     return node
 
 
-def _search(app, role: str, name: str, limit: int = 6000):
-    """Agacta rol+etikete gore ara. Yol kaydiginda kullanilir."""
-    stack = [(app, [], 0)]
+def _find_ref(root, ref: str, limit: int = SEARCH_LIMIT):
+    """`root`un altinda nesne yolu `ref` olan dugum. Yol kaydiginda kullanilir.
+
+    Iki eslesme cikarsa ilki SECILMEZ. Nesne yolu bir uygulama icinde tekil
+    olmali; tekil degilse arac kimlik vermiyor demektir ve hangi dugumun
+    kastedildigini bilmenin yolu yok.
+    """
+    stack = [(root, 0)]
     seen = 0
+    hit = None
     while stack:
-        node, path, depth = stack.pop()
+        node, depth = stack.pop()
         seen += 1
         if seen > limit or depth > MAX_DEPTH:
             continue
-        if _role(node) == role and _name(node) == name:
-            return node, path
-        try:
-            n = node.get_child_count()
-        except Exception:
-            continue
-        for i in range(n - 1, -1, -1):
-            try:
-                c = node.get_child_at_index(i)
-            except Exception:
-                continue
-            if c is not None:
-                stack.append((c, path + [i], depth + 1))
-    return None, None
+        if _ref(node) == ref:
+            if hit is not None:
+                _fail(
+                    "Bu uygulama iki dugume ayni kimligi veriyor; hangisinin "
+                    "kastedildigi bilinemez. Ekrana bakip (screen_capture) "
+                    "`mouse` kullanin.",
+                    "ELEMENT_AMBIGUOUS",
+                )
+            hit = node
+        for c in reversed(_children(node)):
+            stack.append((c, depth + 1))
+    return hit
 
 
 def _resolve(req: dict):
-    """Istekteki hedefi bul: once yol, tutmuyorsa rol+etiket araması.
+    """Istekteki dugumu KIMLIGIYLE bul -> (dugum, "path" | "moved", uygulama_adi).
 
-    -> (dugum, "path" | "search", uygulama_adi)
+    Uc sart, ucu de gecmeden hicbir dugume dokunulmaz:
+
+    1. Ayni uygulama: veriyolu adi dokumdeki. Uygulama kapanmissa baska bir
+       uygulamaya DUSULMEZ -- eskiden odaktakine dusuluyordu ve Chrome
+       kapaninca ayni yoldaki kabuk dugmesine basilabiliyordu.
+    2. Ayni nesne: once indeks yolu denenir, nesne yolu tutmuyorsa ayni
+       hedefin (odak dokumunde ayni pencerenin) icinde nesne yolu aranir.
+       Rol+etiketle ARANMAZ: yeniden yaratilmis ya da ayni adli baska bir
+       dugme kimlik tasimaz.
+    3. Ayni anlam: rol ve etiket dokumdekiyle ayni. "Takip et" dugmesi
+       "Takibi birak" olmussa basmak yanlis olurdu.
     """
-    desk = _desktop()
-    app_name = req.get("app") or ""
-    app = _find_app(desk, app_name) if app_name else None
-    if app is None:
-        app, _w, _j = _find_active(desk)
-    if app is None:
-        _fail(f"Uygulama bulunamadi: {app_name or '(odaktaki)'}")
-
-    path = list(req.get("path") or [])
+    ref = str(req.get("ref") or "")
+    bus = str(req.get("app_bus") or "")
     want_role = req.get("role") or ""
     want_name = req.get("name") or ""
+    label = f"{want_role} {want_name!r}"
+    if not ref or not bus:
+        _fail(
+            "Istekte hedefin kimligi yok; ui_dump ile listeyi yenileyin.",
+            "ELEMENT_STALE",
+        )
 
-    node = _node_at(app, path)
-    if node is not None and _role(node) == want_role and _name(node) == want_name:
-        return node, "path", _name(app)
+    desk = _desktop()
+    app = next((a for a in _apps(desk) if _bus(a) == bus), None)
+    app_label = req.get("app") or bus
+    if app is None:
+        _fail(
+            f"{app_label!r} artik acik degil (kapanmis ya da yeniden baslamis). "
+            "Baska bir uygulamaya dusulmedi; ui_dump ile listeyi yenileyin.",
+            "ELEMENT_STALE",
+        )
 
-    # Yol kaymis: ayni rol+etiketi agacta ara. Parmak izi tutmayan bir dugume
-    # ASLA dokunmayiz -- yanlis dugmeye basmak sessiz ve geri alinamaz olurdu.
-    node, found_path = _search(app, want_role, want_name)
+    scope = app
+    if req.get("scope") == "window":
+        window_ref = str(req.get("window_ref") or "")
+        scope = next((w for w in _children(app) if window_ref and _ref(w) == window_ref), None)
+        if scope is None:
+            _fail(
+                f"Dokumdeki {app_label!r} penceresi kapanmis; ui_dump ile "
+                "listeyi yenileyin.",
+                "ELEMENT_STALE",
+            )
+
+    how = "path"
+    node = _node_at(app, list(req.get("path") or []))
+    if node is None or _ref(node) != ref:
+        how = "moved"
+        node = _find_ref(scope, ref)
     if node is None:
         _fail(
-            f"Hedef bulunamadi: {want_role} {want_name!r}. Arayuz degismis "
-            "olabilir; ui_dump ile listeyi yenileyin."
+            f"Hedef artik yok: {label}. Arayuz yeniden cizilmis olabilir; "
+            "ui_dump ile listeyi yenileyin.",
+            "ELEMENT_STALE",
         )
-    return node, "search", _name(app)
+    if _role(node) != want_role or _name(node) != want_name:
+        _fail(
+            f"Hedef degismis: {label} simdi {_role(node)} {_name(node)!r}. "
+            "Hicbir sey yapilmadi; ui_dump ile listeyi yenileyin.",
+            "TARGET_MISMATCH",
+        )
+    return node, how, _name(app)
 
 
 # -------------------------------------------------------------------- komutlar
@@ -372,35 +498,41 @@ def cmd_dump(req: dict) -> dict:
     interactive_only = bool(req.get("interactive_only", True))
     max_nodes = int(req.get("max_nodes") or DEFAULT_MAX_NODES)
 
+    # Kimlik alanlari eylemin dogru hedefe gittigini dogrulamak icin: eylem
+    # istegi bunlari geri getirir (`_resolve`). Odak dokumunde hedef tek bir
+    # pencere, ada gore dokumde uygulamanin tamami.
     if target.lower() in ("focused", "odak", "aktif"):
         app, win, widx = _find_active(desk)
         if app is None:
-            return {
-                "ok": False,
-                "error": "Odakta pencere yok (AT-SPI hicbir pencereyi ACTIVE "
-                         "isaretlemiyor). Bir pencereye tiklayin ya da "
-                         "target ile uygulama adi verin.",
-            }
-        root, base = win, [widx]
+            _fail(
+                "Odakta pencere yok (AT-SPI hicbir pencereyi ACTIVE "
+                "isaretlemiyor). Bir pencereye tiklayin ya da target ile "
+                "uygulama adi verin."
+            )
+        root, base, same_name = win, [widx], 1
+        scope, window_ref = "window", _ref(win)
         app_name, win_name = _name(app), _name(win)
     else:
-        app = _find_app(desk, target)
+        app, same_name = _find_app(desk, target)
         if app is None:
             names = sorted({_name(a) for a in _apps(desk) if _name(a)})
-            return {
-                "ok": False,
-                "error": f"Uygulama bulunamadi: {target!r}. Acik olanlar: "
-                         + ", ".join(names),
-            }
+            _fail(f"Uygulama bulunamadi: {target!r}. Acik olanlar: " + ", ".join(names))
         root, base = app, []
+        scope, window_ref = "app", ""
         app_name = _name(app)
-        win_name = _name(app.get_child_at_index(0)) if app.get_child_count() else ""
+        first = _children(app)
+        win_name = _name(first[0]) if first else ""
 
     nodes, truncated = _walk(root, base, interactive_only, max_nodes)
     return {
         "ok": True,
         "app": app_name,
+        "app_bus": _bus(app),
+        "app_pid": _pid(app),
+        "same_name": same_name,
+        "scope": scope,
         "window": win_name,
+        "window_ref": window_ref,
         "nodes": nodes,
         "truncated": truncated,
     }
@@ -415,12 +547,11 @@ def cmd_act(req: dict) -> dict:
     except Exception:
         iface, n = None, 0
     if not iface or n <= 0:
-        return {
-            "ok": False,
-            "no_action": True,
-            "error": f"{_role(node)} {_name(node)!r} bir eylem sunmuyor "
-                     "(Action arayuzu yok).",
-        }
+        _fail(
+            f"{_role(node)} {_name(node)!r} bir eylem sunmuyor (Action arayuzu "
+            "yok). Koordinatla tiklamaya dusulmedi.",
+            "ACTION_UNSUPPORTED",
+        )
     names = [(iface.get_action_name(i) or "").lower() for i in range(n)]
     idx = 0
     for cand in (want, "click", "press", "activate", "jump"):
@@ -430,10 +561,11 @@ def cmd_act(req: dict) -> dict:
     try:
         ok = iface.do_action(idx)
     except Exception as exc:
-        return {"ok": False, "error": f"Eylem calistirilamadi: {exc}"}
+        _fail(f"Eylem calistirilamadi: {exc}")
     return {
         "ok": True,
         "app": app_name,
+        "ref": _ref(node),
         "role": _role(node),
         "name": _name(node),
         "action": names[idx] or f"action{idx}",
@@ -446,18 +578,17 @@ def cmd_settext(req: dict) -> dict:
     node, how, app_name = _resolve(req)
     text = req.get("text")
     if text is None:
-        return {"ok": False, "error": "text alani yok."}
+        _fail("text alani yok.")
     try:
         et = node.get_editable_text_iface()
     except Exception:
         et = None
     if not et:
-        return {
-            "ok": False,
-            "not_editable": True,
-            "error": f"{_role(node)} {_name(node)!r} duzenlenebilir degil "
-                     "(EditableText arayuzu yok).",
-        }
+        _fail(
+            f"{_role(node)} {_name(node)!r} duzenlenebilir degil (EditableText "
+            "arayuzu yok).",
+            "ACTION_UNSUPPORTED",
+        )
     try:
         ti = node.get_text_iface()
         old_len = ti.get_character_count() if ti else 0
@@ -470,16 +601,16 @@ def cmd_settext(req: dict) -> dict:
         et.insert_text(0, text, len(text.encode("utf-8")))
         new_len = ti.get_character_count() if ti else -1
     except Exception as exc:
-        return {"ok": False, "error": f"Metin yazilamadi: {exc}"}
+        _fail(f"Metin yazilamadi: {exc}")
     if new_len >= 0 and new_len != len(text):
-        return {
-            "ok": False,
-            "error": f"Metin eksik yazildi: {len(text)} karakter gonderildi, "
-                     f"{new_len} karakter olustu.",
-        }
+        _fail(
+            f"Metin eksik yazildi: {len(text)} karakter gonderildi, {new_len} "
+            "karakter olustu."
+        )
     return {
         "ok": True,
         "app": app_name,
+        "ref": _ref(node),
         "role": _role(node),
         "name": _name(node),
         "replaced_chars": old_len,
@@ -516,7 +647,10 @@ def cmd_windows(req: dict) -> dict:
                 active = bool(st and st.contains(Atspi.StateType.ACTIVE))
                 out.append({
                     "app": an,
+                    "app_bus": _bus(app),
+                    "app_pid": _pid(app),
                     "window": _name(w),
+                    "ref": _ref(w),
                     "index": j,
                     "role": w.get_role_name(),
                     "active": active,
@@ -535,29 +669,49 @@ COMMANDS = {
 }
 
 
+def handle(req: dict) -> dict:
+    """Tek bir istegi isle ve cevabi dondur. Hicbir sey yazdirmaz.
+
+    Komutlar hatayi `_fail` ile ISTISNA olarak bildirir; burada kararli koduyla
+    birlikte `ok: false` cevabina cevrilir. Surecsiz de cagrilabildigi icin
+    sozlesme testleri gercek masaustu olmadan ayni kodu kosturuyor.
+    """
+    fn = COMMANDS.get(str(req.get("cmd") or ""))
+    if fn is None:
+        return {
+            "ok": False,
+            "error": f"Bilinmeyen komut: {req.get('cmd')!r}. Gecerli: {', '.join(COMMANDS)}",
+        }
+    try:
+        return fn(req)
+    except Failure as exc:
+        resp = {"ok": False, "error": str(exc)}
+        if exc.code:
+            resp["code"] = exc.code
+        return resp
+    except Exception as exc:  # beklenmedik her sey de JSON olarak donsun
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _reply(resp: dict) -> int:
+    json.dump(resp, sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
 def main() -> int:
     if ATSPI_ERROR:
-        _fail(
-            f"AT-SPI baglantilari yuklenemedi ({ATSPI_ERROR}). "
-            "Kurulum: sudo apt install python3-gi gir1.2-atspi-2.0"
-        )
+        return _reply({
+            "ok": False,
+            "error": f"AT-SPI baglantilari yuklenemedi ({ATSPI_ERROR}). "
+                     "Kurulum: sudo apt install python3-gi gir1.2-atspi-2.0",
+        })
     raw = sys.stdin.read()
     try:
         req = json.loads(raw or "{}")
     except json.JSONDecodeError as exc:
-        _fail(f"Istek JSON olarak okunamadi: {exc}")
-        return 0
-    fn = COMMANDS.get(str(req.get("cmd") or ""))
-    if fn is None:
-        _fail(f"Bilinmeyen komut: {req.get('cmd')!r}. Gecerli: {', '.join(COMMANDS)}")
-        return 0
-    try:
-        resp = fn(req)
-    except Exception as exc:  # beklenmedik her sey de JSON olarak donsun
-        resp = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-    json.dump(resp, sys.stdout, ensure_ascii=False)
-    sys.stdout.write("\n")
-    return 0
+        return _reply({"ok": False, "error": f"Istek JSON olarak okunamadi: {exc}"})
+    return _reply(handle(req))
 
 
 if __name__ == "__main__":

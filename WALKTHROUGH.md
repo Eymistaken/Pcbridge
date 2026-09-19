@@ -10,20 +10,19 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** yok. Task 5.4 tamamlandı (2026-09-19), sonraki task için
-  kullanıcı onayı bekleniyor.
-- **Son tamamlanan adım:** Codex'in 5.2/5.3 işinin kontrolü. Bulunan hata
-  düzeltildi: izin değişince native helper eski izinde kalıyordu ve bu,
-  varsayılan capture yolunu da etkiliyordu. Ayrıntı: Adım 5 → "Codex'in 5.2/5.3
-  işinin kontrolü".
-- **Sıradaki uygulanabilir adım:** Faz 6 / Task 6.1 — element target
-  bütünlüğü. Task 5.4 bitti, **Gate 5 geçti** (2026-09-19) ve `[native] input`
-  varsayılanı `auto` oldu. Kural gereği 6.1 kullanıcı onayını bekliyor.
+- **Aktif adım:** Faz 6. Kullanıcı 2026-09-19'da Faz 6'nın tamamını ve Adım 6'yı
+  (imleç katmanı) task'lar arasında durmadan yapmayı onayladı (aşağıda çalışma
+  kuralı).
+- **Son tamamlanan adım:** Task 6.1 — element target bütünlüğü (2026-09-19).
+  `ui_click`/`ui_set_text` artık öğenin AT-SPI kimliğine gidiyor; ada göre
+  arama ve odaktaki uygulamaya düşme kalktı. Ayrıntı: Adım 5 → Task 6.1.
+- **Sıradaki uygulanabilir adım:** Task 6.2 — Rust AT-SPI read/window/focus
+  provider.
 - **Blocker:** Yok
-- **Son doğrulanan gate:** **Gate 4 geçti** (2026-09-13). Varsayılan artık
-  `[native] capture = "auto"`. Servis 2026-09-13'te yeniden başlatıldı. stdio
-  istemcileri, uygulama kapatılıp açılınca yeni koda geçer (#5).
-- **Native migration içindeki sıradaki task:** 5.4 → **Gate 5**
+- **Son doğrulanan gate:** **Gate 5 geçti** (2026-09-19), `[native] input`
+  varsayılanı `auto`. Gate 4 2026-09-13'te geçti. stdio istemcileri, uygulama
+  kapatılıp açılınca yeni koda geçer (#5).
+- **Native migration içindeki sıradaki task:** 6.2 → 6.3 → 6.4 → **Gate 6**
 - **Kullanıcıyla yapılan kontroller (2026-09-13):** #1, #3, #4 yapıldı; #5'in
   servis tarafı yapıldı; #2 (GitHub) kullanıcının kararıyla bekliyor. Ayrıntı:
   Adım 4 → "Kullanıcıyla yapılan kontroller".
@@ -37,6 +36,13 @@ canlı testler için "bundan sonra sormadan test yap hepsini kabul ediyorum" ded
 kullanıcı başındayken canlı testler sorulmadan, ama başlamadan önce haber
 verilerek koşulur.
 
+2026-09-19 ekleri, kullanıcının sözleriyle: "github yok. tamamen bitirene kadar
+yok. adım 7'ye kadar olan adımları da yapalım. dediğim gibi test için sorma."
+Bu yüzden Faz 6 (6.1–6.4, Gate 6) ve Adım 6 (imleç katmanı) task'lar arasında
+durmadan yapılıyor. Her task yine ayrı yerel commit ve bu dosyada ayrı kayıt.
+İsteğe bağlı Faz 7 ve iki sürüm bekleyen Faz 8 bu onayın dışında. Push, iş
+tamamen bitene kadar yok.
+
 ## Kullanıcıyı bekleyenler
 
 Kullanıcı yokken yapılamayan ya da gözle doğrulanması gereken işler. Biri
@@ -45,7 +51,7 @@ yapılınca silinmez, `yapıldı` diye işaretlenir.
 | # | Ne | Neden bekliyor | Durum |
 |---|---|---|---|
 | 1 | Adım 6 — imleç katmanı: fiziksel farenin olay hızını ölçmek | Fareyi elle oynatmak gerekiyor; eklenti değişikliği oturumdan çıkış/giriş istiyor | ölçüm `yapıldı` (~1000 Hz); eklenti değişikliği Adım 6'da bekliyor |
-| 2 | `.github/workflows/native.yml`'ı ilk kez çalıştırmak | Depo public, push kullanıcının kararı; iş akışı yerelde yalnızca ayrıştırıldı, hiç koşmadı | `bekliyor` — 2026-09-13: kullanıcı "şimdilik gönderme" dedi; gönderilecek 42 commit'te sır taraması temiz |
+| 2 | `.github/workflows/native.yml`'ı ilk kez çalıştırmak | Depo public, push kullanıcının kararı; iş akışı yerelde yalnızca ayrıştırıldı, hiç koşmadı | `bekliyor` — 2026-09-13: kullanıcı "şimdilik gönderme" dedi; 2026-09-19: "tamamen bitirene kadar yok". Gönderilecek 42 commit'te sır taraması 2026-09-13'te temizdi; göndermeden önce yeniden taranacak |
 | 3 | Task 4.2 ekran kilidi senaryosu: native capture kilitliyken kare vermiyor mu | Kilidi açmak parola istiyor; kullanıcı yokken ekran kilitli kalırdı | `yapıldı` (2026-09-13) |
 | 4 | Paylaşım göstergesinin kaynak kapanınca kaybolduğunu gözle görmek | Gösterge ekran paylaşımı olmadan görülemiyor; test yalnızca Mutter oturum sayısını doğruladı | `yapıldı` (2026-09-13) |
 | 5 | Task 4.3 yayılımı: servisi ve stdio istemcilerini yeniden başlatıp native yolu gerçek kullanımda görmek. `config.toml`'da `[native]` bölümü yok, yani yeni süreçler native yolu seçecek. Sıra: `bridgekilit` → `job_list` boş mu → `systemctl --user restart pcbridge` → Claude Code/Codex'i yeniden başlat → `./doctor.sh` 8. bölüm → `desktop_unlock` sonrası sağ alttaki görev çubuğunda gösterge var, `desktop_lock` sonrası yok. Geri alma: `[native]` altına `capture = "python"` + aynı yeniden başlatmalar. Task 5.1'in yürütme kilidi ve eylem başına izin kontrolü de aynı yeniden başlatmayla devreye girer | Restart çalışan işleri öldürür; stdio süreçleri istemcinin; göstergeyi gözle görmek gerekiyor | servis `yapıldı` (2026-09-13); Claude Desktop ve Claude Code'un stdio süreçleri uygulama bir kez kapatılıp açılınca geçer |
@@ -64,7 +70,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `tamamlandı` (3.1–3.5 ✅, **Gate 3 geçti**) |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
-| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅, **Gate 5 geçti**; sırada 6.1) |
+| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅, **Gate 5 geçti**; 6.1 ✅; sırada 6.2) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
@@ -1974,6 +1980,118 @@ açılınca geçer.
 
 **Rollback:** Commit'i geri almak yeter. Kod, `rust` ve `python` seçimlerini
 aynen koruyor.
+
+### Task 6.1 — Element target bütünlüğü · `tamamlandı` (2026-09-19)
+
+**Sorun.** `ui_click`/`ui_set_text` hedefi son dökümdeki indeks yolu, rol ve adla
+buluyordu. Yol tutmazsa aynı rol+adı uygulamanın tamamında arıyor ve **ilk
+eşleşmeye** basıyordu. Uygulama bulunamazsa **odaktaki uygulamaya** düşüyordu.
+pcbridge'in GTK4 test penceresinde (`tests/live/a11y_window.py`) üç "Kapat"
+düğmesi ölçüldü. Üçüncüsü başlık çubuğunun pencereyi kapatan düğmesi. Yani A
+grubunun "Kapat"ı silinince eski kod B'ninkine basardı. İkisi de gidince
+pencerenin kendi kapatma düğmesine basardı. Kısa kimlikler de 4 onaltılık
+karakterdi (65 536 değer) ve aynı dökümde çakışan kimlik sessizce eziliyordu.
+400 düğümlük bir dökümde en az bir çakışmanın olasılığı ~%70. Çakışmada ilk
+düğümün kimliği ikinciye tıklatıyordu.
+
+**Ölçüm: AT-SPI'ın kendi kimliği var.** Her düğümün bir D-Bus nesne yolu var
+(`node.path`), her uygulamanın da tekil bir veriyolu adı (`node.app.bus_name`).
+GTK4 test penceresinde araya düğme eklenince 33 nesnenin 20'sinin indeks yolu
+kaydı ama 33'ünün de nesne yolu aynı kaldı. Başlık değişince pencerenin yolu
+değişmedi. Yeniden yaratılan düğme yeni yol aldı. gnome-shell ve Chromium
+`/org/a11y/atspi/accessible/<sayı>` kullanıyor. Chromium yeniden başlayınca
+1'den saydığı için veriyolu adı da şart.
+
+**Ne yapıldı.**
+
+- `atspi_helper.py`:
+  - Döküm artık uygulamanın veriyolu adını ve pid'ini, kapsamı
+    (`window`/`app`), pencerenin yolunu ve her düğümün nesne yolunu döndürüyor.
+  - `_resolve` üç şart arıyor:
+    - Aynı uygulama (veriyolu adı). Uygulama kapanmışsa başka uygulamaya
+      düşülmüyor.
+    - Aynı nesne. İndeks yolu tutmazsa aynı hedefin içinde nesne yolu
+      aranıyor. Rol+ad araması **kaldırıldı**.
+    - Aynı anlam: rol ve ad değişmemiş olmalı.
+  - Hatalar kararlı kodla dönüyor: `ELEMENT_STALE`, `TARGET_MISMATCH`,
+    `ELEMENT_AMBIGUOUS`, `ACTION_UNSUPPORTED`.
+  - Kısmi ad iki farklı uygulamaya uyarsa döküm reddediliyor. Aynı adlı iki
+    süreç varsa odaktaki okunuyor ve dökümde bu yazıyor.
+  - Komutlar `_fail` ile istisna fırlatıyor, cevabı `handle()` kuruyor.
+    Böylece aynı kod ayrı süreç açmadan test edilebiliyor.
+- `uitree.py`:
+  - `Dump`'a backend, snapshot, uygulama ve pencere kimliği; `Node`'a nesne
+    yolu ve tam özet eklendi.
+  - Kısa kimlik en az 4 karakter. Çakışan iki kimlik ayrışana kadar uzuyor.
+    Çözüm tam özetin öneki üzerinden; birden fazla öğeye uyan önek
+    reddediliyor.
+  - `UiTreeError` kararlı kod taşıyor. Yardımcının zaman aşımı
+    `EXECUTION_UNKNOWN` ve tekrarlanmıyor.
+- `backends/python.py`: yardımcının kodu ortak hata sözleşmesine taşınıyor.
+  Yeni döküm gerektiren hatalar `retryable` ve "ui_dump ile yenileyin" diyor.
+- `tools.py`:
+  - `ui_click`/`ui_set_text` açıklamaları reddi anlatıyor.
+  - Taşınmış öğe notu: "ayni oge yeni yerinde bulundu".
+  - Denetim kaydı `snapshot` alanı taşıyor.
+- Zaten doğru olan iki davranış testle sabitlendi:
+  - `focused_window()` ve `windows()` son dökümü değiştirmiyor. `windows()`
+    artık veriyolu adı, pid ve pencere yolu da taşıyor (Task 6.4 için).
+  - Eylemi olmayan öğede koordinata düşülmüyor.
+
+**Testler.**
+
+- `tests/fixtures/native/accessibility_cases.json` (yeni; Task 6.2'de Rust da
+  kullanacak): 16 uygulama, 14 masaüstü, 6 döküm vakası, 19 eylem vakası ve
+  kimlik vakaları.
+- `tests/contracts/test_accessibility_contract.py` (yeni, 15 test):
+  - Gerçek yardımcı kodu sahte bir `Atspi` üzerinde çalışıyor.
+  - Aynı vakalar bir kez de `UiTree` ve Python sağlayıcı üzerinden koşuyor.
+- Mutasyon denemesi: 12 bozulmanın 12'si yakalandı. Denenen bozulmalar:
+  - eski rol+ad çözümü;
+  - odaktaki uygulamaya düşme;
+  - ad/rol kontrolünü kaldırma;
+  - iki öğeye aynı yol verildiğinde ilkini seçme;
+  - kısmi adda ilk uygulamayı seçme;
+  - aynı adlı süreçlerde odağı yok sayma;
+  - kimlikleri 4 karaktere kırpma;
+  - önek çözümünü kaldırma;
+  - sağlayıcının yardımcı kodunu yok sayması;
+  - metin uzunluğunu karakter sayma;
+  - pencere kapsamını yok sayma;
+  - zaman aşımı kodunu düşürme.
+
+  Dosyalar SHA-256 ile doğrulanarak geri yüklendi. Pencere kapsamı ilk turda
+  yakalanmadı. Öğenin başka pencereye taşındığı vaka eklendi, sonra yakalandı.
+- `tests/live/test_accessibility_parity.py` (yeni, 7 test): okuma
+  `PCBRIDGE_TEST_ATSPI=1`, eylemler ayrıca `PCBRIDGE_TEST_INPUT=1` ister. Test
+  gerçek AT-SPI üzerinde, kendi GTK4 penceresinde çalışıyor ve uinput
+  açmıyor. **7/7 geçti:**
+  - Süreler (yardımcı sürecin açılışı dahil): döküm 77–110 ms (9 ölçüm),
+    tıklama 50 ms, metin 46 ms.
+  - Taşınan düğmeye kimliğiyle basıldı (`resolved_by: moved`).
+  - Yeniden yaratılan, silinen ve uygulaması kapanan hedefler `ELEMENT_STALE`
+    döndü; pencere hiçbir tıklama görmedi.
+  - Türkçe metin birebir yazıldı.
+  - Parola alanı `PASSWORD_FIELD` döndü; pencereye hiçbir karakter gitmedi.
+- `test_desktop.py` `PCBRIDGE_TEST_ATSPI=1` ile 587 geçti (gerçek okuma bölümü
+  dahil), bayraksız 583 geçti.
+- Diğer takımlar: contract 286 (+15), integration 18 (1 atlandı), models 106,
+  safety OK, `--check` 0.
+
+**Uyumluluk.** `ui_dump → #id → ui_click/ui_set_text` akışı aynı. İki şey
+değişti:
+- Yeniden çizilmiş ya da adı değişmiş öğeye artık basılmıyor, yeni döküm
+  isteniyor.
+- Çakışma varsa kimlik 5 karakter ya da daha uzun oluyor.
+
+`PLAN.md` Task 6.1'e not düşüldü: 4. ve 5. maddeler rol/ad araması yerine nesne
+kimliğiyle, daha sıkı uygulandı.
+
+**Rollback.** Commit'i geri almak yeter. Yardımcı ve `uitree` aynı commit'te
+değişti, birlikte geri dönerler.
+
+**Sıradaki:** Task 6.2 — Rust AT-SPI read/window/focus provider
+(`native.accessibility = "python"` varsayılanıyla).
 
 ## Adım 6 — İmleç katmanı
 

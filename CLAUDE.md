@@ -73,8 +73,18 @@ PCBRIDGE_TEST_INPUT=1 PCBRIDGE_TEST_BATCH=1 \
   ./.venv/bin/python tests/test_desktop.py
 ```
 
-AT-SPI gerçek okuma testleri ayrıca `PCBRIDGE_TEST_ATSPI=1` ister. Bütün live
-testleri bilinçli olarak birlikte çalıştırmak için dört bayrağı da açıkça ver:
+AT-SPI gerçek okuma testleri ayrıca `PCBRIDGE_TEST_ATSPI=1` ister. Hedef
+kimliğinin canlı testi kendi küçük GTK4 penceresini açar; okuma
+`PCBRIDGE_TEST_ATSPI=1`, o pencerenin düğmelerine AT-SPI ile basmak ayrıca
+`PCBRIDGE_TEST_INPUT=1` ister (uinput açılmaz):
+
+```bash
+PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_INPUT=1 \
+  ./.venv/bin/python -m unittest tests/live/test_accessibility_parity.py -v
+```
+
+Bütün live testleri bilinçli olarak birlikte çalıştırmak için dört bayrağı da
+açıkça ver:
 
 ```bash
 PCBRIDGE_TEST_CAPTURE=1 PCBRIDGE_TEST_INPUT=1 \
@@ -320,6 +330,18 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   düğümleri alıyor: ajan kimliği alabiliyor, o yüzden kapı gerekli.
 - **AT-SPI `get_extents` koordinatları yanlış.** Tıklama `Action.do_action` ile
   yapılır; `Action` yoksa koordinata **düşülmez**, açıkça hata dönülür.
+- **AT-SPI'da her öğenin kalıcı bir kimliği var: uygulamanın D-Bus adı
+  (`node.app.bus_name`, `:1.44`) + öğenin nesne yolu (`node.path`).** Ölçüldü
+  2026-09-19, GTK4 4.14 test penceresi: araya düğüm eklenince 33 nesnenin
+  20'sinin indeks yolu kaydı, 33'ünün de nesne yolu aynı kaldı; başlık
+  değişince pencerenin yolu değişmedi; yeniden yaratılan düğme yeni yol aldı.
+  GTK4 yolu `/org/<uygulama>/a11y/<uuid>`, gnome-shell ve Chromium
+  `/org/a11y/atspi/accessible/<sayı>` — Chromium yeniden başlayınca yine 1'den
+  sayar, o yüzden veriyolu adı şart. `ui_click`/`ui_set_text` bu kimliğe gider
+  (`atspi_helper._resolve`); **rol+etiketle arama kaldırıldı**, çünkü aynı
+  pencerede üç "Kapat" vardı ve üçüncüsü pencerenin kendi kapatma düğmesiydi.
+  Kimlik tutmazsa ya da ad/rol değiştiyse eylem reddedilir, yeni `ui_dump`
+  istenir. Kısa kimlik (`#1b72`) yalnızca son dökümde öğe **seçer**.
 - **AT-SPI Electron'un penceresini görür, içini görmez.** Vesktop'ta `ui_dump`
   0 düğüm — orada tek yol görüntü.
 - **uinput olayı `IdleMonitor`'ü sıfırlıyor** (104227 ms → 151 ms). "Kullanıcı

@@ -1,0 +1,1415 @@
+{
+  "schema_version": 1,
+  "about": "Accessibility target identity (Task 6.1). \"apps\" are fake AT-SPI applications with a bus name and pid; an app's children are its windows, every node has its D-Bus object path as \"ref\". A desktop is an ordered list of app keys. Node defaults: name \"\", states [], actions [], children []. \"text\" gives a node the Text interface, \"editable_text\" the EditableText one. dump_cases run one dump request; action_cases dump \"dump.desktop\", switch the desktop to \"then\", and act on the dumped node whose ref is \"act.ref\", with the dump's identity fields (\"override\" replaces request fields). \"performed\" lists every action the fake desktop saw, in order: an error must leave it empty. id_cases cover the short public ids Python derives from a dump. Shared by the Python helper contract and the Rust provider (Task 6.2). Reviewed by hand; edit it directly, nothing regenerates it.",
+  "apps": {
+    "shell": {
+      "name": "gnome-shell",
+      "bus": ":1.0",
+      "pid": 4591,
+      "windows": [
+        {
+          "ref": "/org/a11y/atspi/accessible/1026",
+          "role": "window",
+          "states": ["showing"],
+          "children": [
+            {
+              "ref": "/org/a11y/atspi/accessible/1027",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/a11y/atspi/accessible/3",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "shell_active": {
+      "name": "gnome-shell",
+      "bus": ":1.0",
+      "pid": 4591,
+      "windows": [
+        {
+          "ref": "/org/a11y/atspi/accessible/1026",
+          "role": "window",
+          "states": ["active", "showing"],
+          "children": [
+            {
+              "ref": "/org/a11y/atspi/accessible/1027",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/a11y/atspi/accessible/3",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "editor": {
+      "name": "pcbridge-editor",
+      "bus": ":1.30",
+      "pid": 3100,
+      "windows": [
+        {
+          "ref": "/org/pcbridge/Editor/a11y/w1",
+          "role": "frame",
+          "name": "Belge — Düzenleyici",
+          "states": ["active", "showing"],
+          "actions": ["win.close", "app.quit"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Editor/a11y/body",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/group-a",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-a", "role": "label", "name": "Belge A", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/close-a",
+                      "role": "push button",
+                      "name": "Kapat",
+                      "states": ["showing", "enabled", "sensitive"],
+                      "actions": ["click", "win.close"]
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/group-b",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-b", "role": "label", "name": "Belge B", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/close-b",
+                      "role": "push button",
+                      "name": "Kapat",
+                      "states": ["showing", "enabled", "sensitive"],
+                      "actions": ["click"]
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/row-name",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-name", "role": "label", "name": "Ad", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/field-name",
+                      "role": "text",
+                      "name": "Ad",
+                      "states": ["showing", "enabled", "sensitive", "editable", "focused"],
+                      "text": "eski",
+                      "editable_text": true
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/row-password",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-password", "role": "label", "name": "Parola", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/field-password",
+                      "role": "password text",
+                      "name": "Parola",
+                      "states": ["showing", "enabled", "sensitive", "editable"],
+                      "text": "",
+                      "editable_text": true
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/ok",
+                  "role": "push button",
+                  "name": "Tamam",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                },
+                {"ref": "/org/pcbridge/Editor/a11y/status", "role": "label", "name": "Hazır", "states": ["showing"]}
+              ]
+            },
+            {
+              "ref": "/org/pcbridge/Editor/a11y/header",
+              "role": "panel",
+              "children": [
+                {"ref": "/org/pcbridge/Editor/a11y/header-title", "role": "label", "name": "Belge — Düzenleyici", "states": ["showing"]},
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/close-window",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ref": "/org/pcbridge/Editor/a11y/w2",
+          "role": "frame",
+          "name": "Tercihler",
+          "states": ["showing"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Editor/a11y/prefs-body",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/prefs-close",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "editor_prepend": {
+      "name": "pcbridge-editor",
+      "bus": ":1.30",
+      "pid": 3100,
+      "windows": [
+        {
+          "ref": "/org/pcbridge/Editor/a11y/w1",
+          "role": "frame",
+          "name": "Belge — Düzenleyici",
+          "states": ["active", "showing"],
+          "actions": ["win.close", "app.quit"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Editor/a11y/body",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/extra-1",
+                  "role": "push button",
+                  "name": "Ek 1",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/group-a",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-a", "role": "label", "name": "Belge A", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/close-a",
+                      "role": "push button",
+                      "name": "Kapat",
+                      "states": ["showing", "enabled", "sensitive"],
+                      "actions": ["click", "win.close"]
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/group-b",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-b", "role": "label", "name": "Belge B", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/close-b",
+                      "role": "push button",
+                      "name": "Kapat",
+                      "states": ["showing", "enabled", "sensitive"],
+                      "actions": ["click"]
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/row-name",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-name", "role": "label", "name": "Ad", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/field-name",
+                      "role": "text",
+                      "name": "Ad",
+                      "states": ["showing", "enabled", "sensitive", "editable", "focused"],
+                      "text": "eski",
+                      "editable_text": true
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/row-password",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-password", "role": "label", "name": "Parola", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/field-password",
+                      "role": "password text",
+                      "name": "Parola",
+                      "states": ["showing", "enabled", "sensitive", "editable"],
+                      "text": "",
+                      "editable_text": true
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/ok",
+                  "role": "push button",
+                  "name": "Tamam",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                },
+                {"ref": "/org/pcbridge/Editor/a11y/status", "role": "label", "name": "Hazır", "states": ["showing"]}
+              ]
+            },
+            {
+              "ref": "/org/pcbridge/Editor/a11y/header",
+              "role": "panel",
+              "children": [
+                {"ref": "/org/pcbridge/Editor/a11y/header-title", "role": "label", "name": "Belge — Düzenleyici", "states": ["showing"]},
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/close-window",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ref": "/org/pcbridge/Editor/a11y/w2",
+          "role": "frame",
+          "name": "Tercihler",
+          "states": ["showing"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Editor/a11y/prefs-body",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/prefs-close",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "editor_remove_a": {
+      "name": "pcbridge-editor",
+      "bus": ":1.30",
+      "pid": 3100,
+      "windows": [
+        {
+          "ref": "/org/pcbridge/Editor/a11y/w1",
+          "role": "frame",
+          "name": "Belge — Düzenleyici",
+          "states": ["active", "showing"],
+          "actions": ["win.close", "app.quit"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Editor/a11y/body",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/group-b",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-b", "role": "label", "name": "Belge B", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/close-b",
+                      "role": "push button",
+                      "name": "Kapat",
+                      "states": ["showing", "enabled", "sensitive"],
+                      "actions": ["click"]
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/row-name",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-name", "role": "label", "name": "Ad", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/field-name",
+                      "role": "text",
+                      "name": "Ad",
+                      "states": ["showing", "enabled", "sensitive", "editable", "focused"],
+                      "text": "eski",
+                      "editable_text": true
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/row-password",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-password", "role": "label", "name": "Parola", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/field-password",
+                      "role": "password text",
+                      "name": "Parola",
+                      "states": ["showing", "enabled", "sensitive", "editable"],
+                      "text": "",
+                      "editable_text": true
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/ok",
+                  "role": "push button",
+                  "name": "Tamam",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                },
+                {"ref": "/org/pcbridge/Editor/a11y/status", "role": "label", "name": "Hazır", "states": ["showing"]}
+              ]
+            },
+            {
+              "ref": "/org/pcbridge/Editor/a11y/header",
+              "role": "panel",
+              "children": [
+                {"ref": "/org/pcbridge/Editor/a11y/header-title", "role": "label", "name": "Belge — Düzenleyici", "states": ["showing"]},
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/close-window",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ref": "/org/pcbridge/Editor/a11y/w2",
+          "role": "frame",
+          "name": "Tercihler",
+          "states": ["showing"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Editor/a11y/prefs-body",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/prefs-close",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "editor_rebuild_a": {
+      "name": "pcbridge-editor",
+      "bus": ":1.30",
+      "pid": 3100,
+      "windows": [
+        {
+          "ref": "/org/pcbridge/Editor/a11y/w1",
+          "role": "frame",
+          "name": "Belge — Düzenleyici",
+          "states": ["active", "showing"],
+          "actions": ["win.close", "app.quit"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Editor/a11y/body",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/group-a",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-a", "role": "label", "name": "Belge A", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/close-a-2",
+                      "role": "push button",
+                      "name": "Kapat",
+                      "states": ["showing", "enabled", "sensitive"],
+                      "actions": ["click", "win.close"]
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/group-b",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-b", "role": "label", "name": "Belge B", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/close-b",
+                      "role": "push button",
+                      "name": "Kapat",
+                      "states": ["showing", "enabled", "sensitive"],
+                      "actions": ["click"]
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/row-name",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-name", "role": "label", "name": "Ad", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/field-name",
+                      "role": "text",
+                      "name": "Ad",
+                      "states": ["showing", "enabled", "sensitive", "editable", "focused"],
+                      "text": "eski",
+                      "editable_text": true
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/row-password",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-password", "role": "label", "name": "Parola", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/field-password",
+                      "role": "password text",
+                      "name": "Parola",
+                      "states": ["showing", "enabled", "sensitive", "editable"],
+                      "text": "",
+                      "editable_text": true
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/ok",
+                  "role": "push button",
+                  "name": "Tamam",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                },
+                {"ref": "/org/pcbridge/Editor/a11y/status", "role": "label", "name": "Hazır", "states": ["showing"]}
+              ]
+            },
+            {
+              "ref": "/org/pcbridge/Editor/a11y/header",
+              "role": "panel",
+              "children": [
+                {"ref": "/org/pcbridge/Editor/a11y/header-title", "role": "label", "name": "Belge — Düzenleyici", "states": ["showing"]},
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/close-window",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ref": "/org/pcbridge/Editor/a11y/w2",
+          "role": "frame",
+          "name": "Tercihler",
+          "states": ["showing"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Editor/a11y/prefs-body",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/prefs-close",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "editor_rename_b": {
+      "name": "pcbridge-editor",
+      "bus": ":1.30",
+      "pid": 3100,
+      "windows": [
+        {
+          "ref": "/org/pcbridge/Editor/a11y/w1",
+          "role": "frame",
+          "name": "Belge — Düzenleyici",
+          "states": ["active", "showing"],
+          "actions": ["win.close", "app.quit"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Editor/a11y/body",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/group-a",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-a", "role": "label", "name": "Belge A", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/close-a",
+                      "role": "push button",
+                      "name": "Kapat",
+                      "states": ["showing", "enabled", "sensitive"],
+                      "actions": ["click", "win.close"]
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/group-b",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-b", "role": "label", "name": "Belge B", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/close-b",
+                      "role": "push button",
+                      "name": "Kapatıldı",
+                      "states": ["showing", "enabled", "sensitive"],
+                      "actions": ["click"]
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/row-name",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-name", "role": "label", "name": "Ad", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/field-name",
+                      "role": "text",
+                      "name": "Ad",
+                      "states": ["showing", "enabled", "sensitive", "editable", "focused"],
+                      "text": "eski",
+                      "editable_text": true
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/row-password",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-password", "role": "label", "name": "Parola", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/field-password",
+                      "role": "password text",
+                      "name": "Parola",
+                      "states": ["showing", "enabled", "sensitive", "editable"],
+                      "text": "",
+                      "editable_text": true
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/ok",
+                  "role": "push button",
+                  "name": "Tamam",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                },
+                {"ref": "/org/pcbridge/Editor/a11y/status", "role": "label", "name": "Hazır", "states": ["showing"]}
+              ]
+            },
+            {
+              "ref": "/org/pcbridge/Editor/a11y/header",
+              "role": "panel",
+              "children": [
+                {"ref": "/org/pcbridge/Editor/a11y/header-title", "role": "label", "name": "Belge — Düzenleyici", "states": ["showing"]},
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/close-window",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ref": "/org/pcbridge/Editor/a11y/w2",
+          "role": "frame",
+          "name": "Tercihler",
+          "states": ["showing"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Editor/a11y/prefs-body",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/prefs-close",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "editor_w1_closed": {
+      "name": "pcbridge-editor",
+      "bus": ":1.30",
+      "pid": 3100,
+      "windows": [
+        {
+          "ref": "/org/pcbridge/Editor/a11y/w2",
+          "role": "frame",
+          "name": "Tercihler",
+          "states": ["active", "showing"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Editor/a11y/prefs-body",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/prefs-close",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "editor_retitled": {
+      "name": "pcbridge-editor",
+      "bus": ":1.30",
+      "pid": 3100,
+      "windows": [
+        {
+          "ref": "/org/pcbridge/Editor/a11y/w1",
+          "role": "frame",
+          "name": "*Belge — Düzenleyici",
+          "states": ["active", "showing"],
+          "actions": ["win.close", "app.quit"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Editor/a11y/body",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/group-a",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-a", "role": "label", "name": "Belge A", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/close-a",
+                      "role": "push button",
+                      "name": "Kapat",
+                      "states": ["showing", "enabled", "sensitive"],
+                      "actions": ["click", "win.close"]
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/group-b",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-b", "role": "label", "name": "Belge B", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/close-b",
+                      "role": "push button",
+                      "name": "Kapat",
+                      "states": ["showing", "enabled", "sensitive"],
+                      "actions": ["click"]
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/row-name",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-name", "role": "label", "name": "Ad", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/field-name",
+                      "role": "text",
+                      "name": "Ad",
+                      "states": ["showing", "enabled", "sensitive", "editable", "focused"],
+                      "text": "eski",
+                      "editable_text": true
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/row-password",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-password", "role": "label", "name": "Parola", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/field-password",
+                      "role": "password text",
+                      "name": "Parola",
+                      "states": ["showing", "enabled", "sensitive", "editable"],
+                      "text": "",
+                      "editable_text": true
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/ok",
+                  "role": "push button",
+                  "name": "Tamam",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                },
+                {"ref": "/org/pcbridge/Editor/a11y/status", "role": "label", "name": "Hazır", "states": ["showing"]}
+              ]
+            },
+            {
+              "ref": "/org/pcbridge/Editor/a11y/header",
+              "role": "panel",
+              "children": [
+                {"ref": "/org/pcbridge/Editor/a11y/header-title", "role": "label", "name": "Belge — Düzenleyici", "states": ["showing"]},
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/close-window",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ref": "/org/pcbridge/Editor/a11y/w2",
+          "role": "frame",
+          "name": "Tercihler",
+          "states": ["showing"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Editor/a11y/prefs-body",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/prefs-close",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "editor_b_moved": {
+      "name": "pcbridge-editor",
+      "bus": ":1.30",
+      "pid": 3100,
+      "windows": [
+        {
+          "ref": "/org/pcbridge/Editor/a11y/w1",
+          "role": "frame",
+          "name": "Belge — Düzenleyici",
+          "states": ["active", "showing"],
+          "actions": ["win.close", "app.quit"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Editor/a11y/body",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/group-a",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-a", "role": "label", "name": "Belge A", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/close-a",
+                      "role": "push button",
+                      "name": "Kapat",
+                      "states": ["showing", "enabled", "sensitive"],
+                      "actions": ["click", "win.close"]
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/row-name",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-name", "role": "label", "name": "Ad", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/field-name",
+                      "role": "text",
+                      "name": "Ad",
+                      "states": ["showing", "enabled", "sensitive", "editable", "focused"],
+                      "text": "eski",
+                      "editable_text": true
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/row-password",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-password", "role": "label", "name": "Parola", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/field-password",
+                      "role": "password text",
+                      "name": "Parola",
+                      "states": ["showing", "enabled", "sensitive", "editable"],
+                      "text": "",
+                      "editable_text": true
+                    }
+                  ]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/ok",
+                  "role": "push button",
+                  "name": "Tamam",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                },
+                {"ref": "/org/pcbridge/Editor/a11y/status", "role": "label", "name": "Hazır", "states": ["showing"]}
+              ]
+            },
+            {
+              "ref": "/org/pcbridge/Editor/a11y/header",
+              "role": "panel",
+              "children": [
+                {"ref": "/org/pcbridge/Editor/a11y/header-title", "role": "label", "name": "Belge — Düzenleyici", "states": ["showing"]},
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/close-window",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ref": "/org/pcbridge/Editor/a11y/w2",
+          "role": "frame",
+          "name": "Tercihler",
+          "states": ["showing"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Editor/a11y/prefs-body",
+              "role": "panel",
+              "children": [
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/prefs-close",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["click"]
+                },
+                {
+                  "ref": "/org/pcbridge/Editor/a11y/group-b",
+                  "role": "panel",
+                  "children": [
+                    {"ref": "/org/pcbridge/Editor/a11y/label-b", "role": "label", "name": "Belge B", "states": ["showing"]},
+                    {
+                      "ref": "/org/pcbridge/Editor/a11y/close-b",
+                      "role": "push button",
+                      "name": "Kapat",
+                      "states": ["showing", "enabled", "sensitive"],
+                      "actions": ["click"]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "chromium": {
+      "name": "chromium",
+      "bus": ":1.60",
+      "pid": 7000,
+      "windows": [
+        {
+          "ref": "/org/a11y/atspi/accessible/1",
+          "role": "frame",
+          "name": "Sayfa - Chromium",
+          "states": ["active", "showing"],
+          "children": [
+            {
+              "ref": "/org/a11y/atspi/accessible/2",
+              "role": "document web",
+              "name": "Sayfa",
+              "states": ["showing"],
+              "actions": ["doDefault"],
+              "children": [
+                {
+                  "ref": "/org/a11y/atspi/accessible/3",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["doDefault", "showContextMenu"]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "chromium_restarted": {
+      "name": "chromium",
+      "bus": ":1.61",
+      "pid": 7100,
+      "windows": [
+        {
+          "ref": "/org/a11y/atspi/accessible/1",
+          "role": "frame",
+          "name": "Sayfa - Chromium",
+          "states": ["active", "showing"],
+          "children": [
+            {
+              "ref": "/org/a11y/atspi/accessible/2",
+              "role": "document web",
+              "name": "Sayfa",
+              "states": ["showing"],
+              "actions": ["doDefault"],
+              "children": [
+                {
+                  "ref": "/org/a11y/atspi/accessible/3",
+                  "role": "push button",
+                  "name": "Kapat",
+                  "states": ["showing", "enabled", "sensitive"],
+                  "actions": ["doDefault", "showContextMenu"]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "terminal": {
+      "name": "gnome-terminal-server",
+      "bus": ":1.40",
+      "pid": 5000,
+      "windows": [
+        {
+          "ref": "/org/gnome/Terminal/a11y/w",
+          "role": "frame",
+          "name": "gnome-terminal-server penceresi",
+          "states": ["active", "showing"],
+          "children": [
+            {
+              "ref": "/org/gnome/Terminal/a11y/b",
+              "role": "push button",
+              "name": "Tamam",
+              "states": ["showing", "enabled", "sensitive"],
+              "actions": ["click"]
+            }
+          ]
+        }
+      ]
+    },
+    "text_editor": {
+      "name": "gnome-text-editor",
+      "bus": ":1.41",
+      "pid": 5100,
+      "windows": [
+        {
+          "ref": "/org/gnome/TextEditor/a11y/w",
+          "role": "frame",
+          "name": "gnome-text-editor penceresi",
+          "states": ["showing"],
+          "children": [
+            {
+              "ref": "/org/gnome/TextEditor/a11y/b",
+              "role": "push button",
+              "name": "Tamam",
+              "states": ["showing", "enabled", "sensitive"],
+              "actions": ["click"]
+            }
+          ]
+        }
+      ]
+    },
+    "python_a": {
+      "name": "python3",
+      "bus": ":1.70",
+      "pid": 8000,
+      "windows": [
+        {
+          "ref": "/org/one/a11y/w",
+          "role": "frame",
+          "name": "python3 penceresi",
+          "states": ["showing"],
+          "children": [{"ref": "/org/one/a11y/b", "role": "push button", "name": "Tamam", "states": ["showing", "enabled", "sensitive"], "actions": ["click"]}]
+        }
+      ]
+    },
+    "python_b": {
+      "name": "python3",
+      "bus": ":1.71",
+      "pid": 8001,
+      "windows": [
+        {
+          "ref": "/org/two/a11y/w",
+          "role": "frame",
+          "name": "python3 penceresi",
+          "states": ["active", "showing"],
+          "children": [{"ref": "/org/two/a11y/b", "role": "push button", "name": "Tamam", "states": ["showing", "enabled", "sensitive"], "actions": ["click"]}]
+        }
+      ]
+    }
+  },
+  "desktops": {
+    "editor": ["shell", "editor"],
+    "editor_prepend": ["shell", "editor_prepend"],
+    "editor_remove_a": ["shell", "editor_remove_a"],
+    "editor_rebuild_a": ["shell", "editor_rebuild_a"],
+    "editor_rename_b": ["shell", "editor_rename_b"],
+    "editor_w1_closed": ["shell", "editor_w1_closed"],
+    "editor_retitled": ["shell", "editor_retitled"],
+    "editor_b_moved": ["shell", "editor_b_moved"],
+    "chrome": ["shell", "chromium"],
+    "chrome_closed": ["shell_active"],
+    "chrome_restarted": ["shell", "chromium_restarted"],
+    "similar_names": ["terminal", "text_editor"],
+    "two_pythons": ["python_a", "python_b"],
+    "nothing_active": ["shell"]
+  },
+  "dump_cases": [
+    {
+      "name": "focused_dump_carries_app_and_window_identity",
+      "desktop": "editor",
+      "request": {"target": "focused", "interactive_only": true, "max_nodes": 400},
+      "expect": {
+        "ok": true,
+        "app": "pcbridge-editor",
+        "app_bus": ":1.30",
+        "app_pid": 3100,
+        "same_name": 1,
+        "scope": "window",
+        "window": "Belge — Düzenleyici",
+        "window_ref": "/org/pcbridge/Editor/a11y/w1",
+        "truncated": false,
+        "nodes": [
+          {
+            "ref": "/org/pcbridge/Editor/a11y/close-a",
+            "path": [0, 0, 0, 1],
+            "role": "push button",
+            "name": "Kapat",
+            "actions": ["click"],
+            "editable": false
+          },
+          {
+            "ref": "/org/pcbridge/Editor/a11y/close-b",
+            "path": [0, 0, 1, 1],
+            "role": "push button",
+            "name": "Kapat",
+            "actions": ["click"],
+            "editable": false
+          },
+          {"ref": "/org/pcbridge/Editor/a11y/field-name", "path": [0, 0, 2, 1], "role": "text", "name": "Ad", "actions": [], "editable": true},
+          {
+            "ref": "/org/pcbridge/Editor/a11y/field-password",
+            "path": [0, 0, 3, 1],
+            "role": "password text",
+            "name": "Parola",
+            "actions": [],
+            "editable": true
+          },
+          {"ref": "/org/pcbridge/Editor/a11y/ok", "path": [0, 0, 4], "role": "push button", "name": "Tamam", "actions": ["click"], "editable": false},
+          {
+            "ref": "/org/pcbridge/Editor/a11y/close-window",
+            "path": [0, 1, 1],
+            "role": "push button",
+            "name": "Kapat",
+            "actions": ["click"],
+            "editable": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "named_dump_covers_every_window_of_the_app",
+      "desktop": "editor",
+      "request": {"target": "pcbridge-editor", "interactive_only": true, "max_nodes": 400},
+      "expect": {
+        "ok": true,
+        "app": "pcbridge-editor",
+        "app_bus": ":1.30",
+        "app_pid": 3100,
+        "same_name": 1,
+        "scope": "app",
+        "window": "Belge — Düzenleyici",
+        "window_ref": "",
+        "truncated": false,
+        "nodes": [
+          {
+            "ref": "/org/pcbridge/Editor/a11y/close-a",
+            "path": [0, 0, 0, 1],
+            "role": "push button",
+            "name": "Kapat",
+            "actions": ["click"],
+            "editable": false
+          },
+          {
+            "ref": "/org/pcbridge/Editor/a11y/close-b",
+            "path": [0, 0, 1, 1],
+            "role": "push button",
+            "name": "Kapat",
+            "actions": ["click"],
+            "editable": false
+          },
+          {"ref": "/org/pcbridge/Editor/a11y/field-name", "path": [0, 0, 2, 1], "role": "text", "name": "Ad", "actions": [], "editable": true},
+          {
+            "ref": "/org/pcbridge/Editor/a11y/field-password",
+            "path": [0, 0, 3, 1],
+            "role": "password text",
+            "name": "Parola",
+            "actions": [],
+            "editable": true
+          },
+          {"ref": "/org/pcbridge/Editor/a11y/ok", "path": [0, 0, 4], "role": "push button", "name": "Tamam", "actions": ["click"], "editable": false},
+          {
+            "ref": "/org/pcbridge/Editor/a11y/close-window",
+            "path": [0, 1, 1],
+            "role": "push button",
+            "name": "Kapat",
+            "actions": ["click"],
+            "editable": false
+          },
+          {
+            "ref": "/org/pcbridge/Editor/a11y/prefs-close",
+            "path": [1, 0, 0],
+            "role": "push button",
+            "name": "Kapat",
+            "actions": ["click"],
+            "editable": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "partial_name_matching_two_apps_is_ambiguous",
+      "desktop": "similar_names",
+      "request": {"target": "gnome-te", "interactive_only": true, "max_nodes": 400},
+      "expect": {"ok": false, "code": "ELEMENT_AMBIGUOUS"}
+    },
+    {
+      "name": "partial_name_matching_one_app_is_read",
+      "desktop": "similar_names",
+      "request": {"target": "text-editor", "interactive_only": true, "max_nodes": 400},
+      "expect": {
+        "ok": true,
+        "app": "gnome-text-editor",
+        "app_bus": ":1.41",
+        "app_pid": 5100,
+        "same_name": 1,
+        "scope": "app",
+        "window": "gnome-text-editor penceresi",
+        "window_ref": "",
+        "truncated": false,
+        "nodes": [{"ref": "/org/gnome/TextEditor/a11y/b", "path": [0, 0], "role": "push button", "name": "Tamam", "actions": ["click"], "editable": false}]
+      }
+    },
+    {
+      "name": "same_name_prefers_the_focused_instance_and_says_so",
+      "desktop": "two_pythons",
+      "request": {"target": "python3", "interactive_only": true, "max_nodes": 400},
+      "expect": {
+        "ok": true,
+        "app": "python3",
+        "app_bus": ":1.71",
+        "app_pid": 8001,
+        "same_name": 2,
+        "scope": "app",
+        "window": "python3 penceresi",
+        "window_ref": "",
+        "truncated": false,
+        "nodes": [{"ref": "/org/two/a11y/b", "path": [0, 0], "role": "push button", "name": "Tamam", "actions": ["click"], "editable": false}]
+      }
+    },
+    {
+      "name": "focused_dump_without_an_active_window_fails",
+      "desktop": "nothing_active",
+      "request": {"target": "focused", "interactive_only": true, "max_nodes": 400},
+      "expect": {"ok": false}
+    }
+  ],
+  "action_cases": [
+    {
+      "name": "unchanged_tree_acts_by_path",
+      "dump": {"desktop": "editor", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "editor",
+      "act": {"cmd": "act", "ref": "/org/pcbridge/Editor/a11y/close-b", "action": "click"},
+      "expect": {"ok": true, "resolved_by": "path", "performed": [["/org/pcbridge/Editor/a11y/close-b", "click"]]}
+    },
+    {
+      "name": "shifted_index_path_finds_the_same_object",
+      "dump": {"desktop": "editor", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "editor_prepend",
+      "act": {"cmd": "act", "ref": "/org/pcbridge/Editor/a11y/close-b", "action": "click"},
+      "expect": {"ok": true, "resolved_by": "moved", "performed": [["/org/pcbridge/Editor/a11y/close-b", "click"]]}
+    },
+    {
+      "name": "removed_button_is_not_replaced_by_its_twin_at_the_same_path",
+      "dump": {"desktop": "editor", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "editor_remove_a",
+      "act": {"cmd": "act", "ref": "/org/pcbridge/Editor/a11y/close-a", "action": "click"},
+      "expect": {"ok": false, "code": "ELEMENT_STALE", "performed": []}
+    },
+    {
+      "name": "recreated_button_is_a_different_element",
+      "dump": {"desktop": "editor", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "editor_rebuild_a",
+      "act": {"cmd": "act", "ref": "/org/pcbridge/Editor/a11y/close-a", "action": "click"},
+      "expect": {"ok": false, "code": "ELEMENT_STALE", "performed": []}
+    },
+    {
+      "name": "renamed_button_is_refused",
+      "dump": {"desktop": "editor", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "editor_rename_b",
+      "act": {"cmd": "act", "ref": "/org/pcbridge/Editor/a11y/close-b", "action": "click"},
+      "expect": {"ok": false, "code": "TARGET_MISMATCH", "performed": []}
+    },
+    {
+      "name": "closed_window_does_not_fall_to_another_window",
+      "dump": {"desktop": "editor", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "editor_w1_closed",
+      "act": {"cmd": "act", "ref": "/org/pcbridge/Editor/a11y/close-b", "action": "click"},
+      "expect": {"ok": false, "code": "ELEMENT_STALE", "performed": []}
+    },
+    {
+      "name": "retitled_window_is_still_the_same_window",
+      "dump": {"desktop": "editor", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "editor_retitled",
+      "act": {"cmd": "act", "ref": "/org/pcbridge/Editor/a11y/close-b", "action": "click"},
+      "expect": {"ok": true, "resolved_by": "path", "performed": [["/org/pcbridge/Editor/a11y/close-b", "click"]]}
+    },
+    {
+      "name": "focused_dump_does_not_follow_an_element_into_another_window",
+      "dump": {"desktop": "editor", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "editor_b_moved",
+      "act": {"cmd": "act", "ref": "/org/pcbridge/Editor/a11y/close-b", "action": "click"},
+      "expect": {"ok": false, "code": "ELEMENT_STALE", "performed": []}
+    },
+    {
+      "name": "named_dump_follows_an_element_into_another_window_of_the_app",
+      "dump": {"desktop": "editor", "request": {"target": "pcbridge-editor", "interactive_only": true, "max_nodes": 400}},
+      "then": "editor_b_moved",
+      "act": {"cmd": "act", "ref": "/org/pcbridge/Editor/a11y/close-b", "action": "click"},
+      "expect": {"ok": true, "resolved_by": "moved", "performed": [["/org/pcbridge/Editor/a11y/close-b", "click"]]}
+    },
+    {
+      "name": "app_scope_follows_an_element_to_its_new_window_index",
+      "dump": {"desktop": "editor", "request": {"target": "pcbridge-editor", "interactive_only": true, "max_nodes": 400}},
+      "then": "editor_w1_closed",
+      "act": {"cmd": "act", "ref": "/org/pcbridge/Editor/a11y/prefs-close", "action": "click"},
+      "expect": {"ok": true, "resolved_by": "moved", "performed": [["/org/pcbridge/Editor/a11y/prefs-close", "click"]]}
+    },
+    {
+      "name": "closed_app_never_falls_to_the_focused_shell",
+      "dump": {"desktop": "chrome", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "chrome_closed",
+      "act": {"cmd": "act", "ref": "/org/a11y/atspi/accessible/3", "action": "click"},
+      "expect": {"ok": false, "code": "ELEMENT_STALE", "performed": []}
+    },
+    {
+      "name": "closed_app_never_falls_to_the_focused_shell_in_a_named_dump",
+      "dump": {"desktop": "chrome", "request": {"target": "chromium", "interactive_only": true, "max_nodes": 400}},
+      "then": "chrome_closed",
+      "act": {"cmd": "act", "ref": "/org/a11y/atspi/accessible/3", "action": "click"},
+      "expect": {"ok": false, "code": "ELEMENT_STALE", "performed": []}
+    },
+    {
+      "name": "restarted_app_reusing_object_paths_is_stale",
+      "dump": {"desktop": "chrome", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "chrome_restarted",
+      "act": {"cmd": "act", "ref": "/org/a11y/atspi/accessible/3", "action": "click"},
+      "expect": {"ok": false, "code": "ELEMENT_STALE", "performed": []}
+    },
+    {
+      "name": "chromium_default_action_is_used",
+      "dump": {"desktop": "chrome", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "chrome",
+      "act": {"cmd": "act", "ref": "/org/a11y/atspi/accessible/3", "action": "click"},
+      "expect": {"ok": true, "resolved_by": "path", "performed": [["/org/a11y/atspi/accessible/3", "doDefault"]]}
+    },
+    {
+      "name": "element_without_action_is_refused_without_a_coordinate_click",
+      "dump": {"desktop": "editor", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "editor",
+      "act": {"cmd": "act", "ref": "/org/pcbridge/Editor/a11y/field-name", "action": "click"},
+      "expect": {"ok": false, "code": "ACTION_UNSUPPORTED", "performed": []}
+    },
+    {
+      "name": "request_without_identity_is_refused",
+      "dump": {"desktop": "editor", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "editor",
+      "act": {"cmd": "act", "ref": "/org/pcbridge/Editor/a11y/close-b", "action": "click", "override": {"ref": "", "app_bus": ""}},
+      "expect": {"ok": false, "code": "ELEMENT_STALE", "performed": []}
+    },
+    {
+      "name": "text_is_written_whole_into_the_moved_field",
+      "dump": {"desktop": "editor", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "editor_prepend",
+      "act": {"cmd": "settext", "ref": "/org/pcbridge/Editor/a11y/field-name", "text": "Çağrı ğüşıöç İĞÜŞÖÇ — 1"},
+      "expect": {
+        "ok": true,
+        "resolved_by": "moved",
+        "replaced_chars": 4,
+        "now_chars": 23,
+        "performed": [["/org/pcbridge/Editor/a11y/field-name", "settext"]],
+        "text_after": {"/org/pcbridge/Editor/a11y/field-name": "Çağrı ğüşıöç İĞÜŞÖÇ — 1"}
+      }
+    },
+    {
+      "name": "text_into_a_button_is_refused",
+      "dump": {"desktop": "editor", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "editor",
+      "act": {"cmd": "settext", "ref": "/org/pcbridge/Editor/a11y/ok", "text": "x"},
+      "expect": {"ok": false, "code": "ACTION_UNSUPPORTED", "performed": []}
+    },
+    {
+      "name": "text_into_a_removed_field_is_refused",
+      "dump": {"desktop": "editor", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "editor_w1_closed",
+      "act": {"cmd": "settext", "ref": "/org/pcbridge/Editor/a11y/field-name", "text": "x"},
+      "expect": {"ok": false, "code": "ELEMENT_STALE", "performed": []}
+    }
+  ],
+  "id_cases": [
+    {
+      "name": "colliding_short_ids_are_lengthened_not_overwritten",
+      "nodes": [
+        {"role": "list item", "name": "Satır 88"},
+        {"role": "list item", "name": "Satır 279"},
+        {"role": "push button", "name": "Kapat"},
+        {"role": "push button", "name": "Kapat"},
+        {"role": "push button", "name": "Tamam"}
+      ],
+      "expect_ids": ["765bc", "765b2", "adef", "b6cf", "70d7"],
+      "resolve": [
+        {"id": "765b", "code": "ELEMENT_AMBIGUOUS"},
+        {"id": "765bc", "index": 0},
+        {"id": "#765BCA6", "index": 0},
+        {"id": "765b2", "index": 1},
+        {"id": "b6cf", "index": 3},
+        {"id": "0000", "code": "ELEMENT_STALE"}
+      ]
+    }
+  ]
+}

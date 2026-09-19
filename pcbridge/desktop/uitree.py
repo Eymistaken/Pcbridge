@@ -19,26 +19,55 @@ KOORDINAT KULLANILMIYOR
     geregi ayri monitorlerde. Bu yuzden tiklama `Action.do_action` ile yapilir;
     `Action` yoksa koordinata DUSULMEZ, acikca hata donulur. Sessizce yanlis
     yere tiklamak, "yapamadim" demekten cok daha kotu.
+
+IKI KIMLIK
+    Modelin gordugu `#1b72` kisa ve dokumler arasinda KARARLI (rol + etiket +
+    kacinci kez gectigi). Eylemin gittigi yer ise dugumun kendisi: uygulamanin
+    veriyolu adi + dugumun D-Bus nesne yolu (`Node.ref`). Kisa kimlik yalnizca
+    son dokumde bir dugum SECER; dogrulamayi yardimci bu nesne kimligiyle
+    yapar. Ayrinti `atspi_helper.py`de.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from .errors import ErrorCode
 
 HELPER = Path(__file__).resolve().parent / "atspi_helper.py"
 # Sistem python3 -- venv'inki DEGIL. Ayrimin sebebi modul docstring'inde.
 SYSTEM_PYTHON = "python3"
 DUMP_TIMEOUT = 20
 ACT_TIMEOUT = 25
+# Kisa kimligin en az uzunlugu. Ayni dokumde iki dugumun ozeti bu kadar
+# karakterde cakisirsa ikisi de ayrisana kadar uzatilir (`_short_ids`).
+MIN_ID = 4
+BACKEND = "linux.atspi"
 
 
 class UiTreeError(RuntimeError):
-    """Erisilebilirlik agaci okunamadi ya da eylem uygulanamadi."""
+    """Erisilebilirlik agaci okunamadi ya da eylem uygulanamadi.
+
+    `code` biliniyorsa kararli sebep (`ELEMENT_STALE` gibi); saglayici bunu
+    ortak hata sozlesmesine tasir. Mesajdan kod TURETILMEZ.
+    """
+
+    def __init__(self, message: str, code: ErrorCode | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _code(raw: object) -> ErrorCode | None:
+    try:
+        return ErrorCode(str(raw)) if raw else None
+    except ValueError:
+        return None
 
 
 @dataclass(frozen=True)
@@ -51,6 +80,10 @@ class Node:
     actions: list[str]
     editable: bool
     depth: int
+    # D-Bus nesne yolu: eylemin dogrulandigi kimlik. Modele gosterilmez.
+    ref: str = ""
+    # Kisa kimligin geldigi tam ozet; uzatilmis kimlikleri cozmek icin.
+    digest: str = ""
 
     @property
     def clickable(self) -> bool:
@@ -77,6 +110,16 @@ class Dump:
     nodes: list[Node]
     truncated: bool = False
     by_id: dict[str, Node] = field(default_factory=dict)
+    # Hedef kimligi: eylem bu dokumun uygulamasinda ve (odak dokumunde) ayni
+    # pencerede dogrulanir. `snapshot` dokumun kendisi; denetim kaydi bir
+    # eylemi hangi dokume dayandigiyla birlikte yazabilsin diye.
+    backend: str = BACKEND
+    snapshot: str = ""
+    app_bus: str = ""
+    app_pid: int = 0
+    scope: str = "window"
+    window_ref: str = ""
+    same_name: int = 1
 
 
 @dataclass(frozen=True)
@@ -86,6 +129,9 @@ class Window:
     role: str
     active: bool
     children: int
+    app_bus: str = ""
+    app_pid: int = 0
+    ref: str = ""
 
     @property
     def label(self) -> str:
@@ -128,10 +174,12 @@ def _call(payload: dict, timeout: int) -> dict:
         )
     except subprocess.TimeoutExpired as exc:
         # Zaman asimi SESSIZCE yutulmaz: AT-SPI cevap vermeyen bir uygulamada
-        # bloklayabiliyor ve kullanicinin bunu bilmesi lazim.
+        # bloklayabiliyor ve kullanicinin bunu bilmesi lazim. Eylem gitmis de
+        # olabilir, gitmemis de: TEKRARLANMAZ.
         raise UiTreeError(
             f"Uygulama {timeout} saniyede cevap vermedi. Donmus olabilir; "
-            "ekran goruntusuyle bakin (screen_capture)."
+            "ekran goruntusuyle bakin (screen_capture).",
+            ErrorCode.EXECUTION_UNKNOWN,
         ) from exc
     if not proc.stdout.strip():
         # Yardimci stdout'a her zaman JSON yazar. Bos ise gercekten cokmustur;
@@ -145,8 +193,8 @@ def _call(payload: dict, timeout: int) -> dict:
         raise UiTreeError(f"AT-SPI yardimcisinin cevabi okunamadi: {exc}") from exc
 
 
-def _make_id(role: str, name: str, occurrence: int) -> str:
-    """Kararli kisa kimlik.
+def _digest(role: str, name: str, occurrence: int) -> str:
+    """Kararli kimligin tam ozeti.
 
     YOLU KASITLI OLARAK ICERMEZ. Yol karisima girseydi arayuzde baska bir yere
     bir dugum eklenmesi -- ki her sekme acilisinda oluyor -- ayni dugmenin
@@ -155,31 +203,70 @@ def _make_id(role: str, name: str, occurrence: int) -> str:
     ayni isimli iki "Kapat" dugmesi ayrisir, alakasiz bir ekleme ise etkilemez.
     """
     key = f"{role}\x00{name}\x00{occurrence}".encode()
-    return hashlib.sha256(key).hexdigest()[:4]
+    return hashlib.sha256(key).hexdigest()
+
+
+def _make_id(role: str, name: str, occurrence: int) -> str:
+    return _digest(role, name, occurrence)[:MIN_ID]
+
+
+def _common(a: str, b: str) -> int:
+    n = 0
+    for x, y in zip(a, b):
+        if x != y:
+            break
+        n += 1
+    return n
+
+
+def _short_ids(digests: list[str]) -> list[str]:
+    """Her ozetin, dokumdeki digerlerinden ayrildigi en kisa oneki (en az 4).
+
+    Dort onaltilik karakter 65536 deger: 400 dugumluk bir dokumde en az bir
+    cakisma olasiligi ~%70. Eskiden `by_id` cakisani sessizce eziyordu ve
+    ilk dugumun kimligi ikinciye tiklatiyordu. Siralanmis listede bir ozetin
+    en uzun ortak oneki komsularindan biriyledir; kimlik ondan bir fazlasi.
+    """
+    need = [MIN_ID] * len(digests)
+    order = sorted(range(len(digests)), key=digests.__getitem__)
+    for a, b in zip(order, order[1:]):
+        common = _common(digests[a], digests[b])
+        if common >= len(digests[a]):
+            raise UiTreeError(
+                "Iki dugum ayni kimligi aldi; liste guvenilir degil.",
+                ErrorCode.ELEMENT_AMBIGUOUS,
+            )
+        need[a] = max(need[a], common + 1)
+        need[b] = max(need[b], common + 1)
+    return [d[:n] for d, n in zip(digests, need)]
 
 
 def _to_nodes(raw: list[dict]) -> list[Node]:
     seen: dict[tuple[str, str], int] = {}
-    out: list[Node] = []
+    items: list[tuple[dict, str, str, str]] = []
     for item in raw:
         role = item.get("role") or "?"
         name = item.get("name") or ""
         k = (role, name)
         occ = seen.get(k, 0)
         seen[k] = occ + 1
-        out.append(
-            Node(
-                node_id=_make_id(role, name, occ),
-                path=list(item.get("path") or []),
-                role=role,
-                name=name,
-                states=list(item.get("states") or []),
-                actions=list(item.get("actions") or []),
-                editable=bool(item.get("editable")),
-                depth=int(item.get("depth") or 0),
-            )
+        items.append((item, role, name, _digest(role, name, occ)))
+    ids = _short_ids([digest for *_rest, digest in items])
+    return [
+        Node(
+            node_id=node_id,
+            path=list(item.get("path") or []),
+            role=role,
+            name=name,
+            states=list(item.get("states") or []),
+            actions=list(item.get("actions") or []),
+            editable=bool(item.get("editable")),
+            depth=int(item.get("depth") or 0),
+            ref=str(item.get("ref") or ""),
+            digest=digest,
         )
-    return out
+        for (item, role, name, digest), node_id in zip(items, ids)
+    ]
 
 
 class UiTree:
@@ -205,7 +292,7 @@ class UiTree:
             DUMP_TIMEOUT,
         )
         if not resp.get("ok"):
-            raise UiTreeError(resp.get("error") or "Agac okunamadi.")
+            raise UiTreeError(resp.get("error") or "Agac okunamadi.", _code(resp.get("code")))
         nodes = _to_nodes(resp.get("nodes") or [])
         dump = Dump(
             app=resp.get("app") or "?",
@@ -213,6 +300,12 @@ class UiTree:
             nodes=nodes,
             truncated=bool(resp.get("truncated")),
             by_id={n.node_id: n for n in nodes},
+            snapshot=secrets.token_hex(6),
+            app_bus=str(resp.get("app_bus") or ""),
+            app_pid=int(resp.get("app_pid") or 0),
+            scope="app" if resp.get("scope") == "app" else "window",
+            window_ref=str(resp.get("window_ref") or ""),
+            same_name=int(resp.get("same_name") or 1),
         )
         self._last = dump
         return dump
@@ -230,7 +323,9 @@ class UiTree:
             DUMP_TIMEOUT,
         )
         if not resp.get("ok"):
-            raise UiTreeError(resp.get("error") or "Odaktaki pencere okunamadi.")
+            raise UiTreeError(
+                resp.get("error") or "Odaktaki pencere okunamadi.", _code(resp.get("code"))
+            )
         return resp.get("app") or "?", resp.get("window") or ""
 
     def windows(self) -> list[Window]:
@@ -241,7 +336,9 @@ class UiTree:
         """
         resp = _call({"cmd": "windows"}, DUMP_TIMEOUT)
         if not resp.get("ok"):
-            raise UiTreeError(resp.get("error") or "Pencere listesi okunamadi.")
+            raise UiTreeError(
+                resp.get("error") or "Pencere listesi okunamadi.", _code(resp.get("code"))
+            )
         out = []
         for item in resp.get("windows") or []:
             title = (item.get("window") or "").strip()
@@ -254,31 +351,67 @@ class UiTree:
                 role=item.get("role") or "",
                 active=bool(item.get("active")),
                 children=int(item.get("children") or 0),
+                app_bus=str(item.get("app_bus") or ""),
+                app_pid=int(item.get("app_pid") or 0),
+                ref=str(item.get("ref") or ""),
             ))
         return out
 
     def resolve(self, node_id: str) -> Node:
-        key = str(node_id).strip().lstrip("#")
-        node = (self._last.by_id if self._last else {}).get(key)
-        if node is None:
-            if self._last is None:
-                raise UiTreeError(
-                    "Henuz ui_dump cagrilmadi; kimlikler o listeden geliyor."
-                )
+        """Kisa kimligi SON dokumdeki dugume cevir.
+
+        Kimlik uzatilmis olabilir (cakisma) ya da onceki bir dokumdeki uzun
+        hali gelmis olabilir; ikisi de tam ozetin oneki olarak cozulur. Birden
+        fazla dugume uyan onek hicbirini secmez.
+        """
+        key = str(node_id).strip().lstrip("#").lower()
+        if self._last is None:
             raise UiTreeError(
-                f"#{key} taninmiyor. Once ui_dump ile guncel listeyi alin "
-                "(kimlikler o listeye ait)."
+                "Henuz ui_dump cagrilmadi; kimlikler o listeden geliyor.",
+                ErrorCode.ELEMENT_STALE,
             )
-        return node
+        node = self._last.by_id.get(key)
+        if node is not None:
+            return node
+        if len(key) >= MIN_ID:
+            hits = [n for n in self._last.nodes if n.digest.startswith(key)]
+            if len(hits) == 1:
+                return hits[0]
+            if hits:
+                shown = ", ".join("#" + n.node_id for n in hits[:4])
+                raise UiTreeError(
+                    f"#{key} bu listede birden fazla ogeye uyuyor ({shown}). "
+                    "Listedeki tam kimligi kullanin.",
+                    ErrorCode.ELEMENT_AMBIGUOUS,
+                )
+        raise UiTreeError(
+            f"#{key} taninmiyor. Once ui_dump ile guncel listeyi alin "
+            "(kimlikler o listeye ait).",
+            ErrorCode.ELEMENT_STALE,
+        )
 
     # ----------------------------------------------------------------- eylem
     def _target_payload(self, node: Node) -> dict:
+        dump = self._last
+        assert dump is not None  # resolve() dokum yokken hata veriyor
         return {
-            "app": self._last.app if self._last else "",
+            "app": dump.app,
+            "app_bus": dump.app_bus,
+            "app_pid": dump.app_pid,
+            "scope": dump.scope,
+            "window_ref": dump.window_ref,
             "path": node.path,
+            "ref": node.ref,
             "role": node.role,
             "name": node.name,
         }
+
+    def _act(self, payload: dict, fallback: str) -> dict:
+        resp = _call(payload, ACT_TIMEOUT)
+        if not resp.get("ok"):
+            raise UiTreeError(resp.get("error") or fallback, _code(resp.get("code")))
+        resp["snapshot"] = self._last.snapshot if self._last else ""
+        return resp
 
     def click(self, node_id: str, action: str = "click") -> dict:
         node = self.resolve(node_id)
@@ -287,23 +420,20 @@ class UiTree:
             raise UiTreeError(
                 f"{node.role} \"{node.name}\" bir eylem sunmuyor. Koordinatla "
                 "tiklamayi denemiyorum -- AT-SPI'in bildirdigi konumlar bu "
-                "sistemde yanlis. screen_capture ile bakip `mouse` kullanin."
+                "sistemde yanlis. screen_capture ile bakip `mouse` kullanin.",
+                ErrorCode.ACTION_UNSUPPORTED,
             )
-        resp = _call(
-            {"cmd": "act", "action": action, **self._target_payload(node)}, ACT_TIMEOUT
+        return self._act(
+            {"cmd": "act", "action": action, **self._target_payload(node)},
+            "Eylem uygulanamadi.",
         )
-        if not resp.get("ok"):
-            raise UiTreeError(resp.get("error") or "Eylem uygulanamadi.")
-        return resp
 
     def set_text(self, node_id: str, text: str) -> dict:
         node = self.resolve(node_id)
-        resp = _call(
-            {"cmd": "settext", "text": text, **self._target_payload(node)}, ACT_TIMEOUT
+        return self._act(
+            {"cmd": "settext", "text": text, **self._target_payload(node)},
+            "Metin yazilamadi.",
         )
-        if not resp.get("ok"):
-            raise UiTreeError(resp.get("error") or "Metin yazilamadi.")
-        return resp
 
 
 # ------------------------------------------------------------------ bicimleme
@@ -333,6 +463,12 @@ def describe(dump: Dump) -> str:
     """Dokumu modele gosterilecek duz metne cevir."""
     head = f"**{dump.app}** — {dump.window}" if dump.window else f"**{dump.app}**"
     lines = [head, ""]
+    if dump.same_name > 1:
+        lines[1:1] = [
+            f"Not: ayni adla {dump.same_name} uygulama acik; bu liste pid "
+            f"{dump.app_pid} olaninki (odaktaysa o secildi).",
+            "",
+        ]
     if not dump.nodes:
         lines.append(
             "Bu pencere erisilebilirlik agaci yayinlamiyor (bos geldi). Bazi "

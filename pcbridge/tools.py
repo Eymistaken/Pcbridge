@@ -1902,7 +1902,8 @@ def register(
                 scope="os.accessibility",
                 backend_name="desktop.accessibility",
             )
-        gate.audit("ui_dump", target=target, nodes=len(dump.nodes))
+        gate.audit("ui_dump", target=target, nodes=len(dump.nodes),
+                   snapshot=getattr(dump, "snapshot", None) or None)
         return jobslib.tail_chars(tree.describe_dump(dump), MAX_INLINE)
 
     @mcp.tool(
@@ -1929,7 +1930,12 @@ def register(
         through the virtual mouse. That is intended and it is why this tool cannot
         miss. Do not "correct" it by moving the pointer with the `mouse` tool
         first: the accessibility tree's coordinates are wrong on this system, so
-        you would only put the pointer somewhere the click is not happening."""
+        you would only put the pointer somewhere the click is not happening.
+
+        The id is checked against the item itself, not just its label. If the
+        application closed, the item disappeared or was redrawn, or its label
+        changed since your `ui_dump`, the click is refused and nothing is
+        clicked; call `ui_dump` again and use the new id."""
         denied = _guard("ui_click", force=force, needs_input=False)
         if denied:
             return denied
@@ -1950,11 +1956,12 @@ def register(
         finally:
             write.close()
         gate.audit("ui_click", node=str(id)[:40], name=res.get("name", "")[:60],
-                   forced=force or None)
+                   snapshot=res.get("snapshot") or None, forced=force or None)
         note = ""
-        if res.get("resolved_by") == "search":
-            # Yol tutmadi, dugum rol+etiketle bulundu. Kullanici bunu bilsin.
-            note = " (arayuz degismis, dugum adiyla bulundu)"
+        if res.get("resolved_by") == "moved":
+            # Indeks yolu tutmadi ama AYNI dugum (nesne kimligi) yeni yerinde
+            # bulundu. Arayuz degismis; model bunu bilsin.
+            note = " (arayuz degismis, ayni oge yeni yerinde bulundu)"
         return (
             f"{res.get('role','?')} \"{res.get('name','')}\" tiklandi{note}.\n"
             "Sonucu dogrulamadan bir sonraki adima gecmeyin — ui_dump ile "
@@ -1980,7 +1987,8 @@ def register(
         Prefer this over the `keyboard` tool for filling in fields: it writes into
         the widget itself instead of simulating keystrokes, so nothing depends on
         the keyboard layout and no other window can steal the text. Note it
-        replaces what is already there rather than appending."""
+        replaces what is already there rather than appending. Like `ui_click`,
+        it is refused when the box is no longer the one `ui_dump` listed."""
         denied = _guard("ui_set_text", force=force, needs_input=False)
         if denied:
             return denied
@@ -2002,7 +2010,7 @@ def register(
             write.close()
         # Metnin KENDISI denetim kaydina yazilmaz; parola girilmis olabilir.
         gate.audit("ui_set_text", node=str(id)[:40], chars=len(text),
-                   forced=force or None)
+                   snapshot=res.get("snapshot") or None, forced=force or None)
         return (
             f"{res.get('role','?')} icine {len(text)} karakter yazildi "
             f"(oncekiler silindi: {res.get('replaced_chars', 0)} karakter).\n"

@@ -122,6 +122,62 @@ def _desktop_error(
     )
 
 
+# A new `ui_dump` fixes these: the element is gone, changed, or the id no
+# longer picks one element. Retrying the same id does not.
+_REFRESH_CODES = frozenset({
+    ErrorCode.ELEMENT_STALE,
+    ErrorCode.ELEMENT_AMBIGUOUS,
+    ErrorCode.TARGET_MISMATCH,
+})
+
+
+def _accessibility_error(
+    exc: uitreelib.UiTreeError,
+    default: ErrorCode,
+    category: ErrorCategory,
+    retryable: bool,
+) -> DesktopError:
+    code = exc.code or default
+    if code in _REFRESH_CODES:
+        return _desktop_error(
+            exc,
+            code=code,
+            category=ErrorCategory.ACCESSIBILITY,
+            backend="linux.atspi",
+            retryable=True,
+            suggested_action="Erişilebilirlik ağacını yenileyip (ui_dump) kimliği tekrar seçin.",
+        )
+    if code is ErrorCode.EXECUTION_UNKNOWN:
+        # The helper timed out: the action may or may not have happened, so
+        # it is not replayed. Look first, then decide.
+        return DesktopError(
+            code=code,
+            message=str(exc),
+            category=ErrorCategory.EXECUTION,
+            retryable=False,
+            suggested_action="Tekrarlamadan önce ui_dump ya da screen_capture ile sonuca bakın.",
+            backend="linux.atspi",
+            execution_state="unknown",
+        )
+    if code is ErrorCode.ACTION_UNSUPPORTED:
+        return _desktop_error(
+            exc,
+            code=code,
+            category=ErrorCategory.ACCESSIBILITY,
+            backend="linux.atspi",
+            retryable=False,
+            suggested_action="Bu öğe bu eylemi sunmuyor; ekran görüntüsüyle bakıp başka bir yol seçin.",
+        )
+    return _desktop_error(
+        exc,
+        code=code,
+        category=category,
+        backend="linux.atspi",
+        retryable=retryable,
+        suggested_action="Erişilebilirlik ağacını yenileyip tekrar deneyin.",
+    )
+
+
 def _display_mapping_error(exc: Exception) -> DesktopError:
     return _desktop_error(
         exc,
@@ -729,17 +785,15 @@ class PythonAccessibilityProvider(uitreelib.UiTree):
         category: ErrorCategory,
         retryable: bool,
     ) -> _T:
+        """Run a legacy call and turn its failure into the shared taxonomy.
+
+        The helper states its own reason as a stable code; a failure without
+        one gets the caller's default. The message is never parsed.
+        """
         try:
             return operation()
         except uitreelib.UiTreeError as exc:
-            raise _desktop_error(
-                exc,
-                code=code,
-                category=category,
-                backend="linux.atspi",
-                retryable=retryable,
-                suggested_action="Erişilebilirlik ağacını yenileyip tekrar deneyin.",
-            ) from exc
+            raise _accessibility_error(exc, code, category, retryable) from exc
 
     dump = _accessibility_boundary(
         "dump",
@@ -761,17 +815,6 @@ class PythonAccessibilityProvider(uitreelib.UiTree):
     )
 
     def click(self, node_id: str, action: str = "click") -> dict:
-        try:
-            self.resolve(node_id)
-        except uitreelib.UiTreeError as exc:
-            raise _desktop_error(
-                exc,
-                code=ErrorCode.ELEMENT_STALE,
-                category=ErrorCategory.ACCESSIBILITY,
-                backend="linux.atspi",
-                retryable=True,
-                suggested_action="Erişilebilirlik ağacını yenileyip kimliği tekrar seçin.",
-            ) from exc
         return self._translate_accessibility(
             lambda: super(PythonAccessibilityProvider, self).click(node_id, action),
             code=ErrorCode.ACTION_UNSUPPORTED,
@@ -780,17 +823,12 @@ class PythonAccessibilityProvider(uitreelib.UiTree):
         )
 
     def set_text(self, node_id: str, text: str) -> dict:
-        try:
-            node = self.resolve(node_id)
-        except uitreelib.UiTreeError as exc:
-            raise _desktop_error(
-                exc,
-                code=ErrorCode.ELEMENT_STALE,
-                category=ErrorCategory.ACCESSIBILITY,
-                backend="linux.atspi",
-                retryable=True,
-                suggested_action="Erişilebilirlik ağacını yenileyip kimliği tekrar seçin.",
-            ) from exc
+        node = self._translate_accessibility(
+            lambda: self.resolve(node_id),
+            code=ErrorCode.ELEMENT_STALE,
+            category=ErrorCategory.ACCESSIBILITY,
+            retryable=True,
+        )
         # Icerik kapisi, izin kapisi degil: `SafetyGate` gecse de burasi
         # reddeder ve `force` ile asilamaz (KURALLAR.md sec. 4, madde 7).
         policy.check_text_target(role=node.role, name=node.name)

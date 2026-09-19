@@ -1374,6 +1374,8 @@ PipeWire frame tüketimi ve stream lifecycle için implementation sırasında bu
 
 **Yapılmayacak:** AT-SPI extents üzerinden tıklamak; browser flags’i kullanıcıdan habersiz değiştirmek.
 
+**Not (2026-09-19, uygulandı):** 4. ve 5. maddeler daha sıkı uygulandı. AT-SPI her öğeye kalıcı bir kimlik veriyor: uygulamanın D-Bus adı ve öğenin nesne yolu. GTK4'te ölçüldü: araya düğüm eklenince nesne yolları korunuyor, yeniden yaratılan öğe yeni yol alıyor. Bu yüzden yol kayınca rol/ad ile **aranmıyor**; aynı nesne aynı hedef içinde aranıyor. Bulunamazsa `ELEMENT_STALE`, ad/rol değiştiyse `TARGET_MISMATCH` dönüyor. `ELEMENT_AMBIGUOUS` üç yerde kalıyor: birden fazla öğeye uyan kısa kimlik, birden fazla uygulamaya uyan kısmi ad ve iki öğeye aynı yolu veren araç. `ElementRef` = backend + uygulama veriyolu adı + pid + pencere yolu + öğe yolu + snapshot. Task 6.2'nin "native referans"ı bu çift.
+
 ## Task 6.2 — Rust AT-SPI read/window/focus provider
 
 **Amaç:** Accessibility okumalarını Python GI’den ayırmak.  
