@@ -16,9 +16,8 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
   düzeltildi: izin değişince native helper eski izinde kalıyordu ve bu,
   varsayılan capture yolunu da etkiliyordu. Ayrıntı: Adım 5 → "Codex'in 5.2/5.3
   işinin kontrolü".
-- **Sıradaki uygulanabilir adım:** Task 5.4 / 2 — Rust'ta `wl-copy`/`wl-paste`
-  adapter'ı. 5.4 / 0 (çekim kaydına `topology_id`) ve 5.4 / 1 (`clipboard.py`)
-  bitti.
+- **Sıradaki uygulanabilir adım:** Task 5.4 / 3 — `[native] input = "rust"`'ta
+  pano native adapter'dan. 5.4 / 0, 1 ve 2 bitti.
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 4 geçti** (2026-09-13). Varsayılan artık
   `[native] capture = "auto"`. Servis 2026-09-13'te yeniden başlatıldı. stdio
@@ -1604,7 +1603,7 @@ bölündü:
 |---|---|---|
 | 0 | Task 5.3'ün yarım 7. maddesi: çekim kaydına `topology_id`; düzen değişince `shot=` koordinatı `DISPLAY_CHANGED` | `tamamlandı` |
 | 1 | Pano işlemleri Python'da ayrı arayüzde (`clipboard.py`), davranış aynı; restore fixture'ı | `tamamlandı` |
-| 2 | Rust'ta aynı `wl-copy`/`wl-paste` programlarını yöneten adapter; wl-copy boru tuzağı; tek MIME sınırı capability'de | bekliyor |
+| 2 | Rust'ta aynı `wl-copy`/`wl-paste` programlarını yöneten adapter; wl-copy boru tuzağı; tek MIME sınırı capability'de | `tamamlandı` |
 | 3 | `[native] input = "rust"` seçilince pano native adapter'dan. `type_text` orkestrasyonu Python'da kalır: pano → native `ctrl+v` → geri yükleme | bekliyor |
 | 4 | Gerçek girdi testleri, kullanıcı başındayken: Türkçe metin, değiştirici tuşlar, move→doğrulama→click, drag, süre dolumu/revoke, ≤1 px sapma | bekliyor (kullanıcı) |
 | 5 | Gate 5 kararı. Geçerse `[native] input` varsayılanı değişir | bekliyor |
@@ -1679,6 +1678,65 @@ yutulması. Sonuçlar: contract **258** (+7), integration **16**,
 0.
 
 **Rollback:** Commit'i geri almak yeter.
+
+#### 2 — Rust pano adapter'ı ve IPC · `tamamlandı`
+
+**Ne yapıldı.** `rust/crates/pcbridge-native/src/platform/linux/clipboard.rs`
+Python'un hep çalıştırdığı `wl-paste`/`wl-copy` programlarını aynı
+argümanlarla çalıştırıyor. Programlar `Programs` trait'inin arkasında;
+testler bir pano modeli, üretim ise gerçek süreçler kullanıyor. Kurallar
+Python'dakiyle aynı: metin tipleri `--no-newline` ile okunuyor, yalnızca ilk tip
+saklanıyor, `wl-copy`'nin stdout/stderr'i `/dev/null`'a gidiyor. Buna ek olarak
+program başına 10 sn zaman aşımı var ve süre dolunca program öldürülüyor.
+İçerik 128 MiB ile sınırlı; sınır aşılınca okuma zaman aşımını beklemeden
+kesiliyor. MIME tipi tek satır ve en fazla 256 bayt olmalı. Pano baytları hiçbir
+log ya da hata metnine girmiyor.
+
+IPC: `clipboard.read`, `clipboard.write`, `clipboard.clear`. Üçü de izne bağlı;
+izin yanlışsa program hiç çalışmıyor. `read`, içeriği response'un binary
+payload'unda döndürüyor ve okuma sürerken izin geri alınırsa içerik
+döndürülmüyor. Binary payload taşıyan tek request `write`: içerik hiçbir zaman
+header'da değil. Bilinmeyen alanlar (`deny_unknown_fields`) ve bozuk MIME
+reddediliyor, reddedilen değer yanıtta tekrar edilmiyor. Test kipi yalnızca
+`PCBRIDGE_TEST_WL_PASTE`/`PCBRIDGE_TEST_WL_COPY` ile adı verilen programları
+çalıştırıyor, yoksa `UNSUPPORTED` dönüyor. `capabilities`
+`clipboard.read`/`clipboard.write` durumunu hiçbir program çalıştırmadan
+(`PATH` + Wayland soketi) ve tek MIME sınırını `limitations` alanında
+bildiriyor. Özellik adı: `clipboard`. Belge: `docs/native/protocol-v1.md`.
+
+**Testler.**
+
+- `tests/clipboard_contract.rs` (yeni) → **6**. Ortak fixture'ın 7 durumu,
+  Python'la aynı program çağrıları, yapıştırmanın gördüğü içerik ve sonraki
+  pano. Gerçek süreçle yapılan kontroller: `wl-copy`'nin stdout/stderr'i
+  `/dev/null`, arkada 3 sn yaşayan bir sahip kalsa da çağrı hemen dönüyor ve
+  stdin bayt bayt geçiyor; takılan program 300 ms'de öldürülüyor; sınırı aşan
+  içerik hemen reddediliyor; eksik ve başarısız program raporlanıyor; bozuk
+  MIME hiçbir programa ulaşmıyor.
+- `tests/clipboard_ipc.rs` (yeni, test-harness) → **7**: yazma → okuma bayt
+  bayt geri geliyor (NUL dahil); eski izin program çalışmadan `REVOKED` ve pano
+  dokunulmamış; okuma sürerken yapılan revoke içerik döndürmüyor; binary
+  yalnızca `write`'ta kabul ediliyor; içerik header'da taşınamıyor ve
+  yankılanmıyor; adsız programla test kipi panoya ulaşmıyor; `clipboard`
+  özellik listesinde.
+- Birim test: MIME doğrulaması; üretim `capabilities` pano girdileri.
+- **Mutasyon 9/9 yakalandı**, hepsi test hatası: `wl-copy` stdout'unun boru
+  olması, `--no-newline`'ın düşmesi, son tipin saklanması, takılan programın
+  öldürülmemesi, program öncesi izin kontrolünün kalkması, okuma sonrası
+  yeniden kontrolün kalkması, binary'nin her metoda ya da hiçbirine açılması,
+  bilinmeyen alanların kabulü.
+- `strace -e execve,openat` altında iki Rust test seti: gerçek
+  `/usr/bin/wl-copy`/`wl-paste` **0 kez** çalıştı, yalnızca `/tmp`'deki sahte
+  programlar (23 çağrı); `/dev/uinput` açılmadı.
+- Sonuçlar: Rust default **129** (+7), test-harness **150** (+14); fmt ve iki
+  clippy temiz; release derleme `--test-mode`'u reddediyor (exit 2). Python
+  contract **258**, integration **16**, `test_desktop.py` **583**.
+
+**Henüz bağlı değil:** Python bu metotları 5.4 / 3'te kullanmaya başlayacak.
+Paketlenmiş yardımcı yeniden derlenmedi; o da canlı testlerden önce (5.4 / 4)
+yapılacak.
+
+**Rollback:** Commit'i geri almak yeter. Python tarafı henüz çağırmıyor.
 
 ## Adım 6 — İmleç katmanı
 

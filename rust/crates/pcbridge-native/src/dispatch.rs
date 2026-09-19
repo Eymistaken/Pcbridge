@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use crate::lifecycle::LeaseFailure;
 use crate::lifecycle::{FailClosed, Lifecycle, LifecycleFailure};
 use crate::platform::linux::capture::{CaptureError, NativeCapture, NativeCaptureError};
+use crate::platform::linux::clipboard::{self, Clipboard, ClipboardError, SystemPrograms};
 #[cfg(feature = "test-harness")]
 use crate::platform::linux::desktop_state::DeterministicDesktopState;
 use crate::platform::linux::display::DisplayReader;
@@ -76,6 +77,7 @@ impl BackendMode {
                 "capture.session_open",
                 "input.keyboard",
                 "input.pointer",
+                "clipboard",
             ],
             #[cfg(feature = "test-harness")]
             Self::DeterministicTest => vec![
@@ -83,6 +85,7 @@ impl BackendMode {
                 "test.lease",
                 "input.keyboard",
                 "input.pointer",
+                "clipboard",
             ],
         }
     }
@@ -98,6 +101,8 @@ impl BackendMode {
                     readiness::capture_monitor(&readiness::probe()),
                     readiness::input_keyboard(),
                     readiness::input_pointer(),
+                    readiness::clipboard("clipboard.read", "wl-paste"),
+                    readiness::clipboard("clipboard.write", "wl-copy"),
                 ],
             }),
             #[cfg(feature = "test-harness")]
@@ -277,7 +282,9 @@ impl Dispatcher {
             ));
         }
 
-        if !frame.binary.is_empty() {
+        // `clipboard.write` is the one request that carries bytes: clipboard
+        // content does not fit, and must not be put, in a JSON header.
+        if !frame.binary.is_empty() && request.method != "clipboard.write" {
             return Ok(self.error(
                 request.id,
                 "UNEXPECTED_BINARY",
@@ -316,6 +323,9 @@ impl Dispatcher {
             "input.pointer.release_all" => self.pointer_release_all(request.id),
             "input.pointer.take_auto_released" => self.pointer_take_auto_released(request.id),
             "input.pointer.position" => self.pointer_position(request.id),
+            "clipboard.read" => self.clipboard_read(request.id, request.params),
+            "clipboard.write" => self.clipboard_write(request.id, request.params, frame.binary),
+            "clipboard.clear" => self.clipboard_clear(request.id, request.params),
             "cancel" => match parse_cancel(request.params) {
                 Ok(target_id) => self.success(
                     request.id,
@@ -985,6 +995,153 @@ impl Dispatcher {
             }),
             None,
         )
+    }
+
+    /// The programs a clipboard request runs.
+    ///
+    /// The test harness never reaches the user's clipboard: it runs only the
+    /// programs a test names, and refuses when none are named.
+    fn clipboard(&self) -> Result<Clipboard<SystemPrograms>, ErrorBody> {
+        match &self.mode {
+            BackendMode::Production { .. } => Ok(Clipboard::new(SystemPrograms::default())),
+            #[cfg(feature = "test-harness")]
+            BackendMode::DeterministicTest => {
+                match (
+                    std::env::var_os("PCBRIDGE_TEST_WL_PASTE"),
+                    std::env::var_os("PCBRIDGE_TEST_WL_COPY"),
+                ) {
+                    (Some(paste), Some(copy)) => Ok(Clipboard::new(SystemPrograms::with_programs(
+                        paste,
+                        copy,
+                        clipboard::PROGRAM_TIMEOUT,
+                    ))),
+                    _ => Err(ErrorBody {
+                        code: "UNSUPPORTED".to_owned(),
+                        message: "the test harness has no clipboard programs".to_owned(),
+                        retryable: false,
+                        category: "capability".to_owned(),
+                    }),
+                }
+            }
+        }
+    }
+
+    fn clipboard_grant<T: DeserializeOwned + ClipboardGrant>(
+        &self,
+        id: &str,
+        params: Value,
+    ) -> Result<(T, Clipboard<SystemPrograms>), Box<DispatchOutcome>> {
+        let params = serde_json::from_value::<T>(params).map_err(|error| {
+            Box::new(self.error(
+                id.to_owned(),
+                "INVALID_PARAMS",
+                format!("invalid clipboard parameters: {error}"),
+                None,
+            ))
+        })?;
+        params.validate().map_err(|message| {
+            Box::new(self.error(id.to_owned(), "INVALID_PARAMS", message, None))
+        })?;
+        self.validate_grant_token(params.grant_id(), params.revoke_epoch())
+            .map_err(|failure| Box::new(self.keyboard_lifecycle_error(id.to_owned(), failure)))?;
+        let clipboard = self
+            .clipboard()
+            .map_err(|error| Box::new(self.typed_error(id.to_owned(), error)))?;
+        Ok((params, clipboard))
+    }
+
+    /// The first offered type and its bytes, as the response's binary payload.
+    fn clipboard_read(&self, id: String, params: Value) -> DispatchOutcome {
+        let (params, clipboard) = match self.clipboard_grant::<ClipboardGrantParams>(&id, params) {
+            Ok(ready) => ready,
+            Err(outcome) => return *outcome,
+        };
+        let saved = clipboard.save();
+        // Reading can take up to the program timeout. A revoke in that window
+        // must not be answered with the user's clipboard.
+        if let Err(failure) = self.validate_grant_token(&params.grant_id, params.revoke_epoch) {
+            return self.keyboard_lifecycle_error(id, failure);
+        }
+        match saved {
+            Ok(Some(saved)) => self.success_binary(
+                id,
+                json!({"empty": false, "mime": saved.mime, "backend": CLIPBOARD_BACKEND}),
+                saved.data,
+            ),
+            Ok(None) => self.success(
+                id,
+                json!({"empty": true, "mime": null, "backend": CLIPBOARD_BACKEND}),
+                None,
+            ),
+            Err(error) => self.clipboard_error(id, error),
+        }
+    }
+
+    fn clipboard_write(&self, id: String, params: Value, data: Vec<u8>) -> DispatchOutcome {
+        let (params, clipboard) = match self.clipboard_grant::<ClipboardWriteParams>(&id, params) {
+            Ok(ready) => ready,
+            Err(outcome) => return *outcome,
+        };
+        match clipboard.put(&params.mime, &data) {
+            Ok(()) => self.success(
+                id,
+                json!({"written": data.len(), "backend": CLIPBOARD_BACKEND}),
+                None,
+            ),
+            Err(error) => self.clipboard_error(id, error),
+        }
+    }
+
+    fn clipboard_clear(&self, id: String, params: Value) -> DispatchOutcome {
+        let (_params, clipboard) = match self.clipboard_grant::<ClipboardGrantParams>(&id, params) {
+            Ok(ready) => ready,
+            Err(outcome) => return *outcome,
+        };
+        match clipboard.clear() {
+            Ok(()) => self.success(
+                id,
+                json!({"cleared": true, "backend": CLIPBOARD_BACKEND}),
+                None,
+            ),
+            Err(error) => self.clipboard_error(id, error),
+        }
+    }
+
+    fn clipboard_error(&self, id: String, error: ClipboardError) -> DispatchOutcome {
+        let (code, category, retryable) = match &error {
+            ClipboardError::InvalidMime => {
+                return self.error(id, "INVALID_PARAMS", error.to_string(), None);
+            }
+            ClipboardError::Missing { .. } => ("DEPENDENCY_MISSING", "capability", false),
+            ClipboardError::Timeout { .. } => ("TIMEOUT", "execution", true),
+            ClipboardError::Failed { .. } => ("EXECUTION_UNKNOWN", "execution", false),
+            ClipboardError::TooLarge { .. } => ("UNSUPPORTED", "capability", false),
+            ClipboardError::Io { .. } => ("BACKEND_UNAVAILABLE", "capability", true),
+        };
+        self.typed_error(
+            id,
+            ErrorBody {
+                code: code.to_owned(),
+                message: error.to_string(),
+                retryable,
+                category: category.to_owned(),
+            },
+        )
+    }
+
+    fn validate_grant_token(
+        &self,
+        grant_id: &str,
+        revoke_epoch: u64,
+    ) -> Result<(), LifecycleFailure> {
+        let lifecycle = self
+            .lifecycle
+            .as_ref()
+            .expect("initialized dispatcher has a lifecycle");
+        if !lifecycle.matches_token(grant_id, revoke_epoch) {
+            return Err(LifecycleFailure::Revoked);
+        }
+        lifecycle.validate_now()
     }
 
     fn validate_keyboard_grant(
@@ -1735,6 +1892,69 @@ struct PointerButtonParams {
     button: String,
 }
 
+const CLIPBOARD_BACKEND: &str = "linux.wl-clipboard.native";
+
+trait ClipboardGrant {
+    fn grant_id(&self) -> &str;
+    fn revoke_epoch(&self) -> u64;
+    fn validate(&self) -> Result<(), &'static str>;
+}
+
+/// Clipboard requests name the grant and nothing else: the content is the
+/// binary payload, never a header field that could reach a log.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClipboardGrantParams {
+    grant_id: String,
+    revoke_epoch: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClipboardWriteParams {
+    grant_id: String,
+    revoke_epoch: u64,
+    mime: String,
+}
+
+fn validate_grant_id(grant_id: &str) -> Result<(), &'static str> {
+    const MAX_ID_BYTES: usize = 256;
+    if grant_id.is_empty() || grant_id.len() > MAX_ID_BYTES {
+        return Err("grant_id must be nonempty and bounded");
+    }
+    Ok(())
+}
+
+impl ClipboardGrant for ClipboardGrantParams {
+    fn grant_id(&self) -> &str {
+        &self.grant_id
+    }
+
+    fn revoke_epoch(&self) -> u64 {
+        self.revoke_epoch
+    }
+
+    fn validate(&self) -> Result<(), &'static str> {
+        validate_grant_id(&self.grant_id)
+    }
+}
+
+impl ClipboardGrant for ClipboardWriteParams {
+    fn grant_id(&self) -> &str {
+        &self.grant_id
+    }
+
+    fn revoke_epoch(&self) -> u64 {
+        self.revoke_epoch
+    }
+
+    fn validate(&self) -> Result<(), &'static str> {
+        validate_grant_id(&self.grant_id)?;
+        clipboard::validate_mime(&self.mime)
+            .map_err(|_| "mime must be 1 to 256 bytes without control characters")
+    }
+}
+
 impl KeyboardGrantParams {
     fn validate(&self) -> Result<(), &'static str> {
         const MAX_ID_BYTES: usize = 256;
@@ -1902,7 +2122,8 @@ mod tests {
                 "capture.on_demand",
                 "capture.session_open",
                 "input.keyboard",
-                "input.pointer"
+                "input.pointer",
+                "clipboard"
             ]
         );
         let monitor = &capabilities["capabilities"][0];
@@ -1943,6 +2164,25 @@ mod tests {
                 assert_eq!(pointer["reason_code"], "DEPENDENCY_MISSING")
             }
             other => panic!("unexpected input.pointer status {other:?}"),
+        }
+        // Probed without running either program: a capability request must
+        // not read the user's clipboard.
+        for (index, name) in [(3, "clipboard.read"), (4, "clipboard.write")] {
+            let entry = &capabilities["capabilities"][index];
+            assert_eq!(entry["name"], name);
+            assert_eq!(entry["permission_scope"], "os.clipboard");
+            match entry["status"].as_str() {
+                Some("supported") => assert_eq!(
+                    entry["limitations"],
+                    json!([readiness::SINGLE_MIME_LIMITATION])
+                ),
+                Some("unavailable") => assert!(
+                    entry["reason"]
+                        .as_str()
+                        .is_some_and(|reason| !reason.is_empty())
+                ),
+                other => panic!("unexpected {name} status {other:?}"),
+            }
         }
     }
 }

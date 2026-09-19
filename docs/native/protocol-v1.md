@@ -35,6 +35,10 @@ header.binary_len kadar binary payload
 - İlan edilen boyut sınırları allocation öncesinde doğrulanır.
 - Task 2.1 kontrol metotları binary payload kabul etmez ve bütün
   response'larında `binary_len: 0` kullanır.
+- Binary payload taşıyan **tek request** `clipboard.write`'tır (Task 5.4): pano
+  içeriği 64 KiB'lik header'a sığmaz ve bir log satırına ulaşabilecek bir
+  header alanına konmamalıdır. Başka bir metoda binary gönderilirse
+  `UNEXPECTED_BINARY` döner.
 
 Temiz stdin EOF süreci başarıyla kapatır. Kısmi uzunluk alanı, kesik header,
 kesik payload, geçersiz JSON veya geçersiz `binary_len` protokol hatasıdır;
@@ -75,7 +79,7 @@ Başarılı response seçilen sürümü ve process kimliğini döndürür:
     "native_version": "0.1.0",
     "build_id": "2294156a1b2c",
     "platform": "linux",
-    "features": ["display.snapshot", "capture.on_demand", "capture.session_open", "input.keyboard", "input.pointer"],
+    "features": ["display.snapshot", "capture.on_demand", "capture.session_open", "input.keyboard", "input.pointer", "clipboard"],
     "lease_bound": true
   },
   "binary_len": 0
@@ -100,7 +104,8 @@ Harness aşağıdaki metotları kabul eder:
 - `ping`: `{"pong": true}` döndürür; varsa `params.nonce` değerini aynen
   response'a ekler.
 - `capabilities`: `backend: linux.mutter.pipewire`, `capture.monitor`,
-  `input.keyboard` ve `input.pointer` durumunu döndürür. Capture durumu her
+  `input.keyboard`, `input.pointer`, `clipboard.read` ve `clipboard.write`
+  durumunu döndürür. Capture durumu her
   istekte **çalışma
   zamanında**, ucuz bir
   denetimle belirlenir (Task 4.1): oturum veriyolunda
@@ -154,6 +159,24 @@ Harness aşağıdaki metotları kabul eder:
   native held state'i okur, açık release gönderir, monotonic zamanlayıcının
   bıraktıklarını alır ve bilinen son persisted konumu okur. Cleanup/read
   metotları yeni grant istemez.
+- `clipboard.read`, `clipboard.write`, `clipboard.clear` (Task 5.4): Python'un
+  hep kullandığı `wl-paste`/`wl-copy` programlarını aynı argümanlarla çalıştırır.
+  Üçü de `grant_id` ve `revoke_epoch` ister. İzin yanlışsa program hiç
+  çalışmadan `REVOKED` döner; bilinmeyen alan varsa `INVALID_PARAMS` döner.
+  `read`, ilk sunulan tipi ve baytlarını **response'un binary payload'unda**
+  döndürür (`{"empty": false, "mime": ...}`). Pano boşsa ya da okunamıyorsa
+  `{"empty": true, "mime": null}` döner. Okuma süresince izin geri alınırsa
+  içerik döndürülmez. `write` ek olarak `mime` alır; içerik **request'in**
+  binary payload'udur, header'da hiç bulunmaz. `clear` panoyu boşaltır.
+  Program başına 10 sn zaman aşımı vardır ve süre dolunca program öldürülür.
+  `wl-copy`'nin stdout/stderr'i `/dev/null`'a gider, çünkü arka planda kalan pano
+  sahibi bir boruyu açık tutardı. Hata kodları: program yoksa
+  `DEPENDENCY_MISSING`, zaman aşımında `TIMEOUT`, program başarısızsa
+  `EXECUTION_UNKNOWN`, 128 MiB'i aşan içerikte `UNSUPPORTED`. Yalnızca ilk MIME
+  tipi saklanır; `capabilities` bunu `clipboard.read`/`clipboard.write`
+  `limitations` alanında bildirir. Capability denetimi hiçbir programı
+  çalıştırmaz, `PATH`'e ve Wayland soketine bakar. Ortak fixture:
+  `tests/fixtures/native/clipboard_cases.json`.
 - `cancel`: `params.target_id` alanını doğrular ve bugün `canceled: false`
   döndürür. Capture'ın kendi 1–8000 ms zaman aşımı ve lifecycle kapıları vardır;
   dispatcher henüz eşzamanlı request çalıştırmıyor.
@@ -360,8 +383,11 @@ sorgu izin istemez ya da oturum açmaz.
 Test kipi sabit `test-native-instance` kimliği, `test` platformu ve
 `test.fake` capability backend'i üretir. Fake capability açık bir desktop
 desteği iddia etmez; `input.keyboard` ve `input.pointer` feature'ları gerçek
-`/dev/uinput` yerine event üretmeyen sahte aygıtlara bağlıdır. Bu kip yalnızca
-byte-düzeyi contract testleri içindir.
+`/dev/uinput` yerine event üretmeyen sahte aygıtlara bağlıdır. `clipboard`
+yalnızca testin `PCBRIDGE_TEST_WL_PASTE` ve `PCBRIDGE_TEST_WL_COPY` ile adını
+verdiği programları çalıştırır. Bunlar verilmemişse `UNSUPPORTED` döner, yani
+test kipi kullanıcının panosuna hiç ulaşmaz. Bu kip yalnızca byte-düzeyi
+contract testleri içindir.
 
 ## Python supervisor yaşam döngüsü
 

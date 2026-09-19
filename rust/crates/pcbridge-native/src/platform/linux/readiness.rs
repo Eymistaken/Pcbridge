@@ -167,3 +167,65 @@ pub fn input_pointer() -> Value {
         })
     }
 }
+
+/// Shown with a usable clipboard: the restore keeps one representation.
+pub const SINGLE_MIME_LIMITATION: &str =
+    "Clipboard restore keeps only the first offered type; other representations are lost.";
+
+/// A `clipboard.read` or `clipboard.write` entry of a `capabilities` response.
+///
+/// Nothing is run: a capability request must not touch the user's clipboard.
+/// It checks what the Python side checks, the program on `PATH` and the
+/// session's Wayland socket.
+#[must_use]
+pub fn clipboard(name: &str, program: &str) -> Value {
+    if !on_path(program) {
+        return json!({
+            "name": name,
+            "status": "unavailable",
+            "permission_scope": "os.clipboard",
+            "reason_code": "DEPENDENCY_MISSING",
+            "reason": format!("{program} is not on PATH; install wl-clipboard"),
+        });
+    }
+    if wayland_socket().is_none() {
+        return json!({
+            "name": name,
+            "status": "unavailable",
+            "permission_scope": "os.clipboard",
+            "reason_code": "BACKEND_UNAVAILABLE",
+            "reason": "this session has no Wayland socket",
+        });
+    }
+    json!({
+        "name": name,
+        "status": "supported",
+        "permission_scope": "os.clipboard",
+        "limitations": [SINGLE_MIME_LIMITATION],
+    })
+}
+
+fn on_path(program: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::env::var_os("PATH").is_some_and(|path| {
+        std::env::split_paths(&path).any(|directory| {
+            std::fs::metadata(directory.join(program))
+                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        })
+    })
+}
+
+/// `$WAYLAND_DISPLAY`, relative to `$XDG_RUNTIME_DIR` unless absolute.
+fn wayland_socket() -> Option<PathBuf> {
+    let display = PathBuf::from(std::env::var_os("WAYLAND_DISPLAY")?);
+    if display.as_os_str().is_empty() {
+        return None;
+    }
+    let path = if display.is_absolute() {
+        display
+    } else {
+        PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?).join(display)
+    };
+    path.exists().then_some(path)
+}
