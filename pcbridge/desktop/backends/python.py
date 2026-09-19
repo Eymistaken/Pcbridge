@@ -11,6 +11,7 @@ from typing import Any, Callable, Sequence, TypeVar
 
 from ...config import Config
 from .. import capture as capturelib
+from .. import clipboard as clipboardlib
 from .. import input as inputlib
 from .. import monitors as monitorslib
 from .. import policy
@@ -185,6 +186,42 @@ def _wayland_socket() -> str | None:
             return None
         path = Path(runtime_dir) / path
     return str(path) if path.exists() else None
+
+
+def _clipboard_capabilities(backend: str) -> dict[str, Capability]:
+    """`clipboard.read` and `clipboard.write` for the wl-clipboard programs.
+
+    Both backends run the same programs, so both answer the same way: nothing
+    is run, the program on `PATH` and the Wayland socket are enough. The one
+    limitation belongs to the write, since it is the restore that loses the
+    other representations.
+    """
+    values: dict[str, Capability] = {}
+    for name, command in (
+        ("clipboard.read", "wl-paste"),
+        ("clipboard.write", "wl-copy"),
+    ):
+        command_path = shutil.which(command)
+        available = bool(command_path and _wayland_socket())
+        values[name] = _capability(
+            name,
+            CapabilityState.SUPPORTED if available else CapabilityState.UNAVAILABLE,
+            backend=backend,
+            scope="os.clipboard",
+            reason_code=(
+                None
+                if available
+                else ErrorCode.DEPENDENCY_MISSING
+                if not command_path
+                else ErrorCode.BACKEND_UNAVAILABLE
+            ),
+            limitations=(
+                (clipboardlib.SINGLE_MIME_LIMITATION,)
+                if available and name == "clipboard.write"
+                else ()
+            ),
+        )
+    return values
 
 
 class PythonCaptureProvider:
@@ -548,25 +585,7 @@ class PythonInputProvider(inputlib.InputBackend):
                 ("input.keyboard", "os.keyboard"),
             )
         }
-        for name, command in (
-            ("clipboard.read", "wl-paste"),
-            ("clipboard.write", "wl-copy"),
-        ):
-            command_path = shutil.which(command)
-            available = bool(command_path and _wayland_socket())
-            values[name] = _capability(
-                name,
-                CapabilityState.SUPPORTED if available else CapabilityState.UNAVAILABLE,
-                backend="linux.wl-clipboard",
-                scope="os.clipboard",
-                reason_code=(
-                    None
-                    if available
-                    else ErrorCode.DEPENDENCY_MISSING
-                    if not command_path
-                    else ErrorCode.BACKEND_UNAVAILABLE
-                ),
-            )
+        values.update(_clipboard_capabilities("linux.wl-clipboard"))
         return values
 
     def _translate(self, operation: Callable[[], _T], capability_name: str) -> _T:

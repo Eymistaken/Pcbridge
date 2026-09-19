@@ -16,12 +16,14 @@ WHAT MOVES AND WHAT DOES NOT
     injected, overriding only what genuinely differs: availability, the
     capability report and the backend name.
 
-KEYBOARD AND POINTER MOVE WITHOUT CLIPBOARD
-    Tasks 5.2 and 5.3 add `RustInputProvider`, selected only by the explicit
+KEYBOARD, POINTER AND CLIPBOARD
+    Tasks 5.2 to 5.4 add `RustInputProvider`, selected only by the explicit
     `[native] input = "rust"` setting. Keyboard and already-resolved global
     pointer coordinates go to the helper; shot and monitor identities never
-    cross that boundary. Clipboard orchestration remains in Python. The shipped
-    default remains Python until the final input gate is complete.
+    cross that boundary. The clipboard programs run in the helper too
+    (`NativeClipboard`), but the typing orchestration -- save, put, paste,
+    restore -- stays in `InputBackend._type_clipboard`. The shipped default
+    remains Python until the final input gate is complete.
 
 THE SHARING INDICATOR APPEARS WITH THE GRANT
     On the Python path the screen share opens at `desktop_unlock`, so GNOME's
@@ -51,9 +53,16 @@ from typing import Any
 from ..capabilities import Capability, CapabilityState
 from ..errors import DesktopError, ErrorCategory, ErrorCode
 from .. import capture as capturelib
+from .. import clipboard as clipboardlib
 from .. import input as inputlib
 from .. import monitors as monitorslib
-from .python import PythonCaptureProvider, PythonInputProvider, _capability, _desktop_error
+from .python import (
+    PythonCaptureProvider,
+    PythonInputProvider,
+    _capability,
+    _clipboard_capabilities,
+    _desktop_error,
+)
 from ...config import Config
 from ...native import NativeClient, discover_native_binary
 
@@ -64,6 +73,9 @@ DISPLAY_SCHEME = "mutter"
 #: Matches the native side's own ceiling. A frame that has not arrived in eight
 #: seconds is not coming, and one MCP call may not block for 110.
 FRAME_TIMEOUT_MS = 8000
+
+#: A clipboard read runs two programs, each allowed 10 s by the helper.
+CLIPBOARD_TIMEOUT_SECONDS = 25.0
 
 BACKEND_NAME = "linux.mutter.pipewire"
 
@@ -635,8 +647,51 @@ class RustCaptureProvider(PythonCaptureProvider):
             ) from exc
 
 
+class NativeClipboard:
+    """The `Clipboard` operations over the helper's grant-bound IPC (Task 5.4).
+
+    `InputBackend._type_clipboard` keeps the orchestration and the paste key
+    already goes to the native keyboard. This moves only where `wl-paste` and
+    `wl-copy` run: into the helper that holds the grant, with the content as a
+    binary payload that never enters a JSON header or a log line.
+    """
+
+    def __init__(self, provider: "RustInputProvider") -> None:
+        self._provider = provider
+
+    def save(self) -> clipboardlib.Saved | None:
+        result, data = self._provider._clipboard_request("clipboard.read")
+        if result.get("empty", True):
+            return None
+        return clipboardlib.Saved(str(result.get("mime") or ""), data)
+
+    def put_text(self, text: str) -> None:
+        self._provider._clipboard_request(
+            "clipboard.write",
+            mime=clipboardlib.TEXT_MIME,
+            data=text.encode("utf-8"),
+        )
+
+    def restore(self, saved: clipboardlib.Saved | None) -> None:
+        # `WlClipboard.restore` ignores a failing `wl-copy`: the paste has
+        # already happened, and failing the call now would invite typing the
+        # text twice. Anything else -- a refused grant, a missing program, a
+        # timeout -- still propagates, as an exception does there.
+        try:
+            if saved is None:
+                self._provider._clipboard_request("clipboard.clear")
+            else:
+                self._provider._clipboard_request(
+                    "clipboard.write", mime=saved.mime, data=saved.data
+                )
+        except DesktopError as exc:
+            if exc.code is not ErrorCode.EXECUTION_UNKNOWN:
+                raise
+            logger.warning("native clipboard restore failed: %s", exc.message)
+
+
 class RustInputProvider(PythonInputProvider):
-    """Native keyboard and pointer with Python clipboard orchestration."""
+    """Native keyboard, pointer and clipboard; typing orchestration stays in Python."""
 
     def __init__(
         self,
@@ -652,6 +707,7 @@ class RustInputProvider(PythonInputProvider):
         self._helper = GrantBoundHelper(client_factory or self._new_input_client, client)
         self._keyboard_used = False
         self._pointer_used = False
+        self.clipboard = NativeClipboard(self)
 
     def _new_input_client(self) -> NativeClient:
         binary = discover_native_binary(
@@ -736,6 +792,42 @@ class RustInputProvider(PythonInputProvider):
         self._keyboard_used = True
         response = client.request(method, params, timeout=5.0)
         return self._result_dict(response)
+
+    def _clipboard_request(
+        self,
+        method: str,
+        *,
+        mime: str | None = None,
+        data: bytes = b"",
+    ) -> tuple[dict[str, Any], bytes]:
+        """One grant-bound clipboard request; the content only as binary."""
+        token = self._grant_params()
+        params: dict[str, Any] = {
+            "grant_id": token["grant_id"],
+            "revoke_epoch": token["revoke_epoch"],
+        }
+        if mime is not None:
+            params["mime"] = mime
+        client = self._input_client_for(params)
+        try:
+            response = client.request(
+                method, params, binary=data, timeout=CLIPBOARD_TIMEOUT_SECONDS
+            )
+        except DesktopError as exc:
+            if exc.code is ErrorCode.UNSUPPORTED and "clipboard" not in client.features:
+                raise DesktopError(
+                    code=ErrorCode.BACKEND_UNAVAILABLE,
+                    message=(
+                        "Native yardimci pano metotlarini tanimiyor (Task 5.4 oncesi "
+                        "bir derleme). `scripts/build-native.sh` ile yeniden derleyin."
+                    ),
+                    category=ErrorCategory.CAPABILITY,
+                    retryable=False,
+                    suggested_action="scripts/build-native.sh",
+                    backend="pcbridge-native",
+                ) from exc
+            raise
+        return self._result_dict(response), bytes(response.binary or b"")
 
     def _read_request(self, method: str) -> dict[str, Any]:
         client = self._helper.client
@@ -1000,6 +1092,18 @@ class RustInputProvider(PythonInputProvider):
                     CapabilityState.SUPPORTED,
                     backend="linux.uinput.native",
                     scope=scope,
+                )
+        if ready:
+            values.update(_clipboard_capabilities("linux.wl-clipboard.native"))
+        else:
+            for name in ("clipboard.read", "clipboard.write"):
+                values[name] = _capability(
+                    name,
+                    CapabilityState.UNAVAILABLE,
+                    backend="linux.wl-clipboard.native",
+                    scope="os.clipboard",
+                    reason_code=ErrorCode.DEPENDENCY_MISSING,
+                    limitations=(reason,) if reason else (),
                 )
         return values
 

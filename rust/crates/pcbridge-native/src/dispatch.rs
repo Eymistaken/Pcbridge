@@ -2174,7 +2174,11 @@ mod tests {
             match entry["status"].as_str() {
                 Some("supported") => assert_eq!(
                     entry["limitations"],
-                    json!([readiness::SINGLE_MIME_LIMITATION])
+                    if name == "clipboard.write" {
+                        json!([readiness::SINGLE_MIME_LIMITATION])
+                    } else {
+                        json!([])
+                    }
                 ),
                 Some("unavailable") => assert!(
                     entry["reason"]

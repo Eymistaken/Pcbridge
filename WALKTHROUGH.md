@@ -16,8 +16,8 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
   düzeltildi: izin değişince native helper eski izinde kalıyordu ve bu,
   varsayılan capture yolunu da etkiliyordu. Ayrıntı: Adım 5 → "Codex'in 5.2/5.3
   işinin kontrolü".
-- **Sıradaki uygulanabilir adım:** Task 5.4 / 3 — `[native] input = "rust"`'ta
-  pano native adapter'dan. 5.4 / 0, 1 ve 2 bitti.
+- **Sıradaki uygulanabilir adım:** Task 5.4 / 4 — gerçek girdi testleri
+  (kullanıcı başındayken). 5.4 / 0–3 bitti.
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 4 geçti** (2026-09-13). Varsayılan artık
   `[native] capture = "auto"`. Servis 2026-09-13'te yeniden başlatıldı. stdio
@@ -1604,7 +1604,7 @@ bölündü:
 | 0 | Task 5.3'ün yarım 7. maddesi: çekim kaydına `topology_id`; düzen değişince `shot=` koordinatı `DISPLAY_CHANGED` | `tamamlandı` |
 | 1 | Pano işlemleri Python'da ayrı arayüzde (`clipboard.py`), davranış aynı; restore fixture'ı | `tamamlandı` |
 | 2 | Rust'ta aynı `wl-copy`/`wl-paste` programlarını yöneten adapter; wl-copy boru tuzağı; tek MIME sınırı capability'de | `tamamlandı` |
-| 3 | `[native] input = "rust"` seçilince pano native adapter'dan. `type_text` orkestrasyonu Python'da kalır: pano → native `ctrl+v` → geri yükleme | bekliyor |
+| 3 | `[native] input = "rust"` seçilince pano native adapter'dan. `type_text` orkestrasyonu Python'da kalır: pano → native `ctrl+v` → geri yükleme | `tamamlandı` |
 | 4 | Gerçek girdi testleri, kullanıcı başındayken: Türkçe metin, değiştirici tuşlar, move→doğrulama→click, drag, süre dolumu/revoke, ≤1 px sapma | bekliyor (kullanıcı) |
 | 5 | Gate 5 kararı. Geçerse `[native] input` varsayılanı değişir | bekliyor |
 
@@ -1737,6 +1737,61 @@ Paketlenmiş yardımcı yeniden derlenmedi; o da canlı testlerden önce (5.4 / 
 yapılacak.
 
 **Rollback:** Commit'i geri almak yeter. Python tarafı henüz çağırmıyor.
+
+#### 3 — Native panoyu `type_text`'e bağla · `tamamlandı`
+
+**Ne yapıldı.** `backends/rust.py` → `NativeClipboard`, `Clipboard` arayüzünü
+yardımcının `clipboard.*` IPC'si üzerinden uyguluyor. `RustInputProvider` onu
+kullanıyor. `InputBackend._type_clipboard` orkestrasyonu değişmedi: yedekle →
+koy → `ctrl+v` → geri yükle. `ctrl+v` zaten native klavyeye gidiyordu. Böylece
+`[native] input = "rust"` seçildiğinde Python hiçbir pano programı
+çalıştırmıyor.
+
+- İçerik yalnızca binary payload olarak gidiyor. Header'da `grant_id`,
+  `revoke_epoch` ve `mime` dışında alan yok. İstekler aynı `GrantBoundHelper`
+  üzerinden gidiyor, yani yeni izinde pano da yeni yardımcıya geçiyor.
+- **Geri yükleme hataları Python yolundaki gibi:** `WlClipboard.restore` başarısız
+  bir `wl-copy`'yi yok sayıyor. Yapıştırma o noktada olmuş olur ve çağrıyı
+  başarısız saymak metnin iki kez yazılmasına yol açabilir. Native yolda da
+  yalnızca "program başarısız" (`EXECUTION_UNKNOWN`) loglanıp geçiliyor.
+  Revoke, eksik program ve zaman aşımı yükseliyor.
+- Pano metotlarını tanımayan eski bir yardımcı `UNSUPPORTED` yerine
+  `BACKEND_UNAVAILABLE` ve "`scripts/build-native.sh` ile yeniden derleyin"
+  diyor. Hiçbir şey yazılmıyor, yapıştırılmıyor.
+- **Tek MIME sınırı artık görünüyor** (PLAN 5.4 madde 4). Bildirildiği yer
+  `clipboard.write`, çünkü diğer temsilleri kaybeden şey geri yükleme. Rust
+  `capabilities` ve iki Python provider aynı sınırlama metnini veriyor.
+  Yardımcı yoksa native pano `unavailable`, Python panosuna düşmüyor.
+- Belgeler: `KULLANIM.md` (native seçim), `CLAUDE.md` (katman listesi),
+  `config.example.toml` ve `config.py` yorumları.
+
+**Testler.**
+
+- `tests/contracts/test_native_clipboard.py` (yeni) → **10**: fixture'ın 7
+  durumu IPC sırasıyla (`read` → `write` → `input.keyboard.key` →
+  `write`/`clear`), yapıştırmanın gördüğü içerik ve sonraki pano; içeriğin
+  hiçbir header'da geçmemesi; yazma hatasında tipli hata ve yapıştırma yok;
+  geri yüklemede program hatası yutulur, revoke yutulmaz; eski yardımcıya
+  yeniden derleme mesajı; izin yoksa hiç istek yok; iki provider'ın
+  capability'leri.
+- `tests/integration/test_native_clipboard.py` (yeni) → **2**, **uçtan uca**:
+  Python orkestrasyonu → `NativeClient` → gerçek Rust yardımcısı
+  (`--test-mode`, null klavye) → pano adapter'ı → sahte `wl-paste`/`wl-copy`
+  (dosyada tutulan model). Fixture'ın 7 durumunda program çağrıları ve son pano
+  birebir aynı. Yeni izin yeni yardımcı açıyor. `strace -e execve`: gerçek
+  `/usr/bin/wl-*` **0 kez** çalıştı, sahte programlar 32 kez.
+- **Mutasyon 7/7 yakalandı:** geri yüklemenin her hatayı ya da program hatasını
+  yutması; içeriğin header'a sızması; yeniden derleme mesajının kalkması;
+  sınırlamanın iki girdiye de yazılması; eksik yardımcının Python panosu gibi
+  raporlanması; `read`'in içeriği atması. Gerçek pano programlarına düşebilecek
+  mutasyonlar **bilerek** denenmedi: başarısız bir mutant kullanıcının panosunu
+  okuyup yazabilirdi.
+- Sonuçlar: contract **268** (+10), integration **18** (+2, 1 atlandı),
+  `test_desktop.py` **583**, `test_models.py` **106**, `--check` 0,
+  `compileall` 0.
+
+**Rollback:** Commit'i geri almak yeter. Varsayılan `python` olduğu için
+kurulu davranış değişmedi.
 
 ## Adım 6 — İmleç katmanı
 

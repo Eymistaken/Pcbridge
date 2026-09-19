@@ -440,7 +440,7 @@ def select_capture_provider(cfg: Config, gate: GrantProvider) -> CaptureProvider
 
 
 def select_input_provider(cfg: Config, gate: GrantProvider) -> InputProvider:
-    """Choose input injection once; clipboard remains Python through Task 5.3."""
+    """Choose input injection once; `rust` moves the clipboard programs too (5.4)."""
     if cfg.native.input == "python":
         return PythonInputProvider(cfg)
     from .backends.rust import RustInputProvider

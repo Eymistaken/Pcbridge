@@ -147,7 +147,8 @@ taşır; yeni bir CLI eklemek için Python dosyasına dokunulmaz.
 
 ```
 monitors.py   monitor tablosu -- KOORDINAT UZAYININ TEK KAYNAGI
-input.py      uinput sanal klavye + mutlak fare
+input.py      uinput sanal klavye + mutlak fare; metin yazma sirasi (pano -> Ctrl+V -> geri yukle)
+clipboard.py  pano: wl-paste/wl-copy, tek arayuz (native yol ayni programlari yardimcida calistirir)
 capture.py    ekran goruntusu: iki backend -- yayin (sessiz) / gnome-screenshot
               + cekim kaydi (`<id>.json`) ve KOORDINAT DONUSUMUNUN TEK GECIDI
 screencast.py PipeWire ekran yayini; yardimci sureci surer, omrunu yonetir

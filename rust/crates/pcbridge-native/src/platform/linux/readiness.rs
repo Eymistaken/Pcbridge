@@ -197,11 +197,18 @@ pub fn clipboard(name: &str, program: &str) -> Value {
             "reason": "this session has no Wayland socket",
         });
     }
+    // The restore is the write, and it is the restore that loses the other
+    // representations; the Python provider reports it the same way.
+    let limitations: &[&str] = if name == "clipboard.write" {
+        &[SINGLE_MIME_LIMITATION]
+    } else {
+        &[]
+    };
     json!({
         "name": name,
         "status": "supported",
         "permission_scope": "os.clipboard",
-        "limitations": [SINGLE_MIME_LIMITATION],
+        "limitations": limitations,
     })
 }
 

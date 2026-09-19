@@ -123,13 +123,13 @@ default_agent = "claude"
 # sure dolumu) kaybolur. Olcum ve parite: docs/native/verification-linux.md.
 capture = "auto"
 
-# Input injection backend'i. Task 5.3'te varsayilan bilincli olarak Python:
-# clipboard parity ve tam input gate'i Task 5.4'te tamamlanmadan input topluca
-# native yola gecmez.
+# Input injection backend'i. Varsayilan bilincli olarak Python: tam input
+# gate'i (Gate 5, gercek girdi olcumleri) gecmeden input native yola gecmez.
 #
-#   "python"  VARSAYILAN: mevcut Python evdev klavye ve pointer yolu.
-#   "rust"    klavye ile pointer'i native yardimciya tasiyan acik test secimi;
-#             clipboard Python provider'da kalir. Yardimci yoksa sessiz
+#   "python"  VARSAYILAN: mevcut Python evdev klavye, pointer ve wl-clipboard yolu.
+#   "rust"    acik test secimi: klavye, pointer ve pano programlari (wl-paste,
+#             wl-copy) native yardimcida; metin yazmanin sirasi (yedekle ->
+#             koy -> Ctrl+V -> geri yukle) Python'da. Yardimci yoksa sessiz
 #             fallback yapmaz, cagri hata verir.
 input = "python"
 
