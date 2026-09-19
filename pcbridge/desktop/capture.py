@@ -96,6 +96,12 @@ SCREENCAST_NAME = "screencast (PipeWire)"
 # adina donusuyor. Suzulmezse `shot="../../.ssh/id_rsa"` diye bir sey
 # `<dizin>/<id>.json` yolunun disina cikardi.
 SHOT_ID_RE = re.compile(r"^(?:m\d{1,2}|win)-[0-9a-f]{6}$")
+
+# Cekim kaydindaki `offset`in ve `desktop_size`in uzayi (Task 7.1). Butun
+# monitorleri kapsayan dikdortgenin sol ustu (0,0) ve birim masaustu birimi
+# (Linux ve macOS'ta mantiksal piksel). Windows backend'i geldiginde fiziksel
+# birim ACIKCA baska bir adla etiketlenecek, sessizce ayni ada sigmayacak.
+COORDINATE_SPACE = "pcbridge-canvas/logical"
 META_SUFFIX = ".json"
 
 # Anthropic API uzun kenari bunun ustunde olan goruntuleri KENDISI kucultuyor.
@@ -166,11 +172,18 @@ class Shot:
     path: Path
     monitor: monitorslib.Monitor | None
     offset: tuple[int, int] | None
-    size: tuple[int, int]  # kirpilmis, olceklenmemis
+    size: tuple[int, int]  # kirpilmis, olceklenmemis: HAM PIKSEL
     scaled: tuple[int, int]  # dosyaya yazilan
-    scale: float  # scaled / size
+    scale: float  # scaled[0] / size[0] — uyumluluk icin x orani
     id: str = ""  # "m2-a1b2c3" — `shot=` ile geri bulunan kimlik
     taken_at: float = 0.0  # time.time(); bayatlik uyarisi buradan
+    # Kirpmanin MASAUSTU BIRIMINDEKI boyutu (Task 7.1). Olcek 1 iken ham
+    # piksel boyutuyla ayni; 2x bir monitorde kare 3840x2160 gelirken
+    # masaustu birimi 1920x1080 olur. Goruntu pikselini masaustu birimine
+    # ceviren oran BUDUR: desktop_size / scaled, her eksen ayri.
+    # Bos: pencere cekimi ya da v1 kayit -- o zaman ham piksel = masaustu
+    # birimi sayilir, eski davranisin aynisi.
+    desktop_size: tuple[int, int] | None = None
     # Cekim anindaki `monitors.topology_id()`. `offset` O duzene ait: duzen
     # degistiyse ayni ofset baska bir ekranin ustune duser. Bos: pencere
     # cekimi ya da bu alandan once (2026-09-19) yazilmis bir kayit.
@@ -183,13 +196,39 @@ class Shot:
         star = " (birincil)" if self.monitor.primary else ""
         return f"{self.monitor.index} · {self.monitor.connector}{star}"
 
+    @property
+    def scale_xy(self) -> tuple[float, float]:
+        """Yazilan goruntunun ham piksele orani, her eksen ayri.
+
+        `scale` uyumluluk icin x orani. Kirpma tam bolunmedigi zaman iki oran
+        birbirinden biraz ayriliyor (1920x1200 -> 1536x960 gibi durumlarda
+        degil, ama tek sayili boyutlarda evet) ve tek oranla cevirmek uzun
+        kenarda bir piksel kaydiriyordu.
+        """
+        return (
+            self.scaled[0] / self.size[0] if self.size[0] else 1.0,
+            self.scaled[1] / self.size[1] if self.size[1] else 1.0,
+        )
+
+    @property
+    def desktop_units(self) -> tuple[int, int]:
+        """Kirpmanin masaustu birimindeki boyutu. v1 kayitta ham piksel."""
+        return self.desktop_size or self.size
+
     def to_global(self, x: int, y: int) -> tuple[int, int] | None:
-        """Goruntudeki piksel -> global tuval koordinati."""
+        """Goruntudeki piksel -> global tuval koordinati.
+
+        Iki eksen AYRI cevriliyor ve oran dogrudan "masaustu birimi / yazilan
+        piksel" (Task 7.1): arada ham piksele donmeye gerek yok ve olcekli bir
+        monitorde de dogru. Yuvarlama monitor tablosunun kurali.
+        """
         if self.offset is None:
             return None
+        dw, dh = self.desktop_units
+        sw, sh = self.scaled
         return (
-            self.offset[0] + round(x / self.scale),
-            self.offset[1] + round(y / self.scale),
+            self.offset[0] + monitorslib.round_half_away(x * dw / sw if sw else x),
+            self.offset[1] + monitorslib.round_half_away(y * dh / sh if sh else y),
         )
 
     def covers_image_point(self, x: int, y: int) -> bool:
@@ -225,6 +264,14 @@ class Shot:
             "scale": self.scale,
             "taken_at": self.taken_at,
             "topology_id": self.topology,
+            # --- v2 (Task 7.1). Eski alanlar oldugu gibi duruyor; eski bir
+            # okuyucu kaydi aynen okur, yeni okuyucu bunlari da kullanir.
+            "source_pixel_size": list(self.size),
+            "desktop_size": list(self.desktop_units),
+            "scale_xy": list(self.scale_xy),
+            # `offset` bu uzayda: butun monitorleri kapsayan dikdortgenin sol
+            # ustu (0,0), birim masaustu birimi (Linux/macOS'ta mantiksal).
+            "coordinate_space": COORDINATE_SPACE,
         }
 
 
@@ -289,7 +336,9 @@ def load_shot(shot_id: str, dirs: Sequence[Path]) -> Shot:
         except (OSError, ValueError) as exc:
             raise CaptureError(f"Cekim kaydi okunamadi ({meta}): {exc}") from exc
         offset = tuple(data["offset"]) if data.get("offset") else None
-        size = tuple(data["size"])
+        size = tuple(data.get("source_pixel_size") or data["size"])
+        desktop = data.get("desktop_size")
+        desktop_size = tuple(desktop) if desktop else None
         mon = None
         if data.get("monitor") is not None and offset is not None:
             mon = monitorslib.Monitor(
@@ -313,6 +362,7 @@ def load_shot(shot_id: str, dirs: Sequence[Path]) -> Shot:
             id=str(data.get("id") or shot_id),
             taken_at=float(data.get("taken_at") or 0.0),
             topology=str(data.get("topology_id") or ""),
+            desktop_size=desktop_size,
         )
     raise CaptureError(
         f"`{shot_id}` diye bir ekran goruntusu yok (bakilan yerler: "
@@ -395,6 +445,17 @@ def to_global(
                 "koordinati kullaniyorsaniz yalnizca `monitor` verin."
             )
         found = load_shot(shot, dirs or ())
+        if found.offset is not None and not found.covers_image_point(x, y):
+            # Goruntunun disindaki bir piksel (Task 7.1). Eskiden cevriliyordu
+            # ve monitorun disina dusuyordu: tiklama komsu ekrana ya da
+            # hicbir yere giderdi. Kimlik verildigine gore koordinat O
+            # goruntuden okunmus olmali.
+            raise CaptureError(
+                f"({x}, {y}) `{shot}` goruntusunun disinda: goruntu "
+                f"{found.scaled[0]}x{found.scaled[1]} piksel. Koordinati o "
+                "goruntuden okuyun ya da `shot` vermeden global koordinat "
+                "kullanin."
+            )
         point = found.to_global(x, y)
         if point is None:
             raise CaptureError(
@@ -415,7 +476,7 @@ def to_global(
                 "goruntudeki koordinat artik baska bir yere duser; yeni bir "
                 "ekran goruntusu alin."
             )
-        return point
+        return _on_a_monitor(point, f"`{shot}` goruntusundeki ({x}, {y})")
 
     if monitor is None and guard_age > 0:
         # BELIRSIZ KOORDINAT KORUMASI. `shot` da `monitor` da yoksa koordinat
@@ -436,7 +497,34 @@ def to_global(
                 w=recent.scaled[0], h=recent.scaled[1], scale=recent.scale,
                 where=where,
             ))
-    return monitorslib.to_global(x, y, monitor)
+    where = f"monitor {monitor} uzerindeki ({x}, {y})" if monitor is not None else f"({x}, {y})"
+    return _on_a_monitor(monitorslib.to_global(x, y, monitor), where)
+
+
+def _on_a_monitor(point: tuple[int, int], what: str) -> tuple[int, int]:
+    """Nokta bir monitorun ustune dusuyor mu? Dusmuyorsa reddet (Task 7.1).
+
+    Monitorler arasinda BOSLUK olabilir (iki ekran ayni hizada degilse) ve
+    tuvalin kose bosluklari hicbir ekrana ait degildir. Oraya gonderilen bir
+    tiklama hicbir sey yapmaz ama basarili gorunur; imlec de gorunmez bir
+    yere gider.
+
+    Monitor tablosu okunamiyorsa kontrol ATLANIR: dogrulanamayan bir sey
+    yuzunden calisan bir cagriyi reddetmek yanlis olurdu.
+    """
+    try:
+        mons = monitorslib.list_monitors()
+    except monitorslib.MonitorError:
+        return point
+    if monitorslib.find_monitor(point[0], point[1], mons) is not None:
+        return point
+    width, height = monitorslib.canvas_size(mons)
+    raise CaptureError(
+        f"{what} hicbir monitorun ustune dusmuyor: global ({point[0]}, "
+        f"{point[1]}) ve tuval {width}x{height}. Monitorler arasinda bosluk "
+        "olabilir ya da koordinat ekranin disinda. `screen_info` monitor "
+        "kutularini gosteriyor."
+    )
 
 
 # --------------------------------------------------------------------- durum
@@ -533,6 +621,71 @@ def _frame_taken_at(frame: Any, fallback: float) -> float:
 
 
 # --------------------------------------------------------- kirpma/olcekleme
+def check_source_size(mon: monitorslib.Monitor, size: tuple[int, int]) -> None:
+    """Gelen karenin ham piksel boyutu bu monitore ait olabilir mi? (Task 7.1)
+
+    Iki boyut kabul ediliyor: monitorun mantiksal boyutu (olcek 1, ya da
+    kompozitor mantiksal piksel veriyor) ve mantiksal boyut x olcek (olcekli
+    monitorde ham piksel). Baskasi OLCEKLENMEZ, reddedilir: sessizce
+    olceklemek sonraki her tiklamayi orantili bir mesafe kadar kaydirirdi.
+
+    Bu makinede iki monitor de olcek 1.0, yani iki kabul edilen boyut ayni.
+    Kesirli olcek fiilen OLCULMEDI; kural yazili ve fixture'la sinaniyor ama
+    boyle bir donanimda dogrulanmadi.
+    """
+    logical = (mon.width, mon.height)
+    if size == logical or size == mon.source_pixel_size:
+        return
+    accepted = (
+        f"{logical[0]}x{logical[1]}"
+        if mon.source_pixel_size == logical
+        else f"{logical[0]}x{logical[1]} ya da {mon.source_pixel_size[0]}x"
+        f"{mon.source_pixel_size[1]}"
+    )
+    raise CaptureError(
+        f"{mon.connector} yayini {size[0]}x{size[1]} verdi, monitor tablosu "
+        f"{accepted} bekliyor. Monitor duzeni degismis olabilir; tekrar "
+        "deneyin."
+    )
+
+
+def canvas_pixel_ratio(
+    mons: list[monitorslib.Monitor], canvas: tuple[int, int]
+) -> float:
+    """Tuval goruntusunun masaustu birimine orani. Cozulemezse `CaptureError`.
+
+    `gnome-screenshot` yedegi TEK bir goruntu veriyor, yani orani monitor
+    monitor soramiyoruz. Iki durum cozulebilir: goruntu masaustu biriminde
+    (oran 1) ya da butun monitorler AYNI olcekte ve goruntu o olcekte. Karisik
+    olcekli bir duzende hangi pikselin hangi monitore ait oldugu bu yoldan
+    bilinemez: reddediliyor, tahmin edilmiyor (yayin yolu monitor basina
+    ayri kare verdigi icin oradan etkilenmiyor).
+    """
+    expected = monitorslib.canvas_size(mons)
+    if canvas == expected:
+        return 1.0
+    scales = {round(m.scale, 4) for m in mons}
+    if len(scales) == 1:
+        scale = scales.pop()
+        scaled = (
+            monitorslib.round_half_away(expected[0] * scale),
+            monitorslib.round_half_away(expected[1] * scale),
+        )
+        if canvas == scaled:
+            return scale
+    raise CaptureError(
+        f"Yakalanan tuval {canvas[0]}x{canvas[1]}, monitor tablosu ise "
+        f"{expected[0]}x{expected[1]} diyor"
+        + (
+            " ve monitorlerin olcekleri farkli, yani hangi pikselin hangi "
+            "monitore ait oldugu bu goruntuden bilinemez"
+            if len(scales) > 1
+            else ". Monitor duzeni degismis olabilir"
+        )
+        + "; tekrar deneyin."
+    )
+
+
 def _scaled_size(w: int, h: int, long_edge: int) -> tuple[int, int]:
     """Uzun kenari `long_edge`e indiren boyut. 0 ya da zaten kucukse aynen."""
     if long_edge <= 0:
@@ -692,6 +845,7 @@ class _Pending:
     scale: float
     taken_at: float
     topology: str = ""
+    desktop_size: tuple[int, int] | None = None
 
     def shot(self, out_dir: Path, stamp: str, suffix: str) -> Shot:
         if self.monitor is None:
@@ -716,6 +870,7 @@ class _Pending:
             id=f"m{mon.index}-{suffix}",
             taken_at=self.taken_at,
             topology=self.topology,
+            desktop_size=self.desktop_size or (mon.width, mon.height),
         )
 
 
@@ -816,12 +971,7 @@ def _render(
                     size, scaled, scale = _write_crop(
                         img, None, staged, scale_long_edge
                     )
-                if size != (mon.width, mon.height):
-                    raise CaptureError(
-                        f"{mon.connector} yayini {size[0]}x{size[1]} verdi, "
-                        f"monitor tablosu {mon.width}x{mon.height} diyor. "
-                        "Monitor duzeni degismis olabilir; tekrar deneyin."
-                    )
+                check_source_size(mon, size)
                 pending.append(
                     _Pending(
                         staged,
@@ -829,6 +979,7 @@ def _render(
                         size,
                         scaled,
                         scale,
+                        # Kare ham piksel; kayit masaustu birimini de tasiyor.
                         # Bir backend karenin FIILEN ne zaman geldigini
                         # biliyorsa o kazanir: `taken_at` bayatlik uyarisini
                         # suruyor ve bir `all` cekiminde monitorler arasinda
@@ -836,6 +987,7 @@ def _render(
                         # baslangici, eskisi gibi.
                         _frame_taken_at(frame, taken_at),
                         topology,
+                        (mon.width, mon.height),
                     )
                 )
             return pending
@@ -860,23 +1012,23 @@ def _render(
     raw = _grab_canvas(raw_dir, include_pointer)
     pending = []
     with Image.open(raw) as canvas:
-        cw, ch = canvas.size
-        expected = monitorslib.canvas_size(mons)
-        if (cw, ch) != expected:
-            # Monitor duzeni yakalama sirasinda degismis olabilir. Sessizce
-            # yanlis yerden kirpmaktansa haber ver.
-            raise CaptureError(
-                f"Yakalanan tuval {cw}x{ch}, monitor tablosu ise "
-                f"{expected[0]}x{expected[1]} diyor. Monitor duzeni "
-                "degismis olabilir; tekrar deneyin."
-            )
+        # Goruntu masaustu biriminde mi, yoksa ortak bir olcekte ham piksel
+        # mi? Kirpma kutusu o orana gore kuruluyor (Task 7.1).
+        ratio = canvas_pixel_ratio(mons, canvas.size)
         for mon in targets:
             staged = staging / f"m{mon.index}.png"
-            size, scaled, scale = _write_crop(
-                canvas, mon.bbox, staged, scale_long_edge
+            box = (
+                monitorslib.round_half_away(mon.x * ratio),
+                monitorslib.round_half_away(mon.y * ratio),
+                monitorslib.round_half_away((mon.x + mon.width) * ratio),
+                monitorslib.round_half_away((mon.y + mon.height) * ratio),
             )
+            size, scaled, scale = _write_crop(canvas, box, staged, scale_long_edge)
             pending.append(
-                _Pending(staged, mon, size, scaled, scale, taken_at, topology)
+                _Pending(
+                    staged, mon, size, scaled, scale, taken_at, topology,
+                    (mon.width, mon.height),
+                )
             )
     return pending
 

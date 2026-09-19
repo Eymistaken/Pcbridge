@@ -1560,6 +1560,16 @@ Bu phase, ilk native subsystem için zorunlu değildir.
 
 **Yapılmayacak:** Python ve Rust’ta aynı shot dönüşümünü ayrı ayrı implement etmek.
 
+**Not (2026-09-20, uygulandı):**
+- **İki uzay ayrıldı.** Kompozitörün kendi koordinatı `Monitor.platform` alanında duruyor; tuval her zaman (0,0)'dan başlıyor ve tablo okunurken bir kez öteleniyor (Python `_normalize_origin`, Rust `resolve`). Negatif bir tuval koordinatı sanal farenin mutlak ekseninde gösterilemez ve kırpma kutusu görüntünün dışına düşerdi. Bu makinede öteleme sıfır, yani sonuç değişmiyor.
+- **Aynı geometri, kaymış origin = aynı düzen.** `topology_id` tuval koordinatından üretildiği için kompozitör bütün ekranları eşit miktarda kaydırdığında kimlik değişmiyor; hiçbir çekim gereksiz yere geçersizleşmiyor. İki dilde de fixture'la sabitlendi.
+- **Çekim kaydı v2.** `source_pixel_size`, `desktop_size`, `scale_xy` ve `coordinate_space` eklendi; `size`, `scaled`, `scale`, `offset` aynen duruyor. Dönüşüm artık "masaüstü birimi / yazılan piksel", her eksen ayrı: ölçekli monitörde de doğru ve tek oranın uzun kenarda bıraktığı bir piksellik kayma yok. `desktop_size` plandaki dört alanın üstüne eklendi, çünkü dönüşüm kırpmanın masaüstü birimindeki boyutunu gerektiriyor; monitörün ölçeğini kayda yazmak da aynı bilgiyi başka yoldan taşırdı. Eski (v1) kayıtlar aynı cevabı vermeye devam ediyor ve testle sabitlendi.
+- **Karışık ölçek artık tanımlı.** Yakalanan karenin ham piksel boyutu ya mantıksal boyut ya da mantıksal boyut × ölçek olabilir; başkası **ölçeklenmez, reddedilir**. Tek görüntü veren `gnome-screenshot` yedeğinde oran ancak bütün monitörler aynı ölçekteyse çözülebiliyor; farklı ölçeklerde hangi pikselin hangi monitöre ait olduğu o görüntüden bilinemez ve çağrı reddediliyor (yayın yolu monitör başına ayrı kare verdiği için etkilenmiyor).
+- **Reddedilen iki yeni durum:** hiçbir monitörün üstüne düşmeyen koordinat (monitörler arası boşluk, köşe boşluğu, tuval dışı) ve verilen çekimin görüntüsünün dışındaki piksel. İkisi de eskiden sessizce çevriliyordu. Monitör tablosu okunamıyorsa kontrol atlanıyor: doğrulanamayan bir şey yüzünden çalışan bir çağrıyı reddetmek yanlış olurdu.
+- **Ölçüldü (bu makine, eşit ölçekli iki monitör).** Kayıt: `offset [1920,0]`, `size [1920,1080]`, `scaled [1536,864]`, `scale 0.8` — 7.1 öncesiyle birebir aynı. Görüntünün (0,0) noktası (1920,0), ortası (2880,540), son pikseli (3839,1079). Tuval 3840x1080, platform origin (0,0). Canlı capture parity (11 test) ve `test_capture_default` (3 test) geçti.
+- **Doğrulanmayan:** kesirli ve 2× ölçekli donanım bu makinede yok. Fixture'daki beş düzen elle hesaplandı ve iki dil aynı tabloyu üretiyor, ama gerçek bir HiDPI ekranda ölçülmedi. Aynı sebeple `Mutter`'ın yarım piksel sınırındaki davranışı hâlâ ölçülmedi.
+- Mutasyon denemesi: 15 bozulmanın 15'i yakalandı (9 Python, 3 Rust, 3 kayıt/kontrol).
+
 ## Task 7.2 — Ayrı XDG ScreenCast portal backend’i
 
 **Amaç:** Mutter dışındaki Linux desktop’ları için capture genişletmesi.  

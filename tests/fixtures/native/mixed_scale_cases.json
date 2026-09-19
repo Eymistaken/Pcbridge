@@ -1,0 +1,1071 @@
+{
+  "schema_version": 1,
+  "note": "Task 7.1. Karisik olcek, negatif origin ve monitorler arasi bosluk. Bu makinede iki monitor de olcek 1.0, yani bu duzenler FIILEN olculmedi: kural burada yazili ve iki dil ayni tabloyu uretmek zorunda. Beklenen degerler elle hesaplandi (mantiksal boyut = mod / olcek, yarim piksel sifirdan uzaga).",
+  "layouts": [
+    {
+      "name": "this_machine_two_equal_monitors",
+      "note": "2026-09-12'de bu makineden alinan duzen: birincil SAGDA, iki monitor de olcek 1.",
+      "state": {
+        "physical": [
+          {
+            "connector": "DP-3",
+            "vendor": "TST",
+            "product": "DP-3 panel",
+            "serial": "SER-DP-3",
+            "display_name": "DP-3 test",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              },
+              {
+                "width": 1280,
+                "height": 720,
+                "is_current": false
+              }
+            ]
+          },
+          {
+            "connector": "DP-4",
+            "vendor": "TST",
+            "product": "DP-4 panel",
+            "serial": "SER-DP-4",
+            "display_name": "DP-4 test",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              },
+              {
+                "width": 1280,
+                "height": 720,
+                "is_current": false
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": false,
+            "connectors": [
+              "DP-3"
+            ]
+          },
+          {
+            "x": 1920,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": true,
+            "connectors": [
+              "DP-4"
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "canvas": [
+          3840,
+          1080
+        ],
+        "platform_origin": [
+          0,
+          0
+        ],
+        "topology": "v1|0,0,1920,1080,1.0000,0,0|1920,0,1920,1080,1.0000,0,1",
+        "monitors": [
+          {
+            "index": 1,
+            "connector": "DP-3",
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "primary": false,
+            "transform": 0,
+            "platform_x": 0,
+            "platform_y": 0,
+            "source_pixel_size": [
+              1920,
+              1080
+            ],
+            "serial": "SER-DP-3"
+          },
+          {
+            "index": 2,
+            "connector": "DP-4",
+            "x": 1920,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "primary": true,
+            "transform": 0,
+            "platform_x": 1920,
+            "platform_y": 0,
+            "source_pixel_size": [
+              1920,
+              1080
+            ],
+            "serial": "SER-DP-4"
+          }
+        ]
+      }
+    },
+    {
+      "name": "negative_origin_is_normalized",
+      "note": "Ayni geometri, kompozitor solu -1920'de bildiriyor. Tuval yine (0,0)'dan baslar ve topology AYNI kalir.",
+      "state": {
+        "physical": [
+          {
+            "connector": "DP-3",
+            "vendor": "TST",
+            "product": "DP-3 panel",
+            "serial": "SER-DP-3",
+            "display_name": "DP-3 test",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              },
+              {
+                "width": 1280,
+                "height": 720,
+                "is_current": false
+              }
+            ]
+          },
+          {
+            "connector": "DP-4",
+            "vendor": "TST",
+            "product": "DP-4 panel",
+            "serial": "SER-DP-4",
+            "display_name": "DP-4 test",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              },
+              {
+                "width": 1280,
+                "height": 720,
+                "is_current": false
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": -1920,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": false,
+            "connectors": [
+              "DP-3"
+            ]
+          },
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": true,
+            "connectors": [
+              "DP-4"
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "canvas": [
+          3840,
+          1080
+        ],
+        "platform_origin": [
+          -1920,
+          0
+        ],
+        "topology": "v1|0,0,1920,1080,1.0000,0,0|1920,0,1920,1080,1.0000,0,1",
+        "monitors": [
+          {
+            "index": 1,
+            "connector": "DP-3",
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "primary": false,
+            "transform": 0,
+            "platform_x": -1920,
+            "platform_y": 0,
+            "source_pixel_size": [
+              1920,
+              1080
+            ],
+            "serial": "SER-DP-3"
+          },
+          {
+            "index": 2,
+            "connector": "DP-4",
+            "x": 1920,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "primary": true,
+            "transform": 0,
+            "platform_x": 0,
+            "platform_y": 0,
+            "source_pixel_size": [
+              1920,
+              1080
+            ],
+            "serial": "SER-DP-4"
+          }
+        ]
+      }
+    },
+    {
+      "name": "fractional_scales_side_by_side",
+      "note": "1.25x dizustu ekrani + 1.5x harici. Mantiksal boyut mod/olcek: 2560/1.25=2048, 1920/1.5=1280.",
+      "state": {
+        "physical": [
+          {
+            "connector": "eDP-1",
+            "vendor": "TST",
+            "product": "eDP-1 panel",
+            "serial": "SER-eDP-1",
+            "display_name": "eDP-1 test",
+            "modes": [
+              {
+                "width": 2560,
+                "height": 1600,
+                "is_current": true
+              },
+              {
+                "width": 1280,
+                "height": 720,
+                "is_current": false
+              }
+            ]
+          },
+          {
+            "connector": "HDMI-1",
+            "vendor": "TST",
+            "product": "HDMI-1 panel",
+            "serial": "SER-HDMI-1",
+            "display_name": "HDMI-1 test",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              },
+              {
+                "width": 1280,
+                "height": 720,
+                "is_current": false
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 1.25,
+            "transform": 0,
+            "primary": true,
+            "connectors": [
+              "eDP-1"
+            ]
+          },
+          {
+            "x": 2048,
+            "y": 0,
+            "scale": 1.5,
+            "transform": 0,
+            "primary": false,
+            "connectors": [
+              "HDMI-1"
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "canvas": [
+          3328,
+          1280
+        ],
+        "platform_origin": [
+          0,
+          0
+        ],
+        "topology": "v1|0,0,2048,1280,1.2500,0,1|2048,0,1280,720,1.5000,0,0",
+        "monitors": [
+          {
+            "index": 1,
+            "connector": "eDP-1",
+            "x": 0,
+            "y": 0,
+            "width": 2048,
+            "height": 1280,
+            "scale": 1.25,
+            "primary": true,
+            "transform": 0,
+            "platform_x": 0,
+            "platform_y": 0,
+            "source_pixel_size": [
+              2560,
+              1600
+            ],
+            "serial": "SER-eDP-1"
+          },
+          {
+            "index": 2,
+            "connector": "HDMI-1",
+            "x": 2048,
+            "y": 0,
+            "width": 1280,
+            "height": 720,
+            "scale": 1.5,
+            "primary": false,
+            "transform": 0,
+            "platform_x": 2048,
+            "platform_y": 0,
+            "source_pixel_size": [
+              1920,
+              1080
+            ],
+            "serial": "SER-HDMI-1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hidpi_two_times_and_rotated_portrait",
+      "note": "2x HiDPI + 90 derece dondurulmus ekran: mod eksenleri takas ediliyor (1920x1080 -> 1080x1920).",
+      "state": {
+        "physical": [
+          {
+            "connector": "eDP-1",
+            "vendor": "TST",
+            "product": "eDP-1 panel",
+            "serial": "SER-eDP-1",
+            "display_name": "eDP-1 test",
+            "modes": [
+              {
+                "width": 2880,
+                "height": 1800,
+                "is_current": true
+              },
+              {
+                "width": 1280,
+                "height": 720,
+                "is_current": false
+              }
+            ]
+          },
+          {
+            "connector": "DP-1",
+            "vendor": "TST",
+            "product": "DP-1 panel",
+            "serial": "SER-DP-1",
+            "display_name": "DP-1 test",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              },
+              {
+                "width": 1280,
+                "height": 720,
+                "is_current": false
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 2.0,
+            "transform": 0,
+            "primary": true,
+            "connectors": [
+              "eDP-1"
+            ]
+          },
+          {
+            "x": 1440,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 1,
+            "primary": false,
+            "connectors": [
+              "DP-1"
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "canvas": [
+          2520,
+          1920
+        ],
+        "platform_origin": [
+          0,
+          0
+        ],
+        "topology": "v1|0,0,1440,900,2.0000,0,1|1440,0,1080,1920,1.0000,1,0",
+        "monitors": [
+          {
+            "index": 1,
+            "connector": "eDP-1",
+            "x": 0,
+            "y": 0,
+            "width": 1440,
+            "height": 900,
+            "scale": 2.0,
+            "primary": true,
+            "transform": 0,
+            "platform_x": 0,
+            "platform_y": 0,
+            "source_pixel_size": [
+              2880,
+              1800
+            ],
+            "serial": "SER-eDP-1"
+          },
+          {
+            "index": 2,
+            "connector": "DP-1",
+            "x": 1440,
+            "y": 0,
+            "width": 1080,
+            "height": 1920,
+            "scale": 1.0,
+            "primary": false,
+            "transform": 1,
+            "platform_x": 1440,
+            "platform_y": 0,
+            "source_pixel_size": [
+              1080,
+              1920
+            ],
+            "serial": "SER-DP-1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "gap_and_step_between_monitors",
+      "note": "Ikinci monitor 80 birim sagda ve 100 birim asagida: aralarinda ve koselerde hicbir ekrana ait olmayan alan var.",
+      "state": {
+        "physical": [
+          {
+            "connector": "DP-1",
+            "vendor": "TST",
+            "product": "DP-1 panel",
+            "serial": "SER-DP-1",
+            "display_name": "DP-1 test",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              },
+              {
+                "width": 1280,
+                "height": 720,
+                "is_current": false
+              }
+            ]
+          },
+          {
+            "connector": "DP-2",
+            "vendor": "TST",
+            "product": "DP-2 panel",
+            "serial": "SER-DP-2",
+            "display_name": "DP-2 test",
+            "modes": [
+              {
+                "width": 1920,
+                "height": 1080,
+                "is_current": true
+              },
+              {
+                "width": 1280,
+                "height": 720,
+                "is_current": false
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": true,
+            "connectors": [
+              "DP-1"
+            ]
+          },
+          {
+            "x": 2000,
+            "y": 100,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": false,
+            "connectors": [
+              "DP-2"
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "canvas": [
+          3920,
+          1180
+        ],
+        "platform_origin": [
+          0,
+          0
+        ],
+        "topology": "v1|0,0,1920,1080,1.0000,0,1|2000,100,1920,1080,1.0000,0,0",
+        "monitors": [
+          {
+            "index": 1,
+            "connector": "DP-1",
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "primary": true,
+            "transform": 0,
+            "platform_x": 0,
+            "platform_y": 0,
+            "source_pixel_size": [
+              1920,
+              1080
+            ],
+            "serial": "SER-DP-1"
+          },
+          {
+            "index": 2,
+            "connector": "DP-2",
+            "x": 2000,
+            "y": 100,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "primary": false,
+            "transform": 0,
+            "platform_x": 2000,
+            "platform_y": 100,
+            "source_pixel_size": [
+              1920,
+              1080
+            ],
+            "serial": "SER-DP-2"
+          }
+        ]
+      }
+    }
+  ],
+  "coordinates": [
+    {
+      "name": "this_machine_scaled_shot_center",
+      "layout": "this_machine_two_equal_monitors",
+      "record": {
+        "offset": [
+          1920,
+          0
+        ],
+        "source_pixel_size": [
+          1920,
+          1080
+        ],
+        "desktop_size": [
+          1920,
+          1080
+        ],
+        "scaled": [
+          1536,
+          864
+        ],
+        "scale": 0.8
+      },
+      "image": [
+        768,
+        432
+      ],
+      "desktop": [
+        2880,
+        540
+      ]
+    },
+    {
+      "name": "this_machine_full_size_shot_corner",
+      "layout": "this_machine_two_equal_monitors",
+      "record": {
+        "offset": [
+          1920,
+          0
+        ],
+        "source_pixel_size": [
+          1920,
+          1080
+        ],
+        "desktop_size": [
+          1920,
+          1080
+        ],
+        "scaled": [
+          1920,
+          1080
+        ],
+        "scale": 1.0
+      },
+      "image": [
+        0,
+        0
+      ],
+      "desktop": [
+        1920,
+        0
+      ]
+    },
+    {
+      "name": "hidpi_two_times_center",
+      "layout": "hidpi_two_times_and_rotated_portrait",
+      "record": {
+        "offset": [
+          0,
+          0
+        ],
+        "source_pixel_size": [
+          2880,
+          1800
+        ],
+        "desktop_size": [
+          1440,
+          900
+        ],
+        "scaled": [
+          1536,
+          960
+        ],
+        "scale": 0.5333333333333333
+      },
+      "image": [
+        768,
+        480
+      ],
+      "desktop": [
+        720,
+        450
+      ]
+    },
+    {
+      "name": "rotated_portrait_center",
+      "layout": "hidpi_two_times_and_rotated_portrait",
+      "record": {
+        "offset": [
+          1440,
+          0
+        ],
+        "source_pixel_size": [
+          1080,
+          1920
+        ],
+        "desktop_size": [
+          1080,
+          1920
+        ],
+        "scaled": [
+          864,
+          1536
+        ],
+        "scale": 0.8
+      },
+      "image": [
+        432,
+        768
+      ],
+      "desktop": [
+        1980,
+        960
+      ]
+    },
+    {
+      "name": "fractional_scale_bottom_right_pixel",
+      "layout": "fractional_scales_side_by_side",
+      "record": {
+        "offset": [
+          0,
+          0
+        ],
+        "source_pixel_size": [
+          2560,
+          1600
+        ],
+        "desktop_size": [
+          2048,
+          1280
+        ],
+        "scaled": [
+          1536,
+          960
+        ],
+        "scale": 0.6
+      },
+      "image": [
+        1535,
+        959
+      ],
+      "desktop": [
+        2047,
+        1279
+      ]
+    },
+    {
+      "name": "legacy_v1_record_without_the_new_fields",
+      "note": "2026-09-19 oncesi kayit: yalnizca size/scaled/scale. Ham piksel = masaustu birimi sayilir.",
+      "layout": "this_machine_two_equal_monitors",
+      "record": {
+        "offset": [
+          1920,
+          0
+        ],
+        "size": [
+          1920,
+          1080
+        ],
+        "scaled": [
+          1280,
+          720
+        ],
+        "scale": 0.6666666666666666
+      },
+      "image": [
+        640,
+        360
+      ],
+      "desktop": [
+        2880,
+        540
+      ]
+    }
+  ],
+  "round_trip": {
+    "tolerance_desktop_units": 1,
+    "cases": [
+      {
+        "name": "scaled_shot_on_this_machine",
+        "record": {
+          "offset": [
+            1920,
+            0
+          ],
+          "source_pixel_size": [
+            1920,
+            1080
+          ],
+          "desktop_size": [
+            1920,
+            1080
+          ],
+          "scaled": [
+            1536,
+            864
+          ],
+          "scale": 0.8
+        },
+        "points": [
+          [
+            1920,
+            0
+          ],
+          [
+            2880,
+            540
+          ],
+          [
+            3839,
+            1079
+          ],
+          [
+            2001,
+            13
+          ],
+          [
+            3838,
+            1078
+          ]
+        ]
+      },
+      {
+        "name": "hidpi_two_times",
+        "record": {
+          "offset": [
+            0,
+            0
+          ],
+          "source_pixel_size": [
+            2880,
+            1800
+          ],
+          "desktop_size": [
+            1440,
+            900
+          ],
+          "scaled": [
+            1536,
+            960
+          ],
+          "scale": 0.5333333333333333
+        },
+        "points": [
+          [
+            0,
+            0
+          ],
+          [
+            720,
+            450
+          ],
+          [
+            1439,
+            899
+          ],
+          [
+            7,
+            893
+          ],
+          [
+            1438,
+            898
+          ]
+        ]
+      },
+      {
+        "name": "fractional_scale",
+        "record": {
+          "offset": [
+            0,
+            0
+          ],
+          "source_pixel_size": [
+            2560,
+            1600
+          ],
+          "desktop_size": [
+            2048,
+            1280
+          ],
+          "scaled": [
+            1536,
+            960
+          ],
+          "scale": 0.6
+        },
+        "points": [
+          [
+            0,
+            0
+          ],
+          [
+            1024,
+            640
+          ],
+          [
+            2047,
+            1279
+          ],
+          [
+            3,
+            1277
+          ]
+        ]
+      },
+      {
+        "name": "rotated_portrait",
+        "record": {
+          "offset": [
+            1440,
+            0
+          ],
+          "source_pixel_size": [
+            1080,
+            1920
+          ],
+          "desktop_size": [
+            1080,
+            1920
+          ],
+          "scaled": [
+            864,
+            1536
+          ],
+          "scale": 0.8
+        },
+        "points": [
+          [
+            1440,
+            0
+          ],
+          [
+            1980,
+            960
+          ],
+          [
+            2519,
+            1919
+          ]
+        ]
+      }
+    ]
+  },
+  "rejected_points": [
+    {
+      "name": "point_in_the_gap_between_monitors",
+      "layout": "gap_and_step_between_monitors",
+      "global": [
+        1950,
+        500
+      ],
+      "reason": "gap"
+    },
+    {
+      "name": "point_in_the_corner_void",
+      "layout": "gap_and_step_between_monitors",
+      "global": [
+        100,
+        1150
+      ],
+      "reason": "gap"
+    },
+    {
+      "name": "point_past_the_canvas",
+      "layout": "this_machine_two_equal_monitors",
+      "global": [
+        4000,
+        2000
+      ],
+      "reason": "outside"
+    }
+  ],
+  "canvas_ratio": [
+    {
+      "name": "desktop_units_are_the_default",
+      "layout": "fractional_scales_side_by_side",
+      "canvas": [
+        3328,
+        1280
+      ],
+      "ratio": 1.0
+    },
+    {
+      "name": "one_shared_scale_is_resolvable",
+      "layout": "hidpi_uniform_two_times",
+      "state": {
+        "physical": [
+          {
+            "connector": "DP-1",
+            "vendor": "TST",
+            "product": "DP-1 panel",
+            "serial": "SER-DP-1",
+            "display_name": "DP-1 test",
+            "modes": [
+              {
+                "width": 3840,
+                "height": 2160,
+                "is_current": true
+              },
+              {
+                "width": 1280,
+                "height": 720,
+                "is_current": false
+              }
+            ]
+          },
+          {
+            "connector": "DP-2",
+            "vendor": "TST",
+            "product": "DP-2 panel",
+            "serial": "SER-DP-2",
+            "display_name": "DP-2 test",
+            "modes": [
+              {
+                "width": 3840,
+                "height": 2160,
+                "is_current": true
+              },
+              {
+                "width": 1280,
+                "height": 720,
+                "is_current": false
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 2.0,
+            "transform": 0,
+            "primary": true,
+            "connectors": [
+              "DP-1"
+            ]
+          },
+          {
+            "x": 1920,
+            "y": 0,
+            "scale": 2.0,
+            "transform": 0,
+            "primary": false,
+            "connectors": [
+              "DP-2"
+            ]
+          }
+        ]
+      },
+      "canvas": [
+        7680,
+        2160
+      ],
+      "logical_canvas": [
+        3840,
+        1080
+      ],
+      "ratio": 2.0
+    },
+    {
+      "name": "mixed_scales_cannot_be_resolved",
+      "layout": "fractional_scales_side_by_side",
+      "canvas": [
+        4160,
+        1600
+      ],
+      "ratio": null
+    }
+  ]
+}

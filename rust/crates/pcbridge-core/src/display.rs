@@ -6,6 +6,13 @@
 //! on, and it does so without touching D-Bus, so the rules can be tested from a
 //! fixture. `platform::linux::display` owns the transport.
 //!
+//! The canvas and the compositor's own space are separate (Task 7.1). A
+//! compositor may place a monitor at a negative origin; the table is
+//! translated once, here, so the canvas always starts at (0, 0), and each
+//! monitor keeps the platform position it was reported at. A negative canvas
+//! coordinate could not be reached by the absolute pointer axis and would
+//! crop outside the captured image.
+//!
 //! The rules mirror `pcbridge/desktop/monitors.py` exactly and both sides are
 //! pinned by `tests/fixtures/native/display_state_cases.json`. Nothing is
 //! guessed: a monitor with no current mode, an unknown connector, an empty
@@ -92,6 +99,24 @@ pub struct Monitor {
     /// machine it went from DP-1/DP-2 to DP-3/DP-4 with the geometry untouched
     /// (measured 2026-09-12 from both Mutter and `xrandr --listmonitors`).
     pub serial: String,
+    /// Where the compositor itself put this monitor. `x`/`y` are the canvas
+    /// position, which always starts at (0, 0); these two may be negative.
+    pub platform_x: i32,
+    pub platform_y: i32,
+}
+
+impl Monitor {
+    /// The monitor's size in raw pixels: the logical size times its scale.
+    ///
+    /// Equal to the logical size at scale 1. The rounding rule is the table's
+    /// own, so a fractional scale cannot drift by a pixel between the two
+    /// languages.
+    pub fn source_pixel_size(&self) -> (u32, u32) {
+        (
+            round_half_away(f64::from(self.width) * self.scale) as u32,
+            round_half_away(f64::from(self.height) * self.scale) as u32,
+        )
+    }
 }
 
 /// Every variant maps to `DISPLAY_MAPPING_UNKNOWN` at the host boundary: the
@@ -191,11 +216,23 @@ pub fn resolve(state: &DisplayState) -> Result<Vec<Monitor>, DisplayError> {
             name,
             transform: logical.transform,
             serial: physical.serial.clone(),
+            platform_x: logical.x,
+            platform_y: logical.y,
         });
     }
 
     if monitors.is_empty() {
         return Err(DisplayError::NoLogicalMonitors);
+    }
+
+    // The canvas starts at (0, 0) whatever the compositor reported (Task 7.1).
+    // One translation, here, for the same reason the coordinate conversion
+    // lives in one place: a second one somewhere else would be forgotten.
+    let left = monitors.iter().map(|monitor| monitor.x).min().unwrap_or(0);
+    let top = monitors.iter().map(|monitor| monitor.y).min().unwrap_or(0);
+    for monitor in &mut monitors {
+        monitor.x -= left;
+        monitor.y -= top;
     }
 
     monitors.sort_by_key(|monitor| (monitor.x, monitor.y));
@@ -231,15 +268,33 @@ pub fn topology_id(monitors: &[Monitor]) -> String {
 
 /// Width and height of the global canvas the monitors span.
 pub fn canvas_size(monitors: &[Monitor]) -> (u32, u32) {
-    let width = monitors
+    let left = monitors.iter().map(|monitor| monitor.x).min().unwrap_or(0);
+    let top = monitors.iter().map(|monitor| monitor.y).min().unwrap_or(0);
+    let right = monitors
         .iter()
         .map(|monitor| monitor.x + monitor.width as i32)
         .max()
         .unwrap_or(0);
-    let height = monitors
+    let bottom = monitors
         .iter()
         .map(|monitor| monitor.y + monitor.height as i32)
         .max()
         .unwrap_or(0);
-    (width.max(0) as u32, height.max(0) as u32)
+    ((right - left).max(0) as u32, (bottom - top).max(0) as u32)
+}
+
+/// Where the canvas origin sits in the compositor's own space.
+pub fn platform_origin(monitors: &[Monitor]) -> (i32, i32) {
+    (
+        monitors
+            .iter()
+            .map(|monitor| monitor.platform_x)
+            .min()
+            .unwrap_or(0),
+        monitors
+            .iter()
+            .map(|monitor| monitor.platform_y)
+            .min()
+            .unwrap_or(0),
+    )
 }

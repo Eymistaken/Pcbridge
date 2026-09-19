@@ -2,6 +2,14 @@
 
 pcbridge'te bir masaustu koordinati her zaman **global tuval uzayindadir**:
 sol ust kose (0, 0), sag alt kose (toplam_genislik-1, toplam_yukseklik-1).
+
+IKI UZAY AYRI (Task 7.1). Kompozitorun kendi koordinati ("platform origin")
+negatif olabilir: soldaki monitor x=-1920'de durabilir. Pcbridge tuvali her
+zaman butun monitorleri kapsayan dikdortgenin sol ustunden baslar, yani
+tablo okunurken bir kez oteleniyor (`_normalize_origin`). Platform
+koordinati `Monitor.platform` ile duruyor; hicbir hesap iki uzayi
+karistirmasin diye disari yalnizca tuval koordinati cikiyor. Bu makinede iki
+monitor de (0,0)'dan basliyor, yani oteleme sifir.
 Monitore ozel koordinat yalnizca disaridan `monitor=` ile gelir ve buradaki
 `to_global()` ile bir kez global uzaya cevrilir. `UYGULAMA.md`'nin kurali:
 "Bu donusumu tek bir yerde yap; iki yerde yapilirsa er gec biri unutulur ve
@@ -18,6 +26,7 @@ sistemde hazir, yani yeni bir Python bagimliligi gerekmiyor.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import re
@@ -66,6 +75,32 @@ class Monitor:
     # degismeden DP-1/DP-2 iken DP-3/DP-4 oldu (olculdu 2026-09-12, hem
     # Mutter hem `xrandr --listmonitors` ayni seyi soyledi).
     serial: str = ""
+    # Kompozitorun kendi koordinati (Task 7.1). `x`/`y` tuval uzayindadir ve
+    # tuval her zaman (0,0)'dan baslar; platform origin negatif olabilir.
+    # Verilmemisse ikisi ayni sayilir -- eski kayitlar ve testler icin.
+    platform_x: int | None = None
+    platform_y: int | None = None
+
+    @property
+    def platform(self) -> tuple[int, int]:
+        """Kompozitorun bu monitor icin bildirdigi konum."""
+        return (
+            self.x if self.platform_x is None else self.platform_x,
+            self.y if self.platform_y is None else self.platform_y,
+        )
+
+    @property
+    def source_pixel_size(self) -> tuple[int, int]:
+        """Monitorun ham piksel boyutu: mantiksal boyut x olcek.
+
+        Olcek 1 iken mantiksal boyutun aynisi. Kesirli olcekte yuvarlama
+        kurali tabloyla ayni (`round_half_away`), yoksa bir piksel sessizce
+        ayrisirdi.
+        """
+        return (
+            round_half_away(self.width * self.scale),
+            round_half_away(self.height * self.scale),
+        )
 
     @property
     def bbox(self) -> tuple[int, int, int, int]:
@@ -95,7 +130,7 @@ _SWAPS_AXES = frozenset({1, 3, 5, 7})
 TOPOLOGY_VERSION = "v1"
 
 
-def _round_half_away(value: float) -> int:
+def round_half_away(value: float) -> int:
     """Yarim pikselde SIFIRDAN UZAGA yuvarla (960.5 -> 961).
 
     Python'in yerlesik `round()`u BANKACI yuvarlamasi yapar (960.5 -> 960,
@@ -159,8 +194,8 @@ def resolve_state(state: dict) -> list[Monitor]:
         mw, mh = modes[connector]
         if transform in _SWAPS_AXES:
             mw, mh = mh, mw
-        width = _round_half_away(mw / scale)
-        height = _round_half_away(mh / scale)
+        width = round_half_away(mw / scale)
+        height = round_half_away(mh / scale)
         if width <= 0 or height <= 0:
             raise MonitorError(
                 f"{connector} icin gecersiz mantiksal boyut: {width}x{height}"
@@ -182,7 +217,25 @@ def resolve_state(state: dict) -> list[Monitor]:
         )
     if not out:
         raise MonitorError("Mutter hic mantiksal monitor bildirmedi")
-    return _ordered(out)
+    return _ordered(_normalize_origin(out))
+
+
+def _normalize_origin(mons: list[Monitor]) -> list[Monitor]:
+    """Tuvalin sol ustunu (0,0) yap; platform koordinatini alanda sakla.
+
+    Kompozitor negatif bir origin bildirebilir (soldaki monitor x=-1920).
+    Tuval koordinati negatif olsaydi sanal fare aygitinin mutlak ekseni
+    (0..genislik-1) o noktayi hic gosteremezdi ve kirpma kutulari goruntunun
+    disina duserdi. Oteleme TEK YERDE, tablo okunurken yapiliyor.
+    """
+    left = min(m.x for m in mons)
+    top = min(m.y for m in mons)
+    return [
+        dataclasses.replace(
+            m, x=m.x - left, y=m.y - top, platform_x=m.x, platform_y=m.y
+        )
+        for m in mons
+    ]
 
 
 def topology_id(mons: list[Monitor] | None = None) -> str:
@@ -310,21 +363,10 @@ def _prop(props: dict, key: str):
 def _ordered(mons: list[Monitor]) -> list[Monitor]:
     """x'e gore soldan saga sirala ve 1'den numaralandir."""
     ordered = sorted(mons, key=lambda m: (m.x, m.y))
+    # `replace` ile: yeni bir alan eklendiginde burada unutulup sessizce
+    # dusmesin (platform koordinati bir kez oyle dustu).
     return [
-        Monitor(
-            index=i,
-            connector=m.connector,
-            x=m.x,
-            y=m.y,
-            width=m.width,
-            height=m.height,
-            scale=m.scale,
-            primary=m.primary,
-            name=m.name,
-            transform=m.transform,
-            serial=m.serial,
-        )
-        for i, m in enumerate(ordered, start=1)
+        dataclasses.replace(m, index=i) for i, m in enumerate(ordered, start=1)
     ]
 
 
@@ -356,11 +398,24 @@ def invalidate_cache() -> None:
 
 
 def canvas_size(mons: list[Monitor] | None = None) -> tuple[int, int]:
-    """Butun monitorleri kapsayan tuvalin boyutu (gnome-screenshot ile ayni)."""
+    """Butun monitorleri kapsayan tuvalin boyutu (gnome-screenshot ile ayni).
+
+    Tablo okunurken sol ust kose (0,0)'a otelendigi icin bu, kapsayan
+    dikdortgenin boyutudur (`_normalize_origin`).
+    """
     mons = mons or list_monitors()
     return (
-        max(m.x + m.width for m in mons),
-        max(m.y + m.height for m in mons),
+        max(m.x + m.width for m in mons) - min(m.x for m in mons),
+        max(m.y + m.height for m in mons) - min(m.y for m in mons),
+    )
+
+
+def platform_origin(mons: list[Monitor] | None = None) -> tuple[int, int]:
+    """Tuvalin (0,0) noktasinin kompozitor koordinatindaki karsiligi."""
+    mons = mons or list_monitors()
+    return (
+        min(m.platform[0] for m in mons),
+        min(m.platform[1] for m in mons),
     )
 
 

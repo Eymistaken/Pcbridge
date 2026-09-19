@@ -10,19 +10,21 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Faz 7 — Task 7.1 (mixed scale ve koordinat güvenliği).
-- **Son tamamlanan adım:** **Gate 6 geçti** (2026-09-20). Task 6.4 (2026-09-19). Pencere öne alma tek sırada
+- **Aktif adım:** Faz 7 — Task 7.2 (XDG ScreenCast portal backend'i).
+- **Son tamamlanan adım:** Task 7.1 (2026-09-20): tuval kökeni normalleştirildi,
+  çekim kaydı v2, karışık ölçek tanımlı, boşluğa ve görüntü dışına düşen
+  koordinat reddediliyor. **Gate 6** aynı gün geçti. Pencere öne alma tek sırada
   toplandı: eklenti → zaten öndeyse tuş yok → kapalıysa tuşsuz başlatma →
   arama yedeği. Aramaya yalnızca kurulu uygulama adı yazılıyor, sonuç
   uygulamanın kimliğiyle doğrulanıyor. Başlatılan uygulama kendi systemd
   kapsamında. Ayrıntı: Adım 5 → Task 6.4.
-- **Sıradaki uygulanabilir adım:** Task 7.1.
+- **Sıradaki uygulanabilir adım:** Task 7.2.
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 6 geçti** (2026-09-20): erişilebilirlik
   okuma, eylem ve pencere işlemleri gerçek masaüstünde doğrulandı. Gate 5
   2026-09-19'da, Gate 4 2026-09-13'te geçti. stdio istemcileri, uygulama
   kapatılıp açılınca yeni koda geçer (#5).
-- **Native migration içindeki sıradaki task:** 7.1 → 7.2 → 7.3 → 7.4, sonra Faz 8 (**Gate 7**)
+- **Native migration içindeki sıradaki task:** 7.2 → 7.3 → 7.4, sonra Faz 8 (**Gate 7**)
 - **Kullanıcıyla yapılan kontroller (2026-09-13):** #1, #3, #4 yapıldı; #5'in
   servis tarafı yapıldı; #2 (GitHub) kullanıcının kararıyla bekliyor. Ayrıntı:
   Adım 4 → "Kullanıcıyla yapılan kontroller".
@@ -91,7 +93,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `tamamlandı` (3.1–3.5 ✅, **Gate 3 geçti**) |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
-| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅ **Gate 5**; 6.1–6.4 ✅ **Gate 6**; sırada Faz 7) |
+| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅ **Gate 5**; 6.1–6.4 ✅ **Gate 6**; 7.1 ✅; sırada 7.2) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
@@ -2628,6 +2630,79 @@ denendi: `[native] accessibility` `python` iken sağlayıcı
 
 **Sıradaki:** Faz 7 — mixed scale ve koordinat güvenliği (7.1), XDG portal
 capture backend'i (7.2), buffered (7.3), adaptive (7.4).
+
+### Task 7.1 — Mixed scale, negatif origin ve topology güvenliği · `tamamlandı` (2026-09-20)
+
+Bu makinede iki monitör de ölçek 1.0 ve (0,0)'dan başlıyor, yani bu task'ın
+konusu **ölçülemeyen** bir donanım. O yüzden kural yazıldı, iki dilde aynı
+fixture'a bağlandı ve "mevcut sonuç değişmiyor" gerçek makinede doğrulandı.
+
+**Ne değişti.**
+
+- **İki uzay ayrıldı.** Kompozitörün kendi koordinatı `Monitor.platform`'da;
+  tuval her zaman (0,0)'dan başlıyor. Öteleme tablo okunurken bir kez
+  yapılıyor (Python `_normalize_origin`, Rust `resolve`). Negatif bir tuval
+  koordinatı sanal farenin mutlak ekseninde gösterilemez ve kırpma kutusu
+  görüntünün dışına düşerdi.
+- **Aynı geometri, kaymış origin = aynı düzen.** `topology_id` tuval
+  koordinatından üretiliyor, yani bütün ekranlar eşit kayarsa kimlik
+  değişmiyor ve hiçbir çekim gereksiz yere geçersizleşmiyor.
+- **Çekim kaydı v2:** `source_pixel_size`, `desktop_size`, `scale_xy`,
+  `coordinate_space`. Eski alanlar (`size`, `scaled`, `scale`, `offset`)
+  aynen duruyor. Görüntü pikselini masaüstü birimine çeviren oran artık
+  `desktop_size / scaled`, **her eksen ayrı**: ölçekli monitörde de doğru ve
+  tek oranın uzun kenarda bıraktığı bir piksellik kayma yok.
+- **Karışık ölçek tanımlı.** Kare ya mantıksal boyutta ya da mantıksal boyut ×
+  ölçek gelir; başkası ölçeklenmez, reddedilir (`check_source_size`, iki
+  yakalama yolu da aynı kontrolü kullanıyor). Tek görüntü veren
+  `gnome-screenshot` yedeğinde oran ancak bütün monitörler aynı ölçekteyse
+  çözülüyor; farklı ölçeklerde reddediliyor (`canvas_pixel_ratio`).
+- **İki yeni ret:** hiçbir monitörün üstüne düşmeyen koordinat (boşluk, köşe,
+  tuval dışı) ve verilen çekimin görüntüsünün dışındaki piksel. Monitör
+  tablosu okunamıyorsa kontrol atlanıyor.
+- `_ordered` artık `dataclasses.replace` kullanıyor: yeni bir alan eklendiğinde
+  sessizce düşmesin (platform koordinatı bir kez öyle düştü, test yakaladı).
+
+**Testler.**
+
+- Yeni fixture `tests/fixtures/native/mixed_scale_cases.json`: beş düzen (bu
+  makine, negatif origin, 1,25 + 1,5 kesirli ölçek, 2× HiDPI + 90° döndürülmüş
+  dikey ekran, boşluklu ve basamaklı iki monitör), altı koordinat vakası, dört
+  gidiş-dönüş vakası, üç ret, üç tuval oranı vakası. Beklenen değerler **elle**
+  hesaplandı.
+- `tests/contracts/test_coordinate_v2.py` (18 test) ve
+  `rust/crates/pcbridge-core/tests/geometry.rs` (6 test) aynı fixture'ı okuyor:
+  tablo, tuval, platform origin, topology ve ham piksel boyutu iki dilde de
+  aynı.
+- Mutasyon denemesi: **15 bozulmanın 15'i** yakalandı (Python 12, Rust 3).
+  İlk turda "tuval boyutu origin'i yok sayıyor" sağ kalmıştı, çünkü
+  normalleştirmeden sonra iki ifade denk. `canvas_size` genel bir yardımcı
+  olduğu için elle kurulmuş, normalleştirilmemiş bir tabloyla sözleşmesi iki
+  dilde de teste bağlandı; bozulma artık yakalanıyor.
+- Takımlar: contract 382, `test_desktop.py` 583 (capture açıkken 602),
+  integration 24 (1 atlandı), models 106, `--check` 0. Rust: fmt ve clippy
+  (iki türde) temiz, `cargo test` 156 varsayılan / 177 test kipi.
+- Canlı: `test_capture_parity.py` 11 test ve `test_capture_default.py` 3 test
+  geçti; ayrıca gerçek bir çekimin kaydı okundu.
+
+**Kabul ölçütleri (PLAN 7.1).**
+- Round-trip hatası fixture matrisinde ≤1 masaüstü birimi: ✓ (dört düzende,
+  köşeler ve tek sayılı noktalar dahil).
+- Eşit ölçekli mevcut iki monitör sonucu değişmiyor: ✓ ölçüldü. Kayıt
+  `offset [1920,0]`, `size [1920,1080]`, `scaled [1536,864]`, `scale 0.8` —
+  7.1 öncesiyle birebir aynı; görüntünün (0,0)'ı (1920,0), ortası (2880,540),
+  son pikseli (3839,1079); tuval 3840x1080, platform origin (0,0).
+
+**Doğrulanmayan.** Kesirli ve 2× ölçekli donanım bu makinede yok: beş düzenin
+dördü gerçek bir ekranda hiç çalışmadı. Aynı sebeple Mutter'ın yarım piksel
+sınırındaki davranışı hâlâ ölçülmedi. Karışık ölçekli bir kurulum ilk kez
+takıldığında `gnome-screenshot` yedeği reddedecek, yayın yolu çalışacak.
+
+**Rollback.** `git revert`; yeni ayar yok. Kayıt biçimi iki yönlü uyumlu: eski
+bir süreç yeni kaydı okur (fazladan alanları yok sayar), yeni süreç eski kaydı
+okur (v1 testiyle sabit). Yani eski süreçler kapatılmadan da güvenli.
+
+**Sıradaki:** Task 7.2 — XDG ScreenCast portal backend'i.
 
 ## Adım 6 — İmleç katmanı
 

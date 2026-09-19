@@ -438,15 +438,17 @@ class NativeScreenCast:
         result = response.result if isinstance(response.result, dict) else {}
         pixels = result.get("pixel_size")
         if expected is not None and isinstance(pixels, list) and len(pixels) == 2:
-            if (int(pixels[0]), int(pixels[1])) != (expected.width, expected.height):
-                # Rule 8: an unexpected stream size is reported, never rescaled
-                # into place. A silent scale here would put every later click a
-                # proportional distance away from where the agent aimed.
-                raise NativeCaptureError(
-                    f"{connector} akisi {pixels[0]}x{pixels[1]} verdi, monitor "
-                    f"tablosu {expected.width}x{expected.height} diyor. Monitor "
-                    "duzeni degismis olabilir; tekrar deneyin."
+            # Rule 8: an unexpected stream size is reported, never rescaled
+            # into place. A silent scale here would put every later click a
+            # proportional distance away from where the agent aimed. Since
+            # Task 7.1 the monitor's own pixel size (logical times scale) is
+            # accepted as well, and the shot record carries both sizes.
+            try:
+                capturelib.check_source_size(
+                    expected, (int(pixels[0]), int(pixels[1]))
                 )
+            except capturelib.CaptureError as exc:
+                raise NativeCaptureError(str(exc)) from exc
         if not response.binary:
             raise NativeCaptureError(f"{connector} icin bos kare dondu")
 

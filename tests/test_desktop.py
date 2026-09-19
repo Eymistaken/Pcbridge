@@ -650,14 +650,17 @@ def test_capture_crop_offsets() -> None:
               len(C.capture("DP-2", out_dir=tmp, scale_long_edge=0)) == 1)
 
         # Tuval boyutu monitor tablosuyla uyusmazsa sessizce yanlis yerden
-        # kirpmak yerine patlamali.
+        # kirpmak yerine patlamali. ODD_SCREENS'te olcekler farkli (1.0 ve
+        # 2.0), yani gerekce Task 7.1'den beri "hangi piksel hangi monitorun
+        # bilinemez"; olcut ikisinin de soylenmesi.
         M.list_monitors = lambda *a, **k: M._ordered(ODD_SCREENS)
         try:
             C.capture("all", out_dir=tmp, scale_long_edge=0)
             check("tuval/tablo uyusmazligi yakalaniyor", False, "hata firlatilmadi")
         except C.CaptureError as exc:
-            check("tuval/tablo uyusmazligi yakalaniyor", "degismis olabilir" in str(exc),
-                  str(exc)[:80])
+            check("tuval/tablo uyusmazligi yakalaniyor",
+                  "3840x1080" in str(exc) and "3840x1440" in str(exc),
+                  str(exc)[:120])
     finally:
         M.list_monitors, C.available, C._grab_canvas = real_list, real_avail, real_grab
         import shutil as _sh

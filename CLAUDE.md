@@ -325,6 +325,22 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   Bu yüzden `topology_id` connector adını içermiyor; kalıcı kimlik için
   monitörün `serial` alanı var (bu makinedeki iki panel aynı model, yalnızca
   seri numarası ayırıyor).
+- **Tuval koordinatı ile kompozitörün koordinatı ayrı uzaylar** (Task 7.1).
+  Tuval her zaman (0,0)'dan başlar; tablo okunurken bir kez öteleniyor ve
+  kompozitörün kendi konumu `Monitor.platform`'da duruyor. Negatif bir tuval
+  koordinatı sanal farenin mutlak ekseninde gösterilemez, kırpma kutusu da
+  görüntünün dışına düşerdi. Bu makinede iki monitör de (0,0)'dan başlıyor,
+  yani öteleme sıfır ve sonuç değişmedi (ölçüldü 2026-09-20: kayıt
+  `offset [1920,0]`, `scaled [1536,864]`, `scale 0.8`; görüntünün son pikseli
+  (3839,1079)). Bütün ekranlar eşit miktarda kaydırılırsa `topology_id`
+  değişmiyor, yani hiçbir çekim gereksiz yere geçersizleşmiyor.
+- **Çekim kaydı ham pikseli ve masaüstü birimini ayrı taşıyor** (Task 7.1):
+  `source_pixel_size`, `desktop_size`, `scale_xy`, `coordinate_space`. Görüntü
+  pikselini masaüstü birimine çeviren oran `desktop_size / scaled`, her eksen
+  **ayrı**. Ölçekli bir monitörde kare ham pikselde gelir (mantıksal boyut ×
+  ölçek); başka bir boyut ölçeklenmez, reddedilir. Eski kayıtlar (v1) aynı
+  cevabı veriyor. Monitörler arası boşluğa ya da verilen çekimin dışına düşen
+  koordinat artık reddediliyor; eskiden sessizce çevriliyordu.
 - **Ekran düzeni kimliği tek yerde: `monitors.topology_id()`.** Kanonik dize,
   hash değil — çarpışma yok ve Rust tarafıyla birebir karşılaştırılabiliyor.
   `transform` içinde, çünkü 180 derece dönüş genişlik/yüksekliği değiştirmez

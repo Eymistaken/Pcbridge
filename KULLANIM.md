@@ -301,6 +301,12 @@ görüntüde 1 piksel ekranda 1,25 piksele denk düşüyor — düğme için sor
 `ekranımı tam çözünürlükte göster` dersen küçültme yapılmaz; ama o görüntü
 **bakmak için**, koordinat çıkarmak için değil (ajan uyarısını görecek).
 
+İki koordinat da reddediliyor: **verilen görüntünün dışındaki** bir piksel
+(koordinat o görüntüden okunmamış demektir) ve **hiçbir monitörün üstüne
+düşmeyen** bir nokta. İkincisi iki ekran aynı hizada değilse aralarında kalan
+boşluk ya da tuvalin köşesi olabilir; oraya gönderilen bir tıklama hiçbir şey
+yapmaz ama başarılı görünürdü. Monitör kutularını `screen_info` gösteriyor.
+
 ---
 
 ## 7. Ekranı Gemini'ye okutma (asıl yol)
