@@ -80,45 +80,39 @@ class Windows:
         )
         return False
 
-    def on_event(self, _controller, event, index):
+    # Specific controllers, not Gtk.EventControllerLegacy: PyGObject hands the
+    # legacy "event" signal's GdkEvent over as None (measured 2026-09-19, GTK
+    # 4.14), and an exception in a handler is swallowed, so the first run of
+    # the parity test saw no event at all. These signals carry plain values.
+    def on_motion(self, _controller, x, y, index):
         origin = self.geometry[index]
-        kind = event.get_event_type()
-        if kind in (Gdk.EventType.MOTION_NOTIFY, Gdk.EventType.BUTTON_PRESS,
-                    Gdk.EventType.BUTTON_RELEASE):
-            ok, x, y = event.get_position()
-            if not ok:
-                return False
-            gx, gy = round(origin.x + x), round(origin.y + y)
-            if kind == Gdk.EventType.MOTION_NOTIFY:
-                emit(event="motion", x=gx, y=gy)
-            else:
-                emit(
-                    event="press" if kind == Gdk.EventType.BUTTON_PRESS else "release",
-                    button=event.get_button(), x=gx, y=gy,
-                )
-        elif kind in (Gdk.EventType.KEY_PRESS, Gdk.EventType.KEY_RELEASE):
-            state = event.get_modifier_state()
-            emit(
-                event="key_press" if kind == Gdk.EventType.KEY_PRESS else "key_release",
-                keyval=Gdk.keyval_name(event.get_keyval()) or "",
-                keycode=event.get_keycode(),
-                shift=bool(state & Gdk.ModifierType.SHIFT_MASK),
-                control=bool(state & Gdk.ModifierType.CONTROL_MASK),
-                alt=bool(state & Gdk.ModifierType.ALT_MASK),
-            )
-        elif kind == Gdk.EventType.SCROLL:
-            direction = event.get_direction()
-            if direction == Gdk.ScrollDirection.SMOOTH:
-                dx, dy = event.get_deltas()
-            else:
-                dx, dy = {
-                    Gdk.ScrollDirection.UP: (0.0, -1.0),
-                    Gdk.ScrollDirection.DOWN: (0.0, 1.0),
-                    Gdk.ScrollDirection.LEFT: (-1.0, 0.0),
-                    Gdk.ScrollDirection.RIGHT: (1.0, 0.0),
-                }.get(direction, (0.0, 0.0))
-            emit(event="scroll", dx=float(dx), dy=float(dy))
+        emit(event="motion", x=round(origin.x + x), y=round(origin.y + y))
+
+    def on_press(self, gesture, x, y, index):
+        origin = self.geometry[index]
+        emit(event="press", button=gesture.get_current_button(),
+             x=round(origin.x + x), y=round(origin.y + y))
+
+    def on_release(self, gesture, offset_x, offset_y, index):
+        origin = self.geometry[index]
+        _ok, x, y = gesture.get_start_point()
+        emit(event="release", button=gesture.get_current_button(),
+             x=round(origin.x + x + offset_x), y=round(origin.y + y + offset_y))
+
+    def on_key(self, _controller, keyval, keycode, state, kind):
+        emit(
+            event=kind,
+            keyval=Gdk.keyval_name(keyval) or "",
+            keycode=keycode,
+            shift=bool(state & Gdk.ModifierType.SHIFT_MASK),
+            control=bool(state & Gdk.ModifierType.CONTROL_MASK),
+            alt=bool(state & Gdk.ModifierType.ALT_MASK),
+        )
         return False  # observe only; the text field still gets its keys
+
+    def on_scroll(self, _controller, dx, dy):
+        emit(event="scroll", dx=float(dx), dy=float(dy))
+        return False
 
     def activate(self, app):
         display = Gdk.Display.get_default()
@@ -148,10 +142,26 @@ class Windows:
                 focus.connect("leave", lambda *_: emit(event="focus", field=False))
                 field.add_controller(focus)
             window.set_child(overlay)
-            legacy = Gtk.EventControllerLegacy()
-            legacy.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-            legacy.connect("event", self.on_event, index)
-            window.add_controller(legacy)
+            # Capture phase and nothing claimed: the window observes every
+            # event before the text field, and the field still receives it.
+            motion = Gtk.EventControllerMotion()
+            motion.connect("motion", self.on_motion, index)
+            # A drag gesture reports a click too (offset 0), and unlike a
+            # click gesture it still reports the release after a long drag.
+            drag = Gtk.GestureDrag()
+            drag.set_button(0)
+            drag.connect("drag-begin", self.on_press, index)
+            drag.connect("drag-end", self.on_release, index)
+            keys = Gtk.EventControllerKey()
+            keys.connect("key-pressed", self.on_key, "key_press")
+            keys.connect("key-released", self.on_key, "key_release")
+            scroll = Gtk.EventControllerScroll.new(
+                Gtk.EventControllerScrollFlags.BOTH_AXES
+            )
+            scroll.connect("scroll", self.on_scroll)
+            for controller in (motion, drag, keys, scroll):
+                controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+                window.add_controller(controller)
             window.connect(
                 "notify::is-active",
                 lambda w, _p, i=index: emit(event="active", monitor=i, active=w.is_active()),

@@ -62,12 +62,17 @@ REPORT: dict = {}
 class InputWindow:
     """`input_window.py` and the events it reports."""
 
-    def __init__(self) -> None:
+    def __init__(self, errors: Path, timeout: int = 300) -> None:
+        # GTK swallows an exception raised in a signal handler: the event is
+        # simply not reported. Keep what it prints, or a broken window looks
+        # exactly like input that never arrived (it did, 2026-09-19).
+        self.errors = errors
+        self._stderr = errors.open("w", encoding="utf-8")
         self.process = subprocess.Popen(
-            [SYSTEM_PYTHON, str(HERE / "input_window.py"), "--timeout", "300"],
+            [SYSTEM_PYTHON, str(HERE / "input_window.py"), "--timeout", str(timeout)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=self._stderr,
             text=True,
             bufsize=1,
         )
@@ -135,6 +140,37 @@ class InputWindow:
         except subprocess.TimeoutExpired:
             self.process.kill()
             self.process.wait(5)
+        for stream in (self.process.stdin, self.process.stdout, self._stderr):
+            if stream is not None:
+                stream.close()
+
+
+def described(saved: clipboardlib.Saved | None) -> str:
+    """A clipboard in a message: its type and size, never its content.
+
+    Not even a hash: the first run printed the user's clipboard in an
+    assertion message (2026-09-19), and it looked like a password.
+    """
+    return "empty" if saved is None else f"{saved.mime}, {len(saved.data)} bytes"
+
+
+def restored(before: clipboardlib.Saved | None) -> tuple[bool, str]:
+    """Is the saved representation offered again, byte for byte?
+
+    Not "is the first type the same": after a restore wl-copy lists its text
+    aliases (UTF8_STRING, STRING, TEXT) before the type it was given.
+    """
+    if before is None:
+        now = clipboardlib.WlClipboard().save()
+        return now is None, described(now)
+    listing = subprocess.run(["wl-paste", "--list-types"], capture_output=True, timeout=10)
+    offered = [line.strip() for line in listing.stdout.decode("utf-8", "replace").splitlines()]
+    if before.mime not in offered:
+        return False, f"{before.mime} is no longer offered"
+    got = subprocess.run(
+        ["wl-paste", "--type", before.mime, "--no-newline"], capture_output=True, timeout=10
+    ).stdout
+    return got == before.data, described(clipboardlib.Saved(before.mime, got))
 
 
 def near(event: dict, point: tuple[int, int], tolerance: int = 1) -> bool:
@@ -158,7 +194,7 @@ class NativeInputOnTheDesktop(unittest.TestCase):
             native=dataclasses.replace(base.native, input="rust", binary_path=None),
         )
         os.environ.pop("PCBRIDGE_NATIVE_BIN", None)
-        cls.window = InputWindow()
+        cls.window = InputWindow(cls.root / "window.stderr")
         ready = cls.window.wait(lambda e: e.get("event") == "ready", 20)
         if ready is None:
             cls.window.close()
@@ -173,6 +209,10 @@ class NativeInputOnTheDesktop(unittest.TestCase):
     @classmethod
     def tearDownClass(cls) -> None:
         cls.window.close()
+        errors = cls.window.errors.read_text(encoding="utf-8", errors="replace").strip()
+        if errors:
+            print(f"\ninput window stderr:\n{errors[-2000:]}", file=sys.stderr)
+        REPORT["window_errors"] = bool(errors)
         shutil.rmtree(cls.root, ignore_errors=True)
         target = os.environ.get("PCBRIDGE_INPUT_REPORT")
         if target:
@@ -212,6 +252,7 @@ class NativeInputOnTheDesktop(unittest.TestCase):
         self.require_focus()
 
     def move_and_verify(self, provider: RustInputProvider, point: tuple[int, int]) -> dict:
+        already = self.window.last("motion")
         mark = self.window.mark()
         provider.move(*point)
         arrived = self.window.wait(
@@ -219,7 +260,15 @@ class NativeInputOnTheDesktop(unittest.TestCase):
         )
         self.window.settle()
         last = self.window.last("motion")
-        self.assertIsNotNone(arrived, f"no motion reached {point}; last {last}")
+        # A pointer already resting on the target does not move, so no motion
+        # is reported: the last report, with nothing since, is the evidence.
+        stayed = (
+            arrived is None
+            and already is not None
+            and near(already, point, 0)
+            and not any(e.get("event") == "motion" for _s, e in self.window.since(mark))
+        )
+        self.assertTrue(arrived is not None or stayed, f"no motion reached {point}; last {last}")
         return last
 
     # -------------------------------------------------------------- tests
@@ -289,9 +338,9 @@ class NativeInputOnTheDesktop(unittest.TestCase):
             lambda e: e.get("event") == "text" and e["value"] == TURKISH, 5.0, mark
         )
         elapsed = time.monotonic() - started
-        after = clipboard.save()
-        self.assertIsNotNone(typed, f"the field holds {self.window.last('text')}")
-        self.assertEqual(after, before, "the clipboard was not restored")
+        same, now = restored(before)
+        self.assertIsNotNone(typed, "the field does not hold the typed text")
+        self.assertTrue(same, f"clipboard not restored: before {described(before)}, now {now}")
 
         self.window.send("clear")
         self.window.wait(lambda e: e.get("event") == "text" and e["value"] == "", 2.0)
@@ -301,7 +350,7 @@ class NativeInputOnTheDesktop(unittest.TestCase):
         raw = self.window.wait(
             lambda e: e.get("event") == "text" and e["value"] == "abc 123", 5.0, mark
         )
-        self.assertIsNotNone(raw, f"raw typing left {self.window.last('text')}")
+        self.assertIsNotNone(raw, "raw typing did not produce the expected text")
         REPORT["text"] = {
             "turkish_exact": True,
             "clipboard_restored": True,

@@ -16,8 +16,8 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
   düzeltildi: izin değişince native helper eski izinde kalıyordu ve bu,
   varsayılan capture yolunu da etkiliyordu. Ayrıntı: Adım 5 → "Codex'in 5.2/5.3
   işinin kontrolü".
-- **Sıradaki uygulanabilir adım:** Task 5.4 / 4 — gerçek girdi testi hazır,
-  koşum kullanıcıyı bekliyor (Kullanıcıyı bekleyenler #6). 5.4 / 0–3 bitti.
+- **Sıradaki uygulanabilir adım:** Task 5.4 / 5 — `[native] input` varsayılanı.
+  5.4 / 0–4 bitti, **Gate 5 geçti** (2026-09-19).
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 4 geçti** (2026-09-13). Varsayılan artık
   `[native] capture = "auto"`. Servis 2026-09-13'te yeniden başlatıldı. stdio
@@ -30,8 +30,11 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 Çalışma kuralı (kullanıcı isteği, 2026-09-13, öncekinin yerine): her task
 sonunda güvenli testler çalıştırılır, sonuç bu dosyaya yazılır ve değişiklikler
 yalnızca yerel commit'lenir. **Push yapılmaz ve cloud GitHub'a dokunulmaz.**
-Gerçek klavye/fare testi çalıştırılmaz. Her task bitince durulur ve sonraki task
-için kullanıcı onayı beklenir.
+Her task bitince durulur ve sonraki task için kullanıcı onayı beklenir.
+Gerçek klavye/fare testi kullanıcı yokken çalıştırılmaz. 2026-09-19'da kullanıcı
+canlı testler için "bundan sonra sormadan test yap hepsini kabul ediyorum" dedi:
+kullanıcı başındayken canlı testler sorulmadan, ama başlamadan önce haber
+verilerek koşulur.
 
 ## Kullanıcıyı bekleyenler
 
@@ -45,7 +48,7 @@ yapılınca silinmez, `yapıldı` diye işaretlenir.
 | 3 | Task 4.2 ekran kilidi senaryosu: native capture kilitliyken kare vermiyor mu | Kilidi açmak parola istiyor; kullanıcı yokken ekran kilitli kalırdı | `yapıldı` (2026-09-13) |
 | 4 | Paylaşım göstergesinin kaynak kapanınca kaybolduğunu gözle görmek | Gösterge ekran paylaşımı olmadan görülemiyor; test yalnızca Mutter oturum sayısını doğruladı | `yapıldı` (2026-09-13) |
 | 5 | Task 4.3 yayılımı: servisi ve stdio istemcilerini yeniden başlatıp native yolu gerçek kullanımda görmek. `config.toml`'da `[native]` bölümü yok, yani yeni süreçler native yolu seçecek. Sıra: `bridgekilit` → `job_list` boş mu → `systemctl --user restart pcbridge` → Claude Code/Codex'i yeniden başlat → `./doctor.sh` 8. bölüm → `desktop_unlock` sonrası sağ alttaki görev çubuğunda gösterge var, `desktop_lock` sonrası yok. Geri alma: `[native]` altına `capture = "python"` + aynı yeniden başlatmalar. Task 5.1'in yürütme kilidi ve eylem başına izin kontrolü de aynı yeniden başlatmayla devreye girer | Restart çalışan işleri öldürür; stdio süreçleri istemcinin; göstergeyi gözle görmek gerekiyor | servis `yapıldı` (2026-09-13); Claude Desktop ve Claude Code'un stdio süreçleri uygulama bir kez kapatılıp açılınca geçer |
-| 6 | Task 5.4 / 4 — gerçek girdi testi: `PCBRIDGE_TEST_INPUT=1 PCBRIDGE_INPUT_REPORT=<yol> ./.venv/bin/python -m unittest tests/live/test_input_parity.py -v`. İki ekranı ~1 dk kaplayan test penceresi; fare kendiliğinden hareket eder, pencereye tıklar, pencerenin içindeki kutuya Türkçe metin yazar, Shift'i kısa süre basılı tutar | Gerçek tuş ve tıklama gönderiyor; kullanıcı başında olmalı ve o sırada klavye/fareye dokunmamalı. Acil durdurma: Super+L (ekran kilidi native aygıtları anında kapatır) | `bekliyor` |
+| 6 | Task 5.4 / 4 — gerçek girdi testi (`yapıldı` 2026-09-19, 8/8): `PCBRIDGE_TEST_INPUT=1 PCBRIDGE_INPUT_REPORT=<yol> ./.venv/bin/python -m unittest tests/live/test_input_parity.py -v`. İki ekranı ~1 dk kaplayan test penceresi; fare kendiliğinden hareket eder, pencereye tıklar, pencerenin içindeki kutuya Türkçe metin yazar, Shift'i kısa süre basılı tutar | Gerçek tuş ve tıklama gönderiyor; kullanıcı başında olmalı ve o sırada klavye/fareye dokunmamalı. Acil durdurma: Super+L (ekran kilidi native aygıtları anında kapatır) | `yapıldı` (2026-09-19) |
 
 ---
 
@@ -1606,7 +1609,7 @@ bölündü:
 | 1 | Pano işlemleri Python'da ayrı arayüzde (`clipboard.py`), davranış aynı; restore fixture'ı | `tamamlandı` |
 | 2 | Rust'ta aynı `wl-copy`/`wl-paste` programlarını yöneten adapter; wl-copy boru tuzağı; tek MIME sınırı capability'de | `tamamlandı` |
 | 3 | `[native] input = "rust"` seçilince pano native adapter'dan. `type_text` orkestrasyonu Python'da kalır: pano → native `ctrl+v` → geri yükleme | `tamamlandı` |
-| 4 | Gerçek girdi testleri, kullanıcı başındayken: Türkçe metin, değiştirici tuşlar, move→doğrulama→click, drag, süre dolumu/revoke, ≤1 px sapma | test hazır, **koşum kullanıcıyı bekliyor** (#6) |
+| 4 | Gerçek girdi testleri, kullanıcı başındayken: Türkçe metin, değiştirici tuşlar, move→doğrulama→click, drag, süre dolumu/revoke, ≤1 px sapma | `tamamlandı` — 8/8, **Gate 5 geçti** |
 | 5 | Gate 5 kararı. Geçerse `[native] input` varsayılanı değişir | bekliyor |
 
 Kod okurken bulunan: `[native] input = "rust"` seçildiğinde `type_text` zaten
@@ -1794,7 +1797,7 @@ koy → `ctrl+v` → geri yükle. `ctrl+v` zaten native klavyeye gidiyordu. Böy
 **Rollback:** Commit'i geri almak yeter. Varsayılan `python` olduğu için
 kurulu davranış değişmedi.
 
-#### 4 — Gerçek girdi testi · `hazır, koşulmadı`
+#### 4 — Gerçek girdi testi · `tamamlandı` (2026-09-19, kullanıcı başındaydı)
 
 `tests/live/test_input_parity.py` + `tests/live/input_window.py`. Yalnızca
 `PCBRIDGE_TEST_INPUT=1` ile çalışır. Bayrak yoksa 8 testin 8'i de atlanıyor
@@ -1829,6 +1832,77 @@ raporlanması. `PCBRIDGE_INPUT_REPORT=<yol>` ölçümleri JSON olarak yazıyor.
 test-harness değil). `capabilities` yanıtında `clipboard` özelliği var,
 `clipboard.write` tek MIME sınırlamasını taşıyor. Servis boştu (cgroup'ta tek
 süreç), yeniden başlatıldı, `healthz` 200.
+
+**Kullanıcı onayı (2026-09-19):** ilk koşum için açık onay verildi. İkinci
+soruda kullanıcı "bundan sonra sormadan test yap hepsini kabul ediyorum" dedi;
+sonraki koşumlar haber verilerek yapıldı.
+
+**Koşum 1 — 0/8, hiç tuş gitmedi.** Pencere tek bir olay bile raporlamadı.
+Teşhis (yalnızca hareket, tıklama ve tuş yok): pencerenin stderr'i
+`Gtk.EventControllerLegacy`'nin `event` sinyalinde PyGObject'in `GdkEvent`'i
+**`None`** olarak verdiğini gösterdi (GTK 4.14). İşleyicideki istisna GTK
+tarafından yutuluyordu. Pencere olay nesnesi taşımayan denetleyicilere geçirildi
+(`EventControllerMotion`, `GestureDrag`, `EventControllerKey`,
+`EventControllerScroll`). Artık pencere stderr'i saklanıyor ve test sonunda
+gösteriliyor. Aynı teşhiste native ve Python fare aynı noktalara gönderildi:
+ikisi de hedefe tam oturdu (son konum `(2400, 300)`, 80 ve 90 ara olay).
+
+**Koşum 2 — 5/8.** Kalan 3 hata testin kendisindeydi. İmleç zaten metin
+alanının ortasındayken aynı noktaya `move` hareket olayı üretmiyor ve test bunu
+"ulaşmadı" sayıyordu. Düzeltme: kıpırdamayan imlecin son raporu, ardından hiç
+hareket gelmemişse, kanıt sayılıyor. Bu üç testte tuş gönderilmedi.
+
+**Koşum 3 — 7/8. İki gerçek bulgu.**
+
+- **Gizlilik:** pano karşılaştırması başarısız olunca assertion mesajı
+  kullanıcının panosunu test çıktısına yazdı. İçerik parolaya benziyordu;
+  kullanıcıya söylendi, dosyaya yazılmadı. Test artık panoyu yalnızca tip ve
+  bayt sayısıyla anıyor, özetini (hash) bile yazmıyor.
+- **Eskiden beri var olan pano hatası, Python yolunda da:** geri yüklemeden
+  sonra `wl-copy` tipleri `UTF8_STRING, STRING, TEXT, text/plain;charset=utf-8,
+  ...` sırasıyla sunuyor (ölçüldü). `save()` yalnızca `text/*` tiplerinde
+  `--no-newline` veriyordu. İkinci yazmada `UTF8_STRING` satır sonuyla
+  okunuyor ve geri yükleme kullanıcının panosuna fazladan bir satır sonu
+  koyuyordu. Parola yapıştırılırken bu bir formu gönderebilir. Kullanıcının
+  panosu bu koşumda bozulmadı: `text/plain;charset=utf-8` 28 bayt, sonda satır
+  sonu yok (içerik gösterilmeden ölçüldü). Düzeltme: `3f040d2`. İçerik her
+  tipte `--no-newline` ile okunuyor. Fixture'a sekizinci durum eklendi (takma
+  adlar başta); eski kural bu durumda iki tarafta da kırmızı.
+- Paketleme testi: yardımcı Task 5.3'ten beri `libm.so.6`'ya bağlanıyor. Tek
+  sembolü `hypot` (fare yolunun mesafesi). `libc6`'nın parçası. Düzeltme:
+  `0c2799c`.
+- Aralıklı bir Rust test hatası (`put` başlayamadı) ETXTBSY yarışına bağlandı:
+  paralel testte yeni yazılmış betik, başka iş parçacığının fork'unda açık
+  kalıyor. Betik çalıştıran testler artık sırayla koşuyor (5/5 koşu temiz).
+
+**Koşum 4 — 8/8** (paketlenmiş yardımcı `0c2799c0b003`, release):
+
+| Ölçüt | Sonuç |
+|---|---|
+| İki monitörde 8 hedef (kenarlar dahil, sıcak köşeden 5 px uzak) | en büyük sapma **0 px** |
+| Uzun hareket ışınlanmıyor | 60 ara hareket olayı |
+| Move → pencereden konum raporu → click | press/release tam `(2620, 300)`'de, alan odak aldı |
+| Türkçe metin `Merhaba dünya — ğüşıöç İĞÜŞÖÇ «pcbridge» 1+2=3` | **birebir**, 1,78 sn (pano yedeği + yazma + geri yükleme) |
+| Kullanıcının panosu | kaydedilen tip (`UTF8_STRING`) yeniden sunuluyor, baytlar aynı |
+| Ham yazma `abc 123` | birebir |
+| Shift ve Ctrl değiştiricileri | uygulamaya ulaştı |
+| Drag | başlangıç ve bitiş ≤1 px, 10 ara hareket |
+| Scroll yukarı/aşağı | 2 + 2 olay, işaretler doğru |
+| Revoke'ta basılı Shift / sol düğme | **67 ms / 33 ms**'de bırakıldı, başka istek olmadan |
+| İzin süresi dolunca basılı Shift | süre bitiminden **95 ms** sonra bırakıldı |
+| Hold zamanlayıcısı (`hold_max_seconds = 5`) | **5,0 sn**'de bıraktı; `take_auto_released()` bir kez `["shift"]` |
+| Pencere hataları | yok |
+
+### Gate 5 — Input parity · `geçti` (2026-09-19)
+
+| Gerekli kanıt (`PLAN.md` E) | Nerede |
+|---|---|
+| Golden events | Task 5.1 fixture'ı; Rust klavye (5.2) ve pointer (5.3) aynı sırayı üretiyor |
+| Batch safety | Task 5.1 (her eylem öncesi izin, süreçler arası kilit, basılı girdinin bırakılması) |
+| Gerçek boş-editör/input ölçümleri | Koşum 4, yukarıdaki tablo |
+| Release/revoke | Koşum 4: revoke 67/33 ms, süre dolumu 95 ms, hold 5,0 sn |
+
+Gate 5 geçti. Sıradaki karar 5.4 / 5: `[native] input` varsayılanı.
 
 ## Adım 6 — İmleç katmanı
 
