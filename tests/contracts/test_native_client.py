@@ -141,13 +141,16 @@ class NativeConfigContractTests(unittest.TestCase):
             root = Path(raw)
             binary = root / "native"
             text = (ROOT / "config.example.toml").read_text()
-            text = text.replace('capture = "auto"', 'capture = "rust"', 1)
-            text = text.replace('input = "python"', 'input = "rust"', 1)
-            text = text.replace(
-                'binary_path = ""',
-                f'binary_path = "{binary}"',
-                1,
-            )
+
+            def swap(source: str, old: str, new: str) -> str:
+                # A pattern the example no longer holds would leave the text
+                # unchanged and fail later with a confusing mismatch.
+                self.assertIn(old, source)
+                return source.replace(old, new, 1)
+
+            text = swap(text, 'capture = "auto"', 'capture = "rust"')
+            text = swap(text, 'input = "auto"', 'input = "rust"')
+            text = swap(text, 'binary_path = ""', f'binary_path = "{binary}"')
             path = root / "config.toml"
             path.write_text(text)
 
@@ -161,12 +164,12 @@ class NativeConfigContractTests(unittest.TestCase):
                 ),
             )
 
-            path.write_text(text.replace('capture = "rust"', 'capture = "magic"', 1))
+            path.write_text(swap(text, 'capture = "rust"', 'capture = "magic"'))
             with self.assertRaisesRegex(SystemExit, "python, rust ya da auto"):
                 load_config(str(path))
 
-            path.write_text(text.replace('input = "rust"', 'input = "magic"', 1))
-            with self.assertRaisesRegex(SystemExit, "python ya da rust"):
+            path.write_text(swap(text, 'input = "rust"', 'input = "magic"'))
+            with self.assertRaisesRegex(SystemExit, "python, rust ya da auto"):
                 load_config(str(path))
 
 

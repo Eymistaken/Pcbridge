@@ -533,13 +533,15 @@ class PythonCaptureProvider:
 class PythonInputProvider(inputlib.InputBackend):
     """Configure the existing lazy input backend from one Config object."""
 
-    def __init__(self, cfg: Config) -> None:
+    def __init__(self, cfg: Config, *, degraded_reason: str = "") -> None:
         super().__init__(
             pointer_speed=cfg.desktop.pointer_speed,
             pointer_max_ms=cfg.desktop.pointer_move_max_ms,
             hold_max_seconds=cfg.desktop.hold_max_seconds,
             pos_file=cfg.pointer_pos_file,
         )
+        # Set when `[native] input = "auto"` wanted the helper and fell back.
+        self.degraded_reason = degraded_reason
 
     def capability_token(self) -> tuple[Any, ...]:
         try:
@@ -585,6 +587,20 @@ class PythonInputProvider(inputlib.InputBackend):
                 ("input.keyboard", "os.keyboard"),
             )
         }
+        if self.degraded_reason:
+            # A fallback is shown, never hidden, as capture shows its own.
+            for name in ("input.pointer", "input.keyboard"):
+                value = values[name]
+                values[name] = _capability(
+                    name,
+                    CapabilityState.DEGRADED
+                    if value.state is CapabilityState.SUPPORTED
+                    else value.state,
+                    backend=value.backend,
+                    scope=value.scope,
+                    reason_code=value.reason_code or ErrorCode.BACKEND_UNAVAILABLE,
+                    limitations=tuple(value.limitations) + (self.degraded_reason,),
+                )
         values.update(_clipboard_capabilities("linux.wl-clipboard"))
         return values
 

@@ -8,6 +8,7 @@ are deterministic fakes; clipboard behavior remains in Python until Task 5.4.
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -72,9 +73,45 @@ class NativeInputSelectionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.cfg = load_config(str(ROOT / "config.example.toml"))
 
-    def test_the_shipped_and_implicit_default_remain_python(self) -> None:
-        self.assertEqual(self.cfg.native.input, "python")
-        self.assertEqual(NativeSpec().input, "python")
+    def test_the_shipped_and_implicit_default_is_auto_since_gate_5(self) -> None:
+        self.assertEqual(self.cfg.native.input, "auto")
+        self.assertEqual(NativeSpec().input, "auto")
+
+    def test_auto_prefers_the_helper_and_falls_back_visibly(self) -> None:
+        object.__setattr__(self.cfg.native, "input", "auto")
+        with mock.patch(
+            "pcbridge.desktop.backends.rust.native_binary_ready",
+            return_value=(True, ""),
+        ):
+            self.assertIsInstance(select_input_provider(self.cfg, FakeGate()), RustInputProvider)
+
+        with mock.patch(
+            "pcbridge.desktop.backends.rust.native_binary_ready",
+            return_value=(False, "pcbridge-native bulunamadi"),
+        ), mock.patch(
+            "pcbridge.desktop.backends.rust.RustInputProvider",
+            side_effect=AssertionError("a missing helper must not build the Rust provider"),
+        ):
+            provider = select_input_provider(self.cfg, FakeGate())
+        self.assertIsInstance(provider, PythonInputProvider)
+        with mock.patch.object(
+            PythonInputProvider, "_availability", return_value=(True, "", None)
+        ):
+            capabilities = provider.probe_capabilities()
+        for name in ("input.keyboard", "input.pointer"):
+            with self.subTest(capability=name):
+                self.assertIs(capabilities[name].state, CapabilityState.DEGRADED)
+                self.assertIn("pcbridge-native bulunamadi", " ".join(capabilities[name].limitations))
+
+    def test_an_unknown_input_setting_is_refused_at_load(self) -> None:
+        text = (ROOT / "config.example.toml").read_text(encoding="utf-8")
+        self.assertIn('input = "auto"', text)
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "config.toml"
+            path.write_text(text.replace('input = "auto"', 'input = "native"'), encoding="utf-8")
+            with self.assertRaises(SystemExit) as raised:
+                load_config(str(path))
+        self.assertIn("python, rust ya da auto", str(raised.exception))
 
     def test_each_explicit_setting_builds_the_provider_it_names(self) -> None:
         object.__setattr__(self.cfg.native, "input", "python")
@@ -89,10 +126,14 @@ class NativeInputSelectionTests(unittest.TestCase):
                 select_input_provider(self.cfg, FakeGate()), RustInputProvider
             )
 
-    def test_default_selection_never_constructs_or_starts_native_input(self) -> None:
+    def test_the_python_setting_never_constructs_or_starts_native_input(self) -> None:
+        object.__setattr__(self.cfg.native, "input", "python")
         with mock.patch(
             "pcbridge.desktop.backends.rust.RustInputProvider",
-            side_effect=AssertionError("default input selection reached Rust"),
+            side_effect=AssertionError("the python setting reached Rust"),
+        ), mock.patch(
+            "pcbridge.desktop.backends.rust.native_binary_ready",
+            side_effect=AssertionError("the python setting looked for the helper"),
         ):
             self.assertIsInstance(
                 select_input_provider(self.cfg, FakeGate()), PythonInputProvider

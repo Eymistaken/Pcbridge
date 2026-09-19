@@ -455,6 +455,25 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   kapıyı atlayan doğrudan çağrı da `SCREEN_LOCKED`; hiç PNG yok. Kilit
   açılınca oturum kendiliğinden açılmıyor. Açık kusur: Python tarafındaki
   `is_open()` bunu görmüyor ve `True` kalıyor.
+- **Native girdi gerçek masaüstünde ölçüldü (Gate 5, 2026-09-19).**
+  `tests/live/test_input_parity.py`, kullanıcı başındayken 8/8. İki monitörde 8
+  hedefte fare sapması 0 px. Türkçe metin birebir, pano geri geliyor. Revoke'ta
+  basılı tuş 67 ms, düğme 33 ms içinde, süre dolunca 95 ms içinde bırakılıyor.
+  Hold zamanlayıcısı 5,0 sn'de bırakıyor. Bu yüzden `[native] input` varsayılanı
+  `auto`; geri almak için `input = "python"`. Bilinen fark: native yolda klavye
+  ve fare ayrı ayrı 1,2 sn bekliyor (Python ikisini tek beklemede açıyordu).
+- **Geri yüklemeden sonra `wl-copy` metin takma adlarını BAŞA koyuyor**
+  (`UTF8_STRING, STRING, TEXT, text/plain;charset=utf-8, ...`, ölçüldü
+  2026-09-19). `wl-paste` bu takma adları da metin sayıyor ve `--no-newline`
+  verilmezse sona satır sonu ekliyor. Pano içeriği bu yüzden her tipte
+  `--no-newline` ile okunuyor. Önceden ikinci yazma kullanıcının panosuna
+  fazladan bir satır sonu koyuyordu.
+- **GTK4 test penceresinde `Gtk.EventControllerLegacy` kullanma.** PyGObject o
+  sinyalin `GdkEvent`'ini `None` olarak veriyor (GTK 4.14, ölçüldü
+  2026-09-19). İşleyicideki istisnayı GTK yutuyor, yani pencere hiçbir girdi
+  almamış gibi görünüyor. `EventControllerMotion`, `GestureDrag`,
+  `EventControllerKey` ve `EventControllerScroll` düz değer taşıyor; pencere
+  stderr'i de mutlaka saklanmalı.
 - **Native yardımcı tek bir izne bağlı ve yeniden bağlanmıyor; her
   `desktop_unlock` yeni bir `grant_id` yazıyor.** Ölçüldü 2026-09-19,
   paketlenmiş yardımcı, gerçek Mutter: izin açıkken ikinci bir `desktop_unlock`

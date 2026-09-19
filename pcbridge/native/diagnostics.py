@@ -151,17 +151,33 @@ def diagnose(
     package_root: Path = PACKAGE_ROOT,
 ) -> list[Finding]:
     environment = os.environ if environ is None else environ
-    selected = cfg.native.capture
+    capture = cfg.native.capture
+    typing = cfg.native.input
+    # The helper is needed as much as the strictest of the two settings says.
+    selected = (
+        "rust" if "rust" in (capture, typing)
+        else "auto" if "auto" in (capture, typing)
+        else "python"
+    )
     findings = [
         Finding(
             "info",
-            f"[native] capture = {selected}"
+            f"[native] capture = {capture}"
             + {
-                "python": " (varsayilan: kareyi Python yardimcisi aliyor)",
+                "python": " (kareyi Python yardimcisi aliyor)",
                 "rust": " (native yardimci ZORUNLU)",
-                "auto": " (varsa native, yoksa Python)",
-            }.get(selected, ""),
-        )
+                "auto": " (varsayilan: varsa native, yoksa Python)",
+            }.get(capture, ""),
+        ),
+        Finding(
+            "info",
+            f"[native] input = {typing}"
+            + {
+                "python": " (klavye, fare ve pano Python yolunda)",
+                "rust": " (native yardimci ZORUNLU)",
+                "auto": " (varsayilan: varsa native, yoksa Python)",
+            }.get(typing, ""),
+        ),
     ]
 
     try:
@@ -256,7 +272,8 @@ def diagnose(
     if selected == "python":
         findings.append(Finding(
             "info",
-            'yardimci hazir ama kullanilmiyor; secmek icin [native] capture = "auto" ya da "rust"',
+            "yardimci hazir ama kullanilmiyor; secmek icin [native] capture ve "
+            'input icin "auto" ya da "rust"',
         ))
     findings.append(_legacy_note())
     return findings

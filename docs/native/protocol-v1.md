@@ -10,8 +10,9 @@ Executable Linux'ta monitör tablosunu okur (Task 3.1), Mutter ScreenCast +
 PipeWire üzerinden tek monitör karesi alır (Task 3.3) ve seçildiğinde uinput
 klavye (Task 5.2) ve pointer (Task 5.3) olaylarını üretir; erişilebilirlik
 henüz native değil. Task 4.3'ten beri varsayılan capture backend'i `auto`
-(paketlenmiş yardımcı varsa native). Input varsayılanı Task 5.4 gate'ine
-kadar `python`; `rust` yalnızca açık seçimle etkinleşir. Native process
+(paketlenmiş yardımcı varsa native). Input varsayılanı Gate 5'ten beri
+(2026-09-19) `auto`: paketlenmiş yardımcı varsa klavye, fare ve pano
+programları native, yoksa Python yolu (görünür şekilde). Native process
 grant/revoke lifecycle'ına ek olarak GNOME session D-Bus üzerinden ekran
 kilidini ve kullanıcı etkinliğini typed observation olarak izler; sonraki
 backend'ler aynı fail-closed güvenlik sınırını kullanır.

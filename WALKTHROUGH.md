@@ -10,14 +10,15 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Task 5.4. Kullanıcı 2026-09-19'da "kısa bir kontrol et sonra
-  devam edelim" dedi.
+- **Aktif adım:** yok. Task 5.4 tamamlandı (2026-09-19), sonraki task için
+  kullanıcı onayı bekleniyor.
 - **Son tamamlanan adım:** Codex'in 5.2/5.3 işinin kontrolü. Bulunan hata
   düzeltildi: izin değişince native helper eski izinde kalıyordu ve bu,
   varsayılan capture yolunu da etkiliyordu. Ayrıntı: Adım 5 → "Codex'in 5.2/5.3
   işinin kontrolü".
-- **Sıradaki uygulanabilir adım:** Task 5.4 / 5 — `[native] input` varsayılanı.
-  5.4 / 0–4 bitti, **Gate 5 geçti** (2026-09-19).
+- **Sıradaki uygulanabilir adım:** Faz 6 / Task 6.1 — element target
+  bütünlüğü. Task 5.4 bitti, **Gate 5 geçti** (2026-09-19) ve `[native] input`
+  varsayılanı `auto` oldu. Kural gereği 6.1 kullanıcı onayını bekliyor.
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 4 geçti** (2026-09-13). Varsayılan artık
   `[native] capture = "auto"`. Servis 2026-09-13'te yeniden başlatıldı. stdio
@@ -63,7 +64,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `tamamlandı` (3.1–3.5 ✅, **Gate 3 geçti**) |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
-| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.3 ✅; sırada 5.4) |
+| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅, **Gate 5 geçti**; sırada 6.1) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
@@ -1598,7 +1599,7 @@ gerçekler).
 
 **Rollback:** Bu commit'i geri almak yeter. Yeni ayar yok, dosya biçimi değişmedi.
 
-### Task 5.4 — Text/clipboard adapter'ı ve input default gate · `devam ediyor`
+### Task 5.4 — Text/clipboard adapter'ı ve input default gate · `tamamlandı`
 
 **Başlangıç (2026-09-19, kullanıcı onaylı).** PLAN.md 5.4 küçük commit'lere
 bölündü:
@@ -1610,7 +1611,7 @@ bölündü:
 | 2 | Rust'ta aynı `wl-copy`/`wl-paste` programlarını yöneten adapter; wl-copy boru tuzağı; tek MIME sınırı capability'de | `tamamlandı` |
 | 3 | `[native] input = "rust"` seçilince pano native adapter'dan. `type_text` orkestrasyonu Python'da kalır: pano → native `ctrl+v` → geri yükleme | `tamamlandı` |
 | 4 | Gerçek girdi testleri, kullanıcı başındayken: Türkçe metin, değiştirici tuşlar, move→doğrulama→click, drag, süre dolumu/revoke, ≤1 px sapma | `tamamlandı` — 8/8, **Gate 5 geçti** |
-| 5 | Gate 5 kararı. Geçerse `[native] input` varsayılanı değişir | bekliyor |
+| 5 | Gate 5 kararı. Geçerse `[native] input` varsayılanı değişir | `tamamlandı` — varsayılan `auto` |
 
 Kod okurken bulunan: `[native] input = "rust"` seçildiğinde `type_text` zaten
 native `ctrl+v` gönderiyor. `RustInputProvider` `key()`'i eziyor,
@@ -1903,6 +1904,66 @@ hareket gelmemişse, kanıt sayılıyor. Bu üç testte tuş gönderilmedi.
 | Release/revoke | Koşum 4: revoke 67/33 ms, süre dolumu 95 ms, hold 5,0 sn |
 
 Gate 5 geçti. Sıradaki karar 5.4 / 5: `[native] input` varsayılanı.
+
+#### 5 — Varsayılan: `[native] input = "auto"` · `tamamlandı`
+
+**Neden şimdi.** PLAN 5.4 madde 8: "Keyboard ve pointer birlikte parity
+sağlamadan `native.input=auto` default yapma." Parity Gate 5 ile sağlandı.
+Capture'daki gibi (Task 4.3) seçim `auto`: paketlenmiş yardımcı varsa native,
+yoksa Python.
+
+**Ne yapıldı.**
+
+- `config.py` / `config.example.toml`: `input` artık `python | rust | auto`,
+  varsayılanı `auto`. Örnek config'teki yorum ölçümleri ve geri almayı
+  anlatıyor.
+- `runtime.select_input_provider`: `auto` + yardımcı var → `RustInputProvider`.
+  Yardımcı yoksa `PythonInputProvider(degraded_reason=...)`. Geri düşüş
+  gizlenmiyor: `input.keyboard` ve `input.pointer` `degraded` durumuna geçiyor,
+  gerekçesi `limitations`'da. Capture'ın geri düşüşü de aynı biçimde. `rust`
+  hiç geri düşmüyor. `python` yardımcıya bakmıyor bile.
+- `doctor.sh` (native tanısı): artık iki ayarı da yazıyor. Eksik yardımcının
+  ciddiyeti ikisinin en katısına göre: biri `rust` ise `fail`, biri `auto` ise
+  `warn`.
+- Belgeler: `KULLANIM.md`, `CLAUDE.md` (ölçülmüş gerçekler: native girdi
+  ölçümleri, `wl-copy` takma ad sırası, GTK4 legacy denetleyici tuzağı),
+  `docs/native/protocol-v1.md`, `backends/rust.py` modül notu.
+
+**Güvenlik kontrolü: varsayılan değişince hiçbir test gerçek aygıt açmıyor.**
+Örnek config'le kurulan runtime'lar artık bu makinede native'i seçiyor. Bu
+yüzden bütün Python takımları `strace -e openat,ioctl,write -P /dev/uinput`
+altında koşuldu. Sonuç: 4 `openat`, **0 `ioctl`, 0 `write`**. O 4 açılış
+`InputBackend.available()`'ın eskiden beri yaptığı izin yoklaması: `O_WRONLY`
+açıp hemen kapatıyor, aygıt oluşturmuyor. Her sistem çağrısı listelendi, yalnızca
+aç/kapat var. Varsayılan config'le runtime kuran testler hiçbir girdi aracı
+çağırmıyor; çağıranlar sahte sağlayıcı kullanıyor.
+
+**Testler.** Varsayılanı sabitleyen iki test bilerek güncellendi. Sözleşme
+değişti, test gizlenmedi: "sevkiyat varsayılanı `auto`"; "`python` seçimi
+native'e ve yardımcı aramasına hiç dokunmuyor". Yeni testler: `auto`'nun
+yardımcıyı seçmesi ve eksikse görünür şekilde düşmesi, bilinmeyen değerin
+yüklemede reddi, tanıda `input` ayarının da sayılması. `test_native_client.py`
+örnek config'te `input = "python"` satırını değiştiriyordu. Satır artık
+olmadığı için değiştirme sessizce hiçbir şey yapmadı ve test kafa karıştırıcı
+bir eşitsizlikle düştü. Artık değiştirilecek her satırın var olduğu
+doğrulanıyor. Sonuçlar: contract **271** (+3), integration **18** (1 atlandı),
+`test_desktop.py` **583**, `test_models.py` **106**, `test_test_safety.py` OK,
+`--check` 0.
+
+**Bilinen fark.** Native yolda klavye ve fare ayrı ayrı 1,2 sn bekliyor, yani
+ikisi birden ilk açılırken 2,4 sn. Python ikisini tek beklemede açıyordu
+(ölçülmüş 1,41 sn). İzin başına ilk eylemde ~1 sn fazladan bekleme demek.
+İleride birleşik bir `input.ensure` IPC'si ile kapatılabilir; planlanmadı.
+
+**Yayılım ve geri alma.** Değişiklik yalnızca yeni başlayan süreçlerde geçerli.
+Servis ve stdio istemcileri yeniden başlatılınca native girdiye geçer (Kullanıcıyı
+bekleyenler #5 ile aynı yol). `system_capabilities` → `input.keyboard` backend
+`linux.uinput.native`. Geri almak için `[native]` altına `input = "python"`
+yazılır ve aynı yeniden başlatmalar yapılır. Önce `desktop_lock`, böylece basılı
+girdi bırakılır.
+
+**Rollback:** Commit'i geri almak yeter. Kod, `rust` ve `python` seçimlerini
+aynen koruyor.
 
 ## Adım 6 — İmleç katmanı
 

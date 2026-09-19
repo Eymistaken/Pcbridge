@@ -209,10 +209,10 @@ class NativeSpec:
     """
 
     capture: str = "auto"
-    # Input stays on Python until the full gate (5.4). `rust` is an explicit
-    # selection: keyboard, pointer and clipboard programs in the native helper,
-    # the typing orchestration in Python.
-    input: str = "python"
+    # `auto` since Gate 5 (2026-09-19): keyboard, pointer and clipboard
+    # programs in the native helper when it is packaged, Python otherwise,
+    # visibly. `rust` forbids the fallback, `python` keeps the old path.
+    input: str = "auto"
     binary_path: Path | None = None
 
 
@@ -675,11 +675,11 @@ def load_config(explicit: str | None = None) -> Config:
             f"[native] ({path}): `capture` ({native_capture!r}) "
             "python, rust ya da auto olmali."
         )
-    native_input = str(native_raw.get("input", "python")).strip().lower()
-    if native_input not in ("python", "rust"):
+    native_input = str(native_raw.get("input", "auto")).strip().lower()
+    if native_input not in ("python", "rust", "auto"):
         raise SystemExit(
             f"[native] ({path}): `input` ({native_input!r}) "
-            "python ya da rust olmali."
+            "python, rust ya da auto olmali."
         )
     native_binary = str(native_raw.get("binary_path", "")).strip()
     native = NativeSpec(

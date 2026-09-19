@@ -22,8 +22,9 @@ KEYBOARD, POINTER AND CLIPBOARD
     pointer coordinates go to the helper; shot and monitor identities never
     cross that boundary. The clipboard programs run in the helper too
     (`NativeClipboard`), but the typing orchestration -- save, put, paste,
-    restore -- stays in `InputBackend._type_clipboard`. The shipped default
-    remains Python until the final input gate is complete.
+    restore -- stays in `InputBackend._type_clipboard`. Since Gate 5
+    (2026-09-19) the shipped default is `auto`: this provider whenever the
+    helper is packaged, the Python one otherwise, and the fallback is shown.
 
 THE SHARING INDICATOR APPEARS WITH THE GRANT
     On the Python path the screen share opens at `desktop_unlock`, so GNOME's

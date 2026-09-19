@@ -593,10 +593,12 @@ bunu gizlemez: `system_capabilities` durumu `degraded` gösterir, `screen_captur
 sonucu da "Native yakalama kullanılamadı" satırını taşır. İki yolda da ekran
 paylaşımı `desktop_unlock` ile açılır ve izin kapanınca kapanır.
 
-Klavye, fare ve pano için native yola geçiş seçeneği `[native] input = "rust"`.
-Varsayılan hâlâ `python`, yani mevcut kurulumun davranışı değişmez. `rust`
-seçilince klavye ve fare olaylarını, pano programlarını da (`wl-paste`,
-`wl-copy`) native yardımcı çalıştırır. Metin yazmanın sırası (panoyu yedekle →
+Klavye, fare ve pano da varsayılan olarak native yardımcıdan gider
+(`[native] input = "auto"`, 2026-09-19'dan beri). Yardımcı yoksa pcbridge Python
+yoluna düşer ve bunu gizlemez: `system_capabilities` klavye ve fareyi `degraded`
+olarak ve gerekçesiyle gösterir. `rust` yardımcıyı zorunlu kılar; `python` eski
+yola döner, geri almanın yolu da budur. Native yolda klavye ve fare olaylarını,
+pano programlarını da (`wl-paste`, `wl-copy`) native yardımcı çalıştırır. Metin yazmanın sırası (panoyu yedekle →
 metni koy → Ctrl+V → eski içeriği geri yükle) Python'da kalır. Pano geri
 yüklenirken yalnızca ilk içerik tipi korunur. Örneğin hem biçimli hem düz metin
 sunan bir kopya düz metin olmadan geri gelir. `system_capabilities` bunu

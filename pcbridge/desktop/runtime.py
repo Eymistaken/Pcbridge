@@ -440,12 +440,30 @@ def select_capture_provider(cfg: Config, gate: GrantProvider) -> CaptureProvider
 
 
 def select_input_provider(cfg: Config, gate: GrantProvider) -> InputProvider:
-    """Choose input injection once; `rust` moves the clipboard programs too (5.4)."""
-    if cfg.native.input == "python":
-        return PythonInputProvider(cfg)
-    from .backends.rust import RustInputProvider
+    """Choose input injection once, the way capture is chosen.
 
-    return RustInputProvider(cfg, gate=gate)
+    `auto`, the default since Gate 5, takes the native helper when it is
+    packaged and otherwise the Python provider -- visibly: the keyboard and
+    pointer capabilities come back degraded with the reason. `rust` never
+    falls back; `python` never reaches for the helper.
+    """
+    choice = cfg.native.input
+    if choice == "python":
+        return PythonInputProvider(cfg)
+    from .backends.rust import RustInputProvider, native_binary_ready
+
+    if choice == "rust":
+        return RustInputProvider(cfg, gate=gate)
+    ready, reason = native_binary_ready(cfg)
+    if ready:
+        return RustInputProvider(cfg, gate=gate)
+    return PythonInputProvider(
+        cfg,
+        degraded_reason=(
+            "Native input yardimcisi kullanilamiyor, Python yolu seciliyor: "
+            + (reason or "yardimci bulunamadi")
+        ),
+    )
 
 
 def create_runtime(

@@ -81,14 +81,18 @@ class NativeDiagnostics(unittest.TestCase):
         self.binary.chmod(0o755)
         self.cfg = load_config(str(ROOT / "config.example.toml"))
 
-    def config(self, capture: str, binary: Path | None):
-        return replace(self.cfg, native=NativeSpec(capture=capture, binary_path=binary))
+    def config(self, capture: str, binary: Path | None, typing: str | None = None):
+        # One selection for both unless a test sets input on its own.
+        return replace(
+            self.cfg,
+            native=NativeSpec(capture=capture, input=typing or capture, binary_path=binary),
+        )
 
-    def run_diagnose(self, capture="auto", binary="present", **kwargs):
+    def run_diagnose(self, capture="auto", binary="present", typing=None, **kwargs):
         runner = kwargs.pop("runner", FakeRunner())
         probe = kwargs.pop("probe", lambda _path: SUPPORTED)
         return diagnostics.diagnose(
-            self.config(capture, self.binary if binary == "present" else None),
+            self.config(capture, self.binary if binary == "present" else None, typing),
             environ={},
             run=runner,
             probe=probe,
@@ -107,6 +111,16 @@ class NativeDiagnostics(unittest.TestCase):
                 self.assertEqual([f.level for f in missing], [level])
                 self.assertIn("scripts/build-native.sh", missing[0].message)
                 self.assertIn("python3-gi", findings[-1].message, "legacy GI note last")
+
+    def test_the_input_setting_needs_the_helper_as_much_as_capture(self) -> None:
+        """Since Gate 5 input is `auto` too: a missing helper is not just info."""
+        for typing, level in (("python", "info"), ("auto", "warn"), ("rust", "fail")):
+            with self.subTest(input=typing):
+                findings = self.run_diagnose("python", binary=None, typing=typing)
+                missing = [f for f in findings if "native yardimci yok" in f.message]
+                self.assertEqual([f.level for f in missing], [level])
+                infos = " | ".join(self.levels(findings, "info"))
+                self.assertIn(f"[native] input = {typing}", infos)
 
     def test_a_healthy_release_build_raises_nothing(self) -> None:
         findings = self.run_diagnose("auto")

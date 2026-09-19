@@ -123,15 +123,22 @@ default_agent = "claude"
 # sure dolumu) kaybolur. Olcum ve parite: docs/native/verification-linux.md.
 capture = "auto"
 
-# Input injection backend'i. Varsayilan bilincli olarak Python: tam input
-# gate'i (Gate 5, gercek girdi olcumleri) gecmeden input native yola gecmez.
+# Klavye, fare ve pano hangi yoldan gitsin. Gate 5 gectikten sonra
+# (2026-09-19, gercek masaustunde 8/8: iki monitorde 0 px sapma, Turkce metin
+# birebir, basili girdi revoke'ta 67 ms'de birakildi) varsayilan `auto`.
 #
-#   "python"  VARSAYILAN: mevcut Python evdev klavye, pointer ve wl-clipboard yolu.
-#   "rust"    acik test secimi: klavye, pointer ve pano programlari (wl-paste,
-#             wl-copy) native yardimcida; metin yazmanin sirasi (yedekle ->
-#             koy -> Ctrl+V -> geri yukle) Python'da. Yardimci yoksa sessiz
-#             fallback yapmaz, cagri hata verir.
-input = "python"
+#   "auto"    VARSAYILAN: paketlenmis yardimci varsa native, yoksa Python yolu.
+#             Geri dusus gizlenmez: system_capabilities input.keyboard ve
+#             input.pointer'i `degraded` + gerekceyle gosterir.
+#   "rust"    native zorunlu: yardimci yoksa sessiz fallback yok, cagri hata
+#             verir.
+#   "python"  eski yol: Python evdev klavye/fare ve wl-clipboard. Geri almak
+#             icin bu satiri yazip pcbridge'i yeniden baslatmak yeter.
+#
+# Her iki yolda da metin yazmanin sirasi (panoyu yedekle -> metni koy ->
+# Ctrl+V -> geri yukle) Python'da; native yolda wl-paste/wl-copy yardimcida
+# calisir.
+input = "auto"
 
 # pcbridge-native icin istege bagli mutlak yol. PCBRIDGE_NATIVE_BIN ortam
 # degiskeni onceliklidir. Bos deger paketlenmis executable yolunu kullanir.
