@@ -10,18 +10,19 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Gate 6.
-- **Son tamamlanan adım:** Task 6.4 (2026-09-19). Pencere öne alma tek sırada
+- **Aktif adım:** Faz 7 — Task 7.1 (mixed scale ve koordinat güvenliği).
+- **Son tamamlanan adım:** **Gate 6 geçti** (2026-09-20). Task 6.4 (2026-09-19). Pencere öne alma tek sırada
   toplandı: eklenti → zaten öndeyse tuş yok → kapalıysa tuşsuz başlatma →
   arama yedeği. Aramaya yalnızca kurulu uygulama adı yazılıyor, sonuç
   uygulamanın kimliğiyle doğrulanıyor. Başlatılan uygulama kendi systemd
   kapsamında. Ayrıntı: Adım 5 → Task 6.4.
-- **Sıradaki uygulanabilir adım:** Gate 6, sonra Faz 7.
+- **Sıradaki uygulanabilir adım:** Task 7.1.
 - **Blocker:** Yok
-- **Son doğrulanan gate:** **Gate 5 geçti** (2026-09-19), `[native] input`
-  varsayılanı `auto`. Gate 4 2026-09-13'te geçti. stdio istemcileri, uygulama
+- **Son doğrulanan gate:** **Gate 6 geçti** (2026-09-20): erişilebilirlik
+  okuma, eylem ve pencere işlemleri gerçek masaüstünde doğrulandı. Gate 5
+  2026-09-19'da, Gate 4 2026-09-13'te geçti. stdio istemcileri, uygulama
   kapatılıp açılınca yeni koda geçer (#5).
-- **Native migration içindeki sıradaki task:** **Gate 6**
+- **Native migration içindeki sıradaki task:** 7.1 → 7.2 → 7.3 → 7.4, sonra Faz 8 (**Gate 7**)
 - **Kullanıcıyla yapılan kontroller (2026-09-13):** #1, #3, #4 yapıldı; #5'in
   servis tarafı yapıldı; #2 (GitHub) kullanıcının kararıyla bekliyor. Ayrıntı:
   Adım 4 → "Kullanıcıyla yapılan kontroller".
@@ -90,7 +91,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 2 | `window_focus` hızlı yolu (6701,3 ms → **5,2 ms**, gerçek oturum) | `tamamlandı` |
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `tamamlandı` (3.1–3.5 ✅, **Gate 3 geçti**) |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
-| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅, **Gate 5 geçti**; 6.1–6.4 ✅; sırada Gate 6) |
+| 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅ **Gate 5**; 6.1–6.4 ✅ **Gate 6**; sırada Faz 7) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
@@ -2584,6 +2585,49 @@ başlatıldı. HTTP + statik token ile `system_capabilities`: `window.focus`
 `apps.focus()` ve imzası değişmedi.
 
 **Sıradaki:** Gate 6.
+
+### Gate 6 — Accessibility parity · `geçti` (2026-09-20)
+
+Kanıtların çoğu 6.1–6.3'te üretilmişti, ama 6.4 aynı katmana dokundu. Bu
+yüzden kapı **güncel ağaçla** yeniden koşuldu.
+
+| Gerekli kanıt (`PLAN.md` E) | Nerede |
+|---|---|
+| Target identity | Task 6.1: hedef, uygulamanın veriyolu adı + öğenin nesne yolu. Task 6.3: eylem yalnızca yardımcının kendi dökümündeki düğüme gidiyor, başka yardımcınınki `ELEMENT_STALE` |
+| Stable IDs | Task 6.1 ölçümü (GTK4'te araya düğüm eklenince nesne yolları korunuyor, yeniden yaratılan öğe yeni yol alıyor); Task 6.3 döküm kaydı (son 8 döküm, kimliği yardımcı veriyor) |
+| Native action | Task 6.3: `DoAction`/`SetTextContents` bir kez gönderiliyor ve cevabı denetleniyor; devre dışı düğme `ACTION_UNSUPPORTED`, kırpılan metin `TEXT_MISMATCH` |
+| Unicode text | Task 6.3: Türkçe metin (23 karakter) birebir geri okundu; bu koşumda yeniden |
+| Gerçek read/action testi | Bu gece, güncel ağaçla: `test_accessibility_parity.py` **20/20**, `test_window_operations.py` **9** (+4 tasarım gereği atlandı) |
+
+**Bu koşumun ölçümleri** (kendi test penceresi, paketlenmiş yardımcı, izin
+geçici durum dizininde):
+
+| Ölçüm | Python | Native |
+|---|---|---|
+| Döküm (medyan, n=16/12) | 135,8 ms | **25,8 ms** |
+| Tıklama | 54,6 ms | **11,7 ms** |
+| Metin yazma | 48,0 ms | **7,0 ms** |
+| Pencere listesi | 121,1 ms | **6,6 ms** |
+| gnome-shell dökümü | 3559 ms | 2241 ms |
+| Kapalı uygulamayı açıp öne alma (6.4) | 937 ms | **399 ms** |
+| Zaten öndeki hedef (6.4) | 146 ms | **31 ms** |
+
+**Kapı başarısızsa ne olurdu:** "Python accessibility korunur". Bu yol fiilen
+denendi: `[native] accessibility` `python` iken sağlayıcı
+`PythonAccessibilityProvider` (`linux.atspi`), `auto` ve `rust` iken
+`RustAccessibilityProvider` (`linux.atspi.native`). Yani geri alma tek satır.
+
+**Açık kalan, kapıyı engellemeyen iki şey:**
+- İzin, hedef bulunduktan sonra eylemden hemen önce bir kez daha
+  doğrulanıyor; bu aralığa deterministik girilemediği için mutasyon testiyle
+  sınanamadı (Task 6.3).
+- Aramanın doğrulamasında başlık kanıtı, süreci hiçbir kurulu uygulamaya
+  ait olmayan pencereler için geçerli. AT-SPI adı kendi `.desktop` girdisine
+  benzemeyen bir tarayıcı bu boşluktan geçebilir; bu makinenin varsayılan
+  tarayıcısı (`google-chrome`) geçmiyor (Task 6.4).
+
+**Sıradaki:** Faz 7 — mixed scale ve koordinat güvenliği (7.1), XDG portal
+capture backend'i (7.2), buffered (7.3), adaptive (7.4).
 
 ## Adım 6 — İmleç katmanı
 
