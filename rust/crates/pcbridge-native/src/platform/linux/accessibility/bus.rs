@@ -5,23 +5,29 @@
 //! method calls, the ones libatspi itself makes, so no GI, no GTK and no GLib
 //! main loop is involved.
 //!
-//! A hung application must not hold a request: every call has a short
-//! timeout, and the walk has a deadline of its own on top.
+//! A hung application must not hold a request: every read has a short
+//! timeout, and the walk has a deadline of its own on top. The two calls
+//! that act (`DoAction`, `SetTextContents`) get longer: GTK4 runs a
+//! button's handler before it answers, and a slow handler must not be
+//! mistaken for a lost call more often than it has to.
 
 use std::collections::HashMap;
 use std::future::Future;
+use std::io::ErrorKind;
 use std::pin::Pin;
 use std::sync::Mutex;
 use std::task::Poll;
 use std::time::Duration;
 
+use async_io::Timer;
+use futures_lite::FutureExt;
 use futures_lite::future::{self, poll_fn};
 use serde::de::DeserializeOwned;
 use zbus::connection::Builder;
 use zbus::zvariant::{DynamicType, OwnedObjectPath, OwnedValue, Type};
 use zbus::{Connection, Message};
 
-use super::{AccessibilityError, NodeInfo, ObjectRef, States, Tree, role_name};
+use super::{AccessibilityError, CallError, NodeInfo, ObjectRef, States, Tree, role_name};
 
 const A11Y_BUS: &str = "org.a11y.Bus";
 const A11Y_BUS_PATH: &str = "/org/a11y/bus";
@@ -29,13 +35,21 @@ const REGISTRY: &str = "org.a11y.atspi.Registry";
 const DESKTOP_ROOT: &str = "/org/a11y/atspi/accessible/root";
 const ACCESSIBLE: &str = "org.a11y.atspi.Accessible";
 const ACTION: &str = "org.a11y.atspi.Action";
+const EDITABLE_TEXT: &str = "org.a11y.atspi.EditableText";
+const TEXT: &str = "org.a11y.atspi.Text";
 const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
+/// The bus's own answer when the application left before replying.
+const NO_REPLY: &str = "org.freedesktop.DBus.Error.NoReply";
 /// AT-SPI's null reference: a child slot with no object behind it.
 const NULL_PATH: &str = "/org/a11y/atspi/null";
 
 /// One call to one application. libatspi waits longer, but a dump reads
 /// hundreds of nodes and one frozen application must not eat the deadline.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(2);
+/// One call that acts. Past this the call is reported as possibly done
+/// (`EXECUTION_UNKNOWN`) and never sent again. The host waits 20 s for the
+/// whole request: resolving, this call and reading the text back.
+pub const ACTION_TIMEOUT: Duration = Duration::from_secs(5);
 /// Calls in flight at once. Enough to hide the round trips, few enough not
 /// to flood the application being read.
 const CONCURRENCY: usize = 32;
@@ -101,9 +115,11 @@ impl AtspiBus {
                 .await
                 .map_err(unavailable)?;
             let address: String = reply.body().deserialize().map_err(unavailable)?;
+            // Every call is bounded by its own timer (`call`); this is only
+            // the outer bound for a call that forgot one.
             let connection = Builder::address(address.as_str())
                 .map_err(unavailable)?
-                .method_timeout(CALL_TIMEOUT)
+                .method_timeout(ACTION_TIMEOUT)
                 .build()
                 .await
                 .map_err(unavailable)?;
@@ -114,8 +130,8 @@ impl AtspiBus {
         })
     }
 
-    /// One method call. The body is owned so a batch of calls can be built
-    /// in a closure and awaited later.
+    /// One read. The body is owned so a batch of calls can be built in a
+    /// closure and awaited later.
     async fn call<T, B>(
         &self,
         node: &ObjectRef,
@@ -127,17 +143,59 @@ impl AtspiBus {
         T: DeserializeOwned + Type,
         B: serde::Serialize + DynamicType,
     {
-        let reply: Message = self
-            .connection
-            .call_method(
-                Some(node.bus.as_str()),
-                node.path.as_str(),
-                Some(interface),
-                method,
-                &body,
-            )
-            .await?;
-        reply.body().deserialize()
+        self.timed(node, interface, method, body, CALL_TIMEOUT)
+            .await
+    }
+
+    /// One call, given up after `timeout`: zbus's own timeout, per call.
+    async fn timed<T, B>(
+        &self,
+        node: &ObjectRef,
+        interface: &str,
+        method: &str,
+        body: B,
+        timeout: Duration,
+    ) -> Result<T, zbus::Error>
+    where
+        T: DeserializeOwned + Type,
+        B: serde::Serialize + DynamicType,
+    {
+        let call = async {
+            let reply: Message = self
+                .connection
+                .call_method(
+                    Some(node.bus.as_str()),
+                    node.path.as_str(),
+                    Some(interface),
+                    method,
+                    &body,
+                )
+                .await?;
+            reply.body().deserialize()
+        };
+        call.or(async {
+            Timer::after(timeout).await;
+            Err(zbus::Error::InputOutput(
+                std::io::Error::new(ErrorKind::TimedOut, "timed out").into(),
+            ))
+        })
+        .await
+    }
+
+    /// A call that acts, and what its failure means for whether it happened.
+    fn act<T, B>(
+        &self,
+        node: &ObjectRef,
+        interface: &str,
+        method: &str,
+        body: B,
+    ) -> Result<T, CallError>
+    where
+        T: DeserializeOwned + Type,
+        B: serde::Serialize + DynamicType,
+    {
+        zbus::block_on(self.timed(node, interface, method, body, ACTION_TIMEOUT))
+            .map_err(call_error)
     }
 
     async fn property<T>(&self, node: &ObjectRef, interface: &str, name: &str) -> Option<T>
@@ -249,6 +307,27 @@ impl AtspiBus {
     }
 }
 
+/// Whether a failed call may have been carried out.
+///
+/// An error reply is the application's refusal, except `NoReply`, which the
+/// bus sends when the application left without answering. A timeout or a
+/// broken connection leaves it unknown.
+fn call_error(error: zbus::Error) -> CallError {
+    match error {
+        zbus::Error::MethodError(name, _, _) if name.as_str() == NO_REPLY => {
+            CallError::Lost(name.to_string())
+        }
+        zbus::Error::MethodError(name, message, _) => CallError::Refused(match message {
+            Some(message) if !message.is_empty() => format!("{name}: {message}"),
+            _ => name.to_string(),
+        }),
+        zbus::Error::InputOutput(error) if error.kind() == ErrorKind::TimedOut => {
+            CallError::Timeout
+        }
+        other => CallError::Lost(other.to_string()),
+    }
+}
+
 impl Tree for AtspiBus {
     fn applications(&self) -> Result<Vec<ObjectRef>, AccessibilityError> {
         let root = ObjectRef::new(REGISTRY, DESKTOP_ROOT);
@@ -281,20 +360,13 @@ impl Tree for AtspiBus {
         {
             return pid;
         }
-        let pid = zbus::block_on(async {
-            let reply = self
-                .connection
-                .call_method(
-                    Some("org.freedesktop.DBus"),
-                    "/org/freedesktop/DBus",
-                    Some("org.freedesktop.DBus"),
-                    "GetConnectionUnixProcessID",
-                    &(bus,),
-                )
-                .await
-                .ok()?;
-            reply.body().deserialize::<u32>().ok()
-        })
+        let daemon = ObjectRef::new("org.freedesktop.DBus", "/org/freedesktop/DBus");
+        let pid = zbus::block_on(self.call::<u32, _>(
+            &daemon,
+            "org.freedesktop.DBus",
+            "GetConnectionUnixProcessID",
+            (bus.to_owned(),),
+        ))
         .unwrap_or(0);
         if pid != 0
             && let Ok(mut pids) = self.pids.lock()
@@ -302,5 +374,32 @@ impl Tree for AtspiBus {
             pids.insert(bus.to_owned(), pid);
         }
         pid
+    }
+
+    fn interfaces(&self, node: &ObjectRef) -> Result<Vec<String>, CallError> {
+        zbus::block_on(self.call(node, ACCESSIBLE, "GetInterfaces", ())).map_err(call_error)
+    }
+
+    fn do_action(&self, node: &ObjectRef, index: i32) -> Result<bool, CallError> {
+        self.act(node, ACTION, "DoAction", (index,))
+    }
+
+    fn set_text_contents(&self, node: &ObjectRef, text: &str) -> Result<bool, CallError> {
+        self.act(node, EDITABLE_TEXT, "SetTextContents", (text.to_owned(),))
+    }
+
+    fn character_count(&self, node: &ObjectRef) -> Result<i32, CallError> {
+        zbus::block_on(async {
+            let value: OwnedValue = self
+                .call(node, PROPERTIES, "Get", (TEXT, "CharacterCount"))
+                .await
+                .map_err(call_error)?;
+            i32::try_from(value).map_err(|error| CallError::Refused(error.to_string()))
+        })
+    }
+
+    fn text(&self, node: &ObjectRef) -> Result<String, CallError> {
+        let count = self.character_count(node)?;
+        zbus::block_on(self.call(node, TEXT, "GetText", (0i32, count.max(0)))).map_err(call_error)
     }
 }

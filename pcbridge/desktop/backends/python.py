@@ -136,6 +136,7 @@ def _accessibility_error(
     default: ErrorCode,
     category: ErrorCategory,
     retryable: bool,
+    backend: str = "linux.atspi",
 ) -> DesktopError:
     code = exc.code or default
     if code in _REFRESH_CODES:
@@ -143,7 +144,7 @@ def _accessibility_error(
             exc,
             code=code,
             category=ErrorCategory.ACCESSIBILITY,
-            backend="linux.atspi",
+            backend=backend,
             retryable=True,
             suggested_action=(
                 "Hedefi yeniden belirleyin: ui_dump ile listeyi yenileyin ya da "
@@ -155,7 +156,7 @@ def _accessibility_error(
             exc,
             code=code,
             category=ErrorCategory.EXECUTION,
-            backend="linux.atspi",
+            backend=backend,
             retryable=True,
             suggested_action="Uygulama donmuş olabilir; screen_capture ile bakın.",
         )
@@ -168,7 +169,7 @@ def _accessibility_error(
             category=ErrorCategory.EXECUTION,
             retryable=False,
             suggested_action="Tekrarlamadan önce ui_dump ya da screen_capture ile sonuca bakın.",
-            backend="linux.atspi",
+            backend=backend,
             execution_state="unknown",
         )
     if code is ErrorCode.ACTION_UNSUPPORTED:
@@ -176,15 +177,28 @@ def _accessibility_error(
             exc,
             code=code,
             category=ErrorCategory.ACCESSIBILITY,
-            backend="linux.atspi",
+            backend=backend,
             retryable=False,
             suggested_action="Bu öğe bu eylemi sunmuyor; ekran görüntüsüyle bakıp başka bir yol seçin.",
+        )
+    if code is ErrorCode.TEXT_MISMATCH:
+        # The field was written: repeating the same text changes nothing.
+        return _desktop_error(
+            exc,
+            code=code,
+            category=ErrorCategory.ACCESSIBILITY,
+            backend=backend,
+            retryable=False,
+            suggested_action=(
+                "Alan metni olduğu gibi almadı; ui_dump ile bakın, gerekirse "
+                "alanın kabul ettiği bir metin deneyin."
+            ),
         )
     return _desktop_error(
         exc,
         code=code,
         category=category,
-        backend="linux.atspi",
+        backend=backend,
         retryable=retryable,
         suggested_action="Erişilebilirlik ağacını yenileyip tekrar deneyin.",
     )

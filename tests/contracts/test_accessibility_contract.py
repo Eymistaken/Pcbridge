@@ -82,16 +82,25 @@ class _Action:
         return self.node.spec["actions"][index]
 
     def do_action(self, index: int) -> bool:
+        # GTK4 answers false for an insensitive widget and does nothing.
+        if self.node.spec.get("refuses_actions"):
+            return False
         self.node.desktop.performed.append([self.node.path, self.get_action_name(index)])
         return True
 
 
 class _Text:
-    def __init__(self, node: "_Node") -> None:
-        self.node = node
+    """`Atspi.Text`: its methods take the node, as GI's interface methods do."""
 
-    def get_character_count(self) -> int:
-        return len(self.node.text)
+    @staticmethod
+    def get_character_count(node: "_Node") -> int:
+        return len(node.text)
+
+    @staticmethod
+    def get_text(node: "_Node", start: int, end: int) -> str:
+        # GTK4 answers an end of -1 with "" (measured 2026-09-19); so does
+        # this fake, so no reader can lean on it.
+        return node.text[start:end] if end >= 0 else ""
 
 
 class _EditableText:
@@ -104,16 +113,23 @@ class _EditableText:
             self.node.desktop.performed.append(entry)
 
     def delete_text(self, start: int, end: int) -> bool:
+        if self.node.spec.get("read_only"):
+            return False
         self._touch()
         self.node.text = self.node.text[:start] + self.node.text[end:]
         return True
 
     def insert_text(self, position: int, text: str, length: int) -> bool:
+        if self.node.spec.get("read_only"):
+            return False
         # The GI binding takes the length in BYTES (measured 2026-08-02): a
         # character count cuts Turkish text short, and so does this fake.
         self._touch()
         piece = text.encode("utf-8")[:length].decode("utf-8", "ignore")
         self.node.text = self.node.text[:position] + piece + self.node.text[position:]
+        limit = self.node.spec.get("max_chars")
+        if limit is not None:
+            self.node.text = self.node.text[:limit]
         return True
 
 
@@ -148,8 +164,19 @@ class _Node:
     def get_action_iface(self) -> _Action | None:
         return _Action(self) if self.spec.get("actions") else None
 
-    def get_text_iface(self) -> _Text | None:
-        return _Text(self) if "text" in self.spec else None
+    def get_text_iface(self) -> "_Node | None":
+        # GI returns the node itself, not a separate object (measured
+        # 2026-09-19), so the Text methods are the node's.
+        return self if "text" in self.spec else None
+
+    def get_character_count(self) -> int:
+        return _Text.get_character_count(self)
+
+    def get_text(self) -> "_Node | None":
+        # `Atspi.Accessible.get_text()`: no arguments, returns the Text
+        # interface. Called as `ti.get_text(0, n)` it raises TypeError, as
+        # the real one does.
+        return self.get_text_iface()
 
     def get_editable_text_iface(self) -> _EditableText | None:
         return _EditableText(self) if self.spec.get("editable_text") else None
@@ -183,6 +210,7 @@ class _Desktop:
 
 class FakeAtspi:
     StateType = _StateType()
+    Text = _Text
 
     def __init__(self) -> None:
         self.desktop: _Desktop | None = None
@@ -282,15 +310,15 @@ class HelperActionTests(_FakeDesktopCase):
                 expect = case["expect"]
                 self.assertEqual(got["ok"], expect["ok"], got.get("error"))
                 self.assertEqual(desktop.performed, expect["performed"])
+                for ref, text in expect.get("text_after", {}).items():
+                    self.assertEqual(self.text_of(ref), text)
                 if not expect["ok"]:
                     self.assertEqual(got.get("code"), expect["code"], got.get("error"))
                     continue
-                for key in ("resolved_by", "replaced_chars", "now_chars"):
+                for key in ("resolved_by", "replaced_chars", "now_chars", "verified"):
                     if key in expect:
                         self.assertEqual(got[key], expect[key], key)
                 self.assertEqual(got["ref"], case["act"]["ref"])
-                for ref, text in expect.get("text_after", {}).items():
-                    self.assertEqual(self.text_of(ref), text)
 
     def test_duplicate_object_paths_are_never_guessed(self) -> None:
         # A toolkit that hands two nodes the same path gives no identity: the

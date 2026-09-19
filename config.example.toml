@@ -140,11 +140,11 @@ capture = "auto"
 # calisir.
 input = "auto"
 
-# Erisilebilirlik agacini (ui_dump, window_list, odaktaki pencere) kim okusun.
-# Task 6.2'den beri native yardimci da okuyabiliyor: GI ve GTK yok, AT-SPI'a
-# dogrudan D-Bus ile gider; ayni fixture'da Python yardimcisiyla ayni listeyi
-# veriyor. ui_click / ui_set_text Task 6.3'e kadar iki secenekte de Python
-# yardimcisindan gider.
+# Erisilebilirlik agacini (ui_dump, window_list, odaktaki pencere) kim okusun
+# ve ui_click / ui_set_text'i kim yapsin. Native yardimci ikisini de yapiyor
+# (Task 6.2, 6.3): GI ve GTK yok, AT-SPI'a dogrudan D-Bus ile gider; ayni
+# fixture'da Python yardimcisiyla ayni listeyi, ayni hatalari veriyor. Eylem,
+# dokumu yapan yardimciya gider.
 #
 #   "python"  VARSAYILAN (Gate 6'ya kadar): sistem python3'unde calisan
 #             atspi_helper.py.

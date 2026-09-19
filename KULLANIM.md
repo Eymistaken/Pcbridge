@@ -525,7 +525,7 @@ ya da bir işin bittiğini fark etmek için.
 | `screen_capture` | Ekran görüntüsü alır (sessiz — flaş/ses yok): görüntünün kendisi, uzaktan bağlıysan ayrıca 5 dakikalık bağlantı |
 | `ui_dump` | Ekrandaki düğme/menü/kutuları metin olarak listeler |
 | `ui_click` | Listedeki bir öğeye tıklar (koordinat kullanmadan; **imleç kıpırdamaz**, tıklama uygulamaya doğrudan gider). Öğe kaybolmuş ya da değişmişse reddeder |
-| `ui_set_text` | Metin kutusunu doğrudan doldurur (klavye taklidi yok) |
+| `ui_set_text` | Metin kutusunu doğrudan doldurur (klavye taklidi yok) ve yazılanı geri okuyup doğrular |
 | `computer_batch` | Bir eylem listesini tek onayda sırayla çalıştırır |
 | `window_list` | Açık pencereler, odaktaki işaretli |
 | `window_focus` | Masaüstünün sahiplenmesi gereken bir uygulamayı öne getirir, kapalıysa açar |
@@ -582,6 +582,15 @@ yolu). Şu durumlarda hiçbir şeye basılmaz ve yeni bir `ui_dump` istenir:
 | Öğe duruyor ama adı ya da rolü değişti ("Takip et" → "Takibi bırak") | `TARGET_MISMATCH` |
 | Kimlik listede birden fazla öğeye uyuyor | `ELEMENT_AMBIGUOUS` |
 
+Uygulamanın kendi cevabı da denetleniyor (2026-09-19, GTK4 test penceresinde
+ölçüldü):
+
+| Durum | Hata kodu |
+|---|---|
+| Düğme devre dışı; uygulama "yapmadım" diyor. Eskiden bu "tıklandı" diye bildiriliyordu | `ACTION_UNSUPPORTED` |
+| Alan metni olduğu gibi tutmadı (ör. en fazla 5 karakter alan bir kutu). Alan değişti; hata mesajında yalnızca karakter sayıları var, metin yok | `TEXT_MISMATCH` |
+| Eylem gönderildi ama uygulama cevap vermedi; yapılmış da olabilir. **Tekrarlanmaz**, önce bakılır | `EXECUTION_UNKNOWN` |
+
 Arayüze araya öğe eklendiyse (yeni sekme gibi) aynı öğe yeni yerinde bulunur ve
 tıklanır. Eskiden bulunamayan öğe **adıyla** aranıyor ve ilk eşleşmeye
 basılıyordu. pcbridge'in GTK4 test penceresinde üç "Kapat" düğmesi ölçüldü
@@ -626,12 +635,14 @@ seçiminde yardımcı ya da `/dev/uinput` kullanılamıyorsa sessizce Python'a
 düşülmez. Değişiklik yeni pcbridge süreçlerinde geçerli olur.
 
 Erişilebilirlik ağacını (`ui_dump`, `window_list`) native yardımcı da
-okuyabiliyor (2026-09-19). AT-SPI'a doğrudan D-Bus ile gidiyor, GI ya da GTK
-kullanmıyor. pcbridge'in test penceresinde döküm ~15 ms sürdü; Python
-yardımcısıyla ~105 ms idi. İki yol aynı fixture'da ve gerçek pencerede aynı
-listeyi, aynı kimliklerle veriyor. Varsayılan şimdilik `[native] accessibility =
-"python"`; `auto` Gate 6'dan sonra gelecek. `ui_click` ve `ui_set_text` şimdilik
-her iki seçimde de Python yardımcısından gidiyor.
+okuyabiliyor, `ui_click` ve `ui_set_text`'i de yapabiliyor (2026-09-19).
+AT-SPI'a doğrudan D-Bus ile gidiyor, GI ya da GTK kullanmıyor. pcbridge'in test
+penceresinde döküm ~17–32 ms sürdü (Python yardımcısıyla ~84–137 ms), tıklama 13
+ms (52 ms), metin yazma 5 ms (50 ms). İki yol aynı fixture'da ve gerçek
+pencerede aynı listeyi, aynı kimlikleri ve aynı hataları veriyor. Native
+yardımcı yalnızca kendi yaptığı dökümdeki öğeye dokunur: izin yenilendiyse
+(yeni `desktop_unlock`) eski listeyle eylem reddedilir, yeni `ui_dump` istenir.
+Varsayılan şimdilik `[native] accessibility = "python"`.
 
 `computer_task`'in ikinci satırda ayrı durmasının sebebi ölçülmüş bir gerçek:
 **pcbridge'in gönderdiği tuş, "kullanıcı makinede mi" sayacını sıfırlıyor**

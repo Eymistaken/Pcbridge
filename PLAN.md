@@ -458,13 +458,15 @@ Kodlar mesaj metninden türetilmeyecek.
 | `capability` | `UNSUPPORTED`, `BACKEND_UNAVAILABLE`, `DEPENDENCY_MISSING` |
 | `capture` | `FRAME_TIMEOUT`, `STALE_FRAME`, `FRAME_FORMAT_UNSUPPORTED`, `FRAME_TOO_LARGE`, `DISPLAY_CHANGED`, `DISPLAY_MAPPING_UNKNOWN`, `IMAGE_DELIVERY_FAILED` |
 | `coordinate` | `SHOT_NOT_FOUND`, `SHOT_INVALID`, `SHOT_STALE`, `AMBIGUOUS_COORDINATE` |
-| `accessibility` | `TARGET_MISMATCH`, `ELEMENT_STALE`, `ELEMENT_AMBIGUOUS`, `ACTION_UNSUPPORTED` |
+| `accessibility` | `TARGET_MISMATCH`, `ELEMENT_STALE`, `ELEMENT_AMBIGUOUS`, `ACTION_UNSUPPORTED`, `TEXT_MISMATCH` |
 | `execution` | `TIMEOUT`, `CANCELLED`, `EXECUTION_UNKNOWN`, `BUSY` |
 | `ipc` | `NATIVE_NOT_FOUND`, `PROTOCOL_MISMATCH`, `NATIVE_CRASHED`, `INVALID_FRAME` |
 
 Her hata `code`, `message`, `category`, `retryable`, `suggested_action` taşıyacak. Gerektiğinde `permission_scope`, `backend`, `execution_state` eklenecek.
 
 `retryable=true`, otomatik yeniden execution izni değildir.
+
+(2026-09-19 düzeltmesi, Task 6.3: `accessibility` kategorisine `TEXT_MISMATCH` eklendi. Gerekçe: GTK4'te en fazla 5 karakter tutan bir alana yazınca uygulama "başarılı" cevap verip 5 karakter tutuyor (ölçüldü), yani yazılan metin geri okunup karşılaştırılıyor. Alan değişti ama istenen metni tutmuyor. Mevcut kodlardan hiçbiri bunu söylemiyordu: `TARGET_MISMATCH` hedefin değiştiğini söyler ve yeni `ui_dump` önerir (hedef değişmedi), `ACTION_UNSUPPORTED` hiçbir şey yapılmadığını ima eder (alan yazıldı), `EXECUTION_UNKNOWN` sonucun bilinmediğini söyler (biliniyor). Python yardımcısı bu durumu önce kodsuz bildiriyordu ve sağlayıcı onu `TARGET_MISMATCH` sayıyordu.)
 
 (2026-09-13 düzeltmesi, Task 3.5: `capture` kategorisine `IMAGE_DELIVERY_FAILED` eklendi. Gerekçe: Task 3.5 capture başarısı ile görüntünün istemciye bütün olarak ulaşmasını ayırıyor; yayımlanmış bir çekimin PNG'si okunamadığında ya da boyutu kaydıyla uyuşmadığında bu bir frame hatası değil, ama başarı da değil. Mevcut kodlardan biri seçilseydi ya yanlış katmanı (`INVALID_FRAME`, IPC) ya da hiçbir şey söylemeyen `EXECUTION_UNKNOWN`'u işaret ederdi.)
 
@@ -1405,8 +1407,8 @@ PipeWire frame tüketimi ve stream lifecycle için implementation sırasında bu
 **Yapılmayacak:** Window enumeration’ı bütün GNOME pencerelerini görüyormuş gibi sunmak; action migration’ı aynı commit’e katmak.
 
 **Not (2026-09-19, uygulandı):**
-- 6\. madde (native referansları snapshot bazında saklamak) Task 6.3'e taşındı. Okuma istekleri içeri referans taşımıyor. Referansı kabul edecek ilk istek eylem olacak ve sakladığı döküme o yazacak.
-- Snapshot kimliği iki okuyucuda da Python'da (`uitree.dump_from_response`) üretiliyor.
+- 6\. madde (native referansları snapshot bazında saklamak) Task 6.3'e taşındı. Okuma istekleri içeri referans taşımıyor. Referansı kabul edecek ilk istek eylem olacak ve sakladığı döküme o yazacak. (Task 6.3'te uygulandı; oradaki nota bakın.)
+- Snapshot kimliği iki okuyucuda da Python'da (`uitree.dump_from_response`) üretiliyor. (Task 6.3'ten beri native dökümün snapshot'ını helper veriyor: eylem o dökümü bu kimlikle anıyor.)
 - İzin yokken pencere listesi Python yardımcısından okunuyor, çünkü native yardımcı yalnızca bir izne bağlı yaşıyor. `screen_info` izinden önce pencereleri gösteriyor.
 
 ## Task 6.3 — Rust accessibility actions ve parity
@@ -1435,6 +1437,21 @@ PipeWire frame tüketimi ve stream lifecycle için implementation sırasında bu
 **Rollback:** Python accessibility provider; eldeki native element registry geçersizleştirilir ve yeni `ui_dump` istenir.
 
 **Yapılmayacak:** Native action başarısız olunca gizli coordinate click.
+
+**Not (2026-09-19, uygulandı):**
+- **Gerçek test penceresinde ölçülenler (GTK4 4.14).** Bunlar tasarımı belirledi:
+  - Devre dışı bir düğmede `DoAction` `false` döndü, hiçbir şey tıklanmadı.
+  - En fazla 5 karakter tutan alana `SetTextContents` `true` döndü ve 5 karakter tuttu.
+  - `InsertText(0, "ğüş", 2)` girdi alanına üç harfin üçünü de yazdı: GTK4'ün girdi alanı uzunluğu hiç kullanmıyor.
+  - `GetText(0, -1)` boş metin döndü.
+
+  Bu yüzden 3. madde `SetTextContents` ile uygulandı: bütün metin değişiyor, uzunluk parametresi yok. 2. ve 4. madde de uygulamanın cevabına güvenmiyor. `false` bir hatadır (`ACTION_UNSUPPORTED`). Yazılan metin `CharacterCount` + `GetText(0, sayı)` ile geri okunup bütünüyle karşılaştırılıyor. Aynı değilse yeni `TEXT_MISMATCH` dönüyor (taxonomy düzeltmesi yukarıda).
+- **Python yardımcısı da aynı kurallara geçirildi.** İki yardımcı ortak fixture'da aynı cevabı ve aynı mesajı vermeli. Python yardımcısı da `DoAction`'ın `false` cevabını hata sayıyor ve metni geri okuyor. Canlı testte ölçüldü: PyGObject'te `get_text_iface()` düğümün kendisini döndürüyor, `ti.get_text(0, n)` ise `Atspi.Accessible.get_text()` olup TypeError veriyor. Doğru çağrı `Atspi.Text.get_text(düğüm, 0, n)`. Sahte AT-SPI bunu gizlemişti; artık GI gibi davranıyor.
+- **6. madde (6.2'den taşınan referans kaydı) uygulandı.** Helper son 8 dökümünün kaydını tutuyor ve her dökümü kendi `snapshot` kimliğiyle döndürüyor. Eylem yalnızca snapshot + nesne yolu taşıyor; kimliğin geri kalanını helper kendi kaydından alıyor. Başka helper'ın (başka süreç ya da yeni izin) dökümü reddediliyor. Rollback satırındaki "registry geçersizleştirilir" böylece kendiliğinden sağlanıyor.
+- **Kimlik veriyolu adı + nesne yolu.** D-Bus'ta bu çift tek bir nesnedir. Aramada aynı nesneyle ikinci kez karşılaşmak ikinci aday bulmak değildir. Python yardımcısı yalnızca yolu karşılaştırıyor ve iki kez gördüğü yolu reddediyor; uygulamanın kendi veriyolundaki her düğümde ikisi aynı sonucu veriyor. Belirsiz kalan tek durum aynı yolun aynı dökümde iki ayrı veriyolunda görünmesi (`ELEMENT_AMBIGUOUS`).
+- **Zaman aşımları.** `DoAction` ve `SetTextContents` 5 sn bekliyor, okumalar 2 sn. Hedef 8 sn içinde bulunamazsa `TIMEOUT`, hiçbir şey gönderilmemiş. Gönderilip cevaplanmayan çağrı `EXECUTION_UNKNOWN`: tekrarlanmıyor. Python tarafında isteğin kendi zaman aşımı ve helper'ın çökmesi de aynı kodu alıyor.
+- **Ölçümler (canlı, test penceresi, release helper).** Tıklama native 13 ms, Python 52 ms. Metin yazma native 5 ms, Python 50 ms. Döküm native 17–32 ms, Python 84–137 ms. Helper eylem sırasında `/dev/uinput` açmıyor (sürecin `/proc/<pid>/fd` listesiyle doğrulandı).
+- **Doğrulanamayan tek kontrol:** izin, hedef bulunduktan sonra eylemden hemen önce bir kez daha doğrulanıyor. Bu aralığa deterministik olarak girilemediği için kontrol mutasyon testiyle sınanmadı.
 
 AT-SPI API ve interface ayrıntıları için resmi referans: [AT-SPI documentation](https://gnome.pages.gitlab.gnome.org/at-spi2-core/libatspi/).
 

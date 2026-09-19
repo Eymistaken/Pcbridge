@@ -255,11 +255,12 @@ pub fn accessibility_bus_owned() -> Result<bool, String> {
     name_owned(ACCESSIBILITY_BUS)
 }
 
-/// The `accessibility.read` and `window.list` entries of a `capabilities`
-/// response. The Python provider reports the window list as degraded for the
-/// same reason: an application that publishes no tree has no window here.
+/// The `accessibility.read`, `window.list` and `accessibility.action`
+/// entries of a `capabilities` response. The Python provider reports the
+/// window list as degraded for the same reason: an application that
+/// publishes no tree has no window here.
 #[must_use]
-pub fn accessibility(owned: &Result<bool, String>) -> [Value; 2] {
+pub fn accessibility(owned: &Result<bool, String>) -> [Value; 3] {
     let reason = match owned {
         Ok(true) => None,
         Ok(false) => Some(format!(
@@ -280,8 +281,13 @@ pub fn accessibility(owned: &Result<bool, String>) -> [Value; 2] {
                 "permission_scope": "os.accessibility",
                 "limitations": [WINDOW_LIST_LIMITATION],
             }),
+            json!({
+                "name": "accessibility.action",
+                "status": "supported",
+                "permission_scope": "os.accessibility",
+            }),
         ],
-        Some(reason) => ["accessibility.read", "window.list"].map(|name| {
+        Some(reason) => ["accessibility.read", "window.list", "accessibility.action"].map(|name| {
             json!({
                 "name": name,
                 "status": "unavailable",

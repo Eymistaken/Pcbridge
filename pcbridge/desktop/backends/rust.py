@@ -1117,32 +1117,42 @@ class RustInputProvider(PythonInputProvider):
 RustKeyboardInputProvider = RustInputProvider
 
 
-#: The helper gives up on a dump after 15 s; the request waits longer, so the
-#: helper's TIMEOUT arrives with its reason instead of a bare IPC timeout.
+#: The helper gives up on a dump after 15 s, and on finding an action's
+#: target after 8 s plus 5 s for the call itself; the request waits longer,
+#: so the helper's TIMEOUT arrives with its reason instead of a bare IPC
+#: timeout. An action whose request runs out may have happened
+#: (`EXECUTION_UNKNOWN`) and is never sent again.
 ACCESSIBILITY_TIMEOUT_SECONDS = 20.0
 ACCESSIBILITY_BACKEND = "linux.atspi.native"
 
-# The helper's own verdicts about a target. They reach the caller with the
-# same wording and advice as the Python helper's.
+# The helper's own verdicts. They reach the caller with the same wording and
+# advice as the Python helper's.
 _ACCESSIBILITY_CODES = frozenset({
     ErrorCode.ELEMENT_STALE,
     ErrorCode.ELEMENT_AMBIGUOUS,
     ErrorCode.TARGET_MISMATCH,
     ErrorCode.TIMEOUT,
+    ErrorCode.ACTION_UNSUPPORTED,
+    ErrorCode.TEXT_MISMATCH,
+    ErrorCode.EXECUTION_UNKNOWN,
 })
 
 
 class RustAccessibilityProvider(PythonAccessibilityProvider):
-    """Accessibility reads through the grant-bound native helper (Task 6.2).
+    """Accessibility through the grant-bound native helper (Tasks 6.2, 6.3).
 
     The dump, the window list and the focused window come from the helper,
     which reads AT-SPI over D-Bus with no GI and no GTK. Everything after the
-    read stays in `uitree`: short ids, the snapshot, the last-dump registry
-    and the text shown to the model -- one copy for both readers.
+    read stays in `uitree`: short ids, the last-dump registry and the text
+    shown to the model -- one copy for both readers.
 
-    Actions (`click`, `set_text`) still go through the Python helper until
-    Task 6.3. They carry the element's own identity, the bus name and object
-    path, which means the same thing to either reader.
+    Actions (`click`, `set_text`) go to the same helper. `uitree` still turns
+    the short id into a node of the last dump and the password rule still
+    runs first (`PythonAccessibilityProvider.set_text`); the helper is then
+    told only which of its own dumps (the snapshot it returned) and which
+    node, and acts on the identity it recorded itself. A dump from another
+    helper -- another process, or this one before a new grant -- is unknown
+    there and refused with ELEMENT_STALE: a new `ui_dump` fixes it.
 
     Without a grant there is no helper to ask. `screen_info` lists windows
     before `desktop_unlock`, so the window list and the focused window fall
@@ -1192,27 +1202,52 @@ class RustAccessibilityProvider(PythonAccessibilityProvider):
             )
         return str(token.grant_id), int(token.revoke_epoch)
 
-    def _request(self, method: str, grant: tuple[str, int], **params: Any) -> dict[str, Any]:
+    def _request(
+        self,
+        method: str,
+        grant: tuple[str, int],
+        params: dict[str, Any] | None = None,
+        *,
+        binary: bytes = b"",
+        acting: bool = False,
+    ) -> dict[str, Any]:
         grant_id, revoke_epoch = grant
         client = self._helper.for_grant(grant)
+        feature = "accessibility.action" if acting else "accessibility.read"
         try:
             response = client.request(
                 method,
-                {"grant_id": grant_id, "revoke_epoch": revoke_epoch, **params},
+                {"grant_id": grant_id, "revoke_epoch": revoke_epoch, **(params or {})},
+                binary=binary,
                 timeout=ACCESSIBILITY_TIMEOUT_SECONDS,
             )
         except DesktopError as exc:
-            if exc.code is ErrorCode.UNSUPPORTED and "accessibility.read" not in client.features:
+            if exc.code is ErrorCode.UNSUPPORTED and feature not in client.features:
                 raise DesktopError(
                     code=ErrorCode.BACKEND_UNAVAILABLE,
                     message=(
-                        "Native yardimci erisilebilirlik metotlarini tanimiyor (Task "
-                        "6.2 oncesi bir derleme). `scripts/build-native.sh` ile "
-                        "yeniden derleyin."
+                        "Native yardimci bu erisilebilirlik metodunu tanimiyor "
+                        f"({method}; eski bir derleme). `scripts/build-native.sh` "
+                        "ile yeniden derleyin."
                     ),
                     category=ErrorCategory.CAPABILITY,
                     retryable=False,
                     suggested_action="scripts/build-native.sh",
+                    backend=ACCESSIBILITY_BACKEND,
+                ) from exc
+            if acting and exc.execution_state == "unknown":
+                # Sent, and the helper never answered (timeout, crash, closed
+                # pipe): the action may have happened. Never sent again.
+                raise _accessibility_error(
+                    uitreelib.UiTreeError(
+                        "Native yardimci eyleme cevap vermedi; eylem yapilmis da "
+                        "olabilir, yapilmamis da. Tekrarlanmadi: once ui_dump ya "
+                        "da screen_capture ile sonuca bakin.",
+                        ErrorCode.EXECUTION_UNKNOWN,
+                    ),
+                    ErrorCode.EXECUTION_UNKNOWN,
+                    ErrorCategory.EXECUTION,
+                    False,
                     backend=ACCESSIBILITY_BACKEND,
                 ) from exc
             if exc.code in _ACCESSIBILITY_CODES:
@@ -1221,6 +1256,7 @@ class RustAccessibilityProvider(PythonAccessibilityProvider):
                     exc.code,
                     ErrorCategory.ACCESSIBILITY,
                     exc.retryable,
+                    backend=ACCESSIBILITY_BACKEND,
                 ) from exc
             raise
         result = getattr(response, "result", None)
@@ -1244,13 +1280,36 @@ class RustAccessibilityProvider(PythonAccessibilityProvider):
         result = self._request(
             "accessibility.dump",
             self._dump_grant(),
-            target=str(target),
-            interactive_only=bool(interactive_only),
-            max_nodes=int(max_nodes),
+            {
+                "target": str(target),
+                "interactive_only": bool(interactive_only),
+                "max_nodes": int(max_nodes),
+            },
         )
         dump = uitreelib.dump_from_response(result, backend=ACCESSIBILITY_BACKEND)
         self._last = dump
         return dump
+
+    def _act(self, payload: dict, fallback: str) -> dict:
+        """A click or a text write, sent to the helper that made the dump.
+
+        `UiTree.click` and `UiTree.set_text` resolved the short id and built
+        `payload`. Only the snapshot and the node's object path go on: the
+        helper checks them against its own record. The text rides in the
+        binary payload, never in the JSON header.
+        """
+        dump = self._last
+        assert dump is not None  # resolve() refuses before any dump
+        params: dict[str, Any] = {"snapshot": dump.snapshot, "ref": str(payload["ref"])}
+        if payload["cmd"] == "act":
+            method, binary = "accessibility.act", b""
+            params["action"] = str(payload.get("action") or "click")
+        else:
+            method = "accessibility.set_text"
+            binary = str(payload["text"]).encode("utf-8")
+        result = self._request(method, self._dump_grant(), params, binary=binary, acting=True)
+        result["snapshot"] = dump.snapshot
+        return result
 
     def focused_window(self) -> tuple[str, str]:
         grant = self._current_grant()
@@ -1279,11 +1338,10 @@ class RustAccessibilityProvider(PythonAccessibilityProvider):
         return ("rust-accessibility", ready, reason, super().capability_token())
 
     def probe_capabilities(self) -> dict[str, Capability]:
-        # `accessibility.action` stays the Python helper's until Task 6.3.
         values = super().probe_capabilities()
         ready, reason = native_binary_ready(self.cfg)
         if not ready:
-            for name in ("accessibility.read", "window.list"):
+            for name in ("accessibility.read", "window.list", "accessibility.action"):
                 values[name] = _capability(
                     name,
                     CapabilityState.UNAVAILABLE,
@@ -1293,12 +1351,13 @@ class RustAccessibilityProvider(PythonAccessibilityProvider):
                     limitations=(reason,) if reason else (),
                 )
             return values
-        values["accessibility.read"] = _capability(
-            "accessibility.read",
-            CapabilityState.SUPPORTED,
-            backend=ACCESSIBILITY_BACKEND,
-            scope="os.accessibility",
-        )
+        for name in ("accessibility.read", "accessibility.action"):
+            values[name] = _capability(
+                name,
+                CapabilityState.SUPPORTED,
+                backend=ACCESSIBILITY_BACKEND,
+                scope="os.accessibility",
+            )
         values["window.list"] = _capability(
             "window.list",
             CapabilityState.DEGRADED,

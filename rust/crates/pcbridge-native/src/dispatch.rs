@@ -1,6 +1,9 @@
+use std::collections::VecDeque;
+use std::collections::hash_map::RandomState;
+use std::hash::{BuildHasher, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use pcbridge_core::{
     ErrorBody, Frame, PROTOCOL_MAJOR, PROTOCOL_MINOR, ProtocolError, RequestHeader, ResponseHeader,
@@ -12,10 +15,13 @@ use serde_json::{Value, json};
 #[cfg(feature = "test-harness")]
 use crate::lifecycle::LeaseFailure;
 use crate::lifecycle::{FailClosed, Lifecycle, LifecycleFailure};
+use crate::platform::linux::accessibility::action::{self, Target};
 use crate::platform::linux::accessibility::bus::AtspiBus;
 #[cfg(feature = "test-harness")]
 use crate::platform::linux::accessibility::fixture::FixtureTree;
-use crate::platform::linux::accessibility::{self, AccessibilityError, DumpRequest, Tree};
+use crate::platform::linux::accessibility::{
+    self, AccessibilityError, DumpRecord, DumpRequest, NodeRecord, Tree,
+};
 use crate::platform::linux::capture::{CaptureError, NativeCapture, NativeCaptureError};
 use crate::platform::linux::clipboard::{self, Clipboard, ClipboardError, SystemPrograms};
 #[cfg(feature = "test-harness")]
@@ -83,6 +89,7 @@ impl BackendMode {
                 "input.pointer",
                 "clipboard",
                 "accessibility.read",
+                "accessibility.action",
             ],
             #[cfg(feature = "test-harness")]
             Self::DeterministicTest => vec![
@@ -92,6 +99,7 @@ impl BackendMode {
                 "input.pointer",
                 "clipboard",
                 "accessibility.read",
+                "accessibility.action",
             ],
         }
     }
@@ -102,7 +110,7 @@ impl BackendMode {
             // socket, never a session. This used to be a fixed `supported`,
             // true even where capture could not work.
             Self::Production { .. } => {
-                let [read, windows] =
+                let [read, windows, act] =
                     readiness::accessibility(&readiness::accessibility_bus_owned());
                 json!({
                     "backend": "linux.mutter.pipewire",
@@ -114,6 +122,7 @@ impl BackendMode {
                         readiness::clipboard("clipboard.write", "wl-copy"),
                         read,
                         windows,
+                        act,
                     ],
                 })
             }
@@ -214,7 +223,7 @@ enum PointerRequestError {
 enum AccessibilitySource {
     Bus(AtspiBus),
     #[cfg(feature = "test-harness")]
-    Fixture(FixtureTree),
+    Fixture(Box<FixtureTree>),
 }
 
 impl AccessibilitySource {
@@ -222,8 +231,73 @@ impl AccessibilitySource {
         match self {
             Self::Bus(bus) => bus,
             #[cfg(feature = "test-harness")]
-            Self::Fixture(fixture) => fixture,
+            Self::Fixture(fixture) => fixture.as_ref(),
         }
+    }
+}
+
+/// The dumps this helper made, newest last (Task 6.3).
+///
+/// An action names a dump by the snapshot id that dump returned, and a node
+/// by its object path. The helper acts only on what it listed itself: an id
+/// from another helper, another process or an older grant is unknown here.
+#[derive(Debug, Default)]
+struct DumpRegistry {
+    dumps: VecDeque<(String, DumpRecord)>,
+    /// Seeded from the operating system once per helper, so ids differ
+    /// between helpers and between runs.
+    random: RandomState,
+    issued: u64,
+}
+
+/// Dumps kept for actions. The host acts on its last dump; the few before
+/// it cover a dump that lands while an action on the previous one runs.
+const KEPT_DUMPS: usize = 8;
+
+impl DumpRegistry {
+    /// Keep `record` and return its snapshot id: 12 hex digits, the length
+    /// the Python reader's ids have.
+    fn insert(&mut self, record: DumpRecord) -> String {
+        let id = loop {
+            self.issued += 1;
+            let mut hasher = self.random.build_hasher();
+            hasher.write_u64(self.issued);
+            let id = format!("{:012x}", hasher.finish() & 0xffff_ffff_ffff);
+            if self.dumps.iter().all(|(known, _)| *known != id) {
+                break id;
+            }
+        };
+        self.dumps.push_back((id.clone(), record));
+        while self.dumps.len() > KEPT_DUMPS {
+            self.dumps.pop_front();
+        }
+        id
+    }
+
+    /// The dump and the node an action names.
+    fn node(
+        &self,
+        snapshot: &str,
+        reference: &str,
+    ) -> Result<(DumpRecord, NodeRecord), AccessibilityError> {
+        let Some((_, record)) = self.dumps.iter().find(|(id, _)| id == snapshot) else {
+            return Err(AccessibilityError {
+                code: "ELEMENT_STALE",
+                message: "Bu liste bu yardimcinin elinde yok (izin yenilenmis ya da yardimci \
+                          yeniden baslamis olabilir). Hicbir sey yapilmadi; ui_dump ile listeyi \
+                          yenileyin."
+                    .to_owned(),
+            });
+        };
+        let Some(node) = record.nodes.get(reference) else {
+            return Err(AccessibilityError {
+                code: "ELEMENT_STALE",
+                message: "Bu oge o listede yok. Hicbir sey yapilmadi; ui_dump ile listeyi \
+                          yenileyin."
+                    .to_owned(),
+            });
+        };
+        Ok((record.clone(), node.clone()))
     }
 }
 
@@ -247,6 +321,8 @@ pub struct Dispatcher {
     pointer: Option<(String, PointerConfig, Arc<dyn PointerService>)>,
     /// Connected by the first accessibility request, never at startup.
     accessibility: Option<AccessibilitySource>,
+    /// What the dumps listed, for the actions that name them.
+    accessibility_dumps: DumpRegistry,
     state_dir: Option<PathBuf>,
 }
 
@@ -263,6 +339,7 @@ impl Dispatcher {
             keyboard: None,
             pointer: None,
             accessibility: None,
+            accessibility_dumps: DumpRegistry::default(),
             state_dir: None,
         }
     }
@@ -316,9 +393,12 @@ impl Dispatcher {
             ));
         }
 
-        // `clipboard.write` is the one request that carries bytes: clipboard
-        // content does not fit, and must not be put, in a JSON header.
-        if !frame.binary.is_empty() && request.method != "clipboard.write" {
+        // Two requests carry bytes: clipboard content and the text for a
+        // field. Neither fits, and neither must be put, in a JSON header.
+        if !frame.binary.is_empty()
+            && request.method != "clipboard.write"
+            && request.method != "accessibility.set_text"
+        {
             return Ok(self.error(
                 request.id,
                 "UNEXPECTED_BINARY",
@@ -371,10 +451,16 @@ impl Dispatcher {
                     accessibility::focused(tree)
                 })
             }
+            "accessibility.act" => self.accessibility_act(request.id, request.params),
+            "accessibility.set_text" => {
+                self.accessibility_set_text(request.id, request.params, frame.binary)
+            }
             #[cfg(feature = "test-harness")]
             "test.accessibility_desktop" => {
                 self.test_accessibility_desktop(request.id, request.params)
             }
+            #[cfg(feature = "test-harness")]
+            "test.accessibility_performed" => self.test_accessibility_performed(request.id),
             "cancel" => match parse_cancel(request.params) {
                 Ok(target_id) => self.success(
                     request.id,
@@ -1191,7 +1277,7 @@ impl Dispatcher {
                 #[cfg(feature = "test-harness")]
                 BackendMode::DeterministicTest => {
                     let desktop = std::env::var("PCBRIDGE_TEST_A11Y_DESKTOP").unwrap_or_default();
-                    AccessibilitySource::Fixture(load_fixture_desktop(&desktop)?)
+                    AccessibilitySource::Fixture(Box::new(load_fixture_desktop(&desktop)?))
                 }
             };
             self.accessibility = Some(source);
@@ -1266,10 +1352,103 @@ impl Dispatcher {
             deadline_seconds: deadline_ms.div_ceil(1000),
         };
         let read = match self.accessibility_tree() {
-            Ok(tree) => accessibility::dump(tree, &request),
+            Ok(tree) => accessibility::read_dump(tree, &request),
             Err(error) => return self.typed_error(id, error),
         };
-        self.accessibility_reply(id, (&params.grant_id, params.revoke_epoch), read)
+        if let Err(failure) = self.validate_grant_token(&params.grant_id, params.revoke_epoch) {
+            return self.keyboard_lifecycle_error(id, failure);
+        }
+        match read {
+            Ok((mut dump, record)) => {
+                let snapshot = self.accessibility_dumps.insert(record);
+                dump["snapshot"] = Value::String(snapshot);
+                self.success(id, dump, None)
+            }
+            Err(error) => self.typed_error(id, accessibility_error_body(&error)),
+        }
+    }
+
+    /// The dumped node an action names, and the tree to act on. Nothing is
+    /// read from the application yet.
+    fn accessibility_target(
+        &mut self,
+        snapshot: &str,
+        reference: &str,
+    ) -> Result<(DumpRecord, NodeRecord), ErrorBody> {
+        let found = self
+            .accessibility_dumps
+            .node(snapshot, reference)
+            .map_err(|error| accessibility_error_body(&error))?;
+        self.accessibility_tree()?;
+        Ok(found)
+    }
+
+    fn connected_tree(&self) -> &dyn Tree {
+        self.accessibility
+            .as_ref()
+            .expect("accessibility source is connected before an action")
+            .tree()
+    }
+
+    /// Click: resolve, check the grant once more, then send the action once.
+    fn accessibility_act(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match self.accessibility_grant::<AccessibilityActParams>(&id, params) {
+            Ok(params) => params,
+            Err(outcome) => return *outcome,
+        };
+        let (record, node) = match self.accessibility_target(&params.snapshot, &params.reference) {
+            Ok(found) => found,
+            Err(error) => return self.typed_error(id, error),
+        };
+        let target = action_target(&record, &node);
+        let tree = self.connected_tree();
+        let prepared = match action::prepare_act(tree, &target, &params.action) {
+            Ok(prepared) => prepared,
+            Err(error) => return self.typed_error(id, accessibility_error_body(&error)),
+        };
+        // Resolving reads the application and takes time; a grant that ended
+        // meanwhile sends nothing.
+        if let Err(failure) = self.validate_grant_token(&params.grant_id, params.revoke_epoch) {
+            return self.keyboard_lifecycle_error(id, failure);
+        }
+        match action::perform_act(tree, prepared) {
+            Ok(result) => self.success(id, result, None),
+            Err(error) => self.typed_error(id, accessibility_error_body(&error)),
+        }
+    }
+
+    /// Replace a field's text, the text itself in the binary payload so it
+    /// never sits in a JSON header.
+    fn accessibility_set_text(
+        &mut self,
+        id: String,
+        params: Value,
+        data: Vec<u8>,
+    ) -> DispatchOutcome {
+        let params = match self.accessibility_grant::<AccessibilitySetTextParams>(&id, params) {
+            Ok(params) => params,
+            Err(outcome) => return *outcome,
+        };
+        let Ok(text) = String::from_utf8(data) else {
+            return self.error(id, "INVALID_PARAMS", "the text is not UTF-8", None);
+        };
+        let (record, node) = match self.accessibility_target(&params.snapshot, &params.reference) {
+            Ok(found) => found,
+            Err(error) => return self.typed_error(id, error),
+        };
+        let target = action_target(&record, &node);
+        let tree = self.connected_tree();
+        let prepared = match action::prepare_set_text(tree, &target) {
+            Ok(prepared) => prepared,
+            Err(error) => return self.typed_error(id, accessibility_error_body(&error)),
+        };
+        if let Err(failure) = self.validate_grant_token(&params.grant_id, params.revoke_epoch) {
+            return self.keyboard_lifecycle_error(id, failure);
+        }
+        match action::perform_set_text(tree, prepared, &text, action::TEXT_SETTLE) {
+            Ok(result) => self.success(id, result, None),
+            Err(error) => self.typed_error(id, accessibility_error_body(&error)),
+        }
     }
 
     fn accessibility_read(
@@ -1289,6 +1468,27 @@ impl Dispatcher {
         self.accessibility_reply(id, (&params.grant_id, params.revoke_epoch), result)
     }
 
+    /// Harness only: what the fixture desktop saw take effect, and every
+    /// text it holds now.
+    #[cfg(feature = "test-harness")]
+    fn test_accessibility_performed(&self, id: String) -> DispatchOutcome {
+        match &self.accessibility {
+            Some(AccessibilitySource::Fixture(tree)) => self.success(
+                id,
+                json!({
+                    "performed": tree
+                        .performed()
+                        .into_iter()
+                        .map(|(path, action)| json!([path, action]))
+                        .collect::<Vec<_>>(),
+                    "texts": tree.texts(),
+                }),
+                None,
+            ),
+            _ => self.error(id, "INVALID_PARAMS", "no fixture desktop is loaded", None),
+        }
+    }
+
     /// Harness only: read another fixture desktop from now on, the way an
     /// application changes its tree between a dump and an action.
     #[cfg(feature = "test-harness")]
@@ -1300,7 +1500,7 @@ impl Dispatcher {
             .to_owned();
         match load_fixture_desktop(&desktop) {
             Ok(tree) => {
-                self.accessibility = Some(AccessibilitySource::Fixture(tree));
+                self.accessibility = Some(AccessibilitySource::Fixture(Box::new(tree)));
                 self.success(id, json!({"desktop": desktop}), None)
             }
             Err(error) => self.typed_error(id, error),
@@ -2073,6 +2273,19 @@ struct PointerButtonParams {
 /// A dump gives up after this long unless the request asks for less; the
 /// host's own request timeout is longer, so the reason arrives as TIMEOUT.
 const DUMP_DEADLINE_MS: u64 = 15_000;
+/// Finding an action's target again gives up after this long, before
+/// anything is sent. With the call itself (`bus::ACTION_TIMEOUT`) and the
+/// text read back it stays under the host's 20 s.
+const RESOLVE_DEADLINE_MS: u64 = 8_000;
+
+fn action_target<'a>(record: &'a DumpRecord, node: &'a NodeRecord) -> Target<'a> {
+    Target {
+        record,
+        node,
+        deadline: Some(Instant::now() + Duration::from_millis(RESOLVE_DEADLINE_MS)),
+        deadline_seconds: RESOLVE_DEADLINE_MS / 1000,
+    }
+}
 const DUMP_DEADLINE_MS_MAX: u64 = 20_000;
 /// The largest list one dump may return (the walk visits 25 times more).
 const MAX_DUMP_NODES: u64 = 2_000;
@@ -2080,7 +2293,10 @@ const MAX_DUMP_NODES: u64 = 2_000;
 fn accessibility_error_body(error: &AccessibilityError) -> ErrorBody {
     let (category, retryable) = match error.code {
         "ELEMENT_STALE" | "ELEMENT_AMBIGUOUS" | "TARGET_MISMATCH" => ("accessibility", true),
+        "ACTION_UNSUPPORTED" | "TEXT_MISMATCH" => ("accessibility", false),
         "TIMEOUT" => ("execution", true),
+        // Sent and not answered: it may have happened, so it is not retried.
+        "EXECUTION_UNKNOWN" => ("execution", false),
         _ => ("capability", true),
     };
     ErrorBody {
@@ -2140,6 +2356,55 @@ struct AccessibilityDumpParams {
     /// 0 means the default.
     #[serde(default)]
     deadline_ms: u64,
+}
+
+fn default_action() -> String {
+    "click".to_owned()
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AccessibilityActParams {
+    grant_id: String,
+    revoke_epoch: u64,
+    /// The dump the node was listed in, as that dump returned it.
+    snapshot: String,
+    /// The node's object path, the `ref` of its dump entry.
+    #[serde(rename = "ref")]
+    reference: String,
+    #[serde(default = "default_action")]
+    action: String,
+}
+
+/// The text travels in the binary payload.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AccessibilitySetTextParams {
+    grant_id: String,
+    revoke_epoch: u64,
+    snapshot: String,
+    #[serde(rename = "ref")]
+    reference: String,
+}
+
+impl AccessibilityGrant for AccessibilityActParams {
+    fn grant_id(&self) -> &str {
+        &self.grant_id
+    }
+
+    fn revoke_epoch(&self) -> u64 {
+        self.revoke_epoch
+    }
+}
+
+impl AccessibilityGrant for AccessibilitySetTextParams {
+    fn grant_id(&self) -> &str {
+        &self.grant_id
+    }
+
+    fn revoke_epoch(&self) -> u64 {
+        self.revoke_epoch
+    }
 }
 
 impl AccessibilityGrant for AccessibilityGrantParams {
@@ -2380,6 +2645,61 @@ fn ping_result(params: Value) -> Value {
 mod tests {
     use super::*;
 
+    fn record(path: &str) -> DumpRecord {
+        let node = NodeRecord {
+            object: accessibility::ObjectRef::new(":1.30", path),
+            path: vec![0, 1],
+            role: "push button".to_owned(),
+            name: "Tamam".to_owned(),
+            shared: false,
+        };
+        DumpRecord {
+            app: "pcbridge-editor".to_owned(),
+            app_bus: ":1.30".to_owned(),
+            window: None,
+            nodes: std::iter::once((path.to_owned(), node)).collect(),
+        }
+    }
+
+    #[test]
+    fn actions_name_only_dumps_this_helper_made() {
+        let mut registry = DumpRegistry::default();
+        let first = registry.insert(record("/a"));
+        assert_eq!(first.len(), 12);
+        assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
+        let (_, node) = registry.node(&first, "/a").expect("its own dump");
+        assert_eq!(node.name, "Tamam");
+        // A node of another dump, an unknown id, an id of another helper.
+        assert_eq!(
+            registry.node(&first, "/b").unwrap_err().code,
+            "ELEMENT_STALE"
+        );
+        assert_eq!(
+            registry.node("000000000000", "/a").unwrap_err().code,
+            "ELEMENT_STALE"
+        );
+        let other = DumpRegistry::default().insert(record("/a"));
+        assert_ne!(other, first, "two helpers issue different ids");
+        assert_eq!(
+            registry.node(&other, "/a").unwrap_err().code,
+            "ELEMENT_STALE"
+        );
+    }
+
+    #[test]
+    fn only_the_last_dumps_are_kept() {
+        let mut registry = DumpRegistry::default();
+        let ids: Vec<String> = (0..=KEPT_DUMPS)
+            .map(|_| registry.insert(record("/a")))
+            .collect();
+        let unique: std::collections::HashSet<&String> = ids.iter().collect();
+        assert_eq!(unique.len(), ids.len());
+        assert!(registry.node(&ids[0], "/a").is_err(), "the oldest is gone");
+        for id in &ids[1..] {
+            assert!(registry.node(id, "/a").is_ok());
+        }
+    }
+
     #[test]
     fn production_mode_never_advertises_fake_backend() {
         let mode = BackendMode::production();
@@ -2394,7 +2714,8 @@ mod tests {
                 "input.keyboard",
                 "input.pointer",
                 "clipboard",
-                "accessibility.read"
+                "accessibility.read",
+                "accessibility.action"
             ]
         );
         let monitor = &capabilities["capabilities"][0];
@@ -2460,12 +2781,16 @@ mod tests {
             }
         }
         // Asked of the bus daemon only: no application tree is read.
-        for (index, name) in [(5, "accessibility.read"), (6, "window.list")] {
+        for (index, name) in [
+            (5, "accessibility.read"),
+            (6, "window.list"),
+            (7, "accessibility.action"),
+        ] {
             let entry = &capabilities["capabilities"][index];
             assert_eq!(entry["name"], name);
             assert_eq!(entry["permission_scope"], "os.accessibility");
             match entry["status"].as_str() {
-                Some("supported") => assert_eq!(name, "accessibility.read"),
+                Some("supported") => assert_ne!(name, "window.list"),
                 Some("degraded") => assert_eq!(
                     entry["limitations"],
                     json!([readiness::WINDOW_LIST_LIMITATION])

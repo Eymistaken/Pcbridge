@@ -471,8 +471,8 @@ def select_accessibility_provider(cfg: Config, gate: GrantProvider) -> Accessibi
 
     `python` is the default until Gate 6. `auto` takes the native helper when
     it is packaged and says so when it is not; `rust` never falls back.
-    Actions (`click`, `set_text`) stay on the Python helper either way until
-    Task 6.3.
+    The provider chosen here also acts: a click or a text write goes to the
+    helper that made the dump it names (Task 6.3).
     """
     choice = cfg.native.accessibility
     if choice == "python":

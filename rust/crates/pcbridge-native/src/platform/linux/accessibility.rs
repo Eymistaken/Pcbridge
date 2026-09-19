@@ -21,10 +21,14 @@
 //! most `max_nodes * 25` visits and depth 100. Only fetching differs: the
 //! children of a node are read concurrently, which changes the latency and
 //! nothing else.
+//!
+//! Actions (Task 6.3) are in [`action`].
 
+pub mod action;
 pub mod bus;
 pub mod fixture;
 
+use std::collections::HashMap;
 use std::time::Instant;
 
 use serde_json::{Value, json};
@@ -354,6 +358,20 @@ impl AccessibilityError {
     }
 }
 
+/// How a call that changes something went wrong. Reads do not need this:
+/// a failed read is an empty field, the way libatspi's failures read in the
+/// helper. A call that acts must say whether it may have happened.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CallError {
+    /// No answer in time. The call was sent and may have been carried out.
+    Timeout,
+    /// The connection failed after sending, or the application left before
+    /// answering. The call may have been carried out.
+    Lost(String),
+    /// The application answered with an error: the call was not carried out.
+    Refused(String),
+}
+
 /// The source of a tree: the real bus or a fixture.
 pub trait Tree {
     /// The applications registered on the desktop, in the registry's order.
@@ -365,6 +383,106 @@ pub trait Tree {
 
     /// The process behind a bus name, 0 when unknown.
     fn pid(&self, bus: &str) -> u32;
+
+    /// The AT-SPI interfaces `node` implements (`GetInterfaces`).
+    fn interfaces(&self, _node: &ObjectRef) -> Result<Vec<String>, CallError> {
+        Err(CallError::Refused(
+            "interfaces are not readable here".to_owned(),
+        ))
+    }
+
+    /// `Action.DoAction(index)`: the application's own answer.
+    fn do_action(&self, _node: &ObjectRef, _index: i32) -> Result<bool, CallError> {
+        Err(CallError::Refused(
+            "actions are not available here".to_owned(),
+        ))
+    }
+
+    /// `EditableText.SetTextContents(text)`: the application's own answer.
+    fn set_text_contents(&self, _node: &ObjectRef, _text: &str) -> Result<bool, CallError> {
+        Err(CallError::Refused("text is not writable here".to_owned()))
+    }
+
+    /// `Text.CharacterCount`.
+    fn character_count(&self, _node: &ObjectRef) -> Result<i32, CallError> {
+        Err(CallError::Refused("text is not readable here".to_owned()))
+    }
+
+    /// The whole text of a `Text` node: `CharacterCount`, then `GetText`
+    /// up to that count. GTK4 answers `GetText(0, -1)` with an empty string
+    /// (measured 2026-09-19), so the end is never left as -1.
+    fn text(&self, _node: &ObjectRef) -> Result<String, CallError> {
+        Err(CallError::Refused("text is not readable here".to_owned()))
+    }
+}
+
+/// What a dump listed, kept by the helper that listed it (Task 6.3).
+///
+/// An action names a dump and one of its nodes; the helper acts only on a
+/// node it listed itself, with the identity it read, never on an identity a
+/// request brings along.
+#[derive(Clone, Debug)]
+pub struct DumpRecord {
+    /// The application's name at dump time, "" when it had none.
+    pub app: String,
+    pub app_bus: String,
+    /// The dumped window of a focused dump; `None` for a named dump, which
+    /// covers the whole application.
+    pub window: Option<ObjectRef>,
+    /// The listed nodes by object path, the `ref` a dump returns.
+    pub nodes: HashMap<String, NodeRecord>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NodeRecord {
+    /// The node itself: its owner's bus name and its object path.
+    pub object: ObjectRef,
+    /// Child indexes from the application root, as the dump found it.
+    pub path: Vec<usize>,
+    pub role: String,
+    pub name: String,
+    /// Another object in the same dump, on another bus, had the same object
+    /// path, so the path the host sends names neither alone. An action on it
+    /// is refused. (The same object listed twice is one object: it keeps its
+    /// first listing.)
+    pub shared: bool,
+}
+
+/// `repr()` of a Python string, for messages that must read as the Python
+/// helper's do. Control characters are escaped; the names AT-SPI gives
+/// carry nothing else Python would escape.
+#[must_use]
+pub fn quoted(text: &str) -> String {
+    let quote = if text.contains('\'') && !text.contains('"') {
+        '"'
+    } else {
+        '\''
+    };
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push(quote);
+    for character in text.chars() {
+        match character {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ if character == quote => {
+                out.push('\\');
+                out.push(character);
+            }
+            _ if character.is_control() => {
+                let code = u32::from(character);
+                if code < 0x100 {
+                    out.push_str(&format!("\\x{code:02x}"));
+                } else {
+                    out.push_str(&format!("\\u{code:04x}"));
+                }
+            }
+            _ => out.push(character),
+        }
+    }
+    out.push(quote);
+    out
 }
 
 /// A dump request, mirroring the helper's `dump` command.
@@ -439,7 +557,7 @@ pub fn is_real_action(name: &str) -> bool {
 
 struct Kept {
     path: Vec<usize>,
-    reference: String,
+    object: ObjectRef,
     role: String,
     name: String,
     states: Vec<&'static str>,
@@ -525,7 +643,7 @@ fn walk<T: Tree + ?Sized>(
             } else {
                 out.push(Kept {
                     path: path.clone(),
-                    reference: node.path.clone(),
+                    object: node.clone(),
                     role: info.role.clone(),
                     name: info.name.clone(),
                     states,
@@ -644,6 +762,14 @@ pub fn dump<T: Tree + ?Sized>(
     tree: &T,
     request: &DumpRequest,
 ) -> Result<Value, AccessibilityError> {
+    read_dump(tree, request).map(|(dump, _record)| dump)
+}
+
+/// A dump, and the record an action on one of its nodes is checked against.
+pub fn read_dump<T: Tree + ?Sized>(
+    tree: &T,
+    request: &DumpRequest,
+) -> Result<(Value, DumpRecord), AccessibilityError> {
     let target = request.target.trim();
     let apps = read_apps(tree)?;
     deadline_passed(request)?;
@@ -691,7 +817,27 @@ pub fn dump<T: Tree + ?Sized>(
         };
 
     let (nodes, truncated) = walk(tree, &root, root_info, base, request)?;
-    Ok(json!({
+    let mut record = DumpRecord {
+        app: app.info.name.clone(),
+        app_bus: app.reference.bus.clone(),
+        window: (scope == "window").then(|| root.clone()),
+        nodes: HashMap::with_capacity(nodes.len()),
+    };
+    for node in &nodes {
+        let entry = NodeRecord {
+            object: node.object.clone(),
+            path: node.path.clone(),
+            role: node.role.clone(),
+            name: node.name.clone(),
+            shared: false,
+        };
+        record
+            .nodes
+            .entry(node.object.path.clone())
+            .and_modify(|kept| kept.shared |= kept.object != node.object)
+            .or_insert(entry);
+    }
+    let dump = json!({
         "ok": true,
         "app": app.info.name,
         "app_bus": app.reference.bus,
@@ -702,7 +848,7 @@ pub fn dump<T: Tree + ?Sized>(
         "window_ref": window_ref,
         "nodes": nodes.into_iter().map(|node| json!({
             "path": node.path,
-            "ref": node.reference,
+            "ref": node.object.path,
             "role": node.role,
             "name": node.name,
             "states": node.states,
@@ -711,7 +857,8 @@ pub fn dump<T: Tree + ?Sized>(
             "depth": node.depth,
         })).collect::<Vec<_>>(),
         "truncated": truncated,
-    }))
+    });
+    Ok((dump, record))
 }
 
 /// The helper's `_find_app`: exact name first; a partial name that fits two
@@ -735,7 +882,8 @@ fn find_app<'a>(apps: &'a [App], target: &str) -> Result<(&'a App, usize), Acces
             return Err(AccessibilityError::new(
                 "ELEMENT_AMBIGUOUS",
                 format!(
-                    "'{target}' birden fazla uygulamaya uyuyor: {}. Tam adi verin.",
+                    "{} birden fazla uygulamaya uyuyor: {}. Tam adi verin.",
+                    quoted(target),
                     names.join(", ")
                 ),
             ));
@@ -752,7 +900,8 @@ fn find_app<'a>(apps: &'a [App], target: &str) -> Result<(&'a App, usize), Acces
         return Err(AccessibilityError::new(
             "TARGET_MISMATCH",
             format!(
-                "Uygulama bulunamadi: '{target}'. Acik olanlar: {}",
+                "Uygulama bulunamadi: {}. Acik olanlar: {}",
+                quoted(target),
                 names.join(", ")
             ),
         ));

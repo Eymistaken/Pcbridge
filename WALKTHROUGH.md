@@ -10,15 +10,15 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** yok. Task 6.2 tamamlandı (2026-09-19); kullanıcının isteğiyle
-  burada duruldu, Task 6.3 için onay bekleniyor.
+- **Aktif adım:** Task 6.3 — eylemler yapıldı ve commit'lendi; varsayılanın
+  `auto` yapılması ayrı commit olarak sırada.
 - **Son tamamlanan adım:** Task 6.2 — erişilebilirlik ağacını Rust okuyor (GI
   ve GTK yok, AT-SPI'a doğrudan D-Bus). Aynı fixture'da ve gerçek pencerede
-  Python yardımcısıyla düğüm düğüm aynı, ~7 kat hızlı. Varsayılan hâlâ
-  `python`. Ayrıntı: Adım 5 → Task 6.2.
-- **Sıradaki uygulanabilir adım:** Task 6.3 — Rust erişilebilirlik eylemleri
-  ve parity. Canlı eylem testleri istiyor; başlamadan önce kullanıcıya
-  sorulacak.
+  Python yardımcısıyla düğüm düğüm aynı, ~7 kat hızlı. Ayrıntı: Adım 5 → Task
+  6.2.
+- **Sıradaki uygulanabilir adım:** Task 6.3'ün ikinci commit'i
+  (`accessibility = "auto"`, yardımcının kurulması). Sonra durulur; Task 6.4
+  için onay beklenir.
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 5 geçti** (2026-09-19), `[native] input`
   varsayılanı `auto`. Gate 4 2026-09-13'te geçti. stdio istemcileri, uygulama
@@ -51,6 +51,10 @@ verilerek koşulur.
      koşar.
    - "ve bu adımı da bitirince dur sonraki adıma geçme hemen": her task
      bitince yine durulur ve sonraki task için onay beklenir.
+3. "tamam devam et 6.3 ile. ve artık testler için yine sorma": Task 6.3
+   onaylandı ve canlı testler yeniden sorulmadan koşuyor. Başlamadan önce ne
+   açılıp ne kıpırdayacağı tek satırla haber veriliyor. Task'lar hâlâ tek tek
+   onaylanıyor: 6.3 bitince durulur.
 
 ## Kullanıcıyı bekleyenler
 
@@ -2257,6 +2261,151 @@ ile kurulum, varsayılan değiştiğinde (6.3) yapılacak.
 
 Canlı eylem testleri test penceresinde yapılacak ve önce kullanıcıya
 sorulacak.
+
+### Task 6.3 — Rust accessibility actions ve parity · eylemler `tamamlandı` (2026-09-19)
+
+**Önce ölçüm: uygulamanın cevabı bir şey kanıtlamıyor.** GTK4 test
+penceresine ham D-Bus ile gidildi. Pencereye iki şey eklendi: 5 karakter tutan
+bir "Kod" alanı ve "Tamam"ı devre dışı bırakan `disable-ok` komutu.
+
+| Çağrı | Cevap | Gerçekte olan |
+|---|---|---|
+| Devre dışı düğmede `DoAction(0)` | `false` | hiçbir şey tıklanmadı |
+| 5 karakterlik alana `SetTextContents("123456789")` | `true` | alan `12345` tutuyor |
+| `SetTextContents` Türkçe metin (23 karakter) | `true`, 0,5 ms | metin birebir |
+| `InsertText(0, "ğüş", 2)` | `true` | üç harfin üçü de yazıldı: uzunluk kullanılmıyor |
+| `GetText(0, -1)` | `""` | bitiş -1 "sona kadar" demek değil |
+
+Tasarımı bunlar belirledi:
+- `false` bir hatadır (`ACTION_UNSUPPORTED`). Önceden "tıklandı" diye
+  bildiriliyordu.
+- Yazılan metin `CharacterCount` + `GetText(0, sayı)` ile geri okunup
+  bütünüyle karşılaştırılıyor. Tutmazsa yeni `TEXT_MISMATCH` dönüyor; mesajda
+  yalnızca sayılar var, metnin kendisi yok.
+- Native yol metni `SetTextContents` ile yazıyor, yani uzunluk parametresi
+  yok. Python yardımcısının bayt uzunluğu (2026-08-02) metin kutusu içindi;
+  girdi alanı uzunluğu hiç kullanmıyor.
+
+**Ne yapıldı.**
+
+- Rust `accessibility/action.rs` (yeni) — Python yardımcısının `_resolve`,
+  `cmd_act`, `cmd_settext`'i:
+  - Kimlik: önce aynı uygulama (veriyolu adı), sonra aynı nesne (önce indeks
+    yolu, sonra aynı hedefte veriyolu adı + nesne yolu ile arama), sonra aynı
+    anlam (rol ve ad).
+  - İstenen eylem adıyla seçiliyor, sırayla değil.
+  - `DoAction` ve `SetTextContents` birer kez gönderiliyor ve cevapları
+    denetleniyor. Metin en fazla 300 ms bekleyerek geri okunuyor.
+  - Hedef 8 sn içinde bulunamazsa `TIMEOUT` dönüyor; o ana kadar hiçbir şey
+    gönderilmemiş oluyor.
+  - Gönderilip cevaplanmayan çağrı `EXECUTION_UNKNOWN` ve tekrarlanmıyor.
+    Eylem çağrıları 5 sn, okumalar 2 sn bekliyor (`bus.rs`, çağrı başına
+    zamanlayıcı).
+- **Döküm kaydı** (6.2'den taşınan madde):
+  - Yardımcı son 8 dökümünü kaydediyor ve her birini kendi `snapshot`
+    kimliğiyle döndürüyor.
+  - Eylem yalnızca snapshot ve düğümün nesne yolunu taşıyor. Kimliğin geri
+    kalanı yardımcının kendi kaydından geliyor, istekten değil.
+  - Başka bir yardımcının dökümü `ELEMENT_STALE` ile reddediliyor: başka bir
+    süreç ya da yeni bir izinle yeniden başlamış bu yardımcı.
+  - D-Bus'ta veriyolu adı + nesne yolu tek bir nesnedir, bu yüzden aramada
+    aynı nesneyle ikinci kez karşılaşmak belirsizlik sayılmıyor. Aynı yol aynı
+    dökümde iki ayrı veriyolunda görünürse `ELEMENT_AMBIGUOUS` dönüyor.
+- `dispatch.rs`:
+  - Yeni yöntemler `accessibility.act` ve `accessibility.set_text`.
+  - Metin binary payload'da taşınıyor, JSON başlığında değil.
+  - İzin, hedef bulunduktan sonra ve çağrıdan hemen önce bir kez daha
+    doğrulanıyor.
+  - Özellik ve yetenek olarak `accessibility.action` eklendi.
+  - Test kipinde `test.accessibility_performed` var.
+- Python:
+  - `RustAccessibilityProvider._act` tıklamayı ve metni yardımcıya gönderiyor.
+    Kısa kimliği çözmek ve parola alanı kuralı Python'da kaldı, yardımcıya hiç
+    sorulmuyor.
+  - İsteğin kendi zaman aşımı ya da gönderdikten sonra çöken yardımcı
+    `EXECUTION_UNKNOWN` sayılıyor. İstek hiç gitmediyse hata olduğu gibi
+    iletiliyor.
+  - `uitree.dump_from_response` yardımcının snapshot'ını kullanıyor.
+  - Yeni hata kodu `TEXT_MISMATCH` eklendi (`errors.py`, `PLAN.md` taksonomi
+    düzeltmesi).
+- Python yardımcısı da aynı kurallara geçti, iki yol aynı fixture'da aynı
+  cevabı versin diye: `false` hata sayılıyor, metin geri okunuyor.
+  - Canlı testte yakalandı: PyGObject'te `get_text_iface()` düğümün kendisi.
+    Bu yüzden `ti.get_text(0, n)` aslında `Atspi.Accessible.get_text()`
+    çağrısı oluyor ve TypeError veriyor. Doğru çağrı
+    `Atspi.Text.get_text(düğüm, 0, n)`.
+  - Sahte AT-SPI bunu gizlemişti. Artık GI gibi davranıyor; eski çağrıyla 3
+    test kırmızıya dönüyor.
+- Fixture:
+  - 21 uygulama, 19 masaüstü, 13 döküm ve 24 eylem vakası.
+  - Yeni "form" uygulaması: 5 karakterlik alan, Text arayüzü olmayan alan,
+    salt okunur alan ve devre dışı bırakılabilen düğme.
+  - Yeni vaka: istenen eylemin sırayla değil adıyla seçilmesi.
+- Belgeler: `docs/native/protocol-v1.md`, `PLAN.md` notu, `CLAUDE.md`
+  (ölçülen gerçekler), `KULLANIM.md`, `config.example.toml` yorumu.
+
+**Testler.**
+
+- Rust `tests/accessibility_actions.rs` (10 test):
+  - Fixture'daki her eylem vakası.
+  - Aynı nesnenin iki kez görülmesi ve aynı yolun iki veriyolunda olması.
+  - Taşınan öğenin yolu değil veriyolu + yol ile bulunması.
+  - Cevapsız eylemin bir kez gönderilmesi.
+  - Süre sınırının hiçbir şey göndermemesi.
+  - Geç uygulanan metnin doğrulanması.
+  - Kısa kalan metnin yalnızca sayılarla bildirilmesi.
+  - Python `repr` tırnaklaması.
+- `dispatch.rs` birim testleri: döküm kaydı (başka yardımcının kimliği, en
+  fazla 8 döküm).
+- Python sözleşme testleri:
+  - `test_native_accessibility.py` (26 test, +8): tıklama isteği yalnızca
+    snapshot + yol taşıyor; metin binary'de; parola alanı ve eylemsiz öğe
+    yardımcıya gitmiyor; cevapsız eylem `EXECUTION_UNKNOWN` ve bir kez
+    gönderiliyor; hiç gitmeyen istek "bilinmiyor" sayılmıyor; kodlar
+    korunuyor; eski yardımcıya derleme ipucu veriliyor.
+  - `test_accessibility_contract.py`: yeni vakalar Python yardımcısında.
+- `tests/integration/test_native_accessibility.py` (6 test, +3): her eylem
+  vakası iki sağlayıcıdan geçiyor. Kod, mesaj, kategori, sonuç alanları, sahte
+  masaüstünde olanlar ve metinler **birebir aynı**. Başka yardımcının dökümü
+  reddediliyor, yardımcının aynı düğümü listeleyen kendi dökümü olsa bile.
+  Yeni izin eski dökümleri unutuyor.
+- Mutasyon denemesi: 18 anlamlı bozulmanın 18'i yakalandı. Bunlar 13 Rust,
+  5 Python bozulması; dosyalar SHA-256 ile doğrulanarak geri yüklendi.
+  Sınanamayan tek kontrol, izni çağrıdan hemen önce yeniden doğrulamak: o
+  aralığa deterministik olarak girilemiyor.
+- Canlı, 20/20 (release yardımcı `PCBRIDGE_NATIVE_BIN` ile; izin geçici bir
+  durum dizininde; yalnızca testin kendi penceresi; klavye/fare yok):
+  - Bütün eylem testleri iki sağlayıcıyla koştu: taşınan düğme, yeniden
+    yaratılan düğme, kaldırılan düğme, kapanan uygulama, Türkçe metin + parola
+    alanı, devre dışı düğme, 5 karakterlik alan.
+  - Native yardımcı eylem sırasında `/dev/uinput` açmıyor (`/proc/<pid>/fd`).
+  - İlk koşuda Python yolunda 2 test düştü: yukarıdaki PyGObject tuzağı.
+    Düzeltildi, sonra 20/20.
+
+  | Ölçüm | Python | Native |
+  |---|---|---|
+  | Tıklama (taşınan düğme) | 52 ms | **13 ms** |
+  | Metin yazma | 50 ms | **5 ms** |
+  | Döküm | 84–137 ms | 17–32 ms |
+  | Pencere listesi | 102 ms | 5,6 ms |
+  | gnome-shell dökümü | 2231 ms | 1653 ms |
+
+- Takımlar: Python contract 313, integration 24 (1 atlandı), `test_desktop.py`
+  583, models 106, safety OK, `--check` 0. Canlı testler bayraksız 42/42
+  atlanıyor. Rust `cargo fmt`, iki türde `clippy -D warnings` temiz; `cargo
+  test` varsayılan 150, test kipi 171, hepsi geçti.
+
+**Kabul ölçütleri (PLAN 6.3).**
+- Native eylem uinput gerektirmiyor: ✓ (yardımcının açık dosyalarıyla
+  doğrulandı).
+- İmleç hareketi zorunlu değil: ✓ (eylem AT-SPI ile gidiyor, fare aygıtı yok).
+- Yanlış ya da bayat hedef reddediliyor: ✓ (fixture ve canlı).
+- Metin kırpılmıyor: ✓. Türkçe metin birebir geri okundu. Kırpan bir alan
+  artık sessizce geçmiyor.
+
+**Rollback.** Varsayılan hâlâ `python`, yani bu commit çalışan servis için
+davranış değiştirmiyor. Python yolunda iki fark var: `false` dönen eylem
+artık hata, metin geri okunuyor. Geri almak için commit'i geri almak yeter.
 
 ## Adım 6 — İmleç katmanı
 

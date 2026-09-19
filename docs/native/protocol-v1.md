@@ -9,8 +9,9 @@ stdout yalnızca aşağıda tanımlanan framed response'ları taşır.
 Executable Linux'ta monitör tablosunu okur (Task 3.1), Mutter ScreenCast +
 PipeWire üzerinden tek monitör karesi alır (Task 3.3) ve seçildiğinde uinput
 klavye (Task 5.2) ve pointer (Task 5.3) olaylarını üretir, erişilebilirlik
-ağacını GI olmadan D-Bus'tan okur (Task 6.2; varsayılan hâlâ Python, eylemler
-Task 6.3'e kadar Python'da). Task 4.3'ten beri varsayılan capture backend'i `auto`
+ağacını GI olmadan D-Bus'tan okur (Task 6.2) ve listelediği öğelere tıklar,
+metin yazar (Task 6.3; varsayılan hâlâ Python). Task 4.3'ten beri varsayılan
+capture backend'i `auto`
 (paketlenmiş yardımcı varsa native). Input varsayılanı Gate 5'ten beri
 (2026-09-19) `auto`: paketlenmiş yardımcı varsa klavye, fare ve pano
 programları native, yoksa Python yolu (görünür şekilde). Native process
@@ -37,9 +38,10 @@ header.binary_len kadar binary payload
 - İlan edilen boyut sınırları allocation öncesinde doğrulanır.
 - Task 2.1 kontrol metotları binary payload kabul etmez ve bütün
   response'larında `binary_len: 0` kullanır.
-- Binary payload taşıyan **tek request** `clipboard.write`'tır (Task 5.4): pano
-  içeriği 64 KiB'lik header'a sığmaz ve bir log satırına ulaşabilecek bir
-  header alanına konmamalıdır. Başka bir metoda binary gönderilirse
+- Binary payload taşıyan **iki request** var: `clipboard.write` (Task 5.4) ve
+  `accessibility.set_text` (Task 6.3). Pano içeriği de bir alana yazılacak
+  metin de 64 KiB'lik header'a sığmayabilir ve bir log satırına ulaşabilecek
+  bir header alanına konmamalıdır. Başka bir metoda binary gönderilirse
   `UNEXPECTED_BINARY` döner.
 
 Temiz stdin EOF süreci başarıyla kapatır. Kısmi uzunluk alanı, kesik header,
@@ -81,7 +83,7 @@ Başarılı response seçilen sürümü ve process kimliğini döndürür:
     "native_version": "0.1.0",
     "build_id": "2294156a1b2c",
     "platform": "linux",
-    "features": ["display.snapshot", "capture.on_demand", "capture.session_open", "input.keyboard", "input.pointer", "clipboard", "accessibility.read"],
+    "features": ["display.snapshot", "capture.on_demand", "capture.session_open", "input.keyboard", "input.pointer", "clipboard", "accessibility.read", "accessibility.action"],
     "lease_bound": true
   },
   "binary_len": 0
@@ -119,11 +121,12 @@ Harness aşağıdaki metotları kabul eder:
   Klavye ve pointer denetimleri `/dev/uinput` düğümünün varlığını metadata
   üzerinden okur; default capability isteği aygıt açmaz. Düğüm varsa erişimin
   ancak ilk açık input isteğinde doğrulanacağını anlatan `degraded`, yoksa
-  `DEPENDENCY_MISSING` döner. `accessibility.read` ve `window.list` (Task
-  6.2) yalnızca oturum veriyolunda `org.a11y.Bus` adının sahibi olup olmadığına
-  bakar; hiçbir uygulama okunmaz. Sahibi varsa `accessibility.read`
-  `supported`, `window.list` ise `degraded` olur. Sebebi, yalnızca erişilebilirlik
-  ağacı yayınlayan uygulamaların görünmesi.
+  `DEPENDENCY_MISSING` döner. `accessibility.read`, `window.list` (Task 6.2)
+  ve `accessibility.action` (Task 6.3) yalnızca oturum veriyolunda
+  `org.a11y.Bus` adının sahibi olup olmadığına bakar; hiçbir uygulama okunmaz.
+  Sahibi varsa `accessibility.read` ve `accessibility.action` `supported`,
+  `window.list` ise `degraded` olur. Sebebi, yalnızca erişilebilirlik ağacı
+  yayınlayan uygulamaların görünmesi.
 - `display.snapshot`: Task 3.1 monitör tablosunu döndürür.
 - `capture.frame`: Task 3.3 tek monitör PNG'sini binary payload olarak döndürür.
 - `capture.session_open`: Task 4.3. Kare okumadan Mutter oturumunu mevcut
@@ -196,7 +199,8 @@ Harness aşağıdaki metotları kabul eder:
   - Cevap, Python yardımcısının `dump` cevabıyla aynı biçimde: `app`,
     `app_bus`, `app_pid`, `same_name`, `scope`, `window`, `window_ref`,
     `nodes`, `truncated`. Her düğüm `path`, `ref`, `role`, `name`, `states`,
-    `actions`, `editable` ve `depth` taşır.
+    `actions`, `editable` ve `depth` taşır. Task 6.3'ten beri bir de
+    `snapshot`: helper'ın bu döküme verdiği 12 onaltılık haneli kimlik.
   - Yürüyüş yardımcınınkiyle adım adım aynı: derinlik önce, soldan sağa, en
     fazla `max_nodes * 25` ziyaret ve derinlik 100. Tek fark, bir düğümün
     çocuklarının birlikte okunması (bir kerede en fazla 32 düğüm).
@@ -216,6 +220,49 @@ Harness aşağıdaki metotları kabul eder:
 
   Mesajlar Python yardımcısınınkiyle birebir aynı. Ortak fixture:
   `tests/fixtures/native/accessibility_cases.json`.
+- `accessibility.act` ve `accessibility.set_text` (Task 6.3). Bir döküm
+  düğümüne tıklar ya da metin yazar. İkisi de `grant_id`, `revoke_epoch`,
+  `snapshot` ve `ref` ister. `act` ayrıca `action` alır (varsayılan `click`).
+  `set_text`'in metni UTF-8 olarak **binary payload'da** gelir, header'da
+  değil. UTF-8 değilse `INVALID_PARAMS` döner.
+  - **Yalnızca kendi dökümü.** Helper her başarılı `dump`'ın kaydını tutar
+    (son 8 döküm): uygulama veriyolu adı, odak dökümünde pencere, her düğümün
+    veriyolu adı + nesne yolu, indeks yolu, rolü ve adı. Eylem bir `snapshot`
+    ile düğümün `ref`'ini (nesne yolu) adlandırır; kimliğin geri kalanını
+    helper kendi kaydından alır, istekten değil. Başka bir helper'ın (başka
+    süreç, ya da yeni bir izinle yeniden başlamış bu helper) snapshot'ı
+    burada bilinmez: `ELEMENT_STALE`, yeni `ui_dump` ister.
+  - **Kimlik denetimi** Python yardımcısının `_resolve`'u: aynı uygulama
+    (veriyolu adı), aynı nesne (önce indeks yolu, sonra aynı hedefin içinde
+    veriyolu adı + nesne yolu ile arama, en fazla 10 000 düğüm), aynı anlam
+    (rol ve ad). D-Bus'ta veriyolu adı + nesne yolu tek bir nesnedir; aramada
+    ikinci kez karşılaşılan aynı nesnedir, ikinci aday değil. Aynı dökümde
+    aynı yolu iki farklı veriyolundaki iki nesne taşıyorsa `ELEMENT_AMBIGUOUS`.
+    Hedef 8 sn içinde bulunamazsa `TIMEOUT`; o ana kadar hiçbir şey
+    gönderilmemiştir.
+  - İzin, hedef bulunduktan sonra ve çağrıdan hemen önce **bir kez daha**
+    doğrulanır. Arada geri alınmışsa hiçbir şey gönderilmez.
+  - **Uygulamanın cevabı denetlenir.** `DoAction` false dönerse (GTK4'te
+    devre dışı düğme) `ACTION_UNSUPPORTED`: hiçbir şey yapılmadı. Metin
+    `EditableText.SetTextContents` ile yazılır, uzunluk parametresi yok. GTK4
+    girdi alanı `InsertText`'in uzunluğunu hiç kullanmıyor. Sonra metin
+    `CharacterCount` + `GetText(0, sayı)` ile geri okunup bütünüyle
+    karşılaştırılır; en fazla 300 ms beklenir. Aynı değilse `TEXT_MISMATCH`:
+    mesajda yalnızca sayılar var, metin yok. Text arayüzü yoksa yazma
+    doğrulanamaz ama hata da sayılmaz (`verified: false`, `now_chars: -1`).
+  - **Tekrar yok.** `DoAction` ve `SetTextContents` 5 sn bekler. Cevap
+    gelmezse ya da uygulama cevap vermeden ayrılırsa `EXECUTION_UNKNOWN`
+    döner: işlem yapılmış da olabilir. Helper çağrıyı bir daha göndermez.
+    Python tarafı da isteğin kendi zaman aşımını (20 sn) ve helper'ın
+    çökmesini aynı kodla bildirir.
+  - Cevaplar Python yardımcısınınkiyle aynı alanları taşır. `act`: `app`,
+    `ref`, `role`, `name`, `action`, `resolved_by` (`path`/`moved`),
+    `returned`. `set_text`: `app`, `ref`, `role`, `name`, `replaced_chars`,
+    `now_chars`, `resolved_by`, `verified`.
+  - Kategoriler: `ELEMENT_STALE`, `ELEMENT_AMBIGUOUS` ve `TARGET_MISMATCH`
+    `accessibility`, retryable. `ACTION_UNSUPPORTED` ve `TEXT_MISMATCH`
+    `accessibility`, retryable değil. `TIMEOUT` `execution`, retryable.
+    `EXECUTION_UNKNOWN` `execution`, retryable değil.
 - `cancel`: `params.target_id` alanını doğrular ve bugün `canceled: false`
   döndürür. Capture'ın kendi 1–8000 ms zaman aşımı ve lifecycle kapıları vardır;
   dispatcher henüz eşzamanlı request çalıştırmıyor.
@@ -430,8 +477,10 @@ test kipi kullanıcının panosuna hiç ulaşmaz. `accessibility.*` de yalnızca
 masaüstünü okur. Yalnızca test kipinde olan `test.accessibility_desktop`
 (`{"desktop": ...}`) sonraki okumaları başka bir fixture masaüstüne çevirir;
 bir uygulamanın ağacının döküm ile eylem arasında değişmesini böyle taklit
-eder. Fixture verilmemişse `UNSUPPORTED` döner, yani test kipi gerçek bir
-uygulamayı hiç okumaz. Bu kip yalnızca byte-düzeyi contract testleri içindir.
+eder. Döküm kaydı bu geçişte silinmez. `test.accessibility_performed` o
+fixture masaüstünde etkisini gösteren eylemleri (`[yol, eylem]`) ve bütün
+metinleri döndürür. Fixture verilmemişse `UNSUPPORTED` döner, yani test kipi
+gerçek bir uygulamayı hiç okumaz ve hiçbir şeye dokunmaz. Bu kip yalnızca byte-düzeyi contract testleri içindir.
 
 ## Python supervisor yaşam döngüsü
 
@@ -460,11 +509,11 @@ Task 6.2'de `[native].accessibility` seçimi eklendi. Gate 6'ya kadar varsayıla
 `python`; `auto` ve `rust` aynı kurallarla çalışır. Native okuyucu bir izne
 bağlı helper'dan okur. İzin yokken (`screen_info` pencere listesini
 `desktop_unlock`'tan önce okur) pencere listesi ve odaktaki pencere Python
-yardımcısından gelir: helper izin olmadan yaşamaz. Kısa kimlikler, snapshot ve
-son döküm kaydı iki okuyucuda da Python'da, `uitree`'de üretilir. `ui_click` ve
-`ui_set_text` Task 6.3'e kadar iki seçimde de Python yardımcısından gider. Hedef
-kimliği (uygulama veriyolu adı + öğe nesne yolu) iki okuyucuda aynı anlamı
-taşır.
+yardımcısından gelir: helper izin olmadan yaşamaz. Kısa kimlikler ve son döküm
+kaydı iki okuyucuda da Python'da, `uitree`'de üretilir. Task 6.3'ten beri
+`ui_click` ve `ui_set_text` dökümü yapan sağlayıcıdan gider: native seçimde
+native helper'a, dökümün snapshot'ı ve düğümün nesne yoluyla. Parola alanı
+kuralı iki seçimde de Python'da, helper'a hiç sorulmadan uygulanır.
 
 Supervisor'ın reader, writer ve stderr drainer thread'leri birbirinden
 ayrıdır. Request ID'leri process yeniden başlasa bile tekrar kullanılmaz ve

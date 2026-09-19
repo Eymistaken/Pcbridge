@@ -183,6 +183,8 @@ class CapabilityContractTests(unittest.TestCase):
                 "ELEMENT_STALE",
                 "ELEMENT_AMBIGUOUS",
                 "ACTION_UNSUPPORTED",
+                # Task 6.3: a field written with other text than was sent.
+                "TEXT_MISMATCH",
                 "TIMEOUT",
                 "CANCELLED",
                 "EXECUTION_UNKNOWN",

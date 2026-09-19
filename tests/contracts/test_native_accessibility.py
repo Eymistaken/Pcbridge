@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The native accessibility reader behind the provider contract (Task 6.2).
+"""The native accessibility helper behind the provider contract (Tasks 6.2, 6.3).
 
 A fake NativeClient stands in for the helper: these tests pin what the
 provider sends, what it makes of the answers, and when it must not ask the
@@ -47,6 +47,17 @@ DUMP = {
          "name": "Ad", "states": ["editable"], "actions": [], "editable": True, "depth": 3},
     ],
 }
+# What the helper returns since Task 6.3: its own snapshot id for the dump.
+SNAPSHOT = "5a1e5a1e5a1e"
+DUMP_WITH_SNAPSHOT = {
+    **DUMP,
+    "snapshot": SNAPSHOT,
+    "nodes": [
+        *DUMP["nodes"],
+        {"path": [0, 0, 3], "ref": "/org/pcbridge/Editor/a11y/password", "role": "password text",
+         "name": "Parola", "states": ["editable"], "actions": [], "editable": True, "depth": 3},
+    ],
+}
 WINDOWS = {
     "ok": True,
     "windows": [
@@ -62,14 +73,21 @@ WINDOWS = {
 class FakeClient:
     """Answers like the helper; records what it was asked."""
 
-    def __init__(self, answers: dict | None = None, *, features=("accessibility.read",)) -> None:
+    def __init__(
+        self,
+        answers: dict | None = None,
+        *,
+        features=("accessibility.read", "accessibility.action"),
+    ) -> None:
         self.answers = answers or {}
         self.sent: list[tuple[str, dict, float | None]] = []
+        self.binaries: list[bytes] = []
         self.features = frozenset(features)
         self.closed = False
 
     def request(self, method, params=None, *, binary=b"", timeout=None):
         self.sent.append((method, dict(params or {}), timeout))
+        self.binaries.append(binary)
         answer = self.answers.get(method)
         if isinstance(answer, Exception):
             raise answer
@@ -199,15 +217,150 @@ class ReadRequestTests(_Case):
         self.assertEqual(raised.exception.code, ErrorCode.GRANT_REQUIRED)
         self.assertEqual(created, [])
 
-    def test_actions_still_go_through_the_python_helper_with_the_identity(self) -> None:
-        provider = self.provider(FakeClient({"accessibility.dump": DUMP}))
-        dump = provider.dump()
-        button = dump.nodes[0]
-        provider.click(button.node_id)
-        sent = self.python_calls[-1]
-        self.assertEqual(sent["cmd"], "act")
-        self.assertEqual((sent["app_bus"], sent["ref"]), (":1.30", "/org/pcbridge/Editor/a11y/close-b"))
-        self.assertEqual((sent["scope"], sent["window_ref"]), ("window", "/org/pcbridge/Editor/a11y/w1"))
+    def test_the_dump_snapshot_is_the_helpers(self) -> None:
+        dump = self.provider(FakeClient({"accessibility.dump": DUMP_WITH_SNAPSHOT})).dump()
+        self.assertEqual(dump.snapshot, SNAPSHOT)
+
+
+ACTED = {"ok": True, "app": "pcbridge-editor", "ref": "/org/pcbridge/Editor/a11y/close-b",
+         "role": "push button", "name": "Kapat", "action": "click", "resolved_by": "path",
+         "returned": True}
+WRITTEN = {"ok": True, "app": "pcbridge-editor", "ref": "/org/pcbridge/Editor/a11y/field",
+           "role": "text", "name": "Ad", "replaced_chars": 0, "now_chars": 5,
+           "resolved_by": "path", "verified": True}
+
+
+class ActionRequestTests(_Case):
+    """Task 6.3: clicks and text writes go to the helper that made the dump."""
+
+    def acting(self, answers: dict, **kwargs) -> tuple[RustAccessibilityProvider, FakeClient]:
+        client = FakeClient({"accessibility.dump": DUMP_WITH_SNAPSHOT, **answers}, **kwargs)
+        provider = self.provider(client)
+        provider.dump()
+        return provider, client
+
+    def test_a_click_names_the_helpers_dump_and_node_only(self) -> None:
+        provider, client = self.acting({"accessibility.act": ACTED})
+        button = provider._last.nodes[0]
+        result = provider.click(button.node_id)
+        method, params, timeout = client.sent[-1]
+        self.assertEqual(method, "accessibility.act")
+        self.assertEqual(
+            params,
+            {"grant_id": "g1", "revoke_epoch": 3, "snapshot": SNAPSHOT,
+             "ref": "/org/pcbridge/Editor/a11y/close-b", "action": "click"},
+        )
+        self.assertEqual(timeout, rustlib.ACCESSIBILITY_TIMEOUT_SECONDS)
+        self.assertEqual(client.binaries[-1], b"")
+        self.assertEqual(result["snapshot"], SNAPSHOT)
+        self.assertEqual(result["resolved_by"], "path")
+        self.assertEqual(self.python_calls, [], "a native click must not start the GI helper")
+
+    def test_the_text_travels_as_the_binary_payload_not_in_the_header(self) -> None:
+        provider, client = self.acting({"accessibility.set_text": WRITTEN})
+        field = provider._last.nodes[1]
+        text = "Çağrı ğüşıöç İĞÜŞÖÇ — 1"
+        result = provider.set_text(field.node_id, text)
+        method, params, _timeout = client.sent[-1]
+        self.assertEqual(method, "accessibility.set_text")
+        self.assertEqual(
+            params,
+            {"grant_id": "g1", "revoke_epoch": 3, "snapshot": SNAPSHOT,
+             "ref": "/org/pcbridge/Editor/a11y/field"},
+        )
+        self.assertEqual(client.binaries[-1], text.encode("utf-8"))
+        self.assertNotIn(text, repr(params))
+        self.assertEqual(result["snapshot"], SNAPSHOT)
+        self.assertEqual(self.python_calls, [])
+
+    def test_a_password_field_never_reaches_the_helper(self) -> None:
+        provider, client = self.acting({})
+        password = provider._last.nodes[2]
+        with self.assertRaises(DesktopError) as raised:
+            provider.set_text(password.node_id, "hunter2")
+        self.assertEqual(raised.exception.code, ErrorCode.PASSWORD_FIELD)
+        self.assertEqual([m for m, _p, _t in client.sent], ["accessibility.dump"])
+
+    def test_an_element_without_action_never_reaches_the_helper(self) -> None:
+        provider, client = self.acting({})
+        field = provider._last.nodes[1]
+        with self.assertRaises(DesktopError) as raised:
+            provider.click(field.node_id)
+        self.assertEqual(raised.exception.code, ErrorCode.ACTION_UNSUPPORTED)
+        self.assertEqual([m for m, _p, _t in client.sent], ["accessibility.dump"])
+
+    def test_an_unanswered_action_is_unknown_and_never_sent_again(self) -> None:
+        lost = DesktopError(
+            code=ErrorCode.TIMEOUT,
+            message="Native helper request zaman asimina ugradi.",
+            category=ErrorCategory.EXECUTION,
+            retryable=False,
+            suggested_action="inspect_native_status_before_retry",
+            backend="pcbridge-native",
+            execution_state="unknown",
+        )
+        for method, run in (
+            ("accessibility.act", lambda p: p.click(p._last.nodes[0].node_id)),
+            ("accessibility.set_text", lambda p: p.set_text(p._last.nodes[1].node_id, "x")),
+        ):
+            with self.subTest(method=method):
+                provider, client = self.acting({method: lost})
+                with self.assertRaises(DesktopError) as raised:
+                    run(provider)
+                error = raised.exception
+                self.assertEqual(error.code, ErrorCode.EXECUTION_UNKNOWN)
+                self.assertEqual(error.category, ErrorCategory.EXECUTION)
+                self.assertEqual(error.execution_state, "unknown")
+                self.assertFalse(error.retryable)
+                self.assertEqual([m for m, _p, _t in client.sent].count(method), 1)
+
+    def test_a_request_that_never_left_is_not_called_unknown(self) -> None:
+        unusable = DesktopError(
+            code=ErrorCode.NATIVE_CRASHED,
+            message="Native helper kullanilabilir degil.",
+            category=ErrorCategory.IPC,
+            retryable=False,
+            suggested_action="retry_read_only_native_request",
+            backend="pcbridge-native",
+            execution_state="not_started",
+        )
+        provider, _client = self.acting({"accessibility.act": unusable})
+        with self.assertRaises(DesktopError) as raised:
+            provider.click(provider._last.nodes[0].node_id)
+        self.assertIs(raised.exception, unusable)
+
+    def test_helper_verdicts_on_actions_keep_their_codes(self) -> None:
+        cases = {
+            ErrorCode.ELEMENT_STALE: (ErrorCategory.ACCESSIBILITY, True),
+            ErrorCode.TARGET_MISMATCH: (ErrorCategory.ACCESSIBILITY, True),
+            ErrorCode.ACTION_UNSUPPORTED: (ErrorCategory.ACCESSIBILITY, False),
+            ErrorCode.TEXT_MISMATCH: (ErrorCategory.ACCESSIBILITY, False),
+            ErrorCode.EXECUTION_UNKNOWN: (ErrorCategory.EXECUTION, False),
+        }
+        for code, (category, retryable) in cases.items():
+            with self.subTest(code=code):
+                provider, _client = self.acting(
+                    {"accessibility.set_text": remote(code, category, "yardimcinin sozu")}
+                )
+                with self.assertRaises(DesktopError) as raised:
+                    provider.set_text(provider._last.nodes[1].node_id, "x")
+                error = raised.exception
+                self.assertEqual(error.code, code)
+                self.assertEqual(error.message, "yardimcinin sozu")
+                self.assertEqual(error.category, category)
+                self.assertEqual(error.retryable, retryable)
+                self.assertEqual(error.backend, "linux.atspi.native")
+                self.assertNotEqual(error.suggested_action, "check_native_request")
+
+    def test_a_helper_without_actions_says_how_to_fix_it(self) -> None:
+        provider, _client = self.acting(
+            {"accessibility.act": remote(ErrorCode.UNSUPPORTED, ErrorCategory.CAPABILITY)},
+            features=("accessibility.read",),
+        )
+        with self.assertRaises(DesktopError) as raised:
+            provider.click(provider._last.nodes[0].node_id)
+        self.assertEqual(raised.exception.code, ErrorCode.BACKEND_UNAVAILABLE)
+        self.assertIn("build-native.sh", raised.exception.message)
 
 
 class ErrorTests(_Case):
@@ -333,8 +486,9 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual(values["accessibility.read"].backend, "linux.atspi.native")
         self.assertIs(values["accessibility.read"].state, CapabilityState.SUPPORTED)
         self.assertIs(values["window.list"].state, CapabilityState.DEGRADED)
-        # Actions are the Python helper's until Task 6.3.
-        self.assertEqual(values["accessibility.action"].backend, "linux.atspi")
+        # Task 6.3: actions go to the same helper.
+        self.assertEqual(values["accessibility.action"].backend, "linux.atspi.native")
+        self.assertIs(values["accessibility.action"].state, CapabilityState.SUPPORTED)
 
 
 if __name__ == "__main__":

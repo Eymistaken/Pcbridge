@@ -275,7 +275,10 @@ def dump_from_response(resp: dict, backend: str = BACKEND) -> Dump:
     """Bir okuyucunun `dump` cevabini `Dump`a cevir.
 
     Python yardimcisi da native yardimci da ayni bicimde cevap veriyor; kisa
-    kimlikler ve snapshot HER IKISINDE burada, tek yerde uretiliyor.
+    kimlikler HER IKISINDE burada, tek yerde uretiliyor. Snapshot native
+    yardimcininki: eylem o dokumu bu kimlikle anar ve yardimci yalnizca
+    kendi listeledigi dugume dokunur (Task 6.3). Python yardimcisi dokum
+    saklamadigi icin kimligi burada uretilir.
     """
     nodes = _to_nodes(resp.get("nodes") or [])
     return Dump(
@@ -285,7 +288,7 @@ def dump_from_response(resp: dict, backend: str = BACKEND) -> Dump:
         truncated=bool(resp.get("truncated")),
         by_id={n.node_id: n for n in nodes},
         backend=backend,
-        snapshot=secrets.token_hex(6),
+        snapshot=str(resp.get("snapshot") or "") or secrets.token_hex(6),
         app_bus=str(resp.get("app_bus") or ""),
         app_pid=int(resp.get("app_pid") or 0),
         scope="app" if resp.get("scope") == "app" else "window",

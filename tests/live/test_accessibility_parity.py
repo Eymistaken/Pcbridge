@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
-"""Accessibility target identity on the real desktop (Task 6.1, Gate 6).
+"""Accessibility on the real desktop (Tasks 6.1-6.3, Gate 6).
 
 Reads are skipped unless `PCBRIDGE_TEST_ATSPI=1`. The action tests also need
 `PCBRIDGE_TEST_INPUT=1`: they press buttons and fill fields through AT-SPI.
 Both only ever touch `a11y_window.py`, a small GTK4 window this test opens
 itself; every action is addressed by that window's bus name and object path,
-which is exactly what this task makes the provider check. No keyboard or
-pointer device is opened.
+which is exactly what the providers check. No keyboard or pointer device is
+opened.
 
     PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_INPUT=1 \\
       ./.venv/bin/python -m unittest tests/live/test_accessibility_parity.py -v
 
 `PCBRIDGE_A11Y_REPORT=<path>` writes the measured timings there as JSON.
 
-The native reader (Task 6.2) is compared with the Python one on the same
-window when a helper with `accessibility.read` is found (`PCBRIDGE_NATIVE_BIN`
-or the packaged one). It runs under a grant written to a scratch state
-directory, so the user's own grant is never touched and no screen is shared.
+The native helper (Tasks 6.2, 6.3) is compared with the Python one on the
+same window when a helper with the accessibility methods is found
+(`PCBRIDGE_NATIVE_BIN` or the packaged one): the same reads, and every
+action test run once more through it. It runs under a grant written to a
+scratch state directory, so the user's own grant is never touched and no
+screen is shared.
 """
 
 from __future__ import annotations
@@ -48,6 +50,8 @@ APP = "pcbridge-a11y-test"
 READ = os.environ.get("PCBRIDGE_TEST_ATSPI") == "1"
 ACT = READ and os.environ.get("PCBRIDGE_TEST_INPUT") == "1"
 TEXT = "Çağrı ğüşıöç İĞÜŞÖÇ — pcbridge 6.1"
+# Longer than the 5 characters the window's "Kod" field keeps.
+LONG_CODE = "Çağrı-123"
 REPORT: dict[str, list[float]] = {}
 
 
@@ -136,7 +140,32 @@ class A11yWindow:
         self._stderr.close()
 
 
+def native_provider(case: unittest.TestCase, feature: str) -> RustAccessibilityProvider:
+    """The native provider under a scratch grant, or skip without a helper
+    that has `feature`."""
+    scratch = tempfile.TemporaryDirectory()
+    case.addCleanup(scratch.cleanup)
+    cfg = dataclasses.replace(
+        load_config(str(ROOT / "config.example.toml")), state_dir=Path(scratch.name)
+    )
+    gate = SafetyGate(cfg)
+    gate.unlock(5, reason="accessibility parity")
+    provider = RustAccessibilityProvider(cfg, gate=gate)
+    case.addCleanup(provider.close)
+    try:
+        provider.windows()
+    except DesktopError as exc:
+        case.skipTest(f"no native helper with {feature}: {exc.message}")
+    client = provider._helper.client
+    if client is None or feature not in client.features:
+        case.skipTest(f"the native helper has no {feature}; rebuild it")
+    return provider
+
+
 class _LiveCase(unittest.TestCase):
+    #: Timings are kept per provider.
+    label = "python"
+
     def setUp(self) -> None:
         ok, why = uitreelib.available()
         if not ok:
@@ -144,7 +173,10 @@ class _LiveCase(unittest.TestCase):
         errors = Path(os.environ.get("TMPDIR", "/tmp")) / f"pcbridge-a11y-window-{os.getpid()}.log"
         self.window = A11yWindow(errors)
         self.addCleanup(self.window.close)
-        self.tree = PythonAccessibilityProvider()
+        self.tree = self.provider()
+
+    def provider(self):
+        return PythonAccessibilityProvider()
 
     def dump(self) -> uitreelib.Dump:
         """Dump the test window by name; it may take a moment to register."""
@@ -159,7 +191,7 @@ class _LiveCase(unittest.TestCase):
                 time.sleep(0.2)
                 continue
             if dump.app_pid == self.window.ready["pid"] and len(self.closes(dump)) == 3:
-                _measure("dump_ms", started)
+                _measure(f"{self.label}_dump_ms", started)
                 return dump
             if time.monotonic() > deadline:
                 self.fail(f"test window not visible to AT-SPI: {dump.app} pid {dump.app_pid}")
@@ -219,7 +251,7 @@ class LiveActionTests(_LiveCase):
         mark = self.window.mark()
         started = time.monotonic()
         result = self.tree.click(target.node_id)
-        _measure("click_ms", started)
+        _measure(f"{self.label}_click_ms", started)
         self.assertEqual(result["resolved_by"], "moved")
         self.assertEqual(self.clicked(mark), ["close-b"])
 
@@ -261,8 +293,10 @@ class LiveActionTests(_LiveCase):
         password = next(n for n in dump.nodes if n.role == "password text")
         mark = self.window.mark()
         started = time.monotonic()
-        self.tree.set_text(field.node_id, TEXT)
-        _measure("set_text_ms", started)
+        result = self.tree.set_text(field.node_id, TEXT)
+        _measure(f"{self.label}_set_text_ms", started)
+        self.assertTrue(result["verified"], result)
+        self.assertEqual(result["now_chars"], len(TEXT))
         got = self.window.wait(
             lambda e: e.get("field") == "name" and e.get("value") == TEXT, 3, since=mark
         )
@@ -274,6 +308,56 @@ class LiveActionTests(_LiveCase):
         self.assertFalse(
             [e for e in self.window.since(mark) if e.get("field") == "password"]
         )
+
+    def test_a_disabled_button_is_refused_not_reported_clicked(self) -> None:
+        dump = self.dump()
+        ok = next(n for n in dump.nodes if n.role == "push button" and n.name == "Tamam")
+        self.window.command("disable-ok")
+        mark = self.window.mark()
+        with self.assertRaises(DesktopError) as raised:
+            self.tree.click(ok.node_id)
+        self.assertEqual(raised.exception.code, ErrorCode.ACTION_UNSUPPORTED)
+        self.assertEqual(self.clicked(mark), [])
+
+    def test_a_field_that_keeps_five_characters_is_reported(self) -> None:
+        dump = self.dump()
+        code = next(n for n in dump.nodes if n.role == "text" and n.name == "Kod")
+        mark = self.window.mark()
+        with self.assertRaises(DesktopError) as raised:
+            self.tree.set_text(code.node_id, LONG_CODE)
+        error = raised.exception
+        self.assertEqual(error.code, ErrorCode.TEXT_MISMATCH)
+        self.assertIn(f"{len(LONG_CODE)} karakter gonderildi", error.message)
+        self.assertIn("simdi 5 karakter", error.message)
+        self.assertNotIn(LONG_CODE, error.message)
+        got = self.window.wait(
+            lambda e: e.get("field") == "code" and e.get("value") == LONG_CODE[:5], 3, since=mark
+        )
+        self.assertIsNotNone(got, "the field holds what it kept")
+
+
+@unittest.skipUnless(ACT, "set PCBRIDGE_TEST_ATSPI=1 and PCBRIDGE_TEST_INPUT=1: presses the test window's buttons")
+class LiveNativeActionTests(LiveActionTests):
+    """Every action test once more, through the native helper (Task 6.3)."""
+
+    label = "native"
+
+    def provider(self):
+        return native_provider(self, "accessibility.action")
+
+    def test_the_helper_opens_no_input_device(self) -> None:
+        dump = self.dump()
+        self.tree.click(self.group(dump, "b").node_id)
+        client = self.tree._helper.client
+        self.assertIsNotNone(client)
+        pid = client._process.pid
+        opened = []
+        for fd in Path(f"/proc/{pid}/fd").iterdir():
+            try:
+                opened.append(os.readlink(fd))
+            except OSError:
+                continue
+        self.assertFalse([path for path in opened if "uinput" in path], opened)
 
 
 NODE_FIELDS = ("node_id", "ref", "path", "role", "name", "states", "actions", "editable", "depth")
@@ -298,19 +382,7 @@ class LiveNativeReadTests(_LiveCase):
 
     def setUp(self) -> None:
         super().setUp()
-        scratch = tempfile.TemporaryDirectory()
-        self.addCleanup(scratch.cleanup)
-        cfg = dataclasses.replace(
-            load_config(str(ROOT / "config.example.toml")), state_dir=Path(scratch.name)
-        )
-        gate = SafetyGate(cfg)
-        gate.unlock(5, reason="accessibility parity")
-        self.native = RustAccessibilityProvider(cfg, gate=gate)
-        self.addCleanup(self.native.close)
-        try:
-            self.native.windows()
-        except DesktopError as exc:
-            self.skipTest(f"no native helper with accessibility.read: {exc.message}")
+        self.native = native_provider(self, "accessibility.read")
 
     def timed(self, name: str, read):
         started = time.monotonic()

@@ -57,6 +57,9 @@ class ErrorCode(str, Enum):
     ELEMENT_STALE = "ELEMENT_STALE"
     ELEMENT_AMBIGUOUS = "ELEMENT_AMBIGUOUS"
     ACTION_UNSUPPORTED = "ACTION_UNSUPPORTED"
+    # Task 6.3: the field was written but holds other text than was sent
+    # (cut short, or changed by the application). Not a stale target.
+    TEXT_MISMATCH = "TEXT_MISMATCH"
 
     TIMEOUT = "TIMEOUT"
     CANCELLED = "CANCELLED"

@@ -76,7 +76,9 @@ PCBRIDGE_TEST_INPUT=1 PCBRIDGE_TEST_BATCH=1 \
 AT-SPI gerçek okuma testleri ayrıca `PCBRIDGE_TEST_ATSPI=1` ister. Hedef
 kimliğinin canlı testi kendi küçük GTK4 penceresini açar; okuma
 `PCBRIDGE_TEST_ATSPI=1`, o pencerenin düğmelerine AT-SPI ile basmak ayrıca
-`PCBRIDGE_TEST_INPUT=1` ister (uinput açılmaz):
+`PCBRIDGE_TEST_INPUT=1` ister (uinput açılmaz). Her eylem testi hem Python
+hem native yardımcıyla koşar; native için paketlenmiş yardımcı ya da
+`PCBRIDGE_NATIVE_BIN` ile verilen bir derleme kullanılır:
 
 ```bash
 PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_INPUT=1 \
@@ -361,6 +363,26 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
 
   Native okuyucu izne bağlı yardımcıda çalışıyor. Gate 6'ya kadar varsayılan
   `[native] accessibility = "python"`.
+- **Uygulamanın eyleme verdiği cevap bir şey kanıtlamıyor.** Ölçüldü
+  2026-09-19, GTK4 4.14 test penceresi, ham D-Bus:
+  - Devre dışı düğmede `DoAction` `false` dönüyor ve hiçbir şey tıklanmıyor.
+    Önceden bu "tıklandı" diye raporlanıyordu; artık `ACTION_UNSUPPORTED`.
+  - En fazla 5 karakter tutan alana `SetTextContents` `true` dönüyor ve alan
+    5 karakter tutuyor. Yani yazılan metin **geri okunup** karşılaştırılıyor,
+    tutmazsa `TEXT_MISMATCH` (mesajda yalnızca sayılar).
+  - `GetText(0, -1)` boş metin dönüyor: bitiş her zaman `CharacterCount`.
+  - Girdi alanı `InsertText`'in uzunluğunu hiç kullanmıyor (`"ğüş"`, uzunluk
+    2 → üç harf yazıldı). 2026-08-02'deki bayt uzunluğu kırpması metin
+    kutusundaydı. Native yol bu yüzden `SetTextContents` kullanıyor, uzunluk
+    parametresi yok.
+  - **PyGObject tuzağı:** `get_text_iface()` ayrı bir nesne değil, düğümün
+    kendisi. `ti.get_text(0, n)` bu yüzden `Atspi.Accessible.get_text()`e
+    gidiyor ve TypeError veriyor. Doğru çağrı `Atspi.Text.get_text(düğüm, 0,
+    n)`. Sahte AT-SPI bunu gizlemişti; canlı test yakaladı.
+
+  Native eylem (`accessibility/action.rs`) izne bağlı yardımcıda ve yalnızca
+  o yardımcının kendi dökümündeki düğüme gidiyor. Tıklama native **13 ms**,
+  Python 52 ms; metin 5 ms'ye karşı 50 ms. Yardımcı `/dev/uinput` açmıyor.
 - **AT-SPI Electron'un penceresini görür, içini görmez.** Vesktop'ta `ui_dump`
   0 düğüm — orada tek yol görüntü.
 - **uinput olayı `IdleMonitor`'ü sıfırlıyor** (104227 ms → 151 ms). "Kullanıcı

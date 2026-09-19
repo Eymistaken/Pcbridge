@@ -9,7 +9,8 @@ The tree is built to hold the cases that matter for target identity:
 
 - two buttons both named "Kapat", one in group "Belge A" and one in "Belge B",
   so a name alone cannot tell them apart;
-- a text field "Ad" and a password field "Parola";
+- a text field "Ad", a field "Kod" that keeps at most 5 characters, and a
+  password field "Parola";
 - commands that change the tree the way real applications do.
 
 Every report goes to stdout as one JSON line:
@@ -25,6 +26,7 @@ Commands on stdin, one per line:
     rebuild   replace the "Kapat" button of group A with a new object
     remove-a  remove group A with its "Kapat" button
     retitle   change the window title
+    disable-ok  make the "Tamam" button insensitive
     quit
 """
 
@@ -57,6 +59,7 @@ class Window:
         self.group_a: Gtk.Frame | None = None
         self.group_a_box: Gtk.Box | None = None
         self.close_a: Gtk.Button | None = None
+        self.ok: Gtk.Button | None = None
         self.rebuilt = 0
         self.extra = 0
 
@@ -106,8 +109,12 @@ class Window:
         box.append(self.group_a)
         box.append(group_b)
         box.append(self.field(Gtk.Entry(), "Ad", "name"))
+        code = Gtk.Entry()
+        code.set_max_length(5)
+        box.append(self.field(code, "Kod", "code"))
         box.append(self.field(Gtk.PasswordEntry(), "Parola", "password"))
-        box.append(self.button("Tamam", "ok"))
+        self.ok = self.button("Tamam", "ok")
+        box.append(self.ok)
         window.set_child(box)
         window.present()
         self.window, self.box = window, box
@@ -139,6 +146,8 @@ class Window:
             self.group_a = self.group_a_box = self.close_a = None
         elif command == "retitle":
             self.window.set_title(f"{TITLE} (degisti)")
+        elif command == "disable-ok" and self.ok is not None:
+            self.ok.set_sensitive(False)
         else:
             emit(event="error", command=command)
             return False

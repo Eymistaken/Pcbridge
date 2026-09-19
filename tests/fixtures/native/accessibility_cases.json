@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "about": "Accessibility target identity (Task 6.1). \"apps\" are fake AT-SPI applications with a bus name and pid; an app's children are its windows, every node has its D-Bus object path as \"ref\". A desktop is an ordered list of app keys. Node defaults: name \"\", states [], actions [], children []. \"text\" gives a node the Text interface, \"editable_text\" the EditableText one. dump_cases run one dump request; action_cases dump \"dump.desktop\", switch the desktop to \"then\", and act on the dumped node whose ref is \"act.ref\", with the dump's identity fields (\"override\" replaces request fields). \"performed\" lists every action the fake desktop saw, in order: an error must leave it empty. id_cases cover the short public ids Python derives from a dump; window_cases the window list and the focused window, read without walking a tree. Shared by the Python helper contract and the Rust provider (Task 6.2). Reviewed by hand; edit it directly, nothing regenerates it.",
+  "about": "Accessibility target identity (Task 6.1) and actions (Task 6.3). \"apps\" are fake AT-SPI applications with a bus name and pid; an app's children are its windows, every node has its D-Bus object path as \"ref\". A desktop is an ordered list of app keys. Node defaults: name \"\", states [], actions [], children []. \"text\" gives a node the Text interface, \"editable_text\" the EditableText one; \"max_chars\" keeps only that many characters of a written text, \"read_only\" answers writes with false and changes nothing, \"refuses_actions\" answers DoAction with false and does nothing (GTK4's answer for an insensitive widget). dump_cases run one dump request; action_cases dump \"dump.desktop\", switch the desktop to \"then\", and act on the dumped node whose ref is \"act.ref\", with the dump's identity fields (\"override\" replaces request fields). \"performed\" lists every action that took effect on the fake desktop, in order: a refusal before acting leaves it empty, a text written short still lists its write. id_cases cover the short public ids Python derives from a dump; window_cases the window list and the focused window, read without walking a tree. Shared by the Python helper contract and the Rust provider (Tasks 6.2, 6.3). Reviewed by hand; edit it directly, nothing regenerates it.",
   "apps": {
     "shell": {
       "name": "gnome-shell",
@@ -314,7 +314,7 @@
                       "role": "push button",
                       "name": "Kapat",
                       "states": ["showing", "enabled", "sensitive"],
-                      "actions": ["click", "win.close"]
+                      "actions": ["win.close", "click"]
                     }
                   ]
                 },
@@ -1303,6 +1303,101 @@
           "children": [{"ref": "/org/two/a11y/b", "role": "push button", "name": "Tamam", "states": ["showing", "enabled", "sensitive"], "actions": ["click"]}]
         }
       ]
+    },
+    "form": {
+      "name": "pcbridge-form",
+      "bus": ":1.40",
+      "pid": 4000,
+      "windows": [
+        {
+          "ref": "/org/pcbridge/Form/a11y/w1",
+          "role": "frame",
+          "name": "Form",
+          "states": ["active", "showing"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Form/a11y/code",
+              "role": "text",
+              "name": "Kod",
+              "states": ["showing", "enabled", "sensitive", "editable"],
+              "text": "",
+              "editable_text": true,
+              "max_chars": 5
+            },
+            {
+              "ref": "/org/pcbridge/Form/a11y/note",
+              "role": "text",
+              "name": "Not",
+              "states": ["showing", "enabled", "sensitive", "editable"],
+              "editable_text": true
+            },
+            {
+              "ref": "/org/pcbridge/Form/a11y/locked",
+              "role": "text",
+              "name": "Kilitli",
+              "states": ["showing", "enabled", "sensitive"],
+              "text": "sabit",
+              "editable_text": true,
+              "read_only": true
+            },
+            {
+              "ref": "/org/pcbridge/Form/a11y/send",
+              "role": "push button",
+              "name": "Gönder",
+              "states": ["showing", "enabled", "sensitive"],
+              "actions": ["click"]
+            }
+          ]
+        }
+      ]
+    },
+    "form_send_disabled": {
+      "name": "pcbridge-form",
+      "bus": ":1.40",
+      "pid": 4000,
+      "windows": [
+        {
+          "ref": "/org/pcbridge/Form/a11y/w1",
+          "role": "frame",
+          "name": "Form",
+          "states": ["active", "showing"],
+          "children": [
+            {
+              "ref": "/org/pcbridge/Form/a11y/code",
+              "role": "text",
+              "name": "Kod",
+              "states": ["showing", "enabled", "sensitive", "editable"],
+              "text": "",
+              "editable_text": true,
+              "max_chars": 5
+            },
+            {
+              "ref": "/org/pcbridge/Form/a11y/note",
+              "role": "text",
+              "name": "Not",
+              "states": ["showing", "enabled", "sensitive", "editable"],
+              "editable_text": true
+            },
+            {
+              "ref": "/org/pcbridge/Form/a11y/locked",
+              "role": "text",
+              "name": "Kilitli",
+              "states": ["showing", "enabled", "sensitive"],
+              "text": "sabit",
+              "editable_text": true,
+              "read_only": true
+            },
+            {
+              "ref": "/org/pcbridge/Form/a11y/send",
+              "role": "push button",
+              "name": "Gönder",
+              "states": ["showing"],
+              "actions": ["click"],
+              "refuses_actions": true
+            }
+          ]
+        }
+      ]
     }
   },
   "desktops": {
@@ -1322,7 +1417,9 @@
     "nothing_active": ["shell"],
     "electron": ["shell", "electron"],
     "wrapped": ["wrapped"],
-    "deep": ["deep"]
+    "deep": ["deep"],
+    "form": ["shell", "form"],
+    "form_send_disabled": ["shell", "form_send_disabled"]
   },
   "dump_cases": [
     {
@@ -1640,6 +1737,22 @@
           }
         ]
       }
+    },
+    {
+      "name": "fields_are_listed_whatever_they_can_do",
+      "desktop": "form",
+      "request": {"target": "focused", "interactive_only": true, "max_nodes": 400},
+      "expect": {
+        "ok": true,
+        "app": "pcbridge-form",
+        "window": "Form",
+        "nodes": [
+          {"ref": "/org/pcbridge/Form/a11y/code", "path": [0, 0], "role": "text", "name": "Kod", "actions": [], "editable": true},
+          {"ref": "/org/pcbridge/Form/a11y/note", "path": [0, 1], "role": "text", "name": "Not", "actions": [], "editable": true},
+          {"ref": "/org/pcbridge/Form/a11y/locked", "path": [0, 2], "role": "text", "name": "Kilitli", "actions": [], "editable": false},
+          {"ref": "/org/pcbridge/Form/a11y/send", "path": [0, 3], "role": "push button", "name": "Gönder", "actions": ["click"], "editable": false}
+        ]
+      }
     }
   ],
   "action_cases": [
@@ -1765,6 +1878,7 @@
         "resolved_by": "moved",
         "replaced_chars": 4,
         "now_chars": 23,
+        "verified": true,
         "performed": [["/org/pcbridge/Editor/a11y/field-name", "settext"]],
         "text_after": {"/org/pcbridge/Editor/a11y/field-name": "Çağrı ğüşıöç İĞÜŞÖÇ — 1"}
       }
@@ -1782,6 +1896,58 @@
       "then": "editor_w1_closed",
       "act": {"cmd": "settext", "ref": "/org/pcbridge/Editor/a11y/field-name", "text": "x"},
       "expect": {"ok": false, "code": "ELEMENT_STALE", "performed": []}
+    },
+    {
+      "name": "the_asked_action_is_chosen_by_name_not_position",
+      "dump": {"desktop": "editor", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "editor",
+      "act": {"cmd": "act", "ref": "/org/pcbridge/Editor/a11y/close-a", "action": "click"},
+      "expect": {"ok": true, "resolved_by": "path", "performed": [["/org/pcbridge/Editor/a11y/close-a", "click"]]}
+    },
+    {
+      "name": "refused_action_is_an_error_and_nothing_happens",
+      "dump": {"desktop": "form", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "form_send_disabled",
+      "act": {"cmd": "act", "ref": "/org/pcbridge/Form/a11y/send", "action": "click"},
+      "expect": {"ok": false, "code": "ACTION_UNSUPPORTED", "performed": []}
+    },
+    {
+      "name": "text_the_field_cannot_hold_whole_is_reported",
+      "dump": {"desktop": "form", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "form",
+      "act": {"cmd": "settext", "ref": "/org/pcbridge/Form/a11y/code", "text": "Çağrı-123"},
+      "expect": {
+        "ok": false,
+        "code": "TEXT_MISMATCH",
+        "performed": [["/org/pcbridge/Form/a11y/code", "settext"]],
+        "text_after": {"/org/pcbridge/Form/a11y/code": "Çağrı"}
+      }
+    },
+    {
+      "name": "text_without_a_text_interface_is_written_unverified",
+      "dump": {"desktop": "form", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "form",
+      "act": {"cmd": "settext", "ref": "/org/pcbridge/Form/a11y/note", "text": "not"},
+      "expect": {
+        "ok": true,
+        "resolved_by": "path",
+        "replaced_chars": 0,
+        "now_chars": -1,
+        "verified": false,
+        "performed": [["/org/pcbridge/Form/a11y/note", "settext"]]
+      }
+    },
+    {
+      "name": "text_into_a_read_only_field_is_refused",
+      "dump": {"desktop": "form", "request": {"target": "focused", "interactive_only": true, "max_nodes": 400}},
+      "then": "form",
+      "act": {"cmd": "settext", "ref": "/org/pcbridge/Form/a11y/locked", "text": "x"},
+      "expect": {
+        "ok": false,
+        "code": "ACTION_UNSUPPORTED",
+        "performed": [],
+        "text_after": {"/org/pcbridge/Form/a11y/locked": "sabit"}
+      }
     }
   ],
   "id_cases": [

@@ -20,8 +20,16 @@ PROTOKOL
 
     Cevap her zaman `ok` alani tasir; `ok: false` ise `error` da vardir,
     kararli bir sebep varsa `code` da (`ELEMENT_STALE`, `TARGET_MISMATCH`,
-    `ELEMENT_AMBIGUOUS`). Metin JSON'un icinde stdin'den geliyor -- argv'ye
-    KONMAZ, yoksa `ps` ciktisinda gorunurdu.
+    `ELEMENT_AMBIGUOUS`, `ACTION_UNSUPPORTED`, `TEXT_MISMATCH`). Metin JSON'un
+    icinde stdin'den geliyor -- argv'ye KONMAZ, yoksa `ps` ciktisinda
+    gorunurdu.
+
+UYGULAMANIN CEVABI DA DENETLENIR (olculdu 2026-09-19, GTK4 4.14)
+    Devre disi bir dugmede `DoAction` false donuyor ve hicbir sey
+    tiklanmiyor: bu bir hata, "tiklandi" degil. En fazla 5 karakter tutan bir
+    alana yazinca uygulama true donup 5 karakter tutuyor: cevap bir sey
+    kanitlamiyor, o yuzden metin geri okunup butunuyle karsilastiriliyor.
+    Native okuyucu (`accessibility/action.rs`) ayni kurallarla calisiyor.
 
 HEDEF KIMLIGI (olculdu 2026-09-19, GTK4 4.14 ve gnome-shell)
     Her dugumun bir D-Bus nesne yolu var (`node.path`), uygulamanin da tekil
@@ -43,6 +51,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 import warnings
 from typing import NoReturn
 
@@ -55,6 +64,10 @@ DEFAULT_MAX_NODES = 400
 # Yeri degismis bir dugumu kimligiyle ararken gezilecek en fazla dugum. Dokum
 # tavaniyla ayni (DEFAULT_MAX_NODES * 25): dokumde gorunen her dugum bulunur.
 SEARCH_LIMIT = 10_000
+# Yazilan metnin butun olarak geri okunmasi icin beklenen en uzun sure. GTK4
+# hemen cevap veriyor; metni sonradan uygulayan bir arac bu kadar vakit alir.
+TEXT_SETTLE = 0.3
+TEXT_POLL = 0.05
 
 # Adi olmasa bile modele anlatilmaya deger roller (metin tasiyanlar).
 TEXT_ROLES = {
@@ -562,19 +575,27 @@ def cmd_act(req: dict) -> dict:
         if cand in names:
             idx = names.index(cand)
             break
+    action = names[idx] or f"action{idx}"
     try:
         ok = iface.do_action(idx)
     except Exception as exc:
         _fail(f"Eylem calistirilamadi: {exc}")
+    if not ok:
+        # Uygulamanin kendi cevabi: eylem yapilmadi (GTK4'te devre disi dugme).
+        _fail(
+            f"Uygulama {action!r} eylemini yapmadi: {_role(node)} {_name(node)!r} "
+            "su an devre disi olabilir. Hicbir sey yapilmadi.",
+            "ACTION_UNSUPPORTED",
+        )
     return {
         "ok": True,
         "app": app_name,
         "ref": _ref(node),
         "role": _role(node),
         "name": _name(node),
-        "action": names[idx] or f"action{idx}",
+        "action": action,
         "resolved_by": how,
-        "returned": bool(ok),
+        "returned": True,
     }
 
 
@@ -593,24 +614,28 @@ def cmd_settext(req: dict) -> dict:
             "arayuzu yok).",
             "ACTION_UNSUPPORTED",
         )
+    refused = (
+        f"Uygulama metni kabul etmedi: {_role(node)} {_name(node)!r} su an "
+        "duzenlenemiyor olabilir. Hicbir sey yazilmadi."
+    )
     try:
         ti = node.get_text_iface()
         old_len = ti.get_character_count() if ti else 0
-        if old_len:
-            et.delete_text(0, old_len)
+        if old_len and not et.delete_text(0, old_len):
+            _fail(refused, "ACTION_UNSUPPORTED")
         # UZUNLUK BAYT CINSINDEN, karakter degil -- olculdu 2026-08-02.
         # `len(text)` verilince "merhaba @ ış ğü ÖÇ — pcbridge D testi #1"
         # (40 karakter, 48 bayt) 32 karaktere DUSUYORDU: Turkce harfler 2,
-        # em-dash 3 bayt. Sessiz kirpma, hicbir hata vermeden.
-        et.insert_text(0, text, len(text.encode("utf-8")))
-        new_len = ti.get_character_count() if ti else -1
+        # em-dash 3 bayt. Sessiz kirpma, hicbir hata vermeden. (2026-09-19:
+        # GTK4'un girdi alani bu uzunlugu hic kullanmiyor; metin kutusu
+        # kullaniyor. Native okuyucu bu yuzden SetTextContents kullaniyor.)
+        if not et.insert_text(0, text, len(text.encode("utf-8"))):
+            _fail(refused, "ACTION_UNSUPPORTED")
+    except Failure:
+        raise
     except Exception as exc:
         _fail(f"Metin yazilamadi: {exc}")
-    if new_len >= 0 and new_len != len(text):
-        _fail(
-            f"Metin eksik yazildi: {len(text)} karakter gonderildi, {new_len} "
-            "karakter olustu."
-        )
+    new_len, verified = _read_back(ti, text)
     return {
         "ok": True,
         "app": app_name,
@@ -620,7 +645,46 @@ def cmd_settext(req: dict) -> dict:
         "replaced_chars": old_len,
         "now_chars": new_len,
         "resolved_by": how,
+        "verified": verified,
     }
+
+
+def _read_back(ti, text: str) -> tuple[int, bool]:
+    """Yazilan metni geri oku -> (simdiki karakter sayisi, dogrulandi mi).
+
+    Metin butunuyle aynidir ya da `TEXT_MISMATCH` doner; mesajda yalnizca
+    sayilar var, metnin kendisi yok. Text arayuzu yoksa ya da hic
+    okunamiyorsa yazma dogrulanamaz ama hata da degildir: metin gitti.
+
+    OLCULDU (2026-09-19): PyGObject'te `get_text_iface()` ayri bir nesne
+    degil, dugumun kendisi. `ti.get_text(0, n)` bu yuzden Text'in degil
+    `Atspi.Accessible.get_text()`in (arguman almaz) cagrisi olur ve TypeError
+    verir; metin `Atspi.Text.get_text(dugum, 0, n)` ile okunur. Bitis -1
+    birakilmaz: GTK4 `GetText(0, -1)`e bos metin donuyor.
+    """
+    if ti is None:
+        return -1, False
+    until = time.monotonic() + TEXT_SETTLE
+    last = None
+    while True:
+        try:
+            count = ti.get_character_count()
+            back = Atspi.Text.get_text(ti, 0, count) if count > 0 else ""
+        except Exception:
+            if last is None:
+                return -1, False
+        else:
+            if back == text:
+                return len(text), True
+            last = len(back)
+        if last is not None and time.monotonic() >= until:
+            _fail(
+                f"Metin eksik ya da farkli yazildi: {len(text)} karakter gonderildi, "
+                f"alanda simdi {last} karakter var. Alanin icerigi degisti; ui_dump "
+                "ile bakin.",
+                "TEXT_MISMATCH",
+            )
+        time.sleep(TEXT_POLL)
 
 
 def cmd_windows(req: dict) -> dict:
