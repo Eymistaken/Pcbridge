@@ -10,6 +10,8 @@ Bu eklenti aynı durumu **göz kaçırmayacak** biçimde gösteriyor.
   kapanınca yumuşakça kaybolur, iki monitörde de görünür. Bant çok yavaş bir
   nefes alıyor: 11 saniyede bir, en fazla çizildiği kalınlıkta kalarak %12
   inceliyor ve geri dönüyor.
+- **Ajanın imleci** (VARSAYILAN KAPALI, aşağıda) — izin açıkken gerçek imleç
+  gizlenip yerine yöne dönen bir ok çiziliyor.
 
 Görsel katmana ek olarak tek, dar bir D-Bus yöntemi sunar:
 `ActivateWindow(hedef) -> bool`. Yöntem yalnızca zaten açık olan tek ve
@@ -100,10 +102,38 @@ gjs -m gnome-extension/tests/test_window_control.js
 | `pcbridge-gorunur@eymistaken.local/state.js` | `desktop_unlock.json` izleyici |
 | `pcbridge-gorunur@eymistaken.local/windowcontrol.js` | tek yöntemli D-Bus pencere etkinleştirme yüzü |
 | `pcbridge-gorunur@eymistaken.local/frame.js` | kenar çerçevesi |
+| `pcbridge-gorunur@eymistaken.local/cursor.js` | ajanın imleci (varsayılan kapalı) |
+| `pcbridge-gorunur@eymistaken.local/frameclock.js` | işi kare başına bire indiren yardımcı |
 | `pcbridge-gorunur@eymistaken.local/selftest.js` | kabuğun içinden ölçüm (aşağıda) |
 | `install.sh` / `nested.sh` | kurulum / geliştirme döngüsü |
 | `tests/test_state.js` | durum izleyici testi (kabuk gerekmez) |
 | `tests/test_window_control.js` | eşleşme, grant ve yöntem sözleşmesi (kabuk gerekmez) |
+| `tests/test_cursor.js` | kare saati mantığı (kabuk gerekmez) |
+
+### Ajanın imleci — varsayılan kapalı
+
+İzin açıkken gerçek imleç gizlenir ve yerine hareket yönüne dönen bir ok
+çizilir. **Kapalı geliyor**, çünkü bu katman bir kez çıkarıldı: gerçek
+makinede fiziksel fareyle tıklamalar basmıyor ve fare donuyordu (2026-08-04).
+Sebep bulunamadı; bütün denemeler sentetik fareyle yapılmıştı ve tek
+ölçülmemiş fark olay hızıydı — fiziksel fare ~1000 Hz rapor ediyor.
+
+Geri gelirken iki şey değişti: konum artık her olayda değil **kare başına bir
+kez** uygulanıyor ve aktör `addTopChrome` yerine `Main.uiGroup`ta duruyor.
+Nested kabukta ölçüldü (2026-09-20, aynı fare fırtınası): eski kod 1992 olayın
+1992'sini çiziyordu, yenisi 263'ünü (58 çizim/sn, yani kare hızı).
+**Gerçek oturumda fiziksel fareyle DOĞRULANMADI.**
+
+```bash
+touch ~/.local/state/pcbridge/gorunur-imlec     # aç
+rm    ~/.local/state/pcbridge/gorunur-imlec     # kapat
+```
+
+İşaret dosyası her izin açılışında yeniden okunuyor, yani açıp kapatmak için
+kabuğu yeniden başlatmak gerekmiyor: bir sonraki `desktop_unlock` yeni durumu
+alır. Fare yine tuhaflaşırsa dosyayı silin, izni kapatıp açın; hiçbir şey
+kalmaz. Eklentinin tamamını kapatmak için `gnome-extensions disable
+pcbridge-gorunur@eymistaken.local`.
 
 ### Pencere etkinleştirme yüzü
 
@@ -136,6 +166,11 @@ PCBRIDGE_GORUNUR_SELFTEST=1 ./gnome-extension/nested.sh
 
 Kapalıyken maliyeti tek bir `getenv`.
 
+Fiziksel fareyi taklit eden ölçüm ayrıca isteniyor (imleci gerçekten
+oynatıyor): `PCBRIDGE_GORUNUR_BURST=1` ile sanal bir işaretçi 2000 hareket
+gönderiyor ve kaçının ekrana yansıdığını, ana döngünün ne kadar geciktiğini
+yazıyor. İmleç katmanını da açmak için `PCBRIDGE_GORUNUR_CURSOR=1`.
+
 ## Maliyet
 
 Statik çerçeve ölçüm gürültüsünün altında (kapalı %0,55 · açık %0,45–0,50 CPU,
@@ -157,5 +192,12 @@ yeterli; çerçeve yine çalışır ve tekrar bedava olur.
   geçiş özelliğin tipini bilmiyor, aralık boş kalıyor ve özellik **0'a** düşüyor
   (ölçüldü: 15 ölçek örneğinin hepsi 0.000). `actor.ease()` zincirlemesi
   doğrulanmış yol.
-- İmleci değiştirme denendi ve geri alındı — gerekçesi, ölçülmüş bulgular ve
+- İmleci değiştirme denendi, geri alındı ve 2026-09-20'de kare saati
+  düzeltmesiyle **kapalı olarak** geri geldi — gerekçesi, ölçülmüş bulgular ve
   devam yolu [WALKTHROUGH.md](../WALKTHROUGH.md)'de.
+- `Meta.CursorTracker.set_pointer_visible(false)` gerçek oturumda imleci
+  gizliyor ve gizli kalıyor (görsel kanıt: 13×21 px fark, başka hiçbir piksel
+  değişmedi).
+- Fiziksel fare hareket halinde **~1000 Hz** rapor ediyor (medyan aralık
+  1,00 ms, ölçüldü 2026-09-13). Ekranda görünebilecek en fazla değişiklik kare
+  sayısı kadar; aradaki her şey kabuğa boşuna iş çıkarıyor.

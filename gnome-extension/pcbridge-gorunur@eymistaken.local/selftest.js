@@ -162,6 +162,101 @@ export function checkClickThrough() {
     return hepsiGecti;
 }
 
+/** Fiziksel fareyi taklit et: sanal bir işaretçiyle hızlı hareket üret.
+ *
+ * NEDEN VAR: imleç katmanı gerçek makinede FİZİKSEL fareyle tıklamayı
+ * bozmuştu ve bütün denemeler sentetik fareyle (~50 olay/sn) yapıldığı için
+ * yeniden üretilemedi. Fiziksel fare ~1000 Hz rapor ediyor (ölçüldü
+ * 2026-09-13). Kabuğun kendi sanal aygıtı o hızı üretebiliyor, yani fark
+ * nested kabukta da ölçülebilir hale geliyor.
+ *
+ * Ölçülen: kaç hareket gönderildi, imleç katmanı kaçını ekrana yansıttı ve
+ * bu sırada ana döngü ne kadar geciktirdi. Tıklama göndermiyor.
+ *
+ * @param {object} cursor imleç katmanı (sayaçları için; olmayabilir).
+ * @param {object} options
+ * @param {number} [options.events] gönderilecek hareket sayısı.
+ * @param {number} [options.hz] hedef olay hızı.
+ */
+export function pointerBurst(cursor, {events = 2000, hz = 1000} = {}) {
+    let seat;
+    let device;
+    try {
+        seat = Clutter.get_default_backend().get_default_seat();
+        device = seat.create_virtual_device(Clutter.InputDeviceType.POINTER_DEVICE);
+    } catch (error) {
+        sonuc('fare fırtınası: sanal aygıt', false, `${error}`);
+        return;
+    }
+
+    const monitor = Main.layoutManager.primaryMonitor;
+    const merkezX = monitor.x + Math.floor(monitor.width / 2);
+    const merkezY = monitor.y + Math.floor(monitor.height / 2);
+    const yariCap = Math.floor(Math.min(monitor.width, monitor.height) / 4);
+    // Tempo GERÇEKÇİ olmalı: olayları tek seferde boşaltmak ana döngüyü
+    // doldurur ve kabuk arada hiç çizim yapamaz (ilk denemede oldu: 2000
+    // hareket 0,12 sn'de gitti, 0 çizim). Fiziksel fare olayları zamana
+    // yayılmış geliyor, biz de öyle gönderiyoruz.
+    const tikMs = 4;
+    const tikBasina = Math.max(1, Math.round((hz * tikMs) / 1000));
+
+    cursor?.resetStats?.();
+    const baslangic = GLib.get_monotonic_time();
+    let sonUyanma = baslangic;
+    let enKotuGecikme = 0;
+    let gonderilen = 0;
+
+    // Olayları ana döngüden gönderiyoruz: `sleep` ile döngüyü kilitlemek
+    // ölçülecek şeyi (kabuğun tepki verebilmesini) yok ederdi.
+    GLib.timeout_add(GLib.PRIORITY_DEFAULT, tikMs, () => {
+        const simdi = GLib.get_monotonic_time();
+        const gecikme = (simdi - sonUyanma) / 1000 - tikMs;
+        if (gonderilen > 0 && gecikme > enKotuGecikme)
+            enKotuGecikme = gecikme;
+        sonUyanma = simdi;
+
+        for (let i = 0; i < tikBasina && gonderilen < events; i++) {
+            // Bir daire üstünde ilerle: her olay gerçek bir konum değişimi
+            // olsun, yoksa kompozitör hareketi hiç görmez.
+            const aci = (gonderilen / hz) * 4 * Math.PI;
+            const x = merkezX + Math.cos(aci) * yariCap;
+            const y = merkezY + Math.sin(aci) * yariCap;
+            try {
+                device.notify_absolute_motion(simdi + i, x, y);
+            } catch (error) {
+                sonuc('fare fırtınası: hareket gönderildi', false, `${error}`);
+                return GLib.SOURCE_REMOVE;
+            }
+            gonderilen++;
+        }
+
+        if (gonderilen < events)
+            return GLib.SOURCE_CONTINUE;
+
+        const gecen = (GLib.get_monotonic_time() - baslangic) / 1e6;
+        const stats = cursor?.stats ?? null;
+        yaz(`fare fırtınası: ${gonderilen} hareket · ${gecen.toFixed(2)} sn · ` +
+            `${(gonderilen / gecen).toFixed(0)} hareket/sn · ` +
+            `ana döngü en kötü ${enKotuGecikme.toFixed(1)} ms`);
+        if (stats) {
+            yaz(`  imleç: ${stats.requests} olay / ${stats.applied} çizim · ` +
+                `${(stats.applied / gecen).toFixed(0)} çizim/sn`);
+            sonuc('çizim sayısı olay sayısının altında (kare saati)',
+                stats.applied < stats.requests / 2,
+                `${stats.applied} < ${stats.requests} / 2`);
+        } else {
+            yaz('  imleç katmanı kapalı: yalnızca hareket üretildi');
+        }
+        // Aygıtı bırak: nested kabuk kapanınca sahipsiz kalmasın.
+        try {
+            seat.get_pointer?.();
+        } catch { /* yalnızca tanı */ }
+        return GLib.SOURCE_REMOVE;
+    });
+    yaz(`fare fırtınası başladı: ${events} hareket, hedef ${hz} Hz ` +
+        `(${tikBasina} hareket / ${tikMs} ms)`);
+}
+
 /** D-Bus etkinleştirmesinin gerçekten odak değiştirdiğini kabuğun içinden doğrula. */
 export function reportWindowActivation(window, target) {
     const focused = global.display.focus_window;

@@ -10,8 +10,11 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Faz 7 — Task 7.2 (XDG ScreenCast portal backend'i).
-- **Son tamamlanan adım:** Task 7.3 ölçüldü ve **uygulanmadı** (2026-09-20):
+- **Aktif adım:** yok. Kalan tek iş Task 7.2 (XDG ScreenCast portal
+  backend'i) ve o bu makinede doğrulanamıyor — aşağıya bakın.
+- **Son tamamlanan adım:** Adım 6 — imleç katmanı geri geldi (2026-09-20),
+  kare saati düzeltmesiyle ve **varsayılan kapalı**; gerçek fareyle doğrulama
+  kullanıcıda (#8). Öncesinde: Task 7.3 ölçüldü ve **uygulanmadı** (2026-09-20):
   buffered'ın kazancı 64,5 ms / 3698 ms. Bunun yerine ölçülen darboğaz
   düzeltildi — `optimize=True` kaldırıldı, çekim 3698 ms'den **850 ms**'ye
   indi. 7.4 ön koşulu düştüğü için uygulanmadı. Task 7.1 aynı gün tamamlandı,
@@ -20,7 +23,11 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
   arama yedeği. Aramaya yalnızca kurulu uygulama adı yazılıyor, sonuç
   uygulamanın kimliğiyle doğrulanıyor. Başlatılan uygulama kendi systemd
   kapsamında. Ayrıntı: Adım 5 → Task 6.4.
-- **Sıradaki uygulanabilir adım:** Task 7.2.
+- **Sıradaki uygulanabilir adım:** Task 7.2, ama önce bir karar: portal
+  backend'i yalnızca GNOME/Mutter DIŞINDAKİ masaüstleri için ve bu makinede
+  ne çalıştırılabiliyor ne de ölçülebiliyor (portal penceresine kullanıcının
+  tıklaması gerekiyor). Kullanıcı isterse yazılır ve "yazıldı, hiç
+  çalıştırılmadı" diye kaydedilir.
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 6 geçti** (2026-09-20): erişilebilirlik
   okuma, eylem ve pencere işlemleri gerçek masaüstünde doğrulandı. Gate 5
@@ -80,6 +87,7 @@ yapılınca silinmez, `yapıldı` diye işaretlenir.
 | 4 | Paylaşım göstergesinin kaynak kapanınca kaybolduğunu gözle görmek | Gösterge ekran paylaşımı olmadan görülemiyor; test yalnızca Mutter oturum sayısını doğruladı | `yapıldı` (2026-09-13) |
 | 5 | Task 4.3 yayılımı: servisi ve stdio istemcilerini yeniden başlatıp native yolu gerçek kullanımda görmek. `config.toml`'da `[native]` bölümü yok, yani yeni süreçler native yolu seçecek. Sıra: `bridgekilit` → `job_list` boş mu → `systemctl --user restart pcbridge` → Claude Code/Codex'i yeniden başlat → `./doctor.sh` 8. bölüm → `desktop_unlock` sonrası sağ alttaki görev çubuğunda gösterge var, `desktop_lock` sonrası yok. Geri alma: `[native]` altına `capture = "python"` + aynı yeniden başlatmalar. Task 5.1'in yürütme kilidi ve eylem başına izin kontrolü de aynı yeniden başlatmayla devreye girer | Restart çalışan işleri öldürür; stdio süreçleri istemcinin; göstergeyi gözle görmek gerekiyor | servis `yapıldı` (2026-09-13); Claude Desktop ve Claude Code'un stdio süreçleri uygulama bir kez kapatılıp açılınca geçer |
 | 7 | Task 6.3 ve 6.4 yayılımı: native erişilebilirlik (`ui_dump`, `ui_click`, `ui_set_text`, `window_list`) ve yeni pencere sırası (`window_focus`, `launch`, `focus`) stdio istemcilerinde. Servis iki kez yeniden başlatıldı ve yeni kodda; Claude Code ve Claude Desktop'un stdio süreçleri eski kodu çalıştırıyor | stdio süreçleri istemcinin; uygulama kapatılıp açılınca yeni koda geçer | servis `yapıldı` (2026-09-19, 6.3 ve 6.4); stdio uygulama yeniden başlayınca |
+| 8 | Adım 6 — imleç katmanı gerçek oturumda: çıkış/giriş sonrası işaret dosyasını açıp (`touch ~/.local/state/pcbridge/gorunur-imlec`) izin verdikten sonra FİZİKSEL fareyle tıklama ve akış normal mi? 2026-08-04'te bozulan buydu; kare saati düzeltmesi nested kabukta ölçüldü ama gerçek farede denenmedi. Bozulursa işaret dosyasını silmek yeter | Eklenti kodu ancak çıkış/girişte yeniden okunuyor; arıza yalnızca fiziksel fareyle görüldü | `bekliyor` |
 | 6 | Task 5.4 / 4 — gerçek girdi testi (`yapıldı` 2026-09-19, 8/8): `PCBRIDGE_TEST_INPUT=1 PCBRIDGE_INPUT_REPORT=<yol> ./.venv/bin/python -m unittest tests/live/test_input_parity.py -v`. İki ekranı ~1 dk kaplayan test penceresi; fare kendiliğinden hareket eder, pencereye tıklar, pencerenin içindeki kutuya Türkçe metin yazar, Shift'i kısa süre basılı tutar | Gerçek tuş ve tıklama gönderiyor; kullanıcı başında olmalı ve o sırada klavye/fareye dokunmamalı. Acil durdurma: Super+L (ekran kilidi native aygıtları anında kapatır) | `yapıldı` (2026-09-19) |
 
 ---
@@ -96,7 +104,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 3 | Native migration Faz 3: ilk Rust capture subsystem → Gate 3 | `tamamlandı` (3.1–3.5 ✅, **Gate 3 geçti**) |
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
 | 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅ **Gate 5**; 6.1–6.4 ✅ **Gate 6**; 7.1 ✅, 7.3/7.4 ölçülüp uygulanmadı; sırada 7.2) |
-| 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `bekliyor` |
+| 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `uygulandı, kapalı geliyor` (gerçek fareyle doğrulama kullanıcıda, #8) |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
 ## Adım 0 — Belge omurgası
@@ -2753,17 +2761,55 @@ geçti (piksel eşitliği, tazelik, revoke, varsayılan seçim).
 değiştirildi: 7.2 bu makinede doğrulanamıyor (portal penceresine kullanıcının
 tıklaması gerekir), 7.3 ölçülebiliyordu.
 
-## Adım 6 — İmleç katmanı
+## Adım 6 — İmleç katmanı · `uygulandı, kapalı geliyor` (2026-09-20)
 
-Bulgular ve tasarım kararları aşağıda, "Kurtarılan kayıtlar" bölümünde.
-**Önce ölçüm:**
+Bulgular ve tasarım kararları aşağıda, "Kurtarılan kayıtlar" bölümünde. Üç
+adımın üçü de yapıldı:
 
-1. Fiziksel farenin gerçek olay hızını ölç (`/dev/input/eventN`'den saniyedeki
-   olay sayısı). 1000 Hz çıkarsa hipotez güçlenir, 125 Hz çıkarsa çürür ve
-   başka yere bakmak gerekir. **Ölçüldü 2026-09-13: ~998 Hz** (medyan aralık
-   1,00 ms) — hipotez güçlendi, sıradaki 2. madde.
-2. Hipotez tutarsa konum **kare saatinde bir kez** uygulanır, her olayda değil.
-3. `Main.layoutManager.addTopChrome` yerine `Main.uiGroup` denenir.
+1. Fiziksel farenin olay hızı: **~998 Hz** (medyan aralık 1,00 ms, ölçüldü
+   2026-09-13). Hipotez güçlendi.
+2. Konum artık **kare başına bir kez** uygulanıyor (`frameclock.js`,
+   `Meta.Laters` / `BEFORE_REDRAW`). Fare olayı geldiğinde `global.get_pointer()`
+   bile çağrılmıyor; yalnızca bir kare isteniyor.
+3. Aktör `Main.layoutManager.addTopChrome` yerine **`Main.uiGroup`**ta. İzlenen
+   bir chrome aktörünün her konum değişimi kabuğun girdi bölgesi hesabını
+   yeniden kuyruğa sokuyordu; aktör zaten `reactive: false`.
+
+**Ölçüm (nested kabuk, 2026-09-20).** Sanal bir işaretçiyle 2000 hareket
+gönderildi (`PCBRIDGE_GORUNUR_BURST=1`, 4 hareket / 4 ms):
+
+| Kod | Fare olayı | Çizim | Çizim/sn | Ana döngü en kötü |
+|---|---|---|---|---|
+| Eski (her olayda + `addTopChrome`) | 1992 | 1992 | 471 | 23,7 ms |
+| Yeni (kare saati + `uiGroup`) | 1992 | **263** | **58** | 36,0 ms |
+
+Çizim sayısı 7,6 kat düştü; gerçek 1000 Hz farede oran ~17 kat olur. Ana döngü
+gecikmesi iki koşumda da eşiğin altında kaldı ve aralarındaki fark bu örneklem
+için gürültü — **nested kabuk donmayı zaten yeniden üretemiyordu.** Bu yüzden
+düzeltmenin gerçek arızayı çözdüğü **kanıtlanmadı**, yalnızca tek ölçülmemiş
+farkın (olay hızı) ortadan kalktığı gösterildi.
+
+**Bu yüzden katman VARSAYILAN KAPALI.** Açmak/kapatmak için işaret dosyası:
+
+```bash
+touch ~/.local/state/pcbridge/gorunur-imlec     # aç
+rm    ~/.local/state/pcbridge/gorunur-imlec     # kapat
+```
+
+Dosya her izin açılışında yeniden okunuyor, yani kabuğu yeniden başlatmak
+gerekmiyor: bir sonraki `desktop_unlock` yeni durumu alır. Katman kapalıyken
+gerçek imlece hiç dokunulmuyor, yani bugünkü davranış birebir korunuyor.
+
+**Testler.** `tests/test_cursor.js` (yeni, 17 test, kabuk gerekmez): bin olay
+bir kare, kare içinden gelen istek düşmüyor, kapanışta bekleyen iş iptal
+ediliyor, iptal hatası kapanışı durdurmuyor, zamanlayıcı kimlik vermezse
+yeniden kuruluyor. `test_state.js` 31, `test_window_control.js` 13 test geçti.
+Nested kabukta tıklama geçiş testi 8/8 (çerçeve aktörleri tıklama hedefi
+değil).
+
+**Kullanıcıyı bekleyen (#8).** Gerçek oturumda, çıkış/giriş sonrası, fiziksel
+fareyle: işaret dosyasını açıp izin verdikten sonra tıklama ve fare akışı
+normal mi? Bozulursa dosyayı silmek yeter.
 
 Acil geri alma **`gnome-extensions disable <uuid>`** — dizini silmek çalışan
 eklentiyi durdurmuyor.

@@ -16,6 +16,7 @@ import GLib from 'gi://GLib';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
+import {CursorOverlay, cursorEnabled} from './cursor.js';
 import {FrameOverlay} from './frame.js';
 import * as SelfTest from './selftest.js';
 import {UnlockState, defaultStatePath} from './state.js';
@@ -27,12 +28,19 @@ export default class PcbridgeGorunurExtension extends Extension {
     enable() {
         this._state = null;
         this._frame = null;
+        this._cursor = null;
         this._selfTestId = 0;
         this._watchdogId = 0;
         this._windowControl = null;
         try {
             this._frame = new FrameOverlay();
             this._frame.start();
+            // İmleç katmanı VARSAYILAN KAPALI. Bir kez çıkarılmıştı (gerçek
+            // farede tıklamayı bozmuştu) ve düzeltmesi gerçek oturumda
+            // doğrulanmadı. İşaret dosyası her izin açılışında yeniden
+            // okunuyor (`_onState`), yani açıp kapatmak kabuğu yeniden
+            // başlatmayı gerektirmiyor.
+            this._cursor = new CursorOverlay();
 
             if (SelfTest.selfTestEnabled()) {
                 SelfTest.reportMonitors();
@@ -69,6 +77,9 @@ export default class PcbridgeGorunurExtension extends Extension {
             this._windowControl = null;
             this._state?.stop();
             this._state = null;
+            // İmleç ÖNCE: gerçek imleci geri vermek her şeyden önce gelir.
+            this._cursor?.stop();
+            this._cursor = null;
             this._frame?.stop();
             this._frame = null;
             console.log(`${LOG} kapatıldı`);
@@ -82,6 +93,14 @@ export default class PcbridgeGorunurExtension extends Extension {
         const kalan = Math.max(0, Math.round(until - Date.now() / 1000));
         console.log(`${LOG} durum: ${aktif ? `AKTİF (${kalan} sn kaldı)` : 'pasif'}`);
         this._frame?.setVisible(aktif);
+        // Katman kapalıysa hiçbir şey yapılmıyor ve gerçek imleç el
+        // değmeden duruyor. Açıkken izin bitince kendi kendini kapatıyor.
+        if (this._cursor) {
+            if (aktif && cursorEnabled())
+                this._cursor.setVisible(true, until);
+            else
+                this._cursor.setVisible(false);
+        }
 
         // Ölçüm çerçeve GÖRÜNÜRKEN yapılmalı: tıklama testi görünmeyen bir
         // aktörle anlamsız olurdu. Belirme animasyonunun bitmesini bekliyoruz.
@@ -90,6 +109,11 @@ export default class PcbridgeGorunurExtension extends Extension {
                 this._selfTestId = 0;
                 SelfTest.checkClickThrough();
                 SelfTest.reportBreathing(this._frame?.actors ?? []);
+                // Fare fırtınası AYRICA isteniyor: imleci gerçekten
+                // oynatıyor, yani her ölçüm koşumunda kendiliğinden
+                // çalışmamalı.
+                if (GLib.getenv('PCBRIDGE_GORUNUR_BURST') === '1')
+                    SelfTest.pointerBurst(this._cursor);
                 return GLib.SOURCE_REMOVE;
             });
         }

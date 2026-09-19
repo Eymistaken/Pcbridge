@@ -711,6 +711,17 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   Ama imleç katmanı fiziksel fareyle tıklamayı bozdu — ayrıntı ve devam yolu
   `WALKTHROUGH.md`'de. Fiziksel fare hareket halinde **~1000 Hz** rapor
   ediyor (ölçüldü 2026-09-13, medyan aralık 1,00 ms).
+- **İmleç katmanı 2026-09-20'de kare saati düzeltmesiyle geri geldi, ama
+  VARSAYILAN KAPALI.** Konum artık her fare olayında değil, `Meta.Laters` ile
+  kare başına bir kez uygulanıyor (`frameclock.js`) ve aktör `addTopChrome`
+  yerine `Main.uiGroup`ta — izlenen bir chrome aktörünün her konum değişimi
+  kabuğun girdi bölgesi hesabını yeniden kuyruğa sokuyordu. Nested kabukta
+  sanal işaretçiyle ölçüldü (aynı fırtına, 2000 hareket): eski kod 1992 olayın
+  **1992**'sini çiziyordu, yenisi **263**'ünü (58 çizim/sn = kare hızı).
+  Ana döngü gecikmesi iki koşumda da eşikaltı kaldı (23,7 ve 36,0 ms), yani
+  nested donmayı yine üretemedi — **gerçek oturumda fiziksel fareyle
+  doğrulanmadı**. Açma/kapama: `~/.local/state/pcbridge/gorunur-imlec` işaret
+  dosyası, her izin açılışında yeniden okunuyor.
 - **`Clutter.Canvas` mutter çatalında YOK**; çizim `St.DrawingArea` + Cairo.
   GJS'de Cairo bağlamı `cr.$dispose()` ile bırakılmazsa sızıyor.
 - **GNOME'un monitör sırası pcbridge'inkiyle aynı değil.** `Main.layoutManager.monitors`
