@@ -173,6 +173,16 @@ tutulmuş tuş/düğmelere release gönderir. Hold zamanlayıcısı başka IPC i
 beklemeden çalışır. Input request'leri process restart'ı üzerinden otomatik
 tekrar edilmez; belirsiz bir write ikinci kez gönderilmez.
 
+**Bir helper tek bir izne hizmet eder.** `initialize`'da okuduğu grant'e
+bağlanır ve bir daha bağlanmaz; her `desktop_unlock` ise, bu süreçte ya da
+başka bir süreçte, yeni bir `grant_id` yazar. Eski helper'ın gözcüsü o anda
+kaynaklarını kapatır ve grant taşıyan bütün istekleri `REVOKED` olur. Python
+tarafında `backends/rust.py` → `GrantBoundHelper` izin kimliği (grant id +
+revoke epoch) değişince eski helper'dan release ister, onu kapatır ve yenisini
+başlatır; istek yeni helper'a **bir kez** gider, tekrar oynatılmaz. Yakalama ve
+input aynı sınıfı kullanır. Ölçüm ve düzeltme öncesi davranış: `WALKTHROUGH.md`
+→ "Codex'in 5.2/5.3 işinin kontrolü".
+
 ## Komut satırı
 
 Argümansız çalıştırma protokolü stdin/stdout üzerinde başlatır. Bunun dışında

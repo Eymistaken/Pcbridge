@@ -10,13 +10,19 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** Kullanıcı onayı bekleniyor
-- **Son tamamlanan adım:** Adım 5 / Task 5.3 — Rust pointer, motion path ve native koordinat adapter'ı
-- **Sıradaki uygulanabilir adım:** Kullanıcı onayından sonra Task 5.4 — text/clipboard adapter'ı ve input default gate
+- **Aktif adım:** Task 5.4. Kullanıcı 2026-09-19'da "kısa bir kontrol et sonra
+  devam edelim" dedi.
+- **Son tamamlanan adım:** Codex'in 5.2/5.3 işinin kontrolü. Bulunan hata
+  düzeltildi: izin değişince native helper eski izinde kalıyordu ve bu,
+  varsayılan capture yolunu da etkiliyordu. Ayrıntı: Adım 5 → "Codex'in 5.2/5.3
+  işinin kontrolü".
+- **Sıradaki uygulanabilir adım:** Task 5.4 — text/clipboard adapter'ı ve input
+  default gate. Gate 5'ten önce: çekim kaydına `topology_id` (Task 5.3'ün yarım
+  7. maddesi).
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 4 geçti** (2026-09-13). Varsayılan artık
-  `[native] capture = "auto"`; kullanıcının kendi servisi ve stdio istemcileri
-  henüz yeniden başlatılmadı, yani çalışan süreçler hâlâ Python yolunda (#5).
+  `[native] capture = "auto"`. Servis 2026-09-13'te yeniden başlatıldı. stdio
+  istemcileri, uygulama kapatılıp açılınca yeni koda geçer (#5).
 - **Native migration içindeki sıradaki task:** 5.4 → **Gate 5**
 - **Kullanıcıyla yapılan kontroller (2026-09-13):** #1, #3, #4 yapıldı; #5'in
   servis tarafı yapıldı; #2 (GitHub) kullanıcının kararıyla bekliyor. Ayrıntı:
@@ -1510,6 +1516,85 @@ pointer ve clipboard yolu silinmedi; shipped default zaten bu yol.
 
 **Sonraki somut adım:** Kullanıcı onayından sonra Task 5.4 — text/clipboard
 adapter'ı ve input default gate. Burada durduruldu.
+
+### Codex'in 5.2/5.3 işinin kontrolü ve izin değişimi düzeltmesi · `tamamlandı` (2026-09-19)
+
+**Neden.** Task 5.2 ve 5.3'ü Codex yaptı (`f89aaf6`, `a28884d`). Kullanıcı 5.4'e
+geçmeden önce kısa bir kontrol istedi.
+
+**Kontrol: kayıtlar doğru.** Bütün güvenli testler yeniden koşuldu ve sayılar
+Codex'in kaydıyla aynı çıktı: Rust default **122**, test-harness **136**; fmt ve
+iki clippy temiz; Python contract **230**, integration **15** (1 atlandı),
+`test_desktop.py` **583**, `test_models.py` **106**. Rust testlerinin ikisi de
+`strace -f -P /dev/uinput` altında koştu: **0 open/openat**. Yalnızca 6 `statx`
+çıktı, yani varlık kontrolü. Test-harness modu gerçek cihaz yerine null klavye
+ve null pointer kullanıyor.
+
+**Bulunan hata — üç belirti, tek kök.** Native helper `initialize`'da okuduğu
+izne bağlanıyor ve bir daha bağlanmıyor. Bu tasarım gereği; bkz.
+`native_revoke.rs`: `revoke_releases_resource_and_session_never_rebinds`. Öte
+yandan her `desktop_unlock` yeni bir `grant_id` yazıyor (`lease.grant()` →
+`uuid4`). Python ise helper'ı sağlayıcının ömrü boyunca tutuyordu.
+
+| Senaryo | Düzeltmeden önce | Sonra |
+|---|---|---|
+| Input (harness, null klavye): izin açıkken ikinci `desktop_unlock` | `REVOKED` | çalıştı |
+| Input: iki kez `desktop_lock`, sonra üçüncü izin (`close()` yalnızca **bir kez** çalışıyordu) | `REVOKED` | çalıştı |
+| Input: izin süresi doldu, sonra yeni `desktop_unlock` | `REVOKED` | çalıştı |
+| **Capture** (paketlenmiş helper, gerçek Mutter): izin açıkken ikinci `desktop_unlock` | paylaşım kapandı, `start` ve kare `REVOKED`, düzelmesi için `desktop_lock` gerekiyordu | paylaşım yeniden açıldı (+1 oturum, sızıntı yok), kare geldi |
+| Capture: **başka süreç** `desktop_unlock` yaptı, bu süreç `start` çağırmadı | ölçülmedi, kökü aynı | kare geldi, oturum talep üzerine açıldı |
+
+Input satırları yalnızca açık `[native] input = "rust"` seçimini etkiliyordu.
+Capture satırı ise **Task 4.3'ten beri varsayılan yolda**: izin açıkken
+`desktop_unlock`'u yeniden çağıran bir ajan ekran görüntüsü alamaz hale
+geliyordu. Bu hata Task 3.4'te yazıldı ve Task 4.3'te varsayılan yapıldı.
+Oradaki canlı testler süreç başına tek bir unlock yapıyordu, o yüzden
+yakalanmadı.
+
+**Düzeltme.** `pcbridge/desktop/backends/rust.py` → `GrantBoundHelper`: her
+izin için tek helper. İzin kimliği (grant id + revoke epoch) değişince eski
+helper'dan release istenir, helper kapatılır ve yenisi başlatılır. Temizlik
+hatası yeni izindeki isteği engellemez, yalnızca loglanır. İstek yeni helper'a
+**bir kez** gider; tekrar oynatma yok. `NativeScreenCast` ve `RustInputProvider`
+aynı sınıfı kullanıyor. `RustInputProvider.close()` artık tek seferlik değil.
+Belgeler: `docs/native/protocol-v1.md` (input bölümü) ve `CLAUDE.md` (ölçülmüş
+gerçekler).
+
+**Testler.**
+
+- `tests/contracts/test_native_grant_rebind.py` (yeni) → **15**. Sahte helper
+  gerçeğinin tek kuralını taşıyor: ilk sorulduğu izne cevap verir, başkasına
+  `REVOKED` der.
+- `tests/integration/test_native_revoke.py` → **+1**. Gerçek harness helper
+  `--test-mode`'da, null klavyeyle koşuyor: ikinci unlock, lock ve üçüncü
+  unlock sonrası yazma çalışıyor, her lock helper'ı hemen durduruyor.
+  `strace -P /dev/uinput` → 0 open. Düzeltme kaldırılınca bu test de kırmızıya
+  dönüyor.
+- **Mutasyon 8/8 yakalandı:** izin değişince eskiyi bırakmamak; capture'ın ya
+  da input'un izni yok sayması; eski helper'dan release istememek; tek seferlik
+  `close()`; `close()`'un helper'ı durdurmaması (input ve capture); temizlik
+  hatasının yeni isteği engellemesi. İlk denemede iki mutasyon kaçtı: test
+  helper'ın kilitten *sonra* değil, bir sonraki yazmada kapandığını görüyordu.
+  Test sıkılaştırıldı. Dosya hash ile geri doğrulandı.
+- Sonuçlar: contract **245** (+15), integration **16** (+1, 1 atlandı),
+  `test_desktop.py` **583**, `test_models.py` **106**, `test_test_safety.py`
+  OK, `--check` 0, `git diff --check` temiz. Rust değişmedi.
+- Gerçek klavye/fare olayı gönderilmedi. Capture ölçümü geçici bir state
+  dizininde, kullanıcının iznine dokunmadan birkaç saniyelik paylaşımla yapıldı.
+
+**Kontrolde bulunan, düzeltilmeyen:**
+
+- **Task 5.3'ün 7. maddesi yarım.** PLAN.md bunu istiyor: "Capture'dan gelen
+  koordinat için topology uyuşmazlığını injection öncesinde reddet". Uygulanan
+  kontrol ise Python'un **şu anki** monitör tablosunu Rust'ın **şu anki**
+  tablosuyla karşılaştırıyor. Çekim ile tıklama arasında düzen değişirse bunu
+  görmüyor, çünkü çekim kaydında (`<id>.json`) `topology_id` yok. Python yolunda
+  da bu kontrol hiç yoktu. Gate 5'ten önce kapatılmalı: kayda `topology_id`
+  yazılır, `capture.to_global()` `shot=` ile gelen koordinatta karşılaştırır.
+- `is_open()`, gözcü paylaşımı kapattıktan sonra da `True` kalıyor. Bilinen
+  kusur, Adım 4'te kayıtlı.
+
+**Rollback:** Bu commit'i geri almak yeter. Yeni ayar yok, dosya biçimi değişmedi.
 
 ## Adım 6 — İmleç katmanı
 

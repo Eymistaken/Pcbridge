@@ -38,11 +38,13 @@ THE SHARING INDICATOR APPEARS WITH THE GRANT
 
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 import shutil
+import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +66,8 @@ DISPLAY_SCHEME = "mutter"
 FRAME_TIMEOUT_MS = 8000
 
 BACKEND_NAME = "linux.mutter.pipewire"
+
+logger = logging.getLogger(__name__)
 
 
 class NativeCaptureError(RuntimeError):
@@ -161,6 +165,76 @@ def native_binary_ready(cfg: Config) -> tuple[bool, str]:
     return True, ""
 
 
+class GrantBoundHelper:
+    """One native helper per desktop grant, replaced when the grant changes.
+
+    The helper binds the grant it reads at `initialize` and never rebinds
+    (`native_revoke.rs`: `revoke_releases_resource_and_session_never_rebinds`),
+    while every `desktop_unlock` writes a new grant id -- in this process or in
+    any other. A helper kept across that answers REVOKED to every later
+    request. Measured 2026-09-19 with the packaged helper: a second
+    `desktop_unlock` while the grant was still open closed the share and left
+    capture REVOKED until `desktop_lock`; native input stayed REVOKED after a
+    second unlock, after an expiry, and after a second `desktop_lock`.
+
+    The grant a helper serves is the one its first request named. If another
+    process changes the grant between that read and the helper's `initialize`,
+    the request is refused as REVOKED and the next one gets a fresh helper:
+    refused, never sent under the wrong grant.
+    """
+
+    def __init__(
+        self,
+        create: Callable[[], NativeClient],
+        client: NativeClient | None = None,
+    ) -> None:
+        self._create = create
+        self._client = client
+        self._grant: tuple[str, int] | None = None
+        self._lock = threading.RLock()
+
+    @property
+    def client(self) -> NativeClient | None:
+        """The live helper, if any, without starting or replacing one."""
+        return self._client
+
+    def for_grant(
+        self,
+        grant: tuple[str, int],
+        retire: Callable[[NativeClient], None] | None = None,
+    ) -> NativeClient:
+        """The helper for `grant`, stopping the previous one if it changed.
+
+        `retire` runs while the old helper is still the current one, so the
+        owner can release through it. Its failure is logged, not raised: that
+        helper's watchdog already failed closed when the grant changed, and a
+        cleanup error must not block the request made under the new grant.
+        """
+        with self._lock:
+            stale = self._client
+            if stale is not None and self._grant is not None and self._grant != grant:
+                try:
+                    if retire is not None:
+                        retire(stale)
+                except Exception as exc:  # noqa: BLE001 - see docstring
+                    logger.warning("superseded native helper cleanup failed: %s", exc)
+                finally:
+                    self._client = None
+                    self._grant = None
+                    stale.close()
+            if self._client is None:
+                self._client = self._create()
+            self._grant = grant
+            return self._client
+
+    def close(self) -> None:
+        with self._lock:
+            client, self._client = self._client, None
+            self._grant = None
+        if client is not None:
+            client.close()
+
+
 class NativeScreenCast:
     """The legacy `ScreenCast` surface, answered by the native helper.
 
@@ -175,19 +249,23 @@ class NativeScreenCast:
         *,
         gate: Any | None = None,
         client: NativeClient | None = None,
+        client_factory: Callable[[], NativeClient] | None = None,
     ) -> None:
         self.cfg = cfg
         self.gate = gate
-        self._client = client
+        self._helper = GrantBoundHelper(client_factory or self._new_client, client)
         self._open = False
         self._cursor = bool(cfg.desktop.include_pointer)
         self._monitors: list[str] = []
         self._session_id = f"pcb-{secrets.token_hex(6)}"
 
     # ------------------------------------------------------------- helper
-    def _ensure_client(self) -> NativeClient:
-        if self._client is not None:
-            return self._client
+    @property
+    def _client(self) -> NativeClient | None:
+        """The live helper, if any; the live parity test reads its pid."""
+        return self._helper.client
+
+    def _new_client(self) -> NativeClient:
         try:
             binary = discover_native_binary(
                 self.cfg.native,
@@ -197,12 +275,14 @@ class NativeScreenCast:
             raise NativeCaptureError(exc.message, cause=exc) from exc
         except Exception as exc:  # noqa: BLE001
             raise NativeCaptureError(f"native helper bulunamadi: {exc}") from exc
-        self._client = NativeClient(
+        return NativeClient(
             binary,
             state_dir=self.cfg.state_dir,
             runtime_dir=runtime_dir(),
         )
-        return self._client
+
+    def _ensure_client(self, grant: tuple[str, int]) -> NativeClient:
+        return self._helper.for_grant(grant)
 
     def _grant(self) -> tuple[str, int]:
         """The grant snapshot this capture belongs to.
@@ -250,7 +330,7 @@ class NativeScreenCast:
         self._cursor = bool(cursor)
         grant_id, revoke_epoch = self._grant()
         table = monitorslib.list_monitors()
-        client = self._ensure_client()
+        client = self._ensure_client((grant_id, revoke_epoch))
         response = client.request(
             "capture.session_open",
             {
@@ -290,9 +370,7 @@ class NativeScreenCast:
 
     def close(self) -> None:
         self.stop()
-        client, self._client = self._client, None
-        if client is not None:
-            client.close()
+        self._helper.close()
 
     def ensure_cursor(self, cursor: bool) -> bool:
         """Record the pointer mode; the native session recreates itself for it."""
@@ -319,7 +397,7 @@ class NativeScreenCast:
         topology = monitorslib.topology_id(table)
         expected = next((m for m in table if m.connector == connector), None)
 
-        client = self._ensure_client()
+        client = self._ensure_client((grant_id, revoke_epoch))
         started = time.time()
         response = client.request(
             "capture.frame",
@@ -566,28 +644,34 @@ class RustInputProvider(PythonInputProvider):
         *,
         gate: Any | None = None,
         client: NativeClient | None = None,
+        client_factory: Callable[[], NativeClient] | None = None,
     ) -> None:
         super().__init__(cfg)
         self.cfg = cfg
         self.gate = gate
-        self._input_client = client
+        self._helper = GrantBoundHelper(client_factory or self._new_input_client, client)
         self._keyboard_used = False
         self._pointer_used = False
-        self._input_closed = False
 
-    def _ensure_input_client(self) -> NativeClient:
-        if self._input_client is not None:
-            return self._input_client
+    def _new_input_client(self) -> NativeClient:
         binary = discover_native_binary(
             self.cfg.native,
             package_root=Path(__file__).resolve().parents[2],
         )
-        self._input_client = NativeClient(
+        return NativeClient(
             binary,
             state_dir=self.cfg.state_dir,
             runtime_dir=runtime_dir(),
         )
-        return self._input_client
+
+    def _input_client_for(self, params: dict[str, Any]) -> NativeClient:
+        # A superseded helper is asked to release before it stops. Its
+        # watchdog already did when the grant changed, and its shutdown does
+        # again; the explicit request is the same belt `close()` wears.
+        return self._helper.for_grant(
+            (params["grant_id"], params["revoke_epoch"]),
+            retire=lambda _stale: self.release_all(),
+        )
 
     def _grant_params(self) -> dict[str, Any]:
         token = None
@@ -648,12 +732,13 @@ class RustInputProvider(PythonInputProvider):
             params["combo"] = str(combo)
         # One call, once. NativeClient never replays a failed request across a
         # helper restart; input operations must not add a retry above it.
+        client = self._input_client_for(params)
         self._keyboard_used = True
-        response = self._ensure_input_client().request(method, params, timeout=5.0)
+        response = client.request(method, params, timeout=5.0)
         return self._result_dict(response)
 
     def _read_request(self, method: str) -> dict[str, Any]:
-        client = self._input_client
+        client = self._helper.client
         pointer = method.startswith("input.pointer.")
         used = self._pointer_used if pointer else self._keyboard_used
         if not used or client is None:
@@ -699,8 +784,9 @@ class RustInputProvider(PythonInputProvider):
         params = self._pointer_params(**action)
         # Exactly one request. A failed pointer write is never replayed across
         # a helper restart because the first write may already have landed.
+        client = self._input_client_for(params)
         self._pointer_used = True
-        response = self._ensure_input_client().request(method, params, timeout=5.0)
+        response = client.request(method, params, timeout=5.0)
         return self._result_dict(response)
 
     @staticmethod
@@ -847,9 +933,9 @@ class RustInputProvider(PythonInputProvider):
         return keyboard + pointer + super().take_auto_released()
 
     def close(self) -> None:
-        if self._input_closed:
-            return
-        self._input_closed = True
+        # Not one-shot: `desktop_lock` closes this provider every time, and the
+        # next grant starts a new helper. A close that only worked once left
+        # the second lock's helper running under a dead grant.
         cleanup_error: Exception | None = None
         try:
             self.release_all()
@@ -858,9 +944,7 @@ class RustInputProvider(PythonInputProvider):
         try:
             super().close()
         finally:
-            client, self._input_client = self._input_client, None
-            if client is not None:
-                client.close()
+            self._helper.close()
         if cleanup_error is not None:
             raise cleanup_error
 

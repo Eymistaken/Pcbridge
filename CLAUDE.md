@@ -454,6 +454,15 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   kapıyı atlayan doğrudan çağrı da `SCREEN_LOCKED`; hiç PNG yok. Kilit
   açılınca oturum kendiliğinden açılmıyor. Açık kusur: Python tarafındaki
   `is_open()` bunu görmüyor ve `True` kalıyor.
+- **Native yardımcı tek bir izne bağlı ve yeniden bağlanmıyor; her
+  `desktop_unlock` yeni bir `grant_id` yazıyor.** Ölçüldü 2026-09-19,
+  paketlenmiş yardımcı, gerçek Mutter: izin açıkken ikinci bir `desktop_unlock`
+  paylaşımı kapattı ve sonraki bütün çekimler `desktop_lock`'a kadar `REVOKED`
+  döndü. Native input da ikinci unlock, süre dolumu ve ikinci `desktop_lock`
+  sonrasında `REVOKED` kaldı. Başka bir sürecin `desktop_unlock`'u da aynı etkiyi
+  yapar. Python tarafı artık izin kimliği değişince yardımcıyı değiştiriyor
+  (`backends/rust.py` → `GrantBoundHelper`). Düzeltmeden sonra beş senaryo da
+  çalıştı.
 - **Ekran görüntüsünün maliyeti sürücüye göre 20–30 kat değişiyor** — `agy`'de
   tek görüntü ~40 bin girdi jetonu, **Claude'da ~1200–1900**. `ui_dump` yine de
   daha ucuz (~0,1 sn, birkaç yüz jeton) ve koordinat kullanmadığı için

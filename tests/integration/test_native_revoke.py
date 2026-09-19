@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import multiprocessing
 import subprocess
 import sys
@@ -16,6 +17,8 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from pcbridge.config import load_config  # noqa: E402
+from pcbridge.desktop.backends.rust import RustInputProvider  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCode  # noqa: E402
 from pcbridge.desktop.lease import LeaseToken  # noqa: E402
 from pcbridge.desktop.safety import SafetyGate  # noqa: E402
@@ -155,6 +158,54 @@ class NativeRevokeIntegrationTests(unittest.TestCase):
                 for client in clients:
                     client.close()
 
+            self.assertEqual(NativeRegistry(root / "runtime").entries(), [])
+
+    def test_every_new_grant_gets_an_input_helper_bound_to_it(self) -> None:
+        """A second unlock, then a lock and a third unlock, all still type.
+
+        The helper runs in `--test-mode`: its keyboard is a null device, so
+        nothing reaches `/dev/uinput`. Before the fix (measured 2026-09-19) the
+        second and third keys came back REVOKED, because the helper bound to
+        the first grant was kept and never rebinds.
+        """
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            wrapper = root / "native-test-mode"
+            wrapper.write_text(
+                f'#!/bin/sh\nexec "{self.native_binary}" --test-mode "$@"\n',
+                encoding="utf-8",
+            )
+            wrapper.chmod(0o755)
+            cfg = dataclasses.replace(
+                load_config(str(ROOT / "config.example.toml")),
+                state_dir=root / "state",
+            )
+            gate = SafetyGate(cfg)
+            started: list[NativeClient] = []
+
+            def helper() -> NativeClient:
+                client = NativeClient(
+                    wrapper, state_dir=cfg.state_dir, runtime_dir=root / "runtime"
+                )
+                started.append(client)
+                return client
+
+            provider = RustInputProvider(cfg, gate=gate, client_factory=helper)
+            try:
+                gate.unlock(5, reason="first")
+                provider.key("a")
+                gate.unlock(5, reason="second, while the first is open")
+                provider.key("b")
+                gate.lock()
+                provider.close()
+                self.assertFalse(started[-1].is_running, "desktop_lock stops the helper")
+                gate.unlock(5, reason="third")
+                provider.key("c")
+            finally:
+                gate.lock()
+                provider.close()
+
+            self.assertEqual(len(started), 3)
             self.assertEqual(NativeRegistry(root / "runtime").entries(), [])
 
 
