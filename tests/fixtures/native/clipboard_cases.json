@@ -1,0 +1,252 @@
+{
+  "schema_version": 1,
+  "about": "Clipboard save, put and restore around one paste (Task 5.4). Shared by the Python WlClipboard contract and the Rust wl-clipboard adapter: the same programs, the same arguments, the same clipboard afterwards. \"PASTE\" marks where the paste key goes; only Python orchestrates it. An entry's content is \"text\" (UTF-8) or \"base64\"; \"read_fails\" makes reading that type exit nonzero. Reviewed by hand, never regenerated.",
+  "text_mime": "text/plain;charset=utf-8",
+  "cases": [
+    {
+      "name": "text_is_restored_byte_for_byte",
+      "initial": [
+        {
+          "mime": "text/plain;charset=utf-8",
+          "text": "önceki pano: ğüşıöç İĞÜŞÖÇ"
+        }
+      ],
+      "restore": true,
+      "text": "Merhaba dünya — ğüşıöç İĞÜŞÖÇ",
+      "calls": [
+        [
+          "wl-paste",
+          "--list-types"
+        ],
+        [
+          "wl-paste",
+          "--type",
+          "text/plain;charset=utf-8",
+          "--no-newline"
+        ],
+        [
+          "wl-copy",
+          "--type",
+          "text/plain;charset=utf-8"
+        ],
+        "PASTE",
+        [
+          "wl-copy",
+          "--type",
+          "text/plain;charset=utf-8"
+        ]
+      ],
+      "final": [
+        {
+          "mime": "text/plain;charset=utf-8",
+          "text": "önceki pano: ğüşıöç İĞÜŞÖÇ"
+        }
+      ]
+    },
+    {
+      "name": "an_empty_clipboard_is_cleared_again",
+      "initial": [],
+      "restore": true,
+      "text": "yapıştırılan metin",
+      "calls": [
+        [
+          "wl-paste",
+          "--list-types"
+        ],
+        [
+          "wl-copy",
+          "--type",
+          "text/plain;charset=utf-8"
+        ],
+        "PASTE",
+        [
+          "wl-copy",
+          "--clear"
+        ]
+      ],
+      "final": []
+    },
+    {
+      "name": "binary_content_keeps_its_type_and_bytes",
+      "initial": [
+        {
+          "mime": "image/png",
+          "base64": "iVBORw0KGgoAAAANSUhEUgBiaW5hcnkKdGFpbAo="
+        }
+      ],
+      "restore": true,
+      "text": "görsel üstüne metin",
+      "calls": [
+        [
+          "wl-paste",
+          "--list-types"
+        ],
+        [
+          "wl-paste",
+          "--type",
+          "image/png"
+        ],
+        [
+          "wl-copy",
+          "--type",
+          "text/plain;charset=utf-8"
+        ],
+        "PASTE",
+        [
+          "wl-copy",
+          "--type",
+          "image/png"
+        ]
+      ],
+      "final": [
+        {
+          "mime": "image/png",
+          "base64": "iVBORw0KGgoAAAANSUhEUgBiaW5hcnkKdGFpbAo="
+        }
+      ]
+    },
+    {
+      "name": "a_trailing_newline_survives",
+      "initial": [
+        {
+          "mime": "text/plain;charset=utf-8",
+          "text": "son satır\n"
+        }
+      ],
+      "restore": true,
+      "text": "ara metin",
+      "calls": [
+        [
+          "wl-paste",
+          "--list-types"
+        ],
+        [
+          "wl-paste",
+          "--type",
+          "text/plain;charset=utf-8",
+          "--no-newline"
+        ],
+        [
+          "wl-copy",
+          "--type",
+          "text/plain;charset=utf-8"
+        ],
+        "PASTE",
+        [
+          "wl-copy",
+          "--type",
+          "text/plain;charset=utf-8"
+        ]
+      ],
+      "final": [
+        {
+          "mime": "text/plain;charset=utf-8",
+          "text": "son satır\n"
+        }
+      ]
+    },
+    {
+      "name": "only_the_first_mime_type_is_kept",
+      "initial": [
+        {
+          "mime": "text/html",
+          "text": "<b>kalın</b>"
+        },
+        {
+          "mime": "text/plain;charset=utf-8",
+          "text": "kalın"
+        }
+      ],
+      "restore": true,
+      "text": "düz metin",
+      "calls": [
+        [
+          "wl-paste",
+          "--list-types"
+        ],
+        [
+          "wl-paste",
+          "--type",
+          "text/html",
+          "--no-newline"
+        ],
+        [
+          "wl-copy",
+          "--type",
+          "text/plain;charset=utf-8"
+        ],
+        "PASTE",
+        [
+          "wl-copy",
+          "--type",
+          "text/html"
+        ]
+      ],
+      "final": [
+        {
+          "mime": "text/html",
+          "text": "<b>kalın</b>"
+        }
+      ]
+    },
+    {
+      "name": "without_restore_the_typed_text_stays",
+      "initial": [
+        {
+          "mime": "text/plain;charset=utf-8",
+          "text": "eski içerik"
+        }
+      ],
+      "restore": false,
+      "text": "yeni içerik",
+      "calls": [
+        [
+          "wl-copy",
+          "--type",
+          "text/plain;charset=utf-8"
+        ],
+        "PASTE"
+      ],
+      "final": [
+        {
+          "mime": "text/plain;charset=utf-8",
+          "text": "yeni içerik"
+        }
+      ]
+    },
+    {
+      "name": "an_unreadable_clipboard_is_cleared",
+      "initial": [
+        {
+          "mime": "application/x-unreadable",
+          "text": "x",
+          "read_fails": true
+        }
+      ],
+      "restore": true,
+      "text": "metin",
+      "calls": [
+        [
+          "wl-paste",
+          "--list-types"
+        ],
+        [
+          "wl-paste",
+          "--type",
+          "application/x-unreadable"
+        ],
+        [
+          "wl-copy",
+          "--type",
+          "text/plain;charset=utf-8"
+        ],
+        "PASTE",
+        [
+          "wl-copy",
+          "--clear"
+        ]
+      ],
+      "final": []
+    }
+  ]
+}

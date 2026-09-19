@@ -16,8 +16,9 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
   düzeltildi: izin değişince native helper eski izinde kalıyordu ve bu,
   varsayılan capture yolunu da etkiliyordu. Ayrıntı: Adım 5 → "Codex'in 5.2/5.3
   işinin kontrolü".
-- **Sıradaki uygulanabilir adım:** Task 5.4 / 1 — pano işlemleri ayrı Python
-  arayüzünde (`clipboard.py`). 5.4 / 0 (çekim kaydına `topology_id`) bitti.
+- **Sıradaki uygulanabilir adım:** Task 5.4 / 2 — Rust'ta `wl-copy`/`wl-paste`
+  adapter'ı. 5.4 / 0 (çekim kaydına `topology_id`) ve 5.4 / 1 (`clipboard.py`)
+  bitti.
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 4 geçti** (2026-09-13). Varsayılan artık
   `[native] capture = "auto"`. Servis 2026-09-13'te yeniden başlatıldı. stdio
@@ -1602,7 +1603,7 @@ bölündü:
 | # | Ne | Durum |
 |---|---|---|
 | 0 | Task 5.3'ün yarım 7. maddesi: çekim kaydına `topology_id`; düzen değişince `shot=` koordinatı `DISPLAY_CHANGED` | `tamamlandı` |
-| 1 | Pano işlemleri Python'da ayrı arayüzde (`clipboard.py`), davranış aynı; restore fixture'ı | bekliyor |
+| 1 | Pano işlemleri Python'da ayrı arayüzde (`clipboard.py`), davranış aynı; restore fixture'ı | `tamamlandı` |
 | 2 | Rust'ta aynı `wl-copy`/`wl-paste` programlarını yöneten adapter; wl-copy boru tuzağı; tek MIME sınırı capability'de | bekliyor |
 | 3 | `[native] input = "rust"` seçilince pano native adapter'dan. `type_text` orkestrasyonu Python'da kalır: pano → native `ctrl+v` → geri yükleme | bekliyor |
 | 4 | Gerçek girdi testleri, kullanıcı başındayken: Türkçe metin, değiştirici tuşlar, move→doğrulama→click, drag, süre dolumu/revoke, ≤1 px sapma | bekliyor (kullanıcı) |
@@ -1642,6 +1643,42 @@ vermesi. Sonuçlar: contract **251** (+6), integration **16**, `test_desktop.py`
 
 **Rollback:** Commit'i geri almak yeter. Yeni kayıtlardaki fazladan alanı eski
 kod yok sayar.
+
+#### 1 — Pano arayüzü (`clipboard.py`) · `tamamlandı`
+
+**Ne yapıldı.** `input.py`'deki dört pano fonksiyonu (`_wl_read`, `_wl_copy`,
+`_clipboard_save`, `_clipboard_restore`) ve `wl-copy` hata metinleri
+`pcbridge/desktop/clipboard.py`'ye taşındı. Yeni `Clipboard` arayüzünün üç
+işlemi var: `save`, `put_text`, `restore`. Python uygulaması `WlClipboard`.
+Argümanlar, `DEVNULL` kuralı, tek MIME davranışı ve hata metinleri aynı kaldı.
+`InputBackend` panoyu `clipboard=` ile alıyor (varsayılan `WlClipboard`).
+`_type_clipboard` orkestrasyonu yerinde: yedekle → koy → `self.key("ctrl+v")`
+→ geri yükle. Davranış değişmedi.
+
+**Ortak fixture.** `tests/fixtures/native/clipboard_cases.json`, 7 durum:
+Türkçe metin bayt bayt geri geliyor; boş pano yeniden temizleniyor; ikili
+içerik tipini ve baytlarını koruyor; sondaki satır sonu kalıyor; yalnızca ilk
+MIME tipi saklanıyor; restore kapalıyken yazılan metin kalıyor; okunamayan pano
+temizleniyor. Son ikisi mevcut davranış. Sonuncusu veri kaybı demek ama
+değiştirilmedi, çünkü bu adım davranış değiştirmiyor. Her durum program
+çağrılarının sırasını, yapıştırmanın gördüğü içeriği ve sonraki panoyu sabitliyor.
+Rust adapter'ı (5.4 / 2) aynı dosyayı okuyacak.
+
+**Kanıt, davranış aynı:** fixture'ın 7 durumu refactor **öncesi** `input.py`
+(HEAD) ile de koşuldu. Çağrılar, son pano ve `wl-copy`'nin çıktı yakalamaması
+yedisinde de birebir aynı çıktı.
+
+**Testler.** `tests/contracts/test_clipboard_contract.py` (yeni) → **7**. Sahte
+bir Wayland panosu `wl-paste`/`wl-copy`'yi gerçek programlar gibi cevaplıyor;
+hiçbir program çalışmıyor, tuş gitmiyor. **Mutasyon 8/8 yakalandı:** metin
+okumada `--no-newline`'ın düşmesi, boş panonun temizlenmemesi, `wl-copy`'nin
+çıktıyı yakalaması (boru tuzağı), yanlış MIME, son tipin saklanması, restore
+kapalıyken geri yükleme, yapıştırmanın yazmadan önce gitmesi, yazma hatasının
+yutulması. Sonuçlar: contract **258** (+7), integration **16**,
+`test_desktop.py` **583**, `test_models.py` **106**, `--check` 0, `compileall`
+0.
+
+**Rollback:** Commit'i geri almak yeter.
 
 ## Adım 6 — İmleç katmanı
 

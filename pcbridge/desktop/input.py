@@ -37,11 +37,11 @@ from __future__ import annotations
 
 import json
 import math
-import subprocess
 import threading
 import time
 from pathlib import Path
 
+from . import clipboard as clipboardlib
 from . import monitors as monitorslib
 
 try:  # evdev opsiyonel: kurulu degilse yalnizca GUI araclari devre disi kalir
@@ -315,56 +315,8 @@ def move_path(
 
 
 # ------------------------------------------------------------------- pano yolu
-def _wl_read(args: list[str], timeout: int = 10):
-    """wl-paste gibi okuyup CIKAN komutlar: ciktisini yakalayabiliriz."""
-    return subprocess.run(args, capture_output=True, timeout=timeout, check=False)
-
-
-def _wl_copy(args: list[str], data: bytes | None = None, timeout: int = 10):
-    """wl-copy: stdout/stderr YAKALANMAZ, yoksa asilir.
-
-    wl-copy panonun sahibi olarak arka planda yasamaya devam ediyor (Wayland'de
-    pano icerigini kaynak surec servis eder). capture_output=True verilirse
-    Python borularin EOF vermesini bekler, o boruları da arka plandaki cocuk
-    tutar -> komut bitmis olsa bile run() zaman asimina ugrar. Olculdu: 10 s
-    timeout ile "keyboard type" araci tamamen kilitleniyordu.
-    """
-    return subprocess.run(
-        args,
-        input=data,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=timeout,
-        check=False,
-    )
-
-
-def _clipboard_save() -> tuple[str, bytes] | None:
-    """Panonun mevcut icerigini (tip, bayt) olarak yedekle. Bossa None.
-
-    Yalnizca TEK bir mime tipi saklanir (listedeki ilki). Pano birden fazla
-    temsil sunuyorsa (orn. hem text/html hem text/plain) geri yuklemede
-    zenginlestirilmis bicim kaybolur; metin icerik korunur.
-    """
-    types = _wl_read(["wl-paste", "--list-types"])
-    if types.returncode != 0 or not types.stdout.strip():
-        return None
-    mime = types.stdout.decode("utf-8", "replace").splitlines()[0].strip()
-    args = ["wl-paste", "--type", mime]
-    if mime.startswith("text/"):
-        args.append("--no-newline")
-    got = _wl_read(args)
-    if got.returncode != 0:
-        return None
-    return (mime, got.stdout)
-
-
-def _clipboard_restore(saved: tuple[str, bytes] | None) -> None:
-    if saved is None:
-        _wl_copy(["wl-copy", "--clear"])
-        return
-    mime, data = saved
-    _wl_copy(["wl-copy", "--type", mime], data=data)
+# Pano islemleri `clipboard.py`de: native girdi Ctrl+V'yi gonderirken panoyu
+# kimin tuttugu ayri bir karar (Task 5.4). Orkestrasyon asagida, `type_text`te.
 
 
 # ------------------------------------------------------------------- arka ucun
@@ -391,7 +343,11 @@ class InputBackend:
         pointer_max_ms: float = DEFAULT_POINTER_MAX_MS,
         hold_max_seconds: float = DEFAULT_HOLD_MAX_SECONDS,
         pos_file: "Path | str | None" = None,
+        clipboard: "clipboardlib.Clipboard | None" = None,
     ) -> None:
+        self.clipboard: clipboardlib.Clipboard = (
+            clipboard if clipboard is not None else clipboardlib.WlClipboard()
+        )
         self._kbd: "UInput | None" = None
         self._ptr: "UInput | None" = None
         self._canvas: tuple[int, int] | None = None
@@ -816,28 +772,17 @@ class InputBackend:
         return self._type_clipboard(text, restore_clipboard)
 
     def _type_clipboard(self, text: str, restore: bool) -> str:
-        saved = _clipboard_save() if restore else None
+        saved = self.clipboard.save() if restore else None
         try:
-            put = _wl_copy(
-                ["wl-copy", "--type", "text/plain;charset=utf-8"], data=text.encode()
-            )
-        except FileNotFoundError as exc:
-            raise InputError(
-                "wl-copy bulunamadi: sudo apt install wl-clipboard"
-            ) from exc
-        except subprocess.TimeoutExpired as exc:
-            raise InputError("wl-copy yanit vermedi (pano sunucusu takilmis olabilir)") from exc
-        if put.returncode != 0:
-            raise InputError(
-                f"wl-copy exit {put.returncode} verdi. Wayland oturumu gorunuyor mu? "
-                "(WAYLAND_DISPLAY servise aktarilmis olmali)"
-            )
+            self.clipboard.put_text(text)
+        except clipboardlib.ClipboardError as exc:
+            raise InputError(str(exc)) from exc
         time.sleep(0.15)
         self.key("ctrl+v")
         time.sleep(0.25)
         note = f"pano yoluyla {len(text)} karakter yapistirildi"
         if restore:
-            _clipboard_restore(saved)
+            self.clipboard.restore(saved)
             note += "; pano eski icerigine donduruldu" if saved else "; pano temizlendi"
         return note
 
