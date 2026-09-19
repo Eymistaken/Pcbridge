@@ -1691,6 +1691,8 @@ Asıl darboğaz ölçülüp düzeltildi: `save(optimize=True)` 3106 ms sürüp d
 
 **Yapılmayacak:** `capture.py` dosyasını silmek; accessibility henüz GI kullanıyorsa `python3-gi` gereksinimini tamamen kaldırmak; geçmiş plan belgelerini silmek.
 
+**Not (2026-09-20, ÖN KOŞUL SAĞLANMADI):** Envanter çıkarıldı (1. madde): `screencast_helper.py`'yi yalnızca `screencast.py` sürüyor, onu da `backends/python.py`, `tools.py`, `cli/shot.py` ve testler kullanıyor. Bu yol ölü değil — **belgelenmiş geri dönüş yolu**: `[native] capture = "python"` ve paketlenmiş yardımcı yokken `auto`nun düştüğü yer. Aynısı input ve accessibility için de geçerli. Ön koşul ("Rust default en az iki sürüm döngüsü kullanılmış") bu depoda tanımlı bile değil: sürüm döngüsü yok ve varsayılanlar 2026-09-13/19'da açıldı. Silmek bugün kullanıcının tek kaçış kapısını kaldırmak olurdu, kazancı ise yalnızca bakım yükü. Task açık kalıyor.
+
 ## Task 8.2 — Diğer legacy backend’ler için bağımsız retirement gate
 
 **Amaç:** Input/accessibility kodunu capture ile birlikte topluca silmemek.  
@@ -1711,6 +1713,8 @@ Asıl darboğaz ölçülüp düzeltildi: `save(optimize=True)` 3106 ms sürüp d
 **Rollback:** İlgili tek retirement commit’i revert edilir.
 
 **Yapılmayacak:** “Rust yüzdesini artırmak” gerekçesiyle Python orchestration silmek.
+
+**Not (2026-09-20):** 5. madde zaten sağlanıyordu ve doğrulandı: `config.py` `[native] capture`, `input` ve `accessibility` için bilinmeyen bir değeri sessizce `auto` yapmıyor, yüklemede açık mesajla duruyor. 1. madde (envanter) 8.1'in notunda. Kalan maddeler ön koşula bağlı.
 
 ---
 

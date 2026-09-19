@@ -2761,6 +2761,39 @@ geçti (piksel eşitliği, tazelik, revoke, varsayılan seçim).
 değiştirildi: 7.2 bu makinede doğrulanamıyor (portal penceresine kullanıcının
 tıklaması gerekir), 7.3 ölçülebiliyordu.
 
+### Gecenin yayılımı (2026-09-20)
+
+Task 7.1 Rust tarafına da dokunduğu için yardımcı yeniden derlenip kuruldu
+(build `8431bd1b707a` → `9d2996b54134`) ve servis boştayken yeniden başlatıldı.
+`system_capabilities`: erişilebilirlik `linux.atspi.native`, `window.focus`
+`supported`/`linux.gnome-shell-extension`, `window.move_resize` `unsupported`.
+
+Kurulu yardımcıyla canlı takımlar yeniden koştu: erişilebilirlik + pencere
+işlemleri **33 test** (4'ü tasarım gereği atlandı), capture parity + varsayılan
+**14 test**. Güvenli takımlar: contract 383, `test_desktop.py` 583,
+integration 24 (1 atlandı), models 106, safety OK, `--check` 0, eklenti testleri
+17 + 31 + 13. stdio istemcileri yine uygulama kapatılıp açılınca geçer (#7).
+
+### Faz 8 — Legacy retirement · `ön koşul sağlanmadı` (2026-09-20)
+
+Silinecek diye bakılan üç yolun üçü de **canlı geri dönüş yolu**:
+
+| Eski yol | Kim kullanıyor | Ne zaman çalışıyor |
+|---|---|---|
+| `screencast_helper.py` | yalnızca `screencast.py` | `[native] capture = "python"` ya da paketlenmiş yardımcı yokken `auto` |
+| `input.py` (Python uinput) | `backends/python.py` | `input = "python"`, yardımcı yokken `auto`, canlı testler |
+| `uitree.py` + `atspi_helper.py` | `backends/python.py` | `accessibility = "python"`, yardımcı yokken `auto`, izin yokken pencere listesi |
+
+Ön koşul "Rust default en az iki sürüm döngüsü kullanılmış" — bu depoda sürüm
+döngüsü diye bir şey yok ve varsayılanlar 2026-09-13 (capture) ile 2026-09-19
+(input, accessibility) tarihlerinde açıldı. Bugün silmek, her belgede yazılı
+olan geri alma yolunu ("`= "python"` yazıp yeniden başlat") ortadan kaldırırdı;
+kazanç yalnızca bakım yükü olurdu. **Faz 8 açık kalıyor.**
+
+Yapılabilen iki madde yapıldı: envanter (yukarıda) ve 8.2'nin 5. maddesi —
+`config.py` üç seçicide de bilinmeyen bir değeri sessizce `auto` yapmıyor,
+yüklemede açık mesajla duruyor (doğrulandı).
+
 ## Adım 6 — İmleç katmanı · `uygulandı, kapalı geliyor` (2026-09-20)
 
 Bulgular ve tasarım kararları aşağıda, "Kurtarılan kayıtlar" bölümünde. Üç
