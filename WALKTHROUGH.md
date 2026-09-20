@@ -10,69 +10,28 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** yok. Kalan tek iş Task 7.2 (XDG ScreenCast portal
-  backend'i) ve o bu makinede doğrulanamıyor — aşağıya bakın.
-- **Son tamamlanan adım:** Adım 6 — imleç katmanı geri geldi (2026-09-20),
-  kare saati düzeltmesiyle ve **varsayılan kapalı**; gerçek fareyle doğrulama
-  kullanıcıda (#8). Öncesinde: Task 7.3 ölçüldü ve **uygulanmadı** (2026-09-20):
-  buffered'ın kazancı 64,5 ms / 3698 ms. Bunun yerine ölçülen darboğaz
-  düzeltildi — `optimize=True` kaldırıldı, çekim 3698 ms'den **850 ms**'ye
-  indi. 7.4 ön koşulu düştüğü için uygulanmadı. Task 7.1 aynı gün tamamlandı,
-  **Gate 6** geçti. Pencere öne alma tek sırada
-  toplandı: eklenti → zaten öndeyse tuş yok → kapalıysa tuşsuz başlatma →
-  arama yedeği. Aramaya yalnızca kurulu uygulama adı yazılıyor, sonuç
-  uygulamanın kimliğiyle doğrulanıyor. Başlatılan uygulama kendi systemd
-  kapsamında. Ayrıntı: Adım 5 → Task 6.4.
-- **Sıradaki uygulanabilir adım:** Task 7.2, ama önce bir karar: portal
-  backend'i yalnızca GNOME/Mutter DIŞINDAKİ masaüstleri için ve bu makinede
-  ne çalıştırılabiliyor ne de ölçülebiliyor (portal penceresine kullanıcının
-  tıklaması gerekiyor). Kullanıcı isterse yazılır ve "yazıldı, hiç
-  çalıştırılmadı" diye kaydedilir.
+- **Aktif adım:** yok. Yol haritasındaki yapılabilir işlerin hepsi bitti.
+  Kalan tek madde Task 7.2 ve o **senin kararını bekliyor** (aşağıda).
+- **19-20 Eylül gecesi yapılanlar** (hepsi yerel commit, GitHub'a dokunulmadı):
+  Task 6.4 → **Gate 6** → Task 7.1 → Task 7.3/7.4 (ölçüldü, uygulanmadı) →
+  Adım 6 (imleç katmanı) → Faz 8 (ön koşul yok, envanter). Ayrıntıları Adım 5
+  ve Adım 6 bölümlerinde.
+- **Sıradaki karar — Task 7.2 (XDG ScreenCast portal backend'i).** Bu makinede
+  ne çalıştırılabiliyor ne ölçülebiliyor: yalnızca GNOME/Mutter DIŞINDAKİ
+  masaüstleri için ve portal penceresine kullanıcının tıklaması gerekiyor.
+  Bugünkü kurulumda hiçbir şeyi değiştirmez. Yazılabilir ama "yazıldı, hiç
+  çalıştırılmadı" kaydıyla kalır. **İstersen yaz denir, yazılır.**
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 6 geçti** (2026-09-20): erişilebilirlik
   okuma, eylem ve pencere işlemleri gerçek masaüstünde doğrulandı. Gate 5
   2026-09-19'da, Gate 4 2026-09-13'te geçti. stdio istemcileri, uygulama
   kapatılıp açılınca yeni koda geçer (#5).
-- **Native migration içindeki sıradaki task:** 7.2 → 7.3 → 7.4, sonra Faz 8 (**Gate 7**)
-- **Kullanıcıyla yapılan kontroller (2026-09-13):** #1, #3, #4 yapıldı; #5'in
-  servis tarafı yapıldı; #2 (GitHub) kullanıcının kararıyla bekliyor. Ayrıntı:
-  Adım 4 → "Kullanıcıyla yapılan kontroller".
-
-Çalışma kuralı (kullanıcı isteği, 2026-09-13, öncekinin yerine): her task
-sonunda güvenli testler çalıştırılır, sonuç bu dosyaya yazılır ve değişiklikler
-yalnızca yerel commit'lenir. **Push yapılmaz ve cloud GitHub'a dokunulmaz.**
-Her task bitince durulur ve sonraki task için kullanıcı onayı beklenir.
-Gerçek klavye/fare testi kullanıcı yokken çalıştırılmaz. 2026-09-19'da kullanıcı
-canlı testler için "bundan sonra sormadan test yap hepsini kabul ediyorum" dedi:
-kullanıcı başındayken canlı testler sorulmadan, ama başlamadan önce haber
-verilerek koşulur.
-
-2026-09-19 ekleri, kullanıcının sözleriyle ve sırasıyla:
-
-1. "github yok. tamamen bitirene kadar yok. adım 7'ye kadar olan adımları da
-   yapalım. dediğim gibi test için sorma." Push, iş tamamen bitene kadar yok.
-   Faz 6 ve Adım 6 arka arkaya yapılmaya başlandı; Task 6.1 bu onayla yapıldı.
-2. Task 6.2 sürerken iki geri alma geldi:
-   - "tamam bundan sonra testler için sormaya devam edersen sevinirim": gerçek
-     masaüstüne dokunan her testten önce yeniden onay istenir (pencere açan,
-     gerçek erişilebilirlik ağacını okuyan, girdi gönderen, ekran yakalayan).
-     Masaüstüne dokunmayan otomatik testler (birim, sözleşme, `cargo test`,
-     test kipindeki yardımcıyla entegrasyon) her task sonunda sorulmadan
-     koşar.
-   - "ve bu adımı da bitirince dur sonraki adıma geçme hemen": her task
-     bitince yine durulur ve sonraki task için onay beklenir.
-3. "tamam devam et 6.3 ile. ve artık testler için yine sorma": Task 6.3
-   onaylandı ve canlı testler yeniden sorulmadan koşuyor. Başlamadan önce ne
-   açılıp ne kıpırdayacağı tek satırla haber veriliyor. Task'lar hâlâ tek tek
-   onaylanıyor: 6.3 bitince durulur.
-4. Aynı gece, uyumaya giderken (Task 6.4 sürerken): durmadan, onay istemeden
-   ilerlenebildiği kadar ilerlenecek. Testler için asla onay sorulmayacak,
-   adımlar arasında onay beklenmeyecek. Her adımda yerel commit, GitHub'a
-   dokunulmaz. Kullanıcı açıkça "geldim" demedikçe yok sayılır; dönünce durum
-   raporu verilir. Kullanıcıyı gerçekten gerektiren işler (oturumdan
-   çıkış/giriş, sudo, portal penceresine tıklamak, fiziksel fare, push)
-   "Kullanıcıyı bekleyenler"e yazılıp atlanır, beklenmez. Bu madde 3'teki
-   "her task bitince dur" kuralının yerine geçer.
+- **Ölçülen kazanç (2026-09-20).** Bir ekran görüntüsü, kullanıcının gördüğü
+  yerde: iki monitör **5113 ms → 789 ms**. Pencere öne alma: kapalı uygulama
+  tuşsuz **0,4 sn**, zaten öndeki hedefe hiç tuş yok.
+- **Kullanıcıyla yapılan kontroller:** #1, #3, #4, #6 yapıldı; #5 ve #7'nin
+  servis tarafı yapıldı, stdio tarafı uygulama yeniden başlayınca geçer;
+  #2 (GitHub) ve #8 (imleç katmanı, fiziksel fare) bekliyor.
 
 ## Kullanıcıyı bekleyenler
 
