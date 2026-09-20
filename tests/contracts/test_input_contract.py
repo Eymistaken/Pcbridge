@@ -57,6 +57,7 @@ REQUIRED_CASES = {
     "type_raw",
     "move_by_small",
     "move_by_chunked",
+    "move_by_then_absolute",
 }
 
 _KNOWN_NAMES = (
@@ -270,6 +271,28 @@ class InputEventFixtureTests(unittest.TestCase):
         # An absolute position cached across a relative nudge is a lie.
         for name in ("move_by_small", "move_by_chunked"):
             self.assertIsNone(self.cases[name]["expect"]["position"])
+
+    def test_an_absolute_move_after_a_nudge_steps_aside_first(self) -> None:
+        # MEASURED 2026-09-20: after a relative nudge carried the cursor from
+        # 960 to 1052, sending ABS_X=960 again did nothing at all -- the
+        # kernel treats a repeated absolute value as no change, so the pointer
+        # stayed where the nudge left it. Going to 961 worked, and 960 worked
+        # after that. Without this the tool would report a move that never
+        # happened, which is exactly the silent-wrong-place class of bug the
+        # coordinate work closed.
+        events = self.cases["move_by_then_absolute"]["expect"]["events"]
+        absolute = [event for event in events if event[0] == "EV_ABS"]
+        self.assertEqual(
+            absolute,
+            [["EV_ABS", "ABS_X", 99], ["EV_ABS", "ABS_Y", 100],
+             ["EV_ABS", "ABS_X", 100], ["EV_ABS", "ABS_Y", 100]],
+        )
+
+    def test_a_plain_absolute_move_does_not_step_aside(self) -> None:
+        # The resync is only paid after a relative nudge; the ordinary path
+        # must not gain an extra event.
+        events = self.cases["pointer_teleport"]["expect"]["events"]
+        self.assertEqual(len([e for e in events if e[0] == "SYN"]), 1)
 
     def test_move_by_is_capped_in_delta_and_in_chunks(self) -> None:
         with recording_backend() as (backend, recorder):

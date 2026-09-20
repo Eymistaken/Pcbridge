@@ -29,13 +29,15 @@ use crate::platform::linux::desktop_state::DeterministicDesktopState;
 use crate::platform::linux::display::DisplayReader;
 use crate::platform::linux::display::DisplaySnapshot;
 use crate::platform::linux::input::{
-    DEVICE_SETTLE, EvdevKeyboardDevice, EvdevPointerDevice, KeyboardError, KeyboardService,
-    NativeKeyboard, NativePointer, PointerConfig, PointerError, PointerGeometry, PointerService,
-    SystemClock, SystemPointerClock,
+    DEVICE_SETTLE, EvdevKeyboardDevice, EvdevPointerDevice, EvdevRelativeDevice, KeyboardError,
+    KeyboardService, NativeKeyboard, NativePointer, NativeRelativePointer, PointerConfig,
+    PointerError, PointerGeometry, PointerService, RelativeService, SystemClock,
+    SystemPointerClock,
 };
 #[cfg(feature = "test-harness")]
 use crate::platform::linux::input::{
-    Keyboard, KeyboardDevice, KeyboardEvent, Pointer, PointerDevice, PointerEvent,
+    Keyboard, KeyboardDevice, KeyboardEvent, Pointer, PointerDevice, PointerEvent, Relative,
+    RelativeDevice, RelativeEvent,
 };
 use crate::platform::linux::readiness;
 use crate::platform::linux::session::{OpenOutcome, SessionFailure};
@@ -87,6 +89,7 @@ impl BackendMode {
                 "capture.session_open",
                 "input.keyboard",
                 "input.pointer",
+                "input.pointer_relative",
                 "clipboard",
                 "accessibility.read",
                 "accessibility.action",
@@ -97,6 +100,7 @@ impl BackendMode {
                 "test.lease",
                 "input.keyboard",
                 "input.pointer",
+                "input.pointer_relative",
                 "clipboard",
                 "accessibility.read",
                 "accessibility.action",
@@ -118,6 +122,7 @@ impl BackendMode {
                         readiness::capture_monitor(&readiness::probe()),
                         readiness::input_keyboard(),
                         readiness::input_pointer(),
+                        readiness::input_pointer_relative(),
                         readiness::clipboard("clipboard.read", "wl-paste"),
                         readiness::clipboard("clipboard.write", "wl-copy"),
                         read,
@@ -174,6 +179,18 @@ impl FailClosed for PointerFailClosed {
     }
 }
 
+/// Without this a revoke would leave a live injection device open, which is
+/// the whole point of the lifecycle.
+struct RelativeFailClosed(Weak<dyn RelativeService>);
+
+impl FailClosed for RelativeFailClosed {
+    fn close_fail_closed(&self, reason: LifecycleFailure) {
+        if let Some(relative) = self.0.upgrade() {
+            relative.close_fail_closed(reason);
+        }
+    }
+}
+
 #[cfg(feature = "test-harness")]
 #[derive(Debug)]
 struct NullKeyboardDevice;
@@ -192,6 +209,17 @@ struct NullPointerDevice;
 #[cfg(feature = "test-harness")]
 impl PointerDevice for NullPointerDevice {
     fn emit(&mut self, _events: &[PointerEvent]) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(feature = "test-harness")]
+#[derive(Debug)]
+struct NullRelativeDevice;
+
+#[cfg(feature = "test-harness")]
+impl RelativeDevice for NullRelativeDevice {
+    fn emit(&mut self, _events: &[RelativeEvent]) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -319,6 +347,10 @@ pub struct Dispatcher {
     /// Created only by an explicit pointer request. The topology id and
     /// geometry are replaced together when the display layout changes.
     pointer: Option<(String, PointerConfig, Arc<dyn PointerService>)>,
+    /// The SECOND, relative device. Keyed on nothing: it has no ABS range, so
+    /// a monitor hotplug cannot invalidate it, and `PointerConfig` describes
+    /// an interpolated absolute path that means nothing here.
+    relative: Option<Arc<dyn RelativeService>>,
     /// Connected by the first accessibility request, never at startup.
     accessibility: Option<AccessibilitySource>,
     /// What the dumps listed, for the actions that name them.
@@ -338,6 +370,7 @@ impl Dispatcher {
             capture: None,
             keyboard: None,
             pointer: None,
+            relative: None,
             accessibility: None,
             accessibility_dumps: DumpRegistry::default(),
             state_dir: None,
@@ -428,6 +461,7 @@ impl Dispatcher {
             "input.keyboard.take_auto_released" => self.keyboard_take_auto_released(request.id),
             "input.pointer.ensure" => self.pointer_ensure(request.id, request.params),
             "input.pointer.move" => self.pointer_move(request.id, request.params),
+            "input.pointer.move_by" => self.pointer_move_by(request.id, request.params),
             "input.pointer.click" => self.pointer_click(request.id, request.params),
             "input.pointer.drag" => self.pointer_drag(request.id, request.params),
             "input.pointer.scroll" => self.pointer_scroll(request.id, request.params),
@@ -472,6 +506,7 @@ impl Dispatcher {
             "shutdown" => {
                 self.close_keyboard();
                 self.close_pointer();
+                self.close_relative();
                 self.success(
                     request.id,
                     json!({"shutdown": true}),
@@ -1662,33 +1697,114 @@ impl Dispatcher {
     }
 
     fn pointer_ensure(&mut self, id: String, params: Value) -> DispatchOutcome {
-        let params = match parse_pointer_params::<PointerGrantParams>(params, &[]) {
+        let params =
+            match parse_pointer_params::<PointerEnsureParams>(params, &["pointer", "relative"]) {
+                Ok(params) => params,
+                Err(error) => {
+                    return self.error(
+                        id,
+                        "INVALID_PARAMS",
+                        format!("invalid pointer parameters: {error}"),
+                        None,
+                    );
+                }
+            };
+        if let Err(message) = params.grant.validate() {
+            return self.error(id, "INVALID_PARAMS", message, None);
+        }
+        if let Err(failure) = self.validate_pointer_grant(&params.grant) {
+            return self.pointer_request_error(id, PointerRequestError::Lifecycle(failure));
+        }
+
+        // Open whatever was asked for, then pay ONE settle. Asking twice
+        // would hand the native path back the second 1.2 s the Python path
+        // was measured avoiding.
+        let mut owed = Duration::ZERO;
+        let mut pointer = None;
+        if params.pointer {
+            let geometry = match self.pointer_geometry(&params.grant.topology_id) {
+                Ok(geometry) => geometry,
+                Err(error) => return self.pointer_request_error(id, error),
+            };
+            match self.ensure_pointer(&params.grant.topology_id, geometry, params.grant.config()) {
+                Ok((opened, settle)) => {
+                    owed = owed.max(settle);
+                    pointer = Some(opened);
+                }
+                Err(error) => return self.pointer_request_error(id, error),
+            }
+        }
+        if params.relative {
+            match self.ensure_relative() {
+                Ok((_, settle)) => owed = owed.max(settle),
+                Err(error) => return self.pointer_request_error(id, error),
+            }
+        }
+        std::thread::sleep(owed);
+
+        if let Err(failure) = self.validate_pointer_grant(&params.grant) {
+            self.close_pointer();
+            self.close_relative();
+            return self.pointer_request_error(id, PointerRequestError::Lifecycle(failure));
+        }
+        if params.pointer
+            && let Err(error) = self.pointer_geometry(&params.grant.topology_id)
+        {
+            self.close_pointer();
+            self.close_relative();
+            return self.pointer_request_error(id, error);
+        }
+
+        let waited_seconds = owed.as_secs_f64();
+        self.success(
+            id,
+            json!({
+                "already": waited_seconds == 0.0,
+                "waited_seconds": waited_seconds,
+                "position": pointer.as_ref().and_then(|pointer| pointer.position()),
+                "held": pointer.as_ref().map_or_else(Vec::new, |pointer| pointer.held()),
+                "relative": params.relative,
+                "backend": "linux.uinput.native",
+            }),
+            None,
+        )
+    }
+
+    fn pointer_move_by(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match parse_relative_params::<RelativeMoveParams>(params, &["dx", "dy"]) {
             Ok(params) => params,
             Err(error) => {
                 return self.error(
                     id,
                     "INVALID_PARAMS",
-                    format!("invalid pointer parameters: {error}"),
+                    format!("invalid relative pointer parameters: {error}"),
                     None,
                 );
             }
         };
-        if let Err(message) = params.validate() {
+        if let Err(message) = params.grant.validate() {
             return self.error(id, "INVALID_PARAMS", message, None);
         }
-        match self.pointer_for_request(&params) {
-            Ok((pointer, waited_seconds)) => self.success(
+        let relative = match self.relative_for_request(&params.grant) {
+            Ok(relative) => relative,
+            Err(error) => return self.pointer_request_error(id, error),
+        };
+        // Forget BEFORE sending. If a write dies mid-sequence some deltas have
+        // landed and the cached position is wrong; "unknown" is then the true
+        // answer. Forgetting afterwards would state a position a partial
+        // failure had already falsified.
+        self.forget_pointer_position();
+        match relative.move_by(params.dx, params.dy) {
+            Ok(sent) => self.success(
                 id,
                 json!({
-                    "already": waited_seconds == 0.0,
-                    "waited_seconds": waited_seconds,
-                    "position": pointer.position(),
-                    "held": pointer.held(),
+                    "sent": [sent.0, sent.1],
+                    "position": Value::Null,
                     "backend": "linux.uinput.native",
                 }),
                 None,
             ),
-            Err(error) => self.pointer_request_error(id, error),
+            Err(error) => self.pointer_operation_error(id, error),
         }
     }
 
@@ -1914,8 +2030,10 @@ impl Dispatcher {
         self.validate_pointer_grant(params)
             .map_err(PointerRequestError::Lifecycle)?;
         let geometry = self.pointer_geometry(&params.topology_id)?;
-        let (pointer, waited_seconds) =
+        let (pointer, owed) =
             self.ensure_pointer(&params.topology_id, geometry, params.config())?;
+        std::thread::sleep(owed);
+        let waited_seconds = owed.as_secs_f64();
         if let Err(failure) = self.validate_pointer_grant(params) {
             self.close_pointer();
             return Err(PointerRequestError::Lifecycle(failure));
@@ -1928,11 +2046,15 @@ impl Dispatcher {
     }
 
     fn validate_pointer_grant(&self, params: &PointerGrantParams) -> Result<(), LifecycleFailure> {
+        self.validate_grant(&params.grant_id, params.revoke_epoch)
+    }
+
+    fn validate_grant(&self, grant_id: &str, revoke_epoch: u64) -> Result<(), LifecycleFailure> {
         let lifecycle = self
             .lifecycle
             .as_ref()
             .expect("initialized dispatcher has a lifecycle");
-        if !lifecycle.matches_token(&params.grant_id, params.revoke_epoch) {
+        if !lifecycle.matches_token(grant_id, revoke_epoch) {
             return Err(LifecycleFailure::Revoked);
         }
         lifecycle.validate_now()
@@ -1962,12 +2084,17 @@ impl Dispatcher {
         PointerGeometry::new(width, height).map_err(PointerRequestError::Geometry)
     }
 
+    /// Open the absolute pointer and report the settle it OWES.
+    ///
+    /// The sleep belongs to the caller so that opening this device and the
+    /// relative one in the same request costs one settle, not two. Paying it
+    /// twice is the 2.61 s the Python path was measured getting down to 1.41 s.
     fn ensure_pointer(
         &mut self,
         topology_id: &str,
         geometry: PointerGeometry,
         config: PointerConfig,
-    ) -> Result<(Arc<dyn PointerService>, f64), PointerRequestError> {
+    ) -> Result<(Arc<dyn PointerService>, Duration), PointerRequestError> {
         if self
             .pointer
             .as_ref()
@@ -1986,7 +2113,7 @@ impl Dispatcher {
             if *configured != config {
                 return Err(PointerRequestError::SettingsChanged);
             }
-            return Ok((Arc::clone(pointer), 0.0));
+            return Ok((Arc::clone(pointer), Duration::ZERO));
         }
 
         let state_file = self
@@ -2027,8 +2154,88 @@ impl Dispatcher {
             .expect("initialized dispatcher has a lifecycle");
         lifecycle.register_fail_closed(Arc::new(PointerFailClosed(Arc::downgrade(&pointer))));
         self.pointer = Some((topology_id.to_owned(), config, Arc::clone(&pointer)));
-        std::thread::sleep(settle);
-        Ok((pointer, settle.as_secs_f64()))
+        Ok((pointer, settle))
+    }
+
+    /// Open the relative device and report the settle it OWES. Same contract
+    /// as `ensure_pointer`: the caller sleeps.
+    fn ensure_relative(
+        &mut self,
+    ) -> Result<(Arc<dyn RelativeService>, Duration), PointerRequestError> {
+        if self
+            .relative
+            .as_ref()
+            .is_some_and(|relative| relative.is_closed())
+        {
+            self.relative.take();
+        }
+        if let Some(relative) = self.relative.as_ref() {
+            return Ok((Arc::clone(relative), Duration::ZERO));
+        }
+
+        let (relative, settle): (Arc<dyn RelativeService>, Duration) = match &self.mode {
+            BackendMode::Production { .. } => {
+                let device = EvdevRelativeDevice::create().map_err(PointerRequestError::Device)?;
+                (
+                    Arc::new(NativeRelativePointer::new(
+                        device,
+                        SystemPointerClock::default(),
+                        POINTER_STEP,
+                    )),
+                    DEVICE_SETTLE,
+                )
+            }
+            #[cfg(feature = "test-harness")]
+            BackendMode::DeterministicTest => (
+                Arc::new(Relative::new(
+                    NullRelativeDevice,
+                    SystemPointerClock::default(),
+                    POINTER_STEP,
+                )),
+                Duration::ZERO,
+            ),
+        };
+        let lifecycle = self
+            .lifecycle
+            .as_ref()
+            .expect("initialized dispatcher has a lifecycle");
+        lifecycle.register_fail_closed(Arc::new(RelativeFailClosed(Arc::downgrade(&relative))));
+        self.relative = Some(Arc::clone(&relative));
+        Ok((relative, settle))
+    }
+
+    fn relative_for_request(
+        &mut self,
+        params: &RelativeGrantParams,
+    ) -> Result<Arc<dyn RelativeService>, PointerRequestError> {
+        self.validate_grant(&params.grant_id, params.revoke_epoch)
+            .map_err(PointerRequestError::Lifecycle)?;
+        let (relative, owed) = self.ensure_relative()?;
+        std::thread::sleep(owed);
+        // The settle can outlive the grant, so ask again afterwards -- the
+        // same reason the absolute path re-validates.
+        if let Err(failure) = self.validate_grant(&params.grant_id, params.revoke_epoch) {
+            self.close_relative();
+            return Err(PointerRequestError::Lifecycle(failure));
+        }
+        Ok(relative)
+    }
+
+    /// Tell the absolute pointer that the relative one moved the cursor.
+    ///
+    /// Three caches hold it: this process's `Pointer`, the file, and the
+    /// Python side's own copy. Only the dispatcher can reach the first two,
+    /// and the relative device has no handle on the pointer.
+    fn forget_pointer_position(&mut self) {
+        if let Some((_, _, pointer)) = self.pointer.as_ref() {
+            pointer.note_external_motion();
+            return;
+        }
+        // No absolute device was ever opened in this process, so only the
+        // file can be stale.
+        if let Some(directory) = self.state_dir.as_ref() {
+            let _ = std::fs::remove_file(directory.join("pointer.json"));
+        }
     }
 
     fn pointer_request_error(&self, id: String, error: PointerRequestError) -> DispatchOutcome {
@@ -2114,6 +2321,12 @@ impl Dispatcher {
     fn close_pointer(&mut self) {
         if let Some((_, _, pointer)) = self.pointer.take() {
             let _ = pointer.close();
+        }
+    }
+
+    fn close_relative(&mut self) {
+        if let Some(relative) = self.relative.take() {
+            relative.close();
         }
     }
 
@@ -2223,6 +2436,42 @@ struct PointerGrantParams {
     topology_id: String,
     pointer_speed: f64,
     pointer_max_ms: f64,
+}
+
+/// The envelope for the SECOND, relative device.
+///
+/// Deliberately narrow. `topology_id` is absent because a relative device has
+/// no ABS range: the screen layout cannot invalidate it, and accepting the
+/// field only to ignore it would tell the next reader that the topology was
+/// checked. `hold_max_seconds` is absent because this device never presses a
+/// button, so nothing can be left held.
+#[derive(Debug, Deserialize)]
+struct RelativeGrantParams {
+    grant_id: String,
+    revoke_epoch: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct RelativeMoveParams {
+    #[serde(flatten)]
+    grant: RelativeGrantParams,
+    dx: i32,
+    dy: i32,
+}
+
+/// Which devices `input.pointer.ensure` should open.
+///
+/// Both default to the old behavior, so a helper talking to an older client
+/// that sends only the grant envelope opens the absolute pointer exactly as
+/// before.
+#[derive(Debug, Deserialize)]
+struct PointerEnsureParams {
+    #[serde(flatten)]
+    grant: PointerGrantParams,
+    #[serde(default = "default_true")]
+    pointer: bool,
+    #[serde(default)]
+    relative: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2513,6 +2762,16 @@ impl KeyboardActionParams {
     }
 }
 
+impl RelativeGrantParams {
+    fn validate(&self) -> Result<(), &'static str> {
+        const MAX_ID_BYTES: usize = 256;
+        if self.grant_id.is_empty() || self.grant_id.len() > MAX_ID_BYTES {
+            return Err("grant_id must be nonempty and bounded");
+        }
+        Ok(())
+    }
+}
+
 impl PointerGrantParams {
     fn validate(&self) -> Result<(), &'static str> {
         const MAX_ID_BYTES: usize = 256;
@@ -2541,12 +2800,16 @@ impl PointerGrantParams {
         PointerConfig {
             speed: self.pointer_speed,
             max_ms: self.pointer_max_ms,
-            step: Duration::from_millis(8),
+            step: POINTER_STEP,
             hold_max: Duration::from_secs(self.hold_max_seconds),
             drag_min_steps: 10,
         }
     }
 }
+
+/// Gap between the chunks of one relative nudge. Same 8 ms the absolute
+/// pointer walks its path with; real mice report at 125 Hz.
+const POINTER_STEP: Duration = Duration::from_millis(8);
 
 const POINTER_GRANT_FIELDS: &[&str] = &[
     "grant_id",
@@ -2556,6 +2819,23 @@ const POINTER_GRANT_FIELDS: &[&str] = &[
     "pointer_speed",
     "pointer_max_ms",
 ];
+
+const RELATIVE_GRANT_FIELDS: &[&str] = &["grant_id", "revoke_epoch"];
+
+fn parse_relative_params<T: DeserializeOwned>(
+    params: Value,
+    action_fields: &[&str],
+) -> Result<T, String> {
+    let object = params
+        .as_object()
+        .ok_or_else(|| "relative pointer parameters must be an object".to_owned())?;
+    if let Some(field) = object.keys().find(|field| {
+        !RELATIVE_GRANT_FIELDS.contains(&field.as_str()) && !action_fields.contains(&field.as_str())
+    }) {
+        return Err(format!("unknown relative pointer parameter '{field}'"));
+    }
+    serde_json::from_value(params).map_err(|error| error.to_string())
+}
 
 fn parse_pointer_params<T: DeserializeOwned>(
     params: Value,
@@ -2713,6 +2993,7 @@ mod tests {
                 "capture.session_open",
                 "input.keyboard",
                 "input.pointer",
+                "input.pointer_relative",
                 "clipboard",
                 "accessibility.read",
                 "accessibility.action"
@@ -2757,9 +3038,25 @@ mod tests {
             }
             other => panic!("unexpected input.pointer status {other:?}"),
         }
+        // The SECOND, relative device: separate capability name, SAME
+        // permission scope -- one door, not two.
+        let relative = &capabilities["capabilities"][3];
+        assert_eq!(relative["name"], "input.pointer_relative");
+        assert_eq!(relative["permission_scope"], "os.pointer");
+        match relative["status"].as_str() {
+            Some("degraded") => assert!(
+                relative["reason"]
+                    .as_str()
+                    .is_some_and(|reason| !reason.is_empty())
+            ),
+            Some("unavailable") => {
+                assert_eq!(relative["reason_code"], "DEPENDENCY_MISSING")
+            }
+            other => panic!("unexpected input.pointer_relative status {other:?}"),
+        }
         // Probed without running either program: a capability request must
         // not read the user's clipboard.
-        for (index, name) in [(3, "clipboard.read"), (4, "clipboard.write")] {
+        for (index, name) in [(4, "clipboard.read"), (5, "clipboard.write")] {
             let entry = &capabilities["capabilities"][index];
             assert_eq!(entry["name"], name);
             assert_eq!(entry["permission_scope"], "os.clipboard");
@@ -2782,9 +3079,9 @@ mod tests {
         }
         // Asked of the bus daemon only: no application tree is read.
         for (index, name) in [
-            (5, "accessibility.read"),
-            (6, "window.list"),
-            (7, "accessibility.action"),
+            (6, "accessibility.read"),
+            (7, "window.list"),
+            (8, "accessibility.action"),
         ] {
             let entry = &capabilities["capabilities"][index];
             assert_eq!(entry["name"], name);

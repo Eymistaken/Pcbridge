@@ -1642,6 +1642,117 @@
         "outputs": [],
         "position": null
       }
+    },
+    {
+      "name": "move_by_then_absolute",
+      "about": "Goreli hareketten sonra AYNI noktaya donmek: mutlak cihazin ABS durumu degismedigi icin cekirdek tekrar edilen degeri yutuyor (olculdu 2026-09-20), o yuzden once bir piksel yana ugraniyor.",
+      "start": [
+        100,
+        100
+      ],
+      "calls": [
+        {
+          "op": "move_by",
+          "args": [
+            40,
+            -16
+          ]
+        },
+        {
+          "op": "move",
+          "args": [
+            100,
+            100
+          ]
+        }
+      ],
+      "expect": {
+        "events": [
+          [
+            "EV_REL",
+            "REL_X",
+            14
+          ],
+          [
+            "EV_REL",
+            "REL_Y",
+            -6
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_REL",
+            "REL_X",
+            13
+          ],
+          [
+            "EV_REL",
+            "REL_Y",
+            -5
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_REL",
+            "REL_X",
+            13
+          ],
+          [
+            "EV_REL",
+            "REL_Y",
+            -5
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            99
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            100
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ]
+        ],
+        "hold_timers": [],
+        "outputs": [],
+        "position": [
+          100,
+          100
+        ]
+      }
     }
   ]
 }

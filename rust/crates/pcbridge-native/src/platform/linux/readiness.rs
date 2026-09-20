@@ -174,6 +174,27 @@ pub fn input_pointer() -> Value {
     }
 }
 
+/// The SECOND, relative device. Same node, same permission scope: a separate
+/// device but not a separate door.
+pub fn input_pointer_relative() -> Value {
+    if Path::new("/dev/uinput").exists() {
+        json!({
+            "name": "input.pointer_relative",
+            "status": "degraded",
+            "permission_scope": "os.pointer",
+            "reason": "device access is checked on the first explicit pointer request",
+        })
+    } else {
+        json!({
+            "name": "input.pointer_relative",
+            "status": "unavailable",
+            "permission_scope": "os.pointer",
+            "reason_code": "DEPENDENCY_MISSING",
+            "reason": "the /dev/uinput device is missing",
+        })
+    }
+}
+
 /// Shown with a usable clipboard: the restore keeps one representation.
 pub const SINGLE_MIME_LIMITATION: &str =
     "Clipboard restore keeps only the first offered type; other representations are lost.";

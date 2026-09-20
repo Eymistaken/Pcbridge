@@ -419,6 +419,9 @@ class InputBackend:
         self._canvas: tuple[int, int] | None = None
         self._pos_file = Path(pos_file) if pos_file else None
         self._pos: tuple[int, int] | None = self._read_pos()
+        # Goreli cihaz imleci tasidiktan sonra MUTLAK cihazin ABS durumu
+        # degismemis olur; bkz. `_note_external_motion`.
+        self._abs_stale = False
         self._settle = settle_seconds
         self._speed = float(pointer_speed)
         self._max_ms = float(pointer_max_ms)
@@ -592,6 +595,7 @@ class InputBackend:
                 pass
         self._kbd = self._ptr = self._rel = None
         self._canvas = self._pos = None
+        self._abs_stale = False
 
     # -------------------------------------------------------- basili tutma
     def held(self) -> list[str]:
@@ -704,16 +708,22 @@ class InputBackend:
         except Exception:  # noqa: BLE001 - yazamamak hareketi bozmamali
             pass
 
-    def _forget_pos(self) -> None:
-        """Kayitli konumu "bilinmiyor" yap: bellekte VE diskte.
+    def _note_external_motion(self) -> None:
+        """Imleci BIZIM disimizda bir sey tasidi (goreli cihaz). Iki sonuc:
 
-        Goreli bir hareketten sonra kayitli mutlak konum bir YALAN. `None`
-        zaten yiginin her katmaninda "bilinmiyor" demek (`_read_pos` eksik ya
-        da bayat dosyada `None` donuyor, `position` `tuple | None`, protokol
-        `{"position": null}`), o yuzden yeni bir isaret icat edilmiyor: dosya
-        siliniyor. Bir sonraki mutlak `move` kendini onariyor.
+        1. Kayitli konum bir YALAN. `None` zaten yiginin her katmaninda
+           "bilinmiyor" demek (`_read_pos` eksik ya da bayat dosyada `None`
+           donuyor, `position` `tuple | None`, protokol `{"position": null}`),
+           o yuzden yeni bir isaret icat edilmiyor: dosya siliniyor.
+        2. Mutlak cihazin ABS DURUMU degismedi. OLCULDU 2026-09-20: goreli
+           cihazla imlec 960'tan 1052'ye tasindiktan sonra mutlak cihazdan
+           yine `ABS_X=960` gondermek HICBIR SEY yapmiyor -- cekirdek ayni
+           degeri "degisiklik yok" sayip yutuyor ve imlec 1052'de kaliyor.
+           961 gondermek calisiyor, ardindan 960 da calisiyor. Yani bir
+           sonraki mutlak `move` once bir piksel yana ugramak zorunda.
         """
         self._pos = None
+        self._abs_stale = True
         if self._pos_file is None:
             return
         try:
@@ -752,6 +762,13 @@ class InputBackend:
             )
         else:
             path = [(cx, cy)]
+
+        if self._abs_stale:
+            # Goreli bir hareket araya girdi: ayni ABS degerini tekrar
+            # gondermek yutulur (bkz. `_note_external_motion`). Bir piksel
+            # yana ugra, sonra hedefe.
+            path.insert(0, (cx - 1 if cx > 0 else cx + 1, cy))
+            self._abs_stale = False
 
         last = len(path) - 1
         for i, (px, py) in enumerate(path):
@@ -799,7 +816,7 @@ class InputBackend:
         # gitmistir ve konum yanlistir; "bilinmiyor" o zaman dogru cevaptir.
         # Sonra unutmak, kismi bir hatanin yalanladigi bir konumu beyan etmek
         # olurdu. Sezgiye ters, bu yuzden yaziyor.
-        self._forget_pos()
+        self._note_external_motion()
         last = len(chunks) - 1
         for i, (sx, sy) in enumerate(chunks):
             if sx:

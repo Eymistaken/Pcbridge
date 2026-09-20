@@ -5,8 +5,10 @@
 //! held-key accounting, and an independent monotonic auto-release timer.
 
 mod pointer;
+mod relative;
 
 pub use pointer::*;
+pub use relative::*;
 
 use std::collections::BTreeSet;
 use std::fmt;

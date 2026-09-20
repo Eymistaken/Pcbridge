@@ -491,6 +491,81 @@ class NativeInputOnTheDesktop(unittest.TestCase):
         self.assertEqual(provider.take_auto_released(), [], "reported once")
         REPORT["hold_timer"] = {"held_seconds": round(held, 2)}
 
+    def test_9_a_relative_nudge_moves_the_cursor_and_the_next_move_heals(self) -> None:
+        """Adim 7: the SECOND, relative device, on the real desktop.
+
+        Two things are proved here and nowhere else. First that a delta
+        actually moves the cursor, in the direction asked and by a measurable
+        amount -- unit tests can only show the events were written. Second
+        that an absolute move afterwards lands where it says: after a relative
+        nudge this device's ABS state no longer matches the cursor, and the
+        kernel swallows a repeated absolute value, so without the resync step
+        the pointer would silently stay put while the tool reported success.
+        """
+        _gate, provider = self.provider()
+        park = (self.monitors[0][0] + self.monitors[0][2] // 2,
+                self.monitors[0][1] + self.monitors[0][3] // 2)
+        measured = {}
+        for axis, (dx, dy) in (("x", (200, 0)), ("y", (0, -200))):
+            before = self.move_and_verify(provider, park)
+            mark = self.window.mark()
+            sent = provider.move_by(dx, dy)
+            self.assertEqual(tuple(sent), (dx, dy), "the whole delta was sent")
+            self.window.wait(lambda e: e.get("event") == "motion", 3.0, mark)
+            self.window.settle()
+            after = self.window.last("motion")
+            moved = (after["x"] - before["x"], after["y"] - before["y"])
+            # The scale is the user's mouse-speed setting (k = 1 + speed), so
+            # the exact pixel count is not pinned here -- the direction and
+            # the fact that it moved at all are.
+            self.assertNotEqual(moved, (0, 0), f"{axis}: the nudge moved nothing")
+            if dx:
+                self.assertGreater(moved[0] * dx, 0, f"{axis}: wrong direction")
+                self.assertEqual(moved[1], 0, f"{axis}: the other axis moved")
+            if dy:
+                self.assertGreater(moved[1] * dy, 0, f"{axis}: wrong direction")
+                self.assertEqual(moved[0], 0, f"{axis}: the other axis moved")
+            measured[axis] = {"sent": [dx, dy], "moved": list(moved)}
+
+            # The position is unknown now, and says so.
+            self.assertIsNone(provider.position, "a nudge must forget the position")
+
+            # Back to the SAME point the nudge started from: the case that
+            # silently did nothing before the resync step existed.
+            healed = self.move_and_verify(provider, park)
+            deviation = max(abs(healed["x"] - park[0]), abs(healed["y"] - park[1]))
+            self.assertLessEqual(deviation, 1, f"{axis}: the absolute move did not heal")
+            measured[axis]["heal_deviation_px"] = deviation
+        REPORT["move_by"] = measured
+
+    def test_9b_absolute_accuracy_survives_the_second_device(self) -> None:
+        """The BTN_TOUCH lesson, re-measured with the relative device OPEN.
+
+        A second uinput device changes how the compositor enumerates and
+        merges pointers, and the absolute device's <=1 px accuracy is the
+        measurement the whole coordinate layer rests on. It is nearly free to
+        prove it again, so it is proved again.
+        """
+        _gate, provider = self.provider()
+        provider.ensure(pointer=True, relative=True)
+        provider.move_by(50, 0)          # the relative device is now in use
+        left, right = self.monitors[0], self.monitors[-1]
+        targets = [
+            (left[0] + 200, left[1] + 200),
+            (left[0] + left[2] // 2, left[1] + left[3] // 2),
+            (right[0] + right[2] // 2, right[1] + right[3] // 2),
+            (right[0] + right[2] - 200, right[1] + right[3] - 200),
+        ]
+        deviations = []
+        for target in targets:
+            last = self.move_and_verify(provider, target)
+            deviations.append(max(abs(last["x"] - target[0]), abs(last["y"] - target[1])))
+            self.assertTrue(near(last, target), f"{target}: the pointer rests at {last}")
+        REPORT["absolute_with_relative_open"] = {
+            "targets": len(targets),
+            "max_deviation_px": max(deviations),
+        }
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

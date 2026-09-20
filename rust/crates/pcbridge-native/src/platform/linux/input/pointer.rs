@@ -174,6 +174,9 @@ pub trait PointerService: FailClosed + fmt::Debug {
     fn release_all(&self) -> Result<Vec<String>, PointerError>;
     fn take_auto_released(&self) -> Vec<String>;
     fn position(&self) -> Option<(i32, i32)>;
+    /// Tell the pointer that something else moved the cursor: the recorded
+    /// position is dropped and the next absolute move resyncs.
+    fn note_external_motion(&self);
     fn is_closed(&self) -> bool;
     fn close(&self) -> Result<Vec<String>, PointerError>;
 }
@@ -300,6 +303,9 @@ struct State<D> {
     auto_released: Vec<String>,
     deadline: Option<Duration>,
     closed: bool,
+    /// Something outside this device moved the cursor, so its ABS state no
+    /// longer matches where the pointer is. See `note_external_motion`.
+    abs_stale: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -370,6 +376,7 @@ impl<D: PointerDevice, C: PointerClock> Pointer<D, C> {
                 auto_released: Vec::new(),
                 deadline: None,
                 closed: false,
+                abs_stale: false,
             }),
             wake: Condvar::new(),
             clock,
@@ -428,6 +435,18 @@ impl<D: PointerDevice, C: PointerClock> Pointer<D, C> {
             ),
             _ => vec![target],
         };
+        let mut path = path;
+        if std::mem::replace(&mut self.state().abs_stale, false) {
+            // A relative nudge moved the cursor without changing this
+            // device's ABS state, and the kernel swallows a repeated value.
+            // Step one pixel aside first, then go to the target.
+            let aside = if target.0 > 0 {
+                target.0 - 1
+            } else {
+                target.0 + 1
+            };
+            path.insert(0, (aside, target.1));
+        }
         let last = path.len().saturating_sub(1);
         for (index, point) in path.into_iter().enumerate() {
             {
@@ -563,6 +582,29 @@ impl<D: PointerDevice, C: PointerClock> Pointer<D, C> {
         self.state().position
     }
 
+    /// Something outside this device moved the cursor (the relative one).
+    ///
+    /// Two consequences, and both matter:
+    ///
+    /// 1. The recorded position is a lie. `None` already means "unknown"
+    ///    everywhere in this stack -- a missing or stale file reads back as
+    ///    `None` -- so the record is removed rather than marked. The next
+    ///    absolute move writes a fresh one.
+    /// 2. This device's ABS state did not change. MEASURED 2026-09-20: after
+    ///    a relative nudge carried the cursor from 960 to 1052, sending
+    ///    `ABS_X=960` from here did NOTHING -- the kernel treats a repeated
+    ///    absolute value as no change. 961 worked, and 960 worked after it.
+    ///    So the next absolute move has to step one pixel aside first.
+    pub fn note_external_motion(&self) {
+        let mut state = self.state();
+        state.position = None;
+        state.abs_stale = true;
+        drop(state);
+        if let Some(path) = self.inner.state_file.as_ref() {
+            let _ = fs::remove_file(path);
+        }
+    }
+
     pub fn close(&self) -> Result<Vec<String>, PointerError> {
         let released = {
             let mut state = self.state();
@@ -669,6 +711,10 @@ impl<D: PointerDevice, C: PointerClock> PointerService for Pointer<D, C> {
 
     fn position(&self) -> Option<(i32, i32)> {
         Self::position(self)
+    }
+
+    fn note_external_motion(&self) {
+        Self::note_external_motion(self);
     }
 
     fn is_closed(&self) -> bool {

@@ -433,3 +433,52 @@ fn revoke_explicitly_releases_held_buttons_and_closes_the_pointer() {
     );
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn an_absolute_move_after_external_motion_steps_aside_first() {
+    // MEASURED 2026-09-20 on the real desktop: after the relative device
+    // carried the cursor from 960 to 1052, sending ABS_X=960 from this device
+    // did nothing -- the kernel treats a repeated absolute value as no
+    // change, and the pointer stayed where the nudge left it. 961 worked, and
+    // 960 worked after it. The Python fixture pins the same sequence in
+    // `move_by_then_absolute`.
+    let root = fixture_root();
+    let (pointer, device, _clock) = pointer(root.join("pointer.json"), 1_000.0);
+    pointer.move_to(100, 100, Some(false), 1).unwrap();
+    device.events.lock().unwrap().clear();
+
+    pointer.note_external_motion();
+    assert_eq!(pointer.position(), None, "the recorded position is dropped");
+    pointer.move_to(100, 100, Some(false), 1).unwrap();
+
+    let events = device.events.lock().unwrap().clone();
+    let absolute: Vec<_> = events
+        .iter()
+        .filter(|event| event[0] == "EV_ABS")
+        .cloned()
+        .collect();
+    assert_eq!(
+        absolute,
+        vec![
+            serde_json::json!(["EV_ABS", "ABS_X", 99]),
+            serde_json::json!(["EV_ABS", "ABS_Y", 100]),
+            serde_json::json!(["EV_ABS", "ABS_X", 100]),
+            serde_json::json!(["EV_ABS", "ABS_Y", 100]),
+        ]
+    );
+}
+
+#[test]
+fn a_plain_absolute_move_does_not_step_aside() {
+    // The resync is paid only after external motion; the ordinary path must
+    // not grow an extra event.
+    let root = fixture_root();
+    let (pointer, device, _clock) = pointer(root.join("pointer.json"), 1_000.0);
+    pointer.move_to(100, 100, Some(false), 1).unwrap();
+    device.events.lock().unwrap().clear();
+    pointer.move_to(200, 200, Some(false), 1).unwrap();
+
+    let events = device.events.lock().unwrap().clone();
+    let syns = events.iter().filter(|event| event[0] == "SYN").count();
+    assert_eq!(syns, 1);
+}
