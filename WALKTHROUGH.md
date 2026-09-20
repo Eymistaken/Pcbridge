@@ -10,9 +10,11 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** yok. **Yol haritası kapandı** (2026-09-20). Yapılabilir
-  işlerin hepsi bitti, kalan tek madde olan Task 7.2 kullanıcı tarafından
-  **yazılmayacak** diye karara bağlandı.
+- **Aktif adım:** yok. Native migration yol haritası **kapandı**
+  (2026-09-20); Task 7.2 kullanıcı tarafından yazılmayacak diye karara
+  bağlandı. Sonrasında tek yeni iş açıldı: **Adım 7 — göreli fare hareketi**,
+  aşağıda. Planlandı, kasıtlı olarak yapılmadı; kullanıcı "önce karar verelim,
+  yapmayalım, WALKTHROUGH'a ekleyelim" dedi.
 - **19-20 Eylül gecesi yapılanlar** (hepsi yerel commit, GitHub'a dokunulmadı):
   Task 6.4 → **Gate 6** → Task 7.1 → Task 7.3/7.4 (ölçüldü, uygulanmadı) →
   Adım 6 (imleç katmanı) → Faz 8 (ön koşul yok, envanter). Ayrıntıları Adım 5
@@ -68,6 +70,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
 | 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅ **Gate 5**; 6.1–6.4 ✅ **Gate 6**; 7.1 ✅, 7.3/7.4 ölçülüp uygulanmadı; sırada 7.2) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `uygulandı, kapalı geliyor` (gerçek fareyle doğrulama kullanıcıda, #8) |
+| 7 | Göreli fare hareketi — pointer-lock'lu uygulamalarda bakış | `planlandı, yapılmadı` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
 ## Adım 0 — Belge omurgası
@@ -2913,6 +2916,70 @@ dokunulmuyor; Wayland soketi yoksa tür uydurulmuyor.
 - AT-SPI'da `claude-desktop` penceresi odağı kaybettikten sonra da ACTIVE
   kalabiliyor; `window_list` ise hiçbirini odakta göstermiyordu. İkisinin
   aynı anda doğru olamayacağı açık, ama kaynağı bulunmadı.
+
+## Adım 7 — Göreli fare hareketi · `planlandı, yapılmadı`
+
+**Belirti (kullanıcı, 2026-09-20, gerçek oyun).** Minecraft'ta klavye
+çalışıyor (ileri/geri/sağ/sol), fare düğmeleri çalışıyor, ama **sağa sola
+dönülemiyor.**
+
+**Sebep.** Oyun *pointer lock* kullanıyor: imleci gizleyip ekranın ortasına
+kilitliyor ve kompozitörden **göreli** hareket okuyor
+(`zwp_relative_pointer_v1`). pcbridge'in sanal faresi ise mutlak —
+`ABS_X`/`ABS_Y` ile "şu noktaya git" diyor. Kilitli bir oyunda gidilecek nokta
+yok, bu yüzden mesaj karşılıksız kalıyor. Düğmeler ve klavye zaten olaysal
+olduğu için etkilenmiyor. Ölçüldü: cihaz (Python ve Rust'ta birebir aynı)
+`BTN_LEFT/RIGHT/MIDDLE` + `ABS_X` + `ABS_Y` + `REL_WHEEL` + `REL_HWHEEL`
+yayıyor; `REL_X`/`REL_Y` **yok**.
+
+**Neden yapmaya değer.** Bu estetik bir eksik değil, kapalı bir uygulama
+sınıfı. Pointer lock'u yalnızca oyunlar kullanmıyor: Blender/CAD'de sahne
+döndürme, harita sürükleme, tarayıcıdaki WebGL uygulamaları aynı yolu
+kullanıyor. Hiçbir güvenlik özelliğini zayıflatmıyor — aynı kapı, aynı izin,
+aynı denetim kaydı, aynı yürütme kilidi — ve göreli hareket mutlak hareketten
+daha zararsız, çünkü belirli bir ekran noktasına ışınlanamıyor.
+
+**Vaat DAR tutulacak.** "Makine artık pointer-lock'lu uygulamalarda
+sürülebiliyor" denir; "ajan oyun oynayabiliyor" **denmez**. Döngü ekran
+görüntüsüne bağlı: bir çekim ~789 ms ve ~1200–1900 jeton, üstelik 60 saniyede
+bayatlıyor. Kapalı döngüde nişan almak bu bütçeyle pratik değil.
+
+**Tasarım.**
+
+- **AYRI, ikinci bir uinput cihazı**: `REL_X` + `REL_Y` + aynı üç düğme.
+  Mevcut cihaza `REL_X`/`REL_Y` **eklenmeyecek**. Sebep `BTN_TOUCH` dersinin
+  aynısı: o cihazın iki monitörde 6 noktada ≤1 px sapmayla çalıştığı ölçüldü,
+  sınıflandırmasını değiştiren her ekleme o ölçümü geçersiz kılar. Ayrı cihaz
+  bu riski sıfırlıyor.
+- Tek yeni eylem: `computer_batch` içinde `{"a":"look","dx":…,"dy":…}`, `Ops`
+  protokolünde karşılığı, `bin/pcb-do`'da aynısı.
+- `system_capabilities` yeni bir yetenek bildirir (`input.pointer_relative`),
+  böylece ajan bakabilir mi bilir.
+- **İKİ backend'de birden** yazılacak (Python `input.py` ve Rust
+  `input/pointer.rs`). Yalnızca birinde olursa `[native] input = "auto"`
+  özelliği sessizce kaybettirir — bu tam olarak projenin daha önce yaşadığı
+  hata sınıfı.
+- `look` masaüstü imlecini de kaydırır ve `pointer.json`'daki konumu
+  yalanlar. Çözüm: `look` sonrası konum "bilinmiyor" işaretlenir. Kendi
+  kendini onarıyor, çünkü bir sonraki `move` zaten mutlak.
+
+**Ölçülmeden yazılamayacaklar (tahmin edilmeyecek).**
+
+1. libinput göreli eksene ivme profili uyguluyor mu; oyunun gördüğü delta
+   doğrusal mı? GLFW ham fare hareketi isteyebiliyor, o yolda ivmesiz delta
+   gelir — ama bu makinede DOĞRULANMADI.
+2. Bir birim delta kaç derece dönüş? Oyunun hassasiyet ayarına bağlı, sabit
+   değil. Kalibrasyon: 360° döndürüp toplam delta sayılır.
+3. Kilitliyken mutlak cihazın hâlâ olay göndermesi titremeye yol açıyor mu?
+
+**Kabul ölçütü.** Minecraft'ta `look` ile sağa/sola ve yukarı/aşağı
+bakılabiliyor, bakış yönü ekran görüntüsüyle önce/sonra karşılaştırılarak
+doğrulanıyor; delta→derece oranı ölçülüp buraya yazılıyor; mutlak
+tıklamanın ≤1 px sapması yeni cihazdan sonra **yeniden** ölçülüp
+bozulmadığı gösteriliyor; iki backend de aynı testten geçiyor.
+
+**Geri alma.** Yeni cihaz ayrı olduğu için yaratılmaması yeterli; mevcut
+hiçbir yol değişmiyor.
 
 ## Ertelenen (bilinçli)
 
