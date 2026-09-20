@@ -341,12 +341,17 @@ def load_shot(shot_id: str, dirs: Sequence[Path]) -> Shot:
         desktop_size = tuple(desktop) if desktop else None
         mon = None
         if data.get("monitor") is not None and offset is not None:
+            # Monitorun kutusu MASAUSTU BIRIMINDE: `offset` de o uzayda ve
+            # ikisi birlikte kullaniliyor. Olcekli bir monitorde `size` ham
+            # piksel oldugu icin oradan alinamaz (Task 7.1). v1 kayitta ikisi
+            # zaten ayni.
+            box = desktop_size or size
             mon = monitorslib.Monitor(
                 index=int(data["monitor"]),
                 connector=str(data.get("connector") or "?"),
                 x=offset[0], y=offset[1],
-                width=size[0], height=size[1],
-                scale=1.0,
+                width=box[0], height=box[1],
+                scale=(size[0] / box[0]) if box[0] else 1.0,
                 primary=bool(data.get("primary")),
             )
         png = Path(str(data.get("png") or ""))
@@ -497,7 +502,11 @@ def to_global(
                 w=recent.scaled[0], h=recent.scaled[1], scale=recent.scale,
                 where=where,
             ))
-    where = f"monitor {monitor} uzerindeki ({x}, {y})" if monitor is not None else f"({x}, {y})"
+    where = (
+        f"monitor {monitor} uzerindeki ({x}, {y})"
+        if monitor is not None
+        else f"({x}, {y})"
+    )
     return _on_a_monitor(monitorslib.to_global(x, y, monitor), where)
 
 

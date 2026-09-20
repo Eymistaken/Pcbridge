@@ -911,6 +911,22 @@ def bring_to_front(
     return _search(target, backend, focused, settle)
 
 
+# Arama kutusuna yazilan en uzun ad. Kurulu bir uygulamanin adi bunun cok
+# altinda; uzun bir metin yalnizca arama kutusunu doldururdu.
+SEARCH_TEXT_MAX = 120
+
+
+def _typed(text: str) -> str:
+    """Arama kutusuna yazilacak hali: TEK SATIR, kirpilmis.
+
+    Ad cagirandan geliyor ve ham tus yoluyla yaziliyor. Icindeki bir satir
+    sonu Enter demek: arama daha ad tamamlanmadan ilk sonucu acardi. Ad
+    cozumlemesi zaten harf-rakam disini yok sayiyor (`_norm`), yani bosluklari
+    sadelestirmek hangi uygulamanin bulundugunu degistirmiyor.
+    """
+    return " ".join(str(text).split())[:SEARCH_TEXT_MAX]
+
+
 def _search(
     target: Application,
     backend,
@@ -926,7 +942,7 @@ def _search(
     backend.key("super")
     time.sleep(settle)
     # Overview'da pano bloklu -> ham yol. Olculdu 2026-08-02.
-    backend.type_text(target.text, raw=True)
+    backend.type_text(_typed(target.text), raw=True)
     time.sleep(SEARCH_RESULTS)
     backend.key("Return")
     time.sleep(SEARCH_ACTIVATE)

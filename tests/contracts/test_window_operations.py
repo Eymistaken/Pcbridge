@@ -348,6 +348,20 @@ class BringToFrontTests(Harness):
         self.assertEqual(self.launched, [])
         self.assertIn("yedek yol", outcome.note)
 
+    def test_the_typed_name_is_one_line(self) -> None:
+        # The name comes from the caller and is typed raw: a newline in it
+        # would press Return before the name is finished.
+        desk = Desk(focus=("claude-desktop", "Claude"),
+                    windows=[win("gnome-text-editor", "notes.md")])
+        keys = Keys(on_return=lambda: setattr(
+            desk, "focus", ("gnome-text-editor", "notes.md")))
+        outcome, keys = self.front("Text\n Editor", desk, keys)
+
+        self.assertEqual(outcome.path, "search")
+        self.assertEqual(keys.events[1], ("type", "Text Editor", True))
+        self.assertEqual(apps._typed("  a\tb\nc  "), "a b c")
+        self.assertEqual(len(apps._typed("x" * 500)), apps.SEARCH_TEXT_MAX)
+
     def test_a_wrong_search_result_is_not_a_success(self) -> None:
         # Acceptance: GNOME search opened a web search in the browser; the
         # tab title holds the query. That is an error, and the search is

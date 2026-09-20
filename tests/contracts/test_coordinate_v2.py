@@ -166,6 +166,40 @@ class ShotTransformTests(unittest.TestCase):
         self.assertAlmostEqual(record.scale, record.scale_xy[0])
 
 
+class LoadedRecordTests(unittest.TestCase):
+    def record(self, tmp: Path, name: str, data: dict) -> capturelib.Shot:
+        (tmp / f"{name}.json").write_text(json.dumps(data), encoding="utf-8")
+        return capturelib.load_shot(name, [tmp])
+
+    def test_the_loaded_monitor_box_is_in_desktop_units(self) -> None:
+        # `offset` and the monitor box are used together, so both have to be
+        # in the same space. On a scaled monitor `size` is raw pixels.
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            shot = self.record(tmp, "m1-abc123", {
+                "id": "m1-abc123", "png": str(tmp / "x.png"), "monitor": 1,
+                "connector": "eDP-1", "primary": True, "offset": [0, 0],
+                "size": [2880, 1800], "scaled": [1536, 960], "scale": 0.5333333333333333,
+                "taken_at": 0, "topology_id": "",
+                "source_pixel_size": [2880, 1800], "desktop_size": [1440, 900],
+            })
+            self.assertEqual((shot.monitor.width, shot.monitor.height), (1440, 900))
+            self.assertAlmostEqual(shot.monitor.scale, 2.0)
+            self.assertEqual(shot.to_global(768, 480), (720, 450))
+
+            legacy = self.record(tmp, "m2-abc123", {
+                "id": "m2-abc123", "png": str(tmp / "y.png"), "monitor": 2,
+                "connector": "DP-1", "primary": False, "offset": [1920, 0],
+                "size": [1920, 1080], "scaled": [1280, 720],
+                "scale": 0.6666666666666666, "taken_at": 0,
+            })
+            self.assertEqual((legacy.monitor.width, legacy.monitor.height), (1920, 1080))
+            self.assertAlmostEqual(legacy.monitor.scale, 1.0)
+            self.assertEqual(legacy.to_global(640, 360), (2880, 540))
+
+
 class RefusalTests(unittest.TestCase):
     def convert(self, layout: str, x: int, y: int) -> tuple[int, int]:
         with mock.patch.object(monitorslib, "list_monitors",
