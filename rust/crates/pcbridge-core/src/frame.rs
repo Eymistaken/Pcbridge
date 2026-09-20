@@ -248,6 +248,10 @@ impl RgbaFrame {
         let mut encoder = png::Encoder::new(&mut buffer, self.width, self.height);
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
+        // MEASURE-THEN-CHOOSE: this PNG only travels from the helper to the
+        // host, which decodes it immediately and writes its own file, so the
+        // bytes buy nothing and the time is paid on every capture.
+        encoder.set_compression(png::Compression::Fast);
         let mut writer = encoder
             .write_header()
             .map_err(|error| FrameError::Encoding(error.to_string()))?;

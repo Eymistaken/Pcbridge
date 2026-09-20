@@ -550,9 +550,16 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   ms → 906 KiB**, varsayılan sıkıştırmayla **259 ms → 957 KiB**. Yani 3,1
   saniye, %5 dosya boyutu içindi. PNG kayıpsız olduğu için pikseller aynı.
   Sonuç: tek monitör çekimi uçtan uca **3698 ms → 850 ms**, iki monitör
-  **1348 ms**. Aynı koşumda yardımcının kendi payı: `wait_ms` 64,5 ms,
-  `encode_ms` 445 ms (native çağrı toplam ~525 ms). Sözleşme testi kaydın
-  `optimize` ile yapılmadığını sabitliyor — geri koyan önce ölçsün.
+  **1348 ms**. Sözleşme testi kaydın `optimize` ile yapılmadığını sabitliyor —
+  geri koyan önce ölçsün.
+- **Yardımcının PNG'si hızlı sıkıştırmayla yazılıyor.** Ölçüldü 2026-09-20:
+  aynı kare `png::Compression::Default` ile **445 ms**, `Fast` ile **17,5 ms**
+  sürüyor; native kare çağrısı 525 ms'den **98 ms**'ye iniyor. Ara PNG 1425
+  KiB'dan 2252 KiB'a çıkıyor ama o dosya yalnızca yardımcıdan Python'a
+  geçiyor ve hemen çözülüyor; kullanıcıya giden son PNG 957 KiB ile aynı
+  kalıyor. Böylece tek monitör çekimi **~430 ms** (3698 ms'den 8,6 kat).
+  Geriye kalan iki kalem: yardımcının kare beklemesi ~65 ms ve Python'un
+  kendi PNG kaydı ~330 ms.
 - **Tek bir PipeWire akışı başka düğüme YENİDEN BAĞLANMIYOR.** Ölçüldü
   2026-09-13 (PipeWire 1.0.5, WirePlumber 0.4.17): native kaynak tek bir
   `pw_stream`'i tutup her çekimde başka düğüme `connect` ettiğinde akış **ilk

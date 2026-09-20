@@ -2749,6 +2749,20 @@ bekleme. `_write_crop` artık varsayılan sıkıştırmayla yazıyor.
 | Tek monitör, uçtan uca | 3698 ms | **850 ms** |
 | İki monitör, uçtan uca | (ölçülmedi) | **1348 ms** |
 
+**Aynı mantık yardımcının kendi PNG'sinde de geçerliydi.** O dosya yalnızca
+yardımcıdan Python'a geçiyor ve orada hemen çözülüyor, yani sıkı
+sıkıştırmanın tek bedeli süre. `png::Compression::Fast`:
+
+| Ölçüm | Önce | Sonra |
+|---|---|---|
+| Yardımcının `encode_ms`i | 445 ms | **17,5 ms** |
+| Native kare çağrısı | 525 ms | **98 ms** |
+| Ara PNG (yalnızca boruda) | 1425 KiB | 2252 KiB |
+| Son PNG (kullanıcıya giden) | 957 KiB | 957 KiB |
+| **Tek monitör, uçtan uca** | 3698 ms | **~430 ms** |
+
+Piksel eşitliği canlı parity takımıyla doğrulandı (PNG kayıpsız): 14 test.
+
 Sözleşme testi kaydın `optimize` ile yapılmadığını ve yazılan PNG'nin
 pikselinin kaynakla aynı olduğunu sabitliyor; yorumda ölçüm duruyor, geri
 koyan önce ölçsün.
