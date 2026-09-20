@@ -21,7 +21,31 @@ kalma ve **kazanç oldukları için duruyorlar** — daha ucuz ve ıskalamıyorl
 **Sıradaki iş [WALKTHROUGH.md](WALKTHROUGH.md).** Depodaki tek yapılacak-iş
 listesi odur: yol haritası, her adımın kabul ölçütü ve şimdiye kadar ne
 yapıldığının kaydı. Native migration'ın implementation sözleşmesi ayrı bir
-dosyada: [PLAN.md](PLAN.md). **Durum özetini başka dosyaya kopyalama.**
+dosyada: [PLAN.md](PLAN.md). **Durum özetini başka dosyaya kopyalama** — bu
+dosyaya da yazma; bir kez kopyalandı ve iki günde ayrıştı.
+
+### Kullanıcı "devam edelim" derse
+
+Yeni bir oturumda "devam edelim", "kaldığımız yerden devam" ya da bir adım
+adıyla ("Adım 7'den devam edelim") dendiğinde sıra şu:
+
+1. **`WALKTHROUGH.md`'nin `## Durum özeti` bölümünü oku.** İlk madde her
+   zaman sıradaki işi adıyla söyler. Adı geçen adımın kendi bölümüne git;
+   orada tasarım, ölçülmeden yazılamayacaklar, kabul ölçütü ve geri alma yolu
+   duruyor.
+2. **Kullanıcı bir adım adı verdiyse ona git**, durum özetindekine değil.
+3. **"Önce ölçülecek" maddeleri varsa iş oradan başlar, koddan değil.** Bu
+   projede bir tasarım kararı ölçümün sonucuna bağlanmışsa, ölçüm yapılmadan
+   yazılan kod tahmindir.
+4. Görev listeni çıkar, kullanıcıya onaylat, sonra başla (aşağıda "Çalışma
+   tarzı").
+5. Adım bitince `WALKTHROUGH.md`'yi **güncelle**: durum özetinin ilk maddesi
+   artık sıradaki işi göstersin, biten adımın bölümüne ölçülen sayılar
+   yazılsın.
+
+Depo **public** ve `origin/main`'e gönderiliyor. Push kullanıcının açık isteği
+üzerine yapılır ve **her push öncesi sır taraması** koşulur: `config.toml`
+takipte mi, gerçek parola/statik token diff'te geçiyor mu.
 
 `gnome-extension/` altında isteğe bağlı bir **GNOME 46 kabuk eklentisi** var:
 masaüstü izni açıkken her monitörün kenarlarında yumuşak beyaz bir çerçeve
@@ -338,6 +362,22 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   süre, `until` ise her kullanımda `now + 90 sn`'ye çekiliyor. Ölçüldü
   2026-09-20: araya kod okuma/ölçüm giren gerçek bir görevde izin dört kez
   yeniden açılmak zorunda kaldı.
+- **Sanal fare MUTLAK; `REL_X`/`REL_Y` yok, bu yüzden pointer-lock'lu
+  uygulamalarda bakış açısı çevrilemiyor.** Cihaz (Python `input.py` ve Rust
+  `input/pointer.rs`'te birebir aynı) `BTN_LEFT/RIGHT/MIDDLE` + `ABS_X` +
+  `ABS_Y` + `REL_WHEEL` + `REL_HWHEEL` yayıyor. Gerçek oyunda görüldü
+  (2026-09-20, Minecraft): klavye ve fare düğmeleri çalışıyor, ama sağa sola
+  dönülemiyor. Sebep, oyunun imleci kilitleyip **göreli** hareket okuması
+  (`zwp_relative_pointer_v1`); mutlak cihazın "şu noktaya git" mesajının
+  kilitli imleçte karşılığı yok. Çözümü planlandı ama YAZILMADI:
+  `WALKTHROUGH.md` → Adım 7. Oraya bakmadan `REL_X`/`REL_Y`'yi mevcut cihaza
+  **ekleme** — `BTN_TOUCH` dersinin aynısı, o cihazın ölçülmüş ≤1 px sapmasını
+  riske atar; tasarım ayrı bir ikinci cihaz.
+- **Pointer lock DIŞARIDAN sorulamıyor.** Wayland'de "şu an bir istemci
+  imleci kilitli tutuyor mu" diye sorulabilecek bir arayüz yok ve Mutter da
+  söylemiyor. "Yalnızca kilitliyken izin ver" diyen her kapı tahmine dayanır;
+  bu yüzden göreli hareket her zaman açık olacak ve ayrım docstring'de
+  anlatılacak.
 - **`Shell.Introspect` kapalı** (GNOME 46, "Access denied"). Pencere listesi ve
   odak yalnızca AT-SPI'dan.
 - **Connector adları KARARLI DEĞİL.** Ölçüldü 2026-09-12: geometri hiç

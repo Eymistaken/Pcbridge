@@ -10,34 +10,40 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** yok. Native migration yol haritası **kapandı**
-  (2026-09-20); Task 7.2 kullanıcı tarafından yazılmayacak diye karara
-  bağlandı. Sonrasında tek yeni iş açıldı: **Adım 7 — göreli fare hareketi**,
-  aşağıda. Planlandı, kasıtlı olarak yapılmadı; kullanıcı "önce karar verelim,
-  yapmayalım, WALKTHROUGH'a ekleyelim" dedi.
-- **19-20 Eylül gecesi yapılanlar** (hepsi yerel commit, GitHub'a dokunulmadı):
-  Task 6.4 → **Gate 6** → Task 7.1 → Task 7.3/7.4 (ölçüldü, uygulanmadı) →
-  Adım 6 (imleç katmanı) → Faz 8 (ön koşul yok, envanter). Ayrıntıları Adım 5
-  ve Adım 6 bölümlerinde.
-- **Task 7.2 (XDG ScreenCast portal backend'i) — YAZILMAYACAK.** Karar
-  kullanıcının, 2026-09-20: "ayrı ortam/OS düşünmek istemiyorum artık."
-  Gerekçe zaten ölçülmüştü: bu makinede ne çalıştırılabiliyor ne
-  ölçülebiliyor (yalnızca GNOME/Mutter DIŞINDAKİ masaüstleri için, portal
-  penceresine kullanıcının tıklaması gerekiyor) ve bu kurulumda hiçbir şeyi
-  değiştirmiyor. Yazılsaydı "yazıldı, hiç çalıştırılmadı" kaydıyla kalacaktı.
-  Aynı kararla **Faz W (Windows) ve Faz M (macOS) da düştü.** Proje tek bir
-  masaüstü yığınını hedefliyor: GNOME 46 / Wayland.
-- **Blocker:** Yok
+- **SIRADAKİ İŞ: Adım 7 — göreli fare hareketi (`move_by`).** Planlandı,
+  kasıtlı olarak yazılmadı. Bölümü aşağıda; **oradan başla.** İlk yapılacak
+  şey kod değil **ölçüm**: libinput sanal cihazın göreli eksenine ivme
+  uyguluyor mu, ve udev ile "flat" profil verilirse delta 1:1 piksele oturuyor
+  mu? Tasarımın geri kalanını o cevap belirliyor, o yüzden tahmin etme.
+- **Kullanıcıyı bekleyen tek madde: #8** (imleç katmanı, fiziksel fareyle
+  deneme). İsteğe bağlı; projenin hiçbir parçası buna bağlı değil.
+- **Blocker:** Yok.
+- **Depo GitHub'da.** 2026-09-20'de ilk kez `origin/main`'e gönderildi (140
+  commit, `22a5824..b746aff` ve sonrası) ve CI (`native.yml`) **ilk koşuşunda
+  geçti**. Artık push normal iş — ama depo PUBLIC, **her göndermeden önce sır
+  taraması yapılır** (`config.toml` takipte mi, gerçek parola/statik token
+  diff'te geçiyor mu). Bir de açık uyarı duruyor: `actions/checkout@v4` ve iki
+  kardeşi için Node 20 kullanımdan kalkıyor; koşumu etkilemiyor.
+- **Kapanan kararlar (yeniden açma, sorma).** Task 7.2 (portal backend),
+  Faz W (Windows) ve Faz M (macOS) **düştü** — kullanıcı 2026-09-20: "ayrı
+  ortam/OS düşünmek istemiyorum artık." Proje tek bir masaüstü yığınını
+  hedefliyor: GNOME 46 / Wayland. README'nin "Status and scope" bölümü de bunu
+  söylüyor.
 - **Son doğrulanan gate:** **Gate 6 geçti** (2026-09-20): erişilebilirlik
   okuma, eylem ve pencere işlemleri gerçek masaüstünde doğrulandı. Gate 5
-  2026-09-19'da, Gate 4 2026-09-13'te geçti. stdio istemcileri, uygulama
-  kapatılıp açılınca yeni koda geçer (#5).
+  2026-09-19'da, Gate 4 2026-09-13'te geçti.
+- **19-20 Eylül gecesi yapılanlar:** Task 6.4 → **Gate 6** → Task 7.1 →
+  Task 7.3/7.4 (ölçüldü, uygulanmadı) → Adım 6 (imleç katmanı) → Faz 8 (ön
+  koşul yok, envanter). Ayrıntıları Adım 5 ve Adım 6 bölümlerinde.
+- **20 Eylül'de canlı kullanımda çıkan iki kusur düzeltildi** — ikisini de
+  hiçbir test yakalayamazdı, ikisi de ortam kaynaklıydı. Bölümü aşağıda
+  ("Canlı kullanımda çıkan iki kusur"). Düzeltmeler yeniden başlatılmış
+  istemcide fiilen doğrulandı.
 - **Ölçülen kazanç (2026-09-20).** Bir ekran görüntüsü, kullanıcının gördüğü
   yerde: iki monitör **5113 ms → 789 ms**. Pencere öne alma: kapalı uygulama
   tuşsuz **0,4 sn**, zaten öndeki hedefe hiç tuş yok.
-- **Kullanıcıyla yapılan kontroller:** #1, #3, #4, #6 yapıldı; #5 ve #7'nin
-  servis tarafı yapıldı, stdio tarafı uygulama yeniden başlayınca geçer;
-  #2 (GitHub) ve #8 (imleç katmanı, fiziksel fare) bekliyor.
+- **Kullanıcıyla yapılan kontroller:** #1, #2, #3, #4, #5, #6, #7 `yapıldı`;
+  yalnızca **#8** bekliyor.
 
 ## Kullanıcıyı bekleyenler
 
@@ -50,8 +56,8 @@ yapılınca silinmez, `yapıldı` diye işaretlenir.
 | 2 | `.github/workflows/native.yml`'ı ilk kez çalıştırmak | Depo public, push kullanıcının kararı | `yapıldı` (2026-09-20). Kullanıcı "hadi bütün commitleri gönderelim" dedi; gönderme öncesi sır taraması yeniden koşuldu ve temizdi (config.toml takipte değil, gerçek parola ve statik token 2,6 MB'lık diff'te geçmiyor, 64 haneli dizilerin hepsi `Cargo.lock` checksum'ı). 76 commit `22a5824..b746aff` olarak `origin/main`'e gitti ve CI ilk kez tetiklendi |
 | 3 | Task 4.2 ekran kilidi senaryosu: native capture kilitliyken kare vermiyor mu | Kilidi açmak parola istiyor; kullanıcı yokken ekran kilitli kalırdı | `yapıldı` (2026-09-13) |
 | 4 | Paylaşım göstergesinin kaynak kapanınca kaybolduğunu gözle görmek | Gösterge ekran paylaşımı olmadan görülemiyor; test yalnızca Mutter oturum sayısını doğruladı | `yapıldı` (2026-09-13) |
-| 5 | Task 4.3 yayılımı: servisi ve stdio istemcilerini yeniden başlatıp native yolu gerçek kullanımda görmek. `config.toml`'da `[native]` bölümü yok, yani yeni süreçler native yolu seçecek. Sıra: `bridgekilit` → `job_list` boş mu → `systemctl --user restart pcbridge` → Claude Code/Codex'i yeniden başlat → `./doctor.sh` 8. bölüm → `desktop_unlock` sonrası sağ alttaki görev çubuğunda gösterge var, `desktop_lock` sonrası yok. Geri alma: `[native]` altına `capture = "python"` + aynı yeniden başlatmalar. Task 5.1'in yürütme kilidi ve eylem başına izin kontrolü de aynı yeniden başlatmayla devreye girer | Restart çalışan işleri öldürür; stdio süreçleri istemcinin; göstergeyi gözle görmek gerekiyor | servis `yapıldı` (2026-09-13); Claude Desktop ve Claude Code'un stdio süreçleri uygulama bir kez kapatılıp açılınca geçer |
-| 7 | Task 6.3 ve 6.4 yayılımı: native erişilebilirlik (`ui_dump`, `ui_click`, `ui_set_text`, `window_list`) ve yeni pencere sırası (`window_focus`, `launch`, `focus`) stdio istemcilerinde. Servis iki kez yeniden başlatıldı ve yeni kodda; Claude Code ve Claude Desktop'un stdio süreçleri eski kodu çalıştırıyor | stdio süreçleri istemcinin; uygulama kapatılıp açılınca yeni koda geçer | servis `yapıldı` (2026-09-19, 6.3 ve 6.4); stdio uygulama yeniden başlayınca |
+| 5 | Task 4.3 yayılımı: servisi ve stdio istemcilerini yeniden başlatıp native yolu gerçek kullanımda görmek. `config.toml`'da `[native]` bölümü yok, yani yeni süreçler native yolu seçecek. Sıra: `bridgekilit` → `job_list` boş mu → `systemctl --user restart pcbridge` → Claude Code/Codex'i yeniden başlat → `./doctor.sh` 8. bölüm → `desktop_unlock` sonrası sağ alttaki görev çubuğunda gösterge var, `desktop_lock` sonrası yok. Geri alma: `[native]` altına `capture = "python"` + aynı yeniden başlatmalar. Task 5.1'in yürütme kilidi ve eylem başına izin kontrolü de aynı yeniden başlatmayla devreye girer | Restart çalışan işleri öldürür; stdio süreçleri istemcinin; göstergeyi gözle görmek gerekiyor | `yapıldı` — servis 2026-09-13, stdio istemcileri 2026-09-20 (kullanıcı Claude'u kapatıp açtı) |
+| 7 | Task 6.3 ve 6.4 yayılımı: native erişilebilirlik (`ui_dump`, `ui_click`, `ui_set_text`, `window_list`) ve yeni pencere sırası (`window_focus`, `launch`, `focus`) stdio istemcilerinde. Servis iki kez yeniden başlatıldı ve yeni kodda; Claude Code ve Claude Desktop'un stdio süreçleri eski kodu çalıştırıyor | stdio süreçleri istemcinin; uygulama kapatılıp açılınca yeni koda geçer | `yapıldı` — servis 2026-09-19, stdio istemcileri 2026-09-20. Yeni pencere sırası canlıda doğrulandı: kapalı uygulamada `window_focus` "başlatıldı ve odakta" döndü |
 | 8 | Adım 6 — imleç katmanı gerçek oturumda: çıkış/giriş sonrası işaret dosyasını açıp (`touch ~/.local/state/pcbridge/gorunur-imlec`) izin verdikten sonra FİZİKSEL fareyle tıklama ve akış normal mi? 2026-08-04'te bozulan buydu; kare saati düzeltmesi nested kabukta ölçüldü ama gerçek farede denenmedi. Bozulursa işaret dosyasını silmek yeter | Eklenti kodu ancak çıkış/girişte yeniden okunuyor; arıza yalnızca fiziksel fareyle görüldü | `bekliyor` |
 | 6 | Task 5.4 / 4 — gerçek girdi testi (`yapıldı` 2026-09-19, 8/8): `PCBRIDGE_TEST_INPUT=1 PCBRIDGE_INPUT_REPORT=<yol> ./.venv/bin/python -m unittest tests/live/test_input_parity.py -v`. İki ekranı ~1 dk kaplayan test penceresi; fare kendiliğinden hareket eder, pencereye tıklar, pencerenin içindeki kutuya Türkçe metin yazar, Shift'i kısa süre basılı tutar | Gerçek tuş ve tıklama gönderiyor; kullanıcı başında olmalı ve o sırada klavye/fareye dokunmamalı. Acil durdurma: Super+L (ekran kilidi native aygıtları anında kapatır) | `yapıldı` (2026-09-19) |
 
