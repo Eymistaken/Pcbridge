@@ -10,17 +10,21 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **Aktif adım:** yok. Yol haritasındaki yapılabilir işlerin hepsi bitti.
-  Kalan tek madde Task 7.2 ve o **senin kararını bekliyor** (aşağıda).
+- **Aktif adım:** yok. **Yol haritası kapandı** (2026-09-20). Yapılabilir
+  işlerin hepsi bitti, kalan tek madde olan Task 7.2 kullanıcı tarafından
+  **yazılmayacak** diye karara bağlandı.
 - **19-20 Eylül gecesi yapılanlar** (hepsi yerel commit, GitHub'a dokunulmadı):
   Task 6.4 → **Gate 6** → Task 7.1 → Task 7.3/7.4 (ölçüldü, uygulanmadı) →
   Adım 6 (imleç katmanı) → Faz 8 (ön koşul yok, envanter). Ayrıntıları Adım 5
   ve Adım 6 bölümlerinde.
-- **Sıradaki karar — Task 7.2 (XDG ScreenCast portal backend'i).** Bu makinede
-  ne çalıştırılabiliyor ne ölçülebiliyor: yalnızca GNOME/Mutter DIŞINDAKİ
-  masaüstleri için ve portal penceresine kullanıcının tıklaması gerekiyor.
-  Bugünkü kurulumda hiçbir şeyi değiştirmez. Yazılabilir ama "yazıldı, hiç
-  çalıştırılmadı" kaydıyla kalır. **İstersen yaz denir, yazılır.**
+- **Task 7.2 (XDG ScreenCast portal backend'i) — YAZILMAYACAK.** Karar
+  kullanıcının, 2026-09-20: "ayrı ortam/OS düşünmek istemiyorum artık."
+  Gerekçe zaten ölçülmüştü: bu makinede ne çalıştırılabiliyor ne
+  ölçülebiliyor (yalnızca GNOME/Mutter DIŞINDAKİ masaüstleri için, portal
+  penceresine kullanıcının tıklaması gerekiyor) ve bu kurulumda hiçbir şeyi
+  değiştirmiyor. Yazılsaydı "yazıldı, hiç çalıştırılmadı" kaydıyla kalacaktı.
+  Aynı kararla **Faz W (Windows) ve Faz M (macOS) da düştü.** Proje tek bir
+  masaüstü yığınını hedefliyor: GNOME 46 / Wayland.
 - **Blocker:** Yok
 - **Son doğrulanan gate:** **Gate 6 geçti** (2026-09-20): erişilebilirlik
   okuma, eylem ve pencere işlemleri gerçek masaüstünde doğrulandı. Gate 5
@@ -2912,9 +2916,11 @@ dokunulmuyor; Wayland soketi yoksa tür uydurulmuyor.
 
 ## Ertelenen (bilinçli)
 
-- **Faz W (Windows) / Faz M (macOS)** — `PLAN.md`'nin D1 kararı (hangisi önce)
-  verilmedi; Faz 5 tamamlanmadan başlamaz.
-- **Faz G** — Tauri + React control plane.
+- **Faz W (Windows) / Faz M (macOS)** — **düştü** (2026-09-20, kullanıcı
+  kararı). `PLAN.md`'nin D1 kararı hiç verilmedi ve verilmeyecek; proje tek
+  masaüstü yığınını hedefliyor. README'nin "Status and scope" bölümü de bunu
+  söylüyor.
+- **Faz G** — Tauri + React control plane. Açık teklif; kimse başlamadı.
 - **`JARVIS.md`** — pcbridge'i kişisel asistana çevirme **teklifi**; ölçüm
   değil tasarım.
 
