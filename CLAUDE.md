@@ -576,9 +576,11 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   1536'da **%100,000** eşleşme; tazelik 12/12; sıcak `capture()` p95 oranı
   native/eski **1,34–1,42** (native karede ~35–40 ms yavaş, oturum açılışında
   ~60 ms hızlı); revoke ve süre dolumu sonrası kare yok. Gerçek masaüstünde
-  MCP düzeyinde iki monitör: eski 4.684 ms, native 5.113 ms (**1,09×**);
-  sürenin ~%99'u Python'un PNG kaydı (gerçek içerikte ~2,2 sn/monitör), MCP
-  katmanı ~30 ms. Ayrıntı: `docs/native/verification-linux.md`.
+  MCP düzeyinde iki monitör (2026-09-13): eski 4.684 ms, native 5.113 ms
+  (**1,09×**); sürenin ~%99'u Python'un PNG kaydıydı. **2026-09-20'de aynı
+  ölçüm 789 ms** (medyan, üç çağrı, iki monitör, base64 dahil): aradaki fark
+  `optimize=True`'nun kaldırılması ve yardımcının hızlı PNG kodlaması.
+  Ayrıntı: `docs/native/verification-linux.md`.
 - **Ekran kilitlenince native paylaşım kendiliğinden kapanıyor.** Ölçüldü
   2026-09-13, kullanıcı başında: kilitten 3 sn sonra Mutter oturumu 0; kapı da,
   kapıyı atlayan doğrudan çağrı da `SCREEN_LOCKED`; hiç PNG yok. Kilit

@@ -89,6 +89,15 @@ Gerçek masaüstü, iki monitör, stdio sunucusu, release yardımcı, yük ~1,0;
 | eski | 4.684 | 4.658 | 4.628 | 2 | 28 | 26 |
 | native | 5.113 | 5.082 | 5.053 | 2 | 27 | 31 |
 
+**2026-09-20 güncellemesi (Task 7.3).** Yukarıdaki iki satırın da neredeyse
+tamamı PNG kaydıydı ve o ölçüldü: `save(optimize=True)` tek başına 3106 ms
+sürüp dosyayı %5 küçültüyordu, yardımcının kendi PNG kodlaması da sıkı
+sıkıştırmadaydı (445 ms). İkisi de değiştikten sonra aynı MCP çağrısı (iki
+monitör, `monitor="all"`, base64 dahil) **789 ms** medyan sürüyor — 891, 765,
+789 ms. Tek monitörün yakalama katmanındaki payı ~430 ms; geriye kalan iki
+kalem yardımcının kare beklemesi (~65 ms) ve Python'un kendi PNG kaydı
+(~330 ms).
+
 Oran **1,09**. Sürenin ~%99'u çekim hattında: iki yolda da Python'un
 `save(optimize=True)` kaydı, gerçek içerikte monitör başına ~2,2 sn. MCP katmanı
 ~30 ms, stdio borusu ~30 ms. Yukarıda ayrılmadığı yazılan fark buydu: daha basit

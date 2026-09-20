@@ -2761,6 +2761,11 @@ sıkıştırmanın tek bedeli süre. `png::Compression::Fast`:
 | Son PNG (kullanıcıya giden) | 957 KiB | 957 KiB |
 | **Tek monitör, uçtan uca** | 3698 ms | **~430 ms** |
 
+**Kullanıcının gördüğü yerde:** servise HTTP ile `screen_capture`
+(`monitor="all"`, iki monitör, base64 dahil) **789 ms** medyan (891, 765,
+789). 2026-09-13'te aynı ölçüm 5113 ms idi. İzin ölçüm için iki dakikalığına
+açılıp hemen kapatıldı.
+
 Piksel eşitliği canlı parity takımıyla doğrulandı (PNG kayıpsız): 14 test.
 
 Sözleşme testi kaydın `optimize` ile yapılmadığını ve yazılan PNG'nin
