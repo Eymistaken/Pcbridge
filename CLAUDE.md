@@ -315,6 +315,29 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   Cihaz yok edilince kernel'in basılı tuşları bırakıp bırakmadığı **ölçülemedi**
   (destroy ile event node da kayboluyor), bu yüzden `close()` önce açıkça
   bırakıyor.
+- **stdio sürecinin CANLI ortamı `/proc/<pid>/environ`'dan farklı olabilir.**
+  Ölçüldü 2026-09-20: Claude Desktop'un başlattığı süreçte
+  `XDG_SESSION_TYPE`, `XDG_CURRENT_DESKTOP`, `GDK_BACKEND`, `DISPLAY` ve
+  `XAUTHORITY` çalışma anında **boştu**, `/proc` ise açılış anını gösterip
+  hepsini dolu gösteriyordu. Sonuç: pcbridge ile açılan Chromium tabanlı
+  uygulamalar (Brave, Chrome) ozone yolunu `XDG_SESSION_TYPE`'a bakarak
+  seçtiği için X11'e düşüyor, `DISPLAY` de boş olduğundan "Missing X server
+  or $DISPLAY" deyip **segfault** ediyordu — `gtk-launch` yine 0 dönüyor ve
+  systemd kapsamı açılıyordu, yani hata yalnızca "penceresi görülmedi"
+  olarak görünüyordu. Tek değişken ayrıldı: o ortamda Brave 0 süreç;
+  yalnızca `XDG_SESSION_TYPE=wayland` eklenince 9 süreç. `ensure_session_env()`
+  artık bunu Wayland soketinden, `DISPLAY`/`XAUTHORITY`'yi çalışan
+  Xwayland'ın komut satırından türetiyor.
+- **AT-SPI hiçbir pencereyi ACTIVE işaretlemeyebilir.** Ölçüldü 2026-09-20,
+  oturum açıldıktan hemen sonra: `window_list` hiçbirini odakta
+  göstermiyordu. Bu bir yeteneksizlik değil, geçerli bir masaüstü durumu
+  (duvar kağıdına tıklamak da aynısını yapıyor). `window_focus` eskiden bu
+  durumda **kapalı bir uygulamayı bile açmıyordu**; artık "önde bir şey yok"
+  cevabı `("", "")` olarak dönüyor ve sıra normal işliyor.
+- **Masaüstü izninin boşta kalma penceresi 90 saniye.** `hard_until` verilen
+  süre, `until` ise her kullanımda `now + 90 sn`'ye çekiliyor. Ölçüldü
+  2026-09-20: araya kod okuma/ölçüm giren gerçek bir görevde izin dört kez
+  yeniden açılmak zorunda kaldı.
 - **`Shell.Introspect` kapalı** (GNOME 46, "Access denied"). Pencere listesi ve
   odak yalnızca AT-SPI'dan.
 - **Connector adları KARARLI DEĞİL.** Ölçüldü 2026-09-12: geometri hiç

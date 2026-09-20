@@ -2858,6 +2858,58 @@ normal mi? Bozulursa dosyayı silmek yeter.
 Acil geri alma **`gnome-extensions disable <uuid>`** — dizini silmek çalışan
 eklentiyi durdurmuyor.
 
+## Canlı kullanımda çıkan iki kusur · `düzeltildi` (2026-09-20)
+
+Kullanıcı oturumu kapatıp açtıktan sonra gerçek bir görevde (Chrome'dan
+Brave kurulumu) iki kusur çıktı. İkisi de gece yazılan kodda değil, gece
+hiç görülmemiş bir ortamda ortaya çıktı.
+
+**1. Odakta pencere yokken `window_focus` her şeyi reddediyordu.**
+`observe_focus` "odak okunamadı" ile "önde hiçbir pencere yok"u aynı
+saymış, ikincisini de yeteneksizlik sayıp hiçbir şey göndermiyordu.
+Reddin gerekçesi kullanıcıyı `system_capabilities`'e yolluyordu, o da aynı
+anda `accessibility.read: supported` diyordu — kendi kendisiyle çelişen bir
+mesaj. Ölçüldü: oturum açıldıktan hemen sonra AT-SPI hiçbir pencereyi
+ACTIVE işaretlemiyor ve bu durumda **kapalı bir uygulama bile
+açılamıyordu**, oysa açmak odak bilgisine hiç muhtaç değil. Artık "önde
+bir şey yok" bir cevap: `("", "")` dönüyor, hiçbir hedefle eşleşmiyor,
+sıranın geri kalanı normal işliyor. Ağaç gerçekten okunamıyorsa ret
+duruyor. Sözleşme testi üç yeni kontrolle sabitliyor; korumayı kaldıran
+mutasyon yakalandı.
+
+**2. pcbridge ile açılan Chromium tabanlı uygulamalar sessizce çöküyordu.**
+`window_focus`/`launch` Brave'i açamadı: `gtk-launch` 0 döndü, systemd
+kapsamı açıldı, ama uygulama hiç çalışmadı. Sebep uygulamada değil
+**ortamda**: Claude Desktop'un başlattığı stdio sürecinin canlı ortamında
+`XDG_SESSION_TYPE`, `XDG_CURRENT_DESKTOP`, `GDK_BACKEND`, `DISPLAY` ve
+`XAUTHORITY` **boştu**. Dışarıdan görünmüyordu, çünkü `/proc/<pid>/environ`
+açılış anını gösteriyor ve orada hepsi doluydu. Chromium ozone yolunu
+`XDG_SESSION_TYPE`'a bakarak seçiyor; boş olunca X11'e düşüyor, `DISPLAY`
+de boş olduğu için "Missing X server or $DISPLAY" deyip **segfault**
+ediyor.
+
+Tek değişkene indirgendi: sunucunun ortamıyla Brave **0 süreç** + segfault;
+aynı ortama yalnızca `XDG_SESSION_TYPE=wayland` eklenince **9 süreç**, X11
+hatası yok. `ensure_session_env()` zaten tam bu iş için vardı (stdio'da
+ortam bozuk gelebiliyor) ama yalnızca üç değişkeni onarıyordu. Artık
+`XDG_SESSION_TYPE`'ı Wayland soketinden, `DISPLAY`/`XAUTHORITY`'yi çalışan
+Xwayland'ın kendi komut satırından türetiyor. Dolu bir değere
+dokunulmuyor; Wayland soketi yoksa tür uydurulmuyor.
+
+**Yan gözlemler** (düzeltilmedi, kayda geçti):
+
+- Kayan kiranın boşta kalma penceresi **90 saniye**. Gerçek bir görevde
+  düşünme/ölçüm araları bunu kolayca aşıyor; bu oturumda izin dört kez
+  yeniden açılmak zorunda kaldı. Güvenlik açısından doğru, ergonomi
+  açısından kısa — değiştirmeden önce ölçülmeli.
+- Chrome'un adres çubuğuna pano yoluyla yazma bir kez tuttu, sonraki
+  denemelerde tutmadı (`ctrl+l` çalışıyor, açılır liste açılıyor, ama
+  yapıştırılan metin girmiyor). Fareyle bağlantıya tıklamak sorunsuz.
+  Tekrarlanabilirliği doğrulanmadı, o yüzden henüz bir kusur kaydı değil.
+- AT-SPI'da `claude-desktop` penceresi odağı kaybettikten sonra da ACTIVE
+  kalabiliyor; `window_list` ise hiçbirini odakta göstermiyordu. İkisinin
+  aynı anda doğru olamayacağı açık, ama kaynağı bulunmadı.
+
 ## Ertelenen (bilinçli)
 
 - **Faz W (Windows) / Faz M (macOS)** — `PLAN.md`'nin D1 kararı (hangisi önce)
