@@ -31,6 +31,7 @@ NASIL
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 # Onarilan degisken adlari -- tanida ve loglarda gosterilir.
@@ -94,7 +95,68 @@ def ensure_session_env(env: dict[str, str] | None = None) -> list[str]:
             fixed.append("WAYLAND_DISPLAY")
             break
 
+    # XDG_SESSION_TYPE: Chromium tabanli uygulamalar (Chrome, Brave, Electron)
+    # hangi ozone yolunu sececeklerine buna bakarak karar veriyor. Bos kalirsa
+    # WAYLAND_DISPLAY dolu olsa bile X11'e dusuyorlar, DISPLAY de bos oldugu
+    # icin "Missing X server or $DISPLAY" deyip SEGFAULT ediyorlar.
+    # OLCULDU 2026-09-20, tek degisken ayrilarak: sunucunun ortaminda Brave
+    # 0 surecle cokuyor; AYNI ortama yalnizca `XDG_SESSION_TYPE=wayland`
+    # eklenince 9 surecle aciliyor ve X11 hatasi hic cikmiyor. Belirti
+    # aldaticiydi: `gtk-launch` yine 0 donuyor, systemd kapsami aciliyor,
+    # geriye yalnizca "penceresi gorulmedi" kaliyordu.
+    if not (e.get("XDG_SESSION_TYPE") or "").strip() and e.get("WAYLAND_DISPLAY"):
+        e["XDG_SESSION_TYPE"] = "wayland"
+        fixed.append("XDG_SESSION_TYPE")
+
+    # DISPLAY / XAUTHORITY: yukaridaki onarimdan sonra Wayland yolu seciliyor,
+    # yani cogu uygulama buna artik muhtac degil. Yalnizca X11'den baska yolu
+    # olmayanlar icin doldurulyor ve dogru degerler calisan Xwayland'in kendi
+    # komut satirinda duruyor. Ayni surecte ikisi de bostu.
+    if not (e.get("DISPLAY") or "").strip():
+        found = _xwayland()
+        if found is not None:
+            display, auth = found
+            e["DISPLAY"] = display
+            fixed.append("DISPLAY")
+            if auth and not (e.get("XAUTHORITY") or "").strip():
+                e["XAUTHORITY"] = auth
+                fixed.append("XAUTHORITY")
+
     return fixed
+
+
+def _xwayland() -> tuple[str, str] | None:
+    """Calisan Xwayland'in (DISPLAY, XAUTHORITY) degerleri; yoksa None.
+
+    Kaynak sunucunun KENDI komut satiri (`Xwayland :1 ... -auth <yol>`),
+    cunku ad da yetki dosyasi da oturumdan oturuma degisiyor. Hem soketi hem
+    yetki dosyasi duran adaylar aliniyor; birden fazlaysa ekran numarasi
+    kucuk olan, yalnizca kararli olsun diye. Ortamda gecerli bir DISPLAY
+    varsa buraya HIC gelinmiyor: dogrulayamadigimiz bir degeri bozmuyoruz.
+    """
+    best: tuple[int, str, str] | None = None
+    for proc in Path("/proc").glob("[0-9]*"):
+        try:
+            argv = (proc / "cmdline").read_bytes().decode("utf-8", "replace")
+        except OSError:
+            continue
+        parts = [a for a in argv.split("\0") if a]
+        if not parts or os.path.basename(parts[0]) != "Xwayland":
+            continue
+        display = next((a for a in parts[1:] if re.fullmatch(r":\d+", a)), "")
+        if not display:
+            continue
+        if not Path(f"/tmp/.X11-unix/X{display[1:]}").exists():
+            continue
+        auth = ""
+        if "-auth" in parts:
+            candidate = parts[parts.index("-auth") + 1:]
+            if candidate and Path(candidate[0]).exists():
+                auth = candidate[0]
+        number = int(display[1:])
+        if best is None or number < best[0]:
+            best = (number, display, auth)
+    return (best[1], best[2]) if best is not None else None
 
 
 def describe(env: dict[str, str] | None = None) -> str:
@@ -106,5 +168,6 @@ def describe(env: dict[str, str] | None = None) -> str:
         f"XDG_RUNTIME_DIR={e.get('XDG_RUNTIME_DIR') or '(yok)'}",
         "DBUS=" + ("gecerli" if _bus_ok(bus, runtime) else "GECERSIZ"),
         f"WAYLAND_DISPLAY={e.get('WAYLAND_DISPLAY') or '(yok)'}",
+        f"DISPLAY={e.get('DISPLAY') or '(yok)'}",
     ]
     return " · ".join(parts)

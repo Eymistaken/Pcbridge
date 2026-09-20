@@ -3184,11 +3184,68 @@ def test_session_env() -> None:
     else:
         skip("wayland soketi yok", runtime)
 
-    # 7) describe() tani icin okunur bir satir versin
+    # 7) XDG_SESSION_TYPE bossa Wayland soketinden turetilmeli. OLCULDU
+    #    2026-09-20, tek degisken ayrilarak: Claude Desktop'un baslattigi
+    #    stdio surecinin ortaminda Brave 0 surecle SEGFAULT ediyor ("Missing
+    #    X server or $DISPLAY"); ayni ortama yalnizca XDG_SESSION_TYPE=wayland
+    #    eklenince 9 surecle aciliyor. Chromium ozone yolunu buna bakarak
+    #    seciyor, WAYLAND_DISPLAY dolu olsa bile.
+    env = {"XDG_RUNTIME_DIR": runtime, "WAYLAND_DISPLAY": "wayland-0"}
+    fixed = SESS.ensure_session_env(env)
+    check("bos XDG_SESSION_TYPE wayland olarak dolduruldu",
+          "XDG_SESSION_TYPE" in fixed and env.get("XDG_SESSION_TYPE") == "wayland",
+          str(env.get("XDG_SESSION_TYPE")))
+
+    env = {"XDG_RUNTIME_DIR": runtime, "WAYLAND_DISPLAY": "wayland-0",
+           "XDG_SESSION_TYPE": "x11"}
+    fixed = SESS.ensure_session_env(env)
+    check("dolu XDG_SESSION_TYPE korundu",
+          "XDG_SESSION_TYPE" not in fixed and env["XDG_SESSION_TYPE"] == "x11",
+          env["XDG_SESSION_TYPE"])
+
+    # Wayland soketi bilinmiyorsa uydurulmaz: yanlis tasima sessiz cokme olur.
+    with tempfile.TemporaryDirectory() as bos:
+        env = {"XDG_RUNTIME_DIR": bos}
+        SESS.ensure_session_env(env)
+        check("Wayland yokken XDG_SESSION_TYPE uydurulmadi",
+              "XDG_SESSION_TYPE" not in env, str(env.get("XDG_SESSION_TYPE")))
+
+    # 8) DISPLAY bossa calisan Xwayland'dan turetilmeli. OLCULDU 2026-09-20:
+    #    Claude Desktop'un baslattigi stdio surecinde DISPLAY de XAUTHORITY de
+    #    bostu ve pcbridge ile acilan Brave/Chrome "Missing X server or
+    #    $DISPLAY" deyip SEGFAULT ediyordu -- gtk-launch yine de 0 donuyor,
+    #    yani hata hicbir yerde gorunmuyordu.
+    found = SESS._xwayland()
+    if found is not None:
+        display, auth = found
+        env = {"XDG_RUNTIME_DIR": runtime, "DISPLAY": ""}
+        fixed = SESS.ensure_session_env(env)
+        check("bos DISPLAY Xwayland'dan onarildi",
+              "DISPLAY" in fixed and env.get("DISPLAY") == display,
+              str(env.get("DISPLAY")))
+        check("onarilan DISPLAY'in soketi var",
+              Path(f"/tmp/.X11-unix/X{display[1:]}").exists(), display)
+        if auth:
+            check("XAUTHORITY de dolduruldu",
+                  env.get("XAUTHORITY") == auth, str(env.get("XAUTHORITY")))
+            check("yetki dosyasi gercekten duruyor", Path(auth).exists(), auth)
+
+        # Dolu bir DISPLAY'e DOKUNULMAZ: dogrulayamadigimiz degeri bozmayiz.
+        env = {"XDG_RUNTIME_DIR": runtime, "DISPLAY": ":9",
+               "XAUTHORITY": "/yok/olan/dosya"}
+        fixed = SESS.ensure_session_env(env)
+        check("dolu DISPLAY korundu",
+              "DISPLAY" not in fixed and env["DISPLAY"] == ":9", str(fixed))
+        check("dolu XAUTHORITY korundu",
+              env["XAUTHORITY"] == "/yok/olan/dosya", env["XAUTHORITY"])
+    else:
+        skip("calisan Xwayland yok", "DISPLAY onarimi sinanamadi")
+
+    # 9) describe() tani icin okunur bir satir versin
     line = SESS.describe({"XDG_RUNTIME_DIR": runtime, "DBUS_SESSION_BUS_ADDRESS": "$X"})
     check("describe() GECERSIZ durumu bildiriyor", "GECERSIZ" in line, line)
 
-    # 8) Onarim SAF degil ama YAN ETKISI SINIRLI: verilen sozluk disina cikmaz.
+    # 10) Onarim SAF degil ama YAN ETKISI SINIRLI: verilen sozluk disina cikmaz.
     before = dict(os.environ)
     SESS.ensure_session_env({"XDG_RUNTIME_DIR": runtime})
     check("os.environ'a dokunulmadi", dict(os.environ) == before)
