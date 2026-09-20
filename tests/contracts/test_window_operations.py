@@ -23,6 +23,7 @@ from pcbridge.desktop import apps  # noqa: E402
 from pcbridge.desktop import batch as batchlib  # noqa: E402
 from pcbridge.desktop import ops as opslib  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCode  # noqa: E402
+from pcbridge.desktop.uitree import UiTreeError  # noqa: E402
 
 
 def entry(entry_id, name, *, names=(), alt=(), exe="", hidden=False):
@@ -279,6 +280,46 @@ class BringToFrontTests(Harness):
         self.assertEqual(caught.exception.code, ErrorCode.BACKEND_UNAVAILABLE)
         self.assertEqual(caught.exception.execution_state, "not_started")
         self.assertEqual(keys.events, [])
+        self.assertEqual(self.launched, [])
+
+    def test_an_empty_desktop_still_launches_a_closed_application(self) -> None:
+        # MEASURED 2026-09-20, right after a fresh login: no window was ACTIVE
+        # and the refusal stopped even a cold launch, while
+        # `system_capabilities` reported accessibility.read as supported. An
+        # empty front is an answer to "is the target already there" -- no.
+        desk = Desk()
+        desk.focus_error = UiTreeError(
+            "Odakta pencere yok (AT-SPI hicbir pencereyi ACTIVE isaretlemiyor).",
+            ErrorCode.TARGET_MISMATCH,
+        )
+
+        def appear():
+            desk.focus_error = None
+            desk.listed = [win("gnome-text-editor", "New Document", True)]
+            desk.focus = ("gnome-text-editor", "New Document")
+
+        self.on_launch = appear
+        outcome, keys = self.front("Text Editor", desk)
+
+        self.assertEqual(outcome.path, "launch")
+        self.assertEqual(self.launched, ["org.gnome.TextEditor"])
+        self.assertEqual(keys.events, [])
+
+    def test_nothing_in_front_is_never_already_focused(self) -> None:
+        # The empty pair must not match a target, or an empty desktop would
+        # report every window as already in front and send nothing.
+        empty = apps.resolve_application("Text Editor", list(POOL))
+        self.assertFalse(apps._shows(empty, "", ""))
+        title_only = apps.resolve_application("New Document", list(POOL))
+        self.assertFalse(apps._shows(title_only, "", ""))
+
+    def test_a_focus_error_without_that_code_is_still_a_refusal(self) -> None:
+        # Only "nothing is active" is an answer; a broken tree is not.
+        desk = Desk()
+        desk.focus_error = UiTreeError("AT-SPI yok", ErrorCode.BACKEND_UNAVAILABLE)
+        with self.assertRaises(DesktopError) as caught:
+            self.front("Text Editor", desk)
+        self.assertEqual(caught.exception.code, ErrorCode.BACKEND_UNAVAILABLE)
         self.assertEqual(self.launched, [])
 
     def test_a_closed_application_is_launched_without_input(self) -> None:

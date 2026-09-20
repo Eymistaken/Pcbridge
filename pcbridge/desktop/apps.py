@@ -654,10 +654,23 @@ def observe_focus(focused: Callable[[], tuple[str, str]]) -> tuple[str, str]:
     Eskiden once arama yapiliyor, odak SONRA okunuyordu; odak okunamazsa tuslar
     gitmis ama sonuc dogrulanamamis oluyordu. Toplu eylemdeki kararla ayni
     (Task 5.1): dogrulanamayacak bir eylem gonderilmez.
+
+    "Onde hicbir pencere yok" bunun DISINDA ve ("", "") doner. Erisilebilirlik
+    orada calisiyor ve sorunun cevabini veriyor: onde bir sey yoksa hedef de
+    onde degil, yani kapali uygulamayi acmak ve sonucu dogrulamak icin hicbir
+    engel kalmiyor. OLCULDU 2026-09-20, oturum acildiktan hemen sonra: masaustu
+    disinda pencere yokken `window_focus` KAPALI bir uygulamayi bile
+    baslatmiyordu ve reddin gerekcesi ("erisilebilirlige bakin") o anda
+    `accessibility.read: supported` diyen `system_capabilities` ile
+    celisiyordu. Ayni durum kullanici duvar kagidina tikladiginda da olusuyor.
+    Odak dokumunden gelen TARGET_MISMATCH baska bir sey anlatamaz: ada gore
+    arama o yolda hic yapilmiyor (`atspi_helper.cmd_dump`, `accessibility.rs`).
     """
     try:
         app, window = focused()
     except Exception as exc:  # noqa: BLE001 - gerekce mesajda
+        if getattr(exc, "code", None) == ErrorCode.TARGET_MISMATCH:
+            return "", ""
         raise _refused(
             ErrorCode.BACKEND_UNAVAILABLE,
             f"Odaktaki pencere okunamadi ({str(exc)[:80]}). Sonuc "
