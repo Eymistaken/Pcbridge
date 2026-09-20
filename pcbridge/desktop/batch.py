@@ -61,6 +61,9 @@ COST_MS: dict[str, float] = {
     "middle_click": 290.0,
     "drag": 600.0,        # iki hareket + basma/birakma
     "scroll": 60.0,
+    # `move` ile ayni mertebe: mesafeye bagli ve mesafe burada da BILINMIYOR.
+    # 64 parca tavani en kotu ihtimali ~512 ms'de tutuyor.
+    "move_by": 200.0,
     "mouse_down": 30.0,
     "mouse_up": 30.0,
     "hold": 30.0,
@@ -96,12 +99,18 @@ POINTER_ACTIONS = {
 # Odagi KASITLI degistiren eylemler. Bunlardan sonra beklenen odak guncellenir.
 FOCUS_CHANGING = {"launch", "focus"}
 INPUT_ACTIONS = {
-    "key", "type", "move", "click", "double_click", "triple_click",
+    "key", "type", "move", "move_by", "click", "double_click", "triple_click",
     "right_click", "middle_click", "drag", "scroll", "mouse_down", "mouse_up",
     "hold", "release",
 }
 
 MAX_WAIT_MS = 30_000
+
+# `move_by` delta tavani. KOPYA: asil clamp `input.MOVE_BY_MAX`ta ve orasi son
+# sozu soyluyor. Burada duruyor cunku bu modul gercek cihazlari TANIMIYOR
+# (bagimlilik tek yonlu: ops -> batch) ve ayrismalari
+# `test_batch_safety` tarafindan sabitleniyor. Amaci erken ve okunur bir hata.
+MOVE_BY_MAX = 4000
 
 
 class BatchError(ValueError):
@@ -138,6 +147,9 @@ class Action:
             return f"launch {self.args.get('app')!r}"
         if self.a == "focus":
             return f"focus {self.args.get('window')!r}"
+        if self.a == "move_by":
+            # Isaretli ve parantezsiz: bir koordinat gibi okunmasin.
+            return f"move_by ({self.args.get('dx'):+d}, {self.args.get('dy'):+d})"
         if self.a in POINTER_ACTIONS or self.a == "move" or self.a == "scroll":
             x, y = self.args.get("x"), self.args.get("y")
             pos = f" ({x}, {y})" if x is not None and y is not None else ""
@@ -197,6 +209,9 @@ class Ops(Protocol):
     def scroll(self, amount: int, x: int | None, y: int | None,
                monitor: int | None, horizontal: bool,
                shot: str | None = None) -> str: ...
+    # Goreli kaydirma: koordinat DEGIL delta alir, o yuzden `monitor`/`shot`
+    # yok -- hicbir uzaya ait degil.
+    def move_by(self, dx: int, dy: int) -> str: ...
     def held(self) -> list[str]: ...
     def release_all(self) -> list[str]: ...
     def ui_click(self, node_id: str) -> str: ...
@@ -328,6 +343,11 @@ def _one(raw: Any, index: int) -> Action:
             "shot": _shot(raw),
             "horizontal": bool(raw.get("horizontal", False)),
         })
+    if a == "move_by":
+        return Action(a, {
+            "dx": _int(raw, "dx", required=True, lo=-MOVE_BY_MAX, hi=MOVE_BY_MAX),
+            "dy": _int(raw, "dy", required=True, lo=-MOVE_BY_MAX, hi=MOVE_BY_MAX),
+        })
     if a == "ui_click":
         return Action(a, {"id": _text(raw, "id").lstrip("#")})
     if a == "ui_set_text":
@@ -342,8 +362,8 @@ def _one(raw: Any, index: int) -> Action:
     raise BatchError(
         f"Bilinmeyen eylem: {a!r}. Gecerli olanlar: key, type, hold, release, "
         "wait, move, click, double_click, triple_click, right_click, "
-        "middle_click, mouse_down, mouse_up, drag, scroll, ui_click, "
-        "ui_set_text, launch, focus"
+        "middle_click, mouse_down, mouse_up, drag, scroll, move_by, "
+        "ui_click, ui_set_text, launch, focus"
     )
 
 
@@ -438,6 +458,8 @@ def _dispatch(ops: Ops, act: Action, sleep: Callable[[float], None],
         return note
     if a == "move":
         return ops.move(kw["x"], kw["y"], kw.get("monitor"), kw.get("shot"))
+    if a == "move_by":
+        return ops.move_by(kw["dx"], kw["dy"])
     if a in ("hold", "release"):
         return ops.hold(kw["keys"]) if a == "hold" else ops.release(kw["keys"])
     if a in ("click", "double_click", "triple_click", "right_click", "middle_click"):

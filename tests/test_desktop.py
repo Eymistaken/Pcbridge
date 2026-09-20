@@ -1473,6 +1473,9 @@ class FakeOps:
     def move(self, x, y, monitor, shot=None):
         return self._rec("move", x, y)
 
+    def move_by(self, dx, dy):
+        return self._rec("move_by", dx, dy)
+
     def click(self, button, count, x, y, monitor, shot=None):
         out = self._rec("click", button, x, y)
         if self.focus_after_click:
@@ -1653,13 +1656,22 @@ def test_batch_parse() -> None:
     # `ui_*` iceren bir liste HICBIR cihaz actirmamali (C bolumu hatasi).
     from pcbridge.desktop import ops as O
     check("hold klavye istiyor", O.devices_needed(B.parse('[{"a":"hold","keys":"a"}]'))
-          == (True, False))
+          == (True, False, False))
     check("mouse_up fare istiyor",
-          O.devices_needed(B.parse('[{"a":"mouse_up"}]')) == (False, True))
+          O.devices_needed(B.parse('[{"a":"mouse_up"}]')) == (False, True, False))
     check("mouse_down fare istiyor",
-          O.devices_needed(B.parse('[{"a":"mouse_down"}]')) == (False, True))
+          O.devices_needed(B.parse('[{"a":"mouse_down"}]')) == (False, True, False))
     check("ui_click hicbir cihaz istemiyor",
-          O.devices_needed(B.parse('[{"a":"ui_click","id":"a1"}]')) == (False, False))
+          O.devices_needed(B.parse('[{"a":"ui_click","id":"a1"}]')) == (False, False, False))
+    # Adim 7: goreli hareket AYRI cihaz. Yalnizca `move_by` iceren bir liste
+    # mutlak cihazi ACTIRMAMALI -- yoksa bosuna ikinci bir 1,2 s bekleme.
+    check("move_by yalnizca goreli cihazi istiyor",
+          O.devices_needed(B.parse('[{"a":"move_by","dx":10,"dy":0}]'))
+          == (False, False, True))
+    check("move + move_by ikisini de istiyor",
+          O.devices_needed(
+              B.parse('[{"a":"move","x":1,"y":2},{"a":"move_by","dx":5,"dy":0}]')
+          ) == (False, True, True))
 
 
 def test_batch_budget() -> None:
@@ -2227,20 +2239,20 @@ def test_cli_gate() -> None:
     from pcbridge.desktop import batch as B
 
     only_ui = B.parse('[{"a":"ui_click","id":"aa"},{"a":"wait","ms":10}]')
-    check("ui_* cihaz istemiyor", O.devices_needed(only_ui) == (False, False))
+    check("ui_* cihaz istemiyor", O.devices_needed(only_ui) == (False, False, False))
     check("type klavye istiyor",
-          O.devices_needed(B.parse('[{"a":"type","text":"x"}]')) == (True, False))
+          O.devices_needed(B.parse('[{"a":"type","text":"x"}]')) == (True, False, False))
     check("click fare istiyor",
-          O.devices_needed(B.parse('[{"a":"click","x":1,"y":2}]')) == (False, True))
+          O.devices_needed(B.parse('[{"a":"click","x":1,"y":2}]')) == (False, True, False))
     check("focus VARSAYILAN olarak klavye istiyor (GNOME arama yedegi)",
-          O.devices_needed(B.parse('[{"a":"focus","window":"X"}]')) == (True, False))
+          O.devices_needed(B.parse('[{"a":"focus","window":"X"}]')) == (True, False, False))
     check("eklenti yolu bildirilince focus cihaz istemiyor",
           O.devices_needed(B.parse('[{"a":"focus","window":"X"}]'),
-                           focus_uses_keyboard=False) == (False, False))
+                           focus_uses_keyboard=False) == (False, False, False))
     check("karisik liste ikisini de istiyor",
           O.devices_needed(
               B.parse('[{"a":"click","x":1,"y":2},{"a":"type","text":"x"}]')
-          ) == (True, True))
+          ) == (True, True, False))
 
 
 def test_cli_shot_text() -> None:
@@ -2651,6 +2663,43 @@ def test_move_path() -> None:
     # 9) Varsayilanlar config'le ayni hikayeyi anlatiyor mu.
     check("varsayilan hiz 5000 px/s", DEFAULT_POINTER_SPEED == 5000)
     check("varsayilan tavan 500 ms", DEFAULT_POINTER_MAX_MS == 500)
+
+
+def test_relative_chunks() -> None:
+    """Goreli hareketin parcalanmasi -- SAF, cihaz acmaz (Adim 7)."""
+    from pcbridge.desktop.input import (
+        MOVE_BY_MAX, MOVE_BY_MAX_CHUNKS, relative_chunks,
+    )
+
+    section("24b. Goreli hareket — parcalama")
+
+    # 1) TOPLAM KORUNUR. Parcalama bir yuvarlatma degil, bir zamanlama karari:
+    #    olculdu 2026-09-20, 200 birim kac parcaya bolunurse bolunsun 92 piksel.
+    for dx, dy in ((40, -16), (200, 0), (0, 300), (-137, 59), (1, 1),
+                   (MOVE_BY_MAX, -MOVE_BY_MAX)):
+        parcalar = relative_chunks(dx, dy)
+        toplam = (sum(a for a, _ in parcalar), sum(b for _, b in parcalar))
+        check(f"toplam korunuyor ({dx}, {dy})", toplam == (dx, dy), str(toplam))
+
+    # 2) Hicbir sey gonderilmeyecekse hic parca yok.
+    check("sifir delta hic parca uretmiyor", relative_chunks(0, 0) == [])
+
+    # 3) Kucuk delta tek atista gider; buyuk delta bolunur.
+    check("10 birim tek parca", len(relative_chunks(10, 0)) == 1)
+    check("40 birim uc parca", len(relative_chunks(40, -16)) == 3)
+
+    # 4) TAVANLAR. Sinirsiz delta kullanicinin kendi masaustune DoS olurdu;
+    #    parca sayisi tavani en kotu sureyi ~512 ms'de tutuyor.
+    kirpik = relative_chunks(99_999, -99_999)
+    check("delta tavani kirpiyor",
+          sum(a for a, _ in kirpik) == MOVE_BY_MAX
+          and sum(b for _, b in kirpik) == -MOVE_BY_MAX)
+    check("parca sayisi tavani", len(kirpik) <= MOVE_BY_MAX_CHUNKS,
+          f"{len(kirpik)} parca")
+
+    # 5) Bir eksen sifirsa o eksende hicbir parca deger tasimaz.
+    check("tek eksende digeri hep sifir",
+          all(b == 0 for _, b in relative_chunks(200, 0)))
 
 
 def test_hold_tracking() -> None:
@@ -3330,6 +3379,7 @@ def main() -> int:
     test_computer_task_prompt()
     test_session_env()
     test_move_path()
+    test_relative_chunks()
     test_hold_tracking()
     test_real_hold()
     test_screencast_backend()

@@ -1233,11 +1233,13 @@ def register(
         action: Annotated[
             str,
             Field(
-                description="One of: move, click, double_click, triple_click, "
-                "right_click, middle_click, drag, scroll, hold, release. "
-                "hold presses a button down and leaves it down (for free-form "
-                "drag: hold, then move, then release); triple_click selects a "
-                "whole line in most text widgets."
+                description="One of: move, move_by, click, double_click, "
+                "triple_click, right_click, middle_click, drag, scroll, hold, "
+                "release. hold presses a button down and leaves it down (for "
+                "free-form drag: hold, then move, then release); triple_click "
+                "selects a whole line in most text widgets. move_by is the odd "
+                "one out: it nudges the pointer BY a delta instead of moving it "
+                "TO a point, and it is not a way to reach anything on screen."
             ),
         ],
         x: Annotated[
@@ -1255,6 +1257,28 @@ def register(
         to_y: Annotated[
             int | None, Field(description="For drag: Y where the drag ends.")
         ] = None,
+        dx: Annotated[
+            int,
+            Field(
+                ge=-4000,
+                le=4000,
+                description="For move_by: how far to nudge horizontally, in "
+                "device units, positive to the right. Not screen pixels and not "
+                "a coordinate: how far the desktop cursor actually travels "
+                "depends on the user's mouse-speed setting, and inside an "
+                "application that locks the pointer it is the application that "
+                "decides what the delta means.",
+            ),
+        ] = 0,
+        dy: Annotated[
+            int,
+            Field(
+                ge=-4000,
+                le=4000,
+                description="For move_by: how far to nudge vertically, positive "
+                "downward. Same units as dx.",
+            ),
+        ] = 0,
         scroll_amount: Annotated[
             int,
             Field(
@@ -1325,7 +1349,17 @@ def register(
         needs stops along the way — a slider, a selection rectangle, a file onto a
         folder — use hold, then move, then release; the drag action is the
         single-shot version. Take a screenshot or check the result after acting —
-        never click blind."""
+        never click blind.
+
+        move and move_by are different jobs. move goes TO a point: it is exact,
+        it is what you verify against a screenshot, and it is the only way to
+        put the pointer on something you want to click. move_by nudges BY a
+        delta and is not a way to reach anything: it exists for applications
+        that lock the pointer and read relative motion — games, 3D and CAD
+        viewports, WebGL canvases — which never see an absolute "go to this
+        point" at all. After a move_by the pointer's position is unknown, so
+        read the screen again before you click, or go back to a known point
+        with an absolute move."""
         err = _guard("mouse", write=True, force=force)
         if err:
             return err
@@ -1346,6 +1380,16 @@ def register(
             if act == "move":
                 pos = backend.move(gx, gy, smooth=smooth)
                 done = f"imlec {pos} konumuna tasindi"
+            elif act == "move_by":
+                if not dx and not dy:
+                    return "move_by icin dx ya da dy verilmeli."
+                sx, sy = backend.move_by(dx, dy)
+                done = (
+                    f"imlec ({sx:+d}, {sy:+d}) kadar goreli kaydirildi · konum "
+                    "artik BILINMIYOR — tiklamadan once ui_dump ya da "
+                    "screen_capture alin, ya da mutlak `move` ile bilinen bir "
+                    "noktaya gidin"
+                )
             elif act in clicks:
                 pos = backend.move(gx, gy, smooth=smooth)
                 time.sleep(0.08)
@@ -1377,9 +1421,9 @@ def register(
                 done = f"{button} dugmesi birakildi"
             else:
                 return (
-                    f"Bilinmeyen eylem: '{action}'. Gecerli: move, click, "
-                    "double_click, triple_click, right_click, middle_click, drag, "
-                    "scroll, hold, release"
+                    f"Bilinmeyen eylem: '{action}'. Gecerli: move, move_by, "
+                    "click, double_click, triple_click, right_click, "
+                    "middle_click, drag, scroll, hold, release"
                 )
         except (
             inputlib.InputError,
@@ -1400,11 +1444,16 @@ def register(
 
         gate.audit(
             "mouse", action=act, x=x, y=y, monitor=monitor, shot=shot,
+            dx=dx if act == "move_by" else None,
+            dy=dy if act == "move_by" else None,
             button=button if act in ("hold", "release", "drag") else None,
             forced=force or None,
         )
         where = backend.position
-        note = ""
+        # Konum bilinmiyorsa bunu SOYLE. Eskiden not bos kalirdi ve ajan
+        # "monitor bilgisi yok" ile "konum bilinmiyor"u ayirt edemezdi;
+        # `move_by`den sonra bu ayrim tam olarak onemli olan sey.
+        note = "" if where else " · imlec konumu BILINMIYOR"
         if where:
             m = capture_provider.find_monitor(*where)
             if m:
@@ -2153,7 +2202,8 @@ def register(
                     'move/click/double_click/triple_click/right_click/middle_click '
                     '{x?, y?, shot?, monitor?}, mouse_down {button?, x?, y?, shot?}, '
                     'mouse_up {button?}, drag {x, y, to_x, to_y, button?, shot?}, '
-                    'scroll {amount, horizontal?, shot?}, ui_click {id}, '
+                    'scroll {amount, horizontal?, shot?}, move_by {dx, dy}, '
+                    'ui_click {id}, '
                     'ui_set_text {id, text}, launch {app}, focus {window}. '
                     'shot is the id of the screenshot you read the coordinates off '
                     "(screen_capture prints it, e.g. 'm2-a1b2c3'): pass it and give "
@@ -2161,6 +2211,11 @@ def register(
                     'converts them for you. hold/mouse_down stay down across later '
                     'actions, so a drag with stops along the way is mouse_down, '
                     'move, move, mouse_up. '
+                    'move_by nudges the pointer BY a delta instead of moving '
+                    'it TO a point, for applications that lock the pointer and '
+                    'read relative motion (games, 3D viewports, WebGL); it is '
+                    'not a way to reach anything on screen and it leaves the '
+                    'pointer position unknown. '
                     'A key/hold that closes a window or quits an application '
                     '(alt+F4, ctrl+q, ctrl+w) needs confirm_close on that item; '
                     'without it the whole list is rejected and nothing runs. '
@@ -2227,14 +2282,16 @@ def register(
         # klavyeyi o anda tembel olarak acar. Ayni cevap butce tahmininin
         # hangi `focus` yolunu sayacagini da belirler (Task 6.4).
         fast_focus = appslib.extension_focus_available()
-        want_kbd, want_ptr = opslib.devices_needed(
+        want_kbd, want_ptr, want_rel = opslib.devices_needed(
             plan,
             focus_uses_keyboard=not fast_focus,
         )
         need_kbd = want_kbd
-        needs_input = need_kbd or want_ptr
-        input_capability = "input.pointer" if want_ptr else "input.keyboard"
-        input_scope = "os.pointer" if want_ptr else "os.keyboard"
+        needs_input = need_kbd or want_ptr or want_rel
+        # Goreli cihaz da fare kapsamindan gecer: ayri cihaz, AYNI izin.
+        wants_pointer = want_ptr or want_rel
+        input_capability = "input.pointer" if wants_pointer else "input.keyboard"
+        input_scope = "os.pointer" if wants_pointer else "os.keyboard"
         denied = _guard(
             "computer_batch",
             write=True,
@@ -2255,11 +2312,12 @@ def register(
 
         gate.audit("computer_batch_start", count=len(plan),
                    kinds=",".join(sorted(kinds)), forced=force or None)
-        # Cihazlari bastan ac: iki cihaz gerekiyorsa bekleme tek sefere iner
-        # (olculdu 2,61 s -> 1,41 s). Gerekmiyorsa hicbir cihaz acilmaz.
-        if need_kbd or want_ptr:
+        # Cihazlari bastan ac: birden fazlasi gerekiyorsa bekleme tek sefere
+        # iner (olculdu 2,61 s -> 1,41 s). Gerekmiyorsa hicbir cihaz acilmaz.
+        if needs_input:
             try:
-                backend.ensure(keyboard=need_kbd, pointer=want_ptr)
+                backend.ensure(keyboard=need_kbd, pointer=want_ptr,
+                               relative=want_rel)
             except (inputlib.InputError, DesktopError) as exc:
                 gate.audit("computer_batch_error", error=str(exc)[:160])
                 return _exception_result(

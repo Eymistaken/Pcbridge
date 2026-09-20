@@ -666,12 +666,16 @@ class PythonInputProvider(inputlib.InputBackend):
             )
             for name, scope in (
                 ("input.pointer", "os.pointer"),
+                # Ayri bir cihaz ama AYNI kapi ve ayni grant: cogalan yalnizca
+                # yetenek adi, izin kapsami degil (Adim 7).
+                ("input.pointer_relative", "os.pointer"),
                 ("input.keyboard", "os.keyboard"),
             )
         }
         if self.degraded_reason:
             # A fallback is shown, never hidden, as capture shows its own.
-            for name in ("input.pointer", "input.keyboard"):
+            for name in ("input.pointer", "input.pointer_relative",
+                         "input.keyboard"):
                 value = values[name]
                 values[name] = _capability(
                     name,
@@ -739,6 +743,7 @@ class PythonInputProvider(inputlib.InputBackend):
 
     ensure = _input_boundary("ensure", "input")
     move = _input_boundary("move", "input.pointer")
+    move_by = _input_boundary("move_by", "input.pointer_relative")
     click = _input_boundary("click", "input.pointer")
     drag = _input_boundary("drag", "input.pointer")
     scroll = _input_boundary("scroll", "input.pointer")

@@ -18,6 +18,7 @@ REQUIRED_CAPABILITIES = {
     "capture.monitor",
     "capture.window",
     "input.pointer",
+    "input.pointer_relative",
     "input.keyboard",
     "accessibility.read",
     "accessibility.action",

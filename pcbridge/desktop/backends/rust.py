@@ -878,6 +878,28 @@ class RustInputProvider(PythonInputProvider):
         params.update(action)
         return params
 
+    def _relative_params(self, **action: Any) -> dict[str, Any]:
+        """Goreli istekler icin DAR zarf.
+
+        `topology_id` ve `pointer_speed`/`pointer_max_ms` bilerek YOK. Goreli
+        cihazin ABS araligi olmadigi icin ekran duzeni onu ilgilendirmiyor;
+        gonderip yok saymak sonraki okura "topoloji dogrulandi" dedirtirdi.
+        `hold_max_seconds` de yok: bu cihaz hic dugme basmiyor. Ayni kalip
+        `_clipboard_request`te de var.
+        """
+        params = self._grant_params()
+        params.pop("hold_max_seconds", None)
+        params.update(action)
+        return params
+
+    def _write_relative_request(self, method: str, **action: Any) -> dict[str, Any]:
+        params = self._relative_params(**action)
+        # Tek istek, tekrarlanmaz: ilk yazma cihaza ulasmis olabilir.
+        client = self._input_client_for(params)
+        self._pointer_used = True
+        response = client.request(method, params, timeout=5.0)
+        return self._result_dict(response)
+
     def _write_pointer_request(self, method: str, **action: Any) -> dict[str, Any]:
         params = self._pointer_params(**action)
         # Exactly one request. A failed pointer write is never replayed across
@@ -903,13 +925,23 @@ class RustInputProvider(PythonInputProvider):
             )
         return int(position[0]), int(position[1])
 
-    def ensure(self, keyboard: bool = False, pointer: bool = False) -> float:
+    def ensure(
+        self, keyboard: bool = False, pointer: bool = False,
+        relative: bool = False,
+    ) -> float:
         waited = 0.0
         if keyboard:
             result = self._write_request("input.keyboard.ensure")
             waited += float(result.get("waited_seconds") or 0.0)
-        if pointer:
-            result = self._write_pointer_request("input.pointer.ensure")
+        if pointer or relative:
+            # TEK istek: yardimci istenen cihazlari acip beklemeyi bir kez
+            # oduyor. Ayri ayri sorulsaydi native yol, Python yolunun
+            # kacindigi ikinci 1,2 saniyeyi geri getirirdi.
+            result = self._write_pointer_request(
+                "input.pointer.ensure",
+                pointer=bool(pointer),
+                relative=bool(relative),
+            )
             waited += float(result.get("waited_seconds") or 0.0)
         return waited
 
@@ -949,6 +981,25 @@ class RustInputProvider(PythonInputProvider):
                 backend="pcbridge-native",
             )
         return position
+
+    def move_by(self, dx: int, dy: int) -> tuple[int, int]:
+        """Goreli kaydirma, ikinci cihazdan. Konumu yardimci da unutuyor."""
+        result = self._write_relative_request(
+            "input.pointer.move_by",
+            dx=int(dx),
+            dy=int(dy),
+        )
+        sent = result.get("sent")
+        if not isinstance(sent, (list, tuple)) or len(sent) != 2:
+            raise DesktopError(
+                code=ErrorCode.INVALID_FRAME,
+                message="Native goreli hareket gonderilen deltayi dondurmedi.",
+                category=ErrorCategory.IPC,
+                retryable=False,
+                suggested_action="Native pointer protokolunu denetleyin.",
+                backend="pcbridge-native",
+            )
+        return int(sent[0]), int(sent[1])
 
     def click(self, button: str = "left", count: int = 1) -> None:
         self._write_pointer_request(
@@ -1066,6 +1117,7 @@ class RustInputProvider(PythonInputProvider):
         for name, scope in (
             ("input.keyboard", "os.keyboard"),
             ("input.pointer", "os.pointer"),
+            ("input.pointer_relative", "os.pointer"),
         ):
             if not ready:
                 values[name] = _capability(

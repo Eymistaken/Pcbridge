@@ -33,16 +33,22 @@ KEYBOARD_ACTIONS = {"key", "type", "hold", "release"}
 # odagi kaydirmaz ama fare cihazi ister.
 MOUSE_ACTIONS = POINTER_ACTIONS | {"move", "scroll", "mouse_up"}
 
+# IKINCI, goreli cihazi gerektirenler (Adim 7). MOUSE_ACTIONS'a EKLENMIYOR:
+# yalnizca `move_by` iceren bir liste mutlak cihazi hic actirmamali -- "sadece
+# `ui_*` hicbir cihaz actirmaz" duzeltmesiyle ayni ilke.
+RELATIVE_ACTIONS = {"move_by"}
+
 
 def devices_needed(
     actions: list[Action],
     *,
     focus_uses_keyboard: bool = True,
-) -> tuple[bool, bool]:
-    """(klavye gerekli mi, fare gerekli mi).
+) -> tuple[bool, bool, bool]:
+    """(klavye gerekli mi, mutlak fare gerekli mi, goreli fare gerekli mi).
 
-    `InputBackend.ensure()` bununla bir kez cagrilinca iki cihazin beklemesi
-    tek sefere iniyor (2,61 s -> 1,41 s, olculdu). Yalnizca `ui_*` iceren bir
+    `InputBackend.ensure()` bununla bir kez cagrilinca cihazlarin beklemesi
+    tek sefere iniyor (iki cihaz icin olculdu: 2,61 s -> 1,41 s). Ucuncu,
+    goreli cihaz da ayni tek beklemeye giriyor. Yalnizca `ui_*` iceren bir
     liste hicbir cihaz actirmaz -- C bolumunde duzeltilen "erisilebilirlik
     araci /dev/uinput istiyor" hatasi burada tekrarlanmasin.
 
@@ -62,9 +68,10 @@ def devices_needed(
     kinds = {a.a for a in actions}
     keyboard = bool(kinds & KEYBOARD_ACTIONS)
     pointer = bool(kinds & MOUSE_ACTIONS)
+    relative = bool(kinds & RELATIVE_ACTIONS)
     if focus_uses_keyboard and "focus" in kinds:
         keyboard = True
-    return keyboard, pointer
+    return keyboard, pointer, relative
 
 
 def _deadline(budget_left: float | None) -> float | None:
@@ -127,6 +134,16 @@ class DeviceOps:
              shot: str | None = None) -> str:
         gx, gy = self._global(x, y, monitor, shot)
         return f"imlec {self.backend.move(gx, gy)} konumuna tasindi"
+
+    def move_by(self, dx: int, dy: int) -> str:
+        """Goreli kaydirma. `_global()` YOK -- delta bir koordinat degil, hicbir
+        uzaya ait degil; cevrilirse sessizce anlamsiz bir sayi olur."""
+        sx, sy = self.backend.move_by(dx, dy)
+        return (
+            f"imlec ({sx:+d}, {sy:+d}) kadar goreli kaydirildi · konum artik "
+            "BILINMIYOR — tiklamadan once ui_dump ya da screen_capture alin, "
+            "ya da mutlak `move` ile bilinen bir noktaya gidin"
+        )
 
     def click(self, button: str, count: int, x: int | None, y: int | None,
               monitor: int | None, shot: str | None = None) -> str:

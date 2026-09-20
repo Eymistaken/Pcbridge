@@ -1,7 +1,10 @@
 {
   "schema_version": 1,
   "about": "Golden uinput events of the Python input backend. The Rust keyboard and pointer (PLAN.md Tasks 5.2, 5.3) must write the same events for the same calls. Recorded once from the Python backend on 2026-09-13 and reviewed; tests replay it and never regenerate it.",
-  "canvas": [3840, 1080],
+  "canvas": [
+    3840,
+    1080
+  ],
   "backend": {
     "pointer_speed": 5000,
     "pointer_max_ms": 500,
@@ -14,13 +17,107 @@
   "devices": {
     "keyboard": {
       "name": "pcbridge-keyboard",
-      "event_types": ["EV_KEY"],
-      "keys": ["KEY_0", "KEY_1", "KEY_2", "KEY_3", "KEY_4", "KEY_5", "KEY_6", "KEY_7", "KEY_8", "KEY_9", "KEY_A", "KEY_APOSTROPHE", "KEY_B", "KEY_BACKSLASH", "KEY_BACKSPACE", "KEY_C", "KEY_CAPSLOCK", "KEY_COMMA", "KEY_COMPOSE", "KEY_D", "KEY_DELETE", "KEY_DOT", "KEY_DOWN", "KEY_E", "KEY_END", "KEY_ENTER", "KEY_EQUAL", "KEY_ESC", "KEY_F", "KEY_F1", "KEY_F10", "KEY_F11", "KEY_F12", "KEY_F2", "KEY_F3", "KEY_F4", "KEY_F5", "KEY_F6", "KEY_F7", "KEY_F8", "KEY_F9", "KEY_G", "KEY_GRAVE", "KEY_H", "KEY_HOME", "KEY_I", "KEY_INSERT", "KEY_J", "KEY_K", "KEY_KPENTER", "KEY_L", "KEY_LEFT", "KEY_LEFTALT", "KEY_LEFTBRACE", "KEY_LEFTCTRL", "KEY_LEFTMETA", "KEY_LEFTSHIFT", "KEY_M", "KEY_MINUS", "KEY_N", "KEY_O", "KEY_P", "KEY_PAGEDOWN", "KEY_PAGEUP", "KEY_Q", "KEY_R", "KEY_RIGHT", "KEY_RIGHTALT", "KEY_RIGHTBRACE", "KEY_S", "KEY_SEMICOLON", "KEY_SLASH", "KEY_SPACE", "KEY_SYSRQ", "KEY_T", "KEY_TAB", "KEY_U", "KEY_UP", "KEY_V", "KEY_W", "KEY_X", "KEY_Y", "KEY_Z"]
+      "event_types": [
+        "EV_KEY"
+      ],
+      "keys": [
+        "KEY_0",
+        "KEY_1",
+        "KEY_2",
+        "KEY_3",
+        "KEY_4",
+        "KEY_5",
+        "KEY_6",
+        "KEY_7",
+        "KEY_8",
+        "KEY_9",
+        "KEY_A",
+        "KEY_APOSTROPHE",
+        "KEY_B",
+        "KEY_BACKSLASH",
+        "KEY_BACKSPACE",
+        "KEY_C",
+        "KEY_CAPSLOCK",
+        "KEY_COMMA",
+        "KEY_COMPOSE",
+        "KEY_D",
+        "KEY_DELETE",
+        "KEY_DOT",
+        "KEY_DOWN",
+        "KEY_E",
+        "KEY_END",
+        "KEY_ENTER",
+        "KEY_EQUAL",
+        "KEY_ESC",
+        "KEY_F",
+        "KEY_F1",
+        "KEY_F10",
+        "KEY_F11",
+        "KEY_F12",
+        "KEY_F2",
+        "KEY_F3",
+        "KEY_F4",
+        "KEY_F5",
+        "KEY_F6",
+        "KEY_F7",
+        "KEY_F8",
+        "KEY_F9",
+        "KEY_G",
+        "KEY_GRAVE",
+        "KEY_H",
+        "KEY_HOME",
+        "KEY_I",
+        "KEY_INSERT",
+        "KEY_J",
+        "KEY_K",
+        "KEY_KPENTER",
+        "KEY_L",
+        "KEY_LEFT",
+        "KEY_LEFTALT",
+        "KEY_LEFTBRACE",
+        "KEY_LEFTCTRL",
+        "KEY_LEFTMETA",
+        "KEY_LEFTSHIFT",
+        "KEY_M",
+        "KEY_MINUS",
+        "KEY_N",
+        "KEY_O",
+        "KEY_P",
+        "KEY_PAGEDOWN",
+        "KEY_PAGEUP",
+        "KEY_Q",
+        "KEY_R",
+        "KEY_RIGHT",
+        "KEY_RIGHTALT",
+        "KEY_RIGHTBRACE",
+        "KEY_S",
+        "KEY_SEMICOLON",
+        "KEY_SLASH",
+        "KEY_SPACE",
+        "KEY_SYSRQ",
+        "KEY_T",
+        "KEY_TAB",
+        "KEY_U",
+        "KEY_UP",
+        "KEY_V",
+        "KEY_W",
+        "KEY_X",
+        "KEY_Y",
+        "KEY_Z"
+      ]
     },
     "pointer": {
       "name": "pcbridge-pointer",
-      "event_types": ["EV_ABS", "EV_KEY", "EV_REL"],
-      "keys": ["BTN_LEFT", "BTN_RIGHT", "BTN_MIDDLE"],
+      "event_types": [
+        "EV_ABS",
+        "EV_KEY",
+        "EV_REL"
+      ],
+      "keys": [
+        "BTN_LEFT",
+        "BTN_RIGHT",
+        "BTN_MIDDLE"
+      ],
       "absolute": {
         "ABS_X": {
           "min": 0,
@@ -31,7 +128,26 @@
           "max": 1079
         }
       },
-      "relative": ["REL_WHEEL", "REL_HWHEEL"]
+      "relative": [
+        "REL_WHEEL",
+        "REL_HWHEEL"
+      ]
+    },
+    "pointer_relative": {
+      "name": "pcbridge-pointer-rel",
+      "event_types": [
+        "EV_KEY",
+        "EV_REL"
+      ],
+      "keys": [
+        "BTN_LEFT",
+        "BTN_RIGHT",
+        "BTN_MIDDLE"
+      ],
+      "relative": [
+        "REL_X",
+        "REL_Y"
+      ]
     }
   },
   "cases": [
@@ -41,20 +157,53 @@
       "calls": [
         {
           "op": "key",
-          "args": ["ctrl+shift+t"]
+          "args": [
+            "ctrl+shift+t"
+          ]
         }
       ],
       "expect": {
         "events": [
-          ["EV_KEY", "KEY_LEFTCTRL", 1],
-          ["EV_KEY", "KEY_LEFTSHIFT", 1],
-          ["EV_KEY", "KEY_T", 1],
-          ["SYN"],
-          ["sleep", 0.03],
-          ["EV_KEY", "KEY_T", 0],
-          ["EV_KEY", "KEY_LEFTSHIFT", 0],
-          ["EV_KEY", "KEY_LEFTCTRL", 0],
-          ["SYN"]
+          [
+            "EV_KEY",
+            "KEY_LEFTCTRL",
+            1
+          ],
+          [
+            "EV_KEY",
+            "KEY_LEFTSHIFT",
+            1
+          ],
+          [
+            "EV_KEY",
+            "KEY_T",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.03
+          ],
+          [
+            "EV_KEY",
+            "KEY_T",
+            0
+          ],
+          [
+            "EV_KEY",
+            "KEY_LEFTSHIFT",
+            0
+          ],
+          [
+            "EV_KEY",
+            "KEY_LEFTCTRL",
+            0
+          ],
+          [
+            "SYN"
+          ]
         ],
         "hold_timers": [],
         "outputs": [],
@@ -67,11 +216,15 @@
       "calls": [
         {
           "op": "key_down",
-          "args": ["shift"]
+          "args": [
+            "shift"
+          ]
         },
         {
           "op": "key",
-          "args": ["shift+home"]
+          "args": [
+            "shift+home"
+          ]
         },
         {
           "op": "held"
@@ -79,20 +232,49 @@
       ],
       "expect": {
         "events": [
-          ["EV_KEY", "KEY_LEFTSHIFT", 1],
-          ["SYN"],
-          ["EV_KEY", "KEY_LEFTSHIFT", 1],
-          ["EV_KEY", "KEY_HOME", 1],
-          ["SYN"],
-          ["sleep", 0.03],
-          ["EV_KEY", "KEY_HOME", 0],
-          ["SYN"]
+          [
+            "EV_KEY",
+            "KEY_LEFTSHIFT",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "EV_KEY",
+            "KEY_LEFTSHIFT",
+            1
+          ],
+          [
+            "EV_KEY",
+            "KEY_HOME",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.03
+          ],
+          [
+            "EV_KEY",
+            "KEY_HOME",
+            0
+          ],
+          [
+            "SYN"
+          ]
         ],
-        "hold_timers": [120.0],
+        "hold_timers": [
+          120.0
+        ],
         "outputs": [
           [
             "held",
-            ["shift"]
+            [
+              "shift"
+            ]
           ]
         ],
         "position": null
@@ -104,14 +286,18 @@
       "calls": [
         {
           "op": "key_down",
-          "args": ["ctrl+alt"]
+          "args": [
+            "ctrl+alt"
+          ]
         },
         {
           "op": "held"
         },
         {
           "op": "key_up",
-          "args": ["ctrl+alt"]
+          "args": [
+            "ctrl+alt"
+          ]
         },
         {
           "op": "held"
@@ -119,18 +305,43 @@
       ],
       "expect": {
         "events": [
-          ["EV_KEY", "KEY_LEFTCTRL", 1],
-          ["EV_KEY", "KEY_LEFTALT", 1],
-          ["SYN"],
-          ["EV_KEY", "KEY_LEFTALT", 0],
-          ["EV_KEY", "KEY_LEFTCTRL", 0],
-          ["SYN"]
+          [
+            "EV_KEY",
+            "KEY_LEFTCTRL",
+            1
+          ],
+          [
+            "EV_KEY",
+            "KEY_LEFTALT",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "EV_KEY",
+            "KEY_LEFTALT",
+            0
+          ],
+          [
+            "EV_KEY",
+            "KEY_LEFTCTRL",
+            0
+          ],
+          [
+            "SYN"
+          ]
         ],
-        "hold_timers": [120.0],
+        "hold_timers": [
+          120.0
+        ],
         "outputs": [
           [
             "held",
-            ["ctrl", "alt"]
+            [
+              "ctrl",
+              "alt"
+            ]
           ],
           [
             "held",
@@ -146,15 +357,21 @@
       "calls": [
         {
           "op": "key_down",
-          "args": ["shift"]
+          "args": [
+            "shift"
+          ]
         },
         {
           "op": "mouse_down",
-          "args": ["left"]
+          "args": [
+            "left"
+          ]
         },
         {
           "op": "key_down",
-          "args": ["ctrl"]
+          "args": [
+            "ctrl"
+          ]
         },
         {
           "op": "release_all"
@@ -165,23 +382,65 @@
       ],
       "expect": {
         "events": [
-          ["EV_KEY", "KEY_LEFTSHIFT", 1],
-          ["SYN"],
-          ["EV_KEY", "BTN_LEFT", 1],
-          ["SYN"],
-          ["EV_KEY", "KEY_LEFTCTRL", 1],
-          ["SYN"],
-          ["EV_KEY", "KEY_LEFTSHIFT", 0],
-          ["EV_KEY", "KEY_LEFTCTRL", 0],
-          ["SYN"],
-          ["EV_KEY", "BTN_LEFT", 0],
-          ["SYN"]
+          [
+            "EV_KEY",
+            "KEY_LEFTSHIFT",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "EV_KEY",
+            "BTN_LEFT",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "EV_KEY",
+            "KEY_LEFTCTRL",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "EV_KEY",
+            "KEY_LEFTSHIFT",
+            0
+          ],
+          [
+            "EV_KEY",
+            "KEY_LEFTCTRL",
+            0
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "EV_KEY",
+            "BTN_LEFT",
+            0
+          ],
+          [
+            "SYN"
+          ]
         ],
-        "hold_timers": [120.0, 120.0, 120.0],
+        "hold_timers": [
+          120.0,
+          120.0,
+          120.0
+        ],
         "outputs": [
           [
             "release_all",
-            ["shift", "ctrl", "left"]
+            [
+              "shift",
+              "ctrl",
+              "left"
+            ]
           ],
           [
             "held",
@@ -194,124 +453,448 @@
     {
       "name": "pointer_path",
       "why": "960 px at 5000 px/s = 192 ms = 24 smoothstep points 8 ms apart; the start is not written.",
-      "start": [100, 100],
+      "start": [
+        100,
+        100
+      ],
       "calls": [
         {
           "op": "move",
-          "args": [1060, 100]
+          "args": [
+            1060,
+            100
+          ]
         }
       ],
       "expect": {
         "events": [
-          ["EV_ABS", "ABS_X", 105],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 119],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 141],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 171],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 208],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 250],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 297],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 349],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 404],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 461],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 520],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 580],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 640],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 699],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 756],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 811],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 863],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 910],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 952],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 989],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 1019],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 1041],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 1055],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 1060],
-          ["EV_ABS", "ABS_Y", 100],
-          ["SYN"]
+          [
+            "EV_ABS",
+            "ABS_X",
+            105
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            119
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            141
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            171
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            208
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            250
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            297
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            349
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            404
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            461
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            520
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            580
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            640
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            699
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            756
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            811
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            863
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            910
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            952
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            989
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            1019
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            1041
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            1055
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            1060
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ]
         ],
         "hold_timers": [],
         "outputs": [],
-        "position": [1060, 100]
+        "position": [
+          1060,
+          100
+        ]
       }
     },
     {
       "name": "pointer_teleport",
       "why": "smooth=false writes only the target.",
-      "start": [100, 100],
+      "start": [
+        100,
+        100
+      ],
       "calls": [
         {
           "op": "move",
-          "args": [3000, 900],
+          "args": [
+            3000,
+            900
+          ],
           "kwargs": {
             "smooth": false
           }
@@ -319,13 +902,26 @@
       ],
       "expect": {
         "events": [
-          ["EV_ABS", "ABS_X", 3000],
-          ["EV_ABS", "ABS_Y", 900],
-          ["SYN"]
+          [
+            "EV_ABS",
+            "ABS_X",
+            3000
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            900
+          ],
+          [
+            "SYN"
+          ]
         ],
         "hold_timers": [],
         "outputs": [],
-        "position": [3000, 900]
+        "position": [
+          3000,
+          900
+        ]
       }
     },
     {
@@ -335,47 +931,105 @@
       "calls": [
         {
           "op": "move",
-          "args": [5000, -30]
+          "args": [
+            5000,
+            -30
+          ]
         }
       ],
       "expect": {
         "events": [
-          ["EV_ABS", "ABS_X", 3839],
-          ["EV_ABS", "ABS_Y", 0],
-          ["SYN"]
+          [
+            "EV_ABS",
+            "ABS_X",
+            3839
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            0
+          ],
+          [
+            "SYN"
+          ]
         ],
         "hold_timers": [],
         "outputs": [],
-        "position": [3839, 0]
+        "position": [
+          3839,
+          0
+        ]
       }
     },
     {
       "name": "double_click",
       "why": "Each press lasts 30 ms; 80 ms between the two clicks keeps it under the double-click threshold.",
-      "start": [500, 500],
+      "start": [
+        500,
+        500
+      ],
       "calls": [
         {
           "op": "click",
-          "args": ["left", 2]
+          "args": [
+            "left",
+            2
+          ]
         }
       ],
       "expect": {
         "events": [
-          ["EV_KEY", "BTN_LEFT", 1],
-          ["SYN"],
-          ["sleep", 0.03],
-          ["EV_KEY", "BTN_LEFT", 0],
-          ["SYN"],
-          ["sleep", 0.08],
-          ["EV_KEY", "BTN_LEFT", 1],
-          ["SYN"],
-          ["sleep", 0.03],
-          ["EV_KEY", "BTN_LEFT", 0],
-          ["SYN"]
+          [
+            "EV_KEY",
+            "BTN_LEFT",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.03
+          ],
+          [
+            "EV_KEY",
+            "BTN_LEFT",
+            0
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.08
+          ],
+          [
+            "EV_KEY",
+            "BTN_LEFT",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.03
+          ],
+          [
+            "EV_KEY",
+            "BTN_LEFT",
+            0
+          ],
+          [
+            "SYN"
+          ]
         ],
         "hold_timers": [],
         "outputs": [],
-        "position": [500, 500]
+        "position": [
+          500,
+          500
+        ]
       }
     },
     {
@@ -384,20 +1038,49 @@
       "calls": [
         {
           "op": "scroll",
-          "args": [3]
+          "args": [
+            3
+          ]
         }
       ],
       "expect": {
         "events": [
-          ["EV_REL", "REL_WHEEL", 1],
-          ["SYN"],
-          ["sleep", 0.01],
-          ["EV_REL", "REL_WHEEL", 1],
-          ["SYN"],
-          ["sleep", 0.01],
-          ["EV_REL", "REL_WHEEL", 1],
-          ["SYN"],
-          ["sleep", 0.01]
+          [
+            "EV_REL",
+            "REL_WHEEL",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.01
+          ],
+          [
+            "EV_REL",
+            "REL_WHEEL",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.01
+          ],
+          [
+            "EV_REL",
+            "REL_WHEEL",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.01
+          ]
         ],
         "hold_timers": [],
         "outputs": [],
@@ -410,7 +1093,9 @@
       "calls": [
         {
           "op": "scroll",
-          "args": [-2],
+          "args": [
+            -2
+          ],
           "kwargs": {
             "horizontal": true
           }
@@ -418,12 +1103,30 @@
       ],
       "expect": {
         "events": [
-          ["EV_REL", "REL_HWHEEL", -1],
-          ["SYN"],
-          ["sleep", 0.01],
-          ["EV_REL", "REL_HWHEEL", -1],
-          ["SYN"],
-          ["sleep", 0.01]
+          [
+            "EV_REL",
+            "REL_HWHEEL",
+            -1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.01
+          ],
+          [
+            "EV_REL",
+            "REL_HWHEEL",
+            -1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.01
+          ]
         ],
         "hold_timers": [],
         "outputs": [],
@@ -433,68 +1136,239 @@
     {
       "name": "drag",
       "why": "Move to the start, press, at least 10 points even for a short drag, release; 50 ms settles.",
-      "start": [10, 10],
+      "start": [
+        10,
+        10
+      ],
       "calls": [
         {
           "op": "drag",
-          "args": [10, 10, 210, 10]
+          "args": [
+            10,
+            10,
+            210,
+            10
+          ]
         }
       ],
       "expect": {
         "events": [
-          ["EV_ABS", "ABS_X", 10],
-          ["EV_ABS", "ABS_Y", 10],
-          ["SYN"],
-          ["sleep", 0.05],
-          ["EV_KEY", "BTN_LEFT", 1],
-          ["SYN"],
-          ["sleep", 0.05],
-          ["EV_ABS", "ABS_X", 16],
-          ["EV_ABS", "ABS_Y", 10],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 31],
-          ["EV_ABS", "ABS_Y", 10],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 53],
-          ["EV_ABS", "ABS_Y", 10],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 80],
-          ["EV_ABS", "ABS_Y", 10],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 110],
-          ["EV_ABS", "ABS_Y", 10],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 140],
-          ["EV_ABS", "ABS_Y", 10],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 167],
-          ["EV_ABS", "ABS_Y", 10],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 189],
-          ["EV_ABS", "ABS_Y", 10],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 204],
-          ["EV_ABS", "ABS_Y", 10],
-          ["SYN"],
-          ["sleep", 0.008],
-          ["EV_ABS", "ABS_X", 210],
-          ["EV_ABS", "ABS_Y", 10],
-          ["SYN"],
-          ["sleep", 0.05],
-          ["EV_KEY", "BTN_LEFT", 0],
-          ["SYN"]
+          [
+            "EV_ABS",
+            "ABS_X",
+            10
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            10
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.05
+          ],
+          [
+            "EV_KEY",
+            "BTN_LEFT",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.05
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            16
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            10
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            31
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            10
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            53
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            10
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            80
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            10
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            110
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            10
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            140
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            10
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            167
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            10
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            189
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            10
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            204
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            10
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            210
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            10
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.05
+          ],
+          [
+            "EV_KEY",
+            "BTN_LEFT",
+            0
+          ],
+          [
+            "SYN"
+          ]
         ],
-        "hold_timers": [120.0],
+        "hold_timers": [
+          120.0
+        ],
         "outputs": [],
-        "position": [210, 10]
+        "position": [
+          210,
+          10
+        ]
       }
     },
     {
@@ -503,7 +1377,9 @@
       "calls": [
         {
           "op": "key_down",
-          "args": ["shift"]
+          "args": [
+            "shift"
+          ]
         },
         {
           "op": "fire_hold_timer"
@@ -520,16 +1396,32 @@
       ],
       "expect": {
         "events": [
-          ["EV_KEY", "KEY_LEFTSHIFT", 1],
-          ["SYN"],
-          ["EV_KEY", "KEY_LEFTSHIFT", 0],
-          ["SYN"]
+          [
+            "EV_KEY",
+            "KEY_LEFTSHIFT",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "EV_KEY",
+            "KEY_LEFTSHIFT",
+            0
+          ],
+          [
+            "SYN"
+          ]
         ],
-        "hold_timers": [120.0],
+        "hold_timers": [
+          120.0
+        ],
         "outputs": [
           [
             "take_auto_released",
-            ["shift"]
+            [
+              "shift"
+            ]
           ],
           [
             "take_auto_released",
@@ -549,7 +1441,9 @@
       "calls": [
         {
           "op": "type_text",
-          "args": ["aB1"],
+          "args": [
+            "aB1"
+          ],
           "kwargs": {
             "raw": true,
             "restore_clipboard": false
@@ -558,26 +1452,191 @@
       ],
       "expect": {
         "events": [
-          ["EV_KEY", "KEY_A", 1],
-          ["SYN"],
-          ["sleep", 0.03],
-          ["EV_KEY", "KEY_A", 0],
-          ["SYN"],
-          ["sleep", 0.012],
-          ["EV_KEY", "KEY_LEFTSHIFT", 1],
-          ["EV_KEY", "KEY_B", 1],
-          ["SYN"],
-          ["sleep", 0.03],
-          ["EV_KEY", "KEY_B", 0],
-          ["EV_KEY", "KEY_LEFTSHIFT", 0],
-          ["SYN"],
-          ["sleep", 0.012],
-          ["EV_KEY", "KEY_1", 1],
-          ["SYN"],
-          ["sleep", 0.03],
-          ["EV_KEY", "KEY_1", 0],
-          ["SYN"],
-          ["sleep", 0.012]
+          [
+            "EV_KEY",
+            "KEY_A",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.03
+          ],
+          [
+            "EV_KEY",
+            "KEY_A",
+            0
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.012
+          ],
+          [
+            "EV_KEY",
+            "KEY_LEFTSHIFT",
+            1
+          ],
+          [
+            "EV_KEY",
+            "KEY_B",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.03
+          ],
+          [
+            "EV_KEY",
+            "KEY_B",
+            0
+          ],
+          [
+            "EV_KEY",
+            "KEY_LEFTSHIFT",
+            0
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.012
+          ],
+          [
+            "EV_KEY",
+            "KEY_1",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.03
+          ],
+          [
+            "EV_KEY",
+            "KEY_1",
+            0
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.012
+          ]
+        ],
+        "hold_timers": [],
+        "outputs": [],
+        "position": null
+      }
+    },
+    {
+      "name": "move_by_small",
+      "about": "Tek parcaya sigan goreli kaydirma; konum artik bilinmiyor.",
+      "start": [
+        100,
+        100
+      ],
+      "calls": [
+        {
+          "op": "move_by",
+          "args": [
+            10,
+            0
+          ]
+        }
+      ],
+      "expect": {
+        "events": [
+          [
+            "EV_REL",
+            "REL_X",
+            10
+          ],
+          [
+            "SYN"
+          ]
+        ],
+        "hold_timers": [],
+        "outputs": [],
+        "position": null
+      }
+    },
+    {
+      "name": "move_by_chunked",
+      "about": "Buyuk delta ~8 ms araliklarla parcalanir; toplam korunur.",
+      "start": [
+        100,
+        100
+      ],
+      "calls": [
+        {
+          "op": "move_by",
+          "args": [
+            40,
+            -16
+          ]
+        }
+      ],
+      "expect": {
+        "events": [
+          [
+            "EV_REL",
+            "REL_X",
+            14
+          ],
+          [
+            "EV_REL",
+            "REL_Y",
+            -6
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_REL",
+            "REL_X",
+            13
+          ],
+          [
+            "EV_REL",
+            "REL_Y",
+            -5
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_REL",
+            "REL_X",
+            13
+          ],
+          [
+            "EV_REL",
+            "REL_Y",
+            -5
+          ],
+          [
+            "SYN"
+          ]
         ],
         "hold_timers": [],
         "outputs": [],

@@ -134,12 +134,13 @@ def main(argv: list[str] | None = None) -> int:
         # actirmaz, degilse actirir. Yanlis bildirmek ajani "cihaz gerekmiyor"
         # diye yanlis plana sokar.
         fast_focus = appslib.extension_focus_available()
-        want_k, want_p = opslib.devices_needed(
+        want_k, want_p, want_r = opslib.devices_needed(
             plan, focus_uses_keyboard=not fast_focus
         )
         lines.append(
             f"gereken cihazlar: klavye={'evet' if want_k else 'hayir'} "
-            f"fare={'evet' if want_p else 'hayir'}"
+            f"fare={'evet' if want_p else 'hayir'} "
+            f"goreli-fare={'evet' if want_r else 'hayir'}"
         )
         if "focus" in {a.a for a in plan}:
             lines.append(
@@ -249,10 +250,13 @@ def _run_plan(cfg, args, plan, runtime) -> int:
     tree = runtime.accessibility_provider
 
     # Cihazlari bastan ac: ikisi de gerekiyorsa bekleme tek sefere iner.
-    want_k, want_p = opslib.devices_needed(
+    want_k, want_p, want_r = opslib.devices_needed(
         plan, focus_uses_keyboard=focus_uses_keyboard
     )
-    warmup = backend.ensure(keyboard=want_k, pointer=want_p) if (want_k or want_p) else 0.0
+    warmup = (
+        backend.ensure(keyboard=want_k, pointer=want_p, relative=want_r)
+        if (want_k or want_p or want_r) else 0.0
+    )
 
     gap = 1.0 / cfg.desktop.max_actions_per_second if cfg.desktop.max_actions_per_second > 0 else 0.0
     check_focus = cfg.desktop.batch_check_focus and not args.no_check_focus

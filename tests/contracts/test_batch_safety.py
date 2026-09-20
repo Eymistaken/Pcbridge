@@ -158,6 +158,9 @@ class RecordingOps:
     def move(self, x, y, monitor, shot=None):
         return self._do("move", f"{x},{y}")
 
+    def move_by(self, dx, dy):
+        return self._do("move_by", f"{dx},{dy}")
+
     def click(self, button, count, x, y, monitor, shot=None):
         return self._do("click", f"{x},{y}")
 

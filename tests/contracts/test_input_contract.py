@@ -55,12 +55,14 @@ REQUIRED_CASES = {
     "drag",
     "hold_auto_release",
     "type_raw",
+    "move_by_small",
+    "move_by_chunked",
 }
 
 _KNOWN_NAMES = (
     set(inputlib.KEY_NAMES.values())
     | set(inputlib.BUTTON_IDENTS.values())
-    | {"ABS_X", "ABS_Y", "REL_WHEEL", "REL_HWHEEL"}
+    | {"ABS_X", "ABS_Y", "REL_WHEEL", "REL_HWHEEL", "REL_X", "REL_Y"}
 )
 
 
@@ -130,7 +132,7 @@ class Recorder:
 def recording_backend(
     *, start: list[int] | None = None, hold_max_seconds: float = 120.0
 ) -> Iterator[tuple[inputlib.InputBackend, Recorder]]:
-    """An `InputBackend` with both devices open and a known pointer start."""
+    """An `InputBackend` with all three devices open and a known pointer start."""
     recorder = Recorder()
     with (
         mock.patch.object(inputlib, "UInput", recorder.uinput),
@@ -142,7 +144,7 @@ def recording_backend(
         backend = inputlib.InputBackend(
             pointer_speed=5000, pointer_max_ms=500, hold_max_seconds=hold_max_seconds
         )
-        backend.ensure(keyboard=True, pointer=True)
+        backend.ensure(keyboard=True, pointer=True, relative=True)
         backend._pos = tuple(start) if start is not None else None
         recorder.events.clear()
         yield backend, recorder
@@ -172,10 +174,11 @@ def replay(case: dict[str, Any]) -> dict[str, Any]:
 
 
 def describe_devices() -> dict[str, Any]:
-    """The capabilities both virtual devices are created with."""
+    """The capabilities all three virtual devices are created with."""
     with recording_backend() as (_backend, recorder):
         keyboard = recorder.capabilities["pcbridge-keyboard"]
         pointer = recorder.capabilities["pcbridge-pointer"]
+        relative = recorder.capabilities["pcbridge-pointer-rel"]
     return {
         "keyboard": {
             "name": "pcbridge-keyboard",
@@ -191,6 +194,12 @@ def describe_devices() -> dict[str, Any]:
                 for code, info in pointer[ecodes.EV_ABS]
             },
             "relative": [code_name(ecodes.EV_REL, c) for c in pointer[ecodes.EV_REL]],
+        },
+        "pointer_relative": {
+            "name": "pcbridge-pointer-rel",
+            "event_types": sorted(ecodes.EV[t] for t in relative),
+            "keys": [code_name(ecodes.EV_KEY, c) for c in relative[ecodes.EV_KEY]],
+            "relative": [code_name(ecodes.EV_REL, c) for c in relative[ecodes.EV_REL]],
         },
     }
 
@@ -233,6 +242,48 @@ class InputEventFixtureTests(unittest.TestCase):
             {"ABS_X": {"min": 0, "max": CANVAS[0] - 1},
              "ABS_Y": {"min": 0, "max": CANVAS[1] - 1}},
         )
+
+    def test_relative_axes_did_not_leak_onto_the_absolute_device(self) -> None:
+        # The BTN_TOUCH lesson in machine-checkable form: the relative pointer
+        # is a SEPARATE device (Adim 7), and the absolute one must keep exactly
+        # the wheel axes it was measured with.
+        self.assertEqual(
+            self.fixture["devices"]["pointer"]["relative"],
+            ["REL_WHEEL", "REL_HWHEEL"],
+        )
+
+    def test_the_relative_device_declares_buttons_it_never_emits(self) -> None:
+        # MEASURED 2026-09-20: a REL_X/REL_Y device with no EV_KEY gets no
+        # ID_INPUT_MOUSE from udev and moves the cursor zero pixels, while its
+        # button-carrying twin moved 23. The buttons are declared for that
+        # classification only -- every press still goes out of the absolute
+        # device, so a relative case may never contain an EV_KEY event.
+        relative = self.fixture["devices"]["pointer_relative"]
+        self.assertEqual(relative["relative"], ["REL_X", "REL_Y"])
+        self.assertIn("BTN_LEFT", relative["keys"])
+        self.assertNotIn("EV_ABS", relative["event_types"])
+        for name in ("move_by_small", "move_by_chunked"):
+            events = self.cases[name]["expect"]["events"]
+            self.assertEqual([e for e in events if e[0] == "EV_KEY"], [])
+
+    def test_a_relative_move_forgets_the_pointer_position(self) -> None:
+        # An absolute position cached across a relative nudge is a lie.
+        for name in ("move_by_small", "move_by_chunked"):
+            self.assertIsNone(self.cases[name]["expect"]["position"])
+
+    def test_move_by_is_capped_in_delta_and_in_chunks(self) -> None:
+        with recording_backend() as (backend, recorder):
+            backend.move_by(99_999, 0)
+        moved = [e for e in recorder.events if e[:2] == ["EV_REL", "REL_X"]]
+        self.assertEqual(sum(e[2] for e in moved), inputlib.MOVE_BY_MAX)
+        self.assertLessEqual(len(moved), inputlib.MOVE_BY_MAX_CHUNKS)
+
+    def test_the_batch_delta_cap_matches_the_device_one(self) -> None:
+        # `batch` deliberately does not import the device module, so it carries
+        # its own copy of the limit. This is what keeps the two from drifting.
+        from pcbridge.desktop import batch as batchlib
+
+        self.assertEqual(batchlib.MOVE_BY_MAX, inputlib.MOVE_BY_MAX)
 
     def test_every_case_replays_to_its_golden_events(self) -> None:
         for name, case in self.cases.items():

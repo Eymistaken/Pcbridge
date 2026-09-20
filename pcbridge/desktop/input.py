@@ -15,6 +15,14 @@ OLCULDU (2026-08-01)
     BTN_TOOL_PEN EKLENMEMELI: onlar cihazi dokunmatik ekran/tablet yapar ve
     kompozitor tek bir cikisa baglar -- ikinci monitore ulasilamaz.
 
+IKI FARE CIHAZI (Adim 7)
+    Mutlak cihazin yaninda AYRI bir goreli cihaz var (`_make_relative`,
+    `move_by`): `REL_X`/`REL_Y` yayiyor ve pointer lock kullanan uygulamalarin
+    -- oyunlar, Blender/CAD, WebGL -- okudugu tek hareket bicimi o. Mutlak
+    cihaza `REL_X`/`REL_Y` EKLENMEDI, cunku yukaridaki `BTN_TOUCH` dersinin
+    aynisi gecerli: sinifllandirmasini degistiren her ekleme <=1 px olcumunu
+    gecersiz kilar.
+
 KOORDINATLAR
     Buradaki her fonksiyon **global tuval koordinati** bekler. Monitore ozel
     koordinat `monitors.to_global()` ile cevrilir ve bu donusum yalnizca
@@ -92,6 +100,21 @@ DRAG_MIN_STEPS = 10
 # Diske yazilan son imlec konumu bu kadar eskiyse guvenilmez sayilir. Uzun
 # aradan sonra kullanicinin fareyi eliyle oynatmis olmasi kuvvetle muhtemel.
 POS_MAX_AGE_SECONDS = 300.0
+
+# ------------------------------------------------------------- goreli hareket
+# `move_by` tek cagrida bundan buyuk bir delta gondermez. Tuvalden genis, yani
+# gercek bir isi engellemiyor; sinirsiz delta kullanicinin kendi masaustune
+# DoS demek olurdu.
+MOVE_BY_MAX = 4000
+
+# Parca sayisi tavani: en kotu 64 x 8 ms ~ 512 ms, `move`un olculmus 498 ms'lik
+# kosegen tavaniyla ayni mertebe.
+MOVE_BY_MAX_CHUNKS = 64
+
+# Parca basina hedeflenen buyukluk. Parcalamanin SONUCU DEGISTIRMEDIGI olculdu
+# (asagida `relative_chunks`); bu sayi yalnizca hareketin kac adimda
+# gonderilecegini belirliyor, toplamini degil.
+MOVE_BY_CHUNK_UNITS = 16
 
 
 class InputError(RuntimeError):
@@ -314,6 +337,48 @@ def move_path(
     return points
 
 
+def relative_chunks(
+    dx: int,
+    dy: int,
+    max_chunks: int = MOVE_BY_MAX_CHUNKS,
+    chunk_units: int = MOVE_BY_CHUNK_UNITS,
+    limit: int = MOVE_BY_MAX,
+) -> list[tuple[int, int]]:
+    """(dx, dy) goreli deltasini ardisik gonderilecek parcalara bol.
+
+    SAF: cihaz gormez, uyumaz, kuresel duruma bakmaz -- `move_path` ile ayni
+    gerekcede burada: parcalama uinput acmadan test edilebilsin diye.
+
+    `move_path`tan FARKLI bir is yapiyor. Orada arasi doldurulacak iki nokta
+    var; burada yalnizca bir toplam var, interpole edilecek bir sey yok. Desen
+    bu yuzden `scroll`unki: sabit adim, N kez, sert tavan.
+
+    OLCULDU 2026-09-20 (gercek masaustu, iki monitor): parcalamak toplami
+    DEGISTIRMIYOR. 200 birim tek olay olarak da, 25x8 / 100x2 / 200x1 olarak da
+    **92 piksel** gitti -- libinput artigi biriktiriyor, kucuk adimlar
+    kaybolmuyor. Yine de boluyoruz: goreli okuyan bir uygulama ani bir sicrama
+    yerine duzgun bir donus gorsun diye.
+
+    SINIR: tek atislik cok kucuk bir delta masaustunde kaybolabilir. Bu
+    makinede olcek 0,46 (asagi bkz. `move_by`), yani `dx=1` sifir piksel
+    demek. Bir DIZI halinde gonderildiginde kaybolmuyor.
+    """
+    dx = max(-limit, min(int(dx), limit))
+    dy = max(-limit, min(int(dy), limit))
+    span = max(abs(dx), abs(dy))
+    if span == 0:
+        return []
+    steps = min(max_chunks, max(1, math.ceil(span / max(1, chunk_units))))
+    return list(zip(_share(dx, steps), _share(dy, steps)))
+
+
+def _share(total: int, steps: int) -> list[int]:
+    """`total`i `steps` parcaya, kalani basa dagitarak bol. Toplam korunur."""
+    sign = -1 if total < 0 else 1
+    base, extra = divmod(abs(total), steps)
+    return [sign * (base + (1 if i < extra else 0)) for i in range(steps)]
+
+
 # ------------------------------------------------------------------- pano yolu
 # Pano islemleri `clipboard.py`de: native girdi Ctrl+V'yi gonderirken panoyu
 # kimin tuttugu ayri bir karar (Task 5.4). Orkestrasyon asagida, `type_text`te.
@@ -350,6 +415,7 @@ class InputBackend:
         )
         self._kbd: "UInput | None" = None
         self._ptr: "UInput | None" = None
+        self._rel: "UInput | None" = None
         self._canvas: tuple[int, int] | None = None
         self._pos_file = Path(pos_file) if pos_file else None
         self._pos: tuple[int, int] | None = self._read_pos()
@@ -416,7 +482,35 @@ class InputBackend:
         }
         return UInput(caps, name="pcbridge-pointer", version=1), canvas
 
-    def ensure(self, keyboard: bool = False, pointer: bool = False) -> float:
+    def _make_relative(self) -> "UInput":
+        """Cihazi yarat, BEKLEME. GORELI fare -- mutlak olanin KARDESI, yerine
+        gecmiyor (Adim 7).
+
+        Neden AYRI cihaz: mutlak cihazin iki monitorde 6 noktada <=1 px
+        sapmayla calistigi olculdu ve sinifllandirmasini degistiren her ekleme
+        o olcumu gecersiz kilar (`BTN_TOUCH` dersi, yukaridaki modul
+        docstring'i). Ayri cihaz bu riski sifirliyor.
+
+        DUGMELER SART -- OLCULDU 2026-09-20. `EV_KEY` olmadan yaratilan bir
+        `REL_X`/`REL_Y` cihazina udev `ID_INPUT_MOUSE` vermiyor ve imlec HIC
+        oynamiyor (dx=50 -> 0 piksel). Dugmeli kardesi ayni cagride 23 piksel
+        gitti. Bu yuzden uc dugme ILAN EDILIYOR ama buradan HIC YAYILMIYOR;
+        basma/birakma mutlak cihazin isi ve `_held_buttons` yalnizca onu
+        izliyor.
+
+        ABS araligi YOK, yani tuval boyutuyla isi yok: `_relative()`
+        `_pointer()`un aksine monitor degisiminde cihazi YENIDEN YARATMAZ.
+        """
+        caps = {
+            e.EV_KEY: [e.BTN_LEFT, e.BTN_RIGHT, e.BTN_MIDDLE],
+            e.EV_REL: [e.REL_X, e.REL_Y],
+        }
+        return UInput(caps, name="pcbridge-pointer-rel", version=1)
+
+    def ensure(
+        self, keyboard: bool = False, pointer: bool = False,
+        relative: bool = False,
+    ) -> float:
         """Istenen cihazlari onceden yarat ve beklemeyi TEK SEFER paylastir.
 
         Cihazlar normalde tembel aciliyor ve her biri kendi `settle`'ini
@@ -436,7 +530,8 @@ class InputBackend:
         """
         need_k = keyboard and self._kbd is None
         need_p = pointer and self._ptr is None
-        if not (need_k or need_p):
+        need_r = relative and self._rel is None
+        if not (need_k or need_p or need_r):
             return 0.0
         self._require()
         if need_k:
@@ -444,6 +539,8 @@ class InputBackend:
         if need_p:
             self._ptr, self._canvas = self._make_pointer()
             self._pos = self._read_pos()
+        if need_r:
+            self._rel = self._make_relative()
         time.sleep(self._settle)
         return self._settle
 
@@ -471,19 +568,29 @@ class InputBackend:
             time.sleep(self._settle)
         return self._ptr
 
+    def _relative(self) -> "UInput":
+        """Goreli cihaz, tembel. `_pointer()`un aksine monitor degisiminde
+        YENIDEN YARATILMAZ: ABS araligi yok, tuval boyutu onu ilgilendirmiyor.
+        """
+        if self._rel is None:
+            self._require()
+            self._rel = self._make_relative()
+            time.sleep(self._settle)
+        return self._rel
+
     def close(self) -> None:
         # Once ACIKCA birak. Cihaz yok edilince kernel'in basili tuslari
         # birakip birakmadigi bu makinede OLCULEMEDI (cihazin event node'u
         # destroy ile birlikte kayboluyor, olay okunamiyor). Olculmemis bir
         # davranisa guvenmek yerine kendimiz birakiyoruz -- maliyeti yok.
         self.release_all()
-        for dev in (self._kbd, self._ptr):
+        for dev in (self._kbd, self._ptr, self._rel):
             try:
                 if dev is not None:
                     dev.close()
             except Exception:  # noqa: BLE001 — kapanirken hata yutulur
                 pass
-        self._kbd = self._ptr = None
+        self._kbd = self._ptr = self._rel = None
         self._canvas = self._pos = None
 
     # -------------------------------------------------------- basili tutma
@@ -597,6 +704,23 @@ class InputBackend:
         except Exception:  # noqa: BLE001 - yazamamak hareketi bozmamali
             pass
 
+    def _forget_pos(self) -> None:
+        """Kayitli konumu "bilinmiyor" yap: bellekte VE diskte.
+
+        Goreli bir hareketten sonra kayitli mutlak konum bir YALAN. `None`
+        zaten yiginin her katmaninda "bilinmiyor" demek (`_read_pos` eksik ya
+        da bayat dosyada `None` donuyor, `position` `tuple | None`, protokol
+        `{"position": null}`), o yuzden yeni bir isaret icat edilmiyor: dosya
+        siliniyor. Bir sonraki mutlak `move` kendini onariyor.
+        """
+        self._pos = None
+        if self._pos_file is None:
+            return
+        try:
+            self._pos_file.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001 - silememek hareketi bozmamali
+            pass
+
     # ------------------------------------------------------------------- fare
     def _clamp(self, x: int, y: int) -> tuple[int, int]:
         w, h = monitorslib.canvas_size()
@@ -640,6 +764,52 @@ class InputBackend:
         self._pos = (cx, cy)
         self._write_pos()
         return (cx, cy)
+
+    def move_by(self, dx: int, dy: int) -> tuple[int, int]:
+        """Imleci BULUNDUGU yerden `dx`/`dy` kadar kaydir. AYRI cihaz.
+
+        `move` ile ayni is DEGIL ve karistirilmamali. `move` "suraya git"
+        diyor: kesin, dogrulanabilir, tiklamanin tek yolu. `move_by` "su kadar
+        su yone" diyor ve ekranda bir noktaya ulasmanin yolu DEGIL.
+
+        Var olma sebebi *pointer lock*: imleci gizleyip ortada kilitleyen ve
+        kompozitorden goreli hareket okuyan uygulamalar (oyunlar, Blender/CAD
+        sahne dondurme, WebGL) mutlak "su noktaya git" mesajini hic gormuyor.
+        Kilit disaridan sorulamadigi icin bu yol HER ZAMAN aciktir.
+
+        OLCULDU 2026-09-20 (gercek masaustu): hareket dogrusal, ivme yok
+        (kosegen dx=dy=50 her eksende tek eksenli 50 kadar gidiyor). Masaustu
+        olcegi kullanicinin GNOME fare hizi ayarina bagli: `k = 1 + speed`,
+        bu makinede 1 - 0,54074 = **0,46** (200 birim -> 92 piksel; `speed`
+        gecici olarak 0.0 yapilinca oran tam 1,0 oldu). Bu yuzden delta
+        PIKSEL DEGIL cihaz birimidir ve olceğe bolunmuyor: bolunseydi
+        parametre masaustunde bir sey, kilitli bir oyunda baska bir sey
+        anlamina gelirdi.
+
+        `smooth` / `pointer_speed` buraya UYGULANMAZ: interpole edilecek iki
+        nokta yok.
+
+        Doner: fiilen gonderilen (dx, dy) -- kirpilmis olabilir.
+        """
+        chunks = relative_chunks(dx, dy)
+        if not chunks:
+            return (0, 0)
+        rel = self._relative()
+        # ONCE unut, SONRA gonder. Emit ortada olurse deltalarin bir kismi
+        # gitmistir ve konum yanlistir; "bilinmiyor" o zaman dogru cevaptir.
+        # Sonra unutmak, kismi bir hatanin yalanladigi bir konumu beyan etmek
+        # olurdu. Sezgiye ters, bu yuzden yaziyor.
+        self._forget_pos()
+        last = len(chunks) - 1
+        for i, (sx, sy) in enumerate(chunks):
+            if sx:
+                rel.write(e.EV_REL, e.REL_X, sx)
+            if sy:
+                rel.write(e.EV_REL, e.REL_Y, sy)
+            rel.syn()
+            if i < last:
+                time.sleep(MOVE_STEP_SECONDS)
+        return (sum(s for s, _ in chunks), sum(s for _, s in chunks))
 
     def _button(self, button: str) -> int:
         return button_code(button)

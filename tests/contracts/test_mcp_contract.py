@@ -211,6 +211,8 @@ class McpContractTests(unittest.TestCase):
                     "y",
                     "to_x",
                     "to_y",
+                    "dx",
+                    "dy",
                     "scroll_amount",
                     "horizontal",
                     "button",
@@ -225,6 +227,9 @@ class McpContractTests(unittest.TestCase):
                     "y": None,
                     "to_x": None,
                     "to_y": None,
+                    # `move_by` deltasi: koordinat degil, o yuzden None degil 0.
+                    "dx": 0,
+                    "dy": 0,
                     "scroll_amount": 3,
                     "horizontal": False,
                     "button": "left",
