@@ -362,17 +362,30 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   süre, `until` ise her kullanımda `now + 90 sn`'ye çekiliyor. Ölçüldü
   2026-09-20: araya kod okuma/ölçüm giren gerçek bir görevde izin dört kez
   yeniden açılmak zorunda kaldı.
-- **Sanal fare MUTLAK; `REL_X`/`REL_Y` yok, bu yüzden pointer-lock'lu
-  uygulamalarda bakış açısı çevrilemiyor.** Cihaz (Python `input.py` ve Rust
-  `input/pointer.rs`'te birebir aynı) `BTN_LEFT/RIGHT/MIDDLE` + `ABS_X` +
-  `ABS_Y` + `REL_WHEEL` + `REL_HWHEEL` yayıyor. Gerçek oyunda görüldü
-  (2026-09-20, Minecraft): klavye ve fare düğmeleri çalışıyor, ama sağa sola
-  dönülemiyor. Sebep, oyunun imleci kilitleyip **göreli** hareket okuması
-  (`zwp_relative_pointer_v1`); mutlak cihazın "şu noktaya git" mesajının
-  kilitli imleçte karşılığı yok. Çözümü planlandı ama YAZILMADI:
-  `WALKTHROUGH.md` → Adım 7. Oraya bakmadan `REL_X`/`REL_Y`'yi mevcut cihaza
-  **ekleme** — `BTN_TOUCH` dersinin aynısı, o cihazın ölçülmüş ≤1 px sapmasını
-  riske atar; tasarım ayrı bir ikinci cihaz.
+- **İKİ fare cihazı var: mutlak ve göreli.** Mutlak olan
+  (`pcbridge-pointer`) `BTN_LEFT/RIGHT/MIDDLE` + `ABS_X` + `ABS_Y` +
+  `REL_WHEEL` + `REL_HWHEEL` yayıyor; göreli olan
+  (`pcbridge-pointer-rel`, Adım 7) `REL_X` + `REL_Y` + aynı üç düğme.
+  **Mutlak cihaza `REL_X`/`REL_Y` EKLEME** — `BTN_TOUCH` dersinin aynısı,
+  ölçülmüş ≤1 px sapmasını riske atar; golden fixture bunu negatif bir
+  assertion'la sabitliyor.
+  - **Göreli cihazın düğmeleri ŞART, süs değil.** Ölçüldü 2026-09-20:
+    `EV_KEY` olmadan udev `ID_INPUT_MOUSE` vermiyor ve imleç hiç oynamıyor
+    (dx=50 → 0 px); düğmeli kardeşi 23 px gitti. Düğmeler ilan ediliyor ama
+    o cihazdan **hiç yayılmıyor**.
+  - **Delta piksel değil cihaz birimi.** Masaüstü ölçeği kullanıcının fare
+    hızı ayarı: `k = 1 + speed`, bu makinede **0,46** (200 birim → 92 px;
+    `speed = 0.0` iken oran tam 1,0). Bilerek `k`'ya bölünmüyor.
+  - **Göreli hareketten sonra mutlak `move` bir piksel yana uğrar.**
+    Ölçüldü: imleç göreli hareketle 960'tan 1052'ye gittikten sonra mutlak
+    cihazdan yine `ABS_X=960` göndermek **hiçbir şey yapmıyor** — çekirdek
+    tekrar edilen mutlak değeri yutuyor. 961 çalışıyor, ardından 960 da.
+    Bu yüzden `move_by` konumu unuttururken ABS durumunu da bayat
+    işaretliyor. Kaldırma: sessizce yanlış yere tıklamaya geri dönülür.
+  - **Wayland'de çalışıyor, XWayland'de ÇALIŞMIYOR.** Kilitli bir Wayland
+    istemcisi (Chrome, yerel sayfa) 4000 birimi 1837 olarak gördü; Minecraft
+    (XWayland, `mutter-x11-frames`) 2400 birimde 0,7 derece döndü — mutlak
+    hareket de oraya ulaşmıyor. Ayrıntı `WALKTHROUGH.md` → Adım 7.
 - **Pointer lock DIŞARIDAN sorulamıyor.** Wayland'de "şu an bir istemci
   imleci kilitli tutuyor mu" diye sorulabilecek bir arayüz yok ve Mutter da
   söylemiyor. "Yalnızca kilitliyken izin ver" diyen her kapı tahmine dayanır;

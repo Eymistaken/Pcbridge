@@ -10,11 +10,13 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **SIRADAKİ İŞ: Adım 7 — göreli fare hareketi (`move_by`).** Planlandı,
-  kasıtlı olarak yazılmadı. Bölümü aşağıda; **oradan başla.** İlk yapılacak
-  şey kod değil **ölçüm**: libinput sanal cihazın göreli eksenine ivme
-  uyguluyor mu, ve udev ile "flat" profil verilirse delta 1:1 piksele oturuyor
-  mu? Tasarımın geri kalanını o cevap belirliyor, o yüzden tahmin etme.
+- **SIRADAKİ İŞ: yol haritasında zorunlu bir madde kalmadı.** Adım 7 bitti
+  (2026-09-20). Açık duran üç şey var, üçü de isteğe bağlı: **#8** (imleç
+  katmanını fiziksel fareyle denemek, kullanıcıda), **Minecraft/XWayland**
+  (`move_by` Wayland istemcisinde çalışıyor, XWayland'de çalışmıyor —
+  ölçüldü; oyunu native Wayland backend'iyle çalıştırmak denenmedi) ve
+  **Faz 8** (legacy retirement, ön koşulu sağlanmadı). Yeni bir işe
+  başlamadan önce kullanıcıya hangisini istediğini sor.
 - **Kullanıcıyı bekleyen tek madde: #8** (imleç katmanı, fiziksel fareyle
   deneme). İsteğe bağlı; projenin hiçbir parçası buna bağlı değil.
 - **Blocker:** Yok.
@@ -32,6 +34,14 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 - **Son doğrulanan gate:** **Gate 6 geçti** (2026-09-20): erişilebilirlik
   okuma, eylem ve pencere işlemleri gerçek masaüstünde doğrulandı. Gate 5
   2026-09-19'da, Gate 4 2026-09-13'te geçti.
+- **Adım 7 bitti (2026-09-20): göreli fare hareketi.** Ayrı, ikinci bir
+  uinput cihazı ve `move_by`; iki backend'de. Pointer lock'lu bir Wayland
+  uygulamasında ölçüldü (4000 birim → 1837, `k = 1 + speed` = 0,46); mutlak
+  cihazın ≤1 px'i göreli cihaz açıkken **0 px** çıktı. **Minecraft'ta
+  çalışmıyor**, çünkü oyun XWayland'de — ayrıntı Adım 7 bölümünde. Yol
+  boyunca gerçek bir kusur da düzeltildi: göreli hareketten sonra aynı
+  noktaya dönen mutlak `move` sessizce hiçbir şey yapmıyordu (çekirdek
+  tekrar edilen ABS değerini yutuyor).
 - **19-20 Eylül gecesi yapılanlar:** Task 6.4 → **Gate 6** → Task 7.1 →
   Task 7.3/7.4 (ölçüldü, uygulanmadı) → Adım 6 (imleç katmanı) → Faz 8 (ön
   koşul yok, envanter). Ayrıntıları Adım 5 ve Adım 6 bölümlerinde.
@@ -59,6 +69,7 @@ yapılınca silinmez, `yapıldı` diye işaretlenir.
 | 5 | Task 4.3 yayılımı: servisi ve stdio istemcilerini yeniden başlatıp native yolu gerçek kullanımda görmek. `config.toml`'da `[native]` bölümü yok, yani yeni süreçler native yolu seçecek. Sıra: `bridgekilit` → `job_list` boş mu → `systemctl --user restart pcbridge` → Claude Code/Codex'i yeniden başlat → `./doctor.sh` 8. bölüm → `desktop_unlock` sonrası sağ alttaki görev çubuğunda gösterge var, `desktop_lock` sonrası yok. Geri alma: `[native]` altına `capture = "python"` + aynı yeniden başlatmalar. Task 5.1'in yürütme kilidi ve eylem başına izin kontrolü de aynı yeniden başlatmayla devreye girer | Restart çalışan işleri öldürür; stdio süreçleri istemcinin; göstergeyi gözle görmek gerekiyor | `yapıldı` — servis 2026-09-13, stdio istemcileri 2026-09-20 (kullanıcı Claude'u kapatıp açtı) |
 | 7 | Task 6.3 ve 6.4 yayılımı: native erişilebilirlik (`ui_dump`, `ui_click`, `ui_set_text`, `window_list`) ve yeni pencere sırası (`window_focus`, `launch`, `focus`) stdio istemcilerinde. Servis iki kez yeniden başlatıldı ve yeni kodda; Claude Code ve Claude Desktop'un stdio süreçleri eski kodu çalıştırıyor | stdio süreçleri istemcinin; uygulama kapatılıp açılınca yeni koda geçer | `yapıldı` — servis 2026-09-19, stdio istemcileri 2026-09-20. Yeni pencere sırası canlıda doğrulandı: kapalı uygulamada `window_focus` "başlatıldı ve odakta" döndü |
 | 8 | Adım 6 — imleç katmanı gerçek oturumda: çıkış/giriş sonrası işaret dosyasını açıp (`touch ~/.local/state/pcbridge/gorunur-imlec`) izin verdikten sonra FİZİKSEL fareyle tıklama ve akış normal mi? 2026-08-04'te bozulan buydu; kare saati düzeltmesi nested kabukta ölçüldü ama gerçek farede denenmedi. Bozulursa işaret dosyasını silmek yeter | Eklenti kodu ancak çıkış/girişte yeniden okunuyor; arıza yalnızca fiziksel fareyle görüldü | `bekliyor` |
+| 9 | Adım 7 — Minecraft'ta `move_by`: oyun XWayland'de çalıştığı için göreli hareketi almıyor (ölçüldü 2026-09-20: 2400 birim → 0,7°; mutlak `move` de bakışı çevirmiyor). Aynı çağrı native Wayland'de kilitli bir sayfada tam ölçüsünde çalışıyor. Denenmemiş tek yol oyunu native Wayland backend'iyle başlatmak (LWJGL 3.4.3 SDL); bu kullanıcının Modrinth kurulumunu değiştirir | Kurulum değişikliği kullanıcının kararı | `karar bekliyor` |
 | 6 | Task 5.4 / 4 — gerçek girdi testi (`yapıldı` 2026-09-19, 8/8): `PCBRIDGE_TEST_INPUT=1 PCBRIDGE_INPUT_REPORT=<yol> ./.venv/bin/python -m unittest tests/live/test_input_parity.py -v`. İki ekranı ~1 dk kaplayan test penceresi; fare kendiliğinden hareket eder, pencereye tıklar, pencerenin içindeki kutuya Türkçe metin yazar, Shift'i kısa süre basılı tutar | Gerçek tuş ve tıklama gönderiyor; kullanıcı başında olmalı ve o sırada klavye/fareye dokunmamalı. Acil durdurma: Super+L (ekran kilidi native aygıtları anında kapatır) | `yapıldı` (2026-09-19) |
 
 ---
@@ -76,7 +87,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
 | 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅ **Gate 5**; 6.1–6.4 ✅ **Gate 6**; 7.1 ✅, 7.3/7.4 ölçülüp uygulanmadı; sırada 7.2) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `uygulandı, kapalı geliyor` (gerçek fareyle doğrulama kullanıcıda, #8) |
-| 7 | Göreli fare hareketi (`move_by`) — göreli okuyan her uygulama için, kilit şartı yok | `planlandı, yapılmadı` |
+| 7 | Göreli fare hareketi (`move_by`) — göreli okuyan her uygulama için, kilit şartı yok | `tamamlandı` (Wayland'de ölçüldü; XWayland'de çalışmıyor) |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
 ## Adım 0 — Belge omurgası
@@ -2923,97 +2934,117 @@ dokunulmuyor; Wayland soketi yoksa tür uydurulmuyor.
   kalabiliyor; `window_list` ise hiçbirini odakta göstermiyordu. İkisinin
   aynı anda doğru olamayacağı açık, ama kaynağı bulunmadı.
 
-## Adım 7 — Göreli fare hareketi · `planlandı, yapılmadı`
+## Adım 7 — Göreli fare hareketi · `tamamlandı` (2026-09-20)
 
 **Belirti (kullanıcı, 2026-09-20, gerçek oyun).** Minecraft'ta klavye
 çalışıyor (ileri/geri/sağ/sol), fare düğmeleri çalışıyor, ama **sağa sola
 dönülemiyor.**
 
-**Sebep.** Oyun *pointer lock* kullanıyor: imleci gizleyip ekranın ortasına
+**Sebep.** Pointer lock kullanan bir uygulama imleci gizleyip ekranın ortasına
 kilitliyor ve kompozitörden **göreli** hareket okuyor
-(`zwp_relative_pointer_v1`). pcbridge'in sanal faresi ise mutlak —
-`ABS_X`/`ABS_Y` ile "şu noktaya git" diyor. Kilitli bir oyunda gidilecek nokta
-yok, bu yüzden mesaj karşılıksız kalıyor. Düğmeler ve klavye zaten olaysal
-olduğu için etkilenmiyor. Ölçüldü: cihaz (Python ve Rust'ta birebir aynı)
-`BTN_LEFT/RIGHT/MIDDLE` + `ABS_X` + `ABS_Y` + `REL_WHEEL` + `REL_HWHEEL`
-yayıyor; `REL_X`/`REL_Y` **yok**.
+(`zwp_relative_pointer_v1`). pcbridge'in sanal faresi ise mutlaktı —
+`ABS_X`/`ABS_Y` ile "şu noktaya git" diyordu; kilitli bir uygulamada
+gidilecek nokta yok.
 
-**Neden yapmaya değer.** Bu estetik bir eksik değil, kapalı bir uygulama
-sınıfı. Pointer lock'u yalnızca oyunlar kullanmıyor: Blender/CAD'de sahne
-döndürme, harita sürükleme, tarayıcıdaki WebGL uygulamaları aynı yolu
-kullanıyor. Hiçbir güvenlik özelliğini zayıflatmıyor — aynı kapı, aynı izin,
-aynı denetim kaydı, aynı yürütme kilidi — ve göreli hareket mutlak hareketten
-daha zararsız, çünkü belirli bir ekran noktasına ışınlanamıyor.
+**Yapılan.** AYRI, ikinci bir uinput cihazı (`pcbridge-pointer-rel`:
+`REL_X` + `REL_Y` + üç düğme) ve tek yeni eylem `move_by(dx, dy)`; `mouse`,
+`computer_batch` ve `bin/pcb-do`'da, **iki backend'de birden**. Mutlak cihaza
+dokunulmadı.
 
-**Vaat DAR tutulacak.** "Makine artık pointer-lock'lu uygulamalarda
-sürülebiliyor" denir; "ajan oyun oynayabiliyor" **denmez**. Döngü ekran
-görüntüsüne bağlı: bir çekim ~789 ms ve ~1200–1900 jeton, üstelik 60 saniyede
-bayatlıyor. Kapalı döngüde nişan almak bu bütçeyle pratik değil.
+### Ölçülenler (gerçek masaüstü, 2026-09-20)
 
-**Tasarım.**
+**Hareket doğrusal, ivme YOK.** Köşegen `dx=dy=50` her eksende tek eksenli
+50 kadar gidiyor (23 px) — ivme vektör hızının fonksiyonu olsaydı gitmezdi.
+`accel-profile` zaten `flat`.
 
-- **AYRI, ikinci bir uinput cihazı**: `REL_X` + `REL_Y` + aynı üç düğme.
-  Mevcut cihaza `REL_X`/`REL_Y` **eklenmeyecek**. Sebep `BTN_TOUCH` dersinin
-  aynısı: o cihazın iki monitörde 6 noktada ≤1 px sapmayla çalıştığı ölçüldü,
-  sınıflandırmasını değiştiren her ekleme o ölçümü geçersiz kılar. Ayrı cihaz
-  bu riski sıfırlıyor.
-- Tek yeni eylem: `computer_batch` içinde `{"a":"move_by","dx":…,"dy":…}`,
-  `Ops` protokolünde karşılığı, `bin/pcb-do`'da aynısı. Adı **`look` değil**:
-  bu genel bir ilkel, yalnızca oyunlara ait değil (kullanıcı kararı,
-  2026-09-20 — "istediği zaman kullanabilsin").
-- **Her zaman kullanılabilir, kilit şartı YOK.** Başka türlüsü zaten mümkün
-  değil: Wayland'de "şu an bir istemci imleci kilitli tutuyor mu" diye
-  sorulabilecek bir yer yok ve Mutter da söylemiyor. "Yalnızca kilitliyken
-  izin ver" diyen bir kapı, tahmine dayanan bir kapı olurdu.
-- **`move` ile `move_by` ayrı işler ve docstring bunu SÖYLEMELİ.** `move`
-  "şuraya git" -- kesin, doğrulanabilir, iki monitörde 6 noktada ≤1 px
-  sapmayla ölçüldü; tıklamak için tek yol odur. `move_by` "şu kadar şu yöne"
-  -- göreli hareket okuyan uygulamalar için, ekranda bir noktaya ulaşmanın
-  yolu DEĞİL. Bu ayrım koda değil docstring'e yazılır, çünkü istemci araç
-  seçerken yalnızca onu okuyor. Karışırsa projenin aylarca uğraşıp kapattığı
-  hata sınıfı geri açılır: sessizce yanlış yere tıklamak.
-- Dönüş mesajı imlecin yeni konumunun **bilinmediğini** söyler ve tıklamadan
-  önce `ui_dump`/`screen_capture` ister -- bayat görüntü kuralının aynısı.
-- Büyük delta tek parça gönderilmez, `input.move_path` gibi ~8 ms aralıklarla
-  bölünür: ivme düşük hız rejiminde kalır (daha doğrusal) ve oyun ani sıçrama
-  yerine düzgün dönüş görür. Desen projede zaten var.
-- `system_capabilities` yeni bir yetenek bildirir (`input.pointer_relative`),
-  böylece ajan bakabilir mi bilir.
-- **İKİ backend'de birden** yazılacak (Python `input.py` ve Rust
-  `input/pointer.rs`). Yalnızca birinde olursa `[native] input = "auto"`
-  özelliği sessizce kaybettirir — bu tam olarak projenin daha önce yaşadığı
-  hata sınıfı.
-- `look` masaüstü imlecini de kaydırır ve `pointer.json`'daki konumu
-  yalanlar. Çözüm: `look` sonrası konum "bilinmiyor" işaretlenir. Kendi
-  kendini onarıyor, çünkü bir sonraki `move` zaten mutlak.
+**Ölçek kullanıcının fare hızı ayarı: `k = 1 + speed`.** Bu makinede
+1 − 0,54074 = **0,46**: 200 birim → 92 px, 300 → 138. `speed` geçici olarak
+0.0 yapılınca oran tam **1,0** oldu (sonra geri yazıldı). Bu yüzden delta
+**cihaz birimidir, piksel değildir** ve `k`'ya bölünmüyor: bölünseydi
+parametre masaüstünde bir şey, kilitli bir uygulamada başka bir şey anlamına
+gelirdi.
 
-**Ölçülmeden yazılamayacaklar (tahmin edilmeyecek).**
+**Parçalama toplamı DEĞİŞTİRMİYOR.** 200 birim tek olay olarak da, 25×8 /
+100×2 / 200×1 olarak da 92 piksel gitti — libinput artığı biriktiriyor, küçük
+adımlar kaybolmuyor. Yine de ~8 ms'lik parçalara bölünüyor: uygulama ani bir
+sıçrama yerine düzgün bir dönüş görsün diye. Sınır: tek atışlık `dx=1`
+masaüstünde 0 piksel (0,46 aşağı yuvarlanıyor); bir dizi içinde kaybolmuyor.
 
-1. libinput göreli eksene ivme profili uyguluyor mu; oyunun gördüğü delta
-   doğrusal mı? GLFW ham fare hareketi isteyebiliyor, o yolda ivmesiz delta
-   gelir — ama bu makinede DOĞRULANMADI. **Bu ölçümün sonucu tasarımı
-   değiştirir:** ivme varsa `move_by` masaüstünde piksel cinsinden belirsizdir
-   ve yalnızca göreli okuyan uygulamalar için kalır. libinput'un ivme profili
-   cihaz başına sabitlenebiliyor ve bu proje zaten kendi udev kuralını
-   taşıyor (`60-pcbridge-uinput.rules`); sanal cihaza "flat" profil verilip
-   deltanın 1:1 piksele oturup oturmadığı denenmeli. Oturuyorsa belirsizlik
-   itirazı tamamen düşer ve `move_by` masaüstünde de kesin olur.
-2. Bir birim delta kaç derece dönüş? Oyunun hassasiyet ayarına bağlı, sabit
-   değil. Kalibrasyon: 360° döndürüp toplam delta sayılır.
-3. Kilitliyken mutlak cihazın hâlâ olay göndermesi titremeye yol açıyor mu?
+**Düğmeler ŞART — ölçüldü, varsayılmadı.** `EV_KEY` olmadan yaratılan bir
+`REL_X`/`REL_Y` cihazına udev `ID_INPUT_MOUSE` **vermiyor** ve imleç hiç
+oynamıyor (dx=50 → 0 piksel); düğmeli kardeşi aynı çağrıda 23 piksel gitti.
+Üç düğme bu yüzden **ilan ediliyor ama hiç yayılmıyor**; her basma mutlak
+cihazdan çıkıyor.
 
-**Kabul ölçütü.** Minecraft'ta `move_by` ile sağa/sola ve yukarı/aşağı
-bakılabiliyor, bakış yönü ekran görüntüsüyle önce/sonra karşılaştırılarak
-doğrulanıyor; delta→derece oranı ölçülüp buraya yazılıyor; mutlak
-tıklamanın ≤1 px sapması yeni cihazdan sonra **yeniden** ölçülüp
-bozulmadığı gösteriliyor; iki backend de aynı testten geçiyor.
+**Pointer lock'lu bir uygulamada ÇALIŞIYOR.** Yerel bir sayfa (Chrome, native
+Wayland) `requestPointerLock` ile imleci kilitleyip `movementX/Y` topladı:
 
-Ayrıca: `move_by` masaüstünde de çağrılabildiği için, kilitli olmayan bir
-oturumda imlecin gerçekten beklenen yöne gittiği ve sonraki mutlak `move`'un
-konumu **kendiliğinden düzelttiği** gösterilmeli.
+| Gönderilen | Uygulamanın gördüğü | Oran |
+|---|---|---|
+| dx 300 / dy −150 | 137 / −69 | 0,457 / 0,46 |
+| dx 4000 (tavan) | 1837 | 0,459 |
 
-**Geri alma.** Yeni cihaz ayrı olduğu için yaratılmaması yeterli; mevcut
-hiçbir yol değişmiyor.
+Olay sayısı da sözleşmeyle birebir: 300 için **19** parça
+(`ceil(300/16)`), 4000 için **64** — `MOVE_BY_MAX_CHUNKS`. `dx=99999`
+eylem listesinde reddediliyor. Masaüstündeki `k` ile kilitli uygulamadaki
+aynı çıktı.
+
+**AMA MINECRAFT'TA ÇALIŞMIYOR — ve sebebi pcbridge değil.** Aynı oturumda,
+Fabric 26.3, tek oyunculu dünya: 2400 birim göreli hareket bakışı **0,7
+derece** oynattı; mutlak `move` de bakışı hiç çevirmedi. Fark **pencere
+yığını**: `xlsclients` Chrome'u listelemiyor (native Wayland), Minecraft ise
+`window_list`'te `mutter-x11-frames` olarak görünüyor — **XWayland**. Yani
+göreli hareket Wayland istemcisine ulaşıyor, XWayland üzerinden gelen X11
+pointer grab'ine ulaşmıyor. Minecraft 26.3'ün fare ayarlarında "Raw Input"
+seçeneği **yok** (bu sürümde kaldırılmış), yani oyun tarafından
+ayarlanabilecek bir şey de değil. Denenmemiş yol: oyunu native Wayland
+backend'iyle çalıştırmak (LWJGL 3.4.3 + SDL); bu kullanıcının kurulumunu
+değiştirir, o yüzden yapılmadı.
+
+**Vaat bu yüzden dar:** "pointer lock kullanan **Wayland** uygulamalarında
+sürülebiliyor". XWayland'de değil, ve "ajan oyun oynayabiliyor" hiç değil.
+
+### Yol boyunca çıkan gerçek kusur: bayat ABS durumu
+
+Doğrulama sırasında çıktı ve **"araç taşındı diyor, taşımamış"** olarak
+gidiyordu. Göreli hareket imleci 960'tan 1052'ye taşıdıktan sonra mutlak
+cihazdan yine `ABS_X=960` göndermek **hiçbir şey yapmıyor**: çekirdek
+tekrar edilen mutlak değeri "değişiklik yok" sayıp yutuyor, imleç 1052'de
+kalıyor. Ölçüldü: 961 çalışıyor, ardından 960 da çalışıyor.
+
+Düzeltme iki backend'de: göreli hareket kayıtlı konumu unuttururken mutlak
+durumu da **bayat** işaretliyor, bir sonraki mutlak `move` hedefe gitmeden
+önce bir piksel yana uğruyor. Golden fixture bunu `move_by_then_absolute`
+ile sabitliyor; kardeş test sıradan bir `move`'un bu fazladan olayı
+**ödemediğini** sabitliyor. Düzeltmeden sonra gerçek masaüstünde sapma
+**92 px → 0 px**.
+
+### Kabul ölçütünün durumu
+
+| Ölçüt | Durum |
+|---|---|
+| Pointer-lock'lu uygulamada bakılabiliyor, ölçümle doğrulandı | ✅ (Chrome, Wayland) |
+| delta → uygulama oranı ölçülüp yazıldı | ✅ `k = 1 + speed` = 0,46 |
+| Mutlak tıklamanın ≤1 px sapması yeni cihazdan sonra yeniden ölçüldü | ✅ **0 px**, göreli cihaz AÇIKKEN, iki monitörde 4 hedef |
+| İki backend de aynı testten geçiyor | ✅ Python ve Rust aynı olayları üretiyor (golden fixture), canlı parity 10/10 |
+| Minecraft'ta delta→derece kalibrasyonu | ❌ **yapılamadı** — oyun XWayland'de ve göreli hareketi almıyor |
+
+### Testler
+
+- Golden fixture: `devices.pointer_relative` + `move_by_small`,
+  `move_by_chunked`, `move_by_then_absolute`. Elle yazıldı, koddan
+  üretilmedi; hem Python (`test_input_contract.py`) hem Rust
+  (`relative_contract.rs`) aynı dosyaya bakıyor.
+- Negatif assertion: mutlak cihazın göreli eksenleri hâlâ **tam olarak**
+  `["REL_WHEEL","REL_HWHEEL"]` — `BTN_TOUCH` dersinin makine tarafından
+  kontrol edilebilir hâli.
+- Revoke'un uzun bir `move_by`'yi ortada kestiği, saati süren deterministik
+  bir testle sabitlendi (thread yarışı değil).
+- Canlı: `test_input_parity.py` 9 ve 9b.
+
+**Geri alma.** Cihaz ayrı olduğu için yaratılmaması yeterli; mevcut hiçbir
+yol değişmiyor. `[native] input = "python"` eski yolu geri getirir.
+
 
 ## Ertelenen (bilinçli)
 

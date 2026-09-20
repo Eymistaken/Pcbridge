@@ -367,9 +367,26 @@ onay, dört tur gecikme. Bir menü seçimi için kabul edilemez.
  {"a": "ui_click", "id": "3c1a"}]
 ```
 
-Eylemler: `key`, `type`, `hold`, `release`, `wait`, `move`, `click`,
-`double_click`, `triple_click`, `right_click`, `middle_click`, `mouse_down`,
-`mouse_up`, `drag`, `scroll`, `ui_click`, `ui_set_text`, `launch`, `focus`.
+Eylemler: `key`, `type`, `hold`, `release`, `wait`, `move`, `move_by`,
+`click`, `double_click`, `triple_click`, `right_click`, `middle_click`,
+`mouse_down`, `mouse_up`, `drag`, `scroll`, `ui_click`, `ui_set_text`,
+`launch`, `focus`.
+
+`move` ile `move_by` **ayrı işlerdir.** `move` "şuraya git" der: kesin,
+ekran görüntüsüyle doğrulanabilir ve tıklamanın tek yoludur. `move_by`
+"şu kadar şu yöne" der ve ekranda bir noktaya ulaşmanın yolu **değildir**:
+imleci kilitleyip göreli hareket okuyan uygulamalar için vardır (oyunlar,
+3B/CAD görünümleri, WebGL). Ayrı, ikinci bir sanal cihazdan çıkar; izin ve
+denetim kaydı aynıdır. Delta **piksel değildir** — masaüstünde ne kadar yol
+alacağı kullanıcının fare hızı ayarına bağlıdır (bu makinede 0,46 katı) ve
+kilitli bir uygulamada anlamını uygulama belirler. Sonrasında imlecin konumu
+**bilinmez**: tıklamadan önce ekranı yeniden okuyun ya da mutlak bir `move`
+ile bilinen bir noktaya gidin.
+
+Bir sınır ölçüldü (2026-09-20): `move_by` **Wayland** uygulamalarında
+çalışıyor, **XWayland** üzerinden çalışanlarda çalışmıyor. Minecraft
+(XWayland) bakış açısını çevirmiyor; aynı çağrı native Wayland'de kilitli
+bir sayfada tam ölçüsünde çalışıyor.
 
 `hold` / `mouse_down` sonraki eylemlere **taşar**: ara duraklaması olan bir
 sürükleme (kaydırıcı, seçim dikdörtgeni) `mouse_down` → `move` → `move` →
@@ -539,7 +556,7 @@ ya da bir işin bittiğini fark etmek için.
 | `notify` | Masaüstünde bildirim çıkarır |
 | `desktop_unlock` | Pcbridge masaüstü araçlarına süreli grant verir; işletim sistemi izinlerini değiştirmez |
 | `desktop_lock` | İzni erken kapatır, sanal cihazları yok eder |
-| `mouse` | Fareyi hareket ettirir (ışınlamaz, ara noktalardan geçer), tıklar (tek/çift/üçlü, sağ/orta), sürükler, kaydırır (dikey + yatay), düğmeyi basılı tutar |
+| `mouse` | Fareyi hareket ettirir (ışınlamaz, ara noktalardan geçer), tıklar (tek/çift/üçlü, sağ/orta), sürükler, kaydırır (dikey + yatay), düğmeyi basılı tutar; `move_by` ile imleci **göreli** kaydırır (aşağı bkz.) |
 | `keyboard` | Metin yazar (pano yoluyla) veya tuş kombinasyonu gönderir; `hold`/`release` ile istenen sayıda tuşu basılı tutar |
 | `screen_info` | Monitör tablosu, koordinat uzayı, odaktaki pencere |
 | `screen_capture` | Ekran görüntüsü alır (sessiz — flaş/ses yok): görüntünün kendisi, uzaktan bağlıysan ayrıca 5 dakikalık bağlantı |
