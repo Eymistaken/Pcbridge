@@ -70,7 +70,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
 | 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅ **Gate 5**; 6.1–6.4 ✅ **Gate 6**; 7.1 ✅, 7.3/7.4 ölçülüp uygulanmadı; sırada 7.2) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `uygulandı, kapalı geliyor` (gerçek fareyle doğrulama kullanıcıda, #8) |
-| 7 | Göreli fare hareketi — pointer-lock'lu uygulamalarda bakış | `planlandı, yapılmadı` |
+| 7 | Göreli fare hareketi (`move_by`) — göreli okuyan her uygulama için, kilit şartı yok | `planlandı, yapılmadı` |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
 ## Adım 0 — Belge omurgası
@@ -2951,8 +2951,26 @@ bayatlıyor. Kapalı döngüde nişan almak bu bütçeyle pratik değil.
   aynısı: o cihazın iki monitörde 6 noktada ≤1 px sapmayla çalıştığı ölçüldü,
   sınıflandırmasını değiştiren her ekleme o ölçümü geçersiz kılar. Ayrı cihaz
   bu riski sıfırlıyor.
-- Tek yeni eylem: `computer_batch` içinde `{"a":"look","dx":…,"dy":…}`, `Ops`
-  protokolünde karşılığı, `bin/pcb-do`'da aynısı.
+- Tek yeni eylem: `computer_batch` içinde `{"a":"move_by","dx":…,"dy":…}`,
+  `Ops` protokolünde karşılığı, `bin/pcb-do`'da aynısı. Adı **`look` değil**:
+  bu genel bir ilkel, yalnızca oyunlara ait değil (kullanıcı kararı,
+  2026-09-20 — "istediği zaman kullanabilsin").
+- **Her zaman kullanılabilir, kilit şartı YOK.** Başka türlüsü zaten mümkün
+  değil: Wayland'de "şu an bir istemci imleci kilitli tutuyor mu" diye
+  sorulabilecek bir yer yok ve Mutter da söylemiyor. "Yalnızca kilitliyken
+  izin ver" diyen bir kapı, tahmine dayanan bir kapı olurdu.
+- **`move` ile `move_by` ayrı işler ve docstring bunu SÖYLEMELİ.** `move`
+  "şuraya git" -- kesin, doğrulanabilir, iki monitörde 6 noktada ≤1 px
+  sapmayla ölçüldü; tıklamak için tek yol odur. `move_by` "şu kadar şu yöne"
+  -- göreli hareket okuyan uygulamalar için, ekranda bir noktaya ulaşmanın
+  yolu DEĞİL. Bu ayrım koda değil docstring'e yazılır, çünkü istemci araç
+  seçerken yalnızca onu okuyor. Karışırsa projenin aylarca uğraşıp kapattığı
+  hata sınıfı geri açılır: sessizce yanlış yere tıklamak.
+- Dönüş mesajı imlecin yeni konumunun **bilinmediğini** söyler ve tıklamadan
+  önce `ui_dump`/`screen_capture` ister -- bayat görüntü kuralının aynısı.
+- Büyük delta tek parça gönderilmez, `input.move_path` gibi ~8 ms aralıklarla
+  bölünür: ivme düşük hız rejiminde kalır (daha doğrusal) ve oyun ani sıçrama
+  yerine düzgün dönüş görür. Desen projede zaten var.
 - `system_capabilities` yeni bir yetenek bildirir (`input.pointer_relative`),
   böylece ajan bakabilir mi bilir.
 - **İKİ backend'de birden** yazılacak (Python `input.py` ve Rust
@@ -2967,16 +2985,26 @@ bayatlıyor. Kapalı döngüde nişan almak bu bütçeyle pratik değil.
 
 1. libinput göreli eksene ivme profili uyguluyor mu; oyunun gördüğü delta
    doğrusal mı? GLFW ham fare hareketi isteyebiliyor, o yolda ivmesiz delta
-   gelir — ama bu makinede DOĞRULANMADI.
+   gelir — ama bu makinede DOĞRULANMADI. **Bu ölçümün sonucu tasarımı
+   değiştirir:** ivme varsa `move_by` masaüstünde piksel cinsinden belirsizdir
+   ve yalnızca göreli okuyan uygulamalar için kalır. libinput'un ivme profili
+   cihaz başına sabitlenebiliyor ve bu proje zaten kendi udev kuralını
+   taşıyor (`60-pcbridge-uinput.rules`); sanal cihaza "flat" profil verilip
+   deltanın 1:1 piksele oturup oturmadığı denenmeli. Oturuyorsa belirsizlik
+   itirazı tamamen düşer ve `move_by` masaüstünde de kesin olur.
 2. Bir birim delta kaç derece dönüş? Oyunun hassasiyet ayarına bağlı, sabit
    değil. Kalibrasyon: 360° döndürüp toplam delta sayılır.
 3. Kilitliyken mutlak cihazın hâlâ olay göndermesi titremeye yol açıyor mu?
 
-**Kabul ölçütü.** Minecraft'ta `look` ile sağa/sola ve yukarı/aşağı
+**Kabul ölçütü.** Minecraft'ta `move_by` ile sağa/sola ve yukarı/aşağı
 bakılabiliyor, bakış yönü ekran görüntüsüyle önce/sonra karşılaştırılarak
 doğrulanıyor; delta→derece oranı ölçülüp buraya yazılıyor; mutlak
 tıklamanın ≤1 px sapması yeni cihazdan sonra **yeniden** ölçülüp
 bozulmadığı gösteriliyor; iki backend de aynı testten geçiyor.
+
+Ayrıca: `move_by` masaüstünde de çağrılabildiği için, kilitli olmayan bir
+oturumda imlecin gerçekten beklenen yöne gittiği ve sonraki mutlak `move`'un
+konumu **kendiliğinden düzelttiği** gösterilmeli.
 
 **Geri alma.** Yeni cihaz ayrı olduğu için yaratılmaması yeterli; mevcut
 hiçbir yol değişmiyor.
