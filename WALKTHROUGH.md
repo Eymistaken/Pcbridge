@@ -2729,7 +2729,8 @@ Piksel eşitliği canlı parity takımıyla doğrulandı (PNG kayıpsız): 14 te
 
 Sözleşme testi kaydın `optimize` ile yapılmadığını ve yazılan PNG'nin
 pikselinin kaynakla aynı olduğunu sabitliyor; yorumda ölçüm duruyor, geri
-koyan önce ölçsün.
+koyan önce ölçsün. Mutasyon denemesiyle doğrulandı: `optimize=True` geri
+konunca test kırmızıya dönüyor.
 
 **Testler.** `test_capture_contract.py` (+1), `test_desktop.py` 602 (capture
 açık), canlı `test_capture_parity.py` + `test_capture_default.py` 14 test
@@ -2748,9 +2749,16 @@ Task 7.1 Rust tarafına da dokunduğu için yardımcı yeniden derlenip kuruldu
 
 Kurulu yardımcıyla canlı takımlar yeniden koştu: erişilebilirlik + pencere
 işlemleri **33 test** (4'ü tasarım gereği atlandı), capture parity + varsayılan
-**14 test**. Güvenli takımlar: contract 383, `test_desktop.py` 583,
-integration 24 (1 atlandı), models 106, safety OK, `--check` 0, eklenti testleri
-17 + 31 + 13. stdio istemcileri yine uygulama kapatılıp açılınca geçer (#7).
+**14 test**. stdio istemcileri yine uygulama kapatılıp açılınca geçer (#7).
+
+**Gecenin sonundaki tam doğrulama (06:28).** Python: contract **386**,
+`test_desktop.py` **583**, integration **24** (1 atlandı), models **106**,
+safety OK, uçtan uca **256 geçti / 0 kaldı / 9 atlandı**, `--check` 0.
+Eklenti: 31 + 13 + 17. Rust: `fmt` ve `clippy` temiz, `cargo test` **156**
+varsayılan / **177** test kipi. `./doctor.sh` uyarısız; üç seçici de `auto`,
+paketlenmiş yardımcı yerinde. Ardında hiçbir test penceresi, yayın yardımcısı
+ya da geçici masaüstü girdisi kalmadı; Mutter'da açık yayın oturumu yok ve
+masaüstü izni kapalı.
 
 ### Faz 8 — Legacy retirement · `ön koşul sağlanmadı` (2026-09-20)
 
@@ -2837,7 +2845,9 @@ gerçek imlece hiç dokunulmuyor, yani bugünkü davranış birebir korunuyor.
 **Testler.** `tests/test_cursor.js` (yeni, 17 test, kabuk gerekmez): bin olay
 bir kare, kare içinden gelen istek düşmüyor, kapanışta bekleyen iş iptal
 ediliyor, iptal hatası kapanışı durdurmuyor, zamanlayıcı kimlik vermezse
-yeniden kuruluyor. `test_state.js` 31, `test_window_control.js` 13 test geçti.
+yeniden kuruluyor. Mutasyon denemesi: altı bozulmanın beşi yakalandı; altıncı
+(`|| 0` normalizasyonu) davranışsal fark yaratmıyor — 0 da `undefined` da
+"bekleyen iş yok" demek. `test_state.js` 31, `test_window_control.js` 13 test geçti.
 Nested kabukta tıklama geçiş testi 8/8 (çerçeve aktörleri tıklama hedefi
 değil).
 
