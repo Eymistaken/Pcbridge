@@ -2813,6 +2813,29 @@ Yapılabilen iki madde yapıldı: envanter (yukarıda) ve 8.2'nin 5. maddesi —
 `config.py` üç seçicide de bilinmeyen bir değeri sessizce `auto` yapmıyor,
 yüklemede açık mesajla duruyor (doğrulandı).
 
+### Bilinen kusur: `is_open()` ekran kilidini görmüyor (çözümleme, 2026-09-20)
+
+Ölçülmüş gerçek (2026-09-13): ekran kilitlenince Mutter yayın oturumunu
+kapatıyor, ama Python tarafındaki `is_open()` `True` kalıyor. Bu gece
+düzeltilmedi ve sebebi yazılı olsun:
+
+- **Bariz düzeltme yanlış.** `is_open()`'ı "kilitliyse kapalı say" yapmak
+  temizlik yolunu zayıflatıyordu: süre dolunca çalışan
+  `close_capture_if_locked` kapatmadan önce o bayrağa bakıyordu, yani yanlış
+  bir "kapalı" cevabı **kapatmayı atlatırdı** — bayrağın var olma sebebi
+  tam da bu durum.
+- **Yapılan:** temizlik artık bayrağa hiç bakmıyor. `stop_capture` iki kez
+  çağrılınca hiçbir şey yapmıyor; kaçırılan bir kapatmanın bedeli ise izninden
+  uzun yaşayan bir paylaşım. Sözleşme testi bunu sabitliyor
+  (`test_expiry_closes_capture_even_if_the_open_flag_drifted`).
+- **Kalan kusurun etkisi bilgiseldir:** `desktop_unlock` çıktısındaki "Ekran
+  yayını açık" satırı ve yetenek raporu kilitliyken yanlış söyleyebilir.
+  Erişim değil, anlatım yanlış: kapı kilitliyken zaten `SCREEN_LOCKED` diyor.
+- **Doğru çözüm** yardımcıya sormaktan geçiyor (native tarafta
+  `capture.session_state` gibi bir yöntem, Python tarafında yardımcının kendi
+  oturum durumunu bildirmesi). Protokol değişikliği olduğu için ayrı bir
+  task; kilidi gerçekten kapatıp açmadan doğrulanamaz.
+
 ## Adım 6 — İmleç katmanı · `uygulandı, kapalı geliyor` (2026-09-20)
 
 Bulgular ve tasarım kararları aşağıda, "Kurtarılan kayıtlar" bölümünde. Üç

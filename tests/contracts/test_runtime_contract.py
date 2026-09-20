@@ -189,6 +189,35 @@ class DesktopRuntimeContractTests(unittest.TestCase):
             self.assertTrue(second_capture.is_open())
             second.close()
 
+    def test_expiry_closes_capture_even_if_the_open_flag_drifted(self) -> None:
+        """The close must not depend on `is_open()`.
+
+        That flag is known to drift: a screen lock makes Mutter close the
+        session while the Python side still reports open (measured
+        2026-09-13). A close that asks first would skip exactly the case it
+        exists for, and closing twice costs nothing.
+        """
+        capture = FakeCaptureProvider()
+        gate = FakeGate()
+        with mock.patch("pcbridge.desktop.runtime.threading.Timer", FakeTimer):
+            runtime = DesktopRuntime(
+                capture_provider=capture,
+                input_provider=FakeInputProvider(),
+                accessibility_provider=FakeAccessibilityProvider(),
+                gate=gate,
+            )
+            runtime.start_capture()
+            capture.open = False          # the handle now lies about itself
+            gate.unlocked = False         # and the grant is over
+            runtime.close_capture_if_locked()
+            self.assertEqual(capture.close_count, 1)
+
+            # Still unlocked: nothing is closed, the deadline is rearmed.
+            gate.unlocked = True
+            runtime.close_capture_if_locked()
+            self.assertEqual(capture.close_count, 1)
+            runtime.close()
+
     def test_touch_grant_rearms_only_the_owning_runtime(self) -> None:
         capture = FakeCaptureProvider()
         gate = FakeGate()

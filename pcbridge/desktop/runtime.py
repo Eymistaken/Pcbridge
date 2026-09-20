@@ -311,9 +311,17 @@ class DesktopRuntime:
             self._timer = timer
 
     def close_capture_if_locked(self) -> None:
-        """Close capture after expiry, or rearm if another process touched it."""
+        """Close capture after expiry, or rearm if another process touched it.
+
+        The close does not ask whether the handle still believes it is open.
+        That flag is known to drift: a screen lock makes Mutter close the
+        session while the Python side still says open (measured 2026-09-13),
+        and any other drift would silently skip the cleanup. `stop_capture`
+        is idempotent, so closing an already closed handle costs nothing;
+        skipping a close that was due costs a share that outlives its grant.
+        """
         with self._lock:
-            if self._closed or not self.capture_provider.is_open():
+            if self._closed:
                 return
         if self.gate.is_unlocked():
             self.refresh_capture_deadline()
