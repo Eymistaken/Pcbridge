@@ -382,10 +382,19 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
     tekrar edilen mutlak değeri yutuyor. 961 çalışıyor, ardından 960 da.
     Bu yüzden `move_by` konumu unuttururken ABS durumunu da bayat
     işaretliyor. Kaldırma: sessizce yanlış yere tıklamaya geri dönülür.
-  - **Wayland'de çalışıyor, XWayland'de ÇALIŞMIYOR.** Kilitli bir Wayland
-    istemcisi (Chrome, yerel sayfa) 4000 birimi 1837 olarak gördü; Minecraft
-    (XWayland, `mutter-x11-frames`) 2400 birimde 0,7 derece döndü — mutlak
-    hareket de oraya ulaşmıyor. Ayrıntı `WALKTHROUGH.md` → Adım 7.
+  - **Wayland'de çalışıyor, ölçülen XWayland örneğinde ÇALIŞMIYOR.** Kilitli
+    bir Wayland istemcisi (Chrome, yerel sayfa) 4000 birimi 1837 olarak
+    gördü (ivmeli delta). Minecraft 26.3'te aynı dünya ve aynı odakla A/B
+    ölçüldü (2026-09-21): native Wayland'de `dx=400` → **60,0°**,
+    XWayland'de **0°**. Oyun pencereyi SDL3 ile açıyor. SDL, Mutter 46'da
+    `fifo-v1` olmadığı için kendiliğinden XWayland'i seçiyor. Modrinth'te
+    `Fabric 26.3` instance'ının `SDL_VIDEO_DRIVER=wayland` ortam değişkeni
+    bunu kapatıyor. Oyun ivmesiz deltayı okuyor: hassasiyet 0,5'te birim
+    başına **0,15°**, 2400 birim tam tur. Fareyi her yakalayışında (dünyaya
+    giriş, menüden dönüş) **ilk hareket olayını atıyor**. Hangi yolda
+    açıldığını `xlsclients` söylemez (X11'deki oyunu da listelemedi); oyunun
+    günlüğündeki `Created window using SDL video driver:` satırı söyler.
+    Ayrıntı `WALKTHROUGH.md` → Adım 7.
 - **Pointer lock DIŞARIDAN sorulamıyor.** Wayland'de "şu an bir istemci
   imleci kilitli tutuyor mu" diye sorulabilecek bir arayüz yok ve Mutter da
   söylemiyor. "Yalnızca kilitliyken izin ver" diyen her kapı tahmine dayanır;

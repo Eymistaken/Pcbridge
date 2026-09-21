@@ -11,12 +11,11 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 ## Durum özeti
 
 - **SIRADAKİ İŞ: yol haritasında zorunlu bir madde kalmadı.** Adım 7 bitti
-  (2026-09-20). Açık duran üç şey var, üçü de isteğe bağlı: **#8** (imleç
-  katmanını fiziksel fareyle denemek, kullanıcıda), **Minecraft/XWayland**
-  (`move_by` Wayland istemcisinde çalışıyor, XWayland'de çalışmıyor —
-  ölçüldü; oyunu native Wayland backend'iyle çalıştırmak denenmedi) ve
-  **Faz 8** (legacy retirement, ön koşulu sağlanmadı). Yeni bir işe
-  başlamadan önce kullanıcıya hangisini istediğini sor.
+  (2026-09-20), Minecraft doğrulaması da 2026-09-21'de kapandı (#9). Açık
+  duran iki şey var, ikisi de isteğe bağlı: **#8** (imleç katmanını
+  fiziksel fareyle denemek, kullanıcıda) ve **Faz 8** (legacy retirement, ön
+  koşulu sağlanmadı). Yeni bir işe başlamadan önce kullanıcıya hangisini
+  istediğini sor.
 - **Kullanıcıyı bekleyen tek madde: #8** (imleç katmanı, fiziksel fareyle
   deneme). İsteğe bağlı; projenin hiçbir parçası buna bağlı değil.
 - **Blocker:** Yok.
@@ -37,8 +36,11 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 - **Adım 7 bitti (2026-09-20): göreli fare hareketi.** Ayrı, ikinci bir
   uinput cihazı ve `move_by`; iki backend'de. Pointer lock'lu bir Wayland
   uygulamasında ölçüldü (4000 birim → 1837, `k = 1 + speed` = 0,46); mutlak
-  cihazın ≤1 px'i göreli cihaz açıkken **0 px** çıktı. **Minecraft'ta
-  çalışmıyor**, çünkü oyun XWayland'de — ayrıntı Adım 7 bölümünde. Yol
+  cihazın ≤1 px'i göreli cihaz açıkken **0 px** çıktı. **Minecraft'ta ancak
+  native Wayland'de çalışıyor:** oyun (SDL3) kendiliğinden XWayland'i
+  seçiyordu; instance'a `SDL_VIDEO_DRIVER=wayland` eklenince (2026-09-21)
+  birim başına **0,15°** ile tam ölçüsünde döndü, XWayland'de aynı çağrı
+  0° — ayrıntı Adım 7 bölümünde. Yol
   boyunca gerçek bir kusur da düzeltildi: göreli hareketten sonra aynı
   noktaya dönen mutlak `move` sessizce hiçbir şey yapmıyordu (çekirdek
   tekrar edilen ABS değerini yutuyor).
@@ -52,8 +54,8 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 - **Ölçülen kazanç (2026-09-20).** Bir ekran görüntüsü, kullanıcının gördüğü
   yerde: iki monitör **5113 ms → 789 ms**. Pencere öne alma: kapalı uygulama
   tuşsuz **0,4 sn**, zaten öndeki hedefe hiç tuş yok.
-- **Kullanıcıyla yapılan kontroller:** #1, #2, #3, #4, #5, #6, #7 `yapıldı`;
-  yalnızca **#8** bekliyor.
+- **Kullanıcıyla yapılan kontroller:** #1, #2, #3, #4, #5, #6, #7, #9
+  `yapıldı`; yalnızca **#8** bekliyor.
 
 ## Kullanıcıyı bekleyenler
 
@@ -69,7 +71,7 @@ yapılınca silinmez, `yapıldı` diye işaretlenir.
 | 5 | Task 4.3 yayılımı: servisi ve stdio istemcilerini yeniden başlatıp native yolu gerçek kullanımda görmek. `config.toml`'da `[native]` bölümü yok, yani yeni süreçler native yolu seçecek. Sıra: `bridgekilit` → `job_list` boş mu → `systemctl --user restart pcbridge` → Claude Code/Codex'i yeniden başlat → `./doctor.sh` 8. bölüm → `desktop_unlock` sonrası sağ alttaki görev çubuğunda gösterge var, `desktop_lock` sonrası yok. Geri alma: `[native]` altına `capture = "python"` + aynı yeniden başlatmalar. Task 5.1'in yürütme kilidi ve eylem başına izin kontrolü de aynı yeniden başlatmayla devreye girer | Restart çalışan işleri öldürür; stdio süreçleri istemcinin; göstergeyi gözle görmek gerekiyor | `yapıldı` — servis 2026-09-13, stdio istemcileri 2026-09-20 (kullanıcı Claude'u kapatıp açtı) |
 | 7 | Task 6.3 ve 6.4 yayılımı: native erişilebilirlik (`ui_dump`, `ui_click`, `ui_set_text`, `window_list`) ve yeni pencere sırası (`window_focus`, `launch`, `focus`) stdio istemcilerinde. Servis iki kez yeniden başlatıldı ve yeni kodda; Claude Code ve Claude Desktop'un stdio süreçleri eski kodu çalıştırıyor | stdio süreçleri istemcinin; uygulama kapatılıp açılınca yeni koda geçer | `yapıldı` — servis 2026-09-19, stdio istemcileri 2026-09-20. Yeni pencere sırası canlıda doğrulandı: kapalı uygulamada `window_focus` "başlatıldı ve odakta" döndü |
 | 8 | Adım 6 — imleç katmanı gerçek oturumda: çıkış/giriş sonrası işaret dosyasını açıp (`touch ~/.local/state/pcbridge/gorunur-imlec`) izin verdikten sonra FİZİKSEL fareyle tıklama ve akış normal mi? 2026-08-04'te bozulan buydu; kare saati düzeltmesi nested kabukta ölçüldü ama gerçek farede denenmedi. Bozulursa işaret dosyasını silmek yeter | Eklenti kodu ancak çıkış/girişte yeniden okunuyor; arıza yalnızca fiziksel fareyle görüldü | `bekliyor` |
-| 9 | Adım 7 — Minecraft'ta `move_by`: oyun XWayland'de çalıştığı için göreli hareketi almıyor (ölçüldü 2026-09-20: 2400 birim → 0,7°; mutlak `move` de bakışı çevirmiyor). Aynı çağrı native Wayland'de kilitli bir sayfada tam ölçüsünde çalışıyor. Denenmemiş tek yol oyunu native Wayland backend'iyle başlatmak (LWJGL 3.4.3 SDL); bu kullanıcının Modrinth kurulumunu değiştirir | Kurulum değişikliği kullanıcının kararı | `karar bekliyor` |
+| 9 | Adım 7 — Minecraft'ta `move_by`: oyun XWayland'de çalıştığı için göreli hareketi almıyor (ölçüldü 2026-09-20: 2400 birim → 0,7°; mutlak `move` de bakışı çevirmiyor). Aynı çağrı native Wayland'de kilitli bir sayfada tam ölçüsünde çalışıyor. Denenmemiş tek yol oyunu native Wayland backend'iyle başlatmak (LWJGL 3.4.3 SDL); bu kullanıcının Modrinth kurulumunu değiştirir | Kurulum değişikliği kullanıcının kararı | `yapıldı` (2026-09-21). Kullanıcı "yapalım" dedi. Yalnızca `Fabric 26.3` instance'ına `SDL_VIDEO_DRIVER=wayland` eklendi. Birim başına 0,15° ölçüldü; temiz A/B'de XWayland 0°. Ayrıntı Adım 7 bölümünde |
 | 6 | Task 5.4 / 4 — gerçek girdi testi (`yapıldı` 2026-09-19, 8/8): `PCBRIDGE_TEST_INPUT=1 PCBRIDGE_INPUT_REPORT=<yol> ./.venv/bin/python -m unittest tests/live/test_input_parity.py -v`. İki ekranı ~1 dk kaplayan test penceresi; fare kendiliğinden hareket eder, pencereye tıklar, pencerenin içindeki kutuya Türkçe metin yazar, Shift'i kısa süre basılı tutar | Gerçek tuş ve tıklama gönderiyor; kullanıcı başında olmalı ve o sırada klavye/fareye dokunmamalı. Acil durdurma: Super+L (ekran kilidi native aygıtları anında kapatır) | `yapıldı` (2026-09-19) |
 
 ---
@@ -87,7 +89,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 4 | Native migration Faz 4: paketleme, parity, varsayılan değişikliği → Gate 4 | `tamamlandı` (4.1–4.3 ✅, **Gate 4 geçti**) |
 | 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅ **Gate 5**; 6.1–6.4 ✅ **Gate 6**; 7.1 ✅, 7.3/7.4 ölçülüp uygulanmadı; sırada 7.2) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `uygulandı, kapalı geliyor` (gerçek fareyle doğrulama kullanıcıda, #8) |
-| 7 | Göreli fare hareketi (`move_by`) — göreli okuyan her uygulama için, kilit şartı yok | `tamamlandı` (Wayland'de ölçüldü; XWayland'de çalışmıyor) |
+| 7 | Göreli fare hareketi (`move_by`) — göreli okuyan her uygulama için, kilit şartı yok | `tamamlandı` (Wayland'de ölçüldü, Minecraft native Wayland'de de; XWayland'de çalışmıyor) |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
 ## Adım 0 — Belge omurgası
@@ -2989,20 +2991,75 @@ Olay sayısı da sözleşmeyle birebir: 300 için **19** parça
 eylem listesinde reddediliyor. Masaüstündeki `k` ile kilitli uygulamadaki
 aynı çıktı.
 
-**AMA MINECRAFT'TA ÇALIŞMIYOR — ve sebebi pcbridge değil.** Aynı oturumda,
-Fabric 26.3, tek oyunculu dünya: 2400 birim göreli hareket bakışı **0,7
-derece** oynattı; mutlak `move` de bakışı hiç çevirmedi. Fark **pencere
-yığını**: `xlsclients` Chrome'u listelemiyor (native Wayland), Minecraft ise
-`window_list`'te `mutter-x11-frames` olarak görünüyor — **XWayland**. Yani
-göreli hareket Wayland istemcisine ulaşıyor, XWayland üzerinden gelen X11
-pointer grab'ine ulaşmıyor. Minecraft 26.3'ün fare ayarlarında "Raw Input"
-seçeneği **yok** (bu sürümde kaldırılmış), yani oyun tarafından
-ayarlanabilecek bir şey de değil. Denenmemiş yol: oyunu native Wayland
-backend'iyle çalıştırmak (LWJGL 3.4.3 + SDL); bu kullanıcının kurulumunu
-değiştirir, o yüzden yapılmadı.
+**Minecraft'ta ilk denemede ÇALIŞMADI — sebebi pcbridge değil, oyunun
+XWayland'de açılmasıydı.** 2026-09-20, Fabric 26.3, tek oyunculu dünya: 2400
+birim bakışı **0,7 derece** oynattı. Oyunun fare ayarlarında "Raw Input"
+seçeneği **yok** (bu sürümde kaldırılmış). O günkü koşullar karışıktı (odak ve
+açık menüler), bu yüzden sonuç 2026-09-21'de temiz bir A/B ile yeniden
+ölçüldü (aşağıda) ve **doğru çıktı**. O günkü kanıtın bir kısmı ise zayıftı:
+`xlsclients` X11'de açılan oyunu da listelemiyor, `mutter-x11-frames` de
+Mutter'ın X11 pencere çerçevelerini çizen kendi süreci. Oyunun hangi yolda
+açıldığını söyleyen şey oyunun kendi günlüğü (aşağıda).
+
+### Minecraft native Wayland'de (2026-09-21)
+
+**Neden XWayland'deydi.** Minecraft 26.x pencereyi GLFW ile değil **SDL3**
+ile açıyor (sınıf yolunda `lwjgl-sdl` 3.4.3 var, `lwjgl-glfw` yok; günlükte
+`SDL-3.4.14`). SDL kararını günlüğe kendisi yazıyor: *"This compositor lacks
+support for the fifo-v1 protocol; falling back to XWayland for GPU
+performance reasons (set SDL_VIDEO_DRIVER=wayland to override)"* ve
+`Created window using SDL video driver: x11`. Mutter 46'da `fifo-v1` yok.
+
+**Yapılan (kullanıcı kararı, 2026-09-21).** Modrinth App'te yalnızca
+`Fabric 26.3` instance'ına ortam değişkeni eklendi: Kurulum ayarları →
+Geçersiz kılmaları senkronize et → Özel ortam değişkenleri →
+`SDL_VIDEO_DRIVER=wayland`. Diğer instance'lara dokunulmadı. Değer
+`app.db` → `instance_launch_overrides.custom_env_vars` içinde duruyor ve
+okuyarak doğrulandı. Sonuç günlükte:
+`Created window using SDL video driver: wayland` ve Vulkan'da
+`VK_KHR_wayland_surface`. Geri alma: aynı alanı kapatmak.
+
+**Ölçüm.** Hassasiyet 0,5 (oyunda "%100"). Bakış açısı F3 ekranındaki
+`Facing` satırından okundu:
+
+| Çağrı | Beklenen (0,15°/birim) | Ölçülen |
+|---|---|---|
+| `dx=400`, dünyaya girdikten sonraki **ilk** çağrı | 60° | 57,6° |
+| `dx=400` | 60° | **60,0°** |
+| `dx=400`, `pcb-do` (her çağrıda yeni cihaz) | 60° | **60,0°** |
+| `dx=2400` | 360° | 360° (okuma aynı kaldı; ayrım bir sonraki satırda) |
+| `dx=−2500` (64 parça tavanı, negatif yön) | −375° ≡ −15° | **−15,0°** |
+| `dy=200` | pitch +30° | **+30,0°** |
+| `dx=10` | 1,5° | **1,5°** |
+| `dx=400`, menüden dönüşten sonraki **ilk** çağrı | 60° | 57,6° |
+| mutlak `move`, imleç kilitliyken | — | bakış **oynamadı** |
+
+- **Oyun ivmesiz deltayı okuyor.** Birim başına 0,15° vanilla formülünün
+  kendisi: `(0,6·s + 0,2)³ · 8 · 0,15`, `s = 0,5`. Masaüstünün `k = 0,46`'sı
+  burada **uygulanmıyor** (uygulansaydı 400 birim 27,6° olurdu). Chrome ise
+  ivmeli deltayı görüyordu (4000 → 1837). Yani aynı delta iki uygulamada
+  farklı şey demek; delta'nın `k`'ya bölünmemesi bu yüzden doğru karar.
+- **Oyun fareyi her yakalayışında ilk hareket olayını atıyor.** Dünyaya giriş
+  ve menüden dönüş sonrası iki kez ölçüldü. İki seferde de tam olarak ilk
+  parça kayboldu: 16 birim = 2,4°. Sonraki her çağrı tam. Sebep yeni cihaz
+  değil: her çağrıda yeni cihaz açan `pcb-do` tam 60,0° verdi. Kaybolan
+  miktar `move_by`'nin ilk parçası: 1024 birime kadar ~16 birim, üstünde
+  ~|d|/64.
+- **Mutlak cihaz kilitli oyunu bozmuyor.** Kilitliyken gönderilen mutlak
+  `move` bakışı hiç oynatmadı, yani iki cihaz birlikte titreme üretmiyor.
+  Menülerde de mutlak fare normal çalışıyor.
+- **Temiz A/B: XWayland'de 0°.** Aynı dünya, aynı odak, aynı fps (120,
+  `fifo`), aynı cihaz. Değer geçici olarak `SDL_VIDEO_DRIVER=x11` yapılınca
+  `dx=400` iki kez **0°** verdi, sonra değer `wayland`'a geri alındı. Sebebi
+  (XWayland'in göreli olayı SDL'in X11 yoluna neden vermediği)
+  **ölçülmedi**.
+- SDL'in uyarısı "GPU performansı" diyor. Bu sahnede iki yolda da 120 fps
+  (sınır 120, `fifo`). Pencere gizlenince ne olduğu ölçülmedi.
 
 **Vaat bu yüzden dar:** "pointer lock kullanan **Wayland** uygulamalarında
-sürülebiliyor". XWayland'de değil, ve "ajan oyun oynayabiliyor" hiç değil.
+sürülebiliyor". Minecraft buna ancak native Wayland'de açılırsa giriyor.
+Ölçülen tek XWayland örneğinde (Minecraft'ın X11 yolu) çalışmıyor.
+"Ajan oyun oynayabiliyor" hâlâ denmez.
 
 ### Yol boyunca çıkan gerçek kusur: bayat ABS durumu
 
@@ -3023,11 +3080,11 @@ ile sabitliyor; kardeş test sıradan bir `move`'un bu fazladan olayı
 
 | Ölçüt | Durum |
 |---|---|
-| Pointer-lock'lu uygulamada bakılabiliyor, ölçümle doğrulandı | ✅ (Chrome, Wayland) |
+| Pointer-lock'lu uygulamada bakılabiliyor, ölçümle doğrulandı | ✅ (Chrome, Wayland; Minecraft native Wayland'de, 2026-09-21) |
 | delta → uygulama oranı ölçülüp yazıldı | ✅ `k = 1 + speed` = 0,46 |
 | Mutlak tıklamanın ≤1 px sapması yeni cihazdan sonra yeniden ölçüldü | ✅ **0 px**, göreli cihaz AÇIKKEN, iki monitörde 4 hedef |
 | İki backend de aynı testten geçiyor | ✅ Python ve Rust aynı olayları üretiyor (golden fixture), canlı parity 10/10 |
-| Minecraft'ta delta→derece kalibrasyonu | ❌ **yapılamadı** — oyun XWayland'de ve göreli hareketi almıyor |
+| Minecraft'ta delta→derece kalibrasyonu | ✅ 2026-09-21, native Wayland: birim başına **0,15°** (hassasiyet 0,5), 2400 birim tam tur. XWayland'de 0° (temiz A/B) |
 
 ### Testler
 

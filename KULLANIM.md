@@ -383,10 +383,15 @@ kilitli bir uygulamada anlamını uygulama belirler. Sonrasında imlecin konumu
 **bilinmez**: tıklamadan önce ekranı yeniden okuyun ya da mutlak bir `move`
 ile bilinen bir noktaya gidin.
 
-Bir sınır ölçüldü (2026-09-20): `move_by` **Wayland** uygulamalarında
-çalışıyor, **XWayland** üzerinden çalışanlarda çalışmıyor. Minecraft
-(XWayland) bakış açısını çevirmiyor; aynı çağrı native Wayland'de kilitli
-bir sayfada tam ölçüsünde çalışıyor.
+Bir sınır ölçüldü (2026-09-20, 2026-09-21): `move_by` **Wayland**
+uygulamalarında çalışıyor. Ölçülen XWayland uygulamasında (Minecraft'ın
+X11 yolu) çalışmıyor. Minecraft 26.x bu makinede kendiliğinden XWayland'de
+açılıyor. Modrinth'te instance ayarları → Geçersiz kılmaları senkronize et
+→ Özel ortam değişkenleri alanına `SDL_VIDEO_DRIVER=wayland` yazılınca
+native Wayland'de açılıyor. O zaman `move_by` bakışı çeviriyor: hassasiyet
+%100'de birim başına 0,15°, 2400 birim tam tur. Oyun fareyi her
+yakaladığında ilk hareket olayını atar, yani dünyaya girişten ya da menüden
+dönüşten sonraki ilk çağrı birkaç derece eksik kalır.
 
 `hold` / `mouse_down` sonraki eylemlere **taşar**: ara duraklaması olan bir
 sürükleme (kaydırıcı, seçim dikdörtgeni) `mouse_down` → `move` → `move` →
