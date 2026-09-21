@@ -1734,6 +1734,40 @@ def register(
             bool | None,
             Field(description="Draw the mouse pointer into the image."),
         ] = None,
+        region: Annotated[
+            list[int] | None,
+            Field(
+                min_length=4,
+                max_length=4,
+                description=(
+                    "Capture only this part of one monitor: [x, y, width, "
+                    "height]. Same spaces as mouse coordinates: with shot, "
+                    "pixels in that earlier screenshot (the usual way to zoom "
+                    "into something you saw); with a monitor number, full-"
+                    "resolution pixels inside that monitor; otherwise global "
+                    "desktop pixels. It must stay inside one monitor. The new "
+                    "image gets its own shot id, and clicks on it land where "
+                    "they should. A small region costs far fewer tokens and "
+                    "comes back at full resolution."
+                ),
+            ),
+        ] = None,
+        shot: Annotated[
+            str | None,
+            Field(
+                description="With region: the id of the screenshot the region "
+                "was read off, as printed next to it (for example 'm2-a1b2c3')."
+            ),
+        ] = None,
+        enhance: Annotated[
+            bool,
+            Field(
+                description="Brighten and stretch the contrast of the image you "
+                "receive, for dark scenes (a game at night, a dark theme). The "
+                "picture keeps its size, so coordinates and the shot id work "
+                "unchanged; the saved file stays untouched."
+            ),
+        ] = False,
     ) -> list[ContentBlock] | ToolResult:
         """Take a screenshot of the user's screen. Use when the user asks what is on
         their screen, and before clicking somewhere, to check what is actually
@@ -1744,7 +1778,9 @@ def register(
         pixel coordinates exactly as they appear in the picture — the server knows
         where the image sits and how far it was scaled down, so you never convert
         anything yourself. For GTK applications prefer `ui_dump` — it is cheaper and
-        cannot miss, because it does not use coordinates at all."""
+        cannot miss, because it does not use coordinates at all. Capture only the
+        monitor you need, and use region to look closer at part of it: both cost
+        a fraction of a two-monitor capture."""
         # write=False: ekran goruntusu bir YAZMA eylemi degil, o yuzden "yakinda
         # klavye kullanildi" korumasina takilmiyor -- makinenin basinda olmaniz
         # ekraniniza bakmanizi engellememeli. Izin penceresi ve ekran kilidi
@@ -1779,6 +1815,32 @@ def register(
         spec: int | str = monitor.strip() if isinstance(monitor, str) else monitor
         if isinstance(spec, str) and spec.isdigit():
             spec = int(spec)
+        area = None
+        if shot and not region:
+            return _text(
+                "⛔ `shot` yalnizca `region` ile anlamli: bolgeyi o goruntuden "
+                "okuduysaniz `region=[x, y, genislik, yukseklik]` da verin."
+            )
+        if region:
+            # Bolge: `mouse` koordinatlarinin uc uzayi (Adim 8.5). Monitor
+            # secimi bir SAYI ya da ad ise bolge onun icinde; "all" ise global.
+            whole = isinstance(spec, str) and spec.lower() in ("all", "hepsi")
+            try:
+                area = capture_provider.resolve_region(
+                    *region,
+                    monitor=None if whole else spec,
+                    shot=shot,
+                    dirs=shot_dirs,
+                )
+            except DesktopError as exc:
+                gate.audit("screen_capture_error", error=str(exc)[:160])
+                return _exception_result(
+                    exc,
+                    text=f"Hata: {exc}",
+                    category=ErrorCategory.COORDINATE,
+                    scope="os.capture",
+                    backend_name=capture_provider.backend_name(),
+                )
         long_edge = (
             cfg.desktop.screenshot_scale_long_edge if scale is None else max(0, scale)
         )
@@ -1801,6 +1863,7 @@ def register(
                 # `shot=` iki dizinde de ariyor; yeni kimlik ikisinde de bos
                 # olmali, yoksa arama baska bir cekimin kaydini bulur.
                 reserved_dirs=shot_dirs,
+                region=area,
             )
         except (capturelib.CaptureError, monitorslib.MonitorError, DesktopError) as exc:
             gate.audit("screen_capture_error", error=str(exc)[:160])
@@ -1818,31 +1881,33 @@ def register(
         links = transport != "stdio"
         ttl_min = max(1, cfg.desktop.shot_ttl_seconds // 60)
         out: list[str] = []
-        for shot in shots:
+        for item in shots:
             if links:
                 # Token denetim kaydina YAZILMAZ: audit.log'u okuyabilen birinin
                 # goruntuyu de acabilmesi anlamsiz bir yetki genislemesi olurdu.
-                _token, where = shot_store.publish(shot.path)
+                _token, where = shot_store.publish(item.path)
             else:
-                where = str(shot.path)
-            if shot.offset is None:
+                where = str(item.path)
+            if item.offset is None:
                 out.append(
-                    f"**{shot.label}** · {shot.scaled[0]}x{shot.scaled[1]}\n"
+                    f"**{item.label}** · {item.scaled[0]}x{item.scaled[1]}\n"
                     f"  {where}\n"
                     "  ⚠️ Bu goruntu odaktaki pencere; ekranin neresinde oldugu "
                     "bilinmiyor, buradan koordinat turetmeyin."
                 )
             else:
                 out.append(
-                    f"**{shot.label}** · {shot.size[0]}x{shot.size[1]} "
-                    f"@ ({shot.offset[0]}, {shot.offset[1]}) → "
-                    f"{shot.scaled[0]}x{shot.scaled[1]} (olcek {shot.scale:.3f})\n"
-                    f"  shot: `{shot.id}`\n"
+                    f"**{item.label}** · {item.size[0]}x{item.size[1]} "
+                    f"@ ({item.offset[0]}, {item.offset[1]}) → "
+                    f"{item.scaled[0]}x{item.scaled[1]} (olcek {item.scale:.3f})\n"
+                    f"  shot: `{item.id}`\n"
                     f"  {where}"
                 )
 
         gate.audit("screen_capture", monitor=str(monitor), shots=len(shots),
                    swept=swept or None, inline=inline_images or None,
+                   region=list(area[0]) if area else None,
+                   enhance=enhance or None,
                    backend=capture_provider.backend_name())
 
         degraded = getattr(capture_provider, "degraded_reason", "")
@@ -1888,8 +1953,8 @@ def register(
             # Istemcinin kendi kuculttugu goruntuden koordinat cikarilamaz:
             # gordugunuz piksel ile kayitli olcek ayrisir ve `shot` hesabi
             # sessizce sasar. `scale=0` verildiginde tam da bu oluyor.
-            for shot in shots:
-                note = capture_provider.oversize_note(shot)
+            for item in shots:
+                note = capture_provider.oversize_note(item)
                 if note:
                     out.append(note)
                     break
@@ -1911,17 +1976,23 @@ def register(
         delivered: list[Any] = []
         undelivered: list[DesktopError] = []
         if inline_images:
-            for shot in shots:
+            for item in shots:
                 try:
-                    images.append(presentationlib.shot_image(shot))
-                    delivered.append(shot)
+                    images.append(presentationlib.shot_image(item, enhance=enhance))
+                    delivered.append(item)
                 except DesktopError as exc:
                     undelivered.append(exc)
+            if enhance and delivered:
+                out.append(
+                    "🔆 Görüntü parlaklık/kontrast açılarak gönderildi (yalnızca "
+                    "size giden kopya; diskteki çekim ham). Boyut aynı, `shot` "
+                    "koordinatları değişmedi."
+                )
         if len(delivered) > 1:
             # Kimlik metinde, goruntu ayri blokta: eslesme SIRAYLA.
             out.append(
                 "Goruntuler asagida bu sirayla: "
-                + ", ".join(f"`{shot.id or shot.label}`" for shot in delivered)
+                + ", ".join(f"`{item.id or item.label}`" for item in delivered)
                 + "."
             )
         if undelivered:
@@ -1941,7 +2012,7 @@ def register(
             return presentationlib.desktop_error_result(
                 error,
                 content=[_text("\n".join(out)), *images],
-                extra={"shots": [shot.id for shot in shots]},
+                extra={"shots": [item.id for item in shots]},
             )
 
         # METIN BLOGU HER ZAMAN ILK SIRADA ve her zaman var. Monitor numarasi,
@@ -2297,6 +2368,21 @@ def register(
                 "'ui_dump' (default), 'screen_capture', or 'none'."
             ),
         ] = "ui_dump",
+        final_monitor: Annotated[
+            str,
+            Field(
+                description="With final='screen_capture': which screen to "
+                "capture, in screen_capture's monitor syntax ('all', '1', '2', "
+                "'primary'). One monitor costs half of two."
+            ),
+        ] = "all",
+        final_enhance: Annotated[
+            bool,
+            Field(
+                description="With final='screen_capture': brighten a dark "
+                "picture, as screen_capture's enhance does."
+            ),
+        ] = False,
         expect_focus: Annotated[
             str,
             Field(
@@ -2511,7 +2597,9 @@ def register(
         want = (final or "ui_dump").strip().lower()
         if want == "screen_capture":
             out.append("\n---")
-            final_result = screen_capture()
+            final_result = screen_capture(
+                monitor=final_monitor or "all", enhance=final_enhance
+            )
             if isinstance(final_result, ToolResult):
                 return _with_batch_error(final_result)
             for block in final_result:

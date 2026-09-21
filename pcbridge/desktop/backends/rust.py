@@ -630,6 +630,7 @@ class RustCaptureProvider(PythonCaptureProvider):
         include_pointer: bool,
         copy_meta_to: Sequence[Path] = (),
         reserved_dirs: Sequence[Path] = (),
+        region: Any = None,
     ) -> list[capturelib.Shot]:
         try:
             return super().capture(
@@ -639,6 +640,7 @@ class RustCaptureProvider(PythonCaptureProvider):
                 include_pointer=include_pointer,
                 copy_meta_to=copy_meta_to,
                 reserved_dirs=reserved_dirs,
+                region=region,
             )
         except NativeCaptureError as exc:
             if exc.desktop_error is not None:

@@ -3127,7 +3127,7 @@ kararı verilmedi. Sıra, oturumdaki etkisine göre.
 | 8.2 | Koordinatsız tıklama (imleç neredeyse orada) | `tamamlandı` (2026-09-21) |
 | 8.3 | Tıklamada en kısa basılı kalma süresi | `tamamlandı` (2026-09-21, ölçüldü) |
 | 8.4 | `move_by` ölçeği ve ilk-olay kaybı ajana görünsün | `tamamlandı` (2026-09-21) |
-| 8.5 | Ekran görüntüsünde bölge kırpma, `final` için monitör seçimi, karanlık kare iyileştirme | `planlandı` |
+| 8.5 | Ekran görüntüsünde bölge kırpma, `final` için monitör seçimi, karanlık kare iyileştirme | `tamamlandı` (2026-09-22, ölçüldü) |
 | 8.6 | "Görünene kadar bekle": OCR ile `find_text` / `wait_for_text` | `planlandı` |
 | 8.7 | `computer_batch` süre bütçesi taşıma zaman aşımının altında | `tamamlandı` (2026-09-21) |
 
@@ -3291,7 +3291,7 @@ uygulamaya ait; tahmin etme, bilinen bir delta gönder, ekran görüntüleriyle
 çağrı gönder ve kalibrasyonu onunla yapma. Hiçbir sayı yazılmadı.
 `KULLANIM.md` aynı yöntemi Türkçe anlatıyor.
 
-### 8.5 — Ekran görüntüsü: bölge, monitör, karanlık kare · `planlandı`
+### 8.5 — Ekran görüntüsü: bölge, monitör, karanlık kare · `tamamlandı` (2026-09-22)
 
 **Gözlenen.** Oturumdaki token'ın büyük kısmı ekran görüntüsüne gitti.
 `computer_batch(final="screen_capture")` her seferinde **iki monitörü**
@@ -3306,6 +3306,50 @@ değiştirmek zorunda kaldı.
   sözdizimi).
 - İsteğe bağlı `enhance=true`: yalnızca ajana giden görüntüde kontrast/gama
   açma; diskteki çekim ham kalsın. Koyu temalı arayüzlerde de işe yarar.
+
+**Yapılan.**
+- **Bölge.** `screen_capture(region=[x, y, w, h], shot=?)`. Uzay çözümü tek
+  yerde, `capture.resolve_region()`: `shot` (ofset + ölçek, dışa doğru
+  yuvarlama), `monitor` (o monitörün içi) ya da global. Kutu tek bir
+  monitörün içinde kalmalı; taşan, 16 pikselden küçük, görüntüden taşan ya da
+  `shot`+`monitor` birlikte verilen bölge reddediliyor. Kırpma
+  `capture._render`'da, **üç yolda da** (Python yayını, native yardımcı,
+  gnome-screenshot) aynı: kare önce monitöre ait mi diye bakılıyor, sonra
+  kesiliyor. Kayıt yeni bir şey gerektirmedi: `offset` bölgenin sol üstü,
+  `desktop_size` bölgenin boyutu, `to_global` aynı formül; `region: true`
+  yalnızca bilgi. Çözüm ile yakalama arasında monitör düzeni değişirse
+  `DISPLAY_CHANGED`.
+- **Son görüntü tek monitör.** `computer_batch(final_monitor=…)`,
+  `screen_capture`'ın `monitor` sözdizimi.
+- **İyileştirme.** `enhance` / `final_enhance`: yalnızca istemciye giden
+  kopya; YCbCr'nin Y kanalında %0,5–%99,5 aralığı gerilir, ortalama 0,35'in
+  altındaysa gama (en az 0,35) ile 0,45'e çekilir. İlk deneme tabloyu R, G,
+  B'ye ayrı uyguladı ve (6, 7, 10) arka plan (0, 0, 142) oldu — renk kayması;
+  bu yüzden yalnızca parlaklık. Diskteki PNG ve HTTP bağlantısı ham; boyut
+  kontrolü iyileştirilmiş kopyaya da yapılıyor.
+
+**Ölçüldü.**
+- 2026-09-22, gerçek masaüstü, desen penceresi
+  (`tests/live/test_capture_region.py`): 280×280'lik bölge, hemen önce
+  alınan tam monitör karesinin aynı parçasıyla Python yayınında da native
+  yardımcıda da **%100,000** piksel eşleşti; bölge çekimi 45 ms / 71 ms, tam
+  monitör 90 ms / 100 ms. 1536'lık görüntüden (ölçek 0,8) okunan
+  `[48, 48, 160, 160]` bölgesi iki yolda da tam işaret kutusuna
+  `(1980, 60, 200×200)` çözüldü ve orta pikseli işaret rengindeydi.
+  Görüntü token'ı piksel sayısıyla orantılı: 1536×864 bir kare ~1770, 280×280
+  bir bölge ~105 token.
+- İyileştirme, dünkü oturumun en karanlık iki gerçek karesi (960×540):
+  ortalama parlaklık 0,041 → 0,259 ve 0,052 → 0,333, gama 0,35; ~10 ms,
+  PNG kodlamasıyla 28 ms. Mağara duvarı ve bloklar görünür oldu (üst üste
+  karşılaştırma görüntüsüyle bakıldı). Parlak bir arayüz karesinde gama 1,0,
+  ortalama +0,02.
+
+**Sabitlendi.** `tests/contracts/test_capture_region.py`: üç uzay aynı
+kutuya çözülüyor, reddler, üç yakalama yolunda desenin tam parçası ve kaydı,
+büyük bölgenin küçültülüp yine doğru çevrilmesi, `window`'da bölge yok, düzen
+değişimi, iyileştirmenin renk kaydırmaması ve diske dokunmaması. MCP
+düzeyinde bölge bir kez çözülüp yakalamaya geçiyor, `region`'sız `shot`
+hiçbir şey çekmiyor.
 
 ### 8.6 — OCR ile `find_text` / `wait_for_text` · `planlandı`
 

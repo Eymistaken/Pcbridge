@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import errno
 import json
+import math
 import os
 import re
 import secrets
@@ -188,13 +189,18 @@ class Shot:
     # degistiyse ayni ofset baska bir ekranin ustune duser. Bos: pencere
     # cekimi ya da bu alandan once (2026-09-19) yazilmis bir kayit.
     topology: str = ""
+    # Monitorun yalnizca bir BOLGESI mi (Adim 8.5). Donusum icin ek bir sey
+    # gerekmiyor: `offset` bolgenin sol ustu, `desktop_size` bolgenin boyutu,
+    # `to_global` ayni formulle dogru. Yalnizca etiket ve kayit icin.
+    region: bool = False
 
     @property
     def label(self) -> str:
         if self.monitor is None:
             return "odaktaki pencere"
         star = " (birincil)" if self.monitor.primary else ""
-        return f"{self.monitor.index} · {self.monitor.connector}{star}"
+        part = " · bolge" if self.region else ""
+        return f"{self.monitor.index} · {self.monitor.connector}{star}{part}"
 
     @property
     def scale_xy(self) -> tuple[float, float]:
@@ -272,6 +278,9 @@ class Shot:
             # `offset` bu uzayda: butun monitorleri kapsayan dikdortgenin sol
             # ustu (0,0), birim masaustu birimi (Linux/macOS'ta mantiksal).
             "coordinate_space": COORDINATE_SPACE,
+            # Adim 8.5: monitorun bir bolgesi. `offset`/`desktop_size` zaten
+            # bolgeyi anlatiyor; bu alan yalnizca bilgi.
+            "region": self.region,
         }
 
 
@@ -368,6 +377,7 @@ def load_shot(shot_id: str, dirs: Sequence[Path]) -> Shot:
             taken_at=float(data.get("taken_at") or 0.0),
             topology=str(data.get("topology_id") or ""),
             desktop_size=desktop_size,
+            region=bool(data.get("region")),
         )
     raise CaptureError(
         f"`{shot_id}` diye bir ekran goruntusu yok (bakilan yerler: "
@@ -508,6 +518,95 @@ def to_global(
         else f"({x}, {y})"
     )
     return _on_a_monitor(monitorslib.to_global(x, y, monitor), where)
+
+
+# Bolge cekiminin en kucuk kenari. Daha kucugu okunacak bir sey tasimaz ve
+# buyuk olasilikla ters cevrilmis bir koordinattir.
+REGION_MIN_EDGE = 16
+
+
+def resolve_region(
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    *,
+    monitor: int | str | None = None,
+    shot: str | None = None,
+    dirs: Sequence[Path] | None = None,
+) -> tuple[tuple[int, int, int, int], monitorslib.Monitor]:
+    """Bir bolgeyi GLOBAL tuval kutusuna cevir: ((x, y, w, h), monitor).
+
+    `mouse` koordinatlarinin uc uzayi burada da gecerli (Adim 8.5): hicbiri
+    verilmezse global, `monitor=` o monitorun icinde tam cozunurluk, `shot=`
+    o goruntudeki pikseller -- ofset VE olcek uygulanir. Goruntuden bir
+    parcaya "yakinlasmak" en dogal kullanim, o yuzden `shot` sart.
+
+    Kutu TEK bir monitorun icinde kalmali: her monitor ayri bir kareden
+    geliyor ve iki kareyi birlestirmek bu katmanin isi degil. Tasan ya da
+    monitorlerin arasina dusen bolge reddedilir, sessizce kirpilmaz --
+    kirpilmis bir bolge istenenden baska bir sey gosterir.
+    """
+    if width < REGION_MIN_EDGE or height < REGION_MIN_EDGE:
+        raise CaptureError(
+            f"Bolge en az {REGION_MIN_EDGE}x{REGION_MIN_EDGE} olmali "
+            f"({width}x{height} verildi). Bicim [x, y, genislik, yukseklik]."
+        )
+    if x < 0 or y < 0:
+        raise CaptureError(f"Bolgenin sol ustu negatif olamaz ({x}, {y}).")
+    mons = monitorslib.list_monitors()
+    if shot:
+        if monitor is not None:
+            raise CaptureError(
+                "`shot` ile `monitor` birlikte verilemez: bolgeyi o goruntuden "
+                "okuduysaniz yalnizca `shot`, monitor icindeki tam cozunurluk "
+                "koordinatiysa yalnizca `monitor` verin."
+            )
+        found = load_shot(shot, dirs or ())
+        if found.offset is None:
+            raise CaptureError(
+                f"`{shot}` odaktaki pencerenin goruntusu; ekranin neresinde "
+                "oldugu bilinmiyor, ondan bolge turetilemez."
+            )
+        if x + width > found.scaled[0] or y + height > found.scaled[1]:
+            raise CaptureError(
+                f"Bolge `{shot}` goruntusunun disina tasiyor: goruntu "
+                f"{found.scaled[0]}x{found.scaled[1]} piksel."
+            )
+        if found.topology and found.topology != monitorslib.topology_id(mons):
+            raise ShotLayoutChanged(
+                f"`{shot}` cekildikten sonra ekran duzeni degisti; o "
+                "goruntudeki bolge artik baska bir yere duser. Yeni bir ekran "
+                "goruntusu alin."
+            )
+        dw, dh = found.desktop_units
+        sw, sh = found.scaled
+        # DISA dogru yuvarla: istenen her piksel yeni cekimde olsun.
+        left = found.offset[0] + math.floor(x * dw / sw)
+        top = found.offset[1] + math.floor(y * dh / sh)
+        right = found.offset[0] + math.ceil((x + width) * dw / sw)
+        bottom = found.offset[1] + math.ceil((y + height) * dh / sh)
+        box = (left, top, right - left, bottom - top)
+        what = f"`{shot}` goruntusundeki bolge"
+    elif monitor is not None:
+        mon = monitorslib.resolve(monitor, mons)
+        box = (mon.x + x, mon.y + y, width, height)
+        what = f"monitor {mon.index} icindeki bolge"
+    else:
+        box = (x, y, width, height)
+        what = "bolge"
+    gx, gy, gw, gh = box
+    home = monitorslib.find_monitor(gx, gy, mons)
+    if home is None or gx + gw > home.x + home.width or gy + gh > home.y + home.height:
+        where = (f"monitor {home.index} ({home.x}, {home.y}, {home.width}x"
+                 f"{home.height})" if home else "hicbir monitor")
+        raise CaptureError(
+            f"{what} ({gx}, {gy}, {gw}x{gh}) tek bir monitorun icinde kalmiyor "
+            f"(sol ustu: {where}). Her monitor ayri bir kareden geliyor; "
+            "bolgeyi bir monitorun icinde secin. `screen_info` kutulari "
+            "gosteriyor."
+        )
+    return box, home
 
 
 def _on_a_monitor(point: tuple[int, int], what: str) -> tuple[int, int]:
@@ -730,6 +829,82 @@ def _write_crop(
     return (cw, ch), (sw, sh), (sw / cw if cw else 1.0)
 
 
+# ------------------------------------------------------------- iyilestirme
+# Adim 8.5: gece ve yeralti kareleri neredeyse simsiyah geliyordu ve ajan
+# oyunun parlaklik ayarini degistirmek zorunda kaldi. Iyilestirme YALNIZCA
+# ajana giden kopyaya uygulanir: diskteki cekim ham kalir (HTTP baglantisi
+# da onu verir) ve boyut degismez, yani `shot=` donusumu aynen gecerli.
+ENHANCE_CUTOFF = 0.005        # uclardan kirpilan pay (her uc %0,5)
+ENHANCE_TARGET_MEAN = 0.45    # germe sonrasi hedef ortalama parlaklik
+ENHANCE_DARK_MEAN = 0.35      # bunun altindaki kare gama ile acilir
+ENHANCE_MIN_GAMMA = 0.35      # en fazla bu kadar acilir
+
+
+def _percentile(hist: Sequence[int], fraction: float) -> int:
+    total = sum(hist)
+    if not total:
+        return 0
+    want = total * fraction
+    run = 0
+    for value, count in enumerate(hist):
+        run += count
+        if run > want:
+            return value
+    return len(hist) - 1
+
+
+def enhance_image(img: "Image.Image") -> tuple["Image.Image", dict]:
+    """Koyu/soluk bir kareyi okunur yap: kontrast germe, gerekirse gama.
+
+    Tablo yalnizca PARLAKLIGA (YCbCr'nin Y kanali) uygulanir; renk kanallari
+    olduklari gibi kalir. Ilk deneme ayni tabloyu R, G ve B'ye ayri ayri
+    uyguluyordu ve (6, 7, 10) gibi koyu bir arka plan (0, 0, 142) oldu:
+    esigin altindaki kanallar sifira, ustundeki mavi tavana gitti. Zaten
+    genis aralikli, parlak bir kare hemen hemen degismez.
+    Doner: (yeni goruntu, olculer).
+    """
+    luma, cb, cr = img.convert("RGB").convert("YCbCr").split()
+    hist = luma.histogram()
+    total = sum(hist) or 1
+    lo = _percentile(hist, ENHANCE_CUTOFF)
+    hi = _percentile(hist, 1.0 - ENHANCE_CUTOFF)
+    if hi - lo < 16:
+        # Neredeyse duz bir kare: gurultuyu 16 kat buyutmek bilgi eklemez.
+        hi = min(255, lo + 16)
+        lo = max(0, hi - 16)
+    span = float(hi - lo)
+    stretched = [min(1.0, max(0.0, (v - lo) / span)) for v in range(256)]
+    mean_before = sum(v * c for v, c in enumerate(hist)) / total / 255.0
+    mean_mid = sum(stretched[v] * c for v, c in enumerate(hist)) / total
+    gamma = 1.0
+    if 0.0 < mean_mid < ENHANCE_DARK_MEAN:
+        gamma = max(ENHANCE_MIN_GAMMA, math.log(ENHANCE_TARGET_MEAN) / math.log(mean_mid))
+    table = [monitorslib.round_half_away(255.0 * (t ** gamma)) for t in stretched]
+    out = Image.merge("YCbCr", (luma.point(table), cb, cr)).convert("RGB")
+    mean_after = sum(table[v] * c for v, c in enumerate(hist)) / total / 255.0
+    return out, {
+        "low": lo,
+        "high": hi,
+        "gamma": round(gamma, 3),
+        "mean_before": round(mean_before, 3),
+        "mean_after": round(mean_after, 3),
+    }
+
+
+def enhanced_png(path: Path) -> tuple[bytes, dict]:
+    """Diskteki PNG'nin iyilestirilmis KOPYASI, bellekte. Dosyaya dokunmaz."""
+    import io
+
+    with Image.open(path) as img:
+        size = img.size
+        out, stats = enhance_image(img)
+    if out.size != size:  # pragma: no cover - `point` boyutu degistirmez
+        raise CaptureError("iyilestirme goruntunun boyutunu degistirdi")
+    buffer = io.BytesIO()
+    out.save(buffer, format="PNG")
+    return buffer.getvalue(), stats
+
+
 # --------------------------------------------------------------------- yayim
 # BUTUN YA DA HIC. Bir cekim once `out_dir` icindeki gizli bir hazirlik
 # dizininde uretiliyor ve butun hedef monitorler hazir olunca yayimlaniyor.
@@ -860,6 +1035,8 @@ class _Pending:
     taken_at: float
     topology: str = ""
     desktop_size: tuple[int, int] | None = None
+    # Bolge cekiminde bolgenin global sol ustu; yoksa monitorun kendisi.
+    origin: tuple[int, int] | None = None
 
     def shot(self, out_dir: Path, stamp: str, suffix: str) -> Shot:
         if self.monitor is None:
@@ -874,10 +1051,11 @@ class _Pending:
                 taken_at=self.taken_at,
             )
         mon = self.monitor
+        part = "-region" if self.origin is not None else ""
         return Shot(
-            path=out_dir / f"{stamp}-m{mon.index}-{mon.connector}.png",
+            path=out_dir / f"{stamp}-m{mon.index}-{mon.connector}{part}.png",
             monitor=mon,
-            offset=(mon.x, mon.y),
+            offset=self.origin or (mon.x, mon.y),
             size=self.size,
             scaled=self.scaled,
             scale=self.scale,
@@ -885,6 +1063,7 @@ class _Pending:
             taken_at=self.taken_at,
             topology=self.topology,
             desktop_size=self.desktop_size or (mon.width, mon.height),
+            region=self.origin is not None,
         )
 
 
@@ -942,19 +1121,52 @@ def _publish(
     )
 
 
+def _frame_box(
+    mon: monitorslib.Monitor,
+    frame_size: tuple[int, int],
+    region: tuple[int, int, int, int] | None,
+) -> tuple[int, int, int, int] | None:
+    """Bolgenin o monitorun KARESINDEKI piksel kutusu; bolge yoksa None.
+
+    Kare ham pikselde gelebilir (olcekli monitor): oran her eksende
+    kare / masaustu birimi. Bu makinede iki monitor de olcek 1, oran 1.
+    """
+    if region is None:
+        return None
+    gx, gy, gw, gh = region
+    rx = frame_size[0] / mon.width if mon.width else 1.0
+    ry = frame_size[1] / mon.height if mon.height else 1.0
+    return (
+        monitorslib.round_half_away((gx - mon.x) * rx),
+        monitorslib.round_half_away((gy - mon.y) * ry),
+        monitorslib.round_half_away((gx + gw - mon.x) * rx),
+        monitorslib.round_half_away((gy + gh - mon.y) * ry),
+    )
+
+
 def _render(
     monitor: int | str | None,
     staging: Path,
     scale_long_edge: int,
     include_pointer: bool,
     screencast: Any,
+    region: tuple[tuple[int, int, int, int], monitorslib.Monitor] | None = None,
 ) -> list[_Pending]:
-    """Hedefleri yakala, kirp, olcekle ve HAZIRLIK dizinine yaz."""
+    """Hedefleri yakala, kirp, olcekle ve HAZIRLIK dizinine yaz.
+
+    `region`: `resolve_region`in cevabi. Verilirse yalnizca o monitor
+    yakalanir ve karenin o parcasi yazilir (Adim 8.5).
+    """
     taken_at = time.time()
     raw_dir = staging / "raw"
     raw_dir.mkdir()
 
     want_window = isinstance(monitor, str) and monitor.strip().lower() == "window"
+    if want_window and region is not None:
+        raise CaptureError(
+            "`window` cekiminde bolge secilemez: pencerenin ekranin neresinde "
+            "oldugu bilinmiyor. Monitor ya da global koordinatla bolge verin."
+        )
     if want_window:
         raw = _grab_window(raw_dir, include_pointer)
         staged = staging / "window.png"
@@ -969,6 +1181,23 @@ def _render(
         isinstance(monitor, str) and monitor.strip().lower() in ("all", "hepsi")
     )
     targets = mons if want_all else [monitorslib.resolve(monitor, mons)]
+    box_global: tuple[int, int, int, int] | None = None
+    if region is not None:
+        box_global, home = region
+        # Tablo resolve_region'dan beri degismediyse ayni monitor; degistiyse
+        # kutu artik baska yere duser.
+        current = next(
+            (m for m in mons if (m.x, m.y, m.width, m.height)
+             == (home.x, home.y, home.width, home.height)),
+            None,
+        )
+        if current is None:
+            raise ShotLayoutChanged(
+                "Bolge secildikten sonra ekran duzeni degisti; tekrar deneyin."
+            )
+        targets = [current]
+    origin = (box_global[0], box_global[1]) if box_global else None
+    region_size = (box_global[2], box_global[3]) if box_global else None
 
     # --- yol 1: acik ekran yayini (sessiz) ------------------------------
     # Her monitor kendi akisi oldugu icin KIRPMA YOK: `_write_crop`
@@ -982,10 +1211,12 @@ def _render(
                 frame = screencast.capture(mon.connector, raw)
                 staged = staging / f"m{mon.index}.png"
                 with Image.open(raw) as img:
+                    # Karenin TAMAMI bu monitore ait mi -- kirpmadan ONCE.
+                    check_source_size(mon, img.size)
                     size, scaled, scale = _write_crop(
-                        img, None, staged, scale_long_edge
+                        img, _frame_box(mon, img.size, box_global), staged,
+                        scale_long_edge,
                     )
-                check_source_size(mon, size)
                 pending.append(
                     _Pending(
                         staged,
@@ -1001,7 +1232,8 @@ def _render(
                         # baslangici, eskisi gibi.
                         _frame_taken_at(frame, taken_at),
                         topology,
-                        (mon.width, mon.height),
+                        region_size or (mon.width, mon.height),
+                        origin,
                     )
                 )
             return pending
@@ -1031,17 +1263,18 @@ def _render(
         ratio = canvas_pixel_ratio(mons, canvas.size)
         for mon in targets:
             staged = staging / f"m{mon.index}.png"
+            gx, gy, gw, gh = box_global or (mon.x, mon.y, mon.width, mon.height)
             box = (
-                monitorslib.round_half_away(mon.x * ratio),
-                monitorslib.round_half_away(mon.y * ratio),
-                monitorslib.round_half_away((mon.x + mon.width) * ratio),
-                monitorslib.round_half_away((mon.y + mon.height) * ratio),
+                monitorslib.round_half_away(gx * ratio),
+                monitorslib.round_half_away(gy * ratio),
+                monitorslib.round_half_away((gx + gw) * ratio),
+                monitorslib.round_half_away((gy + gh) * ratio),
             )
             size, scaled, scale = _write_crop(canvas, box, staged, scale_long_edge)
             pending.append(
                 _Pending(
                     staged, mon, size, scaled, scale, taken_at, topology,
-                    (mon.width, mon.height),
+                    (gw, gh), origin,
                 )
             )
     return pending
@@ -1057,8 +1290,13 @@ def capture(
     *,
     copy_meta_to: Sequence[Path] = (),
     reserved_dirs: Sequence[Path] = (),
+    region: tuple[tuple[int, int, int, int], monitorslib.Monitor] | None = None,
 ) -> list[Shot]:
     """Ekran goruntusu al ve `out_dir` altina PNG(ler) yaz.
+
+    `region`: `resolve_region`in cevabi; verilirse tek bir goruntu, o
+    monitorun o parcasi (Adim 8.5). Kayit parcayi tasiyor, `shot=` ile
+    tiklama dogru yere gider.
 
     `monitor`:
         "all" (varsayilan)  her monitor ayri goruntu
@@ -1104,7 +1342,8 @@ def capture(
     try:
         try:
             pending = _render(
-                monitor, staging, scale_long_edge, include_pointer, screencast
+                monitor, staging, scale_long_edge, include_pointer, screencast,
+                region,
             )
         except OSError as exc:
             raise CaptureError(f"Ekran goruntusu uretilemedi: {exc}") from exc

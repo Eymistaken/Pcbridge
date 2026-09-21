@@ -18,13 +18,17 @@ from .errors import DesktopError, ErrorCategory, ErrorCode, error_from_decision
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
-def shot_image(shot: Any) -> ImageContent:
+def shot_image(shot: Any, enhance: bool = False) -> ImageContent:
     """The image block for one published shot, checked against its record.
 
     A client acts on this picture through `shot=`, which maps its pixels with
     the recorded scale. So the block must be a PNG with exactly the recorded
     scaled size; anything else is a delivery failure, raised here rather than
     handing over a picture whose pixels no longer mean what the record says.
+
+    `enhance` (step 8.5) brightens and stretches a dark frame in the copy sent
+    to the client only; the file on disk stays raw, and the size check covers
+    the enhanced picture too.
     """
     label = getattr(shot, "id", "") or str(getattr(shot, "path", ""))
     try:
@@ -40,6 +44,15 @@ def shot_image(shot: Any) -> ImageContent:
             label,
             f"PNG {width}x{height}, kayit {expected[0]}x{expected[1]} diyor",
         )
+    if enhance:
+        from . import capture as capturelib
+
+        try:
+            data, _stats = capturelib.enhanced_png(Path(shot.path))
+        except (OSError, capturelib.CaptureError) as exc:
+            raise _undelivered(label, f"iyilestirilemedi ({exc})") from exc
+        if struct.unpack(">II", data[16:24]) != expected:
+            raise _undelivered(label, "iyilestirme boyutu degistirdi")
     return ImageContent(
         type="image",
         data=base64.b64encode(data).decode("ascii"),

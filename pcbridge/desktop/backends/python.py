@@ -473,6 +473,7 @@ class PythonCaptureProvider:
         include_pointer: bool,
         copy_meta_to: Sequence[Path] = (),
         reserved_dirs: Sequence[Path] = (),
+        region: Any = None,
     ) -> list[capturelib.Shot]:
         try:
             return capturelib.capture(
@@ -483,7 +484,17 @@ class PythonCaptureProvider:
                 screencast=self.screencast,
                 copy_meta_to=copy_meta_to,
                 reserved_dirs=reserved_dirs,
+                region=region,
             )
+        except capturelib.ShotLayoutChanged as exc:
+            raise _desktop_error(
+                exc,
+                code=ErrorCode.DISPLAY_CHANGED,
+                category=ErrorCategory.COORDINATE,
+                backend="linux.python.capture",
+                retryable=True,
+                suggested_action="Bölgeyi yeniden seçip tekrar deneyin.",
+            ) from exc
         except capturelib.CaptureError as exc:
             raise _desktop_error(
                 exc,
@@ -576,6 +587,55 @@ class PythonCaptureProvider:
                 suggested_action=(
                     "Taze bir çekim kimliği veya açık bir monitor seçimi kullanın."
                 ),
+            ) from exc
+        except monitorslib.MonitorError as exc:
+            raise _display_mapping_error(exc) from exc
+
+    def resolve_region(
+        self,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        *,
+        monitor: int | str | None = None,
+        shot: str | None = None,
+        dirs: Sequence[Path] | None = None,
+    ) -> Any:
+        """Bolgeyi global tuval kutusuna cevir (Adim 8.5), typed hatayla.
+
+        Hata kodlari `to_global`inkilerle ayni secimle: ayni uc uzay, ayni
+        hatalar.
+        """
+        if shot and monitor is not None:
+            code = ErrorCode.AMBIGUOUS_COORDINATE
+        elif shot and not capturelib.SHOT_ID_RE.match(shot):
+            code = ErrorCode.SHOT_INVALID
+        elif shot:
+            code = ErrorCode.SHOT_NOT_FOUND
+        else:
+            code = ErrorCode.DISPLAY_MAPPING_UNKNOWN
+        try:
+            return capturelib.resolve_region(
+                x, y, width, height, monitor=monitor, shot=shot, dirs=dirs
+            )
+        except capturelib.ShotLayoutChanged as exc:
+            raise _desktop_error(
+                exc,
+                code=ErrorCode.DISPLAY_CHANGED,
+                category=ErrorCategory.COORDINATE,
+                backend="python.shot-coordinate",
+                retryable=True,
+                suggested_action="Yeni bir ekran görüntüsü alıp onun kimliğini kullanın.",
+            ) from exc
+        except capturelib.CaptureError as exc:
+            raise _desktop_error(
+                exc,
+                code=code,
+                category=ErrorCategory.COORDINATE,
+                backend="python.shot-coordinate",
+                retryable=code == ErrorCode.SHOT_NOT_FOUND,
+                suggested_action="Bölgeyi tek bir monitörün içinde, doğru uzayda verin.",
             ) from exc
         except monitorslib.MonitorError as exc:
             raise _display_mapping_error(exc) from exc

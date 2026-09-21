@@ -196,9 +196,18 @@ class McpContractTests(unittest.TestCase):
         self.assertEqual(
             compact_schema(tools["screen_capture"]),
             {
-                "properties": ["monitor", "scale", "include_pointer"],
+                "properties": [
+                    "monitor", "scale", "include_pointer", "region", "shot", "enhance",
+                ],
                 "required": [],
-                "defaults": {"monitor": "all", "scale": None, "include_pointer": None},
+                "defaults": {
+                    "monitor": "all",
+                    "scale": None,
+                    "include_pointer": None,
+                    "region": None,
+                    "shot": None,
+                    "enhance": False,
+                },
                 "additionalProperties": False,
             },
         )
@@ -246,9 +255,18 @@ class McpContractTests(unittest.TestCase):
         self.assertEqual(
             compact_schema(tools["computer_batch"]),
             {
-                "properties": ["actions", "final", "expect_focus", "force"],
+                "properties": [
+                    "actions", "final", "final_monitor", "final_enhance",
+                    "expect_focus", "force",
+                ],
                 "required": ["actions"],
-                "defaults": {"final": "ui_dump", "expect_focus": "", "force": False},
+                "defaults": {
+                    "final": "ui_dump",
+                    "final_monitor": "all",
+                    "final_enhance": False,
+                    "expect_focus": "",
+                    "force": False,
+                },
                 "additionalProperties": False,
             },
         )
@@ -313,6 +331,50 @@ class McpContractTests(unittest.TestCase):
             self.assertIn("shot: `m1-a1b2c3`", blocks[0].text)
             self.assertIn("shot: `m2-a1b2c3`", blocks[0].text)
             self.assertTrue(store.dir.is_dir())
+
+    def test_screen_capture_passes_a_resolved_region_and_enhances_the_copy(self) -> None:
+        """Step 8.5 on the wire: region resolved once, enhancement per copy."""
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            mcp, _store = build_mcp(root)
+            monitors = monitorslib._ordered(
+                [
+                    monitorslib.Monitor(0, "DP-1", 1920, 0, 1920, 1080, 1.0, True),
+                    monitorslib.Monitor(0, "DP-2", 0, 0, 1920, 1080, 1.0, False),
+                ]
+            )
+            seen: list = []
+
+            def fake_capture(spec, out_dir, scale_long_edge, **kwargs):
+                seen.append((spec, kwargs.get("region")))
+                (x, y, width, height), monitor = kwargs["region"]
+                path = Path(out_dir) / "region.png"
+                Image.new("RGB", (width, height), (8, 9, 12)).save(path)
+                return [
+                    capturelib.Shot(
+                        path=path, monitor=monitor, offset=(x, y),
+                        size=(width, height), scaled=(width, height), scale=1.0,
+                        id="m2-a1b2c3", taken_at=time.time(),
+                        desktop_size=(width, height), region=True,
+                    )
+                ]
+
+            with (
+                mock.patch.object(toolslib.capturelib, "available", return_value=(True, "")),
+                mock.patch.object(toolslib.capturelib, "capture", side_effect=fake_capture),
+                mock.patch.object(monitorslib, "list_monitors", return_value=monitors),
+            ):
+                function = asyncio.run(mcp.get_tool("screen_capture")).fn
+                blocks = function(monitor="2", region=[100, 50, 400, 200], enhance=True)
+                orphan = function(shot="m2-a1b2c3")
+
+            self.assertEqual(seen[0][1][0], (2020, 50, 400, 200))
+            self.assertEqual(seen[0][1][1].index, 2)
+            self.assertEqual([block.type for block in blocks], ["text", "image"])
+            self.assertIn("bolge", blocks[0].text)
+            self.assertIn("🔆", blocks[0].text)
+            self.assertIn("region", orphan.text)
+            self.assertEqual(len(seen), 1, "a shot without a region captured something")
 
 
 if __name__ == "__main__":

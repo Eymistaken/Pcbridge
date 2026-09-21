@@ -39,6 +39,7 @@ class CaptureProvider(Protocol):
         include_pointer: bool,
         copy_meta_to: Sequence[Path] = (),
         reserved_dirs: Sequence[Path] = (),
+        region: Any = None,
     ) -> list[Any]: ...
 
     def list_monitors(self) -> list[Any]: ...
@@ -60,6 +61,18 @@ class CaptureProvider(Protocol):
         dirs: Sequence[Path] | None = None,
         guard_age: float = 0.0,
     ) -> tuple[int, int]: ...
+
+    def resolve_region(
+        self,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        *,
+        monitor: int | str | None = None,
+        shot: str | None = None,
+        dirs: Sequence[Path] | None = None,
+    ) -> Any: ...
 
     def load_shot(self, shot_id: str, dirs: Sequence[Path]) -> Any: ...
 

@@ -591,7 +591,7 @@ ya da bir işin bittiğini fark etmek için.
 | `mouse` | Fareyi hareket ettirir (ışınlamaz, ara noktalardan geçer), tıklar (tek/çift/üçlü, sağ/orta; koordinatsız verilirse imlecin olduğu yerde, `hold_ms` ile basış süresi), sürükler, kaydırır (dikey + yatay), düğmeyi basılı tutar; `move_by` ile imleci **göreli** kaydırır (aşağı bkz.) |
 | `keyboard` | Metin yazar (pano yoluyla) veya tuş kombinasyonu gönderir; `hold`/`release` ile istenen sayıda tuşu basılı tutar |
 | `screen_info` | Monitör tablosu, koordinat uzayı, odaktaki pencere |
-| `screen_capture` | Ekran görüntüsü alır (sessiz — flaş/ses yok): görüntünün kendisi, uzaktan bağlıysan ayrıca 5 dakikalık bağlantı |
+| `screen_capture` | Ekran görüntüsü alır (sessiz — flaş/ses yok): görüntünün kendisi, uzaktan bağlıysan ayrıca 5 dakikalık bağlantı. `region` ile bir parçası, `enhance` ile karanlık kare aydınlatılmış |
 | `ui_dump` | Ekrandaki düğme/menü/kutuları metin olarak listeler |
 | `ui_click` | Listedeki bir öğeye tıklar (koordinat kullanmadan; **imleç kıpırdamaz**, tıklama uygulamaya doğrudan gider). Öğe kaybolmuş ya da değişmişse reddeder |
 | `ui_set_text` | Metin kutusunu doğrudan doldurur (klavye taklidi yok) ve yazılanı geri okuyup doğrular |
@@ -683,6 +683,26 @@ metin hangi çekimin ulaşmadığını söyler. O görüntüden koordinat çıka
 bir çekim al. Bir `all` çekiminde monitörlerden biri alınamazsa diğerleri de
 yayımlanmaz: diskte yarım bir çekim ve arkasında görüntü olmayan bir `shot`
 kimliği kalmaz.
+
+**Bölge, tek monitör, karanlık kare** (Adım 8.5). Görüntü token'ın en büyük
+kalemi; yalnızca gerekeni iste:
+
+- `screen_capture(region=[x, y, genişlik, yükseklik])` bir monitörün yalnızca
+  o parçasını çeker. Koordinat uzayları `mouse`'unkilerle aynı: `shot=` ile o
+  görüntüdeki pikseller (gördüğün bir şeye yakınlaşmanın doğal yolu),
+  `monitor=2` ile o monitörün içinde tam çözünürlük, ikisi de yoksa global.
+  Bölge tek bir monitörün içinde kalmalı. Küçük bir bölge küçültülmeden, tam
+  çözünürlükte gelir ve kendi `shot` kimliğini alır; ona yapılan tıklama
+  doğru yere düşer. Ölçüldü 2026-09-22, iki backend: bölge, hemen önce alınan
+  tam monitör karesinin aynı parçasıyla **%100** piksel eşleşti.
+- `computer_batch(final="screen_capture", final_monitor="2")` sondaki
+  görüntüyü yalnızca o monitörden alır; iki monitörün yarısı.
+- `enhance=true` (`computer_batch`'te `final_enhance=true`) karanlık bir
+  kareyi — gece bir oyun, koyu tema — parlaklık aralığını açarak ve gerekirse
+  gamayla aydınlatarak gönderir. Yalnızca sana giden kopya değişir; diskteki
+  çekim ham kalır, boyut aynı olduğu için `shot` koordinatları geçerli.
+  Dünkü bir Minecraft gece karesinde ortalama parlaklık 0,041 → 0,259 oldu,
+  mağara duvarı okunur hâle geldi; iyileştirme ~10 ms.
 
 Ham kareyi varsayılan olarak `pcbridge-native` yardımcısı alır
 (`[native] capture = "auto"`). Yardımcı yoksa pcbridge eski Python yoluna düşer ve
