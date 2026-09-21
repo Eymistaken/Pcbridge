@@ -16,6 +16,11 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
   fiziksel fareyle denemek, kullanıcıda) ve **Faz 8** (legacy retirement, ön
   koşulu sağlanmadı). Yeni bir işe başlamadan önce kullanıcıya hangisini
   istediğini sor.
+- **Planlanan yeni iş: Adım 8** (2026-09-21). Canlı bir ajan oturumunda
+  (Minecraft survival denemesi) çıkan yedi genel özellik isteği: odak için
+  ikinci kaynak, koordinatsız tıklama, en kısa basılı kalma, `move_by`
+  notu, ekran görüntüsü kırpma/iyileştirme, OCR, batch süre bütçesi.
+  Hepsi `planlandı`; hangisinden başlanacağını kullanıcıya sor.
 - **Kullanıcıyı bekleyen tek madde: #8** (imleç katmanı, fiziksel fareyle
   deneme). İsteğe bağlı; projenin hiçbir parçası buna bağlı değil.
 - **Blocker:** Yok.
@@ -90,6 +95,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅ **Gate 5**; 6.1–6.4 ✅ **Gate 6**; 7.1 ✅, 7.3/7.4 ölçülüp uygulanmadı; sırada 7.2) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `uygulandı, kapalı geliyor` (gerçek fareyle doğrulama kullanıcıda, #8) |
 | 7 | Göreli fare hareketi (`move_by`) — göreli okuyan her uygulama için, kilit şartı yok | `tamamlandı` (Wayland'de ölçüldü, Minecraft native Wayland'de de; XWayland'de çalışmıyor) |
+| 8 | Canlı ajan kullanımından çıkan özellik istekleri (odak, tıklama, ekran görüntüsü, OCR) — 8.1–8.7 | `planlandı` (2026-09-21, kullanıcı isteği; başlanmadı) |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
 ## Adım 0 — Belge omurgası
@@ -3102,6 +3108,123 @@ ile sabitliyor; kardeş test sıradan bir `move`'un bu fazladan olayı
 **Geri alma.** Cihaz ayrı olduğu için yaratılmaması yeterli; mevcut hiçbir
 yol değişmiyor. `[native] input = "python"` eski yolu geri getirir.
 
+
+## Adım 8 — Canlı ajan kullanımından çıkan özellik istekleri · `planlandı` (2026-09-21)
+
+**Kaynak.** 2026-09-21 akşamı bir Claude oturumu (Cowork, telefondan
+uzaktan) pcbridge ile Modrinth App'i GUI'den açtı, `Fabric 26.3`'te yeni
+bir survival dünyası kurdu ve yaklaşık bir saat oynamaya çalıştı. Görev
+(ev yapıp iki gece çıkarmak) bitmedi. Aşağıdakiler o oturumda ajanın
+**fiilen takıldığı** yerler; hiçbiri Minecraft'a özel değil. Kullanıcı
+kararı: "pcbridge Minecraft odaklı değil, genel alanda işe yarayacak şeyler
+eklenebilir". Hepsi `planlandı` — yapılmak isteniyor, başlanmadı, tasarım
+kararı verilmedi. Sıra, oturumdaki etkisine göre.
+
+| # | Ne | Durum |
+|---|---|---|
+| 8.1 | Odak kontrolü için ikinci kaynak (GNOME Shell eklentisi) | `planlandı` |
+| 8.2 | Koordinatsız tıklama (imleç neredeyse orada) | `planlandı` |
+| 8.3 | Tıklamada en kısa basılı kalma süresi | `planlandı` |
+| 8.4 | `move_by` ölçeği ve ilk-olay kaybı ajana görünsün | `planlandı` |
+| 8.5 | Ekran görüntüsünde bölge kırpma, `final` için monitör seçimi, karanlık kare iyileştirme | `planlandı` |
+| 8.6 | "Görünene kadar bekle": OCR ile `find_text` / `wait_for_text` | `planlandı` |
+| 8.7 | `computer_batch` süre bütçesi taşıma zaman aşımının altında | `planlandı` |
+
+### 8.1 — Odak kontrolü için ikinci kaynak · `planlandı`
+
+**Gözlenen.** Minecraft (SDL3, native Wayland) penceresi öndeyken AT-SPI
+hiçbir pencereyi `ACTIVE` işaretlemedi. Task 5.1'in kuralı gereği ("okunamayan
+odak değişmedi sayılmaz") tıklama içeren her `computer_batch` **hiç eylem
+göndermeden** reddedildi. Ajan her basma/bırakmayı ayrı `mouse hold` /
+`mouse release` çağrısına bölmek zorunda kaldı: yavaş, pahalı, ve bekleme
+süreleri kaydığı için oyunda hedef kaçırıldı. Aynı durum Electron, Qt ve
+Java uygulamalarında da beklenir (ölçülmedi).
+
+**İstenen.** Kural gevşetilmesin; odak **başka bir yerden** okunabilsin.
+`window_focus` zaten GNOME Shell eklentisini kullanıyor. Eklenti öndeki
+pencerenin kimliğini (wm_class/pid/başlık) de verebilir. AT-SPI boş
+dönerse eklentiye sorulur, o da okuyamazsa bugünkü red davranışı aynen
+kalır. İkinci ve daha zayıf seçenek: çağrı başına açıkça verilen bir
+`focus_check="off"` (varsayılan kapalı değil, açık; red mesajı bu seçeneği
+anmalı). Bu seçenek güvenlik modeline dokunduğu için `KURALLAR.md` ile
+birlikte karara bağlanmalı.
+
+### 8.2 — Koordinatsız tıklama · `planlandı`
+
+**Gözlenen.** `mouse(action="right_click")` x/y olmadan `x ve y zorunlu`
+hatası veriyor. İmleç kilitli bir uygulamada "şu noktaya git" anlamsız;
+ajan imleci her seferinde mutlak bir noktaya taşıyıp tıklamak zorunda kaldı.
+
+**İstenen.** `click`, `right_click`, `middle_click`, `double_click` x/y
+verilmezse **olduğu yerde** tıklasın (hem `mouse`'ta hem `computer_batch`'te).
+Bayat ABS kusurundan (Adım 7) sonra "olduğu yer"in ne demek olduğu testle
+sabitlenmeli: göreli hareketten sonra mutlak konum bilinmiyor, tıklama yine
+de gitmeli.
+
+### 8.3 — Tıklamada en kısa basılı kalma süresi · `planlandı`
+
+**Gözlenen (ölçülmedi, kuvvetli şüphe).** Minecraft'ta sağ tıkla blok koyma
+birkaç kez etkisiz kaldı. Oyun girdiyi 50 ms'lik tick'lerle yokluyor; basma
+ve bırakma aynı tick'e düşerse tıklama görülmeyebilir. Aynı `hold` +
+`release` ayrı çağrılarla (yüzlerce ms arayla) her seferinde çalıştı.
+
+**İstenen.** Tıklama eylemlerine `hold_ms` (varsayılan örn. 60 ms, config'ten
+ayarlanabilir). Kabul ölçütü: basma–bırakma arası süre golden fixture'da
+sabitlensin ve bir tick'li uygulamada (Minecraft ya da yerel test sayfası)
+kaçırma oranı ölçülsün.
+
+### 8.4 — `move_by` ölçeği ajana görünsün · `planlandı`
+
+**Gözlenen.** Ajan dönüş açısını tahminle hesapladı (dikeyde tavan-taban
+sıkıştırmasından "1500 birim ≈ 90°" çıkardı). Oysa bu bölümde ölçülmüş
+gerçekler var: ivme yok (`accel-profile flat`), Minecraft'ta hassasiyet
+0,5'te **0,15°/birim**, fare her yakalandığında **ilk parça kayboluyor**.
+Bunların hiçbiri araç açıklamasında yok, ajan bilemedi.
+
+**İstenen.** `mouse`/`computer_batch` açıklamasına kısa ve doğru bir not:
+delta cihaz birimidir; masaüstünde `k = 1 + speed` ile piksele, kilitli
+uygulamada uygulamanın kendi ölçeğine dönüşür; yakalamadan sonraki ilk
+çağrıda ilk parça düşebilir. Uygulamaya özgü sayı (0,15°) açıklamaya
+**yazılmaz**, kalibrasyon yöntemi yazılır.
+
+### 8.5 — Ekran görüntüsü: bölge, monitör, karanlık kare · `planlandı`
+
+**Gözlenen.** Oturumdaki token'ın büyük kısmı ekran görüntüsüne gitti.
+`computer_batch(final="screen_capture")` her seferinde **iki monitörü**
+döndürdü; ajana yalnızca oyunun olduğu monitör gerekiyordu. Gece ve
+yeraltında kareler neredeyse simsiyahtı; ajan oyunun parlaklık ayarını
+değiştirmek zorunda kaldı.
+
+**İstenen.**
+- `screen_capture(region=[x, y, w, h])`: dönen `shot` kimliği kırpmayı
+  bilsin, koordinat çevirisi bozulmasın.
+- `computer_batch(final_monitor=…)` (ya da `final` için aynı `monitor`
+  sözdizimi).
+- İsteğe bağlı `enhance=true`: yalnızca ajana giden görüntüde kontrast/gama
+  açma; diskteki çekim ham kalsın. Koyu temalı arayüzlerde de işe yarar.
+
+### 8.6 — OCR ile `find_text` / `wait_for_text` · `planlandı`
+
+**Gözlenen.** Erişilebilirlik ağacı olmayan pencerelerde (oyun, bazı
+Electron/Java) ajanın tek aracı görüntü + tahmini bekleme. Oyunun
+yüklenmesi için körlemesine "30 sn bekle" kullanıldı.
+
+**İstenen.** Ekrandan metin okuyup koordinat döndüren `find_text(text,
+monitor?)` ve belirli bir metin görünene kadar bekleyen
+`wait_for_text(text, timeout)`. Dönen koordinat `shot` sözleşmesine uymalı
+(`mouse(shot=…)` ile doğrudan tıklanabilsin). OCR motoru (tesseract ya da
+başka) seçilmedi; yerel çalışmalı, ağ istememeli.
+
+### 8.7 — `computer_batch` süre bütçesi · `planlandı`
+
+**Gözlenen.** Dört adet `wait 30000` içeren bir batch, cihazın taşıma
+katmanında `did not respond within 60s` ile düştü; batch'in kendi süre
+bütçesi taşıma zaman aşımından büyüktü. Tek `wait` 30 sn ile, eylem sayısı 40
+ile sınırlı ama toplam süre sınırlı değil.
+
+**İstenen.** Toplam süre bütçesi taşıma zaman aşımının altında tutulsun ve
+aşan plan **baştan** reddedilsin (kısmen koşup yarıda kopmasın). Uzun işler
+için `shell_run_background` gibi bir job yolu düşünülebilir.
 
 ## Ertelenen (bilinçli)
 
