@@ -1266,10 +1266,12 @@ def register(
                 le=4000,
                 description="For move_by: how far to nudge horizontally, in "
                 "device units, positive to the right. Not screen pixels and not "
-                "a coordinate: how far the desktop cursor actually travels "
-                "depends on the user's mouse-speed setting, and inside an "
-                "application that locks the pointer it is the application that "
-                "decides what the delta means.",
+                "a coordinate: on the desktop a unit moves the cursor by a fixed "
+                "factor set by the user's mouse-speed setting, and inside an "
+                "application that locks the pointer the application applies its "
+                "own scale (a game's sensitivity). Either way the effect is "
+                "linear, so calibrate instead of guessing: send a known delta, "
+                "compare screenshots before and after, and divide.",
             ),
         ] = 0,
         dy: Annotated[
@@ -1375,6 +1377,16 @@ def register(
         point" at all. After a move_by the pointer's position is unknown, so
         read the screen again before you click, or go back to a known point
         with an absolute move.
+
+        move_by units are not pixels or degrees. The scale is fixed and linear
+        (pcbridge adds no acceleration, and applications that lock the pointer
+        read unaccelerated motion), but it belongs to the setting or the
+        application that reads it, and it is not known in advance: calibrate
+        it once — send a known delta such as 400, measure on screenshots how
+        far the cursor or view turned, divide, and reuse that ratio. An
+        application that has just captured the pointer (entering a game world,
+        closing a menu) may drop the start of the first nudge, so send a small
+        throwaway nudge first and never calibrate on that one.
 
         A click or scroll without x and y happens where the pointer already
         is. That is how you click inside an application that has locked the
@@ -2265,7 +2277,11 @@ def register(
                     'it TO a point, for applications that lock the pointer and '
                     'read relative motion (games, 3D viewports, WebGL); it is '
                     'not a way to reach anything on screen and it leaves the '
-                    'pointer position unknown. '
+                    'pointer position unknown. Its dx/dy are device units with '
+                    'a fixed, linear scale that the application decides: '
+                    'calibrate with a known delta and screenshots rather than '
+                    'guessing, and expect the first nudge after the application '
+                    'captures the pointer to lose its start. '
                     'A key/hold that closes a window or quits an application '
                     '(alt+F4, ctrl+q, ctrl+w) needs confirm_close on that item; '
                     'without it the whole list is rejected and nothing runs. '

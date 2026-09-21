@@ -393,6 +393,13 @@ native Wayland'de açılıyor. O zaman `move_by` bakışı çeviriyor: hassasiye
 yakaladığında ilk hareket olayını atar, yani dünyaya girişten ya da menüden
 dönüşten sonraki ilk çağrı birkaç derece eksik kalır.
 
+Bu yüzden araç açıklaması (Adım 8.4) ajana sayı değil **yöntem** veriyor:
+ölçek sabit ve doğrusal ama uygulamaya ait; bilinen bir delta (örn. 400)
+gönder, ekran görüntüleriyle ne kadar döndüğünü ölç, böl ve o oranı kullan.
+Yakalamadan sonraki ilk çağrı küçük bir "boşa" çağrı olsun, kalibrasyon
+onunla yapılmasın. Uygulamaya özgü sayı (Minecraft'ın 0,15°'si) açıklamada
+yok: başka bir oyunda ya da başka bir hassasiyette yanlış olurdu.
+
 **Koordinatsız tıklama imlecin olduğu yerde olur** (Adım 8.2). `click`,
 `right_click`, `middle_click`, `double_click`, `triple_click` ve `scroll`
 `x`/`y` almazsa imleç nerede duruyorsa orada çalışır — imleci kilitleyen bir

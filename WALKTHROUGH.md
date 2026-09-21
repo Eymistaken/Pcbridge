@@ -3125,7 +3125,7 @@ kararı verilmedi. Sıra, oturumdaki etkisine göre.
 | 8.1 | Odak kontrolü için ikinci kaynak (GNOME Shell eklentisi) | `planlandı` |
 | 8.2 | Koordinatsız tıklama (imleç neredeyse orada) | `tamamlandı` (2026-09-21) |
 | 8.3 | Tıklamada en kısa basılı kalma süresi | `tamamlandı` (2026-09-21, ölçüldü) |
-| 8.4 | `move_by` ölçeği ve ilk-olay kaybı ajana görünsün | `planlandı` |
+| 8.4 | `move_by` ölçeği ve ilk-olay kaybı ajana görünsün | `tamamlandı` (2026-09-21) |
 | 8.5 | Ekran görüntüsünde bölge kırpma, `final` için monitör seçimi, karanlık kare iyileştirme | `planlandı` |
 | 8.6 | "Görünene kadar bekle": OCR ile `find_text` / `wait_for_text` | `planlandı` |
 | 8.7 | `computer_batch` süre bütçesi taşıma zaman aşımının altında | `tamamlandı` (2026-09-21) |
@@ -3223,7 +3223,7 @@ olasılığı %60); ölçülen %30 ve %40. Minecraft'ta ayrıca ölçülmedi: oy
 tıklamayı tick'te mi yoksa olay geri çağrısında mı saydığı bilinmiyor, yerel
 pencere kabul ölçütündeki "ya da" dalı.
 
-### 8.4 — `move_by` ölçeği ajana görünsün · `planlandı`
+### 8.4 — `move_by` ölçeği ajana görünsün · `tamamlandı` (2026-09-21)
 
 **Gözlenen.** Ajan dönüş açısını tahminle hesapladı (dikeyde tavan-taban
 sıkıştırmasından "1500 birim ≈ 90°" çıkardı). Oysa bu bölümde ölçülmüş
@@ -3236,6 +3236,15 @@ delta cihaz birimidir; masaüstünde `k = 1 + speed` ile piksele, kilitli
 uygulamada uygulamanın kendi ölçeğine dönüşür; yakalamadan sonraki ilk
 çağrıda ilk parça düşebilir. Uygulamaya özgü sayı (0,15°) açıklamaya
 **yazılmaz**, kalibrasyon yöntemi yazılır.
+
+**Yapılan.** Üç yerde, aynı içerik: `mouse`'un `dx` alanı, `mouse`'un
+docstring'i ve `computer_batch`'in eylem açıklaması. Söylenen: birim piksel
+ya da derece değil; ölçek sabit ve doğrusal (pcbridge ivme eklemiyor,
+imleci kilitleyen uygulamalar ivmesiz hareketi okuyor) ama ayara ya da
+uygulamaya ait; tahmin etme, bilinen bir delta gönder, ekran görüntüleriyle
+ölç, böl; yakalamadan sonraki ilk çağrı başını kaybedebilir, küçük bir boşa
+çağrı gönder ve kalibrasyonu onunla yapma. Hiçbir sayı yazılmadı.
+`KULLANIM.md` aynı yöntemi Türkçe anlatıyor.
 
 ### 8.5 — Ekran görüntüsü: bölge, monitör, karanlık kare · `planlandı`
 
