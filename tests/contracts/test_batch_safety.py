@@ -479,13 +479,34 @@ class HeldInputCleanupTests(unittest.TestCase):
     """Every early stop lets go; a finished sequence keeps a deliberate hold."""
 
     def test_budget_stop_releases(self) -> None:
+        # The plan fits its estimate, so it starts; the wait then takes far
+        # longer than planned and the budget runs out mid-sequence.
+        now = [0.0]
+
+        def slow_sleep(seconds: float) -> None:
+            now[0] += seconds * 10
+
+        ops = RecordingOps()
+        result = batchlib.run(plan(
+            {"a": "hold", "keys": "shift"}, {"a": "wait", "ms": 500},
+            {"a": "key", "keys": "a"},
+        ), ops, budget=3.0, check_focus=False, clock=lambda: now[0],
+            sleep=slow_sleep)
+        self.assertIsNone(result.plan_seconds)
+        self.assertEqual(result.stopped, "budget")
+        self.assertEqual(ops.released, [["shift"]])
+        self.assertEqual(result.held, [])
+
+    def test_plan_over_budget_sends_nothing_and_keeps_holds(self) -> None:
         ops = RecordingOps()
         result = batchlib.run(plan(
             {"a": "hold", "keys": "shift"}, {"a": "wait", "ms": 5000},
         ), ops, budget=3.0, check_focus=False, sleep=lambda s: None)
         self.assertEqual(result.stopped, "budget")
-        self.assertEqual(ops.released, [["shift"]])
-        self.assertEqual(result.held, [])
+        self.assertGreater(result.plan_seconds, 3.0)
+        self.assertEqual(ops.log, [])
+        self.assertEqual(ops.released, [])
+        self.assertEqual(len(result.remaining), 2)
 
     def test_focus_stop_releases(self) -> None:
         ops = RecordingOps()

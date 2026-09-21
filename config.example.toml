@@ -374,11 +374,20 @@ capture_backend = "auto"
 # mumkun; bu sinir sonsuz donguye giren bir ajana karsi.
 batch_max_actions = 40
 
-# Toplu eylemin sure butcesi (saniye). Bir MCP cagrisi 110 saniyeyi asamaz;
-# aradaki fark cevabin hazirlanmasi ve son `ui_dump`/`screen_capture` icin pay.
-# Butce dolunca batch siradaki eyleme HIC BASLAMAZ (yarim tiklama olmaz) ve
-# yapilmayan eylemleri listeleyerek doner.
-batch_budget_seconds = 90
+# Toplu eylemin sure butcesi (saniye).
+#
+# Tahmini suresi bu butceyi asan liste HIC BASLAMAZ: tek eylem bile
+# gonderilmeden reddedilir. Baslamis bir liste butce dolunca siradaki eyleme
+# baslamaz (yarim tiklama olmaz) ve yapilmayan eylemleri listeleyerek doner.
+#
+# Neden 50: istemcilerin cogu bir arac cagrisini 60 saniyede birakiyor.
+# OLCULDU 2026-09-21: dort `wait 30000`lik bir liste 90 saniyelik eski butceyle
+# 60 saniye kostu, istemci ise cevabi "did not respond within 60s" diyerek
+# birakmisti -- ajan neyin yapildigini hic ogrenemedi. Aradaki 10 saniye son
+# `ui_dump`/`screen_capture` ve cevap icin pay. Yalnizca Claude Code gibi uzun
+# bekleyen istemciler kullaniliyorsa 105'e kadar cikarilabilir (bir MCP
+# cagrisi 110 saniyeyi asamaz).
+batch_budget_seconds = 50
 
 # Fare tiklamasindan sonra odagin degisip degismedigi kontrol edilsin mi.
 # OLCULDU 2026-08-02: kor bir tiklama odagi baska pencereye kaydiriyor ve

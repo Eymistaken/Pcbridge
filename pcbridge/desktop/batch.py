@@ -184,6 +184,10 @@ class Result:
     # `hold` edip `release` etmeyi unutmak sessiz kalmamali.
     held: list[str] = field(default_factory=list)
     error: Exception | None = None
+    # Plan butceye sigmadigi icin HIC baslamadiysa tahmini suresi (sn).
+    # Bos (None) ise dizi baslamis demektir; `stopped="budget"` o zaman
+    # "yarida durdu" anlamina gelir.
+    plan_seconds: float | None = None
 
     @property
     def done(self) -> int:
@@ -528,7 +532,41 @@ def run(
     `fast_focus`: `focus` icin secilen yol eklenti mi. Butce kontrolu o yolun
     maliyetini kullanir; `launch`/`focus` kalan sureyi `budget_left` olarak
     alir ve sigmayan yavas adimi `BudgetExceeded` ile hic baslatmaz.
+
+    PLAN BUTCEYE SIGMIYORSA HIC BASLAMAZ (Adim 8.7). Eylem-oncesi kontrol
+    yalnizca "bu eylem kalan sureye sigar mi" diye soruyordu, yani uzun bir
+    plan yarisina kadar kosup orada duruyordu. OLCULDU 2026-09-21: dort
+    `wait 30000`lik bir batch 60 saniyede iki beklemeyi bitirip durdu, ama
+    istemcinin tasima katmani cevabi 60. saniyede birakmisti ("did not respond
+    within 60s"): ajan ne yapildigini hic ogrenemedi. Tahmin eylem-oncesi
+    kontrolle ayni tablodan (`cost_ms`) geliyor.
     """
+    planned = estimate(actions, min_gap, fast_focus=fast_focus)
+    if planned > budget:
+        waits = sum(float(a.args.get("ms") or 0) for a in actions if a.a == "wait")
+        detail = (
+            f"planin tahmini suresi ~{planned:.1f} sn, butce {budget:.1f} sn; "
+            "HICBIR eylem gonderilmedi"
+        )
+        if waits:
+            detail += f" (beklemelerin toplami {waits / 1000.0:.1f} sn)"
+        try:
+            held_now = list(ops.held())
+        except Exception:  # noqa: BLE001 — durum sorgusu sonucu bozmasin
+            held_now = []
+        # Basili olanlara DOKUNULMAZ: bu cagri hicbir sey yapmadi, onceki bir
+        # cagrinin bilerek tuttugu tusu birakmak ona ait bir karar degil.
+        return Result(
+            steps=[],
+            total=len(actions),
+            remaining=list(actions),
+            elapsed=0.0,
+            stopped="budget",
+            detail=detail,
+            held=held_now,
+            plan_seconds=planned,
+        )
+
     want_focus = (expect_focus or "").strip().lower()
     started = clock()
     steps: list[Step] = []
@@ -753,7 +791,9 @@ def describe(result: Result) -> str:
     if result.stopped:
         lines.append("")
         reason = {
-            "budget": "⏱️ Sure butcesi doldu",
+            "budget": ("⏱️ Plan sure butcesine sigmiyor"
+                       if result.plan_seconds is not None
+                       else "⏱️ Sure butcesi doldu"),
             "error": "⛔ Eylem basarisiz",
             "focus": "⚠️ Odak kaydi",
             "repeat": "🔁 Ayni hedefe tekrar tiklama",
@@ -775,7 +815,14 @@ def describe(result: Result) -> str:
         lines.append(f"Yapilmayan {len(result.remaining)} eylem:")
         for act in result.remaining:
             lines.append(f"  - {act.describe()}")
-        if result.stopped == "budget":
+        if result.stopped == "budget" and result.plan_seconds is not None:
+            lines.append(
+                "Liste bastan reddedildi, hicbiri calismadi. Ikiye bolup ayri "
+                "cagrilarla gonderin ya da beklemeleri kisaltin; bir seyin "
+                "ekrana gelmesini bekliyorsaniz korlemesine `wait` yerine "
+                "`wait_for_text` kullanin."
+            )
+        elif result.stopped == "budget":
             lines.append(
                 "Kalanlari yeni bir cagriyla gonderebilirsiniz; once ekranin "
                 "gercekten beklediginiz durumda oldugunu dogrulayin."

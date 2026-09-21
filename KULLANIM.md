@@ -403,9 +403,12 @@ söyler.
 
 - **Bir eylem başarısız olursa.** Kalanlar çalıştırılmaz — yanlış duruma kör
   devam etmek en kötü sonuç.
-- **Süre bütçesi dolarsa** (varsayılan 90 sn). Sıradaki eyleme *hiç başlamaz*,
+- **Süre bütçesi dolarsa** (varsayılan 50 sn). Sıradaki eyleme *hiç başlamaz*,
   yarım tıklama olmaz. Yapılmayanları listeler, yeni bir çağrıyla devam
-  edebilirsin.
+  edebilirsin. Tahmini süresi bütçeyi baştan aşan liste ise **hiç
+  başlamaz** — yarısına kadar koşup istemcinin 60 saniyelik zaman aşımına
+  takılmasın diye. Uzun beklemeler için listeyi böl ya da körlemesine `wait`
+  yerine `wait_for_text` kullan.
 - **Bir tıklama odağı başka pencereye kaydırırsa.** Bu koruma gerçek bir
   kazadan doğdu: geliştirme sırasında bir ölçüm tıklaması masaüstüne düştü,
   ardından gönderilen `ctrl+a` + `Delete` masaüstündeki 23 öğeyi çöpe gönderdi.

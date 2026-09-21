@@ -1723,12 +1723,49 @@ def test_batch_budget() -> None:
         def sleep(self, s):
             self.t += s
 
+    # Tahmin butceye SIGMIYORSA plan HIC baslamaz (Adim 8.7). Eskiden ilk
+    # wait kosup ikincisinde duruyordu; istemci 60 sn'de cevabi biraktiginda
+    # ajan yarida kalan listeyi hic ogrenemiyordu.
     sc = SleepClock()
-    res3 = B.run(uzun, FakeOps(), budget=25.0, clock=sc.now, sleep=sc.sleep)
-    check("butceyi asan wait'e HIC baslanmiyor", res3.done == 1,
+    ops3 = FakeOps()
+    res3 = B.run(uzun, ops3, budget=25.0, clock=sc.now, sleep=sc.sleep)
+    check("butceyi asan plan HIC baslamadi", res3.done == 0 and not res3.steps,
           f"{res3.done} yapildi, {res3.stopped}")
+    check("hic uyunmadi (beklemeye bile girilmedi)", sc.t == 0.0, str(sc.t))
     check("butce asimi sebep olarak yazildi", res3.stopped == "budget",
           res3.stopped)
+    check("tahmin sonuca yazildi", res3.plan_seconds == 40.0,
+          str(res3.plan_seconds))
+    check("liste tamamen kalanlarda", len(res3.remaining) == 2)
+    text3 = B.describe(res3)
+    check("rapor planin reddedildigini soyluyor",
+          "sigmiyor" in text3 and "40.0" in text3 and "25.0" in text3, text3)
+    check("rapor beklemelerin toplamini soyluyor", "40.0 sn" in text3, text3)
+
+    # Reddedilen plan onceki bir cagrinin BILEREK tuttugu tusu birakmaz.
+    class Holding(FakeOps):
+        def __init__(self):
+            super().__init__()
+            self.released = False
+
+        def held(self):
+            return ["w"]
+
+        def release_all(self):
+            self.released = True
+            return ["w"]
+
+    ops4 = Holding()
+    res4 = B.run(uzun, ops4, budget=25.0, clock=sc.now, sleep=sc.sleep)
+    check("reddedilen plan basili tusa dokunmadi",
+          not ops4.released and res4.held == ["w"], f"{ops4.released} {res4.held}")
+
+    # Sigan plan eskisi gibi kosuyor: eylem-oncesi kontrol hala yerinde.
+    sc2 = SleepClock()
+    res5 = B.run(uzun, FakeOps(), budget=45.0, clock=sc2.now, sleep=sc2.sleep)
+    check("sigan plan tamamen kostu", res5.done == 2 and not res5.stopped,
+          f"{res5.done} {res5.stopped}")
+    check("kosan planda plan_seconds bos", res5.plan_seconds is None)
 
 
 def test_batch_stops() -> None:

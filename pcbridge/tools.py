@@ -2251,7 +2251,11 @@ def register(
         phone, so a five-step menu selection becomes five interruptions. Put the
         whole sequence here instead. Actions stop as soon as one fails, the time
         budget runs out, or a click moves focus to a different window — you get
-        back what was done and what was left."""
+        back what was done and what was left. A list whose estimated duration
+        (waits included) exceeds the time budget is refused before anything
+        runs, so split long sequences into several calls, and wait for
+        something to appear with `wait_for_text` rather than a long blind
+        wait."""
         try:
             plan = batchlib.parse(actions, max_actions=cfg.desktop.batch_max_actions)
         except batchlib.BatchError as exc:

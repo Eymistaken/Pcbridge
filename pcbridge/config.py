@@ -160,10 +160,13 @@ class DesktopSpec:
     # -- toplu eylem (E bolumu) ---------------------------------------------
     # computer_batch tek cagrida en fazla kac eylem alir.
     batch_max_actions: int = 40
-    # Toplam sure butcesi (saniye). MCP cagrisi 110 saniyeyi asamaz; aradaki
-    # fark cevabin hazirlanmasi ve `final` adimi icin pay. Butce dolunca batch
-    # siradaki eyleme HIC BASLAMAZ, kalan listeyi geri dondurur.
-    batch_budget_seconds: int = 90
+    # Toplam sure butcesi (saniye). Tahmini bu butceyi asan plan HIC
+    # baslamaz; baslayan plan butce dolunca siradaki eyleme baslamaz ve kalan
+    # listeyi geri dondurur. 50, cunku istemcilerin cogu bir araci 60 sn'de
+    # birakiyor (OLCULDU 2026-09-21: "did not respond within 60s"); aradaki
+    # fark `final` adimi ve cevap icin pay. Yalnizca Claude Code gibi uzun
+    # bekleyen bir istemci kullaniliyorsa 105'e kadar cikarilabilir.
+    batch_budget_seconds: int = 50
     # Fare tiklamasindan sonra odak dogrulansin mi. OLCULDU: kor tiklama odagi
     # kaydiriyor ve sonraki tuslar yanlis pencereye gidiyor -- gelistirme
     # sirasinda masaustundeki 23 oge boyle copa gitti. Kapatmayin.
@@ -582,7 +585,7 @@ def load_config(explicit: str | None = None) -> Config:
         # config.toml'a yazilan deger hicbir sey yapmiyordu. F0 sirasinda
         # fark edildi.
         batch_max_actions=int(desktop_raw.get("batch_max_actions", 40)),
-        batch_budget_seconds=int(desktop_raw.get("batch_budget_seconds", 90)),
+        batch_budget_seconds=int(desktop_raw.get("batch_budget_seconds", 50)),
         batch_check_focus=bool(desktop_raw.get("batch_check_focus", True)),
         computer_task_agent=str(desktop_raw.get("computer_task_agent", "claude")),
         computer_task_model=str(desktop_raw.get("computer_task_model", "")),

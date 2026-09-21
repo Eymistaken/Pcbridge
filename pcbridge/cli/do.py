@@ -152,12 +152,19 @@ def main(argv: list[str] | None = None) -> int:
             )
         estimate = batchlib.estimate(plan, fast_focus=fast_focus)
         lines.append(f"tahmini sure: {estimate:.1f} s")
+        budget = float(cfg.desktop.batch_budget_seconds)
+        if estimate > budget:
+            # Gercek kosuda `batch.run` bu listeyi hic baslatmadan reddeder.
+            lines.append(
+                f"⚠ butce {budget:.0f} s: bu liste HIC BASLAMAZ, bolun"
+            )
         if args.json:
             print(json.dumps({
                 "ok": True, "dry_run": True, "count": len(plan),
                 "actions": [{"a": a.a, **a.args} for a in plan],
                 "needs_keyboard": want_k, "needs_pointer": want_p,
                 "estimate_seconds": round(estimate, 1),
+                "fits_budget": estimate <= budget,
             }, ensure_ascii=False, indent=2))
         else:
             print("\n".join(lines))
