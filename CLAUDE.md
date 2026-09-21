@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Proje
 
 pcbridge, kullanıcının Linux masaüstünü (Zorin OS / GNOME 46 / Wayland) uzaktan
-sürülebilir hale getiren kişisel bir MCP sunucusu. 34 araç: kodlama ajanlarına
+sürülebilir hale getiren kişisel bir MCP sunucusu. 36 araç: kodlama ajanlarına
 iş verme, arka plan işleri, tmux, kabuk/dosya, ve `[desktop]` altında sanal
 klavye/fare + ekran okuma.
 
@@ -177,7 +177,7 @@ rotaları eklenir. Katmanlar:
 |---|---|---|
 | Yapılandırma | `config.py` | TOML → dataclass; `_check_agents()` model/effort tuzaklarını **yüklemede** yakalayıp servisi durdurur |
 | Kimlik | `auth.py` | Tam bir mini OAuth 2.1 sunucusu (DCR + PKCE + refresh) + onay sayfası; SQLite |
-| Araçlar | `tools.py` | 34 MCP aracının tamamı. Yeni araç **buraya** yazılır |
+| Araçlar | `tools.py` | 36 MCP aracının tamamı. Yeni araç **buraya** yazılır |
 | İşler | `jobs.py` | Arka plan süreçleri + ajan çıktı ayrıştırıcıları (`plain`, `claude_stream_json`, `agy_json`) |
 | Çözümleyici | `models.py` | Ajan/model/effort seçimi. **Saf fonksiyon**, I/O yok; kurallar config'de |
 | Masaüstü | `desktop/` | GUI katmanı, aşağıda |

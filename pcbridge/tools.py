@@ -33,6 +33,7 @@ from .desktop import capture as capturelib
 from .desktop import execution as executionlib
 from .desktop import input as inputlib
 from .desktop import monitors as monitorslib
+from .desktop import ocr as ocrlib
 from .desktop import ops as opslib
 from .desktop import policy
 from .desktop import presentation as presentationlib
@@ -63,6 +64,43 @@ _DESC_EFFORT = "Reasoning effort level."
 # okuyup prompt'a koyuyor: varsayilan surucu `agy` ve onda Claude-skill
 # kavrami yok. Tek dosya, tek kod yolu, ajandan bagimsiz.
 _SKILL_PATH = Path(__file__).resolve().parent.parent / "skills" / "computer-use" / "SKILL.md"
+
+
+# `find_text` / `wait_for_text` parametreleri (Adim 8.6). Modul duzeyinde,
+# cunku `from __future__ import annotations` altinda FastMCP tip ipuclarini
+# modulun globallerinden cozuyor; `register()` icindeki bir ad bulunamaz.
+_OCR_TEXT = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=200,
+        description="The text to look for, as it reads on screen. Case, "
+        "Turkish letters and punctuation do not matter; several words "
+        "match consecutive words on one line.",
+    ),
+]
+_OCR_MONITOR = Annotated[
+    str,
+    Field(
+        description="Which screen to read: 'all' (default), a monitor number "
+        "like '1' or '2', a connector name, or 'primary'. One monitor is "
+        "faster than two."
+    ),
+]
+_OCR_REGION = Annotated[
+    list[int] | None,
+    Field(
+        min_length=4,
+        max_length=4,
+        description="Read only this part of one monitor: [x, y, width, "
+        "height], in the same spaces as screen_capture's region (with shot, "
+        "pixels in that screenshot). Smaller is faster and more accurate.",
+    ),
+]
+_OCR_SHOT = Annotated[
+    str | None,
+    Field(description="With region: the screenshot the region was read off."),
+]
 
 
 def _task_prompt(instructions: str, goal: str, prepared: str, max_steps: int) -> str:
@@ -1703,6 +1741,46 @@ def register(
         )
         return "\n".join(lines)
 
+    def _capture_target(
+        tool: str, monitor: str, region: list[int] | None, shot: str | None
+    ) -> tuple[int | str, Any] | str | ToolResult:
+        """Monitor secimi + istege bagli bolge -> (spec, area), ya da hata.
+
+        `screen_capture`, `find_text` ve `wait_for_text` ayni sozdizimini
+        paylasiyor (Adim 8.5/8.6): bolgenin uzayi `shot` > monitor numarasi/adi
+        > global. Hata metni (str) bir ret, ToolResult typed bir hata.
+        """
+        spec: int | str = monitor.strip() if isinstance(monitor, str) else monitor
+        if isinstance(spec, str) and spec.isdigit():
+            spec = int(spec)
+        if shot and not region:
+            return (
+                "⛔ `shot` yalnizca `region` ile anlamli: bolgeyi o goruntuden "
+                "okuduysaniz `region=[x, y, genislik, yukseklik]` da verin."
+            )
+        if not region:
+            return spec, None
+        # Bolge: `mouse` koordinatlarinin uc uzayi. Monitor secimi bir SAYI
+        # ya da ad ise bolge onun icinde; "all" ise global.
+        whole = isinstance(spec, str) and spec.lower() in ("all", "hepsi")
+        try:
+            area = capture_provider.resolve_region(
+                *region,
+                monitor=None if whole else spec,
+                shot=shot,
+                dirs=shot_dirs,
+            )
+        except DesktopError as exc:
+            gate.audit(f"{tool}_error", error=str(exc)[:160])
+            return _exception_result(
+                exc,
+                text=f"Hata: {exc}",
+                category=ErrorCategory.COORDINATE,
+                scope="os.capture",
+                backend_name=capture_provider.backend_name(),
+            )
+        return spec, area
+
     @mcp.tool(
         output_schema=None,
         annotations={"title": "Take a screenshot", "readOnlyHint": True},
@@ -1812,35 +1890,12 @@ def register(
                 backend_name=capture_provider.backend_name(),
             )
 
-        spec: int | str = monitor.strip() if isinstance(monitor, str) else monitor
-        if isinstance(spec, str) and spec.isdigit():
-            spec = int(spec)
-        area = None
-        if shot and not region:
-            return _text(
-                "⛔ `shot` yalnizca `region` ile anlamli: bolgeyi o goruntuden "
-                "okuduysaniz `region=[x, y, genislik, yukseklik]` da verin."
-            )
-        if region:
-            # Bolge: `mouse` koordinatlarinin uc uzayi (Adim 8.5). Monitor
-            # secimi bir SAYI ya da ad ise bolge onun icinde; "all" ise global.
-            whole = isinstance(spec, str) and spec.lower() in ("all", "hepsi")
-            try:
-                area = capture_provider.resolve_region(
-                    *region,
-                    monitor=None if whole else spec,
-                    shot=shot,
-                    dirs=shot_dirs,
-                )
-            except DesktopError as exc:
-                gate.audit("screen_capture_error", error=str(exc)[:160])
-                return _exception_result(
-                    exc,
-                    text=f"Hata: {exc}",
-                    category=ErrorCategory.COORDINATE,
-                    scope="os.capture",
-                    backend_name=capture_provider.backend_name(),
-                )
+        target = _capture_target("screen_capture", monitor, region, shot)
+        if isinstance(target, str):
+            return _text(target)
+        if isinstance(target, ToolResult):
+            return target
+        spec, area = target
         long_edge = (
             cfg.desktop.screenshot_scale_long_edge if scale is None else max(0, scale)
         )
@@ -2020,6 +2075,332 @@ def register(
         # istemci ikinci monitore 1920 piksel sasarak tiklar ve hata hicbir
         # yerde gorunmez.
         return [_text("\n".join(out)), *images]
+
+    # ------------------------------------------------ ekrandan metin (OCR)
+    # Adim 8.6. Erisilebilirlik agaci olmayan pencerelerde (oyun, bazi
+    # Electron/Java) metnin yerini goruntuden okuyup koordinat olarak veriyor;
+    # cevap duz metin, goruntu jetonu yok. Motor `ocr.py`de; burada yalnizca
+    # kapi, cekim ve bicimleme.
+    def _ocr_unavailable(tool: str) -> ToolResult | None:
+        ok, why = ocrlib.available(cfg.desktop.ocr_languages)
+        if ok:
+            return None
+        gate.audit(f"{tool}_unavailable", reason=why[:120])
+        error = DesktopError(
+            code=ErrorCode.DEPENDENCY_MISSING,
+            message=why,
+            category=ErrorCategory.CAPABILITY,
+            retryable=False,
+            suggested_action=(
+                "Text recognition needs the tesseract OCR engine. Ask the user to "
+                f"install it ({ocrlib.INSTALL_HINT}); until then use "
+                "screen_capture and read the picture yourself."
+            ),
+            permission_scope="os.capture",
+            backend=ocrlib.ENGINE,
+        )
+        return presentationlib.desktop_error_result(
+            error, text=f"⛔ Ekrandan metin okunamiyor: {why}"
+        )
+
+    def _ocr_prepare(
+        tool: str, monitor: str, region: list[int] | None, shot: str | None
+    ) -> tuple[int | str, Any] | ToolResult:
+        """Kapi + motor + hedef: ya (spec, area) ya da hazir hata sonucu."""
+        denied = _guard(tool, write=False, needs_input=False)
+        if denied:
+            return denied
+        missing = _ocr_unavailable(tool)
+        if missing:
+            return missing
+        if shot_store is None:
+            return presentationlib.desktop_error_result(
+                DesktopError(
+                    code=ErrorCode.BACKEND_UNAVAILABLE,
+                    message="Ekran goruntusu servisi kurulu degil.",
+                    category=ErrorCategory.CAPTURE,
+                    retryable=False,
+                    suggested_action="Upgrade or repair the pcbridge server installation.",
+                    permission_scope="os.capture",
+                    backend="pcbridge.shots",
+                ),
+                text="⛔ Ekran goruntusu servisi kurulu degil.",
+            )
+        if isinstance(monitor, str) and monitor.strip().lower() == "window":
+            return _text_result(
+                "⛔ `window` goruntusunun ekranin neresinde oldugu bilinmiyor; "
+                "bulunan metnin koordinati verilemez. Monitor secin."
+            )
+        cap_ok, cap_why = capture_provider.available()
+        if not cap_ok:
+            return _unavailable_result(
+                "capture.monitor",
+                text=f"⛔ Ekran goruntusu alinamiyor: {cap_why}",
+                message=cap_why,
+                scope="os.capture",
+                backend_name=capture_provider.backend_name(),
+            )
+        target = _capture_target(tool, monitor, region, shot)
+        if isinstance(target, str):
+            return _text_result(target)
+        return target
+
+    def _text_result(text: str) -> ToolResult:
+        return ToolResult(content=[_text(text)])
+
+    def _ocr_read(spec: int | str, area: Any, query: str):
+        """Tam cozunurlukte cek, oku. -> [(cekim, eslesmeler, kelimeler)]
+
+        Tam cozunurluk: OCR kucultulmus yaziyi kaciriyor, ve bulunan kutu
+        dogrudan `shot=` koordinati oluyor. Imlec cizilmiyor, yazinin ustune
+        binmesin.
+        """
+        shot_store.sweep()
+        shots = capture_provider.capture(
+            spec,
+            out_dir=shot_store.dir,
+            scale_long_edge=0,
+            include_pointer=False,
+            reserved_dirs=shot_dirs,
+            region=area,
+        )
+        read = []
+        for item in shots:
+            words = ocrlib.read_words(item.path, cfg.desktop.ocr_languages)
+            read.append((item, ocrlib.find(words, query), words))
+        return read
+
+    def _discard(shots) -> None:
+        """Kimligi hic gosterilmeyen ara cekimleri sil (bekleme dongusu).
+
+        Kendi urettigimiz gecici dosyalar; kimse onlara bir `shot` ile
+        ulasamaz, cunku kimlikleri hicbir cevapta yok.
+        """
+        for item in shots:
+            for path in (item.path, shot_store.dir / f"{item.id}{capturelib.META_SUFFIX}"):
+                try:
+                    Path(path).unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def _ocr_report(query: str, read, elapsed: float, *, heading: str) -> ToolResult:
+        found = [
+            (item, match) for item, matches, _words in read for match in matches
+        ]
+        found.sort(key=lambda pair: (not pair[1].exact, -pair[1].score))
+        lines = [heading, ""]
+        payload = []
+        for number, (item, match) in enumerate(found[: ocrlib.MAX_MATCHES], 1):
+            x, y = match.center
+            approx = "" if match.exact else f" · yaklasik (%{match.score * 100:.0f})"
+            lines.append(
+                f"{number}. \"{match.text}\" @ ({x}, {y}) · shot `{item.id}` "
+                f"({item.label}) · guven %{match.conf:.0f}{approx}"
+            )
+            payload.append({**match.as_dict(), "shot": item.id})
+        if found:
+            item, match = found[0]
+            x, y = match.center
+            lines += [
+                "",
+                "Koordinatlar o cekimin pikselinde; tiklamak icin kimligiyle "
+                f"verin: `mouse(action=\"click\", x={x}, y={y}, shot=\"{item.id}\")`.",
+            ]
+            if not match.exact:
+                lines.append(
+                    "⚠️ Kesin eslesme yok, yalnizca benzeri bulundu: tiklamadan "
+                    "once `screen_capture(region=…)` ile bakin."
+                )
+        else:
+            near = [
+                (item, match)
+                for item, _matches, words in read
+                for match in ocrlib.nearest_lines(words, query)
+            ]
+            near.sort(key=lambda pair: -pair[1].score)
+            total_words = sum(len(words) for _i, _m, words in read)
+            lines.append(f"Okunan kelime: {total_words}.")
+            if near:
+                lines.append("En yakin satirlar:")
+                for item, match in near[:5]:
+                    x, y = match.center
+                    lines.append(
+                        f"  - \"{match.text}\" @ ({x}, {y}) · shot `{item.id}`"
+                    )
+            lines.append(
+                "OCR kucuk ya da stilize yaziyi kacirabilir: `region` ile "
+                "yakinlasin ya da `screen_capture` ile kendiniz bakin."
+            )
+        return ToolResult(
+            content=[_text("\n".join(lines))],
+            structured_content={
+                "type": "pcbridge.desktop.text",
+                "found": bool(found),
+                "matches": payload,
+                "shots": [item.id for item, _m, _w in read],
+                "elapsed_seconds": round(elapsed, 2),
+                "engine": ocrlib.ENGINE,
+            },
+        )
+
+    def _ocr_failure(tool: str, exc: Exception) -> ToolResult:
+        gate.audit(f"{tool}_error", error=str(exc)[:160])
+        if isinstance(exc, ocrlib.OcrError):
+            error = DesktopError(
+                code=ErrorCode.DEPENDENCY_MISSING if exc.missing else ErrorCode.BACKEND_UNAVAILABLE,
+                message=str(exc),
+                category=ErrorCategory.CAPABILITY,
+                retryable=not exc.missing,
+                suggested_action="Check the tesseract installation, or read a screenshot instead.",
+                permission_scope="os.capture",
+                backend=ocrlib.ENGINE,
+            )
+            return presentationlib.desktop_error_result(error, text=f"Hata: {exc}")
+        return _exception_result(
+            exc,
+            text=f"Hata: {exc}",
+            category=ErrorCategory.CAPTURE,
+            scope="os.capture",
+            backend_name=capture_provider.backend_name(),
+        )
+
+    @mcp.tool(
+        output_schema=None,
+        annotations={"title": "Find text on screen", "readOnlyHint": True},
+    )
+    def find_text(
+        text: _OCR_TEXT,
+        monitor: _OCR_MONITOR = "all",
+        region: _OCR_REGION = None,
+        shot: _OCR_SHOT = None,
+    ) -> ToolResult:
+        """Read the screen with OCR and return where a piece of text is, as plain
+        text: no image comes back, so it costs a fraction of a screenshot. Use it
+        in windows the accessibility tree cannot see — games, many Electron and
+        Java applications — to find a button or label and click it: every match
+        comes with a shot id, and its x/y go straight into mouse(action="click",
+        x=…, y=…, shot=…). Prefer ui_dump where it works; it cannot misread. OCR
+        can miss very small or stylized text, and it reports matches it is not
+        sure of as approximate."""
+        ready = _ocr_prepare("find_text", monitor, region, shot)
+        if isinstance(ready, ToolResult):
+            return ready
+        spec, area = ready
+        started = time.monotonic()
+        try:
+            read = _ocr_read(spec, area, text)
+        except (ocrlib.OcrError, capturelib.CaptureError, monitorslib.MonitorError,
+                DesktopError) as exc:
+            return _ocr_failure("find_text", exc)
+        elapsed = time.monotonic() - started
+        count = sum(len(matches) for _i, matches, _w in read)
+        # Aranan METIN yazilmaz, uzunlugu yazilir: ekranda ne arandigi ozel
+        # olabilir (`type` eyleminin kurali).
+        gate.audit("find_text", chars=len(text), monitor=str(monitor),
+                   region=list(area[0]) if area else None, matches=count,
+                   seconds=round(elapsed, 2))
+        heading = (
+            f"**{count} eslesme** · \"{text}\" ({elapsed:.1f} sn, OCR)"
+            if count else f"\"{text}\" ekranda bulunamadi ({elapsed:.1f} sn, OCR)."
+        )
+        return _ocr_report(text, read, elapsed, heading=heading)
+
+    @mcp.tool(
+        output_schema=None,
+        annotations={"title": "Wait for text on screen", "readOnlyHint": True},
+    )
+    def wait_for_text(
+        text: _OCR_TEXT,
+        timeout_seconds: Annotated[
+            int,
+            Field(
+                ge=1,
+                le=45,
+                description="Give up after this many seconds. Kept under a minute "
+                "so the call returns before your client stops waiting for it.",
+            ),
+        ] = 20,
+        gone: Annotated[
+            bool,
+            Field(
+                description="Wait for the text to DISAPPEAR instead, for example a "
+                "'Loading' label."
+            ),
+        ] = False,
+        monitor: _OCR_MONITOR = "all",
+        region: _OCR_REGION = None,
+        shot: _OCR_SHOT = None,
+    ) -> ToolResult:
+        """Wait until a piece of text appears on screen (or, with gone, until it
+        disappears), reading the screen with OCR about once a second, and return
+        where it is. Use this instead of a blind wait for something that takes an
+        unknown time: a game or installer loading, a dialog opening, a page
+        finishing. It returns as soon as the text is seen, with a shot id and
+        coordinates ready for mouse(shot=…), or tells you it timed out and what it
+        read instead. Nothing is typed or clicked."""
+        ready = _ocr_prepare("wait_for_text", monitor, region, shot)
+        if isinstance(ready, ToolResult):
+            return ready
+        spec, area = ready
+        started = time.monotonic()
+        attempts = 0
+        read: list = []
+        while True:
+            attempts += 1
+            began = time.monotonic()
+            if attempts > 1:
+                # Izin, ekran kilidi ve kira HER turda yeniden okunur: bekleme
+                # suresince izin kapanirsa bir kare daha alinmaz.
+                runtime.close_capture_if_locked()
+                decision = gate.check("wait_for_text", write=False)
+                if not decision.allowed:
+                    _discard([item for item, _m, _w in read])
+                    gate.audit("wait_for_text_denied", reason=decision.reason[:120])
+                    return presentationlib.desktop_error_result(
+                        presentationlib.decision_error(decision),
+                        text=f"⛔ {decision.reason}",
+                        permission_scope="pcbridge.desktop",
+                    )
+                runtime.refresh_capture_deadline()
+            previous = read
+            try:
+                read = _ocr_read(spec, area, text)
+            except (ocrlib.OcrError, capturelib.CaptureError,
+                    monitorslib.MonitorError, DesktopError) as exc:
+                _discard([item for item, _m, _w in previous])
+                return _ocr_failure("wait_for_text", exc)
+            _discard([item for item, _m, _w in previous])
+            visible = ocrlib.seen([m for _i, matches, _w in read for m in matches])
+            elapsed = time.monotonic() - started
+            if visible != gone:
+                break
+            if elapsed + 1.0 > timeout_seconds:
+                break
+            time.sleep(max(0.0, 1.0 - (time.monotonic() - began)))
+        done = visible != gone
+        gate.audit("wait_for_text", chars=len(text), gone=gone or None,
+                   attempts=attempts, seconds=round(elapsed, 1), seen=done)
+        if done and not gone:
+            heading = (
+                f"**Goruldu** · \"{text}\" {elapsed:.1f} sn sonra ({attempts}. "
+                "okumada)."
+            )
+        elif done:
+            heading = (
+                f"**Kayboldu** · \"{text}\" {elapsed:.1f} sn sonra ekranda yok "
+                f"({attempts}. okumada)."
+            )
+        else:
+            state = "hala ekranda" if gone else "gorunmedi"
+            heading = (
+                f"⏱️ Zaman asimi · \"{text}\" {timeout_seconds} sn icinde "
+                f"{state} ({attempts} okuma)."
+            )
+        result = _ocr_report(text, read, elapsed, heading=heading)
+        result.structured_content.update(
+            {"done": done, "attempts": attempts, "gone": gone}
+        )
+        return result
 
     # ------------------------------------------------- erisilebilirlik agaci
     # Ekranin metinsel ikizi. Model goruntuyu goremedigi icin asil "goz" burasi;

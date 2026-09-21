@@ -52,7 +52,7 @@ protokolü**. Sunucu "bende şu araçlar var, şu parametreleri alır" diye bir 
 yayınlar (`tools/list`), model uygun olanı seçip çağırır (`tools/call`), sunucu bir
 metin döner. Hepsi bu. Sihir yok — asıl iş senin yazdığın araç fonksiyonlarında.
 
-Buradaki 34 araç şu gruplara ayrılıyor:
+Buradaki 36 araç şu gruplara ayrılıyor:
 
 | Grup | Ne yapar |
 |---|---|
@@ -60,7 +60,7 @@ Buradaki 34 araç şu gruplara ayrılıyor:
 | **İş takibi** | `job_status`, `job_output`, `job_list`, `job_cancel` — uzun işleri izler |
 | **Canlı terminal** | `tmux_start/send/keys/capture/list/kill` — açık bir terminale yazar |
 | **Sistem** | `shell_run`, `shell_run_background`, `fs_list/read/write/search`, `system_status`, `notify` |
-| **Masaüstü** | `desktop_unlock/lock`, `mouse`, `keyboard`, `computer_batch`, `screen_info`, `screen_capture`, `ui_dump/click/set_text`, `window_list/focus` |
+| **Masaüstü** | `desktop_unlock/lock`, `mouse`, `keyboard`, `computer_batch`, `screen_info`, `screen_capture`, `find_text`, `wait_for_text`, `ui_dump/click/set_text`, `window_list/focus` |
 
 Ajan çağrıları senkron değil: `agent_run` işi başlatır ve bir `job_id` döner
 (istersen `wait_seconds` kadar bekler). Bu önemli, çünkü Claude Code bir görevde
@@ -129,6 +129,7 @@ yardımcı yoksa ve derleme araçları kuruluysa derlemeyi sorar. Elle:
 
 ```bash
 sudo apt install libpipewire-0.3-dev libspa-0.2-dev libclang-dev pkg-config   # yalnizca derlemek icin, bir kez
+sudo apt install tesseract-ocr tesseract-ocr-tur   # istege bagli: find_text / wait_for_text (ekrandan metin okuma)
 scripts/build-native.sh --check   # eksik var mi
 scripts/build-native.sh           # release derle, pcbridge/_native/ altina kur
 ```
@@ -222,7 +223,7 @@ plandaki bir Claude Code görevi devam eder, sonucunu `job_list` ile görürsün
 
 ## Belgeler
 
-- **[KULLANIM.md](KULLANIM.md)** — 34 aracın tamamı, izin haritası ve gerçek
+- **[KULLANIM.md](KULLANIM.md)** — 36 aracın tamamı, izin haritası ve gerçek
   örnek cümleler
 - **[GELISTIRME.md](GELISTIRME.md)** — yeni araç eklemek, ajan tanımlamak,
   yaşadığımız protokol tuzakları (geçmiş kayıt)

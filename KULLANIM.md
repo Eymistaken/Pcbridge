@@ -596,6 +596,8 @@ ya da bir işin bittiğini fark etmek için.
 | `ui_click` | Listedeki bir öğeye tıklar (koordinat kullanmadan; **imleç kıpırdamaz**, tıklama uygulamaya doğrudan gider). Öğe kaybolmuş ya da değişmişse reddeder |
 | `ui_set_text` | Metin kutusunu doğrudan doldurur (klavye taklidi yok) ve yazılanı geri okuyup doğrular |
 | `computer_batch` | Bir eylem listesini tek onayda sırayla çalıştırır |
+| `find_text` | Ekrandaki bir yazının yerini OCR ile bulur, `shot` kimliği ve tıklanacak koordinatla döner (görüntü göndermez) |
+| `wait_for_text` | Bir yazı ekranda görünene (ya da `gone` ile kaybolana) kadar saniyede bir bakar; en fazla 45 sn |
 | `window_list` | Açık pencereler, odaktaki işaretli |
 | `window_focus` | Masaüstünün sahiplenmesi gereken bir uygulamayı öne getirir, kapalıysa açar |
 | `computer_task` | Uzun süren bir GUI işini makinendeki bir ajana devreder (9. bölüm) |
@@ -613,7 +615,7 @@ gider ve o yol açıktır — projenin amacı zaten bu.
 |---|:---:|:---:|:---:|
 | `mouse`, `keyboard`, `ui_click`, `ui_set_text`, `computer_batch`, `window_focus` | gerekli | gerekli | var (`force` ile geçilir) |
 | `computer_task` | gerekli | gerekli | **görev başında bir kez** (aşağıya bak) |
-| `screen_capture`, `ui_dump`, `window_list` | gerekli | gerekli | yok (okuma) |
+| `screen_capture`, `find_text`, `wait_for_text`, `ui_dump`, `window_list` | gerekli | gerekli | yok (okuma) |
 | `screen_info`, `system_capabilities` | — | — | — |
 | `shell_run`, `shell_run_background`, `agent_run`, `fs_*`, `tmux_*`, `job_*`, `notify` | — | — | — |
 
@@ -703,6 +705,25 @@ kalemi; yalnızca gerekeni iste:
   çekim ham kalır, boyut aynı olduğu için `shot` koordinatları geçerli.
   Dünkü bir Minecraft gece karesinde ortalama parlaklık 0,041 → 0,259 oldu,
   mağara duvarı okunur hâle geldi; iyileştirme ~10 ms.
+
+**Ekrandan metin okuma** (Adım 8.6). Erişilebilirlik ağacı olmayan
+pencerelerde (oyunlar, birçok Electron/Java uygulaması) `find_text("Oyna")`
+ekranı tam çözünürlükte çeker, tesseract ile okur ve bulduğu yeri **metin
+olarak** döndürür: `"Oyna" @ (812, 402) · shot m2-a1b2c3`. Görüntü gelmez,
+yani bir ekran görüntüsünün küçük bir kesri kadar token. Koordinat o çekimin
+pikselinde; `mouse(action="click", x=812, y=402, shot="m2-a1b2c3")` ile
+doğrudan tıklanır. Büyük/küçük harf, Türkçe harfler ve noktalama aramayı
+etkilemez; emin olmadığı eşleşmeyi "yaklaşık" diye işaretler.
+`wait_for_text("Tek Oyunculu", timeout_seconds=30)` körlemesine beklemenin
+yerine geçer: saniyede bir okur, yazı görünür görünmez döner (`gone=true`
+ile bir "Yükleniyor" yazısının gitmesini bekler). Ara çekimler diskten
+silinir; yalnızca kimliği döndürülen kalır. Aranan metin denetim kaydına
+yazılmaz, uzunluğu yazılır.
+
+Motor `tesseract` ve **varsayılan olarak kurulu değil** (kurulum sudo
+istiyor): `sudo apt install tesseract-ocr tesseract-ocr-tur`. Kurulu değilse
+iki araç bunu kurulum komutuyla söyler (`DEPENDENCY_MISSING`); başka hiçbir
+şey etkilenmez. Diller `[desktop] ocr_languages` ile (`tur+eng`).
 
 Ham kareyi varsayılan olarak `pcbridge-native` yardımcısı alır
 (`[native] capture = "auto"`). Yardımcı yoksa pcbridge eski Python yoluna düşer ve

@@ -379,6 +379,14 @@ include_pointer = true
 # gstreamer1.0-plugins-good. Yoksa kendiliginden gnome-screenshot'a duser.
 capture_backend = "auto"
 
+# `find_text` / `wait_for_text` ekrandaki metni tesseract ile okuyor (Adim 8.6).
+# Diller `+` ile; her dilin verisi ayri paket. Tesseract varsayilan olarak
+# KURULU DEGIL ve kurulum sudo istiyor:
+#   sudo apt install tesseract-ocr tesseract-ocr-tur
+# (`eng` verisi `tesseract-ocr` ile birlikte geliyor.) Kurulu degilse iki arac
+# bunu kurulum komutuyla birlikte soyler; baska hicbir sey etkilenmez.
+ocr_languages = "tur+eng"
+
 # computer_batch tek cagrida en fazla kac eylem alir. Listeyi bolmek her zaman
 # mumkun; bu sinir sonsuz donguye giren bir ajana karsi.
 batch_max_actions = 40

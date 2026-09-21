@@ -186,6 +186,20 @@ if ./.venv/bin/python -c "import PIL" 2>/dev/null; then
 else
   fail "Pillow yok — ./.venv/bin/pip install -r requirements.txt"
 fi
+# Ekrandan metin okuma (find_text / wait_for_text, Adim 8.6). Istege bagli:
+# yoksa yalnizca o iki arac calismaz ve bunu kurulum komutuyla soyler.
+OCR_OUT="$(./.venv/bin/python - <<'PYEOF' 2>/dev/null
+from pcbridge.config import load_config
+from pcbridge.desktop import ocr
+ok, why = ocr.available(load_config().desktop.ocr_languages)
+print("OK" if ok else f"NO {why}")
+PYEOF
+)"
+if [ "${OCR_OUT%% *}" = "OK" ]; then
+  pass "OCR hazir (tesseract, find_text / wait_for_text)"
+else
+  warn "OCR kullanilamiyor (find_text / wait_for_text): ${OCR_OUT#NO }"
+fi
 SHOTS="$(./.venv/bin/python -c 'from pcbridge.config import load_config; print(load_config().state_dir / "shots")' 2>/dev/null)"
 if [ -n "$SHOTS" ] && mkdir -p "$SHOTS" 2>/dev/null && [ -w "$SHOTS" ]; then
   pass "ekran goruntusu dizini yazilabilir ($SHOTS)"

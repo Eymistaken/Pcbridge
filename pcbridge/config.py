@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -162,6 +163,9 @@ class DesktopSpec:
     # acikken GNOME ust cubukta paylasim gostergesi durur (istenen: ajanin
     # masaustune erisebildigi oradan gorunuyor).
     capture_backend: str = "auto"
+    # `find_text` / `wait_for_text` (Adim 8.6) icin tesseract dilleri, `+` ile.
+    # Her dilin verisi ayri paket: `tesseract-ocr-tur`, `tesseract-ocr-eng`.
+    ocr_languages: str = "tur+eng"
 
     # -- toplu eylem (E bolumu) ---------------------------------------------
     # computer_batch tek cagrida en fazla kac eylem alir.
@@ -591,6 +595,7 @@ def load_config(explicit: str | None = None) -> Config:
         # config.example.toml'da belgeliydi ama buradan okunmuyordu, yani
         # config.toml'a yazilan deger hicbir sey yapmiyordu. F0 sirasinda
         # fark edildi.
+        ocr_languages=str(desktop_raw.get("ocr_languages", "tur+eng")).strip(),
         batch_max_actions=int(desktop_raw.get("batch_max_actions", 40)),
         batch_budget_seconds=int(desktop_raw.get("batch_budget_seconds", 50)),
         batch_check_focus=bool(desktop_raw.get("batch_check_focus", True)),
@@ -643,6 +648,11 @@ def load_config(explicit: str | None = None) -> Config:
             f"[desktop] ({path}): `batch_budget_seconds` "
             f"({desktop.batch_budget_seconds}) 1-105 arasinda olmali "
             "(MCP cagrisi 110 saniyeyi asamiyor, gerisi cevap icin pay)."
+        )
+    if not re.fullmatch(r"[A-Za-z_]+(\+[A-Za-z_]+)*", desktop.ocr_languages):
+        raise SystemExit(
+            f"[desktop] ({path}): `ocr_languages` ({desktop.ocr_languages!r}) "
+            "tesseract dil kodlari olmali, `+` ile ayrilmis (ornek: tur+eng)."
         )
     if desktop.batch_max_actions < 1:
         raise SystemExit(

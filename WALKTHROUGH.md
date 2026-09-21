@@ -78,6 +78,7 @@ yapılınca silinmez, `yapıldı` diye işaretlenir.
 | 8 | Adım 6 — imleç katmanı gerçek oturumda: çıkış/giriş sonrası işaret dosyasını açıp (`touch ~/.local/state/pcbridge/gorunur-imlec`) izin verdikten sonra FİZİKSEL fareyle tıklama ve akış normal mi? 2026-08-04'te bozulan buydu; kare saati düzeltmesi nested kabukta ölçüldü ama gerçek farede denenmedi. Bozulursa işaret dosyasını silmek yeter | Eklenti kodu ancak çıkış/girişte yeniden okunuyor; arıza yalnızca fiziksel fareyle görüldü | `bekliyor` |
 | 9 | Adım 7 — Minecraft'ta `move_by`: oyun XWayland'de çalıştığı için göreli hareketi almıyor (ölçüldü 2026-09-20: 2400 birim → 0,7°; mutlak `move` de bakışı çevirmiyor). Aynı çağrı native Wayland'de kilitli bir sayfada tam ölçüsünde çalışıyor. Denenmemiş tek yol oyunu native Wayland backend'iyle başlatmak (LWJGL 3.4.3 SDL); bu kullanıcının Modrinth kurulumunu değiştirir | Kurulum değişikliği kullanıcının kararı | `yapıldı` (2026-09-21). Kullanıcı "yapalım" dedi. Yalnızca `Fabric 26.3` instance'ına `SDL_VIDEO_DRIVER=wayland` eklendi. Birim başına 0,15° ölçüldü; temiz A/B'de XWayland 0°. Ayrıntı Adım 7 bölümünde |
 | 10 | Adım 8.1 — eklentinin `FocusedWindow`'u gerçek oturumda: çıkış/giriş sonrası `busctl --user --json=short call io.github.eymistaken.Pcbridge.WindowFocus /io/github/eymistaken/Pcbridge/WindowFocus io.github.eymistaken.Pcbridge.WindowFocus FocusedWindow` izin açıkken `[true, …]` dönmeli; sonra AT-SPI'ın görmediği bir pencere öndeyken tıklamalı `computer_batch` koşmalı | Eklenti kodu ancak çıkış/girişte yeniden okunuyor; nested kabukta ölçüldü | `bekliyor` |
+| 11 | Adım 8.6 — OCR motorunu kurmak ve ölçmek: `sudo apt install tesseract-ocr tesseract-ocr-tur`, sonra `./doctor.sh` "OCR hazır" demeli. Ölçülecekler: bir GTK penceresinde (`gnome-text-editor`) bilinen bir kelimeyi `find_text` ile bulma ve tıklama; Minecraft ana menüsünde "Tek Oyunculu"yu bulma; tam monitör okuma süresi | Kurulum `sudo` istiyor; kullanıcı yokken yapılamadı | `bekliyor` |
 | 6 | Task 5.4 / 4 — gerçek girdi testi (`yapıldı` 2026-09-19, 8/8): `PCBRIDGE_TEST_INPUT=1 PCBRIDGE_INPUT_REPORT=<yol> ./.venv/bin/python -m unittest tests/live/test_input_parity.py -v`. İki ekranı ~1 dk kaplayan test penceresi; fare kendiliğinden hareket eder, pencereye tıklar, pencerenin içindeki kutuya Türkçe metin yazar, Shift'i kısa süre basılı tutar | Gerçek tuş ve tıklama gönderiyor; kullanıcı başında olmalı ve o sırada klavye/fareye dokunmamalı. Acil durdurma: Super+L (ekran kilidi native aygıtları anında kapatır) | `yapıldı` (2026-09-19) |
 
 ---
@@ -3128,7 +3129,7 @@ kararı verilmedi. Sıra, oturumdaki etkisine göre.
 | 8.3 | Tıklamada en kısa basılı kalma süresi | `tamamlandı` (2026-09-21, ölçüldü) |
 | 8.4 | `move_by` ölçeği ve ilk-olay kaybı ajana görünsün | `tamamlandı` (2026-09-21) |
 | 8.5 | Ekran görüntüsünde bölge kırpma, `final` için monitör seçimi, karanlık kare iyileştirme | `tamamlandı` (2026-09-22, ölçüldü) |
-| 8.6 | "Görünene kadar bekle": OCR ile `find_text` / `wait_for_text` | `planlandı` |
+| 8.6 | "Görünene kadar bekle": OCR ile `find_text` / `wait_for_text` | `uygulandı` (2026-09-22; motor kurulu değil, gerçek ölçüm #11'de) |
 | 8.7 | `computer_batch` süre bütçesi taşıma zaman aşımının altında | `tamamlandı` (2026-09-21) |
 
 ### 8.1 — Odak kontrolü için ikinci kaynak · `uygulandı` (2026-09-22)
@@ -3351,7 +3352,7 @@ değişimi, iyileştirmenin renk kaydırmaması ve diske dokunmaması. MCP
 düzeyinde bölge bir kez çözülüp yakalamaya geçiyor, `region`'sız `shot`
 hiçbir şey çekmiyor.
 
-### 8.6 — OCR ile `find_text` / `wait_for_text` · `planlandı`
+### 8.6 — OCR ile `find_text` / `wait_for_text` · `uygulandı` (2026-09-22)
 
 **Gözlenen.** Erişilebilirlik ağacı olmayan pencerelerde (oyun, bazı
 Electron/Java) ajanın tek aracı görüntü + tahmini bekleme. Oyunun
@@ -3362,6 +3363,55 @@ monitor?)` ve belirli bir metin görünene kadar bekleyen
 `wait_for_text(text, timeout)`. Dönen koordinat `shot` sözleşmesine uymalı
 (`mouse(shot=…)` ile doğrudan tıklanabilsin). OCR motoru (tesseract ya da
 başka) seçilmedi; yerel çalışmalı, ağ istememeli.
+
+**Motor: tesseract** (`pcbridge/desktop/ocr.py`). Yerel, ağsız, Türkçe
+verisi depoda (`tesseract-ocr-tur`). **Bu makinede kurulu değil** ve kurulum
+`sudo` istiyor; başka bir OCR motoru da yok (arandı: ldconfig, PATH,
+onnxruntime, Chrome'un screen_ai bileşeni). Kurulum kullanıcıda (#11).
+
+**Yapılan.**
+- İki araç, ikisi de `readOnlyHint`, `screen_capture`'la aynı kapı (izin +
+  ekran kilidi, `write=False`) ve aynı hedef sözdizimi (`monitor`, `region`,
+  `shot`). `window` reddediliyor: koordinatı olmaz.
+- `find_text(text, monitor?, region?, shot?)`: tam çözünürlükte, imleçsiz
+  çeker, okur, cevabı **düz metin** verir — görüntü yok. Her eşleşme `shot`
+  kimliği ve o görüntünün pikselinde merkezle; ilk eşleşme için hazır
+  `mouse(...)` çağrısı. Bulunamazsa okunan kelime sayısı ve en yakın beş
+  satır.
+- `wait_for_text(text, timeout_seconds ≤ 45, gone?)`: saniyede bir okur;
+  görününce (ya da `gone` ile kaybolunca) döner. İzin ve ekran kilidi her
+  turda yeniden soruluyor; izin kapanırsa bir kare daha alınmıyor. Kimliği
+  hiç gösterilmeyen ara çekimler diskten siliniyor. 45 sn tavanı, 60 sn'lik
+  istemci sınırının altında kalmak için (8.7 ile aynı ders).
+- Eşleştirme: katlanmış biçimde (küçük harf, Türkçe harfler ASCII'ye,
+  noktalama yok) aynı satırdaki ardışık kelimelerde alt dize; yoksa
+  difflib oranı ≥ 0,80 "yaklaşık". Bekleme yaklaşık eşleşmeyi ancak ≥ 0,85
+  ise "görüldü" sayıyor. İlk eşik 0,75'ti; iki kelimelik bir sorgu tek
+  kelimeye 0,77 ile uyuyordu, test yakaladı.
+- Görüntü motora **stdin'den** gidiyor, diske yazılmıyor. Gri tonlama +
+  kontrast germe; koyu zeminde ters çevirme; uzun kenarı 1200'den kısa
+  görüntü (bölge) 2 kat büyütülüp kutular geri bölünüyor.
+- `[desktop] ocr_languages = "tur+eng"` (config + örnek, yüklemede
+  doğrulanıyor). `doctor.sh` motor ve dil verisini kontrol edip kurulum
+  komutunu söylüyor. Motor yoksa iki araç `DEPENDENCY_MISSING` ile hiç çekim
+  yapmadan dönüyor.
+- Aranan metin denetim kaydına yazılmıyor, uzunluğu yazılıyor.
+
+**Sabitlendi** (`tests/contracts/test_ocr.py`, 24 test). PATH'in başına konan
+sahte bir `tesseract` betiğiyle gerçek alt süreç sarmalayıcısı uçtan uca:
+argümanlar (`stdin stdout -l tur+eng --psm 11 tsv`), stdin'deki PNG, tam
+monitörün büyütülmediği, koyu küçük karenin ters çevrilip 2 kat büyütüldüğü
+ve kutuların geri bölündüğü, motor hatasının boş cevap değil hata olduğu,
+geçersiz dil listesinin motora hiç ulaşmadığı. MCP düzeyinde: motor yoksa
+hiç çekim yok; bulunan koordinat `shot` ile doğru monitöre çevriliyor;
+bekleme üçüncü okumada dönüyor ve yalnızca son çekim diskte kalıyor; `gone`;
+zaman aşımı; izin ortada kapanınca ikinci kare alınmıyor; aranan metin
+denetim kaydında yok.
+
+**Ölçülmedi.** Gerçek doğruluk ve süre: GTK metni, koyu tema, oyun yazısı
+(Minecraft'ın piksel fontu), tam monitör okuma süresi. Kurulumdan sonra
+ölçülecek (#11); psm 11 ve 1200 px büyütme eşiği o ölçümle gözden
+geçirilmeli.
 
 ### 8.7 — `computer_batch` süre bütçesi · `tamamlandı` (2026-09-21)
 

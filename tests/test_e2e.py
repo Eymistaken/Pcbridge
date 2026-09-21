@@ -181,7 +181,7 @@ def _test_stdio() -> None:
             "computer_batch", "computer_task", "desktop_lock", "desktop_unlock",
             "keyboard", "mouse", "screen_capture", "screen_info",
             "system_capabilities", "ui_click", "ui_dump", "ui_set_text",
-            "window_focus", "window_list",
+            "window_focus", "window_list", "find_text", "wait_for_text",
         ):
             tool = next((t for t in tools if t["name"] == name), {})
             check(f"{name} sema uretmiyor (dinamik sonuc donebilsin)",
@@ -491,6 +491,8 @@ def main() -> int:
         "window_list",
         "window_focus",
         "computer_task",
+        "find_text",
+        "wait_for_text",
     ):
         check(f"arac mevcut: {expected}", expected in names, str(sorted(names)))
 
@@ -832,6 +834,11 @@ def main() -> int:
     out = call("screen_capture", {})
     check("screen_capture izinsiz reddediyor", "⛔" in out, out[:200])
     check("screen_capture reddinde baglanti sizmiyor", "/shot/" not in out, out[:200])
+    # OCR da ekrani okuyor (Adim 8.6): izin yokken hic cekim yapilmamali.
+    out = call("find_text", {"text": "pcbridge"})
+    check("find_text izinsiz reddediyor", "⛔" in out, out[:200])
+    out = call("wait_for_text", {"text": "pcbridge", "timeout_seconds": 1})
+    check("wait_for_text izinsiz reddediyor", "⛔" in out, out[:200])
     # screen_info izin kapisindan gecmez (yalnizca donanim duzeni) ama
     # calismali ve koordinat sozlesmesini soylemeli.
     out = call("screen_info", {})

@@ -33,6 +33,7 @@ EXPECTED_TOOL_NAMES = [
     "computer_task",
     "desktop_lock",
     "desktop_unlock",
+    "find_text",
     "fs_list",
     "fs_read",
     "fs_search",
@@ -60,6 +61,7 @@ EXPECTED_TOOL_NAMES = [
     "ui_click",
     "ui_dump",
     "ui_set_text",
+    "wait_for_text",
     "window_focus",
     "window_list",
 ]
@@ -70,6 +72,7 @@ EXPECTED_ANNOTATIONS = {
     "computer_task": {"title": "Let a local agent drive the screen", "destructiveHint": True},
     "desktop_lock": {"title": "Stop desktop control"},
     "desktop_unlock": {"title": "Allow desktop control for a while", "destructiveHint": True},
+    "find_text": {"title": "Find text on screen", "readOnlyHint": True},
     "fs_list": {"title": "List a directory", "readOnlyHint": True},
     "fs_read": {"title": "Read a file", "readOnlyHint": True},
     "fs_search": {"title": "Search inside files", "readOnlyHint": True},
@@ -100,6 +103,7 @@ EXPECTED_ANNOTATIONS = {
     "ui_click": {"title": "Click something on screen", "destructiveHint": True},
     "ui_dump": {"title": "Read the screen as text", "readOnlyHint": True},
     "ui_set_text": {"title": "Type into a text box", "destructiveHint": True},
+    "wait_for_text": {"title": "Wait for text on screen", "readOnlyHint": True},
     "window_focus": {"title": "Bring a window to the front", "destructiveHint": True},
     "window_list": {"title": "List open windows", "readOnlyHint": True},
 }
@@ -285,6 +289,8 @@ class McpContractTests(unittest.TestCase):
             "ui_set_text",
             "window_focus",
             "window_list",
+            "find_text",
+            "wait_for_text",
         ):
             self.assertIsNone(tools[name].output_schema, name)
 
