@@ -10,19 +10,28 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
-- **SIRADAKİ İŞ: yol haritasında zorunlu bir madde kalmadı.** Adım 7 bitti
-  (2026-09-20), Minecraft doğrulaması da 2026-09-21'de kapandı (#9). Açık
-  duran iki şey var, ikisi de isteğe bağlı: **#8** (imleç katmanını
-  fiziksel fareyle denemek, kullanıcıda) ve **Faz 8** (legacy retirement, ön
-  koşulu sağlanmadı). Yeni bir işe başlamadan önce kullanıcıya hangisini
-  istediğini sor.
-- **Planlanan yeni iş: Adım 8** (2026-09-21). Canlı bir ajan oturumunda
-  (Minecraft survival denemesi) çıkan yedi genel özellik isteği: odak için
-  ikinci kaynak, koordinatsız tıklama, en kısa basılı kalma, `move_by`
-  notu, ekran görüntüsü kırpma/iyileştirme, OCR, batch süre bütçesi.
-  Hepsi `planlandı`; hangisinden başlanacağını kullanıcıya sor.
-- **Kullanıcıyı bekleyen tek madde: #8** (imleç katmanı, fiziksel fareyle
-  deneme). İsteğe bağlı; projenin hiçbir parçası buna bağlı değil.
+- **SIRADAKİ İŞ: kodda yapılacak zorunlu bir madde kalmadı; sıradaki iki
+  adım kullanıcıda.** Adım 8 (2026-09-21/22, kullanıcı yokken) uygulandı:
+  8.2, 8.3, 8.4, 8.5, 8.7 gerçek masaüstünde ölçülerek bitti; 8.1 nested
+  GNOME Shell'de ölçüldü ve gerçek oturumda çıkış/giriş bekliyor (**#10**);
+  8.6'nın motoru (tesseract) kurulu değil, kurulum sudo istiyor (**#11**).
+  İkisi yapılınca ilgili bölümlere ölçüm yazılır. Bunlardan başka açık duran
+  iki isteğe bağlı iş: **#8** (imleç katmanı, fiziksel fare) ve **Faz 8**
+  (legacy retirement, ön koşulu sağlanmadı). Yeni bir işe başlamadan önce
+  kullanıcıya hangisini istediğini sor.
+- **Adım 8'in özeti** (ayrıntı ve sayılar kendi bölümünde): batch planı
+  bütçeyi aşarsa hiç başlamıyor, bütçe 90 → 50 sn (8.7); koordinatsız
+  tıklama imlecin olduğu yerde (8.2); tıklama basışı 30 → 60 ms, 50 ms'lik
+  tick'te 30 ms %30–40 kaçırıyordu, 60 ms 40/40 (8.3); `move_by`
+  kalibrasyon yöntemi açıklamada (8.4); ekran görüntüsünde bölge,
+  `final_monitor`, karanlık kare iyileştirme — bölge %100 piksel eşleşti
+  (8.5); AT-SPI odağı okuyamazsa kabuk eklentisinden okunuyor (8.1);
+  `find_text` / `wait_for_text` (8.6). Araç sayısı 34 → 36.
+- **Stdio istemcileri yeni kodu yeniden başlatılınca görür.** Servis
+  2026-09-22'de yeniden başlatıldı ve yeni kodda; Claude Code ve Claude
+  Desktop'un `--stdio` süreçleri istemci kapatılıp açılana kadar eski kodu
+  çalıştırıyor (CLAUDE.md'deki bilinen durum).
+- **Kullanıcıyı bekleyenler: #10, #11** (Adım 8) ve isteğe bağlı **#8**.
 - **Blocker:** Yok.
 - **Depo GitHub'da.** 2026-09-20'de ilk kez `origin/main`'e gönderildi (140
   commit, `22a5824..b746aff` ve sonrası) ve CI (`native.yml`) **ilk koşuşunda
@@ -60,7 +69,7 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
   yerde: iki monitör **5113 ms → 789 ms**. Pencere öne alma: kapalı uygulama
   tuşsuz **0,4 sn**, zaten öndeki hedefe hiç tuş yok.
 - **Kullanıcıyla yapılan kontroller:** #1, #2, #3, #4, #5, #6, #7, #9
-  `yapıldı`; yalnızca **#8** bekliyor.
+  `yapıldı`; **#8**, **#10** ve **#11** bekliyor.
 
 ## Kullanıcıyı bekleyenler
 
@@ -97,7 +106,7 @@ Sıra yukarıdan aşağı. Her adım tek başına sınanabilir ve geri alınabil
 | 5 | Native migration Faz 5–8: input, accessibility, capture kapsamı, retirement | `devam ediyor` (5.1–5.4 ✅ **Gate 5**; 6.1–6.4 ✅ **Gate 6**; 7.1 ✅, 7.3/7.4 ölçülüp uygulanmadı; sırada 7.2) |
 | 6 | İmleç katmanı (gnome-extension) — yarım kalan iş | `uygulandı, kapalı geliyor` (gerçek fareyle doğrulama kullanıcıda, #8) |
 | 7 | Göreli fare hareketi (`move_by`) — göreli okuyan her uygulama için, kilit şartı yok | `tamamlandı` (Wayland'de ölçüldü, Minecraft native Wayland'de de; XWayland'de çalışmıyor) |
-| 8 | Canlı ajan kullanımından çıkan özellik istekleri (odak, tıklama, ekran görüntüsü, OCR) — 8.1–8.7 | `planlandı` (2026-09-21, kullanıcı isteği; başlanmadı) |
+| 8 | Canlı ajan kullanımından çıkan özellik istekleri (odak, tıklama, ekran görüntüsü, OCR) — 8.1–8.7 | `uygulandı` (2026-09-22; 8.2–8.5, 8.7 ölçüldü; 8.1 gerçek oturumda #10, 8.6 motor kurulumu #11) |
 | — | Faz W (Windows), Faz M (macOS), Faz G (GUI), `JARVIS.md` | `ertelendi` |
 
 ## Adım 0 — Belge omurgası
@@ -3111,7 +3120,7 @@ ile sabitliyor; kardeş test sıradan bir `move`'un bu fazladan olayı
 yol değişmiyor. `[native] input = "python"` eski yolu geri getirir.
 
 
-## Adım 8 — Canlı ajan kullanımından çıkan özellik istekleri · `planlandı` (2026-09-21)
+## Adım 8 — Canlı ajan kullanımından çıkan özellik istekleri · `uygulandı` (2026-09-22)
 
 **Kaynak.** 2026-09-21 akşamı bir Claude oturumu (Cowork, telefondan
 uzaktan) pcbridge ile Modrinth App'i GUI'den açtı, `Fabric 26.3`'te yeni
@@ -3119,8 +3128,18 @@ bir survival dünyası kurdu ve yaklaşık bir saat oynamaya çalıştı. Görev
 (ev yapıp iki gece çıkarmak) bitmedi. Aşağıdakiler o oturumda ajanın
 **fiilen takıldığı** yerler; hiçbiri Minecraft'a özel değil. Kullanıcı
 kararı: "pcbridge Minecraft odaklı değil, genel alanda işe yarayacak şeyler
-eklenebilir". Hepsi `planlandı` — yapılmak isteniyor, başlanmadı, tasarım
-kararı verilmedi. Sıra, oturumdaki etkisine göre.
+eklenebilir". Sıra, oturumdaki etkisine göre.
+
+**Uygulama (2026-09-21/22).** Kullanıcı "adım 8'i uygula, istediğin gibi
+test et, bitince main'e gönder" dedi ve makineden kalktı; bütün maddeler o
+gece yapıldı, uygulama sırası 8.7 → 8.2/8.3 → 8.4 → 8.1 → 8.5 → 8.6. Adım 6
+(imleç katmanı) bilerek dokunulmadı. İki madde kullanıcı olmadan
+bitirilemedi: 8.1'in gerçek oturum doğrulaması çıkış/giriş istiyor (#10),
+8.6'nın motoru sudo ile kurulacak (#11). Son doğrulama 2026-09-22: servis
+yeni kodla yeniden başlatıldı, `test_e2e.py` **262 başarılı, 0 başarısız,
+9 atlandı** (önce 256); HTTP üzerinden gerçek masaüstünde bölge +
+iyileştirme, `final_monitor`, bütçeyi aşan planın 0,03 sn'de hiçbir eylem
+göndermeden reddi ve `find_text`'in kurulum mesajı görüldü.
 
 | # | Ne | Durum |
 |---|---|---|
