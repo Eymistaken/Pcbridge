@@ -1,8 +1,9 @@
-/* Narrow GNOME Shell window activation surface for pcbridge.
+/* Narrow GNOME Shell window surface for pcbridge.
  *
- * The exported D-Bus interface intentionally has one custom method. It never
- * lists, moves, resizes, or closes windows. Every call rereads the desktop
- * grant before touching the compositor.
+ * The exported D-Bus interface intentionally has two custom methods: one
+ * activates an already-open window, the other names the window that has
+ * focus (step 8.1). It never lists, moves, resizes, or closes windows. Every
+ * call rereads the desktop grant before touching the compositor.
  */
 
 import Gio from 'gi://Gio';
@@ -11,6 +12,8 @@ export const BUS_NAME = 'io.github.eymistaken.Pcbridge.WindowFocus';
 export const OBJECT_PATH = '/io/github/eymistaken/Pcbridge/WindowFocus';
 export const INTERFACE_NAME = 'io.github.eymistaken.Pcbridge.WindowFocus';
 export const MAX_TARGET_LENGTH = 200;
+// Longest identity field FocusedWindow returns; a longer title is cut.
+export const MAX_FIELD_LENGTH = 200;
 
 const INTERFACE_XML = `
 <node>
@@ -18,6 +21,12 @@ const INTERFACE_XML = `
     <method name="ActivateWindow">
       <arg name="target" type="s" direction="in"/>
       <arg name="activated" type="b" direction="out"/>
+    </method>
+    <method name="FocusedWindow">
+      <arg name="found" type="b" direction="out"/>
+      <arg name="wm_class" type="s" direction="out"/>
+      <arg name="app_id" type="s" direction="out"/>
+      <arg name="title" type="s" direction="out"/>
     </method>
   </interface>
 </node>`;
@@ -34,6 +43,14 @@ function normalize(value) {
 function readField(window, method) {
     try {
         return normalize(window?.[method]?.());
+    } catch {
+        return '';
+    }
+}
+
+function rawField(window, method) {
+    try {
+        return String(window?.[method]?.() ?? '').slice(0, MAX_FIELD_LENGTH);
     } catch {
         return '';
     }
@@ -170,6 +187,37 @@ export class WindowControl {
         } catch (error) {
             console.warn(`[pcbridge-gorunur] pencere etkinleştirilemedi: ${error}`);
             return false;
+        }
+    }
+
+    /** Name the window that has keyboard focus, while the grant is current.
+     *
+     * pcbridge's second focus source (step 8.1). AT-SPI marks no window
+     * ACTIVE when the focused one does not take part in accessibility -- a
+     * game, many Java and Electron windows -- and a batch that cannot read
+     * focus refuses to click. The compositor always knows. Returns
+     * `[found, wm_class, app_id, title]`; `found` is false with the grant
+     * closed or when no window has focus (the overview, an empty desktop),
+     * and pcbridge then keeps refusing exactly as before.
+     */
+    FocusedWindow() {
+        const none = [false, '', '', ''];
+        try {
+            this._state.refresh();
+            if (!this._state.active)
+                return none;
+            const window = this._focusedWindow();
+            if (!window)
+                return none;
+            return [
+                true,
+                rawField(window, 'get_wm_class'),
+                rawField(window, 'get_gtk_application_id'),
+                rawField(window, 'get_title'),
+            ];
+        } catch (error) {
+            console.warn(`[pcbridge-gorunur] odaktaki pencere okunamadı: ${error}`);
+            return none;
         }
     }
 }

@@ -4,9 +4,12 @@
  * işareti GNOME'un üst çubuktaki küçük paylaşım simgesi. Bu eklenti aynı
  * durumu göz kaçırmayacak şekilde gösterir.
  *
- * Görsel katmana ek olarak tek, dar bir D-Bus yöntemi sunar:
- * `ActivateWindow(hedef) -> bool`. Pencere listelemez, taşımaz, kapatmaz veya
- * boyutlandırmaz; her çağrıda `desktop_unlock.json` grant'ini yeniden okur.
+ * Görsel katmana ek olarak iki dar D-Bus yöntemi sunar:
+ * `ActivateWindow(hedef) -> bool` açık bir pencereyi öne alır,
+ * `FocusedWindow() -> (bool, wm_class, app_id, başlık)` odaktaki pencerenin
+ * adını söyler (Adım 8.1: AT-SPI'ın göremediği pencerede odak kontrolü).
+ * Pencere listelemez, taşımaz, kapatmaz veya boyutlandırmaz; her çağrıda
+ * `desktop_unlock.json` grant'ini yeniden okur.
  *
  * GNOME 46 / Wayland. Kod değişince kabuk yeniden başlamalı (ESM önbelleği):
  * geliştirme için `./nested.sh`.

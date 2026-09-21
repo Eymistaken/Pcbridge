@@ -133,5 +133,103 @@ class FocusFastPathTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["timeout"], 1.0)
 
 
+class ExtensionFocusSourceTests(unittest.TestCase):
+    """Step 8.1: the shell extension as a second source for the focused window."""
+
+    def reply(self, stdout: str = "", returncode: int = 0):
+        return SimpleNamespace(stdout=stdout, returncode=returncode, stderr="")
+
+    def test_a_found_window_is_named_by_its_app_id_then_wm_class(self) -> None:
+        cases = [
+            ('{"type":"bsss","data":[true,"Minecraft* 26.3","","Minecraft* 26.3"]}',
+             ("Minecraft* 26.3", "Minecraft* 26.3")),
+            ('{"type":"bsss","data":[true,"org.gnome.TextEditor",'
+             '"org.gnome.TextEditor","Belge"]}',
+             ("org.gnome.TextEditor", "Belge")),
+            ('{"type":"bsss","data":[true,"","",""]}', ("?", "")),
+        ]
+        for stdout, expected in cases:
+            with self.subTest(stdout=stdout), mock.patch.object(
+                apps.subprocess, "run", return_value=self.reply(stdout)
+            ) as run:
+                self.assertEqual(apps.extension_focused_window(), expected)
+            argv = run.call_args.args[0]
+            self.assertIn("FocusedWindow", argv)
+            self.assertIn("--json=short", argv)
+
+    def test_anything_else_is_no_answer_not_a_guess(self) -> None:
+        for reply in (
+            self.reply('{"type":"bsss","data":[false,"","",""]}'),
+            # The extension that runs until the next login has no such method.
+            self.reply("", returncode=1),
+            self.reply('{"type":"b","data":[true]}'),
+            self.reply("not json"),
+            self.reply('{"type":"bsss","data":[true,"a"]}'),
+        ):
+            with self.subTest(reply=reply), mock.patch.object(
+                apps.subprocess, "run", return_value=reply
+            ):
+                self.assertIsNone(apps.extension_focused_window())
+        with mock.patch.object(
+            apps.subprocess, "run", side_effect=apps.subprocess.TimeoutExpired("busctl", 1)
+        ):
+            self.assertIsNone(apps.extension_focused_window())
+
+    def test_device_ops_falls_back_only_when_atspi_cannot_say(self) -> None:
+        from pcbridge.desktop import ops as opslib
+
+        tree = mock.Mock()
+        device = opslib.DeviceOps(mock.Mock(), tree, SimpleNamespace(
+            shot_search_dirs=[], desktop=SimpleNamespace(
+                agent_shot_max_age_seconds=60, ambiguous_coord_guard=True,
+            ),
+        ), mock.Mock())
+
+        tree.focused_window.return_value = ("gnome-text-editor", "Belge")
+        with mock.patch.object(apps, "extension_focused_window") as shell:
+            self.assertEqual(device.focused(), "gnome-text-editor | Belge")
+            shell.assert_not_called()
+
+        tree.focused_window.side_effect = RuntimeError("Odakta pencere yok")
+        with mock.patch.object(
+            apps, "extension_focused_window", return_value=("Minecraft", "Minecraft 26.3")
+        ):
+            self.assertEqual(device.focused(), "Minecraft | Minecraft 26.3")
+
+        with mock.patch.object(apps, "extension_focused_window", return_value=None):
+            with self.assertRaises(opslib.FocusUnreadable) as caught:
+                device.focused()
+        self.assertIn("Odakta pencere yok", str(caught.exception))
+        self.assertIn("kabuk eklentisi de", str(caught.exception))
+
+    def test_a_batch_in_a_window_atspi_cannot_see_now_runs(self) -> None:
+        """The Minecraft refusal: clicks go through when the shell names focus."""
+        from pcbridge.desktop import batch as batchlib
+        from pcbridge.desktop import ops as opslib
+
+        backend = mock.Mock()
+        backend.move_by.return_value = (40, 0)
+        tree = mock.Mock()
+        tree.focused_window.side_effect = RuntimeError("Odakta pencere yok")
+        device = opslib.DeviceOps(backend, tree, SimpleNamespace(
+            shot_search_dirs=[], desktop=SimpleNamespace(
+                agent_shot_max_age_seconds=60, ambiguous_coord_guard=True,
+            ),
+        ), mock.Mock())
+        plan = batchlib.parse('[{"a":"move_by","dx":40,"dy":0},{"a":"click"},'
+                              '{"a":"right_click","hold_ms":80}]')
+        with mock.patch.object(
+            apps, "extension_focused_window", return_value=("Minecraft", "Minecraft 26.3")
+        ):
+            result = batchlib.run(plan, device, budget=60, sleep=lambda s: None)
+        self.assertEqual((result.done, result.stopped), (3, ""), result.detail)
+        self.assertEqual(result.focus_start, "Minecraft | Minecraft 26.3")
+
+        with mock.patch.object(apps, "extension_focused_window", return_value=None):
+            refused = batchlib.run(plan, device, budget=60, sleep=lambda s: None)
+        self.assertEqual((refused.done, refused.stopped), (0, "focus"))
+        self.assertIn("kabuk eklentisi de", refused.detail)
+
+
 if __name__ == "__main__":
     unittest.main()

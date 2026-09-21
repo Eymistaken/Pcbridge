@@ -13,10 +13,13 @@ Bu eklenti aynı durumu **göz kaçırmayacak** biçimde gösteriyor.
 - **Ajanın imleci** (VARSAYILAN KAPALI, aşağıda) — izin açıkken gerçek imleç
   gizlenip yerine yöne dönen bir ok çiziliyor.
 
-Görsel katmana ek olarak tek, dar bir D-Bus yöntemi sunar:
-`ActivateWindow(hedef) -> bool`. Yöntem yalnızca zaten açık olan tek ve
-belirsiz olmayan eşleşmeyi öne alır. Pencere listelemez, taşımaz, kapatmaz veya
-boyutlandırmaz. Her çağrıda
+Görsel katmana ek olarak iki dar D-Bus yöntemi sunar.
+`ActivateWindow(hedef) -> bool` yalnızca zaten açık olan tek ve belirsiz
+olmayan eşleşmeyi öne alır. `FocusedWindow() -> (bool, wm_class, app_id,
+başlık)` klavye odağındaki pencerenin adını söyler (Adım 8.1): AT-SPI'ın
+göremediği bir pencere öndeyken — oyun, birçok Java/Electron penceresi —
+pcbridge'in toplu eylemleri odağı buradan okuyabiliyor. Pencere listelemez,
+taşımaz, kapatmaz veya boyutlandırmaz. Her çağrıda
 `~/.local/state/pcbridge/desktop_unlock.json` grant'ini yeniden okur; izin
 kapalıysa hiçbir şey yapmadan `false` döner. Eklenti grant dosyasını yazmaz.
 
@@ -100,7 +103,7 @@ gjs -m gnome-extension/tests/test_window_control.js
 |---|---|
 | `pcbridge-gorunur@eymistaken.local/extension.js` | giriş noktası, durum makinesi |
 | `pcbridge-gorunur@eymistaken.local/state.js` | `desktop_unlock.json` izleyici |
-| `pcbridge-gorunur@eymistaken.local/windowcontrol.js` | tek yöntemli D-Bus pencere etkinleştirme yüzü |
+| `pcbridge-gorunur@eymistaken.local/windowcontrol.js` | iki yöntemli dar D-Bus pencere yüzü (etkinleştirme, odaktaki pencere) |
 | `pcbridge-gorunur@eymistaken.local/frame.js` | kenar çerçevesi |
 | `pcbridge-gorunur@eymistaken.local/cursor.js` | ajanın imleci (varsayılan kapalı) |
 | `pcbridge-gorunur@eymistaken.local/frameclock.js` | işi kare başına bire indiren yardımcı |
@@ -143,12 +146,29 @@ Oturum veriyolundaki ad, nesne ve arayüz:
 io.github.eymistaken.Pcbridge.WindowFocus
 /io/github/eymistaken/Pcbridge/WindowFocus
 io.github.eymistaken.Pcbridge.WindowFocus.ActivateWindow(s) -> b
+io.github.eymistaken.Pcbridge.WindowFocus.FocusedWindow() -> (b, s, s, s)
 ```
 
-`true`, `Meta.Window.activate()` sonrasında GNOME kabuğunun odak penceresinin
-aynı pencere olduğunu doğruladığı anlamına gelir. Hedef yoksa, en iyi eşleşme
-belirsizse, grant kapalıysa veya etkinleştirme doğrulanmazsa `false` döner;
-pcbridge bu durumda mevcut GNOME arama yedeğine düşer.
+`ActivateWindow`'un `true`'su, `Meta.Window.activate()` sonrasında GNOME
+kabuğunun odak penceresinin aynı pencere olduğunu doğruladığı anlamına gelir.
+Hedef yoksa, en iyi eşleşme belirsizse, grant kapalıysa veya etkinleştirme
+doğrulanmazsa `false` döner; pcbridge bu durumda mevcut GNOME arama yedeğine
+düşer.
+
+`FocusedWindow` `global.display.focus_window`'u okur ve `[bulundu, wm_class,
+app_id, başlık]` döner (her alan en fazla 200 karakter). Grant kapalıysa ya da
+hiçbir pencere odakta değilse (overview, boş masaüstü) `bulundu = false`.
+pcbridge onu yalnızca AT-SPI odağı okuyamadığında sorar; ikisi de okuyamazsa
+tıklama içeren toplu eylem eskisi gibi hiç başlamaz. Nested kabukta ölçüldü
+(2026-09-22): izin kapalıyken, izin açık ama pencere yokken ve izin kapandıktan
+sonra pencere hâlâ odaktayken `false`; zenity odaktayken `[true, "zenity", "",
+"Pcbridge Nested A"]`; `busctl` dahil çağrı başına 4,8–11 ms.
+
+```bash
+busctl --user --json=short call io.github.eymistaken.Pcbridge.WindowFocus \
+  /io/github/eymistaken/Pcbridge/WindowFocus \
+  io.github.eymistaken.Pcbridge.WindowFocus FocusedWindow
+```
 
 ### Kabuğun içinden ölçüm
 

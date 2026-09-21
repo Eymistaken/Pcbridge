@@ -1,7 +1,7 @@
 {
   "uuid": "pcbridge-gorunur@eymistaken.local",
   "name": "pcbridge — Ajan Görünür",
-  "description": "pcbridge masaüstü izni açıkken ekran kenarlarında görünür bir çerçeve gösterir ve izinliyken açık bir pencereyi etkinleştiren tek, dar bir D-Bus yöntemi sunar.",
+  "description": "pcbridge masaüstü izni açıkken ekran kenarlarında görünür bir çerçeve gösterir ve izinliyken açık bir pencereyi etkinleştiren ve odaktaki pencerenin adını söyleyen iki dar D-Bus yöntemi sunar.",
   "shell-version": ["46"],
   "session-modes": ["user"],
   "version-name": "0.1.0"

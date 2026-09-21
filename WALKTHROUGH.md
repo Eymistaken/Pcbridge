@@ -77,6 +77,7 @@ yapılınca silinmez, `yapıldı` diye işaretlenir.
 | 7 | Task 6.3 ve 6.4 yayılımı: native erişilebilirlik (`ui_dump`, `ui_click`, `ui_set_text`, `window_list`) ve yeni pencere sırası (`window_focus`, `launch`, `focus`) stdio istemcilerinde. Servis iki kez yeniden başlatıldı ve yeni kodda; Claude Code ve Claude Desktop'un stdio süreçleri eski kodu çalıştırıyor | stdio süreçleri istemcinin; uygulama kapatılıp açılınca yeni koda geçer | `yapıldı` — servis 2026-09-19, stdio istemcileri 2026-09-20. Yeni pencere sırası canlıda doğrulandı: kapalı uygulamada `window_focus` "başlatıldı ve odakta" döndü |
 | 8 | Adım 6 — imleç katmanı gerçek oturumda: çıkış/giriş sonrası işaret dosyasını açıp (`touch ~/.local/state/pcbridge/gorunur-imlec`) izin verdikten sonra FİZİKSEL fareyle tıklama ve akış normal mi? 2026-08-04'te bozulan buydu; kare saati düzeltmesi nested kabukta ölçüldü ama gerçek farede denenmedi. Bozulursa işaret dosyasını silmek yeter | Eklenti kodu ancak çıkış/girişte yeniden okunuyor; arıza yalnızca fiziksel fareyle görüldü | `bekliyor` |
 | 9 | Adım 7 — Minecraft'ta `move_by`: oyun XWayland'de çalıştığı için göreli hareketi almıyor (ölçüldü 2026-09-20: 2400 birim → 0,7°; mutlak `move` de bakışı çevirmiyor). Aynı çağrı native Wayland'de kilitli bir sayfada tam ölçüsünde çalışıyor. Denenmemiş tek yol oyunu native Wayland backend'iyle başlatmak (LWJGL 3.4.3 SDL); bu kullanıcının Modrinth kurulumunu değiştirir | Kurulum değişikliği kullanıcının kararı | `yapıldı` (2026-09-21). Kullanıcı "yapalım" dedi. Yalnızca `Fabric 26.3` instance'ına `SDL_VIDEO_DRIVER=wayland` eklendi. Birim başına 0,15° ölçüldü; temiz A/B'de XWayland 0°. Ayrıntı Adım 7 bölümünde |
+| 10 | Adım 8.1 — eklentinin `FocusedWindow`'u gerçek oturumda: çıkış/giriş sonrası `busctl --user --json=short call io.github.eymistaken.Pcbridge.WindowFocus /io/github/eymistaken/Pcbridge/WindowFocus io.github.eymistaken.Pcbridge.WindowFocus FocusedWindow` izin açıkken `[true, …]` dönmeli; sonra AT-SPI'ın görmediği bir pencere öndeyken tıklamalı `computer_batch` koşmalı | Eklenti kodu ancak çıkış/girişte yeniden okunuyor; nested kabukta ölçüldü | `bekliyor` |
 | 6 | Task 5.4 / 4 — gerçek girdi testi (`yapıldı` 2026-09-19, 8/8): `PCBRIDGE_TEST_INPUT=1 PCBRIDGE_INPUT_REPORT=<yol> ./.venv/bin/python -m unittest tests/live/test_input_parity.py -v`. İki ekranı ~1 dk kaplayan test penceresi; fare kendiliğinden hareket eder, pencereye tıklar, pencerenin içindeki kutuya Türkçe metin yazar, Shift'i kısa süre basılı tutar | Gerçek tuş ve tıklama gönderiyor; kullanıcı başında olmalı ve o sırada klavye/fareye dokunmamalı. Acil durdurma: Super+L (ekran kilidi native aygıtları anında kapatır) | `yapıldı` (2026-09-19) |
 
 ---
@@ -3122,7 +3123,7 @@ kararı verilmedi. Sıra, oturumdaki etkisine göre.
 
 | # | Ne | Durum |
 |---|---|---|
-| 8.1 | Odak kontrolü için ikinci kaynak (GNOME Shell eklentisi) | `planlandı` |
+| 8.1 | Odak kontrolü için ikinci kaynak (GNOME Shell eklentisi) | `uygulandı` (2026-09-22; nested'de ölçüldü, gerçek oturum çıkış/giriş bekliyor, #10) |
 | 8.2 | Koordinatsız tıklama (imleç neredeyse orada) | `tamamlandı` (2026-09-21) |
 | 8.3 | Tıklamada en kısa basılı kalma süresi | `tamamlandı` (2026-09-21, ölçüldü) |
 | 8.4 | `move_by` ölçeği ve ilk-olay kaybı ajana görünsün | `tamamlandı` (2026-09-21) |
@@ -3130,7 +3131,7 @@ kararı verilmedi. Sıra, oturumdaki etkisine göre.
 | 8.6 | "Görünene kadar bekle": OCR ile `find_text` / `wait_for_text` | `planlandı` |
 | 8.7 | `computer_batch` süre bütçesi taşıma zaman aşımının altında | `tamamlandı` (2026-09-21) |
 
-### 8.1 — Odak kontrolü için ikinci kaynak · `planlandı`
+### 8.1 — Odak kontrolü için ikinci kaynak · `uygulandı` (2026-09-22)
 
 **Gözlenen.** Minecraft (SDL3, native Wayland) penceresi öndeyken AT-SPI
 hiçbir pencereyi `ACTIVE` işaretlemedi. Task 5.1'in kuralı gereği ("okunamayan
@@ -3148,6 +3149,50 @@ kalır. İkinci ve daha zayıf seçenek: çağrı başına açıkça verilen bir
 `focus_check="off"` (varsayılan kapalı değil, açık; red mesajı bu seçeneği
 anmalı). Bu seçenek güvenlik modeline dokunduğu için `KURALLAR.md` ile
 birlikte karara bağlanmalı.
+
+**Kök neden (audit.log, 2026-09-21).** Dört `computer_batch` 0 eylemle
+`stopped: focus` döndü; aynı akşam `ui_dump` "Odakta pencere yok (AT-SPI
+hicbir pencereyi ACTIVE isaretlemiyor)" dedi. İki backend de bu durumda hata
+fırlatıyor, yani `ops.focused()` hata veriyor ve tıklamalı plan hiç
+başlamıyordu.
+
+**Yapılan.** Eklentiye ikinci dar yöntem: `FocusedWindow() -> (b, s, s, s)`
+= `[bulundu, wm_class, app_id, başlık]`. `global.display.focus_window`'u
+okuyor, pencere listelemiyor, her çağrıda grant'i yeniden okuyor; izin
+kapalıysa ya da odakta pencere yoksa `false`. Python'da
+`apps.extension_focused_window()` (`busctl --json=short`, 0,5 sn zaman aşımı)
+ve `DeviceOps.focused()`: önce AT-SPI, **yalnızca o hata verirse** eklenti;
+ikisi de okuyamazsa `FocusUnreadable` iki sebebi birlikte taşıyor ve batch
+eskisi gibi hiç başlamıyor. Kimlik biçimi AT-SPI'ınkiyle aynı (`uygulama |
+başlık`, uygulama = `app_id` yoksa `wm_class`), ama değerler farklı olabilir:
+aynı dizide iki kaynak karışırsa "odak değişti" sayılır — güvenli yönde hata,
+`expect_focus` ile aşılır. **İkinci, zayıf seçenek (`focus_check="off"`)
+yapılmadı:** ikinci kaynak yeterli ve kural gevşemedi, `KURALLAR.md`
+kararına gerek kalmadı.
+
+**Ölçüldü 2026-09-22, nested GNOME Shell 46** (gerçek kabuk, sanal monitör):
+
+| Durum | `FocusedWindow` |
+|---|---|
+| izin kapalı, pencere yok | `[false, "", "", ""]` |
+| izin açık, pencere yok | `[false, "", "", ""]` |
+| izin açık, zenity odakta | `[true, "zenity", "", "Pcbridge Nested A"]` |
+| izin kapandı, zenity hâlâ odakta | `[false, "", "", ""]` |
+
+Çağrı başına 4,8–11 ms (`busctl` süreci dahil); Python fonksiyonu aynı
+oturumdan `('zenity', 'Pcbridge Nested A')`'yı 7,9 ms'de okudu. Gerçek
+oturumdaki eski eklentiye karşı `None` döndü (yöntem yok), yani çıkış/girişe
+kadar davranış değişmiyor.
+
+**Sabitlendi.** gjs: 9 yeni kontrol (grant her çağrıda okunuyor, liste hiç
+çağrılmıyor, kapalı izin, odak yok, uzun başlık kırpılıyor, hata D-Bus'a
+sızmıyor). Python: yanıt ayrıştırma ve her "cevap yok" biçimi; AT-SPI
+okuyabiliyorsa eklentiye hiç sorulmuyor; Minecraft'taki red senaryosu
+eklentiyle 3/3 koşuyor, eklentisiz 0 eylemle `focus` ile duruyor.
+
+**Kalan (#10).** Gerçek oturumda doğrulama çıkış/giriş istiyor: sonra
+AT-SPI'ın görmediği bir pencere (Minecraft ya da Vesktop) öndeyken
+koordinatsız tıklama içeren bir `computer_batch`.
 
 ### 8.2 — Koordinatsız tıklama · `tamamlandı` (2026-09-21)
 

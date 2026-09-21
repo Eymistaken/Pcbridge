@@ -657,7 +657,7 @@ def run(
             if any(a.a in POINTER_ACTIONS for a in actions):
                 stopped = "focus"
                 detail = (
-                    f"odak okunamadi ({str(exc)[:80]}); tiklamadan sonra odagin "
+                    f"odak okunamadi ({str(exc)[:200]}); tiklamadan sonra odagin "
                     "kaymadigi dogrulanamayacagi icin HICBIR eylem gonderilmedi. "
                     "`ui_click` odaga bakmaz; koordinatli tiklama gerekiyorsa "
                     "once erisilebilirligin neden okunamadigina bakin "
@@ -771,7 +771,7 @@ def run(
                 if i + 1 < len(actions):
                     stopped = "focus"
                     detail = (
-                        f"tiklama sonrasi odak okunamadi ({str(exc)[:80]}); "
+                        f"tiklama sonrasi odak okunamadi ({str(exc)[:200]}); "
                         "sonraki eylemlerin dogru pencereye gidecegi "
                         "dogrulanamadi, durduruldu"
                     )

@@ -39,6 +39,10 @@ MOUSE_ACTIONS = POINTER_ACTIONS | {"move", "scroll", "mouse_up"}
 RELATIVE_ACTIONS = {"move_by"}
 
 
+class FocusUnreadable(RuntimeError):
+    """Odak ne AT-SPI'dan ne kabuk eklentisinden okunabildi."""
+
+
 def devices_needed(
     actions: list[Action],
     *,
@@ -244,8 +248,30 @@ class DeviceOps:
             raise BudgetExceeded(str(exc)) from exc
 
     def focused(self) -> str:
-        app, win = self.tree.focused_window()
+        """Odaktaki pencerenin kimligi: once AT-SPI, olmazsa kabuk eklentisi.
+
+        Ikinci kaynak (Adim 8.1) KURALI GEVSETMIYOR: okunamayan odak hala
+        "degismedi" sayilmiyor. Yalnizca AT-SPI'in goremedigi bir pencerede
+        (oyun, bazi Java/Electron pencereleri) odak artik kompozitorden
+        okunabiliyor. Ikisi de okuyamazsa istisna aynen yukari cikar.
+        """
+        try:
+            app, win = self.tree.focused_window()
+        except Exception as exc:
+            shell = appslib.extension_focused_window()
+            if shell is None:
+                raise FocusUnreadable(
+                    f"{exc} · kabuk eklentisi de odagi soyleyemedi (kurulu "
+                    "degil, eski surumu yuklu ya da odakta pencere yok)"
+                ) from exc
+            app, win = shell
         return f"{app} | {win}"
 
 
-__all__ = ["DeviceOps", "devices_needed", "INPUT_ACTIONS", "MOVE_SETTLE"]
+__all__ = [
+    "DeviceOps",
+    "FocusUnreadable",
+    "devices_needed",
+    "INPUT_ACTIONS",
+    "MOVE_SETTLE",
+]

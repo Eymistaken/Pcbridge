@@ -44,6 +44,7 @@ DORT IC ISLEM (Task 6.4)
 from __future__ import annotations
 
 import gettext
+import json
 import os
 import re
 import secrets
@@ -123,6 +124,51 @@ def extension_focus_available() -> bool:
         "s",
         _FOCUS_BUS_NAME,
     )
+
+
+def extension_focused_window() -> tuple[str, str] | None:
+    """Odaktaki pencere, GNOME kabuk eklentisinden: (uygulama, baslik).
+
+    ODAK ICIN IKINCI KAYNAK (Adim 8.1). AT-SPI erisilebilirlige katilmayan
+    bir pencere ondeyken hicbir pencereyi ACTIVE isaretlemiyor. OLCULDU
+    2026-09-21: Minecraft (SDL3, native Wayland) ondeyken tiklama iceren her
+    `computer_batch` odak okunamadigi icin HIC eylem gondermeden reddedildi.
+    Kompozitor odagi her zaman biliyor; eklentinin `FocusedWindow` yontemi
+    onu, yalnizca izin acikken, soyluyor.
+
+    None: eklenti yok, eski surum (yontem yok -- kod degisikligi kabuk
+    yeniden baslayana kadar yuklenmiyor), izin kapali ya da odakta pencere
+    yok (overview, bos masaustu). Hepsinde cagiran bugunku davranisina
+    doner; tahmin yok.
+
+    Uygulama adi `.desktop` kimligi varsa o, yoksa `wm_class`. AT-SPI'in
+    verdigi addan FARKLI olabilir; ayni dizi icinde iki kaynagin karismasi
+    "odak degisti" sayilir, yani yanlis yonde degil guvenli yonde hata.
+    """
+    try:
+        proc = subprocess.run(
+            [
+                "busctl", "--user", "--json=short", "--timeout=500ms", "call",
+                _FOCUS_BUS_NAME, _FOCUS_OBJECT_PATH, _FOCUS_INTERFACE,
+                "FocusedWindow",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=1.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        reply = json.loads(proc.stdout)
+        found, wm_class, app_id, title = reply["data"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    if reply.get("type") != "bsss" or found is not True:
+        return None
+    app = str(app_id or wm_class or "").strip() or "?"
+    return app, str(title or "")
 
 
 def _extension_activate(window: str) -> bool:

@@ -817,9 +817,13 @@ gnome-extensions disable pcbridge-gorunur@eymistaken.local
 
 Bilmeniz gerekenler:
 
-- **Dar yetkili.** Görsel çerçevenin yanında yalnızca zaten açık bir pencereyi
-  öne alan `ActivateWindow(hedef) -> bool` D-Bus yöntemini sunar. Listeleme,
-  taşıma, kapatma ve boyutlandırma yoktur. Her çağrı grant dosyasını yeniden
+- **Dar yetkili.** Görsel çerçevenin yanında iki D-Bus yöntemi sunar: zaten
+  açık bir pencereyi öne alan `ActivateWindow(hedef) -> bool` ve odaktaki
+  pencerenin adını söyleyen `FocusedWindow()`. İkincisi AT-SPI'ın göremediği
+  bir pencere (oyun, birçok Java/Electron penceresi) öndeyken `computer_batch`
+  tıklamalarının odak kontrolünü mümkün kılıyor; eklenti yoksa o durumda
+  tıklamalı liste eskisi gibi hiç başlamaz. Listeleme, taşıma, kapatma ve
+  boyutlandırma yoktur. Her çağrı grant dosyasını yeniden
   okur; izin kapalıysa reddeder ve dosyaya hiçbir zaman yazmaz.
 - **Tıklamayı engellemez.** Çerçeve bandının altındaki pencerelere tıklama
   geçer — gerçek bir tıklamayla ölçüldü (bandın içindeki bir Chrome sekmesine

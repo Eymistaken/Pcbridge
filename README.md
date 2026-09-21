@@ -184,14 +184,19 @@ open, a soft white glow frames every monitor and fades away when the permission
 ends. Measured cost: below the noise floor (≈0.5 % of one core either way,
 +0.08 MB RSS).
 
-**It exposes exactly one D-Bus method, `ActivateWindow`**, which brings an
-already-open window to the front. That is the entire surface: it cannot list,
-move, resize or close windows, and it cannot open anything. It refuses when the
-permission is closed, when a name matches more than one window, and for windows
-that are not in the taskbar — all three checked against a real session. Without
-the extension pcbridge falls back to typing the application's name into GNOME
-search, which is slower and coarser. This method is why raising a window costs
-about 5 ms instead of 6.7 seconds.
+**It exposes two narrow D-Bus methods.** `ActivateWindow` brings an
+already-open window to the front; `FocusedWindow` names the window that has
+keyboard focus. That is the entire surface: it cannot list, move, resize or
+close windows, and it cannot open anything. Both refuse while the permission is
+closed. `ActivateWindow` also refuses when a name matches more than one window,
+and for windows that are not in the taskbar — all three checked against a real
+session. Without the extension pcbridge falls back to typing the application's
+name into GNOME search, which is slower and coarser. This method is why raising
+a window costs about 5 ms instead of 6.7 seconds. `FocusedWindow` is the
+fallback when the accessibility tree marks no window active, which happens
+whenever the focused window does not take part in accessibility — a game, many
+Java and Electron windows. A batch of clicks there used to be refused outright,
+because a focus that cannot be read is never taken as unchanged.
 
 There is also a layer that draws where the agent's pointer is. It is **off by
 default** and stays off until you create a marker file. It once broke physical

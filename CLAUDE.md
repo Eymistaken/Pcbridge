@@ -49,9 +49,10 @@ takipte mi, gerçek parola/statik token diff'te geçiyor mu.
 
 `gnome-extension/` altında isteğe bağlı bir **GNOME 46 kabuk eklentisi** var:
 masaüstü izni açıkken her monitörün kenarlarında yumuşak beyaz bir çerçeve
-gösteriyor ve açık pencereyi öne alan tek, dar `ActivateWindow` D-Bus
-yöntemini sunuyor. Grant dosyasını yalnızca **okuyor**; listeleme, taşıma,
-kapatma ve boyutlandırma sunmuyor.
+gösteriyor ve iki dar D-Bus yöntemi sunuyor: açık pencereyi öne alan
+`ActivateWindow` ve odaktaki pencerenin adını söyleyen `FocusedWindow`
+(Adım 8.1). Grant dosyasını yalnızca **okuyor**; listeleme, taşıma, kapatma ve
+boyutlandırma sunmuyor.
 
 Ölçülmüş makine gerçekleri **bu dosyada**, aşağıda. Faz H/I/J'nin sonuçları ve
 neyin neden böyle yapıldığı `PLAN.md` 9b–9d bölümlerinde.
@@ -541,6 +542,14 @@ Bu projede "hata vermedi" kanıt sayılmıyor. Aşağıdakiler fiilen ölçüld�
   çünkü `lease.revoke()` hem `until` hem `hard_until`'ı sıfırlıyor ve
   `touch()` `until = min(hard_until, …)` tutuyor — yani `until > now`
   Python'ın kapısından daha geniş olamaz.
+- **AT-SPI odağı okuyamazsa odak eklentiden okunuyor** (Adım 8.1,
+  `ops.DeviceOps.focused`). Ölçüldü 2026-09-21: Minecraft (SDL3, native
+  Wayland) öndeyken AT-SPI hiçbir pencereyi ACTIVE işaretlemedi ve tıklamalı
+  her `computer_batch` hiç eylem göndermeden reddedildi. `FocusedWindow`
+  nested kabukta ölçüldü (2026-09-22, çağrı başına 4,8–11 ms, izin kapalıyken
+  `false`). **Gerçek oturumda henüz yok:** eklenti kodu ancak çıkış/girişte
+  yükleniyor; o zamana kadar yöntem "yok" döner ve davranış eskisi gibi red.
+  İki kaynağın aynı dizide karışması "odak değişti" sayılır (güvenli yön).
 - **Eklenti `skip-taskbar` pencerelerini hedef saymıyor ve belirsiz adı
   reddediyor.** Ölçüldü: `Desktop Icons 1` (masaüstü arka plan penceresi) →
   `false`; iki pencereye birden uyan `Desktop Icons` → `false`; olmayan hedef
