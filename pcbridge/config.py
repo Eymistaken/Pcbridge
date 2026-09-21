@@ -133,6 +133,12 @@ class DesktopSpec:
     # birakilir. 0 = birakma (onerilmez: unutulan bir tus makineyi
     # kullanilamaz hale getirir ve ajan bunu fark etmez).
     hold_max_seconds: int = 120
+    # Tiklamada dugme bu kadar ms basili kalir (Adim 8.3). Eskiden sabit
+    # 30 ms'ydi; girdiyi 50 ms'lik tick'lerle yoklayan uygulamalar (oyunlar)
+    # basma ile birakmanin ayni tick'e dustugu tiklamayi gormeyebiliyor.
+    # Cagri basina `hold_ms` ile degistirilebilir. 0-150: cift tiklamada her
+    # basis bu kadar surer ve iki basis 400 ms'lik esigin icinde kalmali.
+    click_hold_ms: int = 60
 
     # -- ekran goruntusu (C bolumu) -----------------------------------------
     # Kirpma SONRASI uzun kenar. 3840x1080 tuval tek parca kuculturse her
@@ -573,6 +579,7 @@ def load_config(explicit: str | None = None) -> Config:
         pointer_speed=int(desktop_raw.get("pointer_speed", 5000)),
         pointer_move_max_ms=int(desktop_raw.get("pointer_move_max_ms", 500)),
         hold_max_seconds=int(desktop_raw.get("hold_max_seconds", 120)),
+        click_hold_ms=int(desktop_raw.get("click_hold_ms", 60)),
         screenshot_scale_long_edge=int(
             desktop_raw.get("screenshot_scale_long_edge", 1536)
         ),
@@ -655,6 +662,12 @@ def load_config(explicit: str | None = None) -> Config:
         )
     # 0 kapatir; cok kisa bir sure `hold`u kullanilamaz yapar (tut, sonra ayri
     # bir cagriyla tikla arasinda ag gecikmesi var).
+    if not 0 <= desktop.click_hold_ms <= 150:
+        raise SystemExit(
+            f"[desktop] ({path}): `click_hold_ms` ({desktop.click_hold_ms}) "
+            "0-150 arasinda olmali (cift tiklamada iki basis 400 ms'lik esigin "
+            "icinde kalmali; tek bir uzun basis icin cagrida `hold_ms` verin)."
+        )
     if desktop.hold_max_seconds and not 5 <= desktop.hold_max_seconds <= 3600:
         raise SystemExit(
             f"[desktop] ({path}): `hold_max_seconds` ({desktop.hold_max_seconds}) "

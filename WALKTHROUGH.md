@@ -3123,12 +3123,12 @@ kararı verilmedi. Sıra, oturumdaki etkisine göre.
 | # | Ne | Durum |
 |---|---|---|
 | 8.1 | Odak kontrolü için ikinci kaynak (GNOME Shell eklentisi) | `planlandı` |
-| 8.2 | Koordinatsız tıklama (imleç neredeyse orada) | `planlandı` |
-| 8.3 | Tıklamada en kısa basılı kalma süresi | `planlandı` |
+| 8.2 | Koordinatsız tıklama (imleç neredeyse orada) | `tamamlandı` (2026-09-21) |
+| 8.3 | Tıklamada en kısa basılı kalma süresi | `tamamlandı` (2026-09-21, ölçüldü) |
 | 8.4 | `move_by` ölçeği ve ilk-olay kaybı ajana görünsün | `planlandı` |
 | 8.5 | Ekran görüntüsünde bölge kırpma, `final` için monitör seçimi, karanlık kare iyileştirme | `planlandı` |
 | 8.6 | "Görünene kadar bekle": OCR ile `find_text` / `wait_for_text` | `planlandı` |
-| 8.7 | `computer_batch` süre bütçesi taşıma zaman aşımının altında | `planlandı` |
+| 8.7 | `computer_batch` süre bütçesi taşıma zaman aşımının altında | `tamamlandı` (2026-09-21) |
 
 ### 8.1 — Odak kontrolü için ikinci kaynak · `planlandı`
 
@@ -3149,7 +3149,7 @@ kalır. İkinci ve daha zayıf seçenek: çağrı başına açıkça verilen bir
 anmalı). Bu seçenek güvenlik modeline dokunduğu için `KURALLAR.md` ile
 birlikte karara bağlanmalı.
 
-### 8.2 — Koordinatsız tıklama · `planlandı`
+### 8.2 — Koordinatsız tıklama · `tamamlandı` (2026-09-21)
 
 **Gözlenen.** `mouse(action="right_click")` x/y olmadan `x ve y zorunlu`
 hatası veriyor. İmleç kilitli bir uygulamada "şu noktaya git" anlamsız;
@@ -3161,7 +3161,30 @@ Bayat ABS kusurundan (Adım 7) sonra "olduğu yer"in ne demek olduğu testle
 sabitlenmeli: göreli hareketten sonra mutlak konum bilinmiyor, tıklama yine
 de gitmeli.
 
-### 8.3 — Tıklamada en kısa basılı kalma süresi · `planlandı`
+**Yapılan.** `computer_batch` koordinatsız tıklamayı zaten kabul ediyordu;
+eksik olan `mouse`'tu. Artık tıklama eylemleri ve `scroll` `x`/`y` almazsa
+imlecin olduğu yerde çalışıyor. İki kapı eklendi, ikisi de hem `mouse`'ta
+hem batch ayrıştırmasında: yalnızca `x` ya da yalnızca `y` verilirse, ya da
+koordinatsız bir eyleme `shot`/`monitor` eklenirse çağrı reddediliyor —
+bunlar büyük olasılıkla unutulmuş bir koordinat, sessizce yerinde tıklamak
+yanlış yere tıklamak olurdu. Eskiden batch'te sessizce yok sayılıyorlardı.
+Tıklama iki backend'de de hiçbir ABS olayı göndermiyor ve bayat ABS
+işaretini silmiyor, yani sonraki mutlak `move` yine bir piksel yana uğruyor.
+
+**Sabitlendi.** Golden fixture'a `click_in_place_after_move_by` vakası
+eklendi (Python kaydı): `move_by` → koordinatsız `click` → aynı noktaya
+`move`. Rust tarafı aynı olayları `a_click_in_place_after_external_motion_…`
+ile karşılaştırıyor. MCP düzeyinde `mouse(action="click")` hiç `move`
+çağırmadan tıklıyor; yarım koordinat ve koordinatsız `shot` hiçbir şey
+göndermiyor.
+
+**Ölçüldü 2026-09-21, gerçek masaüstü** (`tests/live/test_click_hold.py`,
+iki monitörü kaplayan test penceresi): imleç (2880, 750)'ye gidip
+`move_by(300, 0)` ile (3018, 750)'ye kaydı (300 birim → 138 px, k = 0,46),
+koordinatsız tıklamanın basışı iki backend'de de **tam (3018, 750)**'de
+geldi. Ardından aynı mutlak noktaya dönüş de ulaştı.
+
+### 8.3 — Tıklamada en kısa basılı kalma süresi · `tamamlandı` (2026-09-21)
 
 **Gözlenen (ölçülmedi, kuvvetli şüphe).** Minecraft'ta sağ tıkla blok koyma
 birkaç kez etkisiz kaldı. Oyun girdiyi 50 ms'lik tick'lerle yokluyor; basma
@@ -3172,6 +3195,33 @@ ve bırakma aynı tick'e düşerse tıklama görülmeyebilir. Aynı `hold` +
 ayarlanabilir). Kabul ölçütü: basma–bırakma arası süre golden fixture'da
 sabitlensin ve bir tick'li uygulamada (Minecraft ya da yerel test sayfası)
 kaçırma oranı ölçülsün.
+
+**Yapılan.** `[desktop] click_hold_ms = 60` (0–150; çift tıklamada her basış
+bu kadar sürüyor ve iki basış 400 ms'lik eşiğin içinde kalmalı). `mouse` ve
+batch tıklamaları çağrı başına `hold_ms` alıyor (0–1000, çift/üçlüde en
+fazla 150). Python backend'i ve native yardımcı aynı süreyi kullanıyor:
+protokolde `input.pointer.click` isteğe bağlı `hold_ms` alıyor (yoksa 60),
+Python tarafı onu her zaman açıkça gönderiyor. Batch süre tahmini basış
+süresini hesaba katıyor.
+
+**Sabitlendi.** Golden fixture'ın `double_click` vakası 0,03 → 0,06 sn oldu;
+yeni `click_hold_custom` vakası (sağ tık, 120 ms) iki backend'de aynı.
+Native IPC testi: `hold_ms` yoksa da, 120 ise de geçiyor; 1001 `INVALID_PARAMS`
+dönüyor ve hiçbir düğme olayı gitmiyor.
+
+**Ölçüldü 2026-09-21, gerçek masaüstü.** Test penceresi düğme durumunu bir
+oyun gibi 50 ms'de bir yokluyor (`input_window.py --tick-ms 50`); 150–250 ms
+aralıklarla 40'ar tıklama, basma ve bırakma olaylarının hepsi geldi:
+
+| Backend | 30 ms basış, tick'in gördüğü | 60 ms basış, tick'in gördüğü |
+|---|---|---|
+| Python | 28/40 | **40/40** |
+| native | 24/40 | **40/40** |
+
+Kuram %40 kaçırma diyor (30 ms'lik basışın 50 ms'lik bir tick'e denk gelme
+olasılığı %60); ölçülen %30 ve %40. Minecraft'ta ayrıca ölçülmedi: oyunun
+tıklamayı tick'te mi yoksa olay geri çağrısında mı saydığı bilinmiyor, yerel
+pencere kabul ölçütündeki "ya da" dalı.
 
 ### 8.4 — `move_by` ölçeği ajana görünsün · `planlandı`
 
@@ -3215,7 +3265,7 @@ monitor?)` ve belirli bir metin görünene kadar bekleyen
 (`mouse(shot=…)` ile doğrudan tıklanabilsin). OCR motoru (tesseract ya da
 başka) seçilmedi; yerel çalışmalı, ağ istememeli.
 
-### 8.7 — `computer_batch` süre bütçesi · `planlandı`
+### 8.7 — `computer_batch` süre bütçesi · `tamamlandı` (2026-09-21)
 
 **Gözlenen.** Dört adet `wait 30000` içeren bir batch, cihazın taşıma
 katmanında `did not respond within 60s` ile düştü; batch'in kendi süre
@@ -3225,6 +3275,27 @@ ile sınırlı ama toplam süre sınırlı değil.
 **İstenen.** Toplam süre bütçesi taşıma zaman aşımının altında tutulsun ve
 aşan plan **baştan** reddedilsin (kısmen koşup yarıda kopmasın). Uzun işler
 için `shell_run_background` gibi bir job yolu düşünülebilir.
+
+**Kök neden (audit.log, 2026-09-21 20:46).** Bütçe 90 sn'ydi ve kontrol
+yalnızca "sıradaki eylem kalan süreye sığar mı" diye soruyordu. Batch iki
+beklemeyi bitirip 60,2. saniyede `stopped: budget` ile durdu; istemci ise
+cevabı 60. saniyede bırakmıştı. MCP'nin TypeScript SDK'sındaki varsayılan
+istek zaman aşımı da 60 sn.
+
+**Yapılan.** `batch.run` artık başlamadan önce planın tahminini (eylem
+öncesi kontrolle aynı `cost_ms` tablosu, beklemeler dahil) bütçeyle
+karşılaştırıyor; aşan plan **hiçbir eylem gönderilmeden** `stopped: budget`
+ile dönüyor, rapor tahmini, bütçeyi ve beklemelerin toplamını söylüyor.
+Reddedilen plan önceki bir çağrının bilerek tuttuğu tuşa dokunmuyor.
+Varsayılan `batch_budget_seconds` 90 → **50** (60 sn'lik istemci sınırının
+altında, `final` adımına pay). `pcb-do --dry-run` da "bu liste hiç başlamaz"
+diyor. Job yolu yapılmadı: arka planda koşan masaüstü eylemleri
+`computer_task`'ın işi ve bir şeyin ekrana gelmesini beklemek 8.6'nın
+`wait_for_text`'i.
+
+**Sabitlendi.** İki 20 sn'lik beklemeli plan 25 sn bütçede hiç uyumadan
+reddediliyor; 45 sn bütçede tamamen koşuyor. Başlamış bir planın bütçede
+durunca basılı tuşu bırakması ayrı bir testte (sahte saatle) korunuyor.
 
 ## Ertelenen (bilinçli)
 

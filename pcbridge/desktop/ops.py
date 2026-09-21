@@ -146,11 +146,19 @@ class DeviceOps:
         )
 
     def click(self, button: str, count: int, x: int | None, y: int | None,
-              monitor: int | None, shot: str | None = None) -> str:
+              monitor: int | None, shot: str | None = None,
+              hold_ms: int | None = None) -> str:
         where = self._goto(x, y, monitor, shot)
-        self.backend.click(button, count)
+        if hold_ms is None:
+            self.backend.click(button, count)
+        else:
+            self.backend.click(button, count, hold_ms=hold_ms)
         kind = {2: " (cift)", 3: " (uclu)"}.get(count, "")
-        return f"{button} tiklama{where}{kind}"
+        # Koordinatsiz tiklama imlecin bulundugu yere gider (Adim 8.2); rapor
+        # bunu soylesin, yoksa "left tiklama" nereye gittigini gizler.
+        place = where or " (imlecin bulundugu yerde)"
+        press = f" · basili {hold_ms} ms" if hold_ms is not None else ""
+        return f"{button} tiklama{place}{kind}{press}"
 
     def mouse_down(self, button: str, x: int | None, y: int | None,
                    monitor: int | None, shot: str | None = None) -> str:

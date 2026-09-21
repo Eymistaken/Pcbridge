@@ -200,6 +200,8 @@ class FakeInput:
         self.availability = available
         self.keys_sent: list[str] = []
         self.ensure_calls: list[tuple[bool, bool]] = []
+        self.moves: list[tuple[int, int]] = []
+        self.clicks: list[tuple[str, int, int | None]] = []
 
     def capability_token(self):
         return ("input", self.availability[0])
@@ -240,6 +242,13 @@ class FakeInput:
 
     def key_up(self, combo: str) -> None:
         self.keys_sent.append(combo)
+
+    def move(self, x: int, y: int, smooth=None) -> tuple[int, int]:
+        self.moves.append((x, y))
+        return (x, y)
+
+    def click(self, button: str = "left", count: int = 1, hold_ms=None) -> None:
+        self.clicks.append((button, count, hold_ms))
 
     def held(self) -> list[str]:
         return []
@@ -587,6 +596,52 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             result.structured_content["error"]["permission_scope"], "os.pointer"
         )
+
+    async def test_a_click_without_coordinates_goes_where_the_pointer_is(self) -> None:
+        """Adim 8.2: no x/y means in place -- no move, no coordinate lookup."""
+        input_provider = FakeInput()
+        with tempfile.TemporaryDirectory() as raw:
+            mcp, _tree = build_mcp(Path(raw), input_provider=input_provider)
+            async with Client(mcp) as client:
+                plain = await client.call_tool(
+                    "mouse", {"action": "click"}, raise_on_error=False
+                )
+                held = await client.call_tool(
+                    "mouse", {"action": "right_click", "hold_ms": 120},
+                    raise_on_error=False,
+                )
+
+        self.assertFalse(plain.is_error)
+        self.assertFalse(held.is_error)
+        self.assertEqual(input_provider.moves, [])
+        self.assertEqual(
+            input_provider.clicks, [("left", 1, None), ("right", 1, 120)]
+        )
+        self.assertIn("imlecin bulundugu yerde", plain.content[0].text)
+        self.assertIn("basili 120 ms", held.content[0].text)
+
+    async def test_a_half_given_or_spaceless_coordinate_clicks_nothing(self) -> None:
+        input_provider = FakeInput()
+        with tempfile.TemporaryDirectory() as raw:
+            mcp, _tree = build_mcp(Path(raw), input_provider=input_provider)
+            async with Client(mcp) as client:
+                half = await client.call_tool(
+                    "mouse", {"action": "click", "x": 5}, raise_on_error=False
+                )
+                shot_only = await client.call_tool(
+                    "mouse", {"action": "click", "shot": "m2-a1b2c3"},
+                    raise_on_error=False,
+                )
+                long_double = await client.call_tool(
+                    "mouse", {"action": "double_click", "hold_ms": 400},
+                    raise_on_error=False,
+                )
+
+        self.assertIn("birlikte verilmeli", half.content[0].text)
+        self.assertIn("x/y yok", shot_only.content[0].text)
+        self.assertIn("en fazla 150", long_double.content[0].text)
+        self.assertEqual(input_provider.clicks, [])
+        self.assertEqual(input_provider.moves, [])
 
     async def test_unconfirmed_close_shortcut_is_refused_on_the_wire(self) -> None:
         """KURALLAR.md sec. 4, madde 5 -- MCP telinde gorunur ve tus gitmez."""

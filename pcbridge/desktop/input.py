@@ -48,6 +48,7 @@ import math
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 from . import clipboard as clipboardlib
 from . import monitors as monitorslib
@@ -92,6 +93,17 @@ DEFAULT_POINTER_MAX_MS = 500     # tek hareket bundan uzun surmez
 # kullanilamaz hale getiriyor ve ajanin bunu gorecegi bir kanal yok.
 DEFAULT_HOLD_MAX_SECONDS = 120.0
 
+# Tiklamada dugmenin basili kaldigi sure (Adim 8.3). Eskiden sabit 30 ms'ydi.
+# Girdiyi SABIT ARALIKLA yoklayan uygulamalar (oyunlar 50 ms'lik tick'lerle)
+# basma ile birakmanin ayni araliga dustugu bir tiklamayi hic gormeyebilir;
+# 60 ms bir 50 ms'lik yoklamanin en az birine denk gelmeyi garanti ediyor.
+# Cift/uclu tiklamada her basis bu kadar surer; aradaki 80 ms ile birlikte
+# basistan basisa 140 ms, GNOME'un 400 ms'lik cift tiklama esiginin altinda.
+DEFAULT_CLICK_HOLD_MS = 60
+# Cagri basina verilebilecek en uzun basili kalma. Uzun basis bir "basili
+# tut" isi; onun yolu `mouse_down`/`mouse_up` ve zamanlayicisi.
+MAX_CLICK_HOLD_MS = 1000
+
 # `drag` yumusakligi AYARDAN BAGIMSIZ: tek sicrayista birakilan hareketi cogu
 # uygulama surukleme saymiyor. `pointer_speed = 0` verilse bile bu kadar ara
 # nokta uretilir.
@@ -119,6 +131,20 @@ MOVE_BY_CHUNK_UNITS = 16
 
 class InputError(RuntimeError):
     """Girdi gonderilemedi — cihaz yok, izin yok ya da parametre gecersiz."""
+
+
+def click_hold_ms_checked(value: Any) -> int:
+    """Tiklama basili kalma suresini dogrula (ms, 0..MAX_CLICK_HOLD_MS)."""
+    try:
+        ms = int(value)
+    except (TypeError, ValueError):
+        raise InputError(f"hold_ms sayi olmali ({value!r} verildi)") from None
+    if not 0 <= ms <= MAX_CLICK_HOLD_MS:
+        raise InputError(
+            f"hold_ms 0-{MAX_CLICK_HOLD_MS} arasinda olmali ({ms} verildi); "
+            "daha uzun basili tutmak icin mouse_down/mouse_up kullanin"
+        )
+    return ms
 
 
 # --------------------------------------------------------------- tus tablolari
@@ -409,6 +435,7 @@ class InputBackend:
         hold_max_seconds: float = DEFAULT_HOLD_MAX_SECONDS,
         pos_file: "Path | str | None" = None,
         clipboard: "clipboardlib.Clipboard | None" = None,
+        click_hold_ms: int = DEFAULT_CLICK_HOLD_MS,
     ) -> None:
         self.clipboard: clipboardlib.Clipboard = (
             clipboard if clipboard is not None else clipboardlib.WlClipboard()
@@ -426,6 +453,7 @@ class InputBackend:
         self._speed = float(pointer_speed)
         self._max_ms = float(pointer_max_ms)
         self._hold_max = float(hold_max_seconds)
+        self._click_hold_ms = click_hold_ms_checked(click_hold_ms)
         self._held_keys: set[int] = set()
         self._held_buttons: set[int] = set()
         self._timer: "threading.Timer | None" = None
@@ -850,15 +878,26 @@ class InputBackend:
             self._held_buttons.discard(code)
             self._arm_timer()
 
-    def click(self, button: str = "left", count: int = 1) -> None:
+    def click(
+        self, button: str = "left", count: int = 1, hold_ms: int | None = None
+    ) -> None:
+        """Imlecin BULUNDUGU yerde tikla. Koordinat almaz: nereye gidilecegi
+        cagiranin isi (`move`), yerinde tiklamak da gecerli bir istek (Adim
+        8.2) -- goreli bir `move_by`dan sonra bile. ABS olayi gondermedigi
+        icin bayat ABS durumuna dokunmaz; sonraki mutlak `move` yine bir
+        piksel yana ugrar.
+
+        `hold_ms`: her basisin suresi; verilmezse `click_hold_ms` ayari.
+        """
         if count < 1 or count > 3:
             raise InputError("Tiklama sayisi 1-3 arasinda olmali")
+        hold = self._click_hold_ms if hold_ms is None else click_hold_ms_checked(hold_ms)
         code = self._button(button)
         ptr = self._pointer()
         for i in range(count):
             ptr.write(e.EV_KEY, code, 1)
             ptr.syn()
-            time.sleep(0.03)
+            time.sleep(hold / 1000.0)
             ptr.write(e.EV_KEY, code, 0)
             ptr.syn()
             if i < count - 1:

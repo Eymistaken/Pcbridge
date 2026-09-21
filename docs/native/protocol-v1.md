@@ -157,7 +157,11 @@ Harness aşağıdaki metotları kabul eder:
   ekler. `x`/`y`, Python shot adapter'ının çözdüğü **global canvas**
   koordinatıdır. Metot `shot` veya `monitor` kabul etmez; offset'i ikinci kez
   eklemez. Canvas clamp ve global→device dönüşümü native tarafta bir kez yapılır.
-- `input.pointer.click`: Ortak alanlarla `button` ve `count` alır.
+- `input.pointer.click`: Ortak alanlarla `button`, `count` ve isteğe bağlı
+  `hold_ms` alır (her basışın süresi, 0–1000; yoksa 60). Koordinat almaz:
+  imlecin bulunduğu yerde tıklar ve ABS olayı göndermez, yani göreli bir
+  hareketten sonra da gider (Adım 8.2/8.3). Python tarafı süreyi her zaman
+  `[desktop] click_hold_ms`'ten çözüp açıkça gönderir.
 - `input.pointer.drag`: Ortak alanlarla `x1`, `y1`, `x2`, `y2`, `button` alır;
   Python provider'ın minimum süreli smoothstep drag yolunu korur.
 - `input.pointer.scroll`: Ortak alanlarla `amount` ve `horizontal` alır.

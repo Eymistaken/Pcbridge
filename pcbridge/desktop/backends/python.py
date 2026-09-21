@@ -621,6 +621,7 @@ class PythonInputProvider(inputlib.InputBackend):
             pointer_max_ms=cfg.desktop.pointer_move_max_ms,
             hold_max_seconds=cfg.desktop.hold_max_seconds,
             pos_file=cfg.pointer_pos_file,
+            click_hold_ms=cfg.desktop.click_hold_ms,
         )
         # Set when `[native] input = "auto"` wanted the helper and fell back.
         self.degraded_reason = degraded_reason

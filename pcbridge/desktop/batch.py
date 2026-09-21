@@ -54,11 +54,13 @@ COST_MS: dict[str, float] = {
     # disinda), o yuzden orta bir deger: 5000 px/s'de ~1000 piksel. Olculdu
     # 2026-08-03: 960 px -> 186 ms, kosegen -> 498 ms (tavan), 80 px -> 61 ms.
     "move": 200.0,
-    "click": 290.0,       # move + yerlesme + tik
-    "double_click": 320.0,
-    "triple_click": 350.0,
-    "right_click": 290.0,
-    "middle_click": 290.0,
+    # move + yerlesme + tik. Basis 30 ms'den 60 ms'ye cikti (Adim 8.3): her
+    # basis +30 ms.
+    "click": 320.0,
+    "double_click": 380.0,
+    "triple_click": 440.0,
+    "right_click": 320.0,
+    "middle_click": 320.0,
     "drag": 600.0,        # iki hareket + basma/birakma
     "scroll": 60.0,
     # `move` ile ayni mertebe: mesafeye bagli ve mesafe burada da BILINMIYOR.
@@ -105,6 +107,20 @@ INPUT_ACTIONS = {
 }
 
 MAX_WAIT_MS = 30_000
+
+# Tiklama eylemleri ve kac basis olduklari.
+CLICK_COUNTS = {
+    "click": 1, "double_click": 2, "triple_click": 3,
+    "right_click": 1, "middle_click": 1,
+}
+# Tiklamada basili kalma (Adim 8.3). KOPYA: asil degerler `input.py`de
+# (`DEFAULT_CLICK_HOLD_MS`, `MAX_CLICK_HOLD_MS`); bu modul cihazlari tanimadigi
+# icin burada duruyor ve ayrismalari `test_input_contract` sabitliyor.
+DEFAULT_CLICK_HOLD_MS = 60
+MAX_CLICK_HOLD_MS = 1000
+# Cift/uclu tiklamada tek basisin tavani: basislar GNOME'un 400 ms'lik cift
+# tiklama esiginin icinde kalmali (150 + 80 ms aralik = 230 ms).
+MULTI_CLICK_HOLD_MAX_MS = 150
 
 # `move_by` delta tavani. KOPYA: asil clamp `input.MOVE_BY_MAX`ta ve orasi son
 # sozu soyluyor. Burada duruyor cunku bu modul gercek cihazlari TANIMIYOR
@@ -157,7 +173,9 @@ class Action:
             # yere dustugunde ilk sorulacak soru bu.
             shot = self.args.get("shot")
             where = f" @{shot}" if shot else ""
-            return f"{self.a}{pos}{where}"
+            hold = self.args.get("hold_ms")
+            press = f" basili {hold} ms" if hold is not None else ""
+            return f"{self.a}{pos}{where}{press}"
         return self.a
 
 
@@ -203,8 +221,11 @@ class Ops(Protocol):
     def release(self, keys: str) -> str: ...
     def move(self, x: int, y: int, monitor: int | None,
              shot: str | None = None) -> str: ...
+    # `x`/`y` yoksa imlecin BULUNDUGU yerde tiklanir (Adim 8.2). `hold_ms`
+    # yalnizca verildiyse gecer; yoksa cihazin ayari.
     def click(self, button: str, count: int, x: int | None, y: int | None,
-              monitor: int | None, shot: str | None = None) -> str: ...
+              monitor: int | None, shot: str | None = None,
+              hold_ms: int | None = None) -> str: ...
     def mouse_down(self, button: str, x: int | None, y: int | None,
                    monitor: int | None, shot: str | None = None) -> str: ...
     def mouse_up(self, button: str) -> str: ...
@@ -283,6 +304,30 @@ def _shot(raw: dict) -> str | None:
     return text
 
 
+def _pair(raw: dict, args: dict) -> None:
+    """`x`/`y` ya ikisi birden ya hic (Adim 8.2).
+
+    Ikisi de yoksa eylem imlecin BULUNDUGU yerde calisir -- goreli bir
+    `move_by`dan sonra, imlecin kilitli oldugu bir uygulamada tek dogru yol
+    bu. Yalnizca biri verilmisse ya da koordinatsiz bir eyleme `shot`/
+    `monitor` verilmisse bu buyuk olasilikla unutulmus bir koordinattir;
+    sessizce yerinde tiklamak tam da bu katmanin onledigi yanlis tiklama
+    olurdu, o yuzden liste reddedilir.
+    """
+    a = raw.get("a") or raw.get("action")
+    if (args.get("x") is None) != (args.get("y") is None):
+        raise BatchError(
+            f"`{a}` eyleminde `x` ve `y` birlikte verilmeli. Ikisini de "
+            "vermezseniz imlecin bulundugu yerde calisir."
+        )
+    if args.get("x") is None and (args.get("shot") or args.get("monitor") is not None):
+        raise BatchError(
+            f"`{a}` eyleminde `shot`/`monitor` var ama `x`/`y` yok. Koordinati "
+            "ekleyin; imlecin bulundugu yerde tiklamak istiyorsaniz "
+            "`shot`/`monitor` vermeyin."
+        )
+
+
 def _one(raw: Any, index: int) -> Action:
     if not isinstance(raw, dict):
         raise BatchError(
@@ -325,6 +370,17 @@ def _one(raw: Any, index: int) -> Action:
         }
         if a == "mouse_down":
             args["button"] = _button(raw)
+        _pair(raw, args)
+        if a in CLICK_COUNTS:
+            hold = _int(raw, "hold_ms", lo=0, hi=MAX_CLICK_HOLD_MS)
+            if hold is not None:
+                if CLICK_COUNTS[a] > 1 and hold > MULTI_CLICK_HOLD_MAX_MS:
+                    raise BatchError(
+                        f"`{a}` eyleminde `hold_ms` en fazla "
+                        f"{MULTI_CLICK_HOLD_MAX_MS} olabilir ({hold} verildi): "
+                        "basislar cift tiklama esiginin icinde kalmali."
+                    )
+                args["hold_ms"] = hold
         return Action(a, args)
     if a == "mouse_up":
         return Action(a, {"button": _button(raw)})
@@ -339,14 +395,16 @@ def _one(raw: Any, index: int) -> Action:
             "shot": _shot(raw),
         })
     if a == "scroll":
-        return Action(a, {
+        args = {
             "amount": _int(raw, "amount", lo=-50, hi=50) or 3,
             "x": _int(raw, "x"),
             "y": _int(raw, "y"),
             "monitor": _int(raw, "monitor"),
             "shot": _shot(raw),
             "horizontal": bool(raw.get("horizontal", False)),
-        })
+        }
+        _pair(raw, args)
+        return Action(a, args)
     if a == "move_by":
         return Action(a, {
             "dx": _int(raw, "dx", required=True, lo=-MOVE_BY_MAX, hi=MOVE_BY_MAX),
@@ -424,6 +482,9 @@ def cost_ms(action: Action, first_input: bool = False, fast_focus: bool = False)
     if action.a == "focus" and fast_focus:
         return FOCUS_FAST_MS
     base = COST_MS.get(action.a, 200.0)
+    hold = action.args.get("hold_ms")
+    if hold is not None and action.a in CLICK_COUNTS:
+        base += CLICK_COUNTS[action.a] * (hold - DEFAULT_CLICK_HOLD_MS)
     if first_input and action.a in INPUT_ACTIONS:
         base += FIRST_INPUT_MS
     if action.a in POINTER_ACTIONS:
@@ -466,11 +527,12 @@ def _dispatch(ops: Ops, act: Action, sleep: Callable[[float], None],
         return ops.move_by(kw["dx"], kw["dy"])
     if a in ("hold", "release"):
         return ops.hold(kw["keys"]) if a == "hold" else ops.release(kw["keys"])
-    if a in ("click", "double_click", "triple_click", "right_click", "middle_click"):
+    if a in CLICK_COUNTS:
         button = {"right_click": "right", "middle_click": "middle"}.get(a, "left")
-        count = {"double_click": 2, "triple_click": 3}.get(a, 1)
-        return ops.click(button, count, kw.get("x"), kw.get("y"),
-                         kw.get("monitor"), kw.get("shot"))
+        # Sure yalnizca verildiyse gecer: vermeyen cagri cihazin ayarini alir.
+        extra = {"hold_ms": kw["hold_ms"]} if kw.get("hold_ms") is not None else {}
+        return ops.click(button, CLICK_COUNTS[a], kw.get("x"), kw.get("y"),
+                         kw.get("monitor"), kw.get("shot"), **extra)
     if a == "mouse_down":
         return ops.mouse_down(kw["button"], kw.get("x"), kw.get("y"),
                               kw.get("monitor"), kw.get("shot"))

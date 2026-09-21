@@ -963,7 +963,7 @@
     },
     {
       "name": "double_click",
-      "why": "Each press lasts 30 ms; 80 ms between the two clicks keeps it under the double-click threshold.",
+      "why": "Each press lasts 60 ms ([desktop] click_hold_ms, step 8.3); 80 ms between the two clicks keeps the second press 140 ms after the first, under the 400 ms double-click threshold.",
       "start": [
         500,
         500
@@ -989,7 +989,7 @@
           ],
           [
             "sleep",
-            0.03
+            0.06
           ],
           [
             "EV_KEY",
@@ -1013,7 +1013,7 @@
           ],
           [
             "sleep",
-            0.03
+            0.06
           ],
           [
             "EV_KEY",
@@ -1711,6 +1711,192 @@
             "EV_REL",
             "REL_Y",
             -5
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            99
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_ABS",
+            "ABS_X",
+            100
+          ],
+          [
+            "EV_ABS",
+            "ABS_Y",
+            100
+          ],
+          [
+            "SYN"
+          ]
+        ],
+        "hold_timers": [],
+        "outputs": [],
+        "position": [
+          100,
+          100
+        ]
+      }
+    },
+    {
+      "name": "click_hold_custom",
+      "why": "A per-call hold_ms (step 8.3) sets how long the press lasts; nothing else changes.",
+      "start": [
+        500,
+        500
+      ],
+      "calls": [
+        {
+          "op": "click",
+          "args": [
+            "right",
+            1,
+            120
+          ]
+        }
+      ],
+      "expect": {
+        "events": [
+          [
+            "EV_KEY",
+            "BTN_RIGHT",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.12
+          ],
+          [
+            "EV_KEY",
+            "BTN_RIGHT",
+            0
+          ],
+          [
+            "SYN"
+          ]
+        ],
+        "hold_timers": [],
+        "outputs": [],
+        "position": [
+          500,
+          500
+        ]
+      }
+    },
+    {
+      "name": "click_in_place_after_move_by",
+      "about": "Adim 8.2: goreli hareketten sonra konum bilinmiyor ama koordinatsiz tiklama YINE gider -- oldugu yerde, hicbir ABS olayi gondermeden. Bayat ABS isareti tiklamayla silinmez: sonraki mutlak move yine bir piksel yana ugrar.",
+      "start": [
+        100,
+        100
+      ],
+      "calls": [
+        {
+          "op": "move_by",
+          "args": [
+            40,
+            -16
+          ]
+        },
+        {
+          "op": "click",
+          "args": [
+            "left",
+            1
+          ]
+        },
+        {
+          "op": "move",
+          "args": [
+            100,
+            100
+          ]
+        }
+      ],
+      "expect": {
+        "events": [
+          [
+            "EV_REL",
+            "REL_X",
+            14
+          ],
+          [
+            "EV_REL",
+            "REL_Y",
+            -6
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_REL",
+            "REL_X",
+            13
+          ],
+          [
+            "EV_REL",
+            "REL_Y",
+            -5
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.008
+          ],
+          [
+            "EV_REL",
+            "REL_X",
+            13
+          ],
+          [
+            "EV_REL",
+            "REL_Y",
+            -5
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "EV_KEY",
+            "BTN_LEFT",
+            1
+          ],
+          [
+            "SYN"
+          ],
+          [
+            "sleep",
+            0.06
+          ],
+          [
+            "EV_KEY",
+            "BTN_LEFT",
+            0
           ],
           [
             "SYN"

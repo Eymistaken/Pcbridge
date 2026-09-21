@@ -306,6 +306,15 @@ pointer_move_max_ms = 500
 # basili kalir, ajan bunu fark etmez ve makine kullanilamaz hale gelir.
 hold_max_seconds = 120
 
+# Tiklamada dugmenin basili kaldigi sure (ms). Eskiden sabit 30 ms'ydi.
+# Girdiyi sabit araliklarla yoklayan uygulamalar -- oyunlar 50 ms'lik
+# tick'lerle -- basma ile birakmanin ayni araliga dustugu bir tiklamayi hic
+# gormeyebiliyor; 60 ms, 50 ms'lik bir yoklamanin en az birine denk geliyor.
+# `mouse` ve `computer_batch` cagri basina `hold_ms` ile degistirebilir.
+# 0-150: cift/uclu tiklamada her basis bu kadar surer ve basislar GNOME'un
+# 400 ms'lik cift tiklama esiginin icinde kalmali.
+click_hold_ms = 60
+
 # --- ekran goruntusu -------------------------------------------------------
 # screen_capture DE desktop_unlock ister: ekranda ne varsa (parolalar,
 # mesajlar) hepsini gosterdigi icin en gizlilik-hassas arac. Yalnizca "yakinda

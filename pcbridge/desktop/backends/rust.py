@@ -1001,11 +1001,22 @@ class RustInputProvider(PythonInputProvider):
             )
         return int(sent[0]), int(sent[1])
 
-    def click(self, button: str = "left", count: int = 1) -> None:
+    def click(
+        self, button: str = "left", count: int = 1, hold_ms: int | None = None
+    ) -> None:
+        # Sure HER ZAMAN acikca gidiyor: yardimcinin kendi varsayilani yalnizca
+        # protokolu dogrudan konusan testler icin. Dogrulama Python yoluyla
+        # ayni fonksiyondan, yardimci de ayni sinirla ikinci kez bakiyor.
+        hold = (
+            int(self.cfg.desktop.click_hold_ms)
+            if hold_ms is None
+            else inputlib.click_hold_ms_checked(hold_ms)
+        )
         self._write_pointer_request(
             "input.pointer.click",
             button=str(button),
             count=int(count),
+            hold_ms=hold,
         )
 
     def drag(

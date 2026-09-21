@@ -98,7 +98,9 @@ class InputProvider(Protocol):
 
     def move_by(self, dx: int, dy: int) -> tuple[int, int]: ...
 
-    def click(self, button: str = "left", count: int = 1) -> None: ...
+    def click(
+        self, button: str = "left", count: int = 1, hold_ms: int | None = None
+    ) -> None: ...
 
     def drag(
         self,

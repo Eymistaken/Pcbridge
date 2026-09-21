@@ -67,7 +67,20 @@ pub enum PointerError {
     UnknownButton(String),
     #[error("click count must be between 1 and 3")]
     InvalidClickCount,
+    #[error("click hold must be at most {MAX_CLICK_HOLD_MS} ms")]
+    InvalidClickHold,
 }
+
+/// How long each press of a click lasts when the caller does not say (step
+/// 8.3). It was a fixed 30 ms; applications that poll input on a fixed tick
+/// (games, at 50 ms) could miss a click whose press and release fell into the
+/// same tick. 60 ms always spans one 50 ms poll. The Python backend's
+/// `DEFAULT_CLICK_HOLD_MS` is the same number, pinned by the golden fixture.
+pub const DEFAULT_CLICK_HOLD: Duration = Duration::from_millis(60);
+
+/// The longest press a click may ask for. A longer one is a held button, and
+/// that has its own path with a release timer (`mouse_down`/`mouse_up`).
+pub const MAX_CLICK_HOLD_MS: u64 = 1_000;
 
 #[must_use]
 pub fn supported_pointer_buttons() -> Vec<String> {
@@ -165,7 +178,7 @@ pub trait PointerService: FailClosed + fmt::Debug {
         smooth: Option<bool>,
         min_steps: usize,
     ) -> Result<(i32, i32), PointerError>;
-    fn click(&self, button: &str, count: u8) -> Result<(), PointerError>;
+    fn click(&self, button: &str, count: u8, hold: Duration) -> Result<(), PointerError>;
     fn drag(&self, x1: i32, y1: i32, x2: i32, y2: i32, button: &str) -> Result<(), PointerError>;
     fn scroll(&self, amount: i32, horizontal: bool) -> Result<(), PointerError>;
     fn mouse_down(&self, button: &str) -> Result<(), PointerError>;
@@ -473,9 +486,17 @@ impl<D: PointerDevice, C: PointerClock> Pointer<D, C> {
         Ok(target)
     }
 
-    pub fn click(&self, button: &str, count: u8) -> Result<(), PointerError> {
+    /// Click where the pointer already is. No coordinate and no absolute
+    /// event: moving there is the caller's job, and clicking in place is a
+    /// request of its own (step 8.2), valid even after a relative nudge left
+    /// the position unknown. The stale-ABS resync stays armed for the next
+    /// absolute move.
+    pub fn click(&self, button: &str, count: u8, hold: Duration) -> Result<(), PointerError> {
         if !(1..=3).contains(&count) {
             return Err(PointerError::InvalidClickCount);
+        }
+        if hold > Duration::from_millis(MAX_CLICK_HOLD_MS) {
+            return Err(PointerError::InvalidClickHold);
         }
         let button = parse_button(button)?;
         for index in 0..count {
@@ -485,7 +506,7 @@ impl<D: PointerDevice, C: PointerClock> Pointer<D, C> {
                 self.emit_locked(&mut state, &[PointerEvent::key(button.code(), 1)])?;
                 state.transient.insert(button);
             }
-            self.inner.clock.sleep(Duration::from_millis(30));
+            self.inner.clock.sleep(hold);
             {
                 let mut state = self.state();
                 ensure_open(&state)?;
@@ -677,8 +698,8 @@ impl<D: PointerDevice, C: PointerClock> PointerService for Pointer<D, C> {
         Self::move_to(self, x, y, smooth, min_steps)
     }
 
-    fn click(&self, button: &str, count: u8) -> Result<(), PointerError> {
-        Self::click(self, button, count)
+    fn click(&self, button: &str, count: u8, hold: Duration) -> Result<(), PointerError> {
+        Self::click(self, button, count, hold)
     }
 
     fn drag(&self, x1: i32, y1: i32, x2: i32, y2: i32, button: &str) -> Result<(), PointerError> {

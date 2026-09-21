@@ -291,6 +291,43 @@ fn pointer_ipc_accepts_only_resolved_global_points_under_the_current_topology() 
 }
 
 #[test]
+fn pointer_click_takes_an_optional_bounded_hold() {
+    // Step 8.3: `hold_ms` is optional (the helper's default is 60 ms) and
+    // bounded; an out-of-range hold is refused before any button event.
+    let root = fixture_root();
+    let state_dir = root.join("state");
+    let runtime_dir = root.join("runtime");
+    write_grant(&state_dir, "pointer-click-hold", 0, 60.0);
+    let mut native = Harness::start(&state_dir, &runtime_dir);
+    let base = json!({
+        "grant_id": "pointer-click-hold",
+        "revoke_epoch": 0,
+        "hold_max_seconds": 120,
+        "topology_id": "test-layout",
+        "pointer_speed": 5000,
+        "pointer_max_ms": 500,
+        "button": "left",
+        "count": 1
+    });
+
+    let plain = native.request("input.pointer.click", base.clone());
+    assert_eq!(plain["result"]["held"], json!([]), "{plain}");
+
+    let mut held = base.clone();
+    held["hold_ms"] = json!(120);
+    let custom = native.request("input.pointer.click", held);
+    assert_eq!(custom["result"]["held"], json!([]), "{custom}");
+
+    let mut too_long = base;
+    too_long["hold_ms"] = json!(1001);
+    let refused = native.request("input.pointer.click", too_long);
+    assert_eq!(refused["error"]["code"], "INVALID_PARAMS", "{refused}");
+
+    native.shutdown();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn a_new_valid_topology_rebuilds_pointer_geometry_without_erasing_fresh_state() {
     let root = fixture_root();
     let state_dir = root.join("state");

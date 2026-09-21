@@ -1247,7 +1247,9 @@ def register(
             Field(
                 description="Target X. A global desktop coordinate, unless you "
                 "pass shot (then it is the pixel you see in that screenshot) or "
-                "monitor (then it is a full-resolution coordinate inside it)."
+                "monitor (then it is a full-resolution coordinate inside it). "
+                "Leave x and y both out of a click or scroll to act where the "
+                "pointer already is."
             ),
         ] = None,
         y: Annotated[int | None, Field(description="Target Y, in the same space as x.")] = None,
@@ -1301,6 +1303,19 @@ def register(
                 "middle. Ignored by the click actions, which imply their own button."
             ),
         ] = "left",
+        hold_ms: Annotated[
+            int | None,
+            Field(
+                ge=0,
+                le=1000,
+                description="For the click actions: how long each press lasts, in "
+                "milliseconds. Leave it empty for the configured default (60 ms), "
+                "which is long enough for applications that poll input on a fixed "
+                "tick, such as games. At most 150 for double_click and "
+                "triple_click, so the presses still count as one gesture; for a "
+                "longer press use hold, then release.",
+            ),
+        ] = None,
         smooth: Annotated[
             bool | None,
             Field(
@@ -1359,21 +1374,41 @@ def register(
         viewports, WebGL canvases — which never see an absolute "go to this
         point" at all. After a move_by the pointer's position is unknown, so
         read the screen again before you click, or go back to a known point
-        with an absolute move."""
+        with an absolute move.
+
+        A click or scroll without x and y happens where the pointer already
+        is. That is how you click inside an application that has locked the
+        pointer — aim with move_by, then click with no coordinates — and it
+        also works after a move you already verified."""
         err = _guard("mouse", write=True, force=force)
         if err:
             return err
 
         act = (action or "").strip().lower()
-        needs_xy = ("move", "click", "double_click", "triple_click", "right_click",
-                    "middle_click", "drag")
+        needs_xy = ("move", "drag")
         clicks = {"click": 1, "double_click": 2, "triple_click": 3,
                   "right_click": 1, "middle_click": 1}
+        # Koordinatsiz tiklama/kaydirma imlecin BULUNDUGU yerde (Adim 8.2).
+        # Yalnizca birinin verilmesi ya da koordinatsiz `shot`/`monitor`
+        # buyuk olasilikla unutulmus bir koordinattir: sessizce yerinde
+        # tiklamak yerine reddedilir (batch'teki `_pair` ile ayni kural).
+        if act in clicks or act == "scroll":
+            if (x is None) != (y is None):
+                return ("x ve y birlikte verilmeli. Ikisini de vermezseniz "
+                        "imlecin bulundugu yerde calisir.")
+            if x is None and (shot or monitor is not None):
+                return ("shot/monitor var ama x/y yok. Koordinati ekleyin; "
+                        "imlecin bulundugu yerde tiklamak istiyorsaniz "
+                        "shot/monitor vermeyin.")
+        if act in clicks and hold_ms is not None and clicks[act] > 1 and hold_ms > 150:
+            return (f"{act} icin hold_ms en fazla 150 olabilir ({hold_ms} "
+                    "verildi): basislar cift tiklama esiginin icinde kalmali.")
+        in_place = act in clicks and x is None
         write = _begin_write("mouse")
         if isinstance(write, ToolResult):
             return write
         try:
-            if act in needs_xy:
+            if act in needs_xy or (act in clicks and not in_place):
                 if x is None or y is None:
                     return "x ve y zorunlu (drag icin ayrica to_x/to_y)."
                 gx, gy = _to_global(x, y, monitor, shot)
@@ -1391,12 +1426,19 @@ def register(
                     "noktaya gidin"
                 )
             elif act in clicks:
-                pos = backend.move(gx, gy, smooth=smooth)
-                time.sleep(0.08)
                 btn = {"right_click": "right", "middle_click": "middle"}.get(act, "left")
-                backend.click(btn, clicks[act])
+                press = {} if hold_ms is None else {"hold_ms": hold_ms}
+                if in_place:
+                    backend.click(btn, clicks[act], **press)
+                    target = "imlecin bulundugu yerde"
+                else:
+                    pos = backend.move(gx, gy, smooth=smooth)
+                    time.sleep(0.08)
+                    backend.click(btn, clicks[act], **press)
+                    target = f"{pos} konumuna"
                 kind = {2: " (cift)", 3: " (uclu)"}.get(clicks[act], "")
-                done = f"{pos} konumuna {btn} tiklama{kind}"
+                held_for = f" · basili {hold_ms} ms" if hold_ms is not None else ""
+                done = f"{target} {btn} tiklama{kind}{held_for}"
             elif act == "drag":
                 if to_x is None or to_y is None:
                     return "drag icin to_x ve to_y zorunlu."
@@ -1447,6 +1489,8 @@ def register(
             dx=dx if act == "move_by" else None,
             dy=dy if act == "move_by" else None,
             button=button if act in ("hold", "release", "drag") else None,
+            in_place=in_place or None,
+            hold_ms=hold_ms if act in clicks else None,
             forced=force or None,
         )
         where = backend.position
@@ -2199,8 +2243,10 @@ def register(
                     '{"a": "<kind>", ...}. Kinds: key {keys, confirm_close?}, '
                     'type {text, raw?}, hold {keys, confirm_close?}, '
                     'release {keys}, wait {ms}, '
-                    'move/click/double_click/triple_click/right_click/middle_click '
-                    '{x?, y?, shot?, monitor?}, mouse_down {button?, x?, y?, shot?}, '
+                    'move {x, y, shot?, monitor?}, '
+                    'click/double_click/triple_click/right_click/middle_click '
+                    '{x?, y?, shot?, monitor?, hold_ms?}, '
+                    'mouse_down {button?, x?, y?, shot?}, '
                     'mouse_up {button?}, drag {x, y, to_x, to_y, button?, shot?}, '
                     'scroll {amount, horizontal?, shot?}, move_by {dx, dy}, '
                     'ui_click {id}, '
@@ -2208,7 +2254,11 @@ def register(
                     'shot is the id of the screenshot you read the coordinates off '
                     "(screen_capture prints it, e.g. 'm2-a1b2c3'): pass it and give "
                     'x/y exactly as you see them in that picture, and the server '
-                    'converts them for you. hold/mouse_down stay down across later '
+                    'converts them for you. A click or scroll with no x/y acts '
+                    'where the pointer already is (after move_by, inside an '
+                    'application that locked the pointer); hold_ms is how long '
+                    'each press lasts, default 60, at most 150 for double and '
+                    'triple clicks. hold/mouse_down stay down across later '
                     'actions, so a drag with stops along the way is mouse_down, '
                     'move, move, mouse_up. '
                     'move_by nudges the pointer BY a delta instead of moving '

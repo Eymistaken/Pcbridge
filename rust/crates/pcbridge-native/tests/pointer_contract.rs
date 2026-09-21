@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 
 use pcbridge_native::lifecycle::{FailClosed, LifecycleFailure};
 use pcbridge_native::platform::linux::input::{
-    Pointer, PointerClock, PointerConfig, PointerDevice, PointerError, PointerEvent,
-    PointerGeometry, SystemPointerClock, supported_pointer_buttons,
+    DEFAULT_CLICK_HOLD, MAX_CLICK_HOLD_MS, Pointer, PointerClock, PointerConfig, PointerDevice,
+    PointerError, PointerEvent, PointerGeometry, SystemPointerClock, supported_pointer_buttons,
     supported_pointer_relative_axes,
 };
 use serde_json::Value;
@@ -194,12 +194,88 @@ fn double_click_events_match_the_golden_fixture() {
     fs::write(&state_file, r#"{"x":500,"y":500,"t":1000.0}"#).unwrap();
     let (pointer, device, _clock) = pointer(state_file, 1000.0);
 
-    pointer.click("left", 2).unwrap();
+    pointer.click("left", 2, DEFAULT_CLICK_HOLD).unwrap();
     assert_eq!(
         *device.events.lock().unwrap(),
         expected_events("double_click")
     );
     assert_eq!(pointer.position(), Some((500, 500)));
+
+    pointer.close().unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_custom_click_hold_matches_the_golden_fixture() {
+    let root = fixture_root();
+    let state_file = root.join("pointer.json");
+    fs::write(&state_file, r#"{"x":500,"y":500,"t":1000.0}"#).unwrap();
+    let (pointer, device, _clock) = pointer(state_file, 1000.0);
+
+    pointer
+        .click("right", 1, Duration::from_millis(120))
+        .unwrap();
+    assert_eq!(
+        *device.events.lock().unwrap(),
+        expected_events("click_hold_custom")
+    );
+
+    pointer.close().unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_click_hold_over_the_cap_sends_nothing() {
+    let root = fixture_root();
+    let (pointer, device, _clock) = pointer(root.join("pointer.json"), 1000.0);
+
+    let error = pointer
+        .click("left", 1, Duration::from_millis(MAX_CLICK_HOLD_MS + 1))
+        .unwrap_err();
+    assert!(matches!(error, PointerError::InvalidClickHold), "{error:?}");
+    assert!(device.events.lock().unwrap().is_empty());
+
+    pointer.close().unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_click_in_place_after_external_motion_sends_no_absolute_event() {
+    // Step 8.2: after a relative nudge the position is unknown, and a click
+    // with no coordinate must still go -- where the pointer is, without an
+    // absolute event that would drag it back to the stale point. The resync
+    // stays armed: the next absolute move still steps aside first. The
+    // Python fixture records the same sequence in
+    // `click_in_place_after_move_by`; its relative events belong to the other
+    // device, so this one's share starts at the first button event.
+    let root = fixture_root();
+    let (pointer, device, _clock) = pointer(root.join("pointer.json"), 1_000.0);
+    pointer.move_to(100, 100, Some(false), 1).unwrap();
+    device.events.lock().unwrap().clear();
+
+    pointer.note_external_motion();
+    pointer.click("left", 1, DEFAULT_CLICK_HOLD).unwrap();
+    assert!(
+        device
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|event| event[0] != "EV_ABS"),
+        "the click sent an absolute event"
+    );
+    assert_eq!(
+        pointer.position(),
+        None,
+        "a click does not invent a position"
+    );
+    pointer.move_to(100, 100, None, 1).unwrap();
+
+    let golden: Vec<Value> = expected_events("click_in_place_after_move_by")
+        .into_iter()
+        .skip_while(|event| event[0] != "EV_KEY")
+        .collect();
+    assert_eq!(*device.events.lock().unwrap(), golden);
 
     pointer.close().unwrap();
     fs::remove_dir_all(root).unwrap();

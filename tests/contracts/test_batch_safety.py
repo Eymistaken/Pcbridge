@@ -40,6 +40,7 @@ sys.path.insert(0, str(ROOT))
 from pcbridge.cli import EXIT_DENIED, EXIT_PARTIAL  # noqa: E402
 from pcbridge.config import DesktopSpec  # noqa: E402
 from pcbridge.desktop import batch as batchlib  # noqa: E402
+from pcbridge.desktop import ops as opslib  # noqa: E402
 from pcbridge.desktop.errors import ErrorCategory, ErrorCode  # noqa: E402
 from pcbridge.desktop.execution import (  # noqa: E402
     ExecutionLock,
@@ -473,6 +474,63 @@ class FocusVerificationTests(unittest.TestCase):
             {"a": "click", "x": 5, "y": 5}, {"a": "key", "keys": "a"},
         ), ops, check_focus=False)
         self.assertEqual(result.done, 2)
+
+
+class ClickInPlaceAndHoldTests(unittest.TestCase):
+    """Step 8.2/8.3: clicks without coordinates, and how long a press lasts."""
+
+    def test_a_click_without_coordinates_is_valid_and_goes_in_place(self) -> None:
+        backend = mock.Mock()
+        device = opslib.DeviceOps(backend, mock.Mock(), SimpleNamespace(
+            shot_search_dirs=[], desktop=SimpleNamespace(
+                agent_shot_max_age_seconds=60, ambiguous_coord_guard=True,
+            ),
+        ), mock.Mock())
+        note = device.click("left", 1, None, None, None, None)
+        backend.move.assert_not_called()
+        backend.click.assert_called_once_with("left", 1)
+        self.assertIn("imlecin bulundugu yerde", note)
+
+        backend.reset_mock()
+        device.click("right", 1, None, None, None, None, hold_ms=120)
+        backend.click.assert_called_once_with("right", 1, hold_ms=120)
+
+    def test_hold_ms_reaches_ops_only_when_given(self) -> None:
+        seen: list[dict] = []
+
+        class Ops(RecordingOps):
+            def click(self, button, count, x, y, monitor, shot=None, **extra):
+                seen.append(extra)
+                return super().click(button, count, x, y, monitor, shot)
+
+        batchlib.run(plan(
+            {"a": "click"}, {"a": "wait", "ms": 1},
+            {"a": "right_click", "hold_ms": 90},
+        ), Ops(), budget=1e6, check_focus=False, sleep=lambda s: None)
+        self.assertEqual(seen, [{}, {"hold_ms": 90}])
+
+    def test_bad_click_arguments_refuse_the_whole_list(self) -> None:
+        for bad in (
+            {"a": "click", "x": 5},
+            {"a": "click", "y": 5},
+            {"a": "click", "shot": "m2-a1b2c3"},
+            {"a": "right_click", "monitor": 2},
+            {"a": "scroll", "x": 3},
+            {"a": "double_click", "hold_ms": 151},
+            {"a": "click", "hold_ms": 1001},
+            {"a": "click", "hold_ms": -1},
+        ):
+            with self.subTest(action=bad), self.assertRaises(batchlib.BatchError):
+                plan({"a": "key", "keys": "a"}, bad)
+
+    def test_a_custom_hold_is_in_the_estimate(self) -> None:
+        base = batchlib.estimate(plan({"a": "click"}))
+        longer = batchlib.estimate(plan({"a": "click", "hold_ms": 560}))
+        self.assertAlmostEqual(longer - base, 0.5)
+        self.assertIn(
+            "basili 560 ms",
+            plan({"a": "click", "hold_ms": 560})[0].describe(),
+        )
 
 
 class HeldInputCleanupTests(unittest.TestCase):

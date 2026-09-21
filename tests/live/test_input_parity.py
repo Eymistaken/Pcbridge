@@ -62,14 +62,15 @@ REPORT: dict = {}
 class InputWindow:
     """`input_window.py` and the events it reports."""
 
-    def __init__(self, errors: Path, timeout: int = 300) -> None:
+    def __init__(self, errors: Path, timeout: int = 300, tick_ms: int = 0) -> None:
         # GTK swallows an exception raised in a signal handler: the event is
         # simply not reported. Keep what it prints, or a broken window looks
         # exactly like input that never arrived (it did, 2026-09-19).
         self.errors = errors
         self._stderr = errors.open("w", encoding="utf-8")
         self.process = subprocess.Popen(
-            [SYSTEM_PYTHON, str(HERE / "input_window.py"), "--timeout", str(timeout)],
+            [SYSTEM_PYTHON, str(HERE / "input_window.py"), "--timeout", str(timeout),
+             "--tick-ms", str(tick_ms)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=self._stderr,

@@ -393,6 +393,23 @@ native Wayland'de açılıyor. O zaman `move_by` bakışı çeviriyor: hassasiye
 yakaladığında ilk hareket olayını atar, yani dünyaya girişten ya da menüden
 dönüşten sonraki ilk çağrı birkaç derece eksik kalır.
 
+**Koordinatsız tıklama imlecin olduğu yerde olur** (Adım 8.2). `click`,
+`right_click`, `middle_click`, `double_click`, `triple_click` ve `scroll`
+`x`/`y` almazsa imleç nerede duruyorsa orada çalışır — imleci kilitleyen bir
+uygulamada nişan `move_by` ile alınıp tıklama koordinatsız gönderilir.
+Yalnızca `x` ya da yalnızca `y` vermek, ya da koordinatsız bir eyleme
+`shot`/`monitor` eklemek reddedilir: bu büyük olasılıkla unutulmuş bir
+koordinattır ve sessizce yerinde tıklamak yanlış yere tıklamak olurdu.
+
+**Tıklamada düğme 60 ms basılı kalır** (Adım 8.3, `[desktop] click_hold_ms`).
+Eskiden 30 ms'ydi. Girdiyi sabit aralıkla yoklayan uygulamalar — oyunlar
+50 ms'lik tick'lerle — basma ile bırakmanın aynı aralığa düştüğü tıklamayı
+göremiyor. Ölçüldü 2026-09-21, 50 ms'de bir yoklayan test penceresi, 40'ar
+tıklama: 30 ms'lik basışların 28/40 (Python) ve 24/40'ı (native) görüldü,
+60 ms'lik basışların iki yolda da **40/40**'ı. Çağrı başına `hold_ms` ile
+değiştirilebilir (0–1000; çift/üçlü tıklamada en fazla 150, basışlar çift
+tıklama eşiğinin içinde kalsın diye).
+
 `hold` / `mouse_down` sonraki eylemlere **taşar**: ara duraklaması olan bir
 sürükleme (kaydırıcı, seçim dikdörtgeni) `mouse_down` → `move` → `move` →
 `mouse_up` ile yapılır; `drag` bunun tek atışlık hâli. Dizi yarıda kalırsa
@@ -564,7 +581,7 @@ ya da bir işin bittiğini fark etmek için.
 | `notify` | Masaüstünde bildirim çıkarır |
 | `desktop_unlock` | Pcbridge masaüstü araçlarına süreli grant verir; işletim sistemi izinlerini değiştirmez |
 | `desktop_lock` | İzni erken kapatır, sanal cihazları yok eder |
-| `mouse` | Fareyi hareket ettirir (ışınlamaz, ara noktalardan geçer), tıklar (tek/çift/üçlü, sağ/orta), sürükler, kaydırır (dikey + yatay), düğmeyi basılı tutar; `move_by` ile imleci **göreli** kaydırır (aşağı bkz.) |
+| `mouse` | Fareyi hareket ettirir (ışınlamaz, ara noktalardan geçer), tıklar (tek/çift/üçlü, sağ/orta; koordinatsız verilirse imlecin olduğu yerde, `hold_ms` ile basış süresi), sürükler, kaydırır (dikey + yatay), düğmeyi basılı tutar; `move_by` ile imleci **göreli** kaydırır (aşağı bkz.) |
 | `keyboard` | Metin yazar (pano yoluyla) veya tuş kombinasyonu gönderir; `hold`/`release` ile istenen sayıda tuşu basılı tutar |
 | `screen_info` | Monitör tablosu, koordinat uzayı, odaktaki pencere |
 | `screen_capture` | Ekran görüntüsü alır (sessiz — flaş/ses yok): görüntünün kendisi, uzaktan bağlıysan ayrıca 5 dakikalık bağlantı |

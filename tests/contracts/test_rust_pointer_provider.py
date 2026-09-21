@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from pcbridge.config import load_config  # noqa: E402
+from pcbridge.desktop import input as inputlib  # noqa: E402
 from pcbridge.desktop.backends.rust import RustInputProvider  # noqa: E402
 from pcbridge.desktop.errors import (  # noqa: E402
     DesktopError,
@@ -161,6 +162,24 @@ class RustPointerAdapterTests(unittest.TestCase):
         )
         for _method, params in self.client.requests[:-1]:
             self.assertEqual(params["topology_id"], "layout")
+        click = dict(self.client.requests)["input.pointer.click"]
+        # The press duration always goes explicitly, resolved from config.
+        self.assertEqual(click["hold_ms"], self.provider.cfg.desktop.click_hold_ms)
+        self.assertEqual((click["button"], click["count"]), ("right", 2))
+
+    def test_click_hold_is_sent_and_checked_before_the_helper(self) -> None:
+        with mock.patch(
+            "pcbridge.desktop.backends.rust.monitorslib.list_monitors",
+            return_value=[object()],
+        ), mock.patch(
+            "pcbridge.desktop.backends.rust.monitorslib.topology_id",
+            return_value="layout",
+        ):
+            self.provider.click("left", 1, hold_ms=150)
+            with self.assertRaises(inputlib.InputError):
+                self.provider.click("left", 1, hold_ms=5000)
+        clicks = [p for m, p in self.client.requests if m == "input.pointer.click"]
+        self.assertEqual([c["hold_ms"] for c in clicks], [150])
 
     def test_display_change_is_typed_and_the_write_is_not_replayed(self) -> None:
         self.client.errors["input.pointer.move"] = {

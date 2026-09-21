@@ -29,10 +29,10 @@ use crate::platform::linux::desktop_state::DeterministicDesktopState;
 use crate::platform::linux::display::DisplayReader;
 use crate::platform::linux::display::DisplaySnapshot;
 use crate::platform::linux::input::{
-    DEVICE_SETTLE, EvdevKeyboardDevice, EvdevPointerDevice, EvdevRelativeDevice, KeyboardError,
-    KeyboardService, NativeKeyboard, NativePointer, NativeRelativePointer, PointerConfig,
-    PointerError, PointerGeometry, PointerService, RelativeService, SystemClock,
-    SystemPointerClock,
+    DEFAULT_CLICK_HOLD, DEVICE_SETTLE, EvdevKeyboardDevice, EvdevPointerDevice,
+    EvdevRelativeDevice, KeyboardError, KeyboardService, MAX_CLICK_HOLD_MS, NativeKeyboard,
+    NativePointer, NativeRelativePointer, PointerConfig, PointerError, PointerGeometry,
+    PointerService, RelativeService, SystemClock, SystemPointerClock,
 };
 #[cfg(feature = "test-harness")]
 use crate::platform::linux::input::{
@@ -1839,8 +1839,10 @@ impl Dispatcher {
     }
 
     fn pointer_click(&mut self, id: String, params: Value) -> DispatchOutcome {
-        let params = match parse_pointer_params::<PointerClickParams>(params, &["button", "count"])
-        {
+        let params = match parse_pointer_params::<PointerClickParams>(
+            params,
+            &["button", "count", "hold_ms"],
+        ) {
             Ok(params) => params,
             Err(error) => {
                 return self.error(
@@ -1858,7 +1860,19 @@ impl Dispatcher {
             Ok((pointer, _)) => pointer,
             Err(error) => return self.pointer_request_error(id, error),
         };
-        match pointer.click(&params.button, params.count) {
+        let hold = match params.hold_ms {
+            None => DEFAULT_CLICK_HOLD,
+            Some(ms) if ms <= MAX_CLICK_HOLD_MS => Duration::from_millis(ms),
+            Some(ms) => {
+                return self.error(
+                    id,
+                    "INVALID_PARAMS",
+                    format!("hold_ms must be at most {MAX_CLICK_HOLD_MS}, got {ms}"),
+                    None,
+                );
+            }
+        };
+        match pointer.click(&params.button, params.count, hold) {
             Ok(()) => self.success(
                 id,
                 json!({"held": pointer.held(), "backend": "linux.uinput.native"}),
@@ -2294,7 +2308,8 @@ impl Dispatcher {
         match error {
             PointerError::InvalidGeometry
             | PointerError::UnknownButton(_)
-            | PointerError::InvalidClickCount => {
+            | PointerError::InvalidClickCount
+            | PointerError::InvalidClickHold => {
                 self.error(id, "INVALID_PARAMS", error.to_string(), None)
             }
             PointerError::Closed => self.typed_error(
@@ -2490,6 +2505,10 @@ struct PointerClickParams {
     grant: PointerGrantParams,
     button: String,
     count: u8,
+    /// Each press's duration. Absent means `DEFAULT_CLICK_HOLD`; pcbridge's
+    /// Python side always sends it, resolved from `[desktop] click_hold_ms`.
+    #[serde(default)]
+    hold_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]

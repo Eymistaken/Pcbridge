@@ -58,6 +58,8 @@ REQUIRED_CASES = {
     "move_by_small",
     "move_by_chunked",
     "move_by_then_absolute",
+    "click_hold_custom",
+    "click_in_place_after_move_by",
 }
 
 _KNOWN_NAMES = (
@@ -308,6 +310,12 @@ class InputEventFixtureTests(unittest.TestCase):
 
         self.assertEqual(batchlib.MOVE_BY_MAX, inputlib.MOVE_BY_MAX)
 
+    def test_the_batch_click_hold_copies_match_the_device_ones(self) -> None:
+        from pcbridge.desktop import batch as batchlib
+
+        self.assertEqual(batchlib.DEFAULT_CLICK_HOLD_MS, inputlib.DEFAULT_CLICK_HOLD_MS)
+        self.assertEqual(batchlib.MAX_CLICK_HOLD_MS, inputlib.MAX_CLICK_HOLD_MS)
+
     def test_every_case_replays_to_its_golden_events(self) -> None:
         for name, case in self.cases.items():
             with self.subTest(case=name):
@@ -322,6 +330,29 @@ class InputEventFixtureTests(unittest.TestCase):
         events = self.cases["pointer_first_move_clamped"]["expect"]["events"]
         self.assertEqual(
             events, [["EV_ABS", "ABS_X", CANVAS[0] - 1], ["EV_ABS", "ABS_Y", 0], ["SYN"]]
+        )
+
+    def test_a_click_in_place_after_move_by_sends_no_absolute_event(self) -> None:
+        # Step 8.2: the click goes where the pointer is, and the stale-ABS
+        # resync is still owed to the next absolute move.
+        events = self.cases["click_in_place_after_move_by"]["expect"]["events"]
+        first_key = next(i for i, e in enumerate(events) if e[0] == "EV_KEY")
+        last_key = max(i for i, e in enumerate(events) if e[0] == "EV_KEY")
+        between = events[first_key:last_key + 1]
+        self.assertFalse([e for e in between if e[0] == "EV_ABS"])
+        after = [e for e in events[last_key:] if e[0] == "EV_ABS"]
+        self.assertEqual(after[0], ["EV_ABS", "ABS_X", 99])
+
+    def test_click_hold_defaults_to_60_ms_and_is_bounded(self) -> None:
+        self.assertEqual(inputlib.DEFAULT_CLICK_HOLD_MS, 60)
+        with recording_backend() as (backend, recorder):
+            backend.click("left")
+            with self.assertRaises(inputlib.InputError):
+                backend.click("left", 1, inputlib.MAX_CLICK_HOLD_MS + 1)
+        self.assertIn(["sleep", 0.06], recorder.events)
+        self.assertEqual(
+            [e for e in recorder.events if e[0] == "EV_KEY"],
+            [["EV_KEY", "BTN_LEFT", 1], ["EV_KEY", "BTN_LEFT", 0]],
         )
 
     def test_scroll_is_capped_at_100_ticks(self) -> None:

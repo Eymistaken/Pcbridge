@@ -22,6 +22,12 @@ Every event goes to stdout as one JSON line, positions in global canvas pixels
     {"event": "active", "monitor": 1, "active": true}
     {"event": "focus", "field": true}
     {"event": "text", "value": "..."}
+    {"event": "tick_press", "buttons": [1]}      (only with --tick-ms)
+
+`--tick-ms N` adds what a game does (step 8.3): every N ms the window samples
+whether a button is down, the way a game's tick polls its input state, and
+reports a press the first tick that sees it. A press and release that fall
+between two ticks never show up there, even though both events arrived.
 
 Commands on stdin: `clear` (empty the field) and `quit`.
 """
@@ -56,6 +62,15 @@ class Windows:
         self.geometry: list[Gdk.Rectangle] = []
         self.buffer: Gtk.TextBuffer | None = None
         self.announced = False
+        # Buttons down right now, and whether the last tick saw any.
+        self.down: set[int] = set()
+        self.tick_saw_down = False
+
+    def tick(self):
+        if self.down and not self.tick_saw_down:
+            emit(event="tick_press", buttons=sorted(self.down))
+        self.tick_saw_down = bool(self.down)
+        return True
 
     def draw(self, _area, cr, width, height, index):
         cr.set_source_rgb(0.12, 0.12, 0.16)
@@ -90,12 +105,14 @@ class Windows:
 
     def on_press(self, gesture, x, y, index):
         origin = self.geometry[index]
+        self.down.add(gesture.get_current_button())
         emit(event="press", button=gesture.get_current_button(),
              x=round(origin.x + x), y=round(origin.y + y))
 
     def on_release(self, gesture, offset_x, offset_y, index):
         origin = self.geometry[index]
         _ok, x, y = gesture.get_start_point()
+        self.down.discard(gesture.get_current_button())
         emit(event="release", button=gesture.get_current_button(),
              x=round(origin.x + x + offset_x), y=round(origin.y + y + offset_y))
 
@@ -184,11 +201,14 @@ class Windows:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--timeout", type=int, default=240)
+    parser.add_argument("--tick-ms", type=int, default=0)
     args = parser.parse_args()
 
     app = Gtk.Application(flags=Gio.ApplicationFlags.NON_UNIQUE)
     windows = Windows(app)
     app.connect("activate", windows.activate)
+    if args.tick_ms > 0:
+        GLib.timeout_add(args.tick_ms, windows.tick)
     # Never outlive a test that forgot to say goodbye.
     GLib.timeout_add_seconds(max(5, args.timeout), lambda: app.quit() or False)
 
