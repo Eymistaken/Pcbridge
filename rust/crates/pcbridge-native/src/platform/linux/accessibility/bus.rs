@@ -94,7 +94,7 @@ impl AtspiBus {
     pub fn connect() -> Result<Self, AccessibilityError> {
         let unavailable = |error: zbus::Error| {
             AccessibilityError::unavailable(format!(
-                "Erisilebilirlik veriyoluna baglanilamadi: {error}"
+                "Cannot connect to the accessibility bus: {error}"
             ))
         };
         zbus::block_on(async {
@@ -334,7 +334,7 @@ impl Tree for AtspiBus {
         let listed: Vec<(String, OwnedObjectPath)> =
             zbus::block_on(self.call(&root, ACCESSIBLE, "GetChildren", ())).map_err(|error| {
                 AccessibilityError::unavailable(format!(
-                    "Erisilebilirlik kaydindaki uygulamalar okunamadi: {error}"
+                    "Cannot read the applications in the accessibility registry: {error}"
                 ))
             })?;
         Ok(listed.into_iter().filter_map(Self::reference).collect())

@@ -117,9 +117,9 @@ fn unknown(what: &str) -> AccessibilityError {
     AccessibilityError::new(
         "EXECUTION_UNKNOWN",
         format!(
-            "{what} gonderildi ama uygulama cevap vermedi; yapilmis da olabilir, \
-             yapilmamis da. Tekrarlanmadi: once ui_dump ya da screen_capture ile sonuca \
-             bakin."
+            "{what} was sent but the application did not answer; it may or may not \
+             have happened. Not repeated: look at the result with ui_dump or \
+             screen_capture first."
         ),
     )
 }
@@ -128,8 +128,8 @@ fn unknown(what: &str) -> AccessibilityError {
 fn no_answer() -> AccessibilityError {
     AccessibilityError::new(
         "TIMEOUT",
-        "Uygulama cevap vermedi. Donmus olabilir; ekran goruntusuyle bakin \
-         (screen_capture). Hicbir sey yapilmadi.",
+        "The application did not answer. It may be hung; look with a screenshot \
+         (screen_capture). Nothing was done.",
     )
 }
 
@@ -246,8 +246,8 @@ pub fn resolve<T: Tree + ?Sized>(
         // neither of them alone.
         return Err(AccessibilityError::new(
             "ELEMENT_AMBIGUOUS",
-            "Bu uygulama iki dugume ayni kimligi veriyor; hangisinin kastedildigi \
-             bilinemez. Ekrana bakip (screen_capture) `mouse` kullanin.",
+            "This application gives two nodes the same id; which one is meant \
+             cannot be known. Look at the screen (screen_capture) and use `mouse`.",
         ));
     }
 
@@ -258,8 +258,8 @@ pub fn resolve<T: Tree + ?Sized>(
     let app_info = app.as_ref().and_then(|app| read_node(tree, app));
     let (Some(app), Some(app_info)) = (app, app_info) else {
         return Err(stale(format!(
-            "{app_label} artik acik degil (kapanmis ya da yeniden baslamis). Baska bir \
-             uygulamaya dusulmedi; ui_dump ile listeyi yenileyin."
+            "{app_label} is no longer open (it closed or restarted). Nothing fell through \
+             to another application; refresh the list with ui_dump."
         )));
     };
     deadline_passed(target)?;
@@ -275,7 +275,7 @@ pub fn resolve<T: Tree + ?Sized>(
                 .and_then(|child| read_node(tree, child).map(|info| (child.clone(), info)));
             found.ok_or_else(|| {
                 stale(format!(
-                    "Dokumdeki {app_label} penceresi kapanmis; ui_dump ile listeyi yenileyin."
+                    "The {app_label} window of the dump has closed; refresh the list with ui_dump."
                 ))
             })?
         }
@@ -290,16 +290,16 @@ pub fn resolve<T: Tree + ?Sized>(
     }
     let Some((object, info)) = found else {
         return Err(stale(format!(
-            "Hedef artik yok: {label}. Arayuz yeniden cizilmis olabilir; ui_dump ile \
-             listeyi yenileyin."
+            "The target is gone: {label}. The interface may have been redrawn; refresh \
+             the list with ui_dump."
         )));
     };
     if info.role != want.role || info.name != want.name {
         return Err(AccessibilityError::new(
             "TARGET_MISMATCH",
             format!(
-                "Hedef degismis: {label} simdi {} {}. Hicbir sey yapilmadi; ui_dump ile \
-                 listeyi yenileyin.",
+                "The target changed: {label} is now {} {}. Nothing was done; refresh the \
+                 list with ui_dump.",
                 info.role,
                 quoted(&info.name)
             ),
@@ -329,7 +329,7 @@ pub fn prepare_act<T: Tree + ?Sized>(
         .collect();
     if names.is_empty() {
         return Err(unsupported(format!(
-            "{} {} bir eylem sunmuyor (Action arayuzu yok). Koordinatla tiklamaya dusulmedi.",
+            "{} {} offers no action (no Action interface). Not falling back to a coordinate click.",
             resolved.info.role,
             quoted(&resolved.info.name)
         )));
@@ -367,17 +367,17 @@ pub fn perform_act<T: Tree + ?Sized>(
         Ok(true) => {}
         Ok(false) => {
             return Err(unsupported(format!(
-                "Uygulama {} eylemini yapmadi: {} {} su an devre disi olabilir. Hicbir sey \
-                 yapilmadi.",
+                "The application did not perform {}: {} {} may be disabled right now. \
+                 Nothing was done.",
                 quoted(&action),
                 resolved.info.role,
                 quoted(&resolved.info.name)
             )));
         }
         Err(CallError::Refused(error)) => {
-            return Err(unsupported(format!("Eylem calistirilamadi: {error}")));
+            return Err(unsupported(format!("The action could not be run: {error}")));
         }
-        Err(CallError::Timeout | CallError::Lost(_)) => return Err(unknown("Eylem")),
+        Err(CallError::Timeout | CallError::Lost(_)) => return Err(unknown("The action")),
     }
     Ok(json!({
         "ok": true,
@@ -404,7 +404,7 @@ pub fn prepare_set_text<T: Tree + ?Sized>(
     };
     if !interfaces.iter().any(|name| name == EDITABLE_TEXT) {
         return Err(unsupported(format!(
-            "{} {} duzenlenebilir degil (EditableText arayuzu yok).",
+            "{} {} is not editable (no EditableText interface).",
             resolved.info.role,
             quoted(&resolved.info.name)
         )));
@@ -416,7 +416,7 @@ pub fn prepare_set_text<T: Tree + ?Sized>(
             Err(CallError::Timeout) => return Err(no_answer()),
             Err(CallError::Refused(error) | CallError::Lost(error)) => {
                 return Err(unsupported(format!(
-                    "Metin yazilamadi: {error}. Hicbir sey yazilmadi."
+                    "The text could not be written: {error}. Nothing was written."
                 )));
             }
         }
@@ -447,16 +447,18 @@ pub fn perform_set_text<T: Tree + ?Sized>(
         Ok(true) => {}
         Ok(false) => {
             return Err(unsupported(format!(
-                "Uygulama metni kabul etmedi: {} {} su an duzenlenemiyor olabilir. Hicbir \
-                 sey yazilmadi.",
+                "The application did not accept the text: {} {} may not be editable right \
+                 now. Nothing was written.",
                 resolved.info.role,
                 quoted(&resolved.info.name)
             )));
         }
         Err(CallError::Refused(error)) => {
-            return Err(unsupported(format!("Metin yazilamadi: {error}")));
+            return Err(unsupported(format!(
+                "The text could not be written: {error}"
+            )));
         }
-        Err(CallError::Timeout | CallError::Lost(_)) => return Err(unknown("Metin")),
+        Err(CallError::Timeout | CallError::Lost(_)) => return Err(unknown("The text")),
     }
     let sent = text.chars().count();
     let mut verified = false;
@@ -482,8 +484,8 @@ pub fn perform_set_text<T: Tree + ?Sized>(
                 return Err(AccessibilityError::new(
                     "TEXT_MISMATCH",
                     format!(
-                        "Metin eksik ya da farkli yazildi: {sent} karakter gonderildi, alanda \
-                         simdi {now} karakter var. Alanin icerigi degisti; ui_dump ile bakin."
+                        "The text was written incompletely or differently: {sent} characters \
+                         were sent, the field now holds {now}. Its content changed; look with ui_dump."
                     ),
                 ));
             }

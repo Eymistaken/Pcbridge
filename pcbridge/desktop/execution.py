@@ -83,14 +83,14 @@ def _busy(holder: Any, waited: float, now: float) -> SequenceRefused:
             parts.append(f"pid {pid}")
         since = holder.get("since")
         if isinstance(since, (int, float)) and not isinstance(since, bool):
-            parts.append(f"{max(0, int(now - since))} sn'dir")
+            parts.append(f"for {max(0, int(now - since))} s")
         who = f" ({', '.join(parts)})"
     return SequenceRefused(
         code=ErrorCode.BUSY,
         message=(
-            f"Baska bir masaustu eylem dizisi suruyor{who}. Iki dizinin girdisi "
-            "birbirine karismasin diye ayni anda yalnizca biri calisir; "
-            f"{waited:.0f} saniye beklendi. O bitince tekrar deneyin."
+            f"Another desktop action sequence is running{who}. Only one runs at a "
+            "time so that the input of two sequences never mixes; waited "
+            f"{waited:.0f} seconds. Try again when it has finished."
         ),
         category=ErrorCategory.EXECUTION,
         retryable=True,

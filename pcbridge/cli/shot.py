@@ -81,43 +81,43 @@ def describe(shots, mons, capture_provider=None) -> list[str]:
         if s.offset is None:
             out.append(
                 f"{s.path}\n"
-                f"  odaktaki pencere · {s.scaled[0]}x{s.scaled[1]}\n"
-                "  ⚠️  Bu goruntunun ekranda NEREDE oldugu bilinmiyor; "
-                "buradan koordinat turetme."
+                f"  focused window · {s.scaled[0]}x{s.scaled[1]}\n"
+                "  ⚠️  WHERE this picture sits on the screen is unknown; "
+                "do not derive coordinates from it."
             )
             continue
         line = (
             f"{s.path}\n"
             f"  shot: {s.id}\n"
             f"  monitor {s.monitor.index} ({s.monitor.connector}"
-            f"{', birincil' if s.monitor.primary else ''}) · "
-            f"{s.size[0]}x{s.size[1]} @ ofset ({s.offset[0]}, {s.offset[1]})"
+            f"{', primary' if s.monitor.primary else ''}) · "
+            f"{s.size[0]}x{s.size[1]} @ offset ({s.offset[0]}, {s.offset[1]})"
         )
         if s.scale != 1.0:
-            line += f" -> {s.scaled[0]}x{s.scaled[1]} (olcek {s.scale:.3f})"
+            line += f" -> {s.scaled[0]}x{s.scaled[1]} (scale {s.scale:.3f})"
         out.append(line)
 
     # Zaman damgasi sus degil: goruntu BAYATLAR. Aradan gecen surede kullanici
     # baska pencereye gecmis olabilir ve o koordinat artik baska seyin ustunde.
     # 2026-08-03'te tam bu oldu -- 69 saniyelik bir goruntuye gore tiklandi,
     # tiklama baska uygulamaya dustu. `pcb-do` artik yasa bakiyor.
-    out.append(f"\nalindi: {time.strftime('%H:%M:%S')}")
+    out.append(f"\ntaken: {time.strftime('%H:%M:%S')}")
 
     primary = next((m for m in mons if m.primary), None)
     if primary is not None:
         # UYGULAMA.md bunu acikca istiyor: bilmeyen surucu `Super`'a basip
         # yanlis ekranda menu arar ve "calismadi" saniyor.
         out.append(
-            f"\nGNOME ust cubugu ve `Super` menusu monitor {primary.index} "
-            f"({primary.connector}, birincil) uzerinde beliriyor."
+            f"\nThe primary monitor is {primary.index} ({primary.connector}); GNOME's "
+            "panel menus and the `Super` overview open there."
         )
     first = next((s for s in shots if s.offset is not None), None)
     if first is not None:
         out.append(
-            "Koordinati GORDUGUN GIBI ver ve yanina o goruntunun kimligini ekle:\n"
-            f'  pcb-do \'{{"a":"click","x":<goruntu_x>,"y":<goruntu_y>,'
+            "Give the coordinate AS YOU SEE IT and add that picture's id:\n"
+            f'  pcb-do \'{{"a":"click","x":<picture_x>,"y":<picture_y>,'
             f'"shot":"{first.id}"}}\'\n'
-            "Ofseti ve olcegi pcbridge kendisi uyguluyor — sen cevirme."
+            "pcbridge applies the offset and the scale itself — do not convert."
         )
 
     # Uyari EN SONA: kullanim talimatinin ustunde dursaydi "koordinat cikarma"
@@ -140,30 +140,30 @@ def describe(shots, mons, capture_provider=None) -> list[str]:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="pcb-shot",
-        description="Ekrani PNG olarak yaz ve global ofsetini soyle.",
+        description="Write the screen as PNG and report its global offset.",
     )
     p.add_argument(
         "--monitor", default="all",
-        help="all (varsayilan, her monitor ayri), 1/2, DP-1, primary, window",
+        help="all (default, one picture per monitor), 1/2/..., a connector name, primary, window",
     )
     p.add_argument(
         "--scale", type=int, default=None,
-        help="Kirpma sonrasi uzun kenar. Verilmezse config'teki "
-             "`screenshot_scale_long_edge` (screen_capture ile ayni deger). "
-             "0 = tam cozunurluk.",
+        help="Long edge after cropping. Default: the config's "
+             "`screenshot_scale_long_edge` (the same value as screen_capture). "
+             "0 = full resolution.",
     )
     p.add_argument("--no-pointer", action="store_true",
-                   help="Imleci goruntuye cizme.")
+                   help="Do not draw the pointer into the picture.")
     p.add_argument("--out", default="",
-                   help="PNG dizini (varsayilan: $XDG_RUNTIME_DIR/pcbridge/shots)")
-    p.add_argument("--json", action="store_true", help="Makine okunur cikti.")
+                   help="PNG directory (default: $XDG_RUNTIME_DIR/pcbridge/shots)")
+    p.add_argument("--json", action="store_true", help="Machine-readable output.")
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.scale is not None and args.scale and args.scale < 320:
-        fail("--scale ya 0 (tam cozunurluk) ya da en az 320 olmali",
+        fail("--scale must be 0 (full resolution) or at least 320",
              EXIT_BAD_INPUT, args.json)
 
     cfg = load()
@@ -202,7 +202,7 @@ def main(argv: list[str] | None = None) -> int:
         ok, why = capture_provider.available()
         if not ok:
             gate.audit("pcb_shot_unavailable", reason=why[:120], job=job_id())
-            fail(f"Ekran goruntusu alinamiyor: {why}", EXIT_BAD_INPUT, args.json)
+            fail(f"Cannot take a screenshot: {why}", EXIT_BAD_INPUT, args.json)
 
         out_dir = Path(args.out).expanduser() if args.out else shot_dir(cfg)
         out_dir.mkdir(parents=True, exist_ok=True)

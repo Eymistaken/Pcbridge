@@ -74,14 +74,14 @@ def available() -> tuple[bool, str]:
     ancak boru hatti kurulurken anlasilirdi -- burada onceden soyluyoruz.
     """
     if not shutil.which(SYSTEM_PYTHON):
-        return False, f"`{SYSTEM_PYTHON}` bulunamadi (sistem python'u gerekli)."
+        return False, f"`{SYSTEM_PYTHON}` not found (the system python is required)."
     if not HELPER.exists():
-        return False, f"{HELPER} yok."
+        return False, f"{HELPER} is missing."
     probe = (
         "import gi; gi.require_version('Gst','1.0');"
         "from gi.repository import Gst; Gst.init(None);"
-        "assert Gst.ElementFactory.make('pipewiresrc'), 'pipewiresrc yok';"
-        "assert Gst.ElementFactory.make('pngenc'), 'pngenc yok'"
+        "assert Gst.ElementFactory.make('pipewiresrc'), 'no pipewiresrc';"
+        "assert Gst.ElementFactory.make('pngenc'), 'no pngenc'"
     )
     try:
         proc = subprocess.run(
@@ -92,9 +92,9 @@ def available() -> tuple[bool, str]:
         return False, f"GStreamer denetimi calismadi: {exc}"
     if proc.returncode != 0:
         return False, (
-            "GStreamer PipeWire destegi yok "
+            "GStreamer PipeWire support is missing "
             f"({(proc.stderr or '').strip().splitlines()[-1:] or ['?']}). "
-            "Kurulum: sudo apt install gstreamer1.0-pipewire "
+            "Install it: sudo apt install gstreamer1.0-pipewire "
             "gstreamer1.0-plugins-good python3-gi"
         )
     return True, ""
@@ -176,7 +176,7 @@ class ScreenCast:
         bilincli olarak `start()` demeli, yoksa yayin sessizce yeniden acilir
         ve gosterge kullaniciya yalan soylerdi."""
         if not self._alive():
-            raise ScreenCastError("yayin yardimcisi calismiyor")
+            raise ScreenCastError("the screen share helper is not running")
         proc = self._proc
         assert proc is not None and proc.stdin is not None and proc.stdout is not None
 
@@ -190,18 +190,18 @@ class ScreenCast:
                 hata.append(str(exc))
                 return
             if not line:
-                hata.append("yardimci cevap vermeden kapandi")
+                hata.append("the helper exited without answering")
                 return
             try:
                 cevap.update(json.loads(line))
             except ValueError as exc:
-                hata.append(f"bozuk cevap: {exc}")
+                hata.append(f"malformed answer: {exc}")
 
         try:
             proc.stdin.write(json.dumps(req) + "\n")
             proc.stdin.flush()
         except (BrokenPipeError, OSError) as exc:
-            raise ScreenCastError(f"yardimciya yazilamadi: {exc}") from exc
+            raise ScreenCastError(f"could not write to the helper: {exc}") from exc
 
         th = threading.Thread(target=oku, daemon=True)
         th.start()
@@ -210,12 +210,12 @@ class ScreenCast:
             # Cevap gelmedi: boru artik guvenilmez, sureci bitir.
             self.close()
             raise ScreenCastError(
-                f"yayin yardimcisi {timeout:.0f} saniyede cevap vermedi"
+                f"the screen share helper did not answer within {timeout:.0f} seconds"
             )
         if hata:
             raise ScreenCastError(hata[0])
         if not cevap.get("ok"):
-            raise ScreenCastError(str(cevap.get("error", "bilinmeyen hata")))
+            raise ScreenCastError(str(cevap.get("error", "unknown error")))
         return cevap
 
     # ------------------------------------------------------------- yayin
@@ -307,7 +307,7 @@ class ScreenCast:
         with self._lock:
             if not self.is_open():
                 raise ScreenCastError(
-                    "ekran yayini acik degil (masaustu izni verilince aciliyor)"
+                    "screen sharing is not on (it starts when the desktop grant is given)"
                 )
             return self._send(
                 {"cmd": "capture", "monitor": str(connector), "path": str(path)}

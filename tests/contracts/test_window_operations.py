@@ -239,7 +239,7 @@ class BringToFrontTests(Harness):
         self.assertEqual(outcome.path, "already")
         self.assertEqual(keys.events, [])
         self.assertEqual(self.launched, [])
-        self.assertIn("hicbir tus gonderilmedi", outcome.note)
+        self.assertIn("no key was sent", outcome.note)
 
     def test_a_browser_tab_named_like_the_target_is_not_already_focused(self) -> None:
         desk = Desk(focus=("Google Chrome", "Text Editor indir - Google Chrome"),
@@ -289,7 +289,7 @@ class BringToFrontTests(Harness):
         # empty front is an answer to "is the target already there" -- no.
         desk = Desk()
         desk.focus_error = UiTreeError(
-            "Odakta pencere yok (AT-SPI hicbir pencereyi ACTIVE isaretlemiyor).",
+            "No window has the focus (AT-SPI marks no window ACTIVE).",
             ErrorCode.TARGET_MISMATCH,
         )
 
@@ -336,7 +336,7 @@ class BringToFrontTests(Harness):
         self.assertEqual(outcome.path, "launch")
         self.assertEqual(self.launched, ["org.gnome.TextEditor"])
         self.assertEqual(keys.events, [])
-        self.assertIn("odakta", outcome.note)
+        self.assertIn("focused", outcome.note)
 
     def test_a_launched_window_without_focus_is_activated(self) -> None:
         desk = Desk(focus=("Google Chrome", "x"))
@@ -387,7 +387,7 @@ class BringToFrontTests(Harness):
             [("key", "super"), ("type", "Terminal", True), ("key", "Return")],
         )
         self.assertEqual(self.launched, [])
-        self.assertIn("yedek yol", outcome.note)
+        self.assertIn("fallback path", outcome.note)
 
     def test_the_typed_name_is_one_line(self) -> None:
         # The name comes from the caller and is typed raw: a newline in it
@@ -468,14 +468,14 @@ class BringToFrontTests(Harness):
     def test_the_old_adapter_returns_the_note(self) -> None:
         self.activate_result = True
         note = apps.focus("Text Editor", Keys(), Desk().focused)
-        self.assertEqual(note, "Text Editor GNOME eklentisiyle one alindi")
+        self.assertEqual(note, "Text Editor raised by the GNOME extension")
 
     def test_computer_task_uses_the_same_order(self) -> None:
         # It used to launch every time: an open application got a second window.
         desk = Desk(focus=("gnome-text-editor", "notes.md - Text Editor"),
                     windows=[win("gnome-text-editor", "notes.md - Text Editor", True)])
         note = apps.prepare("Text Editor", Keys(), desk.focused, desk.windows)
-        self.assertIn("zaten odakta", note)
+        self.assertIn("already focused", note)
         self.assertEqual(self.launched, [])
 
 
@@ -490,7 +490,7 @@ class LaunchApplicationTests(Harness):
         with self.assertRaises(DesktopError) as caught:
             self.launch("Text Editor", desk)
         self.assertEqual(caught.exception.code, ErrorCode.EXECUTION_UNKNOWN)
-        self.assertIn("gorulmedi", str(caught.exception))
+        self.assertIn("did not show up", str(caught.exception))
 
     def test_a_listed_window_is_a_success(self) -> None:
         desk = Desk(focus=("claude-desktop", "Claude"))
@@ -498,7 +498,7 @@ class LaunchApplicationTests(Harness):
             desk, "listed", [win("gnome-text-editor", "New Document")])
         outcome = self.launch("Text Editor", desk)
         self.assertEqual(outcome.path, "launch")
-        self.assertIn("listede", outcome.note)
+        self.assertIn("listed", outcome.note)
 
     def test_an_unknown_or_ambiguous_name_launches_nothing(self) -> None:
         for name, code in (("Pcbridge Nested A", ErrorCode.TARGET_MISMATCH),

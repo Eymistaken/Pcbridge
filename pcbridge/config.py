@@ -597,33 +597,33 @@ def _check_agents(agents: dict[str, AgentSpec], path: Path) -> None:
 
         if not spec.model_args and (spec.models or spec.default_model):
             raise SystemExit(
-                f"{tag}: `models`/`default_model` tanimli ama `model_args` yok. "
-                'Bayrak sozdizimini ekleyin: model_args = ["--model", "{model}"]'
+                f"{tag}: `models`/`default_model` are set but `model_args` is missing. "
+                'Add the flag syntax: model_args = ["--model", "{model}"]'
             )
         if spec.default_model:
             if spec.default_model in spec.blocked_models:
                 raise SystemExit(
-                    f"{tag}: `default_model = \"{spec.default_model}\"` ayni zamanda "
-                    "`blocked_models` icinde."
+                    f"{tag}: `default_model = \"{spec.default_model}\"` is also in "
+                    "`blocked_models`."
                 )
             if spec.default_model in spec.restricted_models:
                 raise SystemExit(
-                    f"{tag}: `default_model = \"{spec.default_model}\"` "
-                    "`restricted_models` icinde. Kisitli modeller yalnizca acikca "
-                    "istendiginde secilebilir, varsayilan olamaz."
+                    f"{tag}: `default_model = \"{spec.default_model}\"` is in "
+                    "`restricted_models`. Restricted models can only be chosen when asked for "
+                    "by name; they cannot be the default."
                 )
             if spec.models and spec.default_model not in spec.models:
                 raise SystemExit(
-                    f"{tag}: `default_model = \"{spec.default_model}\"` `models` "
-                    f"listesinde yok. Liste: {', '.join(spec.models) or '-'}"
+                    f"{tag}: `default_model = \"{spec.default_model}\"` is not in "
+                    f"`models`. The list: {', '.join(spec.models) or '-'}"
                 )
 
         for key in (*spec.model_effort, *spec.model_efforts):
             if known and key not in known:
                 raise SystemExit(
-                    f"{tag}: `{key}` bilinmeyen bir model. Model kimligini "
-                    "dogrulayin (Antigravity icin: `agy models`). "
-                    f"Tanimli: {', '.join(sorted(known))}"
+                    f"{tag}: `{key}` is an unknown model. Check the model id "
+                    "(for Antigravity: `agy models`). "
+                    f"Defined: {', '.join(sorted(known))}"
                 )
 
         # Model basina varsayilan effort, o modelin kabul ettigi listede olmali.
@@ -631,13 +631,13 @@ def _check_agents(agents: dict[str, AgentSpec], path: Path) -> None:
             allowed = spec.efforts_for(model)
             if not allowed:
                 raise SystemExit(
-                    f"{tag}: `model_effort.\"{model}\" = \"{effort}\"` ama bu model "
-                    "hic effort kabul etmiyor (`model_efforts` bos)."
+                    f"{tag}: `model_effort.\"{model}\" = \"{effort}\"` but this model "
+                    "accepts no effort at all (`model_efforts` is empty)."
                 )
             if effort not in allowed:
                 raise SystemExit(
-                    f"{tag}: `model_effort.\"{model}\" = \"{effort}\"` gecersiz. "
-                    f"Bu modelin kabul ettikleri: {', '.join(allowed)}"
+                    f"{tag}: `model_effort.\"{model}\" = \"{effort}\"` is invalid. "
+                    f"This model accepts: {', '.join(allowed)}"
                 )
 
 
@@ -658,22 +658,22 @@ def _check_computer_task(
     spec = agents.get(name)
     if spec is None:
         raise SystemExit(
-            f"{where}: `computer_task_agent = \"{name}\"` ama boyle bir "
-            f"[agents.*] blogu yok. Tanimli: {', '.join(agents) or '-'}"
+            f"{where}: `computer_task_agent = \"{name}\"` but there is no such "
+            f"[agents.*] block. Defined: {', '.join(agents) or '-'}"
         )
     if not spec.enabled:
         raise SystemExit(
-            f"{where}: `computer_task_agent = \"{name}\"` devre disi "
-            "(`enabled = false`). computer_task hicbir zaman calisamaz."
+            f"{where}: `computer_task_agent = \"{name}\"` is disabled "
+            "(`enabled = false`), so computer_task can never run."
         )
 
     model = desktop.computer_task_model
     if model and model not in spec.known_models:
         raise SystemExit(
-            f"{where}: `computer_task_model = \"{model}\"` `{name}` ajaninin "
-            f"modeli degil. Secilebilir: {', '.join(spec.selectable_models) or '-'}. "
-            "Ajani degistirdiyseniz modeli de degistirin (ya da bos birakin, "
-            "ajanin kendi varsayilani kullanilir)."
+            f"{where}: `computer_task_model = \"{model}\"` is not a model of `{name}`. "
+            f"Selectable: {', '.join(spec.selectable_models) or '-'}. "
+            "If you changed the agent, change the model too (or leave it empty "
+            "to use the agent's own default)."
         )
 
     effort = desktop.computer_task_effort
@@ -681,8 +681,8 @@ def _check_computer_task(
         allowed = spec.efforts_for(model or spec.default_model or None)
         if allowed and effort not in allowed:
             raise SystemExit(
-                f"{where}: `computer_task_effort = \"{effort}\"` bu model icin "
-                f"gecersiz. Kabul edilenler: {', '.join(allowed)}"
+                f"{where}: `computer_task_effort = \"{effort}\"` is invalid for this "
+                f"model. Accepted: {', '.join(allowed)}"
             )
 
 
@@ -729,9 +729,9 @@ def load_config(explicit: str | None = None) -> Config:
     ).strip().lower()
     if inline_images not in ("auto", "true", "false"):
         raise SystemExit(
-            f"[server] ({path}): `inline_images` = {inline_images!r} gecersiz. "
-            'Gecerli degerler: true (varsayilan), false, '
-            '"auto" (stdio\'da acik, HTTP\'de kapali).'
+            f"[server] ({path}): `inline_images` = {inline_images!r} is invalid. "
+            'Valid values: true (default), false, '
+            '"auto" (on for local sessions, off over HTTP).'
         )
 
     password = os.environ.get("PCBRIDGE_PASSWORD") or auth.get("password", "")
@@ -791,8 +791,8 @@ def load_config(explicit: str | None = None) -> Config:
     default_agent = str(raw.get("default_agent", "claude"))
     if agents and default_agent not in agents:
         raise SystemExit(
-            f"`default_agent = \"{default_agent}\"` ama boyle bir [agents.*] blogu yok. "
-            f"Tanimli ajanlar: {', '.join(agents) or '-'}"
+            f"`default_agent = \"{default_agent}\"` but there is no such [agents.*] block. "
+            f"Defined agents: {', '.join(agents) or '-'}"
         )
 
     desktop_raw = raw.get("desktop") or {}
@@ -850,14 +850,14 @@ def load_config(explicit: str | None = None) -> Config:
     if desktop.repeat_click_limit and desktop.repeat_click_limit < 2:
         raise SystemExit(
             f"[desktop] ({path}): `repeat_click_limit` "
-            f"({desktop.repeat_click_limit}) ya 0 (kapali) ya da en az 2 "
-            "olmali. 1 verilirse ilk tiklama bile gonderilmez."
+            f"({desktop.repeat_click_limit}) must be 0 (off) or at least 2; "
+            "with 1 not even the first click would be sent."
         )
     if desktop.unlock_default_minutes > desktop.unlock_max_minutes:
         raise SystemExit(
             f"[desktop] ({path}): `unlock_default_minutes` "
-            f"({desktop.unlock_default_minutes}) `unlock_max_minutes` "
-            f"({desktop.unlock_max_minutes}) degerini asamaz."
+            f"({desktop.unlock_default_minutes}) must not exceed `unlock_max_minutes` "
+            f"({desktop.unlock_max_minutes})."
         )
     # 0 = kayan kira kapali. Cok kucuk bir deger izni ajan daha ikinci
     # cagrisini yapamadan dusururdu: `window_focus` GNOME arama yedeginde
@@ -865,93 +865,93 @@ def load_config(explicit: str | None = None) -> Config:
     if desktop.unlock_idle_seconds and desktop.unlock_idle_seconds < 10:
         raise SystemExit(
             f"[desktop] ({path}): `unlock_idle_seconds` "
-            f"({desktop.unlock_idle_seconds}) ya 0 (kayan kira kapali) ya da "
-            "en az 10 olmali."
+            f"({desktop.unlock_idle_seconds}) must be 0 (no sliding window) or "
+            "at least 10."
         )
     # 0 = olcekleme yok; negatif ya da minicik bir deger sessizce okunmaz
     # goruntu uretmesin.
     if desktop.screenshot_scale_long_edge and desktop.screenshot_scale_long_edge < 320:
         raise SystemExit(
             f"[desktop] ({path}): `screenshot_scale_long_edge` "
-            f"({desktop.screenshot_scale_long_edge}) ya 0 (olcekleme yok) ya da "
-            "en az 320 olmali."
+            f"({desktop.screenshot_scale_long_edge}) must be 0 (no scaling) or "
+            "at least 320."
         )
     # Bir MCP cagrisi 110 saniyeyi asamaz; butce ondan buyuk olursa arac
     # cevabini hazirlayamadan kesilir. Sessizce kirpmak yerine soyluyoruz.
     if not 1 <= desktop.batch_budget_seconds <= 105:
         raise SystemExit(
             f"[desktop] ({path}): `batch_budget_seconds` "
-            f"({desktop.batch_budget_seconds}) 1-105 arasinda olmali "
-            "(MCP cagrisi 110 saniyeyi asamiyor, gerisi cevap icin pay)."
+            f"({desktop.batch_budget_seconds}) must be between 1 and 105 "
+            "(an MCP call cannot exceed 110 s; the rest is left for the answer)."
         )
     if not re.fullmatch(r"[A-Za-z_]+(\+[A-Za-z_]+)*", desktop.ocr_languages):
         raise SystemExit(
             f"[desktop] ({path}): `ocr_languages` ({desktop.ocr_languages!r}) "
-            "tesseract dil kodlari olmali, `+` ile ayrilmis (ornek: tur+eng)."
+            "must be tesseract language codes joined with `+` (for example: eng+deu)."
         )
     if desktop.batch_max_actions < 1:
         raise SystemExit(
-            f"[desktop] ({path}): `batch_max_actions` en az 1 olmali."
+            f"[desktop] ({path}): `batch_max_actions` must be at least 1."
         )
     # 0 = isinlama. Cok dusuk bir hiz ekranin bir ucundan digerine gitmeyi
     # dakikalara cikarir ve bir MCP cagrisi 110 saniyeyi asamaz.
     if desktop.pointer_speed and not 200 <= desktop.pointer_speed <= 100_000:
         raise SystemExit(
-            f"[desktop] ({path}): `pointer_speed` ({desktop.pointer_speed}) ya 0 "
-            "(isinlama) ya da 200-100000 px/s arasinda olmali."
+            f"[desktop] ({path}): `pointer_speed` ({desktop.pointer_speed}) must be 0 "
+            "(jump) or between 200 and 100000 px/s."
         )
     if not 20 <= desktop.pointer_move_max_ms <= 5000:
         raise SystemExit(
             f"[desktop] ({path}): `pointer_move_max_ms` "
-            f"({desktop.pointer_move_max_ms}) 20-5000 ms arasinda olmali."
+            f"({desktop.pointer_move_max_ms}) must be between 20 and 5000 ms."
         )
     # 0 kapatir; cok kisa bir sure `hold`u kullanilamaz yapar (tut, sonra ayri
     # bir cagriyla tikla arasinda ag gecikmesi var).
     if not 0 <= desktop.click_hold_ms <= 150:
         raise SystemExit(
             f"[desktop] ({path}): `click_hold_ms` ({desktop.click_hold_ms}) "
-            "0-150 arasinda olmali (cift tiklamada iki basis 400 ms'lik esigin "
-            "icinde kalmali; tek bir uzun basis icin cagrida `hold_ms` verin)."
+            "must be between 0 and 150 (both presses of a double click must fit in the "
+            "400 ms threshold; for one long press pass `hold_ms` in the call)."
         )
     if desktop.hold_max_seconds and not 5 <= desktop.hold_max_seconds <= 3600:
         raise SystemExit(
             f"[desktop] ({path}): `hold_max_seconds` ({desktop.hold_max_seconds}) "
-            "ya 0 (otomatik birakma yok) ya da 5-3600 saniye arasinda olmali."
+            "must be 0 (no automatic release) or between 5 and 3600 seconds."
         )
     if desktop.capture_backend not in ("auto", "screencast", "gnome-screenshot"):
         raise SystemExit(
             f"[desktop] ({path}): `capture_backend` ({desktop.capture_backend!r}) "
-            "auto, screencast ya da gnome-screenshot olmali."
+            "must be auto, screencast or gnome-screenshot."
         )
     if desktop.computer_task_max_steps < 1:
         raise SystemExit(
-            f"[desktop] ({path}): `computer_task_max_steps` en az 1 olmali."
+            f"[desktop] ({path}): `computer_task_max_steps` must be at least 1."
         )
     _check_computer_task(desktop, agents, path)
     if desktop.shot_ttl_seconds < 10:
         raise SystemExit(
             f"[desktop] ({path}): `shot_ttl_seconds` "
-            f"({desktop.shot_ttl_seconds}) en az 10 olmali; daha kisasi "
-            "baglantiyi telefonda acmaya yetmez."
+            f"({desktop.shot_ttl_seconds}) must be at least 10; anything shorter "
+            "is not enough time to open the link on a phone."
         )
 
     native_capture = str(native_raw.get("capture", "auto")).strip().lower()
     if native_capture not in ("python", "rust", "auto"):
         raise SystemExit(
             f"[native] ({path}): `capture` ({native_capture!r}) "
-            "python, rust ya da auto olmali."
+            "must be python, rust or auto."
         )
     native_input = str(native_raw.get("input", "auto")).strip().lower()
     if native_input not in ("python", "rust", "auto"):
         raise SystemExit(
             f"[native] ({path}): `input` ({native_input!r}) "
-            "python, rust ya da auto olmali."
+            "must be python, rust or auto."
         )
     native_accessibility = str(native_raw.get("accessibility", "auto")).strip().lower()
     if native_accessibility not in ("python", "rust", "auto"):
         raise SystemExit(
             f"[native] ({path}): `accessibility` ({native_accessibility!r}) "
-            "python, rust ya da auto olmali."
+            "must be python, rust or auto."
         )
     native_binary = str(native_raw.get("binary_path", "")).strip()
     native = NativeSpec(

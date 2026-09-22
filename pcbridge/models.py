@@ -156,18 +156,18 @@ def _clamp_effort(effort: str, allowed: list[str]) -> tuple[str, str | None]:
         # Ajan effort listesini kanonik siralamayla eslestiremiyoruz; ilk
         # tanimliya dus, ama bunu soyle.
         pick = allowed[0]
-        return pick, f"'{effort}' bu ajanda tanimli degil, '{pick}' kullanildi."
+        return pick, f"'{effort}' is not defined for this agent; '{pick}' was used."
 
     if effort not in EFFORT_ORDER:
         pick = ordered[-1]
-        return pick, f"'{effort}' bilinen bir seviye degil, '{pick}' kullanildi."
+        return pick, f"'{effort}' is not a known level; '{pick}' was used."
 
     want = EFFORT_ORDER.index(effort)
     lower = [e for e in ordered if EFFORT_ORDER.index(e) < want]
     pick = lower[-1] if lower else ordered[0]
     return pick, (
-        f"'{effort}' bu ajanda yok (kabul edilenler: {', '.join(ordered)}), "
-        f"'{pick}' kullanildi."
+        f"'{effort}' is not available for this agent (accepted: {', '.join(ordered)}); "
+        f"'{pick}' was used."
     )
 
 
@@ -205,12 +205,12 @@ def resolve(
         if spec is None:
             return Resolution(
                 agent=key,
-                error=f"'{agent}' tanimli degil. Kullanilabilir ajanlar: {_enabled_names(cfg)}",
+                error=f"'{agent}' is not defined. Available agents: {_enabled_names(cfg)}",
             )
         if not spec.enabled:
             return Resolution(
                 agent=key,
-                error=f"'{key}' config.toml'da devre disi. Acik olanlar: {_enabled_names(cfg)}",
+                error=f"'{key}' is disabled in config.toml. Enabled: {_enabled_names(cfg)}",
             )
         agent_name = key
     elif model_text:
@@ -225,9 +225,9 @@ def resolve(
             return Resolution(
                 agent=cfg.default_agent,
                 error=(
-                    f"'{model_text}' hicbir ajanin model listesinde yok.\n"
-                    f"Secilebilir modeller:\n{_model_menu(cfg)}\n"
-                    "Kisitli bir model istiyorsan ajani da acikca belirt."
+                    f"'{model_text}' is in no agent's model list.\n"
+                    f"Selectable models:\n{_model_menu(cfg)}\n"
+                    "For a restricted model, name the agent explicitly too."
                 ),
             )
     else:
@@ -237,15 +237,15 @@ def resolve(
     if spec is None:
         return Resolution(
             agent=agent_name,
-            error=f"'{agent_name}' tanimli degil. Kullanilabilir ajanlar: {_enabled_names(cfg)}",
+            error=f"'{agent_name}' is not defined. Available agents: {_enabled_names(cfg)}",
         )
 
     # Model/effort secimi yapilandirilmamis ajan -> eski davranis aynen surer.
     if not spec.model_args and not spec.effort_args:
         if model_text or effort_text:
             notes.append(
-                f"'{agent_name}' icin model/effort secimi yapilandirilmamis "
-                "(config.toml'da model_args yok); istek yok sayildi."
+                f"model/effort selection is not configured for '{agent_name}' "
+                "(no model_args in config.toml); the request was ignored."
             )
         return Resolution(agent=agent_name, notes=notes)
 
@@ -257,10 +257,10 @@ def resolve(
             return Resolution(
                 agent=agent_name,
                 error=(
-                    f"'{model_text}' {agent_name} icin gecerli bir model degil.\n"
-                    f"Secilebilir: {', '.join(spec.selectable_models) or '-'}"
+                    f"'{model_text}' is not a valid model for {agent_name}.\n"
+                    f"Selectable: {', '.join(spec.selectable_models) or '-'}"
                     + (
-                        f"\nYalnizca acikca istenirse: {', '.join(spec.restricted_models)}"
+                        f"\nOnly when asked for by name: {', '.join(spec.restricted_models)}"
                         if spec.restricted_models
                         else ""
                     )
@@ -273,9 +273,9 @@ def resolve(
         return Resolution(
             agent=agent_name,
             error=(
-                f"'{chosen}' devre disi ve hicbir kosulda secilemez "
+                f"'{chosen}' is disabled and can never be chosen "
                 "(config.toml -> blocked_models). "
-                f"Kullanilabilir: {', '.join(spec.selectable_models) or '-'}"
+                f"Available: {', '.join(spec.selectable_models) or '-'}"
             ),
         )
 
@@ -287,9 +287,9 @@ def resolve(
             return Resolution(
                 agent=agent_name,
                 error=(
-                    f"Yapilandirma hatasi: '{agent_name}' varsayilan modeli "
-                    f"'{chosen}' kisitli listede. Varsayilan doldurma kisitli bir "
-                    "modele dusemez."
+                    f"Configuration error: the default model of '{agent_name}', "
+                    f"'{chosen}', is restricted. A default can never be a restricted "
+                    "model."
                 ),
             )
 
@@ -306,7 +306,7 @@ def resolve(
         # Bu model --effort bayragini hic kabul etmiyor (agy'de claude-*).
         if effort_text:
             notes.append(
-                f"'{chosen}' --effort kabul etmiyor; istenen '{eff}' yok sayildi."
+                f"'{chosen}' does not accept --effort; the requested '{eff}' was ignored."
             )
         eff = None
     elif eff and eff not in allowed:
@@ -319,9 +319,9 @@ def resolve(
         return Resolution(
             agent=agent_name,
             error=(
-                f"'{agent_name}' modelle birlikte effort da istiyor ama hicbiri "
-                f"cozulemedi. '{chosen}' icin gecerli seviyeler: "
-                f"{', '.join(allowed)}. (Effort'suz cagri CLI tarafinda hata verir.)"
+                f"'{agent_name}' needs an effort together with a model, but none could be "
+                f"resolved. Valid levels for '{chosen}': "
+                f"{', '.join(allowed)}. (The CLI fails a call without effort.)"
             ),
         )
 
@@ -349,36 +349,36 @@ def describe_agent(spec: AgentSpec) -> list[str]:
     Model listesi arac aciklamasindan tahmin edilmesin diye VERI olarak doner.
     """
     if not spec.model_args and not spec.effort_args:
-        return ["  - model secimi: yapilandirilmamis (CLI kendi varsayilanini kullanir)"]
+        return ["  - model selection: not configured (the CLI uses its own default)"]
 
     out: list[str] = []
-    default = spec.default_model or "(CLI varsayilani)"
+    default = spec.default_model or "(CLI default)"
     default_eff = spec.model_effort.get(spec.default_model, "") or spec.default_effort
     out.append(
-        f"  - varsayilan: `{default}`"
+        f"  - default: `{default}`"
         + (f" · effort `{default_eff}`" if default_eff else "")
     )
     if spec.selectable_models:
-        out.append("  - modeller:")
+        out.append("  - models:")
         for m in spec.selectable_models:
             efforts = spec.efforts_for(m)
-            eff_txt = ", ".join(efforts) if efforts else "effort YOK"
+            eff_txt = ", ".join(efforts) if efforts else "no effort"
             star = spec.model_effort.get(m, "")
             out.append(
                 f"    - `{m}` — effort: {eff_txt}"
-                + (f" (varsayilan {star})" if star else "")
+                + (f" (default {star})" if star else "")
             )
     if spec.restricted_models:
         out.append(
-            "  - yalnizca acikca istenirse: "
+            "  - only when asked for by name: "
             + ", ".join(f"`{m}`" for m in spec.restricted_models)
         )
     if spec.blocked_models:
         out.append(
-            "  - engelli (secilemez): " + ", ".join(f"`{m}`" for m in spec.blocked_models)
+            "  - blocked (never chosen): " + ", ".join(f"`{m}`" for m in spec.blocked_models)
         )
     if spec.effort_required_with_model:
-        out.append("  - not: bu ajanda model verilince effort da zorunlu")
+        out.append("  - note: this agent needs an effort whenever a model is given")
     return out
 
 

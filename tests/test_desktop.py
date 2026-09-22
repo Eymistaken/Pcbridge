@@ -253,7 +253,7 @@ def test_gate_disabled() -> None:
         d = g.check("mouse")
         check("reddedildi", not d.allowed)
         check("gerekce nasil acilacagini soyluyor", "enabled = true" in d.reason, d.reason)
-        check("status_line kapali diyor", "kapali" in g.status_line(), g.status_line())
+        check("status_line kapali diyor", "disabled" in g.status_line(), g.status_line())
 
 
 def test_gate_permission_window() -> None:
@@ -267,20 +267,20 @@ def test_gate_permission_window() -> None:
         check("gerekce desktop_unlock'u isaret ediyor", "desktop_unlock" in d.reason, d.reason)
 
         msg = g.unlock(5)
-        check("unlock mesaji dakikayi soyluyor", "5 dakika" in msg, msg)
+        check("unlock mesaji dakikayi soyluyor", "5 minutes" in msg, msg)
         check("izin acildi", g.is_unlocked())
         check("kalan sure makul", 290 <= g.remaining_seconds() <= 300, str(g.remaining_seconds()))
         check("izinli cagri geciyor", g.check("mouse").allowed)
 
-        check("tavan uygulaniyor", "120 dakika" in g.unlock(9999), g.unlock(9999))
-        check("taban uygulaniyor", "1 dakika" in g.unlock(0), g.unlock(0))
+        check("tavan uygulaniyor", "120 minutes" in g.unlock(9999), g.unlock(9999))
+        check("taban uygulaniyor", "1 minutes" in g.unlock(0), g.unlock(0))
 
         # Izin DISKTE: yeni bir SafetyGate ornegi ayni izni gormeli
         g.unlock(5)
         g2 = _gate(tmp, enabled=True, idle_guard_seconds=0)
         check("izin servis yeniden baslasa da yasiyor (diskte)", g2.is_unlocked())
 
-        check("lock kapatiyor", "kapatildi" in g.lock())
+        check("lock kapatiyor", "closed" in g.lock())
         check("kapandiktan sonra reddediliyor", not g.check("mouse").allowed)
 
         # Suresi gecmis izin
@@ -309,7 +309,7 @@ def test_gate_sliding_lease() -> None:
             check("ilk eylemden ONCE tavan bozulmadi (eski davranis)",
                   590 <= g.remaining_seconds() <= 600, str(g.remaining_seconds()))
             check("unlock mesaji kayma payini soyluyor",
-                  "90 saniye" in g.unlock(10), g.unlock(10))
+                  "90 seconds" in g.unlock(10), g.unlock(10))
 
         # --- 2. izinli cagri kirayi kaydiriyor ----------------------------
         with tempfile.TemporaryDirectory() as td:
@@ -327,7 +327,7 @@ def test_gate_sliding_lease() -> None:
                   590 <= g.hard_remaining_seconds() <= 600,
                   str(g.hard_remaining_seconds()))
             check("status_line iki sayiyi birden veriyor",
-                  "sert tavan" in g.status_line(), g.status_line())
+                  "hard ceiling" in g.status_line(), g.status_line())
 
         # --- 3. tavan asilmiyor -------------------------------------------
         with tempfile.TemporaryDirectory() as td:
@@ -474,7 +474,7 @@ def test_gate_locked_screen_and_idle() -> None:
             S.idle_ms = lambda: 999_000  # type: ignore[assignment]
             d = g.check("keyboard")
             check("ekran kilitliyken reddedilir", not d.allowed)
-            check("gerekce kilit diyor", "kilitli" in d.reason, d.reason)
+            check("gerekce kilit diyor", "locked" in d.reason, d.reason)
             check("force ile bile gecmez", not g.check("keyboard", force=True).allowed)
 
             S.screen_locked = lambda: False  # type: ignore[assignment]
@@ -741,7 +741,7 @@ def test_shot_lookup() -> None:
             check("shot + monitor birlikte reddediliyor", False, "hata yok")
         except C.CaptureError as exc:
             check("shot + monitor birlikte reddediliyor",
-                  "birlikte verilemez" in str(exc), str(exc)[:80])
+                  "cannot be combined" in str(exc), str(exc)[:80])
 
         # Kimlik dogrudan dosya adina donusuyor: suzulmezse dizin disina cikar.
         for bad in ("../../etc/passwd", "m2-a1b2c3/../x", "m2-ZZZZZZ", "m2-a1b2c",
@@ -751,15 +751,15 @@ def test_shot_lookup() -> None:
                 check(f"gecersiz kimlik reddedildi ({bad!r})", False, "hata yok")
             except C.CaptureError as exc:
                 check(f"gecersiz kimlik reddedildi ({bad!r})",
-                      "Gecersiz cekim kimligi" in str(exc), str(exc)[:60])
+                      "Invalid shot id" in str(exc), str(exc)[:60])
 
         try:
             C.to_global(1, 1, shot="m9-abcdef", dirs=[tmp])
             check("bilinmeyen kimlik reddediliyor", False, "hata yok")
         except C.CaptureError as exc:
-            check("bilinmeyen kimlik reddediliyor", "diye bir ekran" in str(exc),
+            check("bilinmeyen kimlik reddediliyor", "There is no screenshot" in str(exc),
                   str(exc)[:80])
-            check("gerekce ne yapilacagini soyluyor", "TAZE" in str(exc).upper(),
+            check("gerekce ne yapilacagini soyluyor", "FRESH" in str(exc).upper(),
                   str(exc)[:160])
 
         # Pencere cekiminin ekranda NEREDE oldugu bilinmiyor.
@@ -772,7 +772,7 @@ def test_shot_lookup() -> None:
             check("pencere cekiminden koordinat turetilmiyor", False, "hata yok")
         except C.CaptureError as exc:
             check("pencere cekiminden koordinat turetilmiyor",
-                  "turetilemez" in str(exc), str(exc)[:80])
+                  "no coordinate can be derived" in str(exc), str(exc)[:80])
 
         # -- yas -----------------------------------------------------------
         old = C.Shot(path=tmp / "o.png", monitor=None, offset=None,
@@ -832,7 +832,7 @@ def test_ambiguous_guard() -> None:
             check("goruntu kutusundaki koordinat reddediliyor", False, "hata yok")
         except C.CaptureError as exc:
             check("goruntu kutusundaki koordinat reddediliyor",
-                  "BELIRSIZ" in str(exc), str(exc)[:70])
+                  "AMBIGUOUS" in str(exc), str(exc)[:70])
             check("gerekce hangi cekimi kastettigini soyluyor",
                   "m2-aaaaaa" in str(exc), str(exc)[:200])
             check("gerekce nereye duseceğini soyluyor",
@@ -1232,8 +1232,8 @@ def test_uitree_describe() -> None:
               "gnome-text-editor" in txt and "Metin Duzenleyici" in txt, txt[:80])
         check("dugme etiketi ve kimligi listede",
               '"Kaydet"' in txt and "#" in txt, txt[:200])
-        check("sayim dogru", "5 dugum · 3 tiklanabilir · 1 yazilabilir" in txt,
-              [l for l in txt.splitlines() if "dugum ·" in l])
+        check("sayim dogru", "5 node(s) · 3 clickable · 1 editable" in txt,
+              [l for l in txt.splitlines() if "node(s) ·" in l])
         check("eylemsiz dugum isaretleniyor", "eylemsiz" in txt, txt[:400])
 
         bos = U.Dump(app="claude-desktop", window="Claude", nodes=[])
@@ -1242,7 +1242,7 @@ def test_uitree_describe() -> None:
               "Electron" in btxt and "screen_capture" in btxt, btxt[:160])
 
         kirpik = U.Dump(app="x", window="", nodes=d.nodes, truncated=True)
-        check("kirpilma bildiriliyor", "kirpildi" in U.describe(kirpik))
+        check("kirpilma bildiriliyor", "cut short" in U.describe(kirpik))
     finally:
         U._call = real
 
@@ -1310,7 +1310,7 @@ def test_uitree_actions() -> None:
             t.click(etiket.node_id)
             check("eylemsiz dugum reddediliyor", False, "hata firlatilmadi")
         except U.UiTreeError as exc:
-            check("eylemsiz dugum reddediliyor", "eylem sunmuyor" in str(exc), str(exc))
+            check("eylemsiz dugum reddediliyor", "offers no action" in str(exc), str(exc))
             check("koordinat yolu onerilmiyor ama alternatif veriliyor",
                   "screen_capture" in str(exc), str(exc))
 
@@ -1319,7 +1319,7 @@ def test_uitree_actions() -> None:
             t.click("ffff")
             check("taninmayan kimlik reddediliyor", False, "hata firlatilmadi")
         except U.UiTreeError as exc:
-            check("taninmayan kimlik reddediliyor", "taninmiyor" in str(exc), str(exc))
+            check("taninmayan kimlik reddediliyor", "is not known" in str(exc), str(exc))
             check("hata mesajinda cift diyez yok", "##" not in str(exc), str(exc))
 
         # Metin yazma: metnin kendisi cagriya girer ama yol/parmak izi de gider
@@ -1334,13 +1334,13 @@ def test_uitree_actions() -> None:
         check("settext metni gonderiyor", sent["text"] == "merhaba", str(sent))
 
         # Yardimci ok=false donerse Turkce hataya cevrilmeli
-        U._call = FakeCall({"ok": False, "error": "duzenlenebilir degil"})
+        U._call = FakeCall({"ok": False, "error": "is not editable"})
         try:
             t.set_text(metin.node_id, "x")
             check("yardimci hatasi yukari tasiniyor", False, "hata firlatilmadi")
         except U.UiTreeError as exc:
             check("yardimci hatasi yukari tasiniyor",
-                  "duzenlenebilir degil" in str(exc), str(exc))
+                  "is not editable" in str(exc), str(exc))
     finally:
         U._call = real
 
@@ -1362,7 +1362,7 @@ def test_uitree_timeout() -> None:
             U._call({"cmd": "dump"}, 20)
             check("zaman asimi hataya cevriliyor", False, "hata firlatilmadi")
         except U.UiTreeError as exc:
-            check("zaman asimi hataya cevriliyor", "cevap vermedi" in str(exc), str(exc))
+            check("zaman asimi hataya cevriliyor", "did not answer" in str(exc), str(exc))
             check("kullaniciya ne yapacagi soyleniyor",
                   "screen_capture" in str(exc), str(exc))
 
@@ -1376,7 +1376,7 @@ def test_uitree_timeout() -> None:
             U._call({"cmd": "dump"}, 20)
             check("bos cikti hataya cevriliyor", False, "hata firlatilmadi")
         except U.UiTreeError as exc:
-            check("bos cikti hataya cevriliyor", "cevap vermedi" in str(exc), str(exc))
+            check("bos cikti hataya cevriliyor", "did not answer" in str(exc), str(exc))
     finally:
         U.subprocess.run = real_run
 
@@ -1696,8 +1696,8 @@ def test_batch_budget() -> None:
           f"{len(res.remaining)} kaldi")
     check("yapilan + kalan = toplam", res.done + len(res.remaining) == 12)
     text = B.describe(res)
-    check("rapor kac/kac diyor", f"{res.done} tanesi yapildi" in text, text[:80])
-    check("rapor kalanlari listeliyor", "Yapilmayan" in text)
+    check("rapor kac/kac diyor", f"{res.done} of {res.total} actions done" in text, text[:80])
+    check("rapor kalanlari listeliyor", "not done" in text)
 
     # Butce bol olunca hepsi bitmeli.
     ops2 = FakeOps()
@@ -1739,8 +1739,8 @@ def test_batch_budget() -> None:
     check("liste tamamen kalanlarda", len(res3.remaining) == 2)
     text3 = B.describe(res3)
     check("rapor planin reddedildigini soyluyor",
-          "sigmiyor" in text3 and "40.0" in text3 and "25.0" in text3, text3)
-    check("rapor beklemelerin toplamini soyluyor", "40.0 sn" in text3, text3)
+          "does not fit" in text3 and "40.0" in text3 and "25.0" in text3, text3)
+    check("rapor beklemelerin toplamini soyluyor", "40.0 s" in text3, text3)
 
     # Reddedilen plan onceki bir cagrinin BILEREK tuttugu tusu birakmaz.
     class Holding(FakeOps):
@@ -1795,7 +1795,7 @@ def test_batch_stops() -> None:
           not any(x[0] == "key" for x in ops2.log), str(ops2.log))
     check("kalan iki eylem raporlandi", len(res2.remaining) == 2)
     check("rapor odak degisimini soyluyor",
-          "odak degisti" in B.describe(res2), B.describe(res2)[:120])
+          "focus changed" in B.describe(res2), B.describe(res2)[:120])
 
     # 3. Odak KASITLI degistiyse (launch/focus) durmamali.
     plan = B.parse('[{"a":"launch","app":"editor"},{"a":"click","x":1,"y":1},'
@@ -1844,7 +1844,7 @@ def test_batch_stops() -> None:
     check("metin GONDERILMEDI", not any(x[0] == "type" for x in ops7.log),
           str(ops7.log))
     check("beklenen pencere gerekcede yaziyor",
-          "beklenen" in res7.detail, res7.detail[:160])
+          "expected" in res7.detail, res7.detail[:160])
 
     # Beyan yokken gerekce ne yapilmasi gerektigini soylemeli: ajan bunu
     # okuyup `expect_focus` ile tekrar deneyebilsin.
@@ -1890,7 +1890,7 @@ def test_batch_stops() -> None:
           set(res11.held) == {"shift", "left"}, str(res11.held))
     check("duzgun bitiste release_all cagrilmadi",
           ("release_all",) not in ops11.log, str(ops11.log))
-    check("rapor basili kalani soyluyor", "HALA BASILI" in B.describe(res11))
+    check("rapor basili kalani soyluyor", "STILL HELD" in B.describe(res11))
 
     plan12 = B.parse('[{"a":"hold","keys":"shift"},{"a":"mouse_down"},'
                      '{"a":"ui_click","id":"x"}]')
@@ -1901,7 +1901,7 @@ def test_batch_stops() -> None:
           str(res12.held))
     check("yarida kalinca release_all cagrildi",
           ("release_all",) in ops12.log, str(ops12.log))
-    check("gerekce raporda", "basili kalanlar birakildi" in res12.detail,
+    check("gerekce raporda", "held input released" in res12.detail,
           res12.detail[:120])
 
 
@@ -1967,9 +1967,9 @@ def test_window_list() -> None:
     check("odaktaki isaretli", [w.app for w in wins if w.active] == ["editor"])
     text = U.describe_windows(wins)
     check("odak isareti metinde", "▸ editor" in text, text[:120])
-    check("uyari notu var", "gorunmeyen uygulama olabilir" in text)
+    check("uyari notu var", "may be missing here" in text)
     check("bos liste aciklama veriyor",
-          "Acik pencere gorunmuyor" in U.describe_windows([]))
+          "No open window is visible" in U.describe_windows([]))
 
 
 def test_apps_lookup() -> None:
@@ -2201,12 +2201,12 @@ def test_cli_parse() -> None:
     # Tek NESNE de liste de kabul edilmeli: ajan ikisini de yaziyor.
     code, out, _ = _run_cli("pcbridge.cli.do",
                             ["--dry-run", '{"a":"key","keys":"ctrl+s"}'])
-    check("tek nesne kabul edildi", code == C.EXIT_OK and "1 eylem" in out, out[:80])
+    check("tek nesne kabul edildi", code == C.EXIT_OK and "1 action(s)" in out, out[:80])
 
     code, out, _ = _run_cli(
         "pcbridge.cli.do",
         ["--dry-run", '[{"a":"click","x":10,"y":20},{"a":"wait","ms":50}]'])
-    check("liste kabul edildi", code == C.EXIT_OK and "2 eylem" in out, out[:80])
+    check("liste kabul edildi", code == C.EXIT_OK and "2 action(s)" in out, out[:80])
 
     # Bozuk girdinin uc bicimi de EXIT_BAD_INPUT vermeli -- "izin yok" degil.
     for label, arg in (
@@ -2216,7 +2216,7 @@ def test_cli_parse() -> None:
     ):
         code, _, err = _run_cli("pcbridge.cli.do", ["--dry-run", arg])
         check(f"{label} -> cikis 4", code == C.EXIT_BAD_INPUT, f"kod={code}")
-        check(f"{label} gerekcesi var", "HATA" in err, err[:60])
+        check(f"{label} gerekcesi var", "ERROR" in err, err[:60])
 
     code, _, err = _run_cli("pcbridge.cli.do", [])
     check("arguman yok -> cikis 4", code == C.EXIT_BAD_INPUT, f"kod={code}")
@@ -2250,7 +2250,7 @@ def test_cli_gate() -> None:
     # geldigi ve TASK_FORCE ile DEGISMEDIGI.
     code, _, err = _run_cli("pcbridge.cli.do", ['[{"a":"key","keys":"Escape"}]'])
     check("izinsiz -> cikis 3", code == C.EXIT_DENIED, f"kod={code}")
-    check("gerekce masaustu kapisindan", "Masaustu kontrolu" in err, err[:100])
+    check("gerekce masaustu kapisindan", "Desktop control" in err, err[:100])
 
     # PCBRIDGE_TASK_FORCE YALNIZCA bosta kontrolunu atlatir. Ekran kilidi,
     # kapali masaustu ve izin penceresi gibi sert reddedislere etkisi
@@ -2323,23 +2323,23 @@ def test_cli_shot_text() -> None:
     # ARITMETIK YOK: formul metinde kalirsa ajan yine elle cevirmeye kalkar.
     check("donusum formulu artik verilmiyor",
           "goruntu_x /" not in text and "+ goruntu_x" not in text, text[:400])
-    check("cevirme uyarisi var", "sen cevirme" in text, text[-200:])
+    check("cevirme uyarisi var", "do not convert" in text, text[-200:])
     # Bu bilgi kaybolursa ikinci monitore yapilan her tiklama 1920 px sasar.
     check("ust cubugun yeri yaziyor",
-          "ust cubugu" in text and "monitor 2" in text, text[-400:])
+          "primary monitor is 2" in text, text[-400:])
 
     # Olceklenmis goruntude olcek BILGI olarak duruyor (formul degil)
     small = [FakeShot(mons[1], (1920, 0), (1920, 1080), (1280, 720), 0.667,
                       "m2-ddeeff")]
     stext = "\n".join(SH.describe(small, mons))
-    check("olcek bilgi olarak yaziyor", "olcek 0.667" in stext, stext[:200])
+    check("olcek bilgi olarak yaziyor", "scale 0.667" in stext, stext[:200])
     check("olcekli goruntude de bolme formulu yok",
           "/ 0.667" not in stext, stext[:250])
 
     # Ofsetsiz goruntu (window) koordinat uretmemeli
     win = [FakeShot(None, None, (800, 600), (800, 600), 1.0, "win-aabbcc")]
     wtext = "\n".join(SH.describe(win, mons))
-    check("ofsetsiz goruntu uyariyor", "NEREDE" in wtext, wtext[:160])
+    check("ofsetsiz goruntu uyariyor", "WHERE" in wtext, wtext[:160])
     check("ofsetsiz goruntu icin ornek verilmiyor",
           '"shot":"win-aabbcc"' not in wtext, wtext[:300])
 
@@ -2541,7 +2541,7 @@ def test_cli_stale_shot() -> None:
         # KOORDINAT kontrolunun ONCE gelmesi ve gerekcesinin ayri olmasi.
         check("kor tiklama reddedildi", code == C.EXIT_DENIED, f"kod={code}")
         check("gerekce goruntu almayi soyluyor",
-              "pcb-shot" in err or "Masaustu kontrolu" in err, err[:120])
+              "pcb-shot" in err or "Desktop control" in err, err[:120])
 
     # `shot=` VERILDIGINDE olcut o cekimin kendi yasi, dizindeki en yeni PNG
     # DEGIL. Fark gercek bir acik: asagidaki dizinde taze bir PNG var, yani
@@ -2564,7 +2564,7 @@ def test_cli_stale_shot() -> None:
             env={"XDG_RUNTIME_DIR": d})
         check("bayat cekim kimligi reddedildi", code == C.EXIT_DENIED, f"kod={code}")
         check("gerekce cekimin KENDI yasini soyluyor",
-              "m2-a1b2c3" in err and "saniyelik" in err, err[:160])
+              "m2-a1b2c3" in err and "seconds old" in err, err[:160])
 
         # Taze bir kayit ayni dizinde kapiya kadar gelmeli: red gerekcesi artik
         # bayatlik degil masaustu kapisi olmali.
@@ -2611,7 +2611,7 @@ def test_computer_task_prompt() -> None:
     check("hazirlik bilgisi gecti", "Vesktop acildi" in p)
     check("adim butcesi gecti", "12" in p)
     # "basarili gibi gorunen basarisiz is" bu projenin tekrarlayan endisesi
-    check("dogru rapor istendi", "hedefe ulasildi mi" in p)
+    check("dogru rapor istendi", "whether the goal was reached" in p)
 
     p2 = T._task_prompt("YONERGE", "hedef", "", 5)
     check("hazirlik yoksa satir da yok", "hazirlandi" not in p2)
@@ -3329,7 +3329,7 @@ def test_session_env() -> None:
 
     # 9) describe() tani icin okunur bir satir versin
     line = SESS.describe({"XDG_RUNTIME_DIR": runtime, "DBUS_SESSION_BUS_ADDRESS": "$X"})
-    check("describe() GECERSIZ durumu bildiriyor", "GECERSIZ" in line, line)
+    check("describe() GECERSIZ durumu bildiriyor", "INVALID" in line, line)
 
     # 10) Onarim SAF degil ama YAN ETKISI SINIRLI: verilen sozluk disina cikmaz.
     before = dict(os.environ)

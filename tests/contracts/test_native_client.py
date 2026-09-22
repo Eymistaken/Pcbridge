@@ -165,11 +165,11 @@ class NativeConfigContractTests(unittest.TestCase):
             )
 
             path.write_text(swap(text, 'capture = "rust"', 'capture = "magic"'))
-            with self.assertRaisesRegex(SystemExit, "python, rust ya da auto"):
+            with self.assertRaisesRegex(SystemExit, "python, rust or auto"):
                 load_config(str(path))
 
             path.write_text(swap(text, 'input = "rust"', 'input = "magic"'))
-            with self.assertRaisesRegex(SystemExit, "python, rust ya da auto"):
+            with self.assertRaisesRegex(SystemExit, "python, rust or auto"):
                 load_config(str(path))
 
 

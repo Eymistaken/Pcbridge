@@ -171,8 +171,8 @@ def screen_lock_decision(observation: ScreenLockObservation) -> Decision:
     if observation.state == ScreenLockState.UNKNOWN:
         return Decision(
             False,
-            "Ekran kilidi durumu okunamadi. Oturumun acik oldugu "
-            "dogrulanmadan masaustu islemi baslatilmaz.",
+            "The screen lock state could not be read. No desktop action starts "
+            "before it is confirmed that the session is unlocked.",
             code=ErrorCode.LOCK_STATE_UNKNOWN,
             permission_scope="pcbridge.desktop",
             retryable=True,
@@ -181,8 +181,8 @@ def screen_lock_decision(observation: ScreenLockObservation) -> Decision:
     if observation.state == ScreenLockState.KNOWN_LOCKED:
         return Decision(
             False,
-            "Ekran kilitli. Kilitli ekranin arkasina girdi gonderilmez — "
-            "makinenin basina gecip kilidi acin.",
+            "The screen is locked. No input is sent behind a locked screen — "
+            "unlock it at the machine.",
             code=ErrorCode.SCREEN_LOCKED,
             permission_scope="pcbridge.desktop",
             retryable=True,
@@ -221,7 +221,7 @@ class SafetyGate:
         try:
             self._lease.replace(data)
         except (OSError, ValueError) as exc:  # pragma: no cover
-            logger.warning("desktop izin durumu yazilamadi: %s", exc)
+            logger.warning("could not write the desktop grant state: %s", exc)
 
     @property
     def revoke_epoch(self) -> int:
@@ -285,14 +285,14 @@ class SafetyGate:
         self.audit("desktop_unlock", minutes=mins, reason=reason or None,
                    granted_by=granted_by)
         msg = (
-            f"Masaustu kontrolu {mins} dakika acildi "
-            f"(bitis {time.strftime('%H:%M', time.localtime(until))})."
+            f"Desktop control granted for {mins} minutes "
+            f"(until {time.strftime('%H:%M', time.localtime(until))})."
         )
         idle = int(getattr(self.spec, "unlock_idle_seconds", 0) or 0)
         if idle > 0:
             msg += (
-                f" Son masaustu eyleminden {idle} saniye sonra kendiliginden "
-                f"dusuyor; {mins} dakika bunun sert tavani."
+                f" It closes by itself {idle} seconds after the last desktop "
+                f"action; {mins} minutes is the hard ceiling."
             )
         return msg
 
@@ -305,9 +305,9 @@ class SafetyGate:
             revoke_epoch=snapshot.revoke_epoch,
         )
         return (
-            "Masaustu kontrolu kapatildi."
+            "Desktop control closed."
             if was_remaining
-            else "Masaustu kontrolu zaten kapaliydi."
+            else "Desktop control was already closed."
         )
 
     def touch(self, token: LeaseToken | None = None) -> bool:
@@ -353,10 +353,10 @@ class SafetyGate:
     def _disabled_decision(self) -> Decision:
         return Decision(
             False,
-            "Masaustu kontrolu kapali. Acmak icin config.toml'da "
-            "`[desktop] enabled = true` yapip `systemctl --user restart pcbridge` "
-            "calistirin. (Varsayilan kapali olmasi bilincli: bu ozellik acik "
-            "oturumunuzdaki her uygulamaya erisim demek.)",
+            "Desktop control is disabled. To enable it, set "
+            "`[desktop] enabled = true` in the pcbridge config and restart pcbridge "
+            "(`pcbridge update`). (It is off by default on purpose: it means access "
+            "to every application in your session.)",
             code=ErrorCode.DESKTOP_DISABLED,
             permission_scope="pcbridge.desktop",
             suggested_action="Enable desktop control in config.toml and restart pcbridge.",
@@ -365,8 +365,8 @@ class SafetyGate:
     def _grant_required_decision(self) -> Decision:
         return Decision(
             False,
-            "Masaustu kontrolu su an kilitli. Once desktop_unlock ile "
-            f"sureli izin verin (varsayilan {self.spec.unlock_default_minutes} dakika).",
+            "Desktop control is locked right now. Grant time-limited access "
+            f"with desktop_unlock first (default {self.spec.unlock_default_minutes} minutes).",
             code=ErrorCode.GRANT_REQUIRED,
             permission_scope="pcbridge.desktop",
             retryable=True,
@@ -392,8 +392,8 @@ class SafetyGate:
             if activity.state == ActivityState.UNKNOWN:
                 return Decision(
                     False,
-                    "Kullanici etkinligi okunamadi. Yazma islemi ancak etkinlik "
-                    "durumu biliniyorsa veya force=true acikca verildiyse baslatilir.",
+                    "User activity could not be read. A write action only starts when "
+                    "the activity state is known or force=true is given explicitly.",
                     code=ErrorCode.ACTIVITY_UNKNOWN,
                     permission_scope="pcbridge.desktop",
                     retryable=True,
@@ -407,10 +407,10 @@ class SafetyGate:
             if idle < guard:
                 return Decision(
                     False,
-                    f"Makinenin basinda birisi var ({idle // 1000} saniye once "
-                    "klavye/fare kullanildi). Telefondan gelen eylemle sizin "
-                    "farenizin kavga etmemesi icin reddedildi. Yine de gonderilsin "
-                    "isterseniz force=true verin.",
+                    f"Someone is at the machine (keyboard/pointer used {idle // 1000} "
+                    "seconds ago). Refused so that remote actions and the user's own "
+                    "mouse do not fight. To send it anyway, "
+                    "pass force=true.",
                     code=ErrorCode.USER_ACTIVE,
                     permission_scope="pcbridge.desktop",
                     retryable=True,
@@ -422,8 +422,8 @@ class SafetyGate:
         if not self._rate_ok():
             return Decision(
                 False,
-                f"Hiz siniri: saniyede en fazla {self.spec.max_actions_per_second} "
-                "eylem. Bir sonraki saniyede tekrar deneyin.",
+                f"Rate limit: at most {self.spec.max_actions_per_second} actions "
+                "per second. Try again in the next second.",
                 code=ErrorCode.RATE_LIMITED,
                 permission_scope="pcbridge.desktop",
                 retryable=True,
@@ -436,8 +436,8 @@ class SafetyGate:
         if not self.touch(token):
             return Decision(
                 False,
-                "Masaustu kontrol izni bu cagri sirasinda kapatildi. "
-                "Yeni bir desktop_unlock izni olmadan islem baslatilmaz.",
+                "Desktop control was closed during this call. "
+                "Nothing starts without a new desktop_unlock grant.",
                 code=ErrorCode.GRANT_REQUIRED,
                 permission_scope="pcbridge.desktop",
                 retryable=True,
@@ -478,9 +478,9 @@ class SafetyGate:
         if (current.grant_id, current.revoke_epoch) == (token.grant_id, token.revoke_epoch):
             return Decision(
                 False,
-                "Masaustu izninin suresi bu eylem dizisi surerken doldu; kalan "
-                "eylemler gonderilmedi. Devam etmek icin once desktop_unlock ile "
-                "yeniden izin verin, sonra ekrani tekrar okuyun.",
+                "The desktop grant expired while this sequence was running; the "
+                "remaining actions were not sent. To continue, grant access again with "
+                "desktop_unlock, then read the screen again.",
                 code=ErrorCode.GRANT_EXPIRED,
                 permission_scope="pcbridge.desktop",
                 retryable=True,
@@ -492,9 +492,9 @@ class SafetyGate:
         if current.is_active():
             return Decision(
                 False,
-                "Bu eylem dizisi surerken masaustu izni yeniden verildi; eski "
-                "izinle baslayan dizi durduruldu ve kalan eylemler gonderilmedi. "
-                "Ekrani tekrar okuyup kalanlari yeni bir cagriyla gonderin.",
+                "Desktop access was granted anew while this sequence was running; "
+                "the sequence that started under the old grant was stopped and the rest "
+                "was not sent. Read the screen again and send the rest in a new call.",
                 code=ErrorCode.REVOKED,
                 permission_scope="pcbridge.desktop",
                 retryable=True,
@@ -504,9 +504,9 @@ class SafetyGate:
             )
         return Decision(
             False,
-            "Masaustu izni bu eylem dizisi surerken kapatildi (desktop_lock); "
-            "kalan eylemler gonderilmedi. Kullanici yeniden izin vermeden devam "
-            "etmeyin.",
+            "The desktop grant was closed while this sequence was running (desktop_lock); "
+            "the remaining actions were not sent. Do not continue until the user "
+            "grants access again.",
             code=ErrorCode.REVOKED,
             permission_scope="pcbridge.desktop",
             retryable=False,
@@ -560,15 +560,15 @@ class SafetyGate:
     def status_line(self) -> str:
         """`system_status` ve arac ciktilari icin tek satirlik ozet."""
         if not self.spec.enabled:
-            return "masaustu kontrolu: kapali (config.toml → [desktop] enabled)"
+            return "desktop control: disabled (config.toml → [desktop] enabled)"
         rem = self.remaining_seconds()
         if rem <= 0:
-            return "masaustu kontrolu: acik ama kilitli (desktop_unlock bekliyor)"
+            return "desktop control: enabled but locked (waiting for desktop_unlock)"
         lock = self._state_provider.screen_lock().state
         extra = (
-            " · EKRAN KILITLI"
+            " · SCREEN LOCKED"
             if lock == ScreenLockState.KNOWN_LOCKED
-            else " · EKRAN DURUMU BILINMIYOR"
+            else " · SCREEN STATE UNKNOWN"
             if lock == ScreenLockState.UNKNOWN
             else ""
         )
@@ -578,8 +578,8 @@ class SafetyGate:
         tavan = ""
         hard = self.hard_remaining_seconds()
         if hard > rem:
-            tavan = f" · sert tavan {hard // 60} dk {hard % 60} sn"
+            tavan = f" · hard ceiling {hard // 60} min {hard % 60} s"
         return (
-            f"masaustu kontrolu: izinli, {rem // 60} dk {rem % 60} sn kaldi"
+            f"desktop control: granted, {rem // 60} min {rem % 60} s left"
             f"{tavan}{extra}"
         )

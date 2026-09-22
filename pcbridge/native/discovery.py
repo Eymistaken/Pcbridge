@@ -34,7 +34,7 @@ def _require_executable(path: Path, source: str) -> Path:
         return path
     raise DesktopError(
         code=ErrorCode.NATIVE_NOT_FOUND,
-        message=f"Native helper bulunamadi veya calistirilabilir degil: {path}",
+        message=f"The native helper is missing or not executable: {path}",
         category=ErrorCategory.IPC,
         retryable=False,
         suggested_action=f"check_{source}_native_binary",
@@ -68,7 +68,7 @@ def discover_native_binary(
 
     raise DesktopError(
         code=ErrorCode.NATIVE_NOT_FOUND,
-        message="Pcbridge native helper bulunamadi.",
+        message="The pcbridge native helper was not found.",
         category=ErrorCategory.IPC,
         retryable=False,
         suggested_action="configure_native_binary",

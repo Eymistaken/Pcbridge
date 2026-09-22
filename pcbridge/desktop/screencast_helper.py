@@ -103,14 +103,14 @@ class ScreenCastHelper:
                 GLib.VariantType(ret), Gio.DBusCallFlags.NONE, 10000, None,
             )
         except GLib.Error as exc:
-            raise HelperError(f"{method} basarisiz: {exc.message}") from exc
+            raise HelperError(f"{method} failed: {exc.message}") from exc
 
     # ------------------------------------------------------------- yayin
     def start(self, monitors: list[str], cursor: bool = True) -> dict:
         if self.session is not None:
             return {"ok": True, "already": True, "monitors": sorted(self.nodes)}
         if not monitors:
-            raise HelperError("monitor listesi bos")
+            raise HelperError("the monitor list is empty")
 
         self.session = self._call(
             SCD_PATH, SCD, "CreateSession", GLib.Variant("(a{sv})", ({},)), "(o)"
@@ -189,8 +189,8 @@ class ScreenCastHelper:
             el = Gst.ElementFactory.make(name)
             if el is None:
                 raise HelperError(
-                    f"GStreamer ogesi bulunamadi: {name}. "
-                    "Kurulum: sudo apt install gstreamer1.0-pipewire "
+                    f"GStreamer element not found: {name}. "
+                    "Install it: sudo apt install gstreamer1.0-pipewire "
                     "gstreamer1.0-plugins-good"
                 )
             elems[name] = el
@@ -211,11 +211,11 @@ class ScreenCastHelper:
 
     def capture(self, monitor: str, path: str) -> dict:
         if self.session is None:
-            raise HelperError("yayin acik degil (once `start`)")
+            raise HelperError("sharing is not on (`start` first)")
         node = self.nodes.get(monitor)
         if node is None:
             raise HelperError(
-                f"'{monitor}' yayinda yok. Acik olanlar: {', '.join(sorted(self.nodes)) or '(hicbiri)'}"
+                f"'{monitor}' is not being shared. Shared: {', '.join(sorted(self.nodes)) or '(none)'}"
             )
 
         t0 = time.perf_counter()
@@ -229,8 +229,8 @@ class ScreenCastHelper:
 
         if msg is None:
             raise HelperError(
-                f"{FRAME_TIMEOUT_SECONDS} saniyede kare gelmedi "
-                f"(monitor uykuda ya da yayin dustu)"
+                f"no frame within {FRAME_TIMEOUT_SECONDS} seconds "
+                f"(the monitor is asleep or the share dropped)"
             )
         if msg.type == Gst.MessageType.ERROR:
             err, _ = msg.parse_error()
@@ -249,7 +249,7 @@ def main() -> int:
         try:
             req = json.loads(line)
         except ValueError as exc:
-            print(json.dumps({"ok": False, "error": f"bozuk JSON: {exc}"}), flush=True)
+            print(json.dumps({"ok": False, "error": f"malformed JSON: {exc}"}), flush=True)
             continue
 
         cmd = str(req.get("cmd", "")).strip().lower()
@@ -271,7 +271,7 @@ def main() -> int:
                 print(json.dumps({"ok": True, "bye": True}), flush=True)
                 return 0
             else:
-                out = {"ok": False, "error": f"bilinmeyen komut: {cmd!r}"}
+                out = {"ok": False, "error": f"unknown command: {cmd!r}"}
         except HelperError as exc:
             out = {"ok": False, "error": str(exc)}
         except Exception as exc:  # noqa: BLE001 - yardimci olmemeli

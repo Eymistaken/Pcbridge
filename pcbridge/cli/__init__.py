@@ -49,7 +49,7 @@ def load() -> Any:
     except SystemExit:
         raise
     except Exception as exc:  # noqa: BLE001
-        fail(f"config.toml okunamadi: {exc}", EXIT_BAD_INPUT)
+        fail(f"cannot read the pcbridge config: {exc}", EXIT_BAD_INPUT)
 
 
 def gate_of(cfg: Any) -> Any:
@@ -106,7 +106,7 @@ def check_gate(runtime: Any, tool: str, *, write: bool,
         ok, why = runtime.input_provider.available()
         if not ok:
             gate.audit(f"{tool}_unavailable", reason=why[:120], job=job_id())
-            fail(f"Sanal girdi cihazi kullanilamiyor: {why}", EXIT_DENIED)
+            fail(f"The virtual input device is unavailable: {why}", EXIT_DENIED)
 
 
 def shot_dir(cfg: Any) -> Path:
@@ -157,5 +157,5 @@ def fail(message: str, code: int = EXIT_BAD_INPUT, as_json: bool = False) -> Non
         print(json.dumps({"ok": False, "error": message}, ensure_ascii=False),
               file=sys.stderr)
     else:
-        print(f"HATA: {message}", file=sys.stderr)
+        print(f"ERROR: {message}", file=sys.stderr)
     sys.exit(code)

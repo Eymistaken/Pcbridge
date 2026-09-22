@@ -119,12 +119,12 @@ class RegionCaptureTests(unittest.TestCase):
     def test_refusals_name_the_problem(self) -> None:
         whole = self.shoot(FakeLegacyScreenCast(self.frames), None)[1]
         cases = {
-            "tek bir monitorun": dict(x=1800, y=10, width=300, height=100),
-            "en az 16x16": dict(x=10, y=10, width=8, height=100),
-            "negatif": dict(x=-5, y=10, width=100, height=100),
-            "disina tasiyor": dict(x=1400, y=10, width=300, height=100,
+            "does not fit inside one monitor": dict(x=1800, y=10, width=300, height=100),
+            "at least 16x16": dict(x=10, y=10, width=8, height=100),
+            "cannot be negative": dict(x=-5, y=10, width=100, height=100),
+            "goes outside": dict(x=1400, y=10, width=300, height=100,
                                    shot=whole.id, dirs=[self.out]),
-            "birlikte verilemez": dict(x=10, y=10, width=100, height=100,
+            "cannot be combined": dict(x=10, y=10, width=100, height=100,
                                        shot=whole.id, monitor=2, dirs=[self.out]),
         }
         for words, kwargs in cases.items():
@@ -146,7 +146,7 @@ class RegionCaptureTests(unittest.TestCase):
                 # Smaller than the long edge: never scaled up, full resolution.
                 self.assertEqual((shot.scaled, shot.scale), ((400, 300), 1.0))
                 self.assertTrue(shot.id.startswith("m2-"))
-                self.assertIn("bolge", shot.label)
+                self.assertIn("region", shot.label)
                 with Image.open(shot.path) as image:
                     self.assertEqual(image.size, (400, 300))
                     self.assertEqual(image.getpixel((0, 0)), pattern(100, 150))

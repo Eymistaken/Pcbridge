@@ -351,8 +351,8 @@ impl AccessibilityError {
         Self::new(
             "TIMEOUT",
             format!(
-                "Uygulama {seconds} saniyede cevap vermedi. Donmus olabilir; ekran \
-                 goruntusuyle bakin (screen_capture)."
+                "The application did not answer within {seconds} seconds. It may be hung; \
+                 look with a screenshot (screen_capture)."
             ),
         )
     }
@@ -782,8 +782,8 @@ pub fn read_dump<T: Tree + ?Sized>(
             let Some((app, (index, window, info))) = found else {
                 return Err(AccessibilityError::new(
                     "TARGET_MISMATCH",
-                    "Odakta pencere yok (AT-SPI hicbir pencereyi ACTIVE isaretlemiyor). \
-                     Bir pencereye tiklayin ya da target ile uygulama adi verin.",
+                    "No window has the focus (AT-SPI marks no window ACTIVE). \
+                     Click a window, or give an application name as target.",
                 ));
             };
             (
@@ -882,7 +882,7 @@ fn find_app<'a>(apps: &'a [App], target: &str) -> Result<(&'a App, usize), Acces
             return Err(AccessibilityError::new(
                 "ELEMENT_AMBIGUOUS",
                 format!(
-                    "{} birden fazla uygulamaya uyuyor: {}. Tam adi verin.",
+                    "{} matches more than one application: {}. Give the full name.",
                     quoted(target),
                     names.join(", ")
                 ),
@@ -900,7 +900,7 @@ fn find_app<'a>(apps: &'a [App], target: &str) -> Result<(&'a App, usize), Acces
         return Err(AccessibilityError::new(
             "TARGET_MISMATCH",
             format!(
-                "Uygulama bulunamadi: {}. Acik olanlar: {}",
+                "Application not found: {}. Open ones: {}",
                 quoted(target),
                 names.join(", ")
             ),
@@ -948,7 +948,7 @@ pub fn focused<T: Tree + ?Sized>(tree: &T) -> Result<Value, AccessibilityError> 
     else {
         return Err(AccessibilityError::new(
             "TARGET_MISMATCH",
-            "Odakta pencere yok (AT-SPI hicbir pencereyi ACTIVE isaretlemiyor).",
+            "No window has the focus (AT-SPI marks no window ACTIVE).",
         ));
     };
     Ok(json!({

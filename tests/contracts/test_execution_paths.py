@@ -182,9 +182,9 @@ class ExecutionPathContractTests(unittest.IsolatedAsyncioTestCase):
             runtime.close()
 
         self.assertIn("shell-ok", shell.content[0].text)
-        self.assertIn("Yazildi", written.content[0].text)
+        self.assertIn("Written", written.content[0].text)
         self.assertEqual(file_content, "file-ok")
-        self.assertIn("Kayitli is yok", jobs.content[0].text)
+        self.assertIn("No jobs recorded", jobs.content[0].text)
 
     async def test_tool_descriptions_present_multiple_execution_paths(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

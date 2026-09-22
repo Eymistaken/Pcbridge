@@ -138,11 +138,11 @@ def click_hold_ms_checked(value: Any) -> int:
     try:
         ms = int(value)
     except (TypeError, ValueError):
-        raise InputError(f"hold_ms sayi olmali ({value!r} verildi)") from None
+        raise InputError(f"hold_ms must be a number ({value!r} given)") from None
     if not 0 <= ms <= MAX_CLICK_HOLD_MS:
         raise InputError(
-            f"hold_ms 0-{MAX_CLICK_HOLD_MS} arasinda olmali ({ms} verildi); "
-            "daha uzun basili tutmak icin mouse_down/mouse_up kullanin"
+            f"hold_ms must be between 0 and {MAX_CLICK_HOLD_MS} ({ms} given); "
+            "to hold longer use mouse_down/mouse_up"
         )
     return ms
 
@@ -261,9 +261,9 @@ def key_code(name: str) -> int:
     ident = KEY_NAMES.get(key)
     if ident is None:
         raise InputError(
-            f"Bilinmeyen tus: '{name}'. "
-            "Ornekler: return, escape, tab, ctrl, shift, super, f5, a, 1, up. "
-            "Kombinasyon icin: 'ctrl+shift+t'"
+            f"Unknown key: '{name}'. "
+            "Examples: return, escape, tab, ctrl, shift, super, f5, a, 1, up. "
+            "For a combination: 'ctrl+shift+t'"
         )
     return e.ecodes[ident]
 
@@ -276,7 +276,7 @@ def parse_combo(combo: str) -> list[int]:
     """
     parts = [p for p in str(combo).replace(" ", "").split("+") if p]
     if not parts:
-        raise InputError("Bos tus kombinasyonu")
+        raise InputError("Empty key combination")
     return [key_code(p) for p in parts]
 
 
@@ -302,7 +302,7 @@ def button_code(button: str) -> int:
     ident = BUTTON_IDENTS.get(key)
     if ident is None:
         raise InputError(
-            f"Bilinmeyen dugme: '{button}'. Gecerli: left, right, middle"
+            f"Unknown button: '{button}'. Valid: left, right, middle"
         )
     return e.ecodes[ident]
 
@@ -467,8 +467,8 @@ class InputBackend:
         """(kullanilabilir mi, degilse Turkce gerekce)."""
         if not EVDEV_AVAILABLE:
             return False, (
-                f"python paketi `evdev` yok ({EVDEV_IMPORT_ERROR}). "
-                "Kurulum: ./.venv/bin/pip install -r requirements.txt"
+                f"the python package `evdev` is missing ({EVDEV_IMPORT_ERROR}). "
+                "Reinstall pcbridge with its [desktop] extra (`pcbridge setup`)."
             )
         try:
             import os
@@ -477,13 +477,13 @@ class InputBackend:
             os.close(fd)
         except FileNotFoundError:
             return False, (
-                f"{UINPUT_NODE} yok — `uinput` cekirdek modulu yuklu degil. "
-                "Cozum: sudo ./setup_uinput.sh"
+                f"{UINPUT_NODE} does not exist — the `uinput` kernel module is not "
+                "loaded. `pcbridge doctor` prints the command that fixes it."
             )
         except PermissionError:
             return False, (
-                f"{UINPUT_NODE} icin izin yok. Cozum: sudo ./setup_uinput.sh "
-                "(udev kurali + uaccess ACL kurar)"
+                f"no permission for {UINPUT_NODE}. `pcbridge doctor` prints the "
+                "command that installs the udev rule (uaccess ACL)."
             )
         except OSError as exc:
             return False, f"{UINPUT_NODE} acilamadi: {exc}"
@@ -890,7 +890,7 @@ class InputBackend:
         `hold_ms`: her basisin suresi; verilmezse `click_hold_ms` ayari.
         """
         if count < 1 or count > 3:
-            raise InputError("Tiklama sayisi 1-3 arasinda olmali")
+            raise InputError("The click count must be between 1 and 3")
         hold = self._click_hold_ms if hold_ms is None else click_hold_ms_checked(hold_ms)
         code = self._button(button)
         ptr = self._pointer()
@@ -992,7 +992,7 @@ class InputBackend:
         Donen deger, ne yapildigini anlatan kisa bir Turkce not.
         """
         if not text:
-            return "bos metin, hicbir sey yapilmadi"
+            return "empty text, nothing done"
         if raw:
             return self._type_raw(text)
         return self._type_clipboard(text, restore_clipboard)
@@ -1006,10 +1006,10 @@ class InputBackend:
         time.sleep(0.15)
         self.key("ctrl+v")
         time.sleep(0.25)
-        note = f"pano yoluyla {len(text)} karakter yapistirildi"
+        note = f"pasted {len(text)} characters through the clipboard"
         if restore:
             self.clipboard.restore(saved)
-            note += "; pano eski icerigine donduruldu" if saved else "; pano temizlendi"
+            note += "; clipboard restored" if saved else "; clipboard cleared"
         return note
 
     def _type_raw(self, text: str) -> str:
@@ -1028,10 +1028,10 @@ class InputBackend:
             name, shift = entry
             self.key(f"shift+{name}" if shift else name)
             time.sleep(0.012)
-        note = f"ham tus yoluyla {len(text) - len(unknown)} karakter yazildi"
+        note = f"typed {len(text) - len(unknown)} characters as raw keys"
         if unknown:
             note += (
-                f"; {len(unknown)} karakter atlandi ({''.join(sorted(set(unknown)))[:20]}) "
-                "— ham yol yalnizca ASCII destekler, Turkce icin pano yolunu kullan"
+                f"; {len(unknown)} characters skipped ({''.join(sorted(set(unknown)))[:20]}) "
+                "— the raw path only handles ASCII; use the clipboard path for other text"
             )
         return note

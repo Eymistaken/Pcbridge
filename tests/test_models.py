@@ -363,12 +363,12 @@ def test_claude_stream_parser() -> None:
     check("oturum kimligi okundu", p["session_id"] == "sess-abc-123", str(p["session_id"]))
     check(
         "arac cagrisi adimi var",
-        any("arac: Bash" in s for s in p["steps"]),
+        any("tool: Bash" in s for s in p["steps"]),
         str(p["steps"]),
     )
     check(
         "arac sonucu adimi var",
-        any(s.startswith("← sonuc:") for s in p["steps"]),
+        any(s.startswith("← result:") for s in p["steps"]),
         str(p["steps"]),
     )
     check(

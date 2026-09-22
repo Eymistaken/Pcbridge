@@ -131,12 +131,12 @@ def oversized(shot: "Shot") -> bool:
 
 
 OVERSIZE_NOTE = (
-    "⚠️ Bu goruntunun uzun kenari {edge} px ve {limit} px'i asiyor. Goruntu "
-    "isleyen istemciler onu KENDILERI kuculttugu icin sizin gordugunuz piksel "
-    "ile kayitli olcek ayrisir; `shot` ile verdiginiz koordinat sistematik "
-    "olarak sasar (yaklasik {ratio:.2f} kat). Koordinat cikaracaksaniz "
-    "`scale={limit}` ya da daha kucugunu kullanin; bu goruntu yalnizca BAKMAK "
-    "icin."
+    "⚠️ The long edge of this picture is {edge} px, above {limit} px. Clients "
+    "that process images scale it down THEMSELVES, so the pixel you see and the "
+    "recorded scale disagree; a coordinate given with `shot` will be off "
+    "systematically (by about {ratio:.2f} times). To read coordinates off it, "
+    "use `scale={limit}` or smaller; this picture is only for LOOKING "
+    "at."
 )
 
 
@@ -197,9 +197,9 @@ class Shot:
     @property
     def label(self) -> str:
         if self.monitor is None:
-            return "odaktaki pencere"
-        star = " (birincil)" if self.monitor.primary else ""
-        part = " · bolge" if self.region else ""
+            return "focused window"
+        star = " (primary)" if self.monitor.primary else ""
+        part = " · region" if self.region else ""
         return f"{self.monitor.index} · {self.monitor.connector}{star}{part}"
 
     @property
@@ -293,8 +293,8 @@ class Shot:
 def _meta_path(shot_id: str, directory: Path) -> Path:
     if not SHOT_ID_RE.match(shot_id or ""):
         raise CaptureError(
-            f"Gecersiz cekim kimligi: {shot_id!r}. Beklenen bicim `m2-a1b2c3` "
-            "(ekran goruntusu ciktisindaki `shot:` satiri)."
+            f"Invalid shot id: {shot_id!r}. Expected the form `m2-a1b2c3` "
+            "(the `shot:` line of the screenshot output)."
         )
     return Path(directory) / f"{shot_id}{META_SUFFIX}"
 
@@ -343,7 +343,7 @@ def load_shot(shot_id: str, dirs: Sequence[Path]) -> Shot:
         try:
             data = json.loads(meta.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
-            raise CaptureError(f"Cekim kaydi okunamadi ({meta}): {exc}") from exc
+            raise CaptureError(f"Cannot read the shot record ({meta}): {exc}") from exc
         offset = tuple(data["offset"]) if data.get("offset") else None
         size = tuple(data.get("source_pixel_size") or data["size"])
         desktop = data.get("desktop_size")
@@ -380,10 +380,10 @@ def load_shot(shot_id: str, dirs: Sequence[Path]) -> Shot:
             region=bool(data.get("region")),
         )
     raise CaptureError(
-        f"`{shot_id}` diye bir ekran goruntusu yok (bakilan yerler: "
-        f"{', '.join(tried) or 'hicbiri'}). Kimlik cekim ciktisindaki `shot:` "
-        "satirindan aynen kopyalanmali; eski cekimler 24 saat sonra siliniyor. "
-        "Taze bir goruntu alin."
+        f"There is no screenshot `{shot_id}` (looked in: "
+        f"{', '.join(tried) or 'nowhere'}). Copy the id exactly from the `shot:` "
+        "line of the capture output; old captures are removed after 24 hours. "
+        "Take a fresh screenshot."
     )
 
 
@@ -419,13 +419,13 @@ def newest_scaled_shot(
 
 
 AMBIGUOUS_NOTE = (
-    "⛔ Koordinat ({x}, {y}) BELIRSIZ. {age} saniye once kucultulmus bir ekran "
-    "goruntusu aldiniz (`{id}`, {w}x{h}, olcek {scale:.3f}) ve bu koordinat o "
-    "goruntunun icinde kaliyor -- ama ne `shot` ne `monitor` verdiniz, yani "
-    "GLOBAL tuval koordinati sayilacak ve eylem {where} duserdi.\n"
-    '  · Koordinati o goruntuden okuduysaniz:  shot="{id}"\n'
-    "  · Gercekten global/monitor koordinatiysa: monitor=<numara>\n"
-    "Ikisinden birini secin; hangisini kastettiginizi tahmin etmiyoruz."
+    "⛔ The coordinate ({x}, {y}) is AMBIGUOUS. {age} seconds ago you took a scaled-down "
+    "screenshot (`{id}`, {w}x{h}, scale {scale:.3f}) and this coordinate lies "
+    "inside that picture -- but you gave neither `shot` nor `monitor`, so it "
+    "would count as a GLOBAL canvas coordinate and the action would land {where}.\n"
+    '  · If you read the coordinate off that picture:  shot="{id}"\n'
+    "  · If it really is a global/monitor coordinate: monitor=<number>\n"
+    "Pick one of the two; pcbridge does not guess which one you meant."
 )
 
 
@@ -454,10 +454,10 @@ def to_global(
     if shot:
         if monitor is not None:
             raise CaptureError(
-                "`shot` ile `monitor` birlikte verilemez: `shot` zaten hangi "
-                "monitor oldugunu VE olcegi biliyor. Goruntudeki koordinati "
-                "kullaniyorsaniz yalnizca `shot`, monitore ozel tam cozunurluk "
-                "koordinati kullaniyorsaniz yalnizca `monitor` verin."
+                "`shot` and `monitor` cannot be combined: `shot` already knows "
+                "the monitor AND the scale. For a coordinate from the picture give "
+                "only `shot`; for a full-resolution coordinate inside a monitor "
+                "give only `monitor`."
             )
         found = load_shot(shot, dirs or ())
         if found.offset is not None and not found.covers_image_point(x, y):
@@ -466,17 +466,17 @@ def to_global(
             # hicbir yere giderdi. Kimlik verildigine gore koordinat O
             # goruntuden okunmus olmali.
             raise CaptureError(
-                f"({x}, {y}) `{shot}` goruntusunun disinda: goruntu "
-                f"{found.scaled[0]}x{found.scaled[1]} piksel. Koordinati o "
-                "goruntuden okuyun ya da `shot` vermeden global koordinat "
-                "kullanin."
+                f"({x}, {y}) is outside the `{shot}` picture: it is "
+                f"{found.scaled[0]}x{found.scaled[1]} pixels. Read the coordinate "
+                "off that picture, or use a global coordinate without "
+                "`shot`."
             )
         point = found.to_global(x, y)
         if point is None:
             raise CaptureError(
-                f"`{shot}` odaktaki pencerenin goruntusu; ekranin neresinde "
-                "oldugu bilinmiyor, ondan koordinat turetilemez. Monitor "
-                "goruntusu alin (`monitor='all'`) ya da `ui_click` kullanin."
+                f"`{shot}` is a picture of the focused window; where it sits on "
+                "the screen is unknown, so no coordinate can be derived from it. "
+                "Capture a monitor (`monitor='all'`) or use `ui_click`."
             )
         # Kayittaki ofset CEKIM ANINDAKI duzene ait. Monitor eklendi, cikti,
         # tasindi ya da cozunurlugu degistiyse ayni ofset artik baska bir
@@ -486,10 +486,10 @@ def to_global(
             monitorslib.list_monitors()
         ):
             raise ShotLayoutChanged(
-                f"`{shot}` cekildikten sonra ekran duzeni degisti (monitor "
-                "eklendi, cikarildi, tasindi ya da cozunurlugu degisti). O "
-                "goruntudeki koordinat artik baska bir yere duser; yeni bir "
-                "ekran goruntusu alin."
+                f"The screen layout changed after `{shot}` was taken (a monitor "
+                "was added, removed, moved or changed resolution). A coordinate from "
+                "that picture would land somewhere else now; take a new "
+                "screenshot."
             )
         return _on_a_monitor(point, f"`{shot}` goruntusundeki ({x}, {y})")
 
@@ -505,15 +505,15 @@ def to_global(
         recent = newest_scaled_shot(dirs or (), guard_age)
         if recent is not None and recent.covers_image_point(x, y):
             land = monitorslib.find_monitor(x, y)
-            where = (f"monitor {land.index} ({land.connector}) uzerine"
-                     if land else "tuvalin disina")
+            where = (f"on monitor {land.index} ({land.connector})"
+                     if land else "outside the canvas")
             raise CaptureError(AMBIGUOUS_NOTE.format(
                 x=x, y=y, age=int(recent.age), id=recent.id,
                 w=recent.scaled[0], h=recent.scaled[1], scale=recent.scale,
                 where=where,
             ))
     where = (
-        f"monitor {monitor} uzerindeki ({x}, {y})"
+        f"({x}, {y}) on monitor {monitor}"
         if monitor is not None
         else f"({x}, {y})"
     )
@@ -549,35 +549,35 @@ def resolve_region(
     """
     if width < REGION_MIN_EDGE or height < REGION_MIN_EDGE:
         raise CaptureError(
-            f"Bolge en az {REGION_MIN_EDGE}x{REGION_MIN_EDGE} olmali "
-            f"({width}x{height} verildi). Bicim [x, y, genislik, yukseklik]."
+            f"A region must be at least {REGION_MIN_EDGE}x{REGION_MIN_EDGE} "
+            f"({width}x{height} given). The form is [x, y, width, height]."
         )
     if x < 0 or y < 0:
-        raise CaptureError(f"Bolgenin sol ustu negatif olamaz ({x}, {y}).")
+        raise CaptureError(f"The top left of a region cannot be negative ({x}, {y}).")
     mons = monitorslib.list_monitors()
     if shot:
         if monitor is not None:
             raise CaptureError(
-                "`shot` ile `monitor` birlikte verilemez: bolgeyi o goruntuden "
-                "okuduysaniz yalnizca `shot`, monitor icindeki tam cozunurluk "
-                "koordinatiysa yalnizca `monitor` verin."
+                "`shot` and `monitor` cannot be combined: if you read the region "
+                "off that picture give only `shot`; for a full-resolution "
+                "coordinate inside a monitor give only `monitor`."
             )
         found = load_shot(shot, dirs or ())
         if found.offset is None:
             raise CaptureError(
-                f"`{shot}` odaktaki pencerenin goruntusu; ekranin neresinde "
-                "oldugu bilinmiyor, ondan bolge turetilemez."
+                f"`{shot}` is a picture of the focused window; where it sits on the "
+                "screen is unknown, so no region can be derived from it."
             )
         if x + width > found.scaled[0] or y + height > found.scaled[1]:
             raise CaptureError(
-                f"Bolge `{shot}` goruntusunun disina tasiyor: goruntu "
-                f"{found.scaled[0]}x{found.scaled[1]} piksel."
+                f"The region goes outside the `{shot}` picture: it is "
+                f"{found.scaled[0]}x{found.scaled[1]} pixels."
             )
         if found.topology and found.topology != monitorslib.topology_id(mons):
             raise ShotLayoutChanged(
-                f"`{shot}` cekildikten sonra ekran duzeni degisti; o "
-                "goruntudeki bolge artik baska bir yere duser. Yeni bir ekran "
-                "goruntusu alin."
+                f"The screen layout changed after `{shot}` was taken; the region "
+                "from that picture would land somewhere else now. Take a new "
+                "screenshot."
             )
         dw, dh = found.desktop_units
         sw, sh = found.scaled
@@ -587,24 +587,24 @@ def resolve_region(
         right = found.offset[0] + math.ceil((x + width) * dw / sw)
         bottom = found.offset[1] + math.ceil((y + height) * dh / sh)
         box = (left, top, right - left, bottom - top)
-        what = f"`{shot}` goruntusundeki bolge"
+        what = f"the region in picture `{shot}`"
     elif monitor is not None:
         mon = monitorslib.resolve(monitor, mons)
         box = (mon.x + x, mon.y + y, width, height)
-        what = f"monitor {mon.index} icindeki bolge"
+        what = f"the region in monitor {mon.index}"
     else:
         box = (x, y, width, height)
-        what = "bolge"
+        what = "the region"
     gx, gy, gw, gh = box
     home = monitorslib.find_monitor(gx, gy, mons)
     if home is None or gx + gw > home.x + home.width or gy + gh > home.y + home.height:
         where = (f"monitor {home.index} ({home.x}, {home.y}, {home.width}x"
-                 f"{home.height})" if home else "hicbir monitor")
+                 f"{home.height})" if home else "no monitor")
         raise CaptureError(
-            f"{what} ({gx}, {gy}, {gw}x{gh}) tek bir monitorun icinde kalmiyor "
-            f"(sol ustu: {where}). Her monitor ayri bir kareden geliyor; "
-            "bolgeyi bir monitorun icinde secin. `screen_info` kutulari "
-            "gosteriyor."
+            f"{what} ({gx}, {gy}, {gw}x{gh}) does not fit inside one monitor "
+            f"(its top left is on: {where}). Every monitor comes from its own frame; "
+            "choose the region inside one monitor. `screen_info` shows the "
+            "boxes."
         )
     return box, home
 
@@ -628,10 +628,10 @@ def _on_a_monitor(point: tuple[int, int], what: str) -> tuple[int, int]:
         return point
     width, height = monitorslib.canvas_size(mons)
     raise CaptureError(
-        f"{what} hicbir monitorun ustune dusmuyor: global ({point[0]}, "
-        f"{point[1]}) ve tuval {width}x{height}. Monitorler arasinda bosluk "
-        "olabilir ya da koordinat ekranin disinda. `screen_info` monitor "
-        "kutularini gosteriyor."
+        f"{what} is not on any monitor: global ({point[0]}, "
+        f"{point[1]}) on a {width}x{height} canvas. There may be a gap between "
+        "monitors, or the coordinate is off the screen. `screen_info` shows the "
+        "monitor boxes."
     )
 
 
@@ -646,15 +646,15 @@ def available(screencast: Any = None) -> tuple[bool, str]:
     """
     if not PIL_AVAILABLE:
         return False, (
-            f"python paketi `Pillow` yok ({PIL_IMPORT_ERROR}). "
-            "Kurulum: ./.venv/bin/pip install -r requirements.txt"
+            f"the python package `Pillow` is missing ({PIL_IMPORT_ERROR}). "
+            "Reinstall pcbridge with its [desktop] extra (`pcbridge setup`)."
         )
     if screencast is not None and screencast.is_open():
         return True, ""
     if not shutil.which(GNOME_SCREENSHOT):
         return False, (
-            f"`{GNOME_SCREENSHOT}` kurulu degil. "
-            "Kurulum: sudo apt install gnome-screenshot"
+            f"`{GNOME_SCREENSHOT}` is not installed. "
+            "Install it: sudo apt install gnome-screenshot"
         )
     return True, ""
 
@@ -678,15 +678,15 @@ def _run_grab(args: list[str], target: Path) -> None:
     )
     if proc.returncode != 0:
         raise CaptureError(
-            f"{GNOME_SCREENSHOT} basarisiz (cikis {proc.returncode}): "
+            f"{GNOME_SCREENSHOT} failed (exit {proc.returncode}): "
             f"{(proc.stderr or proc.stdout or '').strip()[:200]}"
         )
     # gnome-screenshot bazen cikis 0 verip dosyayi hic yazmiyor (oturum ortami
     # eksikse); sessizce bos goruntu dondurmektense burada patla.
     if not target.exists() or target.stat().st_size == 0:
         raise CaptureError(
-            f"{GNOME_SCREENSHOT} cikis 0 verdi ama dosya olusmadi. Servis "
-            "grafik oturumun icinden calisiyor mu? (`./doctor.sh`)"
+            f"{GNOME_SCREENSHOT} exited 0 but wrote no file. Does the service "
+            "run inside the graphical session? (`pcbridge doctor`)"
         )
 
 
@@ -747,13 +747,13 @@ def check_source_size(mon: monitorslib.Monitor, size: tuple[int, int]) -> None:
     accepted = (
         f"{logical[0]}x{logical[1]}"
         if mon.source_pixel_size == logical
-        else f"{logical[0]}x{logical[1]} ya da {mon.source_pixel_size[0]}x"
+        else f"{logical[0]}x{logical[1]} or {mon.source_pixel_size[0]}x"
         f"{mon.source_pixel_size[1]}"
     )
     raise CaptureError(
-        f"{mon.connector} yayini {size[0]}x{size[1]} verdi, monitor tablosu "
-        f"{accepted} bekliyor. Monitor duzeni degismis olabilir; tekrar "
-        "deneyin."
+        f"the {mon.connector} stream delivered {size[0]}x{size[1]}, the monitor table "
+        f"expects {accepted}. The monitor layout may have changed; try "
+        "again."
     )
 
 
@@ -782,15 +782,15 @@ def canvas_pixel_ratio(
         if canvas == scaled:
             return scale
     raise CaptureError(
-        f"Yakalanan tuval {canvas[0]}x{canvas[1]}, monitor tablosu ise "
-        f"{expected[0]}x{expected[1]} diyor"
+        f"The captured canvas is {canvas[0]}x{canvas[1]}, but the monitor table "
+        f"says {expected[0]}x{expected[1]}"
         + (
-            " ve monitorlerin olcekleri farkli, yani hangi pikselin hangi "
-            "monitore ait oldugu bu goruntuden bilinemez"
+            " and the monitors have different scales, so this picture cannot tell "
+            "which pixel belongs to which monitor"
             if len(scales) > 1
             else ". Monitor duzeni degismis olabilir"
         )
-        + "; tekrar deneyin."
+        + "; try again."
     )
 
 
@@ -1113,11 +1113,11 @@ def _publish(
             continue
         except OSError as exc:
             _withdraw(published)
-            raise CaptureError(f"Ekran goruntusu yayimlanamadi: {exc}") from exc
+            raise CaptureError(f"The screenshot could not be published: {exc}") from exc
         return shots
     raise CaptureError(
-        f"{PUBLISH_ATTEMPTS} denemede kullanilmayan bir cekim kimligi "
-        "bulunamadi; eski cekimleri temizleyip tekrar deneyin."
+        f"No unused shot id found in {PUBLISH_ATTEMPTS} attempts; "
+        "remove old captures and try again."
     )
 
 
@@ -1164,8 +1164,8 @@ def _render(
     want_window = isinstance(monitor, str) and monitor.strip().lower() == "window"
     if want_window and region is not None:
         raise CaptureError(
-            "`window` cekiminde bolge secilemez: pencerenin ekranin neresinde "
-            "oldugu bilinmiyor. Monitor ya da global koordinatla bolge verin."
+            "A `window` capture cannot take a region: where the window sits on "
+            "the screen is unknown. Give the region as monitor or global coordinates."
         )
     if want_window:
         raw = _grab_window(raw_dir, include_pointer)
@@ -1193,7 +1193,7 @@ def _render(
         )
         if current is None:
             raise ShotLayoutChanged(
-                "Bolge secildikten sonra ekran duzeni degisti; tekrar deneyin."
+                "The screen layout changed after the region was chosen; try again."
             )
         targets = [current]
     origin = (box_global[0], box_global[1]) if box_global else None
@@ -1250,8 +1250,8 @@ def _render(
                 raise typed from exc
             # Yayin dustu (monitor uykuda, kompozitor yeniden basladi).
             raise CaptureError(
-                f"ekran yayinindan kare alinamadi: {exc}. "
-                "`desktop_lock` + `desktop_unlock` yayini yeniden kurar."
+                f"no frame from the screen share: {exc}. "
+                "`desktop_lock` + `desktop_unlock` sets the share up again."
             ) from exc
 
     # --- yol 2: gnome-screenshot (yedek) --------------------------------
@@ -1337,7 +1337,7 @@ def capture(
         # bir hard link ve ayni dosya sisteminde olmak zorunda.
         staging = Path(tempfile.mkdtemp(prefix=STAGING_PREFIX, dir=out_dir))
     except OSError as exc:
-        raise CaptureError(f"Ekran goruntusu dizini hazirlanamadi: {exc}") from exc
+        raise CaptureError(f"Cannot prepare the screenshot directory: {exc}") from exc
 
     try:
         try:
@@ -1346,7 +1346,7 @@ def capture(
                 region,
             )
         except OSError as exc:
-            raise CaptureError(f"Ekran goruntusu uretilemedi: {exc}") from exc
+            raise CaptureError(f"Cannot produce the screenshot: {exc}") from exc
         return _publish(
             pending,
             out_dir=out_dir,

@@ -377,7 +377,7 @@ class McpContractTests(unittest.TestCase):
             self.assertEqual(seen[0][1][0], (2020, 50, 400, 200))
             self.assertEqual(seen[0][1][1].index, 2)
             self.assertEqual([block.type for block in blocks], ["text", "image"])
-            self.assertIn("bolge", blocks[0].text)
+            self.assertIn("region", blocks[0].text)
             self.assertIn("🔆", blocks[0].text)
             self.assertIn("region", orphan.text)
             self.assertEqual(len(seen), 1, "a shot without a region captured something")

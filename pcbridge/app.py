@@ -267,9 +267,9 @@ class BasicAuthFormShim:
             await send(message)
 
         log.info(
-            "/token istegi: auth=%s content-type=%s",
-            "Basic" if auth.startswith("Basic ") else (auth.split(" ")[0] or "yok"),
-            ctype or "yok",
+            "/token request: auth=%s content-type=%s",
+            "Basic" if auth.startswith("Basic ") else (auth.split(" ")[0] or "none"),
+            ctype or "none",
         )
 
         if not auth.startswith("Basic ") or "x-www-form-urlencoded" not in ctype:
@@ -303,7 +303,7 @@ class BasicAuthFormShim:
                     added.append("client_secret")
                 if added:
                     log.info(
-                        "Basic baslıgindan forma kopyalandi: %s", ", ".join(added)
+                        "copied from the Basic header into the form: %s", ", ".join(added)
                     )
         except (ValueError, UnicodeDecodeError):
             pass
@@ -448,7 +448,7 @@ def build_app(cfg: Config, transport: str = "http"):
         token = name[:-4] if name.endswith(".png") else name
         path = shot_store.resolve(token)
         if path is None:
-            return PlainTextResponse("bulunamadi", status_code=404)
+            return PlainTextResponse("not found", status_code=404)
         return FileResponse(
             path,
             media_type="image/png",
@@ -464,8 +464,8 @@ def build_app(cfg: Config, transport: str = "http"):
     @mcp.custom_route("/", methods=["GET"], include_in_schema=False)
     async def _root(request: Request):
         return PlainTextResponse(
-            "pcbridge calisiyor.\n"
-            f"Gemini Spark'a eklenecek adres: {cfg.mcp_url}\n"
+            "pcbridge is running.\n"
+            f"Address for remote MCP clients: {cfg.mcp_url}\n"
         )
 
     return mcp, provider
@@ -473,14 +473,14 @@ def build_app(cfg: Config, transport: str = "http"):
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="pcbridge")
-    parser.add_argument("-c", "--config", help="config.toml yolu")
-    parser.add_argument("--check", action="store_true", help="sadece dogrula ve cik")
+    parser.add_argument("-c", "--config", help="path to config.toml")
+    parser.add_argument("--check", action="store_true", help="validate the configuration and exit")
     parser.add_argument(
         "--stdio",
         action="store_true",
-        help="HTTP yerine stdio tasimasi (yerel istemciler: Claude Code, Codex, "
-        "Claude Desktop). DIKKAT: stdio'da OAuth YOK, yetki surec sinirinin "
-        "kendisi.",
+        help="serve one client over stdio instead of HTTP (local clients: Claude Code, Codex, "
+        "Claude Desktop). NOTE: stdio has no OAuth; the process boundary is the "
+        "authorization.",
     )
     args = parser.parse_args(argv)
 
@@ -497,7 +497,7 @@ def main(argv: list[str] | None = None) -> int:
     fixed = sessionlib.ensure_session_env()
     if fixed:
         log.warning(
-            "Oturum ortami eksikti, standart yollardan onarildi: %s",
+            "Session environment was incomplete; repaired from the standard paths: %s",
             ", ".join(fixed),
         )
 
@@ -516,32 +516,32 @@ def _run_app(mcp, cfg: Config, args: argparse.Namespace, transport: str) -> int:
         banner = [
             "",
             "  pcbridge (stdio)",
-            f"  yapilandirma : {cfg.source_path}",
-            f"  ajanlar      : {', '.join(k for k, v in cfg.agents.items() if v.enabled)}",
-            f"  is kayitlari : {cfg.jobs_dir}",
-            f"  masaustu     : {'acik' if cfg.desktop.enabled else 'KAPALI ([desktop] enabled = false)'}",
-            "  UYARI: stdio'da OAuth yok. Bu sureci baslatabilen her yerel",
-            "         program masaustune erisir; onunde yalnizca desktop_unlock var.",
+            f"  config       : {cfg.source_path}",
+            f"  agents       : {', '.join(k for k, v in cfg.agents.items() if v.enabled)}",
+            f"  job records  : {cfg.jobs_dir}",
+            f"  desktop      : {'enabled' if cfg.desktop.enabled else 'DISABLED ([desktop] enabled = false)'}",
+            "  NOTE: stdio has no OAuth. Any local program that can start this",
+            "        process reaches the desktop; only desktop_unlock stands in front of it.",
             "",
         ]
     else:
         banner = [
             "",
-            "  pcbridge hazir",
-            f"  yapilandirma : {cfg.source_path}",
-            f"  yerel adres  : http://{cfg.host}:{cfg.port}{cfg.mcp_path}",
-            f"  dis adres    : {cfg.mcp_url}   <-- uzak istemciye BUNU gir",
-            f"  onay sayfasi : {cfg.public_url}/consent",
-            f"  durum        : {cfg.public_url}/healthz",
-            f"  ajanlar      : {', '.join(k for k, v in cfg.agents.items() if v.enabled)}",
-            f"  is kayitlari : {cfg.jobs_dir}",
+            "  pcbridge ready",
+            f"  config       : {cfg.source_path}",
+            f"  local address: http://{cfg.host}:{cfg.port}{cfg.mcp_path}",
+            f"  public address: {cfg.mcp_url}   <-- give THIS to remote clients",
+            f"  consent page : {cfg.public_url}/consent",
+            f"  health       : {cfg.public_url}/healthz",
+            f"  agents       : {', '.join(k for k, v in cfg.agents.items() if v.enabled)}",
+            f"  job records  : {cfg.jobs_dir}",
             "",
         ]
     # stderr SART: stdio'da stdout JSON-RPC kanalinin kendisi.
     print("\n".join(banner), file=sys.stderr, flush=True)
 
     if args.check:
-        print("Yapilandirma gecerli.", file=sys.stderr)
+        print("Configuration is valid.", file=sys.stderr)
         return 0
 
     if args.stdio:

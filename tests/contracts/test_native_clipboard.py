@@ -205,7 +205,7 @@ class NativeClipboardTests(unittest.TestCase):
         helper.request = fail_second_write  # type: ignore[method-assign]
         with self.assertLogs("pcbridge.desktop.backends.rust", level="WARNING"):
             note = provider.type_text("yeni", restore_clipboard=True)
-        self.assertIn("karakter yapistirildi", note)
+        self.assertIn("characters through the clipboard", note)
 
     def test_a_revoke_before_the_restore_is_not_hidden(self) -> None:
         helper = ClipboardHelper([{"mime": TEXT, "text": "eski"}])

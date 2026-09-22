@@ -71,16 +71,16 @@ def read_build_info(binary: Path, run: Runner = subprocess.run) -> dict[str, Any
             capture_output=True, text=True, timeout=5, check=False, cwd="/",
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return f"yardimci calistirilamadi: {exc}"
+        return f"the helper could not be run: {exc}"
     if proc.returncode != 0:
         if "unsupported command-line arguments" in (proc.stderr or ""):
-            return "--build-info yok: Task 4.1'den eski bir derleme (scripts/build-native.sh)"
-        return f"--build-info cikis {proc.returncode}: {(proc.stderr or '').strip()[:160]}"
+            return "no --build-info: a build older than Task 4.1 (scripts/build-native.sh)"
+        return f"--build-info exit {proc.returncode}: {(proc.stderr or '').strip()[:160]}"
     try:
         info = json.loads(proc.stdout)
     except ValueError:
-        return "--build-info JSON dondurmedi"
-    return info if isinstance(info, dict) else "--build-info bir JSON nesnesi dondurmedi"
+        return "--build-info returned no JSON"
+    return info if isinstance(info, dict) else "--build-info returned no JSON object"
 
 
 def linked_libraries(
@@ -94,7 +94,7 @@ def linked_libraries(
         resolved = run(["ldd", str(binary)], capture_output=True, text=True,
                        timeout=10, check=False, env=env)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return f"kutuphane listesi okunamadi: {exc}"
+        return f"the library list could not be read: {exc}"
     libraries = [
         line.split("[", 1)[1].split("]", 1)[0]
         for line in needed.stdout.splitlines()
@@ -106,7 +106,7 @@ def linked_libraries(
         if "not found" in line
     ]
     if not libraries:
-        return "kutuphane listesi okunamadi (ELF degil mi?)"
+        return "the library list could not be read (not an ELF file?)"
     return libraries, missing
 
 
@@ -123,13 +123,13 @@ def handshake_capabilities(binary: Path) -> tuple[str, dict[str, Any]] | str:
             response = client.request("capabilities", {}, timeout=10)
             handshake = client.handshake
         except DesktopError as exc:
-            return f"handshake basarisiz: {exc.message}"
+            return f"handshake failed: {exc.message}"
         except Exception as exc:  # noqa: BLE001 - doctor reports, never raises
-            return f"handshake basarisiz: {exc}"
+            return f"handshake failed: {exc}"
         finally:
             client.close()
     if response.error:
-        return f"capabilities hata dondurdu: {response.error.get('code')}"
+        return f"capabilities returned an error: {response.error.get('code')}"
     result = response.result if isinstance(response.result, dict) else {}
     return (handshake.build_id if handshake is not None else ""), result
 
@@ -137,9 +137,9 @@ def handshake_capabilities(binary: Path) -> tuple[str, dict[str, Any]] | str:
 def _legacy_note() -> Finding:
     return Finding(
         "info",
-        "native capture ve erisilebilirlik python3-gi, GStreamer ve pipewiresrc "
-        "istemez; izin oncesi pencere listesi (screen_info), Python erisilebilirlik "
-        "yolu ve Python ekran yayini hala python3-gi ister",
+        "native capture and accessibility need neither python3-gi, GStreamer nor "
+        "pipewiresrc; the window list before a grant (screen_info), the Python "
+        "accessibility path and the Python screen share still need python3-gi",
     )
 
 
@@ -172,27 +172,27 @@ def diagnose(
             "info",
             f"[native] capture = {capture}"
             + {
-                "python": " (kareyi Python yardimcisi aliyor)",
-                "rust": " (native yardimci ZORUNLU)",
-                "auto": " (varsayilan: varsa native, yoksa Python)",
+                "python": " (frames come from the Python helper)",
+                "rust": " (native helper REQUIRED)",
+                "auto": " (default: native when available, otherwise Python)",
             }.get(capture, ""),
         ),
         Finding(
             "info",
             f"[native] input = {typing}"
             + {
-                "python": " (klavye, fare ve pano Python yolunda)",
-                "rust": " (native yardimci ZORUNLU)",
-                "auto": " (varsayilan: varsa native, yoksa Python)",
+                "python": " (keyboard, pointer and clipboard on the Python path)",
+                "rust": " (native helper REQUIRED)",
+                "auto": " (default: native when available, otherwise Python)",
             }.get(typing, ""),
         ),
         Finding(
             "info",
             f"[native] accessibility = {reading}"
             + {
-                "python": " (ui_dump/ui_click Python yardimcisinda)",
-                "rust": " (native yardimci ZORUNLU)",
-                "auto": " (varsayilan: varsa native, yoksa Python)",
+                "python": " (ui_dump/ui_click in the Python helper)",
+                "rust": " (native helper REQUIRED)",
+                "auto": " (default: native when available, otherwise Python)",
             }.get(reading, ""),
         ),
     ]
@@ -204,11 +204,11 @@ def diagnose(
     except DesktopError as exc:
         level = {"rust": "fail", "auto": "warn"}.get(selected, "info")
         findings.append(Finding(
-            level, f"native yardimci yok: {exc.message} Derlemek icin: scripts/build-native.sh"
+            level, f"no native helper: {exc.message} To build it: scripts/build-native.sh"
         ))
         findings.append(_legacy_note())
         return findings
-    findings.append(Finding("pass", f"bulundu: {binary} ({_source(cfg.native, environment)})"))
+    findings.append(Finding("pass", f"found: {binary} ({_source(cfg.native, environment)})"))
 
     info = read_build_info(binary, run)
     if isinstance(info, str):
@@ -217,29 +217,29 @@ def diagnose(
         protocol = info.get("protocol") if isinstance(info.get("protocol"), dict) else {}
         findings.append(Finding(
             "pass",
-            f"surum {info.get('version')} · build {info.get('build_id')} · protokol "
+            f"version {info.get('version')} · build {info.get('build_id')} · protocol "
             f"{protocol.get('major')}.{protocol.get('minor')} · {info.get('target')} · "
             f"{info.get('profile')}",
         ))
         if info.get("test_harness") is not False:
             findings.append(Finding(
                 "fail",
-                "test-harness derlemesi: sahte backend, gercek ekran okumaz "
-                "(scripts/build-native.sh ile yeniden derleyin)",
+                "test-harness build: a fake backend that reads no real screen "
+                "(rebuild with scripts/build-native.sh)",
             ))
         if protocol.get("major") != PROTOCOL_MAJOR:
             findings.append(Finding(
-                "fail", f"protokol {protocol.get('major')}, bu pcbridge {PROTOCOL_MAJOR} konusuyor"
+                "fail", f"protocol {protocol.get('major')}, this pcbridge speaks {PROTOCOL_MAJOR}"
             ))
         expected = _target_triple()
         if expected is not None and info.get("target") != expected:
             findings.append(Finding(
-                "fail", f"hedef {info.get('target')}, bu makine {expected}"
+                "fail", f"target {info.get('target')}, this machine is {expected}"
             ))
         if info.get("profile") != "release":
             findings.append(Finding(
                 "warn",
-                "release degil: PNG kodlama debug derlemede ~9 kat yavas (olculdu) "
+                "not a release build: PNG encoding is ~9 times slower in a debug build (measured) "
                 "— scripts/build-native.sh",
             ))
 
@@ -251,17 +251,17 @@ def diagnose(
         if missing:
             findings.append(Finding(
                 "fail",
-                "cozulemeyen kutuphaneler: " + ", ".join(missing)
+                "unresolved libraries: " + ", ".join(missing)
                 + " (Ubuntu 24.04: sudo apt install libpipewire-0.3-0t64)",
             ))
         else:
             findings.append(Finding(
-                "pass", "calisma zamani kutuphaneleri tamam: " + ", ".join(needed)
+                "pass", "runtime libraries present: " + ", ".join(needed)
             ))
         unexpected = sorted(set(needed) - EXPECTED_LIBRARIES)
         if unexpected:
             findings.append(Finding(
-                "warn", "belgelenmemis kutuphane bagimliligi: " + ", ".join(unexpected)
+                "warn", "undocumented library dependency: " + ", ".join(unexpected)
             ))
 
     probed = probe(binary)
@@ -282,14 +282,14 @@ def diagnose(
                 reason = (
                     capability.get("reason")
                     or "; ".join(capability.get("limitations") or [])
-                    or "neden bildirilmedi"
+                    or "no reason given"
                 )
                 findings.append(Finding("warn", f"{text} — {reason}"))
         if not isinstance(info, str) and build_id and build_id != info.get("build_id"):
             findings.append(Finding(
                 "warn",
                 f"handshake build {build_id}, --build-info {info.get('build_id')}: "
-                "binary arada degismis olabilir",
+                "the binary may have changed in between",
             ))
         offered = {capability.get("name") for capability in result.get("capabilities", [])}
         lacking = [name for name in ACCESSIBILITY_CAPABILITIES if name not in offered]
@@ -298,16 +298,16 @@ def diagnose(
             # one then fails every ui_dump instead of falling back.
             findings.append(Finding(
                 "fail" if reading == "rust" else "warn",
-                "yardimci eski bir derleme: " + ", ".join(lacking) + " yok; "
-                "ui_dump/ui_click native yolda hata verir. Yeniden derleyin: "
+                "the helper is an older build: " + ", ".join(lacking) + " missing; "
+                "ui_dump/ui_click fail on the native path. Rebuild it: "
                 "scripts/build-native.sh",
             ))
 
     if selected == "python":
         findings.append(Finding(
             "info",
-            "yardimci hazir ama kullanilmiyor; secmek icin [native] capture, "
-            'input ve accessibility icin "auto" ya da "rust"',
+            "the helper is ready but unused; to use it set [native] capture, "
+            'input and accessibility to "auto" or "rust"',
         ))
     findings.append(_legacy_note())
     return findings
@@ -321,7 +321,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         cfg = load_config()
     except SystemExit as exc:
-        print(f"fail\tyapilandirma okunamadi: {exc}")
+        print(f"fail\tthe config could not be read: {exc}")
         return 0
     for finding in diagnose(cfg):
         print(finding.line())

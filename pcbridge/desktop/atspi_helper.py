@@ -294,8 +294,8 @@ def _find_app(desk, name: str) -> tuple[object | None, int]:
         names = sorted({_name(a) for a in found})
         if len(names) > 1:
             _fail(
-                f"{name!r} birden fazla uygulamaya uyuyor: {', '.join(names)}. "
-                "Tam adi verin.",
+                f"{name!r} matches more than one application: {', '.join(names)}. "
+                "Give the full name.",
                 "ELEMENT_AMBIGUOUS",
             )
     if not found:
@@ -426,9 +426,9 @@ def _find_ref(root, ref: str, limit: int = SEARCH_LIMIT):
         if _ref(node) == ref:
             if hit is not None:
                 _fail(
-                    "Bu uygulama iki dugume ayni kimligi veriyor; hangisinin "
-                    "kastedildigi bilinemez. Ekrana bakip (screen_capture) "
-                    "`mouse` kullanin.",
+                    "This application gives two nodes the same id; which one is "
+                    "meant cannot be known. Look at the screen (screen_capture) and "
+                    "use `mouse`.",
                     "ELEMENT_AMBIGUOUS",
                 )
             hit = node
@@ -459,7 +459,7 @@ def _resolve(req: dict):
     label = f"{want_role} {want_name!r}"
     if not ref or not bus:
         _fail(
-            "Istekte hedefin kimligi yok; ui_dump ile listeyi yenileyin.",
+            "The request carries no target id; refresh the list with ui_dump.",
             "ELEMENT_STALE",
         )
 
@@ -468,8 +468,8 @@ def _resolve(req: dict):
     app_label = req.get("app") or bus
     if app is None:
         _fail(
-            f"{app_label!r} artik acik degil (kapanmis ya da yeniden baslamis). "
-            "Baska bir uygulamaya dusulmedi; ui_dump ile listeyi yenileyin.",
+            f"{app_label!r} is no longer open (it closed or restarted). "
+            "Nothing fell through to another application; refresh the list with ui_dump.",
             "ELEMENT_STALE",
         )
 
@@ -479,8 +479,8 @@ def _resolve(req: dict):
         scope = next((w for w in _children(app) if window_ref and _ref(w) == window_ref), None)
         if scope is None:
             _fail(
-                f"Dokumdeki {app_label!r} penceresi kapanmis; ui_dump ile "
-                "listeyi yenileyin.",
+                f"The {app_label!r} window of the dump has closed; refresh the "
+                "list with ui_dump.",
                 "ELEMENT_STALE",
             )
 
@@ -491,14 +491,14 @@ def _resolve(req: dict):
         node = _find_ref(scope, ref)
     if node is None:
         _fail(
-            f"Hedef artik yok: {label}. Arayuz yeniden cizilmis olabilir; "
-            "ui_dump ile listeyi yenileyin.",
+            f"The target is gone: {label}. The interface may have been redrawn; "
+            "refresh the list with ui_dump.",
             "ELEMENT_STALE",
         )
     if _role(node) != want_role or _name(node) != want_name:
         _fail(
-            f"Hedef degismis: {label} simdi {_role(node)} {_name(node)!r}. "
-            "Hicbir sey yapilmadi; ui_dump ile listeyi yenileyin.",
+            f"The target changed: {label} is now {_role(node)} {_name(node)!r}. "
+            "Nothing was done; refresh the list with ui_dump.",
             "TARGET_MISMATCH",
         )
     return node, how, _name(app)
@@ -518,9 +518,9 @@ def cmd_dump(req: dict) -> dict:
         app, win, widx = _find_active(desk)
         if app is None:
             _fail(
-                "Odakta pencere yok (AT-SPI hicbir pencereyi ACTIVE "
-                "isaretlemiyor). Bir pencereye tiklayin ya da target ile "
-                "uygulama adi verin.",
+                "No window has the focus (AT-SPI marks no window ACTIVE). "
+                "Click a window, or give an application name "
+                "as target.",
                 "TARGET_MISMATCH",
             )
         root, base, same_name = win, [widx], 1
@@ -531,7 +531,7 @@ def cmd_dump(req: dict) -> dict:
         if app is None:
             names = sorted({_name(a) for a in _apps(desk) if _name(a)})
             _fail(
-                f"Uygulama bulunamadi: {target!r}. Acik olanlar: " + ", ".join(names),
+                f"Application not found: {target!r}. Open ones: " + ", ".join(names),
                 "TARGET_MISMATCH",
             )
         root, base = app, []
@@ -565,8 +565,8 @@ def cmd_act(req: dict) -> dict:
         iface, n = None, 0
     if not iface or n <= 0:
         _fail(
-            f"{_role(node)} {_name(node)!r} bir eylem sunmuyor (Action arayuzu "
-            "yok). Koordinatla tiklamaya dusulmedi.",
+            f"{_role(node)} {_name(node)!r} offers no action (no Action "
+            "interface). Not falling back to a coordinate click.",
             "ACTION_UNSUPPORTED",
         )
     names = [(iface.get_action_name(i) or "").lower() for i in range(n)]
@@ -579,12 +579,12 @@ def cmd_act(req: dict) -> dict:
     try:
         ok = iface.do_action(idx)
     except Exception as exc:
-        _fail(f"Eylem calistirilamadi: {exc}")
+        _fail(f"The action could not be run: {exc}")
     if not ok:
         # Uygulamanin kendi cevabi: eylem yapilmadi (GTK4'te devre disi dugme).
         _fail(
-            f"Uygulama {action!r} eylemini yapmadi: {_role(node)} {_name(node)!r} "
-            "su an devre disi olabilir. Hicbir sey yapilmadi.",
+            f"The application did not perform {action!r}: {_role(node)} {_name(node)!r} "
+            "may be disabled right now. Nothing was done.",
             "ACTION_UNSUPPORTED",
         )
     return {
@@ -603,20 +603,20 @@ def cmd_settext(req: dict) -> dict:
     node, how, app_name = _resolve(req)
     text = req.get("text")
     if text is None:
-        _fail("text alani yok.")
+        _fail("the text field is missing.")
     try:
         et = node.get_editable_text_iface()
     except Exception:
         et = None
     if not et:
         _fail(
-            f"{_role(node)} {_name(node)!r} duzenlenebilir degil (EditableText "
-            "arayuzu yok).",
+            f"{_role(node)} {_name(node)!r} is not editable (no EditableText "
+            "interface).",
             "ACTION_UNSUPPORTED",
         )
     refused = (
-        f"Uygulama metni kabul etmedi: {_role(node)} {_name(node)!r} su an "
-        "duzenlenemiyor olabilir. Hicbir sey yazilmadi."
+        f"The application did not accept the text: {_role(node)} {_name(node)!r} may "
+        "not be editable right now. Nothing was written."
     )
     try:
         ti = node.get_text_iface()
@@ -634,7 +634,7 @@ def cmd_settext(req: dict) -> dict:
     except Failure:
         raise
     except Exception as exc:
-        _fail(f"Metin yazilamadi: {exc}")
+        _fail(f"The text could not be written: {exc}")
     new_len, verified = _read_back(ti, text)
     return {
         "ok": True,
@@ -679,9 +679,9 @@ def _read_back(ti, text: str) -> tuple[int, bool]:
             last = len(back)
         if last is not None and time.monotonic() >= until:
             _fail(
-                f"Metin eksik ya da farkli yazildi: {len(text)} karakter gonderildi, "
-                f"alanda simdi {last} karakter var. Alanin icerigi degisti; ui_dump "
-                "ile bakin.",
+                f"The text was written incompletely or differently: {len(text)} characters "
+                f"were sent, the field now holds {last}. Its content changed; look with "
+                "ui_dump.",
                 "TEXT_MISMATCH",
             )
         time.sleep(TEXT_POLL)
@@ -748,7 +748,7 @@ def handle(req: dict) -> dict:
     if fn is None:
         return {
             "ok": False,
-            "error": f"Bilinmeyen komut: {req.get('cmd')!r}. Gecerli: {', '.join(COMMANDS)}",
+            "error": f"Unknown command: {req.get('cmd')!r}. Valid: {', '.join(COMMANDS)}",
         }
     try:
         return fn(req)
@@ -778,7 +778,7 @@ def main() -> int:
     try:
         req = json.loads(raw or "{}")
     except json.JSONDecodeError as exc:
-        return _reply({"ok": False, "error": f"Istek JSON olarak okunamadi: {exc}"})
+        return _reply({"ok": False, "error": f"The request could not be read as JSON: {exc}"})
     return _reply(handle(req))
 
 

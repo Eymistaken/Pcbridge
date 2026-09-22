@@ -420,7 +420,7 @@ class FocusVerificationTests(unittest.TestCase):
         self.assertEqual(ops.log, [])
         self.assertEqual(result.stopped, "focus")
         self.assertEqual(len(result.remaining), 3)
-        self.assertIn("HICBIR", result.detail)
+        self.assertIn("NO action", result.detail)
 
     def test_a_plan_without_clicks_still_runs_when_focus_is_unreadable(self) -> None:
         ops = RecordingOps()
@@ -452,7 +452,7 @@ class FocusVerificationTests(unittest.TestCase):
         ), ops)
         self.assertEqual(result.done, 2)
         self.assertEqual(result.stopped, "")
-        self.assertIn("okunamadi", result.detail)
+        self.assertIn("could not be read", result.detail)
 
     def test_focus_lost_after_launch_blocks_the_next_click(self) -> None:
         ops = RecordingOps()
@@ -489,7 +489,7 @@ class ClickInPlaceAndHoldTests(unittest.TestCase):
         note = device.click("left", 1, None, None, None, None)
         backend.move.assert_not_called()
         backend.click.assert_called_once_with("left", 1)
-        self.assertIn("imlecin bulundugu yerde", note)
+        self.assertIn("where the pointer is", note)
 
         backend.reset_mock()
         device.click("right", 1, None, None, None, None, hold_ms=120)
@@ -528,7 +528,7 @@ class ClickInPlaceAndHoldTests(unittest.TestCase):
         longer = batchlib.estimate(plan({"a": "click", "hold_ms": 560}))
         self.assertAlmostEqual(longer - base, 0.5)
         self.assertIn(
-            "basili 560 ms",
+            "held 560 ms",
             plan({"a": "click", "hold_ms": 560})[0].describe(),
         )
 

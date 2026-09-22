@@ -124,16 +124,16 @@ def _task_prompt(instructions: str, goal: str, prepared: str, max_steps: int) ->
     """
     parts = [instructions.strip(), "", "---", ""]
     if prepared:
-        parts += [f"Uygulama senin icin hazirlandi: {prepared}", ""]
+        parts += [f"The application has been prepared for you: {prepared}", ""]
     parts += [
-        f"Adim butcen yaklasik {max_steps} bak-eyle turu. Asacak gibiyse dur ve "
-        "nerede kaldigini yaz.",
+        f"Your step budget is about {max_steps} look-and-act rounds. If you are about to exceed it, stop and "
+        "write down where you got to.",
         "",
-        "Isin bittiginde SON CEVABINDA sunu yaz: ne yaptin, ekranda ne "
-        "gorunuyor, ve hedefe ulasildi mi (evet/hayir). Ulasilmadiysa sebebini "
-        "yaz -- basarili gibi gorunen basarisiz bir is en kotu sonuc.",
+        "When you are done, say in your FINAL ANSWER: what you did, what the screen "
+        "shows now, and whether the goal was reached (yes/no). If not, say why -- "
+        "a failed task that looks successful is the worst outcome.",
         "",
-        "## Görev",
+        "## Task",
         "",
         goal.strip(),
     ]
@@ -209,8 +209,8 @@ def _fmt_job_summary(cfg: Config, jm: jobslib.JobManager, job_id: str) -> str:
     actual = parsed.get("actual_model")
     if requested and actual and not _model_matches(requested, actual):
         warnings.append(
-            f"Istenen model `{requested}` ama calisan `{actual}`. "
-            "CLI istegi yok saymis olabilir."
+            f"Requested model `{requested}` but `{actual}` ran. "
+            "The CLI may have ignored the request."
         )
     for w in warnings:
         lines.append(f"⚠️ **{w}**")
@@ -218,42 +218,42 @@ def _fmt_job_summary(cfg: Config, jm: jobslib.JobManager, job_id: str) -> str:
         lines.append("")
 
     lines += [
-        f"**{job_id}** — durum: `{st['status']}`"
+        f"**{job_id}** — status: `{st['status']}`"
         + (f" (exit {st['exit_code']})" if st.get("exit_code") is not None else ""),
     ]
     if st.get("agent"):
-        head = f"ajan: {st['agent']}"
+        head = f"agent: {st['agent']}"
         if st.get("model"):
             head += f" · model: {st['model']}"
         if st.get("effort"):
             head += f" · effort: {st['effort']}"
         if actual and (not requested or not _model_matches(requested, actual)):
-            head += f" · calisan: {actual}"
+            head += f" · actual: {actual}"
         lines.append(head)
     for note in st.get("model_notes") or []:
-        lines.append(f"_not: {note}_")
+        lines.append(f"_note: {note}_")
     lines += [
-        f"komut: `{jobslib.tail_chars(st['command'], 300)}`",
-        f"dizin: `{st['cwd']}` · sure: {st['elapsed_seconds']}s",
+        f"command: `{jobslib.tail_chars(st['command'], 300)}`",
+        f"directory: `{st['cwd']}` · elapsed: {st['elapsed_seconds']}s",
     ]
     if parsed.get("session_id"):
         lines.append(
-            f"oturum kimligi: `{parsed['session_id']}` "
-            "(devam etmek icin agent_run'a resume_session olarak ver)"
+            f"session id: `{parsed['session_id']}` "
+            "(pass it to agent_run as resume_session to continue)"
         )
     if parsed.get("steps"):
-        lines.append("\n**Adimlar:**")
+        lines.append("\n**Steps:**")
         lines.extend(parsed["steps"][-25:])
     if parsed.get("final_answer"):
-        lines.append("\n**Sonuc:**")
+        lines.append("\n**Result:**")
         lines.append(jobslib.tail_chars(str(parsed["final_answer"]), MAX_INLINE))
     elif st["status"] == "running":
-        lines.append("\n(hala calisiyor — birkac saniye sonra job_status ile tekrar bak)")
+        lines.append("\n(still running — check again with job_status in a few seconds)")
     if parsed.get("unparsed"):
-        lines.append("\n**Ham cikti (ayristirilamayan):**")
+        lines.append("\n**Raw output (not parsed):**")
         lines.append("\n".join(parsed["unparsed"]))
     if not parsed.get("final_answer") and not parsed.get("steps") and log.strip():
-        lines.append("\n**Cikti:**")
+        lines.append("\n**Output:**")
         lines.append(jobslib.tail_chars(jobslib.strip_ansi(log), MAX_INLINE))
     if parsed.get("cost_usd") is not None:
         lines.append(f"\n_maliyet: ${parsed['cost_usd']:.4f} · tur: {parsed.get('num_turns')}_")
@@ -343,9 +343,9 @@ def register(
         if age <= limit:
             return ""
         return (
-            f"\n⚠️ `{shot}` {int(age)} saniyelik (sinir {limit} sn). Aradan "
-            "gecen surede pencereler degismis olabilir; tiklamadan once TAZE "
-            "bir goruntu alin."
+            f"\n⚠️ `{shot}` is {int(age)} s old (limit {limit} s). The windows may "
+            "have changed since; take a FRESH screenshot before "
+            "clicking."
         )
 
     def _short(text: str, limit: int = 120) -> str:
@@ -374,8 +374,8 @@ def register(
             out.append(f"  - command: `{shlex.join(spec.command)}`")
             out.extend(modelslib.describe_agent(spec))
             out.append("")
-        out.append(f"ajan belirtilmezse: `{cfg.default_agent}`")
-        out.append(f"varsayilan calisma dizini: `{cfg.default_workdir}`")
+        out.append(f"agent when none is given: `{cfg.default_agent}`")
+        out.append(f"default working directory: `{cfg.default_workdir}`")
         return "\n".join(out)
 
     @mcp.tool(
@@ -439,7 +439,7 @@ def register(
 
         cwd = _resolve_dir(cfg, workdir)
         if not cwd.is_dir():
-            return f"Dizin yok: {cwd}"
+            return f"Directory not found: {cwd}"
 
         job_id = jm.start(
             kind=f"agent:{res.agent}",
@@ -503,7 +503,7 @@ def register(
             return str(exc)
         log = jobslib.strip_ansi(jm.read_log(job_id))
         if not log.strip():
-            return "Henuz cikti yok."
+            return "No output yet."
         return "```\n" + jobslib.tail_chars(log, tail_chars) + "\n```"
 
     @mcp.tool(annotations={"title": "List background jobs", "readOnlyHint": True})
@@ -514,8 +514,8 @@ def register(
         """List recent background jobs on the computer, newest first."""
         rows = jm.list_jobs(limit=limit, only_running=only_running)
         if not rows:
-            return "Kayitli is yok."
-        out = ["| job_id | tur | durum | sure | aciklama |", "|---|---|---|---|---|"]
+            return "No jobs recorded."
+        out = ["| job_id | kind | status | elapsed | label |", "|---|---|---|---|---|"]
         for r in rows:
             out.append(
                 f"| `{r['job_id']}` | {r['kind']} | {r['status']} | "
@@ -539,15 +539,15 @@ def register(
         """List the live tmux terminal sessions on the computer. These are real
         terminals the user can also attach to physically."""
         if not tmuxctl.available():
-            return "tmux kurulu degil: `sudo apt install tmux`"
+            return "tmux is not installed: `sudo apt install tmux`"
         rows = tmuxctl.list_sessions()
         if not rows:
-            return "Acik tmux oturumu yok."
-        out = ["| oturum | calisan | dizin | PC'de acik mi |", "|---|---|---|---|"]
+            return "No tmux sessions are open."
+        out = ["| session | running | directory | attached on the PC |", "|---|---|---|---|"]
         for r in rows:
             out.append(
                 f"| `{r['session']}` | {r['running']} | {r['path']} | "
-                f"{'evet' if r['attached_on_pc'] else 'hayir'} |"
+                f"{'yes' if r['attached_on_pc'] else 'no'} |"
             )
         return "\n".join(out)
 
@@ -565,21 +565,21 @@ def register(
         """Open a new persistent terminal session on the computer, optionally
         launching an interactive CLI (like `claude`) inside it."""
         if not tmuxctl.available():
-            return "tmux kurulu degil: `sudo apt install tmux`"
+            return "tmux is not installed: `sudo apt install tmux`"
         cwd = _resolve_dir(cfg, workdir)
         if not cwd.is_dir():
-            return f"Dizin yok: {cwd}"
+            return f"Directory not found: {cwd}"
         try:
             msg = tmuxctl.start(session, command, str(cwd))
         except tmuxctl.TmuxError as exc:
-            return f"Hata: {exc}"
+            return f"Error: {exc}"
         time.sleep(1.2)
         try:
             screen = tmuxctl.capture(session, 25)
         except tmuxctl.TmuxError:
             screen = ""
         return (
-            f"{msg}\nPC'de izlemek icin: `{tmuxctl.attach_hint(session)}`\n\n"
+            f"{msg}\nTo watch it on the PC: `{tmuxctl.attach_hint(session)}`\n\n"
             f"```\n{screen}\n```"
         )
 
@@ -599,16 +599,16 @@ def register(
         try:
             tmuxctl.send_text(session, text, press_enter=press_enter)
         except tmuxctl.TmuxError as exc:
-            return f"Hata: {exc}"
+            return f"Error: {exc}"
         # Gonderilen METIN kaydedilmez, uzunlugu kaydedilir: terminale parola
         # yazilmis olabilir.
         gate.audit("tmux_send", session=str(session)[:40], chars=len(text or ""))
         if capture_after_seconds:
             time.sleep(capture_after_seconds)
         try:
-            return f"Gonderildi.\n\n```\n{tmuxctl.capture(session, 45)}\n```"
+            return f"Sent.\n\n```\n{tmuxctl.capture(session, 45)}\n```"
         except tmuxctl.TmuxError as exc:
-            return f"Gonderildi ama ekran okunamadi: {exc}"
+            return f"Sent, but the screen could not be read: {exc}"
 
     @mcp.tool(annotations={"title": "Press keys in a live terminal"})
     def tmux_keys(
@@ -627,7 +627,7 @@ def register(
         try:
             tmuxctl.send_keys(session, keys)
         except tmuxctl.TmuxError as exc:
-            return f"Hata: {exc}"
+            return f"Error: {exc}"
         gate.audit("tmux_keys", session=str(session)[:40],
                    keys=_short(" ".join(keys or []), 60))
         if capture_after_seconds:
@@ -646,7 +646,7 @@ def register(
         try:
             return f"```\n{tmuxctl.capture(session, lines)}\n```"
         except tmuxctl.TmuxError as exc:
-            return f"Hata: {exc}"
+            return f"Error: {exc}"
 
     @mcp.tool(annotations={"title": "Close a live terminal", "destructiveHint": True})
     def tmux_kill(session: str) -> str:
@@ -654,7 +654,7 @@ def register(
         try:
             out = tmuxctl.kill(session)
         except tmuxctl.TmuxError as exc:
-            return f"Hata: {exc}"
+            return f"Error: {exc}"
         gate.audit("tmux_kill", session=str(session)[:40])
         return out
 
@@ -680,18 +680,18 @@ def register(
         except Exception as exc:  # noqa: BLE001
             # Tespit CALISMAZSA kabuk calismaya devam etsin: bu kapi bir
             # kolaylik, guvenlik siniri degil. Sessiz kalmiyoruz ama.
-            logger.warning("gui_launch tespiti basarisiz: %s", exc)
+            logger.warning("gui_launch detection failed: %s", exc)
             return None
         if not hit:
             return None
         gate.audit("shell_run_denied", reason="gui_launch", app=hit[:60])
         return (
-            f"⛔ `{hit}` bir masaüstü uygulaması; kabuktan başlatılmıyor.\n"
-            "Kabuktan açılan uygulama bu sunucunun çocuğu olur ve "
-            "`systemctl --user restart pcbridge` onu kapatır; ayrıca çoğu "
-            "zaman uygulama kimliği oluşmadığı için `window_list` ve "
-            "`window_focus` pencereyi sonradan bulamaz.\n"
-            f"Bunun yerine: window_focus(\"{hit}\")"
+            f"⛔ `{hit}` is a desktop application; the shell does not start it.\n"
+            "An application started from the shell becomes a child of this server, and "
+            "restarting pcbridge closes it; it also often gets no application id, so "
+            "`window_list` and "
+            "`window_focus` cannot find its window later.\n"
+            f"Instead: window_focus(\"{hit}\")"
         )
 
     @mcp.tool(annotations={"title": "Run a shell command", "destructiveHint": True})
@@ -717,7 +717,7 @@ def register(
             # gorunmez kalmasinin sebebi tam olarak buydu.
             gate.audit("shell_run_denied", reason="no_workdir",
                        path=str(cwd)[:200])
-            return f"Dizin yok: {cwd}"
+            return f"Directory not found: {cwd}"
         limit = min(timeout, cfg.max_sync_timeout)
         started = time.monotonic()
         try:
@@ -734,17 +734,17 @@ def register(
         except subprocess.TimeoutExpired:
             gate.audit("shell_run", cmd=_short(command), timeout=limit)
             return (
-                f"`{command}` {limit} saniyede bitmedi ve iptal edildi. "
-                "Uzun surecekse shell_run_background kullan."
+                f"`{command}` did not finish within {limit} s and was stopped. "
+                "For longer work use shell_run_background."
             )
         # Komut kaydedilir, CIKTISI kaydedilmez: cikti parola, token ya da
         # ozel yazisma icerebilir. `ui_set_text`teki kural burada da gecerli.
         gate.audit("shell_run", cmd=_short(command), exit=proc.returncode,
                    seconds=round(time.monotonic() - started, 1))
         body = jobslib.strip_ansi((proc.stdout or "") + (proc.stderr or ""))
-        head = f"`$ {command}` (dizin: {cwd}) → exit {proc.returncode}"
+        head = f"`$ {command}` (directory: {cwd}) → exit {proc.returncode}"
         if not body.strip():
-            return head + "\n(cikti yok)"
+            return head + "\n(no output)"
         return head + "\n```\n" + jobslib.tail_chars(body, MAX_INLINE) + "\n```"
 
     @mcp.tool(
@@ -768,7 +768,7 @@ def register(
         if not cwd.is_dir():
             gate.audit("shell_run_background_denied", reason="no_workdir",
                        path=str(cwd)[:200])
-            return f"Dizin yok: {cwd}"
+            return f"Directory not found: {cwd}"
         job_id = jm.start(
             kind="shell",
             argv=["bash", "-lc", command],
@@ -779,7 +779,7 @@ def register(
             env=_session_env(),
         )
         gate.audit("shell_run_background", cmd=_short(command), job=job_id)
-        return f"Baslatildi: `{job_id}`\nDurum icin: job_status('{job_id}')"
+        return f"Started: `{job_id}`\nStatus: job_status('{job_id}')"
 
     # =================================================================== DOSYA
     @mcp.tool(annotations={"title": "List a directory", "readOnlyHint": True})
@@ -790,7 +790,7 @@ def register(
         """List the contents of a directory on the computer with sizes and dates."""
         d = _resolve_dir(cfg, path)
         if not d.is_dir():
-            return f"Dizin yok: {d}"
+            return f"Directory not found: {d}"
         entries = []
         for item in sorted(d.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
             if not show_hidden and item.name.startswith("."):
@@ -804,8 +804,8 @@ def register(
             kind = "dir " if item.is_dir() else "file"
             entries.append(f"{kind}  {size:>12}  {when}  {item.name}")
         if not entries:
-            return f"`{d}` bos."
-        return f"`{d}` ({len(entries)} oge)\n```\n" + "\n".join(entries[:400]) + "\n```"
+            return f"`{d}` is empty."
+        return f"`{d}` ({len(entries)} entries)\n```\n" + "\n".join(entries[:400]) + "\n```"
 
     @mcp.tool(annotations={"title": "Read a file", "readOnlyHint": True})
     def fs_read(
@@ -815,11 +815,11 @@ def register(
         """Read the contents of a text file on the computer."""
         f = _resolve_file(cfg, path)
         if not f.is_file():
-            return f"Dosya yok: {f}"
+            return f"File not found: {f}"
         try:
             data = f.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
-            return f"Okunamadi: {exc}"
+            return f"Could not read it: {exc}"
         # YOL kaydedilir, ICERIK kaydedilmez. Bu satirin asil amaci: `config.toml`
         # parola ve statik token iceriyor ve okunmasi engellenmis DEGIL (engellemek
         # aldatici olurdu -- `shell_run` zaten keyfi komut calistiriyor, `cat` ile
@@ -846,10 +846,10 @@ def register(
             with f.open(mode, encoding="utf-8") as fh:
                 fh.write(content)
         except OSError as exc:
-            return f"Yazilamadi: {exc}"
+            return f"Could not write it: {exc}"
         gate.audit("fs_write", path=str(f)[:200], chars=len(content or ""),
                    append=append or None)
-        return f"{'Eklendi' if append else 'Yazildi'}: `{f}` ({f.stat().st_size:,} bayt)"
+        return f"{'Appended' if append else 'Written'}: `{f}` ({f.stat().st_size:,} bytes)"
 
     @mcp.tool(annotations={"title": "Search inside files", "readOnlyHint": True})
     def fs_search(
@@ -861,7 +861,7 @@ def register(
         available, otherwise grep)."""
         d = _resolve_dir(cfg, path)
         if not d.is_dir():
-            return f"Dizin yok: {d}"
+            return f"Directory not found: {d}"
         has_rg = (
             subprocess.run(["bash", "-lc", "command -v rg"], capture_output=True).returncode
             == 0
@@ -875,9 +875,9 @@ def register(
         )
         out = (proc.stdout or "").strip()
         if not out:
-            return f"`{query}` icin `{d}` altinda sonuc yok."
+            return f"No results for `{query}` under `{d}`."
         lines = out.splitlines()[:max_results]
-        return f"`{d}` altinda {len(lines)} sonuc\n```\n" + "\n".join(lines) + "\n```"
+        return f"{len(lines)} result(s) under `{d}`\n```\n" + "\n".join(lines) + "\n```"
 
     # =============================================================== MASAUSTU
     # Klavye/fare kontrolu. Her cagri once SafetyGate'ten gecer: [desktop]
@@ -944,39 +944,39 @@ def register(
         except DesktopError as exc:
             if exc.code == ErrorCode.DISPLAY_MAPPING_UNKNOWN:
                 return (
-                    "⚠️ Ekran yayını açılamadı "
-                    f"(monitör tablosu okunamadı: {exc})."
+                    "⚠️ Screen sharing could not start "
+                    f"(the monitor table could not be read: {exc})."
                 )
             if cfg.desktop.capture_backend == "screencast":
                 return (
-                    f"⚠️ Ekran yayını açılamadı: {exc}\n"
-                    "`capture_backend = \"screencast\"` olduğu için ekran "
-                    "görüntüsü alınamayacak; `auto` yapılırsa gnome-screenshot'a "
-                    "düşer (o flaş patlatır)."
+                    f"⚠️ Screen sharing could not start: {exc}\n"
+                    "With `capture_backend = \"screencast\"` no screenshot can be "
+                    "taken; set it to `auto` to fall back to gnome-screenshot "
+                    "(which flashes the screen)."
                 )
             return (
-                f"⚠️ Ekran yayını açılamadı: {exc}\n"
-                "Ekran görüntüsü gnome-screenshot ile alınacak — her çekimde "
-                "beyaz flaş ve ses olur."
+                f"⚠️ Screen sharing could not start: {exc}\n"
+                "Screenshots will use gnome-screenshot, which flashes the screen and "
+                "plays a sound on every capture."
             )
         except monitorslib.MonitorError as exc:
-            return f"⚠️ Ekran yayını açılamadı (monitör tablosu okunamadı: {exc})."
+            return f"⚠️ Screen sharing could not start (the monitor table could not be read: {exc})."
         except screencastlib.ScreenCastError as exc:
             if cfg.desktop.capture_backend == "screencast":
                 return (
-                    f"⚠️ Ekran yayını açılamadı: {exc}\n"
-                    "`capture_backend = \"screencast\"` olduğu için ekran "
-                    "görüntüsü alınamayacak; `auto` yapılırsa gnome-screenshot'a "
-                    "düşer (o flaş patlatır)."
+                    f"⚠️ Screen sharing could not start: {exc}\n"
+                    "With `capture_backend = \"screencast\"` no screenshot can be "
+                    "taken; set it to `auto` to fall back to gnome-screenshot "
+                    "(which flashes the screen)."
                 )
             return (
-                f"⚠️ Ekran yayını açılamadı: {exc}\n"
-                "Ekran görüntüsü gnome-screenshot ile alınacak — her çekimde "
-                "beyaz flaş ve ses olur."
+                f"⚠️ Screen sharing could not start: {exc}\n"
+                "Screenshots will use gnome-screenshot, which flashes the screen and "
+                "plays a sound on every capture."
             )
         return (
-            "📷 Ekran yayını açık: görüntüler sessizce alınacak (flaş yok). "
-            "Üst çubuktaki paylaşım göstergesi izin kapanınca kaybolur."
+            "📷 Screen sharing is on: screenshots are silent (no flash). "
+            "The sharing indicator in the panel disappears when the grant closes."
         )
 
     def _held_note() -> str:
@@ -989,12 +989,12 @@ def register(
         freed = backend.take_auto_released()
         if freed:
             parts.append(
-                f"⚠ {cfg.desktop.hold_max_seconds} sn dolduğu için kendiliğinden "
-                f"bırakıldı: {', '.join(freed)}"
+                f"⚠ released automatically after {cfg.desktop.hold_max_seconds} s: "
+                f"{', '.join(freed)}"
             )
         still = backend.held()
         if still:
-            parts.append(f"basılı tutulan: {', '.join(still)}")
+            parts.append(f"held down: {', '.join(still)}")
         return ("\n· " + "\n· ".join(parts)) if parts else ""
 
     # ------------------------------------------- kayan kira: computer_task
@@ -1086,7 +1086,7 @@ def register(
                 gate.audit(f"{tool}_unavailable", reason=why[:120])
                 return _unavailable_result(
                     input_capability,
-                    text=f"⛔ Sanal girdi cihazi kullanilamiyor: {why}",
+                    text=f"⛔ The virtual input device is unavailable: {why}",
                     message=why,
                     scope=input_scope,
                     backend_name="desktop.input",
@@ -1136,7 +1136,7 @@ def register(
             gate.audit(f"{tool}_error", error=str(exc)[:160])
             return _exception_result(
                 exc,
-                text=f"⛔ Masaustu yurutme kilidi alinamadi: {exc}",
+                text=f"⛔ Could not take the desktop execution lock: {exc}",
                 category=ErrorCategory.EXECUTION,
                 scope="pcbridge.desktop",
                 backend_name="desktop.execution",
@@ -1177,14 +1177,14 @@ def register(
         has authorized screen reading or control; the grant expires on its own."""
         if not cfg.desktop.enabled:
             text = (
-                "⛔ Masaustu kontrolu kapali. config.toml'da `[desktop] enabled = true` "
-                "yapip `systemctl --user restart pcbridge` calistirin. Once "
-                "Pointer/keyboard kontrolu icin `sudo ./setup_uinput.sh` gerekiyor; "
-                "yalnizca ekran okumak icin gerekmiyor."
+                "⛔ Desktop control is disabled. Set `[desktop] enabled = true` in "
+                f"{cfg.source_path} and restart pcbridge (`pcbridge update`). "
+                "Keyboard and pointer control also need access to /dev/uinput "
+                "(`pcbridge doctor` prints the command); reading the screen does not."
             )
             error = DesktopError(
                 code=ErrorCode.DESKTOP_DISABLED,
-                message="Masaustu kontrolu kapali.",
+                message="Desktop control is disabled.",
                 category=ErrorCategory.SAFETY,
                 retryable=False,
                 suggested_action="Enable desktop control in config.toml and restart pcbridge.",
@@ -1219,8 +1219,8 @@ def register(
                     "pcbridge",
                     "-u",
                     "critical",
-                    "Masaüstü kontrolü açıldı",
-                    f"{minutes} dakika · {reason or 'gerekçe belirtilmedi'}",
+                    "Desktop control granted",
+                    f"{minutes} min · {reason or 'no reason given'}",
                 ],
                 capture_output=True,
                 timeout=10,
@@ -1228,8 +1228,8 @@ def register(
         out = [msg, "", capture_provider.describe_monitors(), ""]
         out.append(_open_screencast())
         out.append(
-            "Koordinatlar **global tuval uzayinda**; sol ust (0, 0). Monitore ozel "
-            "koordinat verecekseniz `monitor` parametresini de verin."
+            "Coordinates are in the **global canvas space**; top left is (0, 0). For "
+            "coordinates relative to one monitor, pass `monitor` as well."
         )
         snapshot = runtime.capabilities(refresh=True)
         limitations = {
@@ -1238,11 +1238,11 @@ def register(
             if not value.usable_now or value.limitations
         }
         if limitations:
-            out += ["", "**Kullanilamayan veya sinirli yetenekler**"]
+            out += ["", "**Unavailable or limited capabilities**"]
             for name, value in limitations.items():
                 detail = value["reason_code"] or value["state"]
                 out.append(f"- `{name}`: {detail}")
-        out.append("Erken kapatmak icin: desktop_lock")
+        out.append("To close it early: desktop_lock")
         token = getattr(gate, "current_token", lambda: None)()
         grant = {
             "grant_id": getattr(token, "grant_id", ""),
@@ -1280,11 +1280,11 @@ def register(
         # BIZIM tutamagimizi kapatir. Kullanici "kapat" dediginde ust
         # cubuktaki gostergenin gercekten kaybolmasi gerekiyor.
         others = capture_provider.kill_helpers()
-        note = f"\n· bırakılan: {', '.join(freed)}" if freed else ""
+        note = f"\n· released: {', '.join(freed)}" if freed else ""
         if yayin or others:
-            note += "\n· ekran yayını kapatıldı (paylaşım göstergesi kayboldu)"
+            note += "\n· screen sharing stopped (the sharing indicator is gone)"
         if others:
-            note += f" · {others} yardımcı süreç durduruldu"
+            note += f" · {others} helper process(es) stopped"
         return message + note
 
     @mcp.tool(
@@ -1468,15 +1468,15 @@ def register(
         # tiklamak yerine reddedilir (batch'teki `_pair` ile ayni kural).
         if act in clicks or act == "scroll":
             if (x is None) != (y is None):
-                return ("x ve y birlikte verilmeli. Ikisini de vermezseniz "
-                        "imlecin bulundugu yerde calisir.")
+                return ("x and y must be given together. Give neither to act "
+                        "where the pointer already is.")
             if x is None and (shot or monitor is not None):
-                return ("shot/monitor var ama x/y yok. Koordinati ekleyin; "
-                        "imlecin bulundugu yerde tiklamak istiyorsaniz "
-                        "shot/monitor vermeyin.")
+                return ("shot/monitor given without x/y. Add the coordinate; to "
+                        "click where the pointer already is, leave out "
+                        "shot/monitor.")
         if act in clicks and hold_ms is not None and clicks[act] > 1 and hold_ms > 150:
-            return (f"{act} icin hold_ms en fazla 150 olabilir ({hold_ms} "
-                    "verildi): basislar cift tiklama esiginin icinde kalmali.")
+            return (f"hold_ms for {act} can be at most 150 ({hold_ms} "
+                    "given): both presses must stay inside the double-click threshold.")
         in_place = act in clicks and x is None
         write = _begin_write("mouse")
         if isinstance(write, ToolResult):
@@ -1484,60 +1484,60 @@ def register(
         try:
             if act in needs_xy or (act in clicks and not in_place):
                 if x is None or y is None:
-                    return "x ve y zorunlu (drag icin ayrica to_x/to_y)."
+                    return "x and y are required (and to_x/to_y for drag)."
                 gx, gy = _to_global(x, y, monitor, shot)
             if act == "move":
                 pos = backend.move(gx, gy, smooth=smooth)
-                done = f"imlec {pos} konumuna tasindi"
+                done = f"pointer moved to {pos}"
             elif act == "move_by":
                 if not dx and not dy:
-                    return "move_by icin dx ya da dy verilmeli."
+                    return "move_by needs dx or dy."
                 sx, sy = backend.move_by(dx, dy)
                 done = (
-                    f"imlec ({sx:+d}, {sy:+d}) kadar goreli kaydirildi · konum "
-                    "artik BILINMIYOR — tiklamadan once ui_dump ya da "
-                    "screen_capture alin, ya da mutlak `move` ile bilinen bir "
-                    "noktaya gidin"
+                    f"pointer nudged by ({sx:+d}, {sy:+d}) · its position is "
+                    "now UNKNOWN — take a ui_dump or screen_capture before "
+                    "clicking, or use an absolute `move` to a known "
+                    "point"
                 )
             elif act in clicks:
                 btn = {"right_click": "right", "middle_click": "middle"}.get(act, "left")
                 press = {} if hold_ms is None else {"hold_ms": hold_ms}
                 if in_place:
                     backend.click(btn, clicks[act], **press)
-                    target = "imlecin bulundugu yerde"
+                    target = "where the pointer is"
                 else:
                     pos = backend.move(gx, gy, smooth=smooth)
                     time.sleep(0.08)
                     backend.click(btn, clicks[act], **press)
-                    target = f"{pos} konumuna"
-                kind = {2: " (cift)", 3: " (uclu)"}.get(clicks[act], "")
-                held_for = f" · basili {hold_ms} ms" if hold_ms is not None else ""
-                done = f"{target} {btn} tiklama{kind}{held_for}"
+                    target = f"at {pos}"
+                kind = {2: " (double)", 3: " (triple)"}.get(clicks[act], "")
+                held_for = f" · held {hold_ms} ms" if hold_ms is not None else ""
+                done = f"{btn} click{kind} {target}{held_for}"
             elif act == "drag":
                 if to_x is None or to_y is None:
-                    return "drag icin to_x ve to_y zorunlu."
+                    return "drag needs to_x and to_y."
                 ex, ey = _to_global(to_x, to_y, monitor, shot)
                 backend.drag(gx, gy, ex, ey, button=button)
-                done = f"({gx}, {gy}) -> ({ex}, {ey}) {button} ile suruklendi"
+                done = f"dragged ({gx}, {gy}) -> ({ex}, {ey}) with {button}"
             elif act == "scroll":
                 if x is not None and y is not None:
                     backend.move(*_to_global(x, y, monitor, shot), smooth=smooth)
                     time.sleep(0.08)
                 backend.scroll(scroll_amount, horizontal=horizontal)
-                yon = "yatay" if horizontal else "dikey"
-                done = f"{scroll_amount} tik {yon} kaydirildi"
+                yon = "horizontally" if horizontal else "vertically"
+                done = f"scrolled {scroll_amount} step(s) {yon}"
             elif act == "hold":
                 backend.mouse_down(button)
                 done = (
-                    f"{button} dugmesi BASILI TUTULUYOR — imleci tasiyip "
-                    f"`release` ile birakin"
+                    f"{button} button is HELD DOWN — move the pointer, then "
+                    f"let go with `release`"
                 )
             elif act == "release":
                 backend.mouse_up(button)
-                done = f"{button} dugmesi birakildi"
+                done = f"{button} button released"
             else:
                 return (
-                    f"Bilinmeyen eylem: '{action}'. Gecerli: move, move_by, "
+                    f"Unknown action: '{action}'. Valid: move, move_by, "
                     "click, double_click, triple_click, right_click, "
                     "middle_click, drag, scroll, hold, release"
                 )
@@ -1550,7 +1550,7 @@ def register(
             gate.audit("mouse_error", action=act, error=str(exc)[:160])
             return _exception_result(
                 exc,
-                text=f"Hata: {exc}",
+                text=f"Error: {exc}",
                 category=ErrorCategory.EXECUTION,
                 scope="os.pointer",
                 backend_name="desktop.input",
@@ -1571,13 +1571,13 @@ def register(
         # Konum bilinmiyorsa bunu SOYLE. Eskiden not bos kalirdi ve ajan
         # "monitor bilgisi yok" ile "konum bilinmiyor"u ayirt edemezdi;
         # `move_by`den sonra bu ayrim tam olarak onemli olan sey.
-        note = "" if where else " · imlec konumu BILINMIYOR"
+        note = "" if where else " · pointer position UNKNOWN"
         if where:
             m = capture_provider.find_monitor(*where)
             if m:
                 note = f" · monitor {m.index} ({m.connector})"
         return (
-            f"{done}{note}.\nSonucu dogrulamadan bir sonraki adima gecmeyin."
+            f"{done}{note}.\nDo not move on before you have checked the result."
             + _stale_note(shot)
             + _held_note()
         )
@@ -1667,14 +1667,14 @@ def register(
         try:
             if act == "type":
                 if not text:
-                    return "type icin `text` zorunlu."
+                    return "type needs `text`."
                 note = backend.type_text(
                     text, raw=raw, restore_clipboard=cfg.desktop.restore_clipboard
                 )
                 done = note
             elif act in ("key", "hold", "release"):
                 if not keys:
-                    return f"{act} icin `keys` zorunlu (ornek: 'ctrl+v')."
+                    return f"{act} needs `keys` (for example 'ctrl+v')."
                 if act in ("key", "hold"):
                     # Icerik kapisi: `force` bunu ACMAZ, ayri bir niyet beyani
                     # ister (KURALLAR.md sec. 4, madde 5).
@@ -1685,14 +1685,14 @@ def register(
                     backend.key_down(keys)
                 else:
                     backend.key_up(keys)
-                done = f"`{keys}` {'basildi' if act == 'key' else act}"
+                done = f"`{keys}` {'pressed' if act == 'key' else act}"
             else:
-                return f"Bilinmeyen eylem: '{action}'. Gecerli: type, key, hold, release"
+                return f"Unknown action: '{action}'. Valid: type, key, hold, release"
         except (inputlib.InputError, DesktopError) as exc:
             gate.audit("keyboard_error", action=act, error=str(exc)[:160])
             return _exception_result(
                 exc,
-                text=f"Hata: {exc}",
+                text=f"Error: {exc}",
                 category=ErrorCategory.EXECUTION,
                 scope="os.keyboard",
                 backend_name="desktop.input",
@@ -1710,7 +1710,7 @@ def register(
             forced=force or None,
         )
         return (
-            f"{done}.\nSonucu dogrulamadan bir sonraki adima gecmeyin."
+            f"{done}.\nDo not move on before you have checked the result."
             + _held_note()
         )
 
@@ -1728,19 +1728,19 @@ def register(
         runtime.close_capture_if_locked()
         cap_ok, cap_why = capture_provider.available()
         lines.append(
-            f"**Ekran goruntusu:** {'hazir' if cap_ok else 'KULLANILAMIYOR'} "
+            f"**Screenshots:** {'ready' if cap_ok else 'UNAVAILABLE'} "
             f"(`{capture_provider.backend_name()}`)"
             + ("" if cap_ok else f" — {cap_why}")
             + ("" if capture_provider.is_open() else
-               " · yayın kapalı, çekimde flaş olur (`desktop_unlock` açar)")
+               " · sharing is off, captures flash the screen (`desktop_unlock` turns it on)")
         )
         in_ok, in_why = backend.available()
         lines.append(
-            f"**Klavye/fare:** {'hazir' if in_ok else 'KULLANILAMIYOR'}"
+            f"**Keyboard/pointer:** {'ready' if in_ok else 'UNAVAILABLE'}"
             + ("" if in_ok else f" — {in_why}")
         )
         ui_ok, ui_why = tree.available()
-        ui_line = f"**Erisilebilirlik agaci:** {'hazir' if ui_ok else 'KULLANILAMIYOR'}"
+        ui_line = f"**Accessibility tree:** {'ready' if ui_ok else 'UNAVAILABLE'}"
         if ui_ok:
             # Pencere listesi ve odak yalnizca buradan okunabiliyor: C
             # bolumunde olculdu, Shell.Introspect "Access denied" veriyor.
@@ -1748,20 +1748,20 @@ def register(
             try:
                 wins = tree.windows()
                 focused = next((w for w in wins if w.active), None)
-                ui_line += f" · {len(wins)} pencere"
+                ui_line += f" · {len(wins)} window(s)"
                 if focused:
-                    ui_line += f", odakta: {focused.label}"
+                    ui_line += f", focused: {focused.label}"
             except (uitreelib.UiTreeError, DesktopError) as exc:
-                ui_line += f" · pencere listesi okunamadi ({exc})"
+                ui_line += f" · the window list could not be read ({exc})"
         else:
             ui_line += f" — {ui_why}"
         lines.append(ui_line)
-        lines.append(f"**Izin:** {gate.status_line()}")
+        lines.append(f"**Grant:** {gate.status_line()}")
         lines.append("")
         lines.append(
-            "Koordinatlar **global tuval uzayinda**: sol ust (0, 0). Bir monitore "
-            "ozel koordinat veriyorsaniz `monitor` parametresini de verin, ofseti "
-            "pcbridge ekler."
+            "Coordinates are in the **global canvas space**: top left is (0, 0). If you "
+            "give coordinates relative to one monitor, pass `monitor` as well and "
+            "pcbridge adds its offset."
         )
         return "\n".join(lines)
 
@@ -1779,8 +1779,8 @@ def register(
             spec = int(spec)
         if shot and not region:
             return (
-                "⛔ `shot` yalnizca `region` ile anlamli: bolgeyi o goruntuden "
-                "okuduysaniz `region=[x, y, genislik, yukseklik]` da verin."
+                "⛔ `shot` only means something together with `region`: if you read the "
+                "region off that screenshot, pass `region=[x, y, width, height]` too."
             )
         if not region:
             return spec, None
@@ -1798,7 +1798,7 @@ def register(
             gate.audit(f"{tool}_error", error=str(exc)[:160])
             return _exception_result(
                 exc,
-                text=f"Hata: {exc}",
+                text=f"Error: {exc}",
                 category=ErrorCategory.COORDINATE,
                 scope="os.capture",
                 backend_name=capture_provider.backend_name(),
@@ -1891,10 +1891,10 @@ def register(
         if denied:
             return denied
         if shot_store is None:
-            text = "⛔ Ekran goruntusu servisi kurulu degil (sunucu eski surumde?)."
+            text = "⛔ The screenshot service is not set up (an older server?)."
             error = DesktopError(
                 code=ErrorCode.BACKEND_UNAVAILABLE,
-                message="Ekran goruntusu servisi kurulu degil.",
+                message="The screenshot service is not set up.",
                 category=ErrorCategory.CAPTURE,
                 retryable=False,
                 suggested_action="Upgrade or repair the pcbridge server installation.",
@@ -1908,7 +1908,7 @@ def register(
             gate.audit("screen_capture_unavailable", reason=cap_why[:120])
             return _unavailable_result(
                 "capture.monitor",
-                text=f"⛔ Ekran goruntusu alinamiyor: {cap_why}",
+                text=f"⛔ Cannot take a screenshot: {cap_why}",
                 message=cap_why,
                 scope="os.capture",
                 backend_name=capture_provider.backend_name(),
@@ -1948,7 +1948,7 @@ def register(
             gate.audit("screen_capture_error", error=str(exc)[:160])
             return _exception_result(
                 exc,
-                text=f"Hata: {exc}",
+                text=f"Error: {exc}",
                 category=ErrorCategory.CAPTURE,
                 scope="os.capture",
                 backend_name=capture_provider.backend_name(),
@@ -1971,14 +1971,14 @@ def register(
                 out.append(
                     f"**{item.label}** · {item.scaled[0]}x{item.scaled[1]}\n"
                     f"  {where}\n"
-                    "  ⚠️ Bu goruntu odaktaki pencere; ekranin neresinde oldugu "
-                    "bilinmiyor, buradan koordinat turetmeyin."
+                    "  ⚠️ This is the focused window; where it sits on the screen is "
+                    "unknown, so do not derive coordinates from it."
                 )
             else:
                 out.append(
                     f"**{item.label}** · {item.size[0]}x{item.size[1]} "
                     f"@ ({item.offset[0]}, {item.offset[1]}) → "
-                    f"{item.scaled[0]}x{item.scaled[1]} (olcek {item.scale:.3f})\n"
+                    f"{item.scaled[0]}x{item.scaled[1]} (scale {item.scale:.3f})\n"
                     f"  shot: `{item.id}`\n"
                     f"  {where}"
                 )
@@ -1995,24 +1995,24 @@ def register(
             # bulamadi ve kare Python yoluyla alindi. Sessiz kalsaydi "neden
             # yavas" ya da "neden farkli" sorusunun cevabi hicbir yerde olmazdi.
             out.append(
-                f"⚠️ Native yakalama kullanılamadı ({degraded}); kare Python "
-                "yoluyla alındı."
+                f"⚠️ Native capture was unavailable ({degraded}); the frame came "
+                "through the Python path."
             )
 
         out.append("")
         if links:
-            out.append(f"Baglantilar {ttl_min} dakika gecerli, sonra kapaniyor.")
+            out.append(f"Links are valid for {ttl_min} min, then they expire.")
         else:
             out.append(
-                "Yollar diskteki dosyalari gosteriyor (stdio'da HTTP sunucusu "
-                "yok, bu yuzden baglanti uretilemiyor)."
+                "The paths point at files on disk (a local session has no HTTP "
+                "server, so no link can be made)."
             )
         if not _inline_images():
             # SESSIZ BOSLUK YOK: goruntu blogu gelmiyorsa sebebi soylensin,
             # yoksa istemci "goruntu geldi ama ben goremedim" sanir.
             out.append(
-                "Goruntu blogu KAPALI (`inline_images`); yalnizca yukaridaki "
-                "yol/baglanti donuyor."
+                "Image blocks are OFF (`inline_images`); only the path/link above "
+                "is returned."
             )
         example = next((s for s in shots if s.offset is not None), None)
         if example is not None:
@@ -2021,13 +2021,13 @@ def register(
             # degildi ve zayif modeller bolmeyi tutturamayip hedefin kenarina
             # tikliyordu.
             out.append(
-                "Bu goruntudeki bir noktaya tiklamak icin koordinati **gordugunuz "
-                "gibi** verin ve yanina o goruntunun kimligini ekleyin: "
+                "To click a point in this picture, give the coordinate **exactly as "
+                "you see it** and add the picture's id: "
                 "`mouse(action=\"click\", x=…, y=…, shot=\"" + example.id + "\")` "
-                "ya da toplu eylemde `{\"a\":\"click\",\"x\":…,\"y\":…,"
-                "\"shot\":\"" + example.id + "\"}`. Ofseti ve olcegi pcbridge "
-                "kendisi uyguluyor — siz cevirmeyin. (Yukaridaki ofset/olcek "
-                "degerleri yalnizca bilgi icindir.)"
+                "or in a batch `{\"a\":\"click\",\"x\":…,\"y\":…,"
+                "\"shot\":\"" + example.id + "\"}`. pcbridge applies the offset and the "
+                "scale itself — do not convert. (The offset/scale values above are "
+                "for information only.)"
             )
             # Istemcinin kendi kuculttugu goruntuden koordinat cikarilamaz:
             # gordugunuz piksel ile kayitli olcek ayrisir ve `shot` hesabi
@@ -2043,10 +2043,10 @@ def register(
                 # kendisinden geliyor -- donusumu sunucunun yapmasi onu
                 # ortadan kaldirmiyor, o yuzden uyari duruyor.
                 out.append(
-                    "Goruntu kucultuldugu icin hedefiniz birkac piksel sapabilir "
-                    "(olculdu: ~5 px) — bu kucultmenin kendisinden, hesaptan "
-                    "degil. Buton/menu icin yeterli; daha keskin gerekiyorsa "
-                    "`scale=0` ile tam cozunurlukte alin."
+                    "The picture is scaled down, so your target may be off by a few "
+                    "pixels (measured: ~5 px) — from the downscaling itself, not the "
+                    "arithmetic. Fine for buttons and menus; for more precision "
+                    "capture at full resolution with `scale=0`."
                 )
 
         # Goruntu bloklari metinden ONCE hazirlaniyor ama metnin ARKASINA
@@ -2063,14 +2063,14 @@ def register(
                     undelivered.append(exc)
             if enhance and delivered:
                 out.append(
-                    "🔆 Görüntü parlaklık/kontrast açılarak gönderildi (yalnızca "
-                    "size giden kopya; diskteki çekim ham). Boyut aynı, `shot` "
-                    "koordinatları değişmedi."
+                    "🔆 The picture was sent brightened (only the copy sent to you; "
+                    "the capture on disk is untouched). Same size, `shot` "
+                    "coordinates unchanged."
                 )
         if len(delivered) > 1:
             # Kimlik metinde, goruntu ayri blokta: eslesme SIRAYLA.
             out.append(
-                "Goruntuler asagida bu sirayla: "
+                "The pictures follow below in this order: "
                 + ", ".join(f"`{item.id or item.label}`" for item in delivered)
                 + "."
             )
@@ -2083,10 +2083,10 @@ def register(
             gate.audit("screen_capture_undelivered", shots=len(undelivered))
             error = presentationlib.undelivered_error(undelivered)
             out.append(
-                "⛔ Goruntu istemciye ULASTIRILAMADI: "
-                f"{error.message}. Cekim alindi ama bu cagriyi basarili "
-                "saymayin: bu goruntuden koordinat cikarmayin, yeni bir cekim "
-                "alin."
+                "⛔ The picture did NOT reach the client: "
+                f"{error.message}. The capture was taken, but do not treat this call "
+                "as a success: do not derive coordinates from it; take a new "
+                "capture."
             )
             return presentationlib.desktop_error_result(
                 error,
@@ -2124,7 +2124,7 @@ def register(
             backend=ocrlib.ENGINE,
         )
         return presentationlib.desktop_error_result(
-            error, text=f"⛔ Ekrandan metin okunamiyor: {why}"
+            error, text=f"⛔ Cannot read text from the screen: {why}"
         )
 
     def _ocr_prepare(
@@ -2141,25 +2141,25 @@ def register(
             return presentationlib.desktop_error_result(
                 DesktopError(
                     code=ErrorCode.BACKEND_UNAVAILABLE,
-                    message="Ekran goruntusu servisi kurulu degil.",
+                    message="The screenshot service is not set up.",
                     category=ErrorCategory.CAPTURE,
                     retryable=False,
                     suggested_action="Upgrade or repair the pcbridge server installation.",
                     permission_scope="os.capture",
                     backend="pcbridge.shots",
                 ),
-                text="⛔ Ekran goruntusu servisi kurulu degil.",
+                text="⛔ The screenshot service is not set up.",
             )
         if isinstance(monitor, str) and monitor.strip().lower() == "window":
             return _text_result(
-                "⛔ `window` goruntusunun ekranin neresinde oldugu bilinmiyor; "
-                "bulunan metnin koordinati verilemez. Monitor secin."
+                "⛔ Where a `window` capture sits on the screen is unknown, so the "
+                "found text has no usable coordinate. Pick a monitor."
             )
         cap_ok, cap_why = capture_provider.available()
         if not cap_ok:
             return _unavailable_result(
                 "capture.monitor",
-                text=f"⛔ Ekran goruntusu alinamiyor: {cap_why}",
+                text=f"⛔ Cannot take a screenshot: {cap_why}",
                 message=cap_why,
                 scope="os.capture",
                 backend_name=capture_provider.backend_name(),
@@ -2216,10 +2216,10 @@ def register(
         payload = []
         for number, (item, match) in enumerate(found[: ocrlib.MAX_MATCHES], 1):
             x, y = match.center
-            approx = "" if match.exact else f" · yaklasik (%{match.score * 100:.0f})"
+            approx = "" if match.exact else f" · approximate ({match.score * 100:.0f}%)"
             lines.append(
                 f"{number}. \"{match.text}\" @ ({x}, {y}) · shot `{item.id}` "
-                f"({item.label}) · guven %{match.conf:.0f}{approx}"
+                f"({item.label}) · confidence {match.conf:.0f}%{approx}"
             )
             payload.append({**match.as_dict(), "shot": item.id})
         if found:
@@ -2227,13 +2227,13 @@ def register(
             x, y = match.center
             lines += [
                 "",
-                "Koordinatlar o cekimin pikselinde; tiklamak icin kimligiyle "
-                f"verin: `mouse(action=\"click\", x={x}, y={y}, shot=\"{item.id}\")`.",
+                "Coordinates are in that capture's pixels; to click, pass its id: "
+                f"`mouse(action=\"click\", x={x}, y={y}, shot=\"{item.id}\")`.",
             ]
             if not match.exact:
                 lines.append(
-                    "⚠️ Kesin eslesme yok, yalnizca benzeri bulundu: tiklamadan "
-                    "once `screen_capture(region=…)` ile bakin."
+                    "⚠️ No exact match, only a similar one: look with "
+                    "`screen_capture(region=…)` before clicking."
                 )
         else:
             near = [
@@ -2243,17 +2243,17 @@ def register(
             ]
             near.sort(key=lambda pair: -pair[1].score)
             total_words = sum(len(words) for _i, _m, words in read)
-            lines.append(f"Okunan kelime: {total_words}.")
+            lines.append(f"Words read: {total_words}.")
             if near:
-                lines.append("En yakin satirlar:")
+                lines.append("Nearest lines:")
                 for item, match in near[:5]:
                     x, y = match.center
                     lines.append(
                         f"  - \"{match.text}\" @ ({x}, {y}) · shot `{item.id}`"
                     )
             lines.append(
-                "OCR kucuk ya da stilize yaziyi kacirabilir: `region` ile "
-                "yakinlasin ya da `screen_capture` ile kendiniz bakin."
+                "OCR can miss small or stylized text: zoom in with `region`, "
+                "or look yourself with `screen_capture`."
             )
         return ToolResult(
             content=[_text("\n".join(lines))],
@@ -2279,10 +2279,10 @@ def register(
                 permission_scope="os.capture",
                 backend=ocrlib.ENGINE,
             )
-            return presentationlib.desktop_error_result(error, text=f"Hata: {exc}")
+            return presentationlib.desktop_error_result(error, text=f"Error: {exc}")
         return _exception_result(
             exc,
-            text=f"Hata: {exc}",
+            text=f"Error: {exc}",
             category=ErrorCategory.CAPTURE,
             scope="os.capture",
             backend_name=capture_provider.backend_name(),
@@ -2324,8 +2324,8 @@ def register(
                    region=list(area[0]) if area else None, matches=count,
                    seconds=round(elapsed, 2))
         heading = (
-            f"**{count} eslesme** · \"{text}\" ({elapsed:.1f} sn, OCR)"
-            if count else f"\"{text}\" ekranda bulunamadi ({elapsed:.1f} sn, OCR)."
+            f"**{count} match(es)** · \"{text}\" ({elapsed:.1f} s, OCR)"
+            if count else f"\"{text}\" is not on the screen ({elapsed:.1f} s, OCR)."
         )
         return _ocr_report(text, read, elapsed, heading=heading)
 
@@ -2406,19 +2406,19 @@ def register(
                    attempts=attempts, seconds=round(elapsed, 1), seen=done)
         if done and not gone:
             heading = (
-                f"**Goruldu** · \"{text}\" {elapsed:.1f} sn sonra ({attempts}. "
-                "okumada)."
+                f"**Seen** · \"{text}\" after {elapsed:.1f} s (read {attempts}"
+                ")."
             )
         elif done:
             heading = (
-                f"**Kayboldu** · \"{text}\" {elapsed:.1f} sn sonra ekranda yok "
-                f"({attempts}. okumada)."
+                f"**Gone** · \"{text}\" left the screen after {elapsed:.1f} s "
+                f"(read {attempts})."
             )
         else:
-            state = "hala ekranda" if gone else "gorunmedi"
+            state = "still on the screen" if gone else "did not appear"
             heading = (
-                f"⏱️ Zaman asimi · \"{text}\" {timeout_seconds} sn icinde "
-                f"{state} ({attempts} okuma)."
+                f"⏱️ Timed out · \"{text}\" {state} within {timeout_seconds} s "
+                f"({attempts} reads)."
             )
         result = _ocr_report(text, read, elapsed, heading=heading)
         result.structured_content.update(
@@ -2467,7 +2467,7 @@ def register(
             gate.audit("ui_dump_unavailable", reason=why[:120])
             return _unavailable_result(
                 "accessibility.read",
-                text=f"⛔ Erisilebilirlik agaci okunamiyor: {why}",
+                text=f"⛔ Cannot read the accessibility tree: {why}",
                 message=why,
                 scope="os.accessibility",
                 backend_name="desktop.accessibility",
@@ -2478,7 +2478,7 @@ def register(
             gate.audit("ui_dump_error", error=str(exc)[:160])
             return _exception_result(
                 exc,
-                text=f"Hata: {exc}",
+                text=f"Error: {exc}",
                 category=ErrorCategory.ACCESSIBILITY,
                 scope="os.accessibility",
                 backend_name="desktop.accessibility",
@@ -2529,7 +2529,7 @@ def register(
             gate.audit("ui_click_error", node=str(id)[:40], error=str(exc)[:160])
             return _exception_result(
                 exc,
-                text=f"Hata: {exc}",
+                text=f"Error: {exc}",
                 category=ErrorCategory.ACCESSIBILITY,
                 scope="os.accessibility",
                 backend_name="desktop.accessibility",
@@ -2542,11 +2542,11 @@ def register(
         if res.get("resolved_by") == "moved":
             # Indeks yolu tutmadi ama AYNI dugum (nesne kimligi) yeni yerinde
             # bulundu. Arayuz degismis; model bunu bilsin.
-            note = " (arayuz degismis, ayni oge yeni yerinde bulundu)"
+            note = " (the interface changed; the same element was found in its new place)"
         return (
-            f"{res.get('role','?')} \"{res.get('name','')}\" tiklandi{note}.\n"
-            "Sonucu dogrulamadan bir sonraki adima gecmeyin — ui_dump ile "
-            "yeniden bakin."
+            f"{res.get('role','?')} \"{res.get('name','')}\" clicked{note}.\n"
+            "Do not move on before you have checked the result — look again "
+            "with ui_dump."
         )
 
     @mcp.tool(
@@ -2582,7 +2582,7 @@ def register(
             gate.audit("ui_set_text_error", node=str(id)[:40], error=str(exc)[:160])
             return _exception_result(
                 exc,
-                text=f"Hata: {exc}",
+                text=f"Error: {exc}",
                 category=ErrorCategory.ACCESSIBILITY,
                 scope="os.accessibility",
                 backend_name="desktop.accessibility",
@@ -2593,9 +2593,9 @@ def register(
         gate.audit("ui_set_text", node=str(id)[:40], chars=len(text),
                    snapshot=res.get("snapshot") or None, forced=force or None)
         return (
-            f"{res.get('role','?')} icine {len(text)} karakter yazildi "
-            f"(oncekiler silindi: {res.get('replaced_chars', 0)} karakter).\n"
-            "Sonucu dogrulamadan bir sonraki adima gecmeyin."
+            f"{len(text)} characters written into the {res.get('role','?')} "
+            f"(replacing {res.get('replaced_chars', 0)} characters).\n"
+            "Do not move on before you have checked the result."
         )
 
     # -------------------------------------------------------- pencere yonetimi
@@ -2616,7 +2616,7 @@ def register(
             gate.audit("window_list_unavailable", reason=why[:120])
             return _unavailable_result(
                 "window.list",
-                text=f"⛔ Pencere listesi okunamiyor: {why}",
+                text=f"⛔ Cannot read the window list: {why}",
                 message=why,
                 scope="os.window",
                 backend_name="desktop.accessibility",
@@ -2627,7 +2627,7 @@ def register(
             gate.audit("window_list_error", error=str(exc)[:160])
             return _exception_result(
                 exc,
-                text=f"Hata: {exc}",
+                text=f"Error: {exc}",
                 category=ErrorCategory.ACCESSIBILITY,
                 scope="os.window",
                 backend_name="desktop.accessibility",
@@ -2700,7 +2700,7 @@ def register(
                        ms=round((time.monotonic() - started) * 1000))
             return _exception_result(
                 exc,
-                text=f"Hata: {exc}",
+                text=f"Error: {exc}",
                 category=ErrorCategory.EXECUTION,
                 scope="os.window",
                 backend_name="desktop.window",
@@ -2883,7 +2883,7 @@ def register(
                 gate.audit("computer_batch_error", error=str(exc)[:160])
                 return _exception_result(
                     exc,
-                    text=f"Hata: {exc}",
+                    text=f"Error: {exc}",
                     category=ErrorCategory.EXECUTION,
                     scope=input_scope,
                     backend_name="desktop.input",
@@ -2924,7 +2924,7 @@ def register(
             gate.audit("computer_batch_error", error=str(exc)[:160])
             return _exception_result(
                 exc,
-                text=f"⛔ Masaustu yurutme kilidi alinamadi: {exc}",
+                text=f"⛔ Could not take the desktop execution lock: {exc}",
                 category=ErrorCategory.EXECUTION,
                 scope="pcbridge.desktop",
                 backend_name="desktop.execution",
@@ -3095,12 +3095,12 @@ def register(
         skill = _SKILL_PATH
         if not skill.is_file():
             text = (
-                f"⛔ Gorsel ajan yonergesi yok: {skill}. Depodaki "
-                "`skills/computer-use/SKILL.md` silinmis ya da tasinmis."
+                f"⛔ The computer-use instructions are missing: {skill}. The "
+                "installation's `skills/computer-use/SKILL.md` was removed or moved."
             )
             error = DesktopError(
                 code=ErrorCode.DEPENDENCY_MISSING,
-                message=f"Gorsel ajan yonergesi yok: {skill}.",
+                message=f"The computer-use instructions are missing: {skill}.",
                 category=ErrorCategory.CAPABILITY,
                 retryable=False,
                 suggested_action="Restore skills/computer-use/SKILL.md and retry.",
@@ -3113,7 +3113,7 @@ def register(
         except OSError as exc:
             return _exception_result(
                 exc,
-                text=f"⛔ Gorsel ajan yonergesi okunamadi: {exc}",
+                text=f"⛔ The computer-use instructions could not be read: {exc}",
                 category=ErrorCategory.CAPABILITY,
                 scope="pcbridge.desktop",
                 backend_name="computer_task",
@@ -3215,17 +3215,17 @@ def register(
             jm.wait(job_id, wait_seconds)
 
         head = [
-            f"**{job_id}** — gorsel ajan basladi ({res.headline()})",
-            f"hedef: {_short(goal, 160)}",
+            f"**{job_id}** — computer-use agent started ({res.headline()})",
+            f"goal: {_short(goal, 160)}",
         ]
         if opened:
-            head.append(f"hazirlik: {opened}")
+            head.append(f"prepared: {opened}")
         head.append(
-            f"adim butcesi: {steps} · `job_status(\"{job_id}\")` ile izleyin"
+            f"step budget: {steps} · follow it with `job_status(\"{job_id}\")`"
         )
         head.append(
-            "Durdurmak icin: `desktop_lock` (ajanin elleri bir sonraki eylemde "
-            f"durur) ya da `job_cancel(\"{job_id}\")`."
+            "To stop it: `desktop_lock` (the agent's hands stop at its next action) "
+            f"or `job_cancel(\"{job_id}\")`."
         )
         if wait_seconds > 0:
             return "\n".join(head) + "\n\n---\n" + _fmt_job_summary(cfg, jm, job_id)
@@ -3253,14 +3253,14 @@ def register(
         )
 
         parts = [
-            "**Bilgisayar durumu**",
+            "**Computer status**",
             "",
-            f"- makine: {host}",
-            f"- calisma suresi: {uptime}",
-            f"- yuk: {load}",
-            f"- bellek: {mem}",
+            f"- host: {host}",
+            f"- uptime: {uptime}",
+            f"- load: {load}",
+            f"- memory: {mem}",
             "",
-            "**Diskler**",
+            "**Disks**",
             "```",
             disks,
             "```",
@@ -3272,24 +3272,24 @@ def register(
         if gpu:
             parts += ["**GPU**", "```", gpu, "```"]
 
-        parts.append(f"\n**Masaustu:** {gate.status_line()}")
+        parts.append(f"\n**Desktop:** {gate.status_line()}")
         from . import daemon as daemonlib
 
         parts.append(f"**pcbridge {__version__}:** {daemonlib.describe()}")
 
         running = jm.list_jobs(limit=10, only_running=True)
-        parts.append(f"\n**Calisan isler:** {len(running)}")
+        parts.append(f"\n**Running jobs:** {len(running)}")
         for r in running:
             parts.append(f"- `{r['job_id']}` {r['kind']} · {r['elapsed_seconds']}s · {r['label']}")
 
         if tmuxctl.available():
             try:
                 sessions = tmuxctl.list_sessions()
-                parts.append(f"\n**Acik terminaller:** {len(sessions)}")
+                parts.append(f"\n**Open terminals:** {len(sessions)}")
                 for s in sessions:
                     parts.append(f"- `{s['session']}` → {s['running']} ({s['path']})")
             except tmuxctl.TmuxError as exc:
-                parts.append(f"\n**Acik terminaller:** okunamadi ({exc})")
+                parts.append(f"\n**Open terminals:** unreadable ({exc})")
         return "\n".join(parts)
 
     @mcp.tool(annotations={"title": "Show a desktop notification"})
@@ -3305,10 +3305,10 @@ def register(
                 timeout=10,
                 capture_output=True,
             )
-            return "Bildirim gonderildi."
+            return "Notification sent."
         except FileNotFoundError:
-            return "notify-send bulunamadi: `sudo apt install libnotify-bin`"
+            return "notify-send not found: `sudo apt install libnotify-bin`"
         except Exception as exc:  # pragma: no cover
-            return f"Bildirim gonderilemedi: {exc}"
+            return f"Notification failed: {exc}"
 
     return runtime

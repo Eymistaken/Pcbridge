@@ -111,7 +111,7 @@ class NativeInputSelectionTests(unittest.TestCase):
             path.write_text(text.replace('input = "auto"', 'input = "native"'), encoding="utf-8")
             with self.assertRaises(SystemExit) as raised:
                 load_config(str(path))
-        self.assertIn("python, rust ya da auto", str(raised.exception))
+        self.assertIn("python, rust or auto", str(raised.exception))
 
     def test_each_explicit_setting_builds_the_provider_it_names(self) -> None:
         object.__setattr__(self.cfg.native, "input", "python")

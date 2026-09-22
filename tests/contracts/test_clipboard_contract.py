@@ -139,9 +139,9 @@ class ClipboardFixtureTests(unittest.TestCase):
     def test_the_note_still_says_what_happened_to_the_clipboard(self) -> None:
         cases = {case["name"]: case for case in self.fixture["cases"]}
         for name, ending in (
-            ("text_is_restored_byte_for_byte", "; pano eski icerigine donduruldu"),
-            ("an_empty_clipboard_is_cleared_again", "; pano temizlendi"),
-            ("without_restore_the_typed_text_stays", "karakter yapistirildi"),
+            ("text_is_restored_byte_for_byte", "; clipboard restored"),
+            ("an_empty_clipboard_is_cleared_again", "; clipboard cleared"),
+            ("without_restore_the_typed_text_stays", "characters through the clipboard"),
         ):
             with self.subTest(case=name):
                 _model, _typist, note = self.run_case(cases[name])
@@ -160,7 +160,7 @@ class ClipboardFixtureTests(unittest.TestCase):
                 mock.patch.object(inputlib.time, "sleep", lambda _seconds: None):
             with self.assertRaises(inputlib.InputError) as raised:
                 typist.type_text("yeni", restore_clipboard=True)
-        self.assertIn("wl-copy exit 1", str(raised.exception))
+        self.assertIn("wl-copy exited 1", str(raised.exception))
         self.assertEqual(typist.pasted, [], "nothing may be pasted after a failed write")
 
     def test_a_missing_wl_copy_names_the_package(self) -> None:

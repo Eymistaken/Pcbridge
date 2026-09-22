@@ -149,7 +149,7 @@ def select_capture_backend(
     return BackendSelection(
         backend="python",
         degraded=True,
-        reason=f"bilinmeyen `[native] capture` degeri: {requested!r}",
+        reason=f"unknown `[native] capture` value: {requested!r}",
     )
 
 
@@ -290,7 +290,7 @@ class NativeScreenCast:
         except DesktopError as exc:
             raise NativeCaptureError(exc.message, cause=exc) from exc
         except Exception as exc:  # noqa: BLE001
-            raise NativeCaptureError(f"native helper bulunamadi: {exc}") from exc
+            raise NativeCaptureError(f"native helper not found: {exc}") from exc
         return NativeClient(
             binary,
             state_dir=self.cfg.state_dir,
@@ -318,10 +318,10 @@ class NativeScreenCast:
             # which points an agent at the helper instead of `desktop_unlock`.
             refusal = DesktopError(
                 code=ErrorCode.GRANT_REQUIRED,
-                message="masaustu izni yok: native capture grant kimligi olmadan istenemez",
+                message="no desktop grant: native capture cannot be requested without a grant id",
                 category=ErrorCategory.SAFETY,
                 retryable=False,
-                suggested_action="Masaustu iznini desktop_unlock ile acip tekrar deneyin.",
+                suggested_action="Open the desktop grant with desktop_unlock and try again.",
                 backend=BACKEND_NAME,
             )
             raise NativeCaptureError(refusal.message, cause=refusal)
@@ -402,7 +402,7 @@ class NativeScreenCast:
         """One frame for one connector, written to `path` as PNG bytes."""
         if not self._open:
             raise NativeCaptureError(
-                "native capture hazir degil (masaustu izni verilince aciliyor)"
+                "native capture is not ready (it opens when the desktop grant is given)"
             )
         grant_id, revoke_epoch = self._grant()
         # The same monitor table `capture.py` selected the target from. The
@@ -450,7 +450,7 @@ class NativeScreenCast:
             except capturelib.CaptureError as exc:
                 raise NativeCaptureError(str(exc)) from exc
         if not response.binary:
-            raise NativeCaptureError(f"{connector} icin bos kare dondu")
+            raise NativeCaptureError(f"empty frame returned for {connector}")
 
         destination = Path(path)
         destination.write_bytes(response.binary)
@@ -492,7 +492,7 @@ def _error_from_response(error: dict[str, Any]) -> DesktopError:
     }.get(code, (ErrorCode.BACKEND_UNAVAILABLE, ErrorCategory.CAPABILITY))
     return DesktopError(
         code=mapped[0],
-        message=str(error.get("message") or code or "native capture basarisiz"),
+        message=str(error.get("message") or code or "native capture failed"),
         category=mapped[1],
         retryable=bool(error.get("retryable", False)),
         suggested_action="check_desktop_grant_and_display_layout",
@@ -539,7 +539,7 @@ class RustCaptureProvider(PythonCaptureProvider):
                 category=ErrorCategory.CAPABILITY,
                 backend=BACKEND_NAME,
                 retryable=True,
-                suggested_action="Native capture yardimcisini ve masaustu iznini denetleyin.",
+                suggested_action="Check the native capture helper and the desktop grant.",
             ) from exc
 
     def capability_token(self) -> tuple[Any, ...]:
@@ -563,8 +563,8 @@ class RustCaptureProvider(PythonCaptureProvider):
     def available(self) -> tuple[bool, str]:
         if not capturelib.PIL_AVAILABLE:
             return False, (
-                f"python paketi `Pillow` yok ({capturelib.PIL_IMPORT_ERROR}). "
-                "Kurulum: ./.venv/bin/pip install -r requirements.txt"
+                f"the python package `Pillow` is missing ({capturelib.PIL_IMPORT_ERROR}). "
+                "Reinstall pcbridge with its [desktop] extra (`pcbridge setup`)."
             )
         return native_binary_ready(self.cfg)
 
@@ -651,7 +651,7 @@ class RustCaptureProvider(PythonCaptureProvider):
                 category=ErrorCategory.CAPABILITY,
                 backend=BACKEND_NAME,
                 retryable=True,
-                suggested_action="Native capture yardimcisini ve masaustu iznini denetleyin.",
+                suggested_action="Check the native capture helper and the desktop grant.",
             ) from exc
 
 
@@ -744,10 +744,10 @@ class RustInputProvider(PythonInputProvider):
         if token is None:
             raise DesktopError(
                 code=ErrorCode.GRANT_REQUIRED,
-                message="masaustu izni yok: native input grant kimligi olmadan kullanilamaz",
+                message="no desktop grant: native input cannot be used without a grant id",
                 category=ErrorCategory.SAFETY,
                 retryable=False,
-                suggested_action="Masaustu iznini desktop_unlock ile acip tekrar deneyin.",
+                suggested_action="Open the desktop grant with desktop_unlock and try again.",
                 backend="linux.uinput.native",
             )
         return {
@@ -775,14 +775,14 @@ class RustInputProvider(PythonInputProvider):
                 message=str(error.get("message") or raw_code),
                 category=category,
                 retryable=bool(error.get("retryable", False)),
-                suggested_action="Native input grant ve display topology durumunu denetleyin.",
+                suggested_action="Check the native input grant and the display topology.",
                 backend="pcbridge-native",
             )
         result = getattr(response, "result", None)
         if not isinstance(result, dict):
             raise DesktopError(
                 code=ErrorCode.INVALID_FRAME,
-                message="Native input gecersiz bir yanit dondurdu.",
+                message="Native input returned an invalid answer.",
                 category=ErrorCategory.IPC,
                 retryable=False,
                 suggested_action="Native input protokolunu denetleyin.",
@@ -826,8 +826,8 @@ class RustInputProvider(PythonInputProvider):
                 raise DesktopError(
                     code=ErrorCode.BACKEND_UNAVAILABLE,
                     message=(
-                        "Native yardimci pano metotlarini tanimiyor (Task 5.4 oncesi "
-                        "bir derleme). `scripts/build-native.sh` ile yeniden derleyin."
+                        "The native helper does not know the clipboard methods (a build "
+                        "from before Task 5.4). Rebuild it with `scripts/build-native.sh`."
                     ),
                     category=ErrorCategory.CAPABILITY,
                     retryable=False,
@@ -866,7 +866,7 @@ class RustInputProvider(PythonInputProvider):
                 message=str(exc),
                 category=ErrorCategory.COORDINATE,
                 retryable=True,
-                suggested_action="Display topology durumunu yenileyip tekrar deneyin.",
+                suggested_action="Refresh the display topology and try again.",
                 backend="linux.uinput.native",
             ) from exc
         params = self._grant_params()
@@ -919,7 +919,7 @@ class RustInputProvider(PythonInputProvider):
         if not isinstance(position, (list, tuple)) or len(position) != 2:
             raise DesktopError(
                 code=ErrorCode.INVALID_FRAME,
-                message="Native pointer gecersiz bir konum dondurdu.",
+                message="The native pointer returned an invalid position.",
                 category=ErrorCategory.IPC,
                 retryable=False,
                 suggested_action="Native pointer protokolunu denetleyin.",
@@ -976,7 +976,7 @@ class RustInputProvider(PythonInputProvider):
         if position is None:
             raise DesktopError(
                 code=ErrorCode.INVALID_FRAME,
-                message="Native pointer hareketi konum dondurmedi.",
+                message="The native pointer move returned no position.",
                 category=ErrorCategory.IPC,
                 retryable=False,
                 suggested_action="Native pointer protokolunu denetleyin.",
@@ -1117,11 +1117,11 @@ class RustInputProvider(PythonInputProvider):
     def available(self) -> tuple[bool, str]:
         ready, reason = native_binary_ready(self.cfg)
         if not ready:
-            return False, reason or "native input yardimcisi bulunamadi"
+            return False, reason or "native input helper not found"
         if not os.path.exists(inputlib.UINPUT_NODE):
-            return False, f"{inputlib.UINPUT_NODE} yok"
+            return False, f"{inputlib.UINPUT_NODE} does not exist"
         if not os.access(inputlib.UINPUT_NODE, os.W_OK):
-            return False, f"{inputlib.UINPUT_NODE} icin yazma izni yok"
+            return False, f"no write access to {inputlib.UINPUT_NODE}"
         return True, ""
 
     def probe_capabilities(self) -> dict[str, Capability]:
@@ -1261,10 +1261,10 @@ class RustAccessibilityProvider(PythonAccessibilityProvider):
         if token is None:
             raise DesktopError(
                 code=ErrorCode.GRANT_REQUIRED,
-                message="masaustu izni yok: erisilebilirlik agaci izin olmadan okunmaz",
+                message="no desktop grant: the accessibility tree is not read without one",
                 category=ErrorCategory.SAFETY,
                 retryable=False,
-                suggested_action="Masaustu iznini desktop_unlock ile acip tekrar deneyin.",
+                suggested_action="Open the desktop grant with desktop_unlock and try again.",
                 backend=ACCESSIBILITY_BACKEND,
             )
         return str(token.grant_id), int(token.revoke_epoch)
@@ -1293,9 +1293,9 @@ class RustAccessibilityProvider(PythonAccessibilityProvider):
                 raise DesktopError(
                     code=ErrorCode.BACKEND_UNAVAILABLE,
                     message=(
-                        "Native yardimci bu erisilebilirlik metodunu tanimiyor "
-                        f"({method}; eski bir derleme). `scripts/build-native.sh` "
-                        "ile yeniden derleyin."
+                        "The native helper does not know this accessibility method "
+                        f"({method}; an older build). Rebuild it with `scripts/build-native.sh`."
+                        ""
                     ),
                     category=ErrorCategory.CAPABILITY,
                     retryable=False,
@@ -1307,9 +1307,9 @@ class RustAccessibilityProvider(PythonAccessibilityProvider):
                 # pipe): the action may have happened. Never sent again.
                 raise _accessibility_error(
                     uitreelib.UiTreeError(
-                        "Native yardimci eyleme cevap vermedi; eylem yapilmis da "
-                        "olabilir, yapilmamis da. Tekrarlanmadi: once ui_dump ya "
-                        "da screen_capture ile sonuca bakin.",
+                        "The native helper did not answer the action; it may or may not "
+                        "have happened. Not repeated: look at the result with ui_dump "
+                        "or screen_capture first.",
                         ErrorCode.EXECUTION_UNKNOWN,
                     ),
                     ErrorCode.EXECUTION_UNKNOWN,
@@ -1330,7 +1330,7 @@ class RustAccessibilityProvider(PythonAccessibilityProvider):
         if not isinstance(result, dict) or not result.get("ok"):
             raise DesktopError(
                 code=ErrorCode.INVALID_FRAME,
-                message="Native erisilebilirlik yardimcisi gecersiz bir yanit dondurdu.",
+                message="The native accessibility helper returned an invalid answer.",
                 category=ErrorCategory.IPC,
                 retryable=False,
                 suggested_action="check_native_protocol",
@@ -1397,7 +1397,7 @@ class RustAccessibilityProvider(PythonAccessibilityProvider):
     def available(self) -> tuple[bool, str]:
         ready, reason = native_binary_ready(self.cfg)
         if not ready:
-            return False, reason or "native erisilebilirlik yardimcisi bulunamadi"
+            return False, reason or "native accessibility helper not found"
         return True, ""
 
     def capability_token(self) -> tuple[Any, ...]:

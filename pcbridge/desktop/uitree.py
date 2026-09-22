@@ -142,9 +142,9 @@ class Window:
 def available() -> tuple[bool, str]:
     """(kullanilabilir mi, degilse Turkce gerekce)."""
     if not HELPER.exists():
-        return False, f"AT-SPI yardimcisi bulunamadi: {HELPER}"
+        return False, f"AT-SPI helper not found: {HELPER}"
     if not shutil.which(SYSTEM_PYTHON):
-        return False, f"`{SYSTEM_PYTHON}` bulunamadi (sistem python'u gerekli)."
+        return False, f"`{SYSTEM_PYTHON}` not found (the system python is required)."
     try:
         proc = subprocess.run(
             [SYSTEM_PYTHON, "-c", "import gi; gi.require_version('Atspi','2.0')"],
@@ -156,7 +156,7 @@ def available() -> tuple[bool, str]:
         return False, "AT-SPI kontrolu zaman asimina ugradi."
     if proc.returncode != 0:
         return False, (
-            "AT-SPI baglantilari yok. Kurulum: "
+            "AT-SPI bindings are missing. Install them: "
             "sudo apt install python3-gi gir1.2-atspi-2.0"
         )
     return True, ""
@@ -180,20 +180,20 @@ def _call(payload: dict, timeout: int) -> dict:
         # yalnizca zaman asimi.
         acting = payload.get("cmd") in ("act", "settext")
         raise UiTreeError(
-            f"Uygulama {timeout} saniyede cevap vermedi. Donmus olabilir; "
-            "ekran goruntusuyle bakin (screen_capture).",
+            f"The application did not answer within {timeout} seconds. It may be hung; "
+            "look with a screenshot (screen_capture).",
             ErrorCode.EXECUTION_UNKNOWN if acting else ErrorCode.TIMEOUT,
         ) from exc
     if not proc.stdout.strip():
         # Yardimci stdout'a her zaman JSON yazar. Bos ise gercekten cokmustur;
         # stderr'deki GLib gurultusunun son satiri en faydali ipucu.
         tail = (proc.stderr or "").strip().splitlines()
-        hint = tail[-1] if tail else "cikti yok"
-        raise UiTreeError(f"AT-SPI yardimcisi cevap vermedi ({hint}).")
+        hint = tail[-1] if tail else "no output"
+        raise UiTreeError(f"The AT-SPI helper did not answer ({hint}).")
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
-        raise UiTreeError(f"AT-SPI yardimcisinin cevabi okunamadi: {exc}") from exc
+        raise UiTreeError(f"the AT-SPI helper's answer could not be read: {exc}") from exc
 
 
 def _digest(role: str, name: str, occurrence: int) -> str:
@@ -236,7 +236,7 @@ def _short_ids(digests: list[str]) -> list[str]:
         common = _common(digests[a], digests[b])
         if common >= len(digests[a]):
             raise UiTreeError(
-                "Iki dugum ayni kimligi aldi; liste guvenilir degil.",
+                "Two nodes got the same id; the list cannot be trusted.",
                 ErrorCode.ELEMENT_AMBIGUOUS,
             )
         need[a] = max(need[a], common + 1)
@@ -358,7 +358,7 @@ class UiTree:
             DUMP_TIMEOUT,
         )
         if not resp.get("ok"):
-            raise UiTreeError(resp.get("error") or "Agac okunamadi.", _code(resp.get("code")))
+            raise UiTreeError(resp.get("error") or "The tree could not be read.", _code(resp.get("code")))
         dump = dump_from_response(resp)
         self._last = dump
         return dump
@@ -377,7 +377,7 @@ class UiTree:
         )
         if not resp.get("ok"):
             raise UiTreeError(
-                resp.get("error") or "Odaktaki pencere okunamadi.", _code(resp.get("code"))
+                resp.get("error") or "The focused window could not be read.", _code(resp.get("code"))
             )
         return resp.get("app") or "?", resp.get("window") or ""
 
@@ -390,7 +390,7 @@ class UiTree:
         resp = _call({"cmd": "windows"}, DUMP_TIMEOUT)
         if not resp.get("ok"):
             raise UiTreeError(
-                resp.get("error") or "Pencere listesi okunamadi.", _code(resp.get("code"))
+                resp.get("error") or "The window list could not be read.", _code(resp.get("code"))
             )
         return windows_from_response(resp)
 
@@ -404,7 +404,7 @@ class UiTree:
         key = str(node_id).strip().lstrip("#").lower()
         if self._last is None:
             raise UiTreeError(
-                "Henuz ui_dump cagrilmadi; kimlikler o listeden geliyor.",
+                "ui_dump has not been called yet; the ids come from its list.",
                 ErrorCode.ELEMENT_STALE,
             )
         node = self._last.by_id.get(key)
@@ -417,13 +417,13 @@ class UiTree:
             if hits:
                 shown = ", ".join("#" + n.node_id for n in hits[:4])
                 raise UiTreeError(
-                    f"#{key} bu listede birden fazla ogeye uyuyor ({shown}). "
-                    "Listedeki tam kimligi kullanin.",
+                    f"#{key} matches more than one element in this list ({shown}). "
+                    "Use the full id from the list.",
                     ErrorCode.ELEMENT_AMBIGUOUS,
                 )
         raise UiTreeError(
-            f"#{key} taninmiyor. Once ui_dump ile guncel listeyi alin "
-            "(kimlikler o listeye ait).",
+            f"#{key} is not known. Get a current list with ui_dump first "
+            "(ids belong to that list).",
             ErrorCode.ELEMENT_STALE,
         )
 
@@ -455,21 +455,21 @@ class UiTree:
         if not node.actions:
             # Koordinata DUSMUYORUZ: olculen AT-SPI koordinatlari yanlis.
             raise UiTreeError(
-                f"{node.role} \"{node.name}\" bir eylem sunmuyor. Koordinatla "
-                "tiklamayi denemiyorum -- AT-SPI'in bildirdigi konumlar bu "
-                "sistemde yanlis. screen_capture ile bakip `mouse` kullanin.",
+                f"{node.role} \"{node.name}\" offers no action. Not trying a "
+                "coordinate click -- the positions AT-SPI reports are wrong on "
+                "this system. Look with screen_capture and use `mouse`.",
                 ErrorCode.ACTION_UNSUPPORTED,
             )
         return self._act(
             {"cmd": "act", "action": action, **self._target_payload(node)},
-            "Eylem uygulanamadi.",
+            "The action could not be performed.",
         )
 
     def set_text(self, node_id: str, text: str) -> dict:
         node = self.resolve(node_id)
         return self._act(
             {"cmd": "settext", "text": text, **self._target_payload(node)},
-            "Metin yazilamadi.",
+            "The text could not be written.",
         )
 
 
@@ -478,20 +478,20 @@ def describe_windows(wins: list[Window]) -> str:
     """Pencere listesini modele gosterilecek duz metne cevir."""
     if not wins:
         return (
-            "Acik pencere gorunmuyor. AT-SPI yalnizca erisilebilirlik agaci "
-            "yayinlayan uygulamalari gosterir; Chromium tabanli bazi "
-            "uygulamalar `--force-renderer-accessibility` olmadan hic "
-            "gorunmez. Ekrana bakmak icin screen_capture kullanin."
+            "No open window is visible. AT-SPI only shows applications that "
+            "publish an accessibility tree; some Chromium-based "
+            "applications do not appear at all without `--force-renderer-accessibility`. "
+            "Use screen_capture to look at the screen."
         )
     lines = []
     for w in wins:
         mark = "▸ " if w.active else "  "
         lines.append(f"{mark}{w.label}")
     lines.append("")
-    lines.append(f"{len(wins)} pencere · ▸ odaktaki")
+    lines.append(f"{len(wins)} window(s) · ▸ focused")
     lines.append(
-        "NOT: burada yalnizca erisilebilirlik agaci yayinlayan uygulamalar var; "
-        "acik olup listede gorunmeyen uygulama olabilir."
+        "NOTE: only applications that publish an accessibility tree are listed; "
+        "an open application may be missing here."
     )
     return "\n".join(lines)
 
@@ -502,15 +502,15 @@ def describe(dump: Dump) -> str:
     lines = [head, ""]
     if dump.same_name > 1:
         lines[1:1] = [
-            f"Not: ayni adla {dump.same_name} uygulama acik; bu liste pid "
-            f"{dump.app_pid} olaninki (odaktaysa o secildi).",
+            f"Note: {dump.same_name} applications with this name are open; this list is "
+            f"the one with pid {dump.app_pid} (the focused one, if it was).",
             "",
         ]
     if not dump.nodes:
         lines.append(
-            "Bu pencere erisilebilirlik agaci yayinlamiyor (bos geldi). Bazi "
-            "Electron uygulamalari `--force-renderer-accessibility` olmadan "
-            "icerigini vermiyor. Ekrani gormek icin screen_capture kullanin."
+            "This window publishes no accessibility tree (it came back empty). Some "
+            "Electron applications give no content without `--force-renderer-accessibility`. "
+            "Use screen_capture to see the screen."
         )
         return "\n".join(lines)
 
@@ -520,14 +520,14 @@ def describe(dump: Dump) -> str:
     clickable = sum(1 for n in dump.nodes if n.clickable)
     editable = sum(1 for n in dump.nodes if n.editable)
     lines.append(
-        f"{len(dump.nodes)} dugum · {clickable} tiklanabilir · {editable} yazilabilir"
+        f"{len(dump.nodes)} node(s) · {clickable} clickable · {editable} editable"
     )
     if dump.truncated:
         lines.append(
-            "⚠️ Liste kirpildi. Daraltmak icin target ile tek bir uygulama verin."
+            "⚠️ The list was cut short. Narrow it with target set to one application."
         )
     lines.append(
-        "Tiklamak icin ui_click(\"#kimlik\"), metin kutusuna yazmak icin "
-        "ui_set_text(\"#kimlik\", \"...\")."
+        "To click use ui_click(\"#id\"); to type into a text field "
+        "ui_set_text(\"#id\", \"...\")."
     )
     return "\n".join(lines)

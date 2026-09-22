@@ -34,9 +34,9 @@ def shot_image(shot: Any, enhance: bool = False) -> ImageContent:
     try:
         data = Path(shot.path).read_bytes()
     except OSError as exc:
-        raise _undelivered(label, f"PNG okunamadi ({exc.strerror or exc})") from exc
+        raise _undelivered(label, f"the PNG could not be read ({exc.strerror or exc})") from exc
     if len(data) < 24 or data[:8] != PNG_SIGNATURE or data[12:16] != b"IHDR":
-        raise _undelivered(label, "dosya gecerli bir PNG degil")
+        raise _undelivered(label, "the file is not a valid PNG")
     width, height = struct.unpack(">II", data[16:24])
     expected = tuple(shot.scaled)
     if (width, height) != expected:
@@ -182,7 +182,7 @@ def execution_error(
 
 def capabilities_result(snapshot: CapabilitySnapshot) -> ToolResult:
     """Present a side-effect-free capability snapshot for humans and agents."""
-    lines = ["**Masaustu yetenekleri**", ""]
+    lines = ["**Desktop capabilities**", ""]
     for name, value in sorted(snapshot.capabilities.items()):
         line = f"- `{name}`: {value.state.value} (`{value.backend}`)"
         if value.reason_code:
@@ -192,9 +192,9 @@ def capabilities_result(snapshot: CapabilitySnapshot) -> ToolResult:
     lines += [
         "",
         "**Yetkilendirme**",
-        f"- yapilandirma: {'acik' if authorization.desktop_enabled else 'kapali'}",
-        f"- izin: {authorization.grant_remaining_seconds} sn",
-        f"- ekran kilidi: {authorization.screen_lock_state}",
+        f"- configuration: {'enabled' if authorization.desktop_enabled else 'disabled'}",
+        f"- grant: {authorization.grant_remaining_seconds} s left",
+        f"- screen lock: {authorization.screen_lock_state}",
     ]
     return ToolResult(
         content=[TextContent(type="text", text="\n".join(lines))],

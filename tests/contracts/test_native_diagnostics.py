@@ -132,7 +132,7 @@ class NativeDiagnostics(unittest.TestCase):
         for capture, level in (("python", "info"), ("auto", "warn"), ("rust", "fail")):
             with self.subTest(capture=capture):
                 findings = self.run_diagnose(capture, binary=None)
-                missing = [f for f in findings if "native yardimci yok" in f.message]
+                missing = [f for f in findings if "no native helper" in f.message]
                 self.assertEqual([f.level for f in missing], [level])
                 self.assertIn("scripts/build-native.sh", missing[0].message)
                 self.assertIn("python3-gi", findings[-1].message, "legacy GI note last")
@@ -142,7 +142,7 @@ class NativeDiagnostics(unittest.TestCase):
         for typing, level in (("python", "info"), ("auto", "warn"), ("rust", "fail")):
             with self.subTest(input=typing):
                 findings = self.run_diagnose("python", binary=None, typing=typing)
-                missing = [f for f in findings if "native yardimci yok" in f.message]
+                missing = [f for f in findings if "no native helper" in f.message]
                 self.assertEqual([f.level for f in missing], [level])
                 infos = " | ".join(self.levels(findings, "info"))
                 self.assertIn(f"[native] input = {typing}", infos)
@@ -152,7 +152,7 @@ class NativeDiagnostics(unittest.TestCase):
         for reading, level in (("python", "info"), ("auto", "warn"), ("rust", "fail")):
             with self.subTest(accessibility=reading):
                 findings = self.run_diagnose("python", binary=None, reading=reading)
-                missing = [f for f in findings if "native yardimci yok" in f.message]
+                missing = [f for f in findings if "no native helper" in f.message]
                 self.assertEqual([f.level for f in missing], [level])
                 infos = " | ".join(self.levels(findings, "info"))
                 self.assertIn(f"[native] accessibility = {reading}", infos)
@@ -164,14 +164,14 @@ class NativeDiagnostics(unittest.TestCase):
                 findings = self.run_diagnose(
                     "auto", reading=reading, probe=lambda _path: BEFORE_ACCESSIBILITY
                 )
-                stale = [f for f in findings if "eski bir derleme" in f.message]
+                stale = [f for f in findings if "older build" in f.message]
                 self.assertEqual([f.level for f in stale], [level])
                 self.assertIn("accessibility.action", stale[0].message)
                 self.assertIn("scripts/build-native.sh", stale[0].message)
         quiet = self.run_diagnose(
             "auto", reading="python", probe=lambda _path: BEFORE_ACCESSIBILITY
         )
-        self.assertFalse([f for f in quiet if "eski bir derleme" in f.message])
+        self.assertFalse([f for f in quiet if "older build" in f.message])
 
     def test_a_healthy_release_build_raises_nothing(self) -> None:
         findings = self.run_diagnose("auto")
@@ -179,13 +179,13 @@ class NativeDiagnostics(unittest.TestCase):
         self.assertEqual(self.levels(findings, "warn"), [])
         passes = " | ".join(self.levels(findings, "pass"))
         self.assertIn("build 2294156a1b2c", passes)
-        self.assertIn("protokol 1.0", passes)
+        self.assertIn("protocol 1.0", passes)
         self.assertIn("capture.monitor: supported", passes)
         self.assertIn("libpipewire-0.3.so.0", passes)
 
     def test_debug_and_test_harness_builds_are_called_out(self) -> None:
         debug = self.run_diagnose(runner=FakeRunner(info={**RELEASE_INFO, "profile": "debug"}))
-        self.assertTrue(any("release degil" in m for m in self.levels(debug, "warn")))
+        self.assertTrue(any("not a release build" in m for m in self.levels(debug, "warn")))
 
         harness = self.run_diagnose(runner=FakeRunner(info={**RELEASE_INFO, "test_harness": True}))
         self.assertTrue(any("test-harness" in m for m in self.levels(harness, "fail")))
@@ -193,13 +193,13 @@ class NativeDiagnostics(unittest.TestCase):
     def test_a_protocol_or_target_mismatch_fails(self) -> None:
         other = {**RELEASE_INFO, "protocol": {"major": 2, "minor": 0}, "target": "aarch64-apple-darwin"}
         failures = self.levels(self.run_diagnose(runner=FakeRunner(info=other)), "fail")
-        self.assertTrue(any("protokol 2" in m for m in failures), failures)
+        self.assertTrue(any("protocol 2" in m for m in failures), failures)
         self.assertTrue(any("aarch64-apple-darwin" in m for m in failures), failures)
 
     def test_an_old_helper_without_build_info_is_a_warning_not_a_crash(self) -> None:
         old = completed(stderr="pcbridge-native: unsupported command-line arguments\n", code=2)
         findings = self.run_diagnose(runner=FakeRunner(info_result=old))
-        self.assertTrue(any("eski bir derleme" in m for m in self.levels(findings, "warn")))
+        self.assertTrue(any("older than Task 4.1" in m for m in self.levels(findings, "warn")))
 
     def test_libraries_that_do_not_resolve_or_are_not_documented(self) -> None:
         unresolved = self.run_diagnose(
@@ -245,9 +245,9 @@ class NativeDiagnostics(unittest.TestCase):
 
     def test_a_failed_handshake_is_a_failure(self) -> None:
         failures = self.levels(
-            self.run_diagnose(probe=lambda _path: "handshake basarisiz: EOF"), "fail"
+            self.run_diagnose(probe=lambda _path: "handshake failed: EOF"), "fail"
         )
-        self.assertIn("handshake basarisiz: EOF", failures)
+        self.assertIn("handshake failed: EOF", failures)
 
     def test_build_info_runs_the_binary_itself(self) -> None:
         script = self.root / "describes-itself"

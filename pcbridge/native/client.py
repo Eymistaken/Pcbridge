@@ -260,7 +260,7 @@ class NativeClient:
             if self._closed or self._closing:
                 raise _desktop_error(
                     ErrorCode.CANCELLED,
-                    "Native client kapatildi.",
+                    "The native client was closed.",
                     suggested_action="create_a_new_native_client",
                     execution_state="not_started",
                 )
@@ -399,7 +399,7 @@ class NativeClient:
                 self._registry.unregister(registry_entry)
                 raise _desktop_error(
                     ErrorCode.NATIVE_CRASHED,
-                    "Native helper initialize sonrasinda kapandi.",
+                    "The native helper exited after initialize.",
                     suggested_action="retry_read_only_native_request",
                     execution_state="not_started",
                 )
@@ -451,7 +451,7 @@ class NativeClient:
             ):
                 raise _desktop_error(
                     ErrorCode.NATIVE_CRASHED,
-                    "Native helper kullanilabilir degil.",
+                    "The native helper is not usable.",
                     suggested_action="retry_read_only_native_request",
                     execution_state="not_started",
                 )
@@ -559,7 +559,7 @@ class NativeClient:
                 generation,
                 _desktop_error(
                     ErrorCode.NATIVE_CRASHED,
-                    "Native helper request pipe'i kapandi.",
+                    "The native helper's request pipe closed.",
                     suggested_action="retry_read_only_native_request",
                     execution_state="unknown",
                 ),
@@ -593,13 +593,13 @@ class NativeClient:
         except NativeFrameError:
             failure = _desktop_error(
                 ErrorCode.INVALID_FRAME,
-                "Native helper gecersiz frame dondurdu.",
+                "The native helper returned an invalid frame.",
                 suggested_action="check_native_protocol",
             )
         except (EOFError, OSError):
             failure = _desktop_error(
                 ErrorCode.NATIVE_CRASHED,
-                "Native helper baglantisi kapandi.",
+                "The native helper connection closed.",
                 suggested_action="retry_read_only_native_request",
                 execution_state="unknown",
             )
@@ -688,7 +688,7 @@ class NativeClient:
     def _invalid_initialize_response() -> DesktopError:
         return _desktop_error(
             ErrorCode.INVALID_FRAME,
-            "Native initialize response gecersiz.",
+            "The native initialize response is invalid.",
             suggested_action="check_native_protocol",
         )
 

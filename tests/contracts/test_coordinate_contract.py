@@ -109,7 +109,7 @@ class CoordinateContractTests(unittest.TestCase):
         ):
             directory = Path(raw)
             self._save_shot(directory, age=guard["recent_age_seconds"])
-            with self.assertRaisesRegex(capturelib.CaptureError, "BELIRSIZ"):
+            with self.assertRaisesRegex(capturelib.CaptureError, "AMBIGUOUS"):
                 capturelib.to_global(
                     *point,
                     dirs=[directory],

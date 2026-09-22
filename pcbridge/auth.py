@@ -149,7 +149,7 @@ class SqliteOAuthProvider(OAuthProvider):
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         if not client_info.client_id:
-            raise ValueError("client_id gerekli")
+            raise ValueError("client_id is required")
         with self._conn() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO clients(client_id, data, created_at) VALUES (?,?,?)",
@@ -173,7 +173,7 @@ class SqliteOAuthProvider(OAuthProvider):
         """Kod uretmeden once kullaniciyi parola sayfasina yollar."""
         if not client.client_id:
             raise AuthorizeError(
-                error="invalid_client", error_description="client_id yok"
+                error="invalid_client", error_description="client_id is missing"
             )
 
         rid = secrets.token_urlsafe(24)
@@ -207,10 +207,10 @@ class SqliteOAuthProvider(OAuthProvider):
                 "SELECT data, expires_at FROM pending WHERE rid = ?", (rid,)
             ).fetchone()
             if not row:
-                raise KeyError("istek bulunamadi veya suresi doldu")
+                raise KeyError("request not found or expired")
             if row["expires_at"] < time.time():
                 conn.execute("DELETE FROM pending WHERE rid = ?", (rid,))
-                raise KeyError("istegin suresi doldu, Spark'tan tekrar baglan")
+                raise KeyError("the request expired; connect again from the client")
             payload = json.loads(row["data"])
             conn.execute("DELETE FROM pending WHERE rid = ?", (rid,))
 
@@ -335,7 +335,7 @@ class SqliteOAuthProvider(OAuthProvider):
                 "DELETE FROM auth_codes WHERE code = ?", (authorization_code.code,)
             )
             if cur.rowcount == 0:
-                raise TokenError("invalid_grant", "Kod bulunamadi veya kullanildi.")
+                raise TokenError("invalid_grant", "Code not found or already used.")
         assert client.client_id
         self.audit("token_issued", client_id=client.client_id, grant="authorization_code")
         return self._new_tokens(
@@ -473,9 +473,9 @@ class SqliteOAuthProvider(OAuthProvider):
 # ---------------------------------------------------------------------------
 
 _PAGE = """<!doctype html>
-<html lang="tr"><head>
+<html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>pcbridge - Erisim onayi</title>
+<title>pcbridge - Access approval</title>
 <style>
  :root {{ color-scheme: dark; }}
  * {{ box-sizing: border-box; }}
@@ -502,23 +502,23 @@ _PAGE = """<!doctype html>
    padding-top:14px; line-height:1.5; }}
 </style></head>
 <body><div class="card">
-  <h1>Bilgisayarina erisim izni</h1>
-  <p>Asagidaki uygulama <b>pcbridge</b> araciligiyla bilgisayarinda komut calistirma
-     yetkisi istiyor.</p>
+  <h1>Access to your computer</h1>
+  <p>The application below asks, through <b>pcbridge</b>, for permission to run
+     commands on your computer.</p>
   <div class="who"><b>{client_name}</b><br>{redirect}</div>
   {error}
   <form method="post" action="/consent">
     <input type="hidden" name="rid" value="{rid}">
-    <label for="pw">pcbridge parolasi</label>
+    <label for="pw">pcbridge password</label>
     <input id="pw" name="password" type="password" autocomplete="current-password"
            autofocus required>
-    <button type="submit">Onayla ve baglan</button>
+    <button type="submit">Approve and connect</button>
   </form>
-  <div class="warn">Bu istegi sen baslatmadiysan sayfayi kapat ve parolani degistir.
-    Onay verirsen bu uygulama terminalinde komut calistirabilir.</div>
+  <div class="warn">If you did not start this request, close the page and change your password.
+    If you approve, this application can run commands in your terminal.</div>
 </div></body></html>"""
 
-_DONE = """<!doctype html><html lang="tr"><head><meta charset="utf-8">
+_DONE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>pcbridge</title>
 <style>body{background:#0d1117;color:#e6edf3;font-family:system-ui;display:flex;
 min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px}
@@ -526,9 +526,9 @@ a{color:#58a6ff}</style></head><body><div>
 <h2>{title}</h2><p>{msg}</p></div></body></html>"""
 
 
-_MANUAL = """<!doctype html><html lang="tr"><head><meta charset="utf-8">
+_MANUAL = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>pcbridge - hata ayiklama</title>
+<title>pcbridge - debugging</title>
 <style>
  :root{{color-scheme:dark}}
  body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
@@ -544,15 +544,15 @@ _MANUAL = """<!doctype html><html lang="tr"><head><meta charset="utf-8">
    font-size:11px;resize:vertical}}
  .warn{{font-size:12px;color:#d29922;margin-top:14px;line-height:1.5}}
 </style></head><body><div class="card">
-<h1>Parola dogrulandi — hata ayiklama modu acik</h1>
-<p>Normalde bu noktada otomatik olarak Google'a donulurdu. Bu modda donmuyoruz ki
-   karsi tarafin ne dedigini gorebilesin.</p>
-<a class="btn" href="{target}">Google'a don ve devam et</a>
-<p class="warn">Butona bastiktan sonra ekranda ne yazdigini <b>oku ve not al</b>.
-   Hata cikarsa sayfa kapanmadan mesaji kopyala. Kodun omru 5 dakika.</p>
+<h1>Password verified — debugging mode is on</h1>
+<p>Normally the browser would now go back to the client automatically. In this mode
+   it does not, so that you can see what the other side answers.</p>
+<a class="btn" href="{target}">Go back to the client and continue</a>
+<p class="warn">After pressing the button, <b>read and note</b> what the screen says.
+   If there is an error, copy the message before the page closes. The code lives 5 minutes.</p>
 <textarea readonly onclick="this.select()">{target}</textarea>
-<p class="warn">Isin bitince config.toml icinde manual_redirect = false yap
-   ve servisi yeniden baslat.</p>
+<p class="warn">When you are done, set manual_redirect = false in config.toml
+   and restart pcbridge.</p>
 </div></body></html>"""
 
 
@@ -569,16 +569,16 @@ def make_consent_routes(provider: SqliteOAuthProvider):
         if not pending:
             return HTMLResponse(
                 _DONE.format(
-                    title="Istek gecersiz",
-                    msg="Baglanti istegi bulunamadi veya suresi doldu. "
-                    "Gemini tarafindan tekrar baglanmayi dene.",
+                    title="Invalid request",
+                    msg="The connection request was not found or has expired. "
+                    "Connect again from the client.",
                 ),
                 status_code=400,
             )
         return HTMLResponse(
             _PAGE.format(
                 rid=rid,
-                client_name=pending.get("client_name", "Bilinmeyen uygulama"),
+                client_name=pending.get("client_name", "Unknown application"),
                 redirect=pending.get("redirect_uri", ""),
                 error="",
             )
@@ -594,8 +594,8 @@ def make_consent_routes(provider: SqliteOAuthProvider):
         if locked > 0:
             return HTMLResponse(
                 _DONE.format(
-                    title="Cok fazla hatali deneme",
-                    msg=f"{int(locked / 60) + 1} dakika sonra tekrar dene.",
+                    title="Too many failed attempts",
+                    msg=f"Try again in {int(locked / 60) + 1} minute(s).",
                 ),
                 status_code=429,
             )
@@ -604,8 +604,8 @@ def make_consent_routes(provider: SqliteOAuthProvider):
         if not pending:
             return HTMLResponse(
                 _DONE.format(
-                    title="Istek gecersiz",
-                    msg="Baglanti istegi bulunamadi veya suresi doldu.",
+                    title="Invalid request",
+                    msg="The connection request was not found or has expired.",
                 ),
                 status_code=400,
             )
@@ -617,7 +617,7 @@ def make_consent_routes(provider: SqliteOAuthProvider):
                     rid=rid,
                     client_name=pending.get("client_name", ""),
                     redirect=pending.get("redirect_uri", ""),
-                    error=_err_box("Parola hatali."),
+                    error=_err_box("Wrong password."),
                 ),
                 status_code=401,
             )
@@ -627,7 +627,7 @@ def make_consent_routes(provider: SqliteOAuthProvider):
             target = provider._issue_code(rid)
         except KeyError as exc:
             return HTMLResponse(
-                _DONE.format(title="Istek gecersiz", msg=str(exc)), status_code=400
+                _DONE.format(title="Invalid request", msg=str(exc)), status_code=400
             )
         provider.audit("consent_granted", ip=ip, client=pending.get("client_name"))
 

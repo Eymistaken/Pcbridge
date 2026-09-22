@@ -324,7 +324,7 @@ fn an_unanswered_action_is_unknown_and_sent_once() {
     )
     .expect_err("no answer");
     assert_eq!(error.code, "EXECUTION_UNKNOWN");
-    assert!(error.message.contains("Tekrarlanmadi"), "{}", error.message);
+    assert!(error.message.contains("Not repeated"), "{}", error.message);
     assert_eq!(frozen.actions.get(), 1);
 
     let error = run(
@@ -439,16 +439,8 @@ fn a_short_text_is_reported_with_counts_only() {
     assert_eq!(error.code, "TEXT_MISMATCH");
     assert!(!error.message.contains("gizli"), "{}", error.message);
     assert!(!error.message.contains("gizli-"), "{}", error.message);
-    assert!(
-        error.message.contains("16 karakter gonderildi"),
-        "{}",
-        error.message
-    );
-    assert!(
-        error.message.contains("simdi 5 karakter"),
-        "{}",
-        error.message
-    );
+    assert!(error.message.contains("16 characters"), "{}", error.message);
+    assert!(error.message.contains("now holds 5"), "{}", error.message);
     // It waited for the text to settle before calling it short.
     assert!(started.elapsed() >= TEXT_SETTLE, "{:?}", started.elapsed());
 }

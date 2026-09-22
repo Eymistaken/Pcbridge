@@ -61,32 +61,32 @@ def coord_actions(plan) -> list:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="pcb-do",
-        description="Masaustu eylemlerini calistir (tek nesne ya da liste).",
+        description="Run desktop actions (one object or a list).",
         epilog=(
-            "ornek: pcb-do '[{\"a\":\"click\",\"x\":2760,\"y\":312},"
-            "{\"a\":\"wait\",\"ms\":500},{\"a\":\"type\",\"text\":\"selam\"}]'"
+            "example: pcb-do '[{\"a\":\"click\",\"x\":640,\"y\":360,\"shot\":\"m2-a1b2c3\"},"
+            "{\"a\":\"wait\",\"ms\":500},{\"a\":\"type\",\"text\":\"hello\"}]'"
         ),
     )
     p.add_argument("actions", nargs="?", default="",
-                   help="JSON eylem ya da eylem listesi. '-' ise stdin'den okur.")
+                   help="A JSON action or list of actions. '-' reads stdin.")
     p.add_argument("--dry-run", action="store_true",
-                   help="Yalnizca ayristir ve plani bas; HICBIR SEY calistirma.")
+                   help="Only parse and print the plan; run NOTHING.")
     p.add_argument("--force", action="store_true",
-                   help="Kullanici makinenin basinda olsa bile gonder. "
-                        "YALNIZCA bosta (idle) kontrolunu atlar; ekran kilidi, "
-                        "izin penceresi ve hiz siniri aynen isler.")
+                   help="Send even if the user is at the machine. "
+                        "Skips ONLY the idle check; screen lock, the grant "
+                        "window and the rate limit still apply.")
     p.add_argument("--max-shot-age", type=int, default=-1,
-                   help="Koordinatli bir eylem gonderilirken en yeni ekran "
-                        "goruntusu en fazla bu kadar saniye eski olabilir. "
-                        "0 = kontrol kapali. Verilmezse config.toml'daki deger.")
+                   help="When a coordinate action is sent, the newest screenshot "
+                        "may be at most this many seconds old. "
+                        "0 = no check. Default: the value in the config.")
     p.add_argument("--expect-focus", default="",
-                   help="Bu tiklamalarla gecmeyi BEKLEDIGIN pencerenin adindan "
-                        "bir parca. Odak oraya giderse dizi surer, baska yere "
-                        "giderse yine durur.")
+                   help="Part of the name of the window these clicks are MEANT "
+                        "to switch to. If the focus goes there the sequence goes "
+                        "on; anywhere else it still stops.")
     p.add_argument("--no-check-focus", action="store_true",
-                   help="Tiklamadan sonra odak dogrulamasini kapat (onerilmez; "
-                        "once --expect-focus deneyin).")
-    p.add_argument("--json", action="store_true", help="Makine okunur cikti.")
+                   help="Turn off the focus check after clicks (not recommended; "
+                        "try --expect-focus first).")
+    p.add_argument("--json", action="store_true", help="Machine-readable output.")
     return p
 
 
@@ -100,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     text = read_actions(args.actions)
     if not text.strip():
-        fail("eylem verilmedi. Ornek icin: pcb-do --help",
+        fail("no action given. For an example: pcb-do --help",
              EXIT_BAD_INPUT, args.json)
 
     cfg = load()
@@ -122,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         # Hicbir cihaz acilmiyor, kapiya da varilmiyor: bu bir SOZDIZIMI
         # kontrolu. Ajan kendi urettigi JSON'u boyle dogruluyor.
-        lines = [f"{len(plan)} eylem ayristirildi (CALISTIRILMADI):"]
+        lines = [f"{len(plan)} action(s) parsed (NOT RUN):"]
         for i, act in enumerate(plan, 1):
             detail = {k: v for k, v in act.args.items() if k != "text"}
             if "text" in act.args:
@@ -138,25 +138,25 @@ def main(argv: list[str] | None = None) -> int:
             plan, focus_uses_keyboard=not fast_focus
         )
         lines.append(
-            f"gereken cihazlar: klavye={'evet' if want_k else 'hayir'} "
-            f"fare={'evet' if want_p else 'hayir'} "
-            f"goreli-fare={'evet' if want_r else 'hayir'}"
+            f"devices needed: keyboard={'yes' if want_k else 'no'} "
+            f"pointer={'yes' if want_p else 'no'} "
+            f"relative-pointer={'yes' if want_r else 'no'}"
         )
         if "focus" in {a.a for a in plan}:
             lines.append(
-                "focus yolu: "
-                + ("GNOME eklentisi (acik pencere); kapali uygulama dogrudan "
-                   "acilir, eklenti one alamazsa GNOME aramasi" if fast_focus
-                   else "zaten odaktaysa tus yok; kapali uygulama dogrudan "
-                   "acilir, acik pencere GNOME aramasiyla (eklenti yok)")
+                "focus path: "
+                + ("GNOME extension (open window); a closed application is started "
+                   "directly, GNOME search if the extension cannot raise it" if fast_focus
+                   else "no key if already focused; a closed application is started "
+                   "directly, an open window through GNOME search (no extension)")
             )
         estimate = batchlib.estimate(plan, fast_focus=fast_focus)
-        lines.append(f"tahmini sure: {estimate:.1f} s")
+        lines.append(f"estimated time: {estimate:.1f} s")
         budget = float(cfg.desktop.batch_budget_seconds)
         if estimate > budget:
             # Gercek kosuda `batch.run` bu listeyi hic baslatmadan reddeder.
             lines.append(
-                f"⚠ butce {budget:.0f} s: bu liste HIC BASLAMAZ, bolun"
+                f"⚠ budget {budget:.0f} s: this list would NOT START, split it"
             )
         if args.json:
             print(json.dumps({
@@ -214,24 +214,24 @@ def _run_plan(cfg, args, plan, runtime) -> int:
             except (capturelib.CaptureError, DesktopError) as exc:
                 fail(str(exc), EXIT_DENIED, args.json)
             if age > limit:
-                fail(f"`{sid}` cekimi {int(age)} saniyelik (sinir {limit}). "
-                     "Aradan gecen surede pencereler degismis olabilir ve o "
-                     "koordinat artik baska seyin ustunde olabilir. Once "
-                     "`pcb-shot` ile TAZE goruntu alin.", EXIT_DENIED, args.json)
+                fail(f"shot `{sid}` is {int(age)} seconds old (limit {limit}). "
+                     "The windows may have changed since, and that "
+                     "coordinate may be on top of something else now. Take a "
+                     "FRESH picture with `pcb-shot` first.", EXIT_DENIED, args.json)
 
         # Kimliksiz koordinat: hangi cekime dayandigi bilinmiyor, o yuzden
         # olcut dizindeki en yeni goruntu.
         if any(not a.args.get("shot") for a in needs_shot):
             age = newest_shot_age(shot_dir(cfg))
             if age is None:
-                fail("Koordinatla tiklamadan once `pcb-shot` ile ekrana BAKIN — "
-                     "hic ekran goruntusu alinmamis. Kor tiklama yapilmaz.",
+                fail("LOOK at the screen with `pcb-shot` before clicking by coordinate — "
+                     "no screenshot has been taken. No blind clicks.",
                      EXIT_DENIED, args.json)
             if age > limit:
-                fail(f"En yeni ekran goruntusu {int(age)} saniyelik (sinir {limit}). "
-                     "Aradan gecen surede pencereler degismis olabilir ve o koordinat "
-                     "artik baska seyin ustunde olabilir. Once `pcb-shot` ile TAZE "
-                     "goruntu alin.", EXIT_DENIED, args.json)
+                fail(f"The newest screenshot is {int(age)} seconds old (limit {limit}). "
+                     "The windows may have changed since, and that coordinate "
+                     "may be on top of something else now. Take a FRESH picture "
+                     "with `pcb-shot` first.", EXIT_DENIED, args.json)
 
     gate = runtime.gate
     kinds = {a.a for a in plan}

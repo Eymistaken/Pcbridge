@@ -115,10 +115,10 @@ class Monitor:
         return self.x <= x < self.x + self.width and self.y <= y < self.y + self.height
 
     def describe(self) -> str:
-        star = " (birincil)" if self.primary else ""
+        star = " (primary)" if self.primary else ""
         return (
             f"{self.index}: {self.connector}{star} · {self.width}x{self.height} "
-            f"@ ({self.x}, {self.y}) · olcek {self.scale:g}"
+            f"@ ({self.x}, {self.y}) · scale {self.scale:g}"
         )
 
 
@@ -181,15 +181,15 @@ def resolve_state(state: dict) -> list[Monitor]:
         connectors = lm.get("connectors") or []
         if not connectors:
             raise MonitorError(
-                "Mantiksal monitor hicbir connector bildirmedi; hangi modun "
-                "gecerli oldugu bilinemez."
+                "A logical monitor reported no connector; which mode applies "
+                "cannot be known."
             )
         connector = str(connectors[0])
         if connector not in modes:
-            raise MonitorError(f"{connector} icin gecerli mod bulunamadi")
+            raise MonitorError(f"no current mode found for {connector}")
         scale = float(lm.get("scale") or 0.0)
         if scale <= 0:
-            raise MonitorError(f"{connector} icin gecersiz olcek: {scale!r}")
+            raise MonitorError(f"invalid scale for {connector}: {scale!r}")
         transform = int(lm.get("transform") or 0)
         mw, mh = modes[connector]
         if transform in _SWAPS_AXES:
@@ -198,7 +198,7 @@ def resolve_state(state: dict) -> list[Monitor]:
         height = round_half_away(mh / scale)
         if width <= 0 or height <= 0:
             raise MonitorError(
-                f"{connector} icin gecersiz mantiksal boyut: {width}x{height}"
+                f"invalid logical size for {connector}: {width}x{height}"
             )
         out.append(
             Monitor(
@@ -310,7 +310,7 @@ def _from_mutter() -> list[Monitor]:
     """Mutter.DisplayConfig.GetCurrentState -> mantiksal monitorler."""
     proc = subprocess.run(_BUSCTL, capture_output=True, text=True, timeout=10)
     if proc.returncode != 0:
-        raise MonitorError((proc.stderr or "busctl basarisiz").strip())
+        raise MonitorError((proc.stderr or "busctl failed").strip())
     return resolve_state(_mutter_state(json.loads(proc.stdout)["data"]))
 
 
@@ -331,7 +331,7 @@ def _from_xrandr() -> list[Monitor]:
         ["xrandr", "--listmonitors"], capture_output=True, text=True, timeout=10
     )
     if proc.returncode != 0:
-        raise MonitorError((proc.stderr or "xrandr basarisiz").strip())
+        raise MonitorError((proc.stderr or "xrandr failed").strip())
     out: list[Monitor] = []
     for line in proc.stdout.splitlines():
         m = _XRANDR_RE.match(line)
@@ -384,8 +384,8 @@ def list_monitors(use_cache: bool = True) -> list[Monitor]:
             mons = _from_xrandr()
         except Exception:
             raise MonitorError(
-                f"Monitor tablosu okunamadi. Mutter: {exc}. "
-                "xrandr yedegi de basarisiz."
+                f"The monitor table could not be read. Mutter: {exc}. "
+                "The xrandr fallback failed too."
             ) from exc
     mons = _ordered(mons)
     _cache = (now, mons)
@@ -429,13 +429,13 @@ def resolve(spec: int | str | None, mons: list[Monitor] | None = None) -> Monito
     if spec is None:
         return primary(mons)
     if isinstance(spec, bool):  # bool int'in alt sinifi; kazayla gecmesin
-        raise MonitorError(f"Gecersiz monitor: {spec!r}")
+        raise MonitorError(f"Invalid monitor: {spec!r}")
     if isinstance(spec, int):
         for m in mons:
             if m.index == spec:
                 return m
         raise MonitorError(
-            f"Monitor {spec} yok. Gecerli: {', '.join(str(m.index) for m in mons)}"
+            f"There is no monitor {spec}. Valid: {', '.join(str(m.index) for m in mons)}"
         )
     key = str(spec).strip().lower()
     if key in ("primary", "birincil"):
@@ -446,7 +446,7 @@ def resolve(spec: int | str | None, mons: list[Monitor] | None = None) -> Monito
         if m.connector.lower() == key:
             return m
     raise MonitorError(
-        f"Monitor '{spec}' bulunamadi. Gecerli: "
+        f"Monitor '{spec}' not found. Valid: "
         + ", ".join(f"{m.index}/{m.connector}" for m in mons)
     )
 
@@ -488,12 +488,12 @@ def describe() -> str:
     try:
         mons = list_monitors()
     except MonitorError as exc:
-        return f"Monitor tablosu okunamadi: {exc}"
+        return f"The monitor table could not be read: {exc}"
     w, h = canvas_size(mons)
-    lines = [f"tuval: {w}x{h} · {len(mons)} monitor (soldan saga numarali)"]
+    lines = [f"canvas: {w}x{h} · {len(mons)} monitor(s), numbered by position (left to right, then top to bottom)"]
     lines += [f"  {m.describe()}" for m in mons]
     p = primary(mons)
     lines.append(
-        f"  GNOME ust cubugu ve Super menusu birincil monitorde: {p.index}/{p.connector}"
+        f"  primary monitor (GNOME panel menus and the Super overview): {p.index}/{p.connector}"
     )
     return "\n".join(lines)

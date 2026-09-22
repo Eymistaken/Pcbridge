@@ -155,7 +155,11 @@ fn a_passed_deadline_is_a_timeout_not_a_partial_list() {
     late.deadline = Some(Instant::now() - Duration::from_millis(1));
     let error = accessibility::dump(&desktop, &late).expect_err("deadline passed");
     assert_eq!(error.code, "TIMEOUT");
-    assert!(error.message.contains("15 saniyede"), "{}", error.message);
+    assert!(
+        error.message.contains("within 15 seconds"),
+        "{}",
+        error.message
+    );
 }
 
 /// A tree deeper than the walk's limit: the nodes below it are not read.

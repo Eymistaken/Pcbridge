@@ -40,8 +40,8 @@ def main(argv: list[str] | None = None) -> int:
         # provider kendi helper taramasiyla onu da durdurur.
         killed = runtime.capture_provider.kill_helpers()
         if killed:
-            out += (f"\n· {killed} ekran yayini durduruldu "
-                    "(paylasim gostergesi kayboldu)")
+            out += (f"\n· {killed} screen share(s) stopped "
+                    "(the sharing indicator is gone)")
         print(out)
         return EXIT_OK
     finally:

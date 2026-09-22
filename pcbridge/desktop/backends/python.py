@@ -147,8 +147,8 @@ def _accessibility_error(
             backend=backend,
             retryable=True,
             suggested_action=(
-                "Hedefi yeniden belirleyin: ui_dump ile listeyi yenileyin ya da "
-                "window_list ile açık pencerelere bakın."
+                "Find the target again: refresh the list with ui_dump or look at "
+                "the open windows with window_list."
             ),
         )
     if code is ErrorCode.TIMEOUT:
@@ -158,7 +158,7 @@ def _accessibility_error(
             category=ErrorCategory.EXECUTION,
             backend=backend,
             retryable=True,
-            suggested_action="Uygulama donmuş olabilir; screen_capture ile bakın.",
+            suggested_action="The application may be hung; look with screen_capture.",
         )
     if code is ErrorCode.EXECUTION_UNKNOWN:
         # The helper timed out: the action may or may not have happened, so
@@ -168,7 +168,7 @@ def _accessibility_error(
             message=str(exc),
             category=ErrorCategory.EXECUTION,
             retryable=False,
-            suggested_action="Tekrarlamadan önce ui_dump ya da screen_capture ile sonuca bakın.",
+            suggested_action="Before repeating, look at the result with ui_dump or screen_capture.",
             backend=backend,
             execution_state="unknown",
         )
@@ -179,7 +179,7 @@ def _accessibility_error(
             category=ErrorCategory.ACCESSIBILITY,
             backend=backend,
             retryable=False,
-            suggested_action="Bu öğe bu eylemi sunmuyor; ekran görüntüsüyle bakıp başka bir yol seçin.",
+            suggested_action="This element does not offer that action; look at a screenshot and pick another way.",
         )
     if code is ErrorCode.TEXT_MISMATCH:
         # The field was written: repeating the same text changes nothing.
@@ -190,8 +190,8 @@ def _accessibility_error(
             backend=backend,
             retryable=False,
             suggested_action=(
-                "Alan metni olduğu gibi almadı; ui_dump ile bakın, gerekirse "
-                "alanın kabul ettiği bir metin deneyin."
+                "The field did not take the text as given; look with ui_dump and "
+                "try a text the field accepts."
             ),
         )
     return _desktop_error(
@@ -200,7 +200,7 @@ def _accessibility_error(
         category=category,
         backend=backend,
         retryable=retryable,
-        suggested_action="Erişilebilirlik ağacını yenileyip tekrar deneyin.",
+        suggested_action="Refresh the accessibility tree and try again.",
     )
 
 
@@ -211,7 +211,7 @@ def _display_mapping_error(exc: Exception) -> DesktopError:
         category=ErrorCategory.CAPTURE,
         backend="linux.mutter-display-config",
         retryable=True,
-        suggested_action="Ekran düzenini yenileyip tekrar deneyin.",
+        suggested_action="Refresh the screen layout and try again.",
     )
 
 
@@ -449,7 +449,7 @@ class PythonCaptureProvider:
                 category=ErrorCategory.CAPABILITY,
                 backend="linux.gnome-screencast",
                 retryable=True,
-                suggested_action="Ekran yayınını kapatıp yeniden açın.",
+                suggested_action="Close the screen share and open it again.",
             ) from exc
 
     def close(self) -> None:
@@ -493,7 +493,7 @@ class PythonCaptureProvider:
                 category=ErrorCategory.COORDINATE,
                 backend="linux.python.capture",
                 retryable=True,
-                suggested_action="Bölgeyi yeniden seçip tekrar deneyin.",
+                suggested_action="Choose the region again and retry.",
             ) from exc
         except capturelib.CaptureError as exc:
             raise _desktop_error(
@@ -502,7 +502,7 @@ class PythonCaptureProvider:
                 category=ErrorCategory.CAPABILITY,
                 backend="linux.python.capture",
                 retryable=True,
-                suggested_action="Ekran yakalama bağımlılıklarını ve oturumu denetleyin.",
+                suggested_action="Check the screen capture dependencies and the session.",
             ) from exc
         except monitorslib.MonitorError as exc:
             raise _display_mapping_error(exc) from exc
@@ -574,7 +574,7 @@ class PythonCaptureProvider:
                 category=ErrorCategory.COORDINATE,
                 backend="python.shot-coordinate",
                 retryable=True,
-                suggested_action="Yeni bir ekran görüntüsü alıp onun kimliğini kullanın.",
+                suggested_action="Take a new screenshot and use its id.",
             ) from exc
         except capturelib.CaptureError as exc:
             raise _desktop_error(
@@ -585,7 +585,7 @@ class PythonCaptureProvider:
                 retryable=code
                 in {ErrorCode.SHOT_NOT_FOUND, ErrorCode.AMBIGUOUS_COORDINATE},
                 suggested_action=(
-                    "Taze bir çekim kimliği veya açık bir monitor seçimi kullanın."
+                    "Use a fresh shot id or an explicit monitor."
                 ),
             ) from exc
         except monitorslib.MonitorError as exc:
@@ -626,7 +626,7 @@ class PythonCaptureProvider:
                 category=ErrorCategory.COORDINATE,
                 backend="python.shot-coordinate",
                 retryable=True,
-                suggested_action="Yeni bir ekran görüntüsü alıp onun kimliğini kullanın.",
+                suggested_action="Take a new screenshot and use its id.",
             ) from exc
         except capturelib.CaptureError as exc:
             raise _desktop_error(
@@ -635,7 +635,7 @@ class PythonCaptureProvider:
                 category=ErrorCategory.COORDINATE,
                 backend="python.shot-coordinate",
                 retryable=code == ErrorCode.SHOT_NOT_FOUND,
-                suggested_action="Bölgeyi tek bir monitörün içinde, doğru uzayda verin.",
+                suggested_action="Give the region inside one monitor, in the right coordinate space.",
             ) from exc
         except monitorslib.MonitorError as exc:
             raise _display_mapping_error(exc) from exc
@@ -657,7 +657,7 @@ class PythonCaptureProvider:
                 category=ErrorCategory.COORDINATE,
                 backend="python.shot-coordinate",
                 retryable=code == ErrorCode.SHOT_NOT_FOUND,
-                suggested_action="Taze bir ekran görüntüsü alıp kimliği aynen kullanın.",
+                suggested_action="Take a fresh screenshot and use its id exactly.",
             ) from exc
 
     def save_meta(
@@ -784,7 +784,7 @@ class PythonInputProvider(inputlib.InputBackend):
                 retryable=code
                 not in {ErrorCode.DEPENDENCY_MISSING, ErrorCode.UNSUPPORTED},
                 suggested_action=(
-                    f"{capability_name} durumunu denetleyip tekrar deneyin."
+                    f"Check the state of {capability_name} and try again."
                 ),
                 permission_scope=(
                     "os.input" if category == ErrorCategory.PERMISSION else None
@@ -798,7 +798,7 @@ class PythonInputProvider(inputlib.InputBackend):
                 backend="linux.uinput",
                 retryable=False,
                 suggested_action=(
-                    f"{capability_name} durumunu denetleyip sonucu doğrulayın."
+                    f"Check the state of {capability_name} and verify the result."
                 ),
             ) from exc
 

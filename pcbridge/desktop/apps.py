@@ -662,18 +662,18 @@ def _not_an_app(target: Application) -> DesktopError:
         more = f" (+{len(target.rivals) - 5})" if len(target.rivals) > 5 else ""
         return _refused(
             ErrorCode.ELEMENT_AMBIGUOUS,
-            f"{target.text!r} birden fazla uygulamaya uyuyor: {shown}{more}. "
-            "Hicbir sey baslatilmadi ve aranmadi.",
-            "Uygulamanin tam adini verin; acik pencereler icin window_list.",
+            f"{target.text!r} matches more than one application: {shown}{more}. "
+            "Nothing was started or searched.",
+            "Give the full application name; window_list shows the open windows.",
         )
     return _refused(
         ErrorCode.TARGET_MISMATCH,
-        f"{target.text!r} ne kurulu bir uygulamanin adi ne de one alinabilen "
-        "tek bir acik pencere. Hicbir tus gonderilmedi: GNOME aramasina yazilan "
-        "ad bir uygulama degilse dosya, sohbet ya da web aramasi acabilir. "
-        "Pencere basligiyla one almak GNOME kabuk eklentisini ister.",
-        "window_list ile acik pencerelere bakip adi oradaki gibi verin; kapali "
-        "bir uygulamaysa kurulu adini verin.",
+        f"{target.text!r} is neither the name of an installed application nor one "
+        "open window that can be raised. No key was sent: a name typed into GNOME "
+        "search that is not an application can open a file, a chat or a web search. "
+        "Raising a window by its title needs the GNOME Shell extension.",
+        "Look at the open windows with window_list and give the name as shown there; "
+        "for a closed application give its installed name.",
     )
 
 
@@ -684,8 +684,8 @@ def _check_time(deadline: float | None, need: float, what: str) -> None:
     left = deadline - time.monotonic()
     if left < need:
         raise NoTimeLeft(
-            f"{what} icin ~{need:.1f} sn gerekiyor, {max(0.0, left):.1f} sn "
-            "kaldi; hicbir sey yapilmadi"
+            f"{what} needs ~{need:.1f} s, {max(0.0, left):.1f} s "
+            "are left; nothing was done"
         )
 
 
@@ -719,10 +719,10 @@ def observe_focus(focused: Callable[[], tuple[str, str]]) -> tuple[str, str]:
             return "", ""
         raise _refused(
             ErrorCode.BACKEND_UNAVAILABLE,
-            f"Odaktaki pencere okunamadi ({str(exc)[:80]}). Sonuc "
-            "dogrulanamayacagi icin hicbir tus gonderilmedi ve hicbir sey "
-            "baslatilmadi.",
-            "Erisilebilirligin neden okunamadigina system_capabilities ile bakin.",
+            f"The focused window could not be read ({str(exc)[:80]}). Since the "
+            "result could not be checked, no key was sent and nothing was "
+            "started.",
+            "Check with system_capabilities why accessibility cannot be read.",
             category=ErrorCategory.CAPABILITY,
         ) from None
     return str(app or ""), str(window or "")
@@ -767,8 +767,8 @@ def _gtk_launch(entry: Entry, timeout: int) -> None:
     if not shutil.which("gtk-launch"):
         raise _refused(
             ErrorCode.DEPENDENCY_MISSING,
-            "`gtk-launch` kurulu degil (paket: libgtk-3-bin).",
-            "libgtk-3-bin paketini kurun.",
+            "`gtk-launch` is not installed (package: libgtk-3-bin).",
+            "Install the libgtk-3-bin package.",
             category=ErrorCategory.CAPABILITY,
             retryable=False,
         )
@@ -798,9 +798,9 @@ def _gtk_launch(entry: Entry, timeout: int) -> None:
             # gtk-launch OLDURULMEZ: uygulama onun cocugu olabilir ve
             # oldurmek yeni acilan pencereyi de goturur.
             raise _unknown(
-                f"{entry.name} {timeout} saniyede baslamadi.",
-                "Uygulama hala aciliyor olabilir; tekrar baslatmadan once "
-                "window_list ya da screen_capture ile bakin.",
+                f"{entry.name} did not start within {timeout} seconds.",
+                "The application may still be opening; look with window_list or "
+                "screen_capture before starting it again.",
             ) from None
         errf.seek(0)
         err_text = errf.read().decode("utf-8", "replace").strip()
@@ -808,9 +808,9 @@ def _gtk_launch(entry: Entry, timeout: int) -> None:
     if code != 0:
         lines = err_text.splitlines()
         raise _unknown(
-            f"{entry.name} baslatilamadi: {lines[-1] if lines else 'bilinmiyor'}",
-            "Tekrar denemeden once window_list ile uygulamanin acilip "
-            "acilmadigina bakin.",
+            f"{entry.name} could not be started: {lines[-1] if lines else 'unknown'}",
+            "Before trying again, check with window_list whether the application "
+            "opened after all.",
         )
 
 
@@ -851,11 +851,11 @@ def _watch(
 
 def _launched_unseen(entry: Entry, waited: float) -> DesktopError:
     return _unknown(
-        f"{entry.name} baslatildi (gtk-launch 0 dondu) ama {waited:.0f} sn "
-        "icinde penceresi erisilebilirlik listesinde gorulmedi. Uygulama hala "
-        "aciliyor, acilip kapanmis ya da agac yayinlamiyor olabilir.",
-        "Tekrar baslatmayin (ikinci bir pencere acilabilir); once screen_capture "
-        "ya da window_list ile bakin.",
+        f"{entry.name} was started (gtk-launch returned 0) but within {waited:.0f} s "
+        "its window did not show up in the accessibility list. The application may "
+        "still be opening, may have opened and closed, or may not publish a tree.",
+        "Do not start it again (a second window could open); look with "
+        "screen_capture or window_list first.",
     )
 
 
@@ -897,10 +897,10 @@ def launch_application(
     if seen is None:
         raise _launched_unseen(target.entry, time.monotonic() - started)
     state, app, window = seen
-    where = "odakta" if state == "focused" else "listede"
+    where = "focused" if state == "focused" else "listed"
     return Outcome(
         "launch",
-        f"{target.entry.name} baslatildi, penceresi {where}: {app} | {window}",
+        f"{target.entry.name} started, its window is {where}: {app} | {window}",
         app,
         window,
     )
@@ -923,17 +923,17 @@ def bring_to_front(
     adima yetecek sure kalmadiysa o adimi `NoTimeLeft` ile hic baslatmaz.
     """
     if not _norm(window):
-        raise AppError("`focus` icin pencere/uygulama adi gerekli.")
+        raise AppError("`focus` needs a window or application name.")
 
     if activate_window(window):
-        return Outcome("extension", f"{window} GNOME eklentisiyle one alindi")
+        return Outcome("extension", f"{window} raised by the GNOME extension")
 
     target = resolve_application(window, pool)
     app, title = observe_focus(focused)
     if _shows(target, app, title):
         return Outcome(
             "already",
-            f"{app} | {title} zaten odakta; hicbir tus gonderilmedi",
+            f"{app} | {title} is already focused; no key was sent",
             app,
             title,
         )
@@ -943,7 +943,7 @@ def bring_to_front(
     mine = _windows_of(target, windows) if windows is not None else None
     if mine == []:
         # Listede hic penceresi yok: kapali. Tus gondermeden ac.
-        _check_time(deadline, LAUNCH_COST, f"{target.entry.name} baslatmak")
+        _check_time(deadline, LAUNCH_COST, f"starting {target.entry.name}")
         started = time.monotonic()
         _gtk_launch(target.entry, LAUNCH_TIMEOUT)
         seen = _watch(target, focused, windows, _until(deadline))
@@ -953,7 +953,7 @@ def bring_to_front(
         if state == "focused":
             return Outcome(
                 "launch",
-                f"{target.entry.name} baslatildi ve odakta: {app} | {title}",
+                f"{target.entry.name} started and focused: {app} | {title}",
                 app,
                 title,
             )
@@ -961,12 +961,12 @@ def bring_to_front(
         if activate_window(window):
             return Outcome(
                 "launch",
-                f"{target.entry.name} baslatildi ve GNOME eklentisiyle one alindi",
+                f"{target.entry.name} started and raised by the GNOME extension",
                 app,
                 title,
             )
 
-    _check_time(deadline, SEARCH_COST, "GNOME aramasi")
+    _check_time(deadline, SEARCH_COST, "the GNOME search")
     return _search(target, backend, focused, settle)
 
 
@@ -1011,27 +1011,27 @@ def _search(
     except Exception as exc:  # noqa: BLE001 - gerekce mesajda
         _escape(backend)
         raise _unknown(
-            f"{target.text!r} arandi ama sonuc dogrulanamadi (odak okunamadi: "
+            f"searched for {target.text!r} but the result could not be checked (focus unreadable: "
             f"{str(exc)[:80]}).",
-            "Ekrana bakin: screen_capture. Tekrar aramadan once neyin "
-            "acildigini gorun.",
+            "Look at the screen: screen_capture. See what opened before "
+            "searching again.",
         ) from None
 
     if _shows(target, app, title):
         return Outcome(
             "search",
-            f"{app} | {title} one alindi (GNOME aramasi, yedek yol)",
+            f"{app} | {title} raised (GNOME search, fallback path)",
             str(app),
             str(title),
         )
 
     _escape(backend)
     raise _unknown(
-        f"{target.text!r} one alinamadi; odakta {app} | {title!r} var. GNOME "
-        "aramasi baska bir sonuc secmis olabilir (bir dosya, bir sohbet ya da "
-        "web aramasi).",
-        "Acik pencereleri window_list ile gorun; arama bir sekme ya da dosya "
-        "acmis olabilir.",
+        f"{target.text!r} could not be raised; {app} | {title!r} has the focus. GNOME "
+        "search may have picked another result (a file, a chat or a "
+        "web search).",
+        "See the open windows with window_list; the search may have opened a tab "
+        "or a file.",
     )
 
 

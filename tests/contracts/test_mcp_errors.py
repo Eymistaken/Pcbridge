@@ -351,7 +351,7 @@ def build_mcp(
 
 class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
     async def test_window_focus_extension_does_not_require_uinput(self) -> None:
-        input_provider = FakeInput(available=(False, "/dev/uinput izni yok"))
+        input_provider = FakeInput(available=(False, "no permission for /dev/uinput"))
         with tempfile.TemporaryDirectory() as raw:
             mcp, _tree = build_mcp(Path(raw), input_provider=input_provider)
             with (
@@ -376,7 +376,7 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(input_provider.ensure_calls, [])
 
     async def test_window_focus_without_extension_keeps_keyboard_preflight(self) -> None:
-        input_provider = FakeInput(available=(False, "/dev/uinput izni yok"))
+        input_provider = FakeInput(available=(False, "no permission for /dev/uinput"))
         with tempfile.TemporaryDirectory() as raw:
             mcp, _tree = build_mcp(Path(raw), input_provider=input_provider)
             with (
@@ -398,7 +398,7 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
         focus.assert_not_called()
 
     async def test_batch_focus_extension_does_not_preopen_keyboard(self) -> None:
-        input_provider = FakeInput(available=(False, "/dev/uinput izni yok"))
+        input_provider = FakeInput(available=(False, "no permission for /dev/uinput"))
         with tempfile.TemporaryDirectory() as raw:
             mcp, _tree = build_mcp(Path(raw), input_provider=input_provider)
             with (
@@ -441,7 +441,7 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
                     toolslib.appslib,
                     "bring_to_front",
                     return_value=toolslib.appslib.Outcome(
-                        "already", "app | pencere zaten odakta", "app", "pencere"
+                        "already", "app | window is already focused; no key was sent", "app", "window"
                     ),
                 ) as front,
             ):
@@ -452,7 +452,7 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
                     )
 
         self.assertFalse(result.is_error)
-        self.assertIn("zaten odakta", result.content[0].text)
+        self.assertIn("already focused", result.content[0].text)
         event = dict(gate.events)["window_focus"]
         self.assertEqual(event["path"], "already")
         self.assertIsInstance(event["ms"], int)
@@ -540,7 +540,7 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
         gate = FakeGate(
             Decision(
                 False,
-                "Masaustu kontrolu su an kilitli.",
+                "Desktop control is locked right now.",
                 code=ErrorCode.GRANT_REQUIRED,
                 permission_scope="pcbridge.desktop",
             )
@@ -553,7 +553,7 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         self.assertTrue(result.is_error)
-        self.assertEqual(result.content[0].text, "⛔ Masaustu kontrolu su an kilitli.")
+        self.assertTrue(result.content[0].text.startswith("⛔ Desktop control is locked right now."))
         self.assertEqual(result.structured_content["type"], "pcbridge.desktop")
         self.assertEqual(
             result.structured_content["error"]["permission_scope"],
@@ -561,7 +561,7 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_capture_backend_error_has_os_capture_scope(self) -> None:
-        capture = FakeCapture(available=(False, "ekran izni verilmedi"))
+        capture = FakeCapture(available=(False, "screen permission denied"))
         with tempfile.TemporaryDirectory() as raw:
             mcp, _tree = build_mcp(Path(raw), capture=capture)
             async with Client(mcp) as client:
@@ -572,14 +572,14 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.is_error)
         self.assertEqual(
             result.content[0].text,
-            "⛔ Ekran goruntusu alinamiyor: ekran izni verilmedi",
+            "⛔ Cannot take a screenshot: screen permission denied",
         )
         self.assertEqual(
             result.structured_content["error"]["permission_scope"], "os.capture"
         )
 
     async def test_pointer_backend_error_has_os_pointer_scope(self) -> None:
-        input_provider = FakeInput(available=(False, "/dev/uinput izni yok"))
+        input_provider = FakeInput(available=(False, "no permission for /dev/uinput"))
         with tempfile.TemporaryDirectory() as raw:
             mcp, _tree = build_mcp(Path(raw), input_provider=input_provider)
             async with Client(mcp) as client:
@@ -591,7 +591,7 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.is_error)
         self.assertEqual(
             result.content[0].text,
-            "⛔ Sanal girdi cihazi kullanilamiyor: /dev/uinput izni yok",
+            "⛔ The virtual input device is unavailable: no permission for /dev/uinput",
         )
         self.assertEqual(
             result.structured_content["error"]["permission_scope"], "os.pointer"
@@ -617,8 +617,8 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             input_provider.clicks, [("left", 1, None), ("right", 1, 120)]
         )
-        self.assertIn("imlecin bulundugu yerde", plain.content[0].text)
-        self.assertIn("basili 120 ms", held.content[0].text)
+        self.assertIn("where the pointer is", plain.content[0].text)
+        self.assertIn("held 120 ms", held.content[0].text)
 
     async def test_a_half_given_or_spaceless_coordinate_clicks_nothing(self) -> None:
         input_provider = FakeInput()
@@ -637,9 +637,9 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
                     raise_on_error=False,
                 )
 
-        self.assertIn("birlikte verilmeli", half.content[0].text)
-        self.assertIn("x/y yok", shot_only.content[0].text)
-        self.assertIn("en fazla 150", long_double.content[0].text)
+        self.assertIn("must be given together", half.content[0].text)
+        self.assertIn("without x/y", shot_only.content[0].text)
+        self.assertIn("at most 150", long_double.content[0].text)
         self.assertEqual(input_provider.clicks, [])
         self.assertEqual(input_provider.moves, [])
 
@@ -695,7 +695,7 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(input_provider.keys_sent, [])
 
     async def test_batch_preserves_completed_steps_when_final_capture_fails(self) -> None:
-        capture = FakeCapture(available=(False, "ekran izni verilmedi"))
+        capture = FakeCapture(available=(False, "screen permission denied"))
         with tempfile.TemporaryDirectory() as raw:
             mcp, tree = build_mcp(Path(raw), capture=capture)
             async with Client(mcp) as client:
@@ -710,8 +710,8 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(result.is_error)
         self.assertEqual(tree.click_count, 1)
-        self.assertIn("**1 eylemin 1 tanesi yapildi**", result.content[0].text)
-        self.assertIn("ekran izni verilmedi", result.content[0].text)
+        self.assertIn("**1 of 1 actions done**", result.content[0].text)
+        self.assertIn("screen permission denied", result.content[0].text)
         self.assertEqual(result.structured_content["batch"]["done"], 1)
         self.assertEqual(result.structured_content["batch"]["total"], 1)
         self.assertEqual(
@@ -726,7 +726,7 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
             Decision(True),  # before the first ui_click
             Decision(
                 False,
-                "Masaustu izni bu eylem dizisi surerken kapatildi (desktop_lock).",
+                "The desktop grant was closed while this sequence was running (desktop_lock).",
                 code=ErrorCode.REVOKED,
                 permission_scope="pcbridge.desktop",
             ),
@@ -755,7 +755,7 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
             result.structured_content["batch"],
             {"done": 1, "total": 3, "stopped": "safety"},
         )
-        self.assertIn("Guvenlik kapisi", result.content[0].text)
+        self.assertIn("Safety gate", result.content[0].text)
 
     async def test_a_write_tool_answers_busy_while_another_sequence_runs(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -822,7 +822,7 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
         gate.verify_decisions = [
             Decision(
                 False,
-                "Masaustu izni bu eylem dizisi surerken kapatildi (desktop_lock).",
+                "The desktop grant was closed while this sequence was running (desktop_lock).",
                 code=ErrorCode.REVOKED,
                 permission_scope="pcbridge.desktop",
             )

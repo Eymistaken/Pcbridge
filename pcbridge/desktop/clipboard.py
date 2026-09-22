@@ -105,15 +105,15 @@ class WlClipboard:
         try:
             put = _write(["wl-copy", "--type", TEXT_MIME], data=text.encode())
         except FileNotFoundError as exc:
-            raise ClipboardError("wl-copy bulunamadi: sudo apt install wl-clipboard") from exc
+            raise ClipboardError("wl-copy not found: sudo apt install wl-clipboard") from exc
         except subprocess.TimeoutExpired as exc:
             raise ClipboardError(
-                "wl-copy yanit vermedi (pano sunucusu takilmis olabilir)"
+                "wl-copy did not answer (the clipboard owner may be stuck)"
             ) from exc
         if put.returncode != 0:
             raise ClipboardError(
-                f"wl-copy exit {put.returncode} verdi. Wayland oturumu gorunuyor mu? "
-                "(WAYLAND_DISPLAY servise aktarilmis olmali)"
+                f"wl-copy exited {put.returncode}. Is the Wayland session visible? "
+                "(WAYLAND_DISPLAY must reach the service)"
             )
 
     def restore(self, saved: Saved | None) -> None:

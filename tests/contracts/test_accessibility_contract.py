@@ -498,7 +498,7 @@ class DumpRegistryTests(_ThroughUiTree):
         tree = uitreelib.UiTree()
         dump = self.dump_tree(tree, "two_pythons", {"target": "python3"})
         text = uitreelib.describe(dump)
-        self.assertIn("ayni adla 2 uygulama", text)
+        self.assertIn("2 applications with this name", text)
         self.assertIn("pid 8001", text)
 
 

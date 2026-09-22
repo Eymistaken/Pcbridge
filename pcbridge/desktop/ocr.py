@@ -48,7 +48,7 @@ except Exception:  # pragma: no cover - kuruluysa calismaz
     PIL_AVAILABLE = False
 
 ENGINE = "tesseract"
-INSTALL_HINT = "sudo apt install tesseract-ocr tesseract-ocr-tur"
+INSTALL_HINT = "sudo apt install tesseract-ocr"
 # Seyrek metin kipi: arayuz ve oyun ekranlari bir sayfa degil, daginik
 # etiketler. Duzen analizi (psm 3) sutunlar arar ve kisa etiketleri kacirir.
 PAGE_SEGMENTATION = "11"
@@ -124,10 +124,10 @@ class Match:
 def available(langs: str) -> tuple[bool, str]:
     """(kullanilabilir mi, degilse Turkce gerekce + kurulum komutu)."""
     if not PIL_AVAILABLE:
-        return False, "Pillow yok (./.venv/bin/pip install -r requirements.txt)"
+        return False, "Pillow is missing (reinstall pcbridge with its [desktop] extra: `pcbridge setup`)"
     binary = shutil.which(ENGINE)
     if binary is None:
-        return False, f"`{ENGINE}` kurulu degil. Kurulum: {INSTALL_HINT}"
+        return False, f"`{ENGINE}` is not installed. Install it: {INSTALL_HINT}"
     try:
         proc = subprocess.run(
             [binary, "--list-langs"], capture_output=True, text=True, timeout=10
@@ -139,8 +139,8 @@ def available(langs: str) -> tuple[bool, str]:
     if missing:
         packages = " ".join(f"tesseract-ocr-{lang}" for lang in missing)
         return False, (
-            f"`{ENGINE}` icin dil verisi eksik: {', '.join(missing)}. "
-            f"Kurulum: sudo apt install {packages}"
+            f"`{ENGINE}` is missing language data: {', '.join(missing)}. "
+            f"Install it: sudo apt install {packages}"
         )
     return True, ""
 
@@ -187,7 +187,7 @@ def parse_tsv(tsv: str, factor: float = 1.0) -> list[Word]:
             "width", "height", "conf", "text",
         )}
     except ValueError as exc:
-        raise OcrError(f"{ENGINE} beklenmeyen bir TSV basligi verdi: {exc}") from exc
+        raise OcrError(f"{ENGINE} returned an unexpected TSV header: {exc}") from exc
     for raw in lines[1:]:
         cells = raw.split("\t")
         if len(cells) < len(header):
@@ -228,10 +228,10 @@ def parse_tsv(tsv: str, factor: float = 1.0) -> list[Word]:
 def read_words(png: Path, langs: str, timeout: float = RUN_TIMEOUT) -> list[Word]:
     """PNG'deki kelimeler. Motor yoksa ya da hata verirse `OcrError`."""
     if not LANGS_RE.match(langs or ""):
-        raise OcrError(f"Gecersiz dil listesi: {langs!r} (ornek: tur+eng)")
+        raise OcrError(f"Invalid language list: {langs!r} (for example: eng+deu)")
     binary = shutil.which(ENGINE)
     if binary is None:
-        raise OcrError(f"`{ENGINE}` kurulu degil. Kurulum: {INSTALL_HINT}", missing=True)
+        raise OcrError(f"`{ENGINE}` is not installed. Install it: {INSTALL_HINT}", missing=True)
     data, factor = _prepare(png)
     env = dict(os.environ)
     # Arka planda calisan bir OCR butun cekirdekleri almasin.
@@ -245,14 +245,14 @@ def read_words(png: Path, langs: str, timeout: float = RUN_TIMEOUT) -> list[Word
             env=env,
         )
     except subprocess.TimeoutExpired as exc:
-        raise OcrError(f"{ENGINE} {timeout:.0f} sn icinde bitmedi") from exc
+        raise OcrError(f"{ENGINE} did not finish within {timeout:.0f} s") from exc
     except OSError as exc:
         raise OcrError(f"{ENGINE} calistirilamadi: {exc}") from exc
     if proc.returncode != 0:
         detail = proc.stderr.decode("utf-8", "replace").strip().splitlines()
         raise OcrError(
-            f"{ENGINE} hata verdi (cikis {proc.returncode}): "
-            f"{detail[-1][:160] if detail else 'aciklama yok'}"
+            f"{ENGINE} failed (exit {proc.returncode}): "
+            f"{detail[-1][:160] if detail else 'no details'}"
         )
     return parse_tsv(proc.stdout.decode("utf-8", "replace"), factor)
 

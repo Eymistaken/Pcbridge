@@ -46,7 +46,7 @@ class FocusFastPathTests(unittest.TestCase):
 
         self.assertEqual(backend.events, [])
         self.assertEqual(sleep.call_args_list, [])
-        self.assertIn("GNOME eklentisi", result)
+        self.assertIn("GNOME extension", result)
 
     def test_extension_not_installed_preserves_existing_search_path(self) -> None:
         backend = RecordingBackend()
@@ -69,7 +69,7 @@ class FocusFastPathTests(unittest.TestCase):
             [mock.call(0), mock.call(apps.SEARCH_RESULTS), mock.call(apps.SEARCH_ACTIVATE)],
         )
         self.assertEqual(
-            result, "target-app | Target Window one alindi (GNOME aramasi, yedek yol)"
+            result, "target-app | Target Window raised (GNOME search, fallback path)"
         )
         # Odak IKI kez okunuyor ve ikisi de kullaniliyor: once "zaten odakta
         # mi" (oyleyse hic tus gitmez, Task 6.4), sonra aramanin sonucu. Eski
@@ -190,7 +190,7 @@ class ExtensionFocusSourceTests(unittest.TestCase):
             self.assertEqual(device.focused(), "gnome-text-editor | Belge")
             shell.assert_not_called()
 
-        tree.focused_window.side_effect = RuntimeError("Odakta pencere yok")
+        tree.focused_window.side_effect = RuntimeError("No window has the focus")
         with mock.patch.object(
             apps, "extension_focused_window", return_value=("Minecraft", "Minecraft 26.3")
         ):
@@ -199,8 +199,8 @@ class ExtensionFocusSourceTests(unittest.TestCase):
         with mock.patch.object(apps, "extension_focused_window", return_value=None):
             with self.assertRaises(opslib.FocusUnreadable) as caught:
                 device.focused()
-        self.assertIn("Odakta pencere yok", str(caught.exception))
-        self.assertIn("kabuk eklentisi de", str(caught.exception))
+        self.assertIn("No window has the focus", str(caught.exception))
+        self.assertIn("the shell extension could not tell", str(caught.exception))
 
     def test_a_batch_in_a_window_atspi_cannot_see_now_runs(self) -> None:
         """The Minecraft refusal: clicks go through when the shell names focus."""
@@ -210,7 +210,7 @@ class ExtensionFocusSourceTests(unittest.TestCase):
         backend = mock.Mock()
         backend.move_by.return_value = (40, 0)
         tree = mock.Mock()
-        tree.focused_window.side_effect = RuntimeError("Odakta pencere yok")
+        tree.focused_window.side_effect = RuntimeError("No window has the focus")
         device = opslib.DeviceOps(backend, tree, SimpleNamespace(
             shot_search_dirs=[], desktop=SimpleNamespace(
                 agent_shot_max_age_seconds=60, ambiguous_coord_guard=True,
@@ -228,7 +228,7 @@ class ExtensionFocusSourceTests(unittest.TestCase):
         with mock.patch.object(apps, "extension_focused_window", return_value=None):
             refused = batchlib.run(plan, device, budget=60, sleep=lambda s: None)
         self.assertEqual((refused.done, refused.stopped), (0, "focus"))
-        self.assertIn("kabuk eklentisi de", refused.detail)
+        self.assertIn("the shell extension could not tell", refused.detail)
 
 
 if __name__ == "__main__":

@@ -211,7 +211,7 @@ class RefusalTests(unittest.TestCase):
             with self.subTest(case=case["name"]):
                 with self.assertRaises(capturelib.CaptureError) as caught:
                     self.convert(case["layout"], *case["global"])
-                self.assertIn("hicbir monitorun ustune dusmuyor", str(caught.exception))
+                self.assertIn("is not on any monitor", str(caught.exception))
 
     def test_a_point_on_a_monitor_passes(self) -> None:
         self.assertEqual(self.convert("gap_and_step_between_monitors", 10, 10), (10, 10))
@@ -235,7 +235,7 @@ class RefusalTests(unittest.TestCase):
             self.assertRaises(capturelib.CaptureError) as caught,
         ):
             capturelib.to_global(1600, 100, shot="m2-a1b2c3", dirs=[Path("/tmp")])
-        self.assertIn("goruntusunun disinda", str(caught.exception))
+        self.assertIn("is outside the", str(caught.exception))
 
     def test_a_point_inside_the_image_still_converts(self) -> None:
         case = CASES["coordinates"][0]
@@ -270,7 +270,7 @@ class SourceSizeTests(unittest.TestCase):
                 if case["ratio"] is None:
                     with self.assertRaises(capturelib.CaptureError) as caught:
                         capturelib.canvas_pixel_ratio(mons, tuple(case["canvas"]))
-                    self.assertIn("olcekleri farkli", str(caught.exception))
+                    self.assertIn("different scales", str(caught.exception))
                 else:
                     self.assertAlmostEqual(
                         capturelib.canvas_pixel_ratio(mons, tuple(case["canvas"])),

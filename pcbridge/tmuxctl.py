@@ -27,7 +27,7 @@ def _run(args: list[str], timeout: int = 15) -> str:
     )
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout).strip()
-        raise TmuxError(err or f"tmux {' '.join(args)} basarisiz")
+        raise TmuxError(err or f"tmux {' '.join(args)} failed")
     return proc.stdout
 
 
@@ -94,7 +94,7 @@ def list_sessions() -> list[dict]:
 
 def start(session: str, command: str | None, cwd: str) -> str:
     if exists(session):
-        return f"'{session}' zaten acik"
+        return f"'{session}' is already open"
     args = ["new-session", "-d", "-s", session, "-c", cwd, "-x", "200", "-y", "50"]
     if command:
         args.append(command)
@@ -110,7 +110,7 @@ def send_text(
     session: str, text: str, press_enter: bool = True, collapse_newlines: bool = True
 ) -> None:
     if not exists(session):
-        raise TmuxError(f"'{session}' adinda acik bir oturum yok")
+        raise TmuxError(f"no open session named '{session}'")
     payload = " ".join(text.split()) if collapse_newlines else text
     _run(["send-keys", "-t", session, "-l", payload])
     if press_enter:
@@ -120,13 +120,13 @@ def send_text(
 
 def send_keys(session: str, keys: list[str]) -> None:
     if not exists(session):
-        raise TmuxError(f"'{session}' adinda acik bir oturum yok")
+        raise TmuxError(f"no open session named '{session}'")
     _run(["send-keys", "-t", session, *keys])
 
 
 def capture(session: str, lines: int = 60) -> str:
     if not exists(session):
-        raise TmuxError(f"'{session}' adinda acik bir oturum yok")
+        raise TmuxError(f"no open session named '{session}'")
     out = _run(["capture-pane", "-p", "-t", session, "-S", f"-{max(lines, 1)}"])
     stripped = [ln.rstrip() for ln in out.splitlines()]
     while stripped and not stripped[-1]:
@@ -136,9 +136,9 @@ def capture(session: str, lines: int = 60) -> str:
 
 def kill(session: str) -> str:
     if not exists(session):
-        return f"'{session}' zaten yok"
+        return f"'{session}' does not exist"
     _run(["kill-session", "-t", session])
-    return f"'{session}' kapatildi"
+    return f"'{session}' closed"
 
 
 def attach_hint(session: str) -> str:

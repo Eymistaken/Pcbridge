@@ -118,7 +118,7 @@ class DeviceOps:
     # -------------------------------------------------------------- klavye
     def key(self, keys: str) -> str:
         self.backend.key(keys)
-        return f"`{keys}` basildi"
+        return f"`{keys}` pressed"
 
     def type(self, text: str, raw: bool) -> str:
         return self.backend.type_text(
@@ -127,26 +127,26 @@ class DeviceOps:
 
     def hold(self, keys: str) -> str:
         self.backend.key_down(keys)
-        return f"`{keys}` BASILI TUTULUYOR"
+        return f"`{keys}` HELD DOWN"
 
     def release(self, keys: str) -> str:
         self.backend.key_up(keys)
-        return f"`{keys}` birakildi"
+        return f"`{keys}` released"
 
     # ---------------------------------------------------------------- fare
     def move(self, x: int, y: int, monitor: int | None,
              shot: str | None = None) -> str:
         gx, gy = self._global(x, y, monitor, shot)
-        return f"imlec {self.backend.move(gx, gy)} konumuna tasindi"
+        return f"pointer moved to {self.backend.move(gx, gy)}"
 
     def move_by(self, dx: int, dy: int) -> str:
         """Goreli kaydirma. `_global()` YOK -- delta bir koordinat degil, hicbir
         uzaya ait degil; cevrilirse sessizce anlamsiz bir sayi olur."""
         sx, sy = self.backend.move_by(dx, dy)
         return (
-            f"imlec ({sx:+d}, {sy:+d}) kadar goreli kaydirildi · konum artik "
-            "BILINMIYOR — tiklamadan once ui_dump ya da screen_capture alin, "
-            "ya da mutlak `move` ile bilinen bir noktaya gidin"
+            f"pointer nudged by ({sx:+d}, {sy:+d}) · its position is now "
+            "UNKNOWN — take a ui_dump or screen_capture before clicking, "
+            "or use an absolute `move` to a known point"
         )
 
     def click(self, button: str, count: int, x: int | None, y: int | None,
@@ -157,36 +157,36 @@ class DeviceOps:
             self.backend.click(button, count)
         else:
             self.backend.click(button, count, hold_ms=hold_ms)
-        kind = {2: " (cift)", 3: " (uclu)"}.get(count, "")
+        kind = {2: " (double)", 3: " (triple)"}.get(count, "")
         # Koordinatsiz tiklama imlecin bulundugu yere gider (Adim 8.2); rapor
         # bunu soylesin, yoksa "left tiklama" nereye gittigini gizler.
-        place = where or " (imlecin bulundugu yerde)"
-        press = f" · basili {hold_ms} ms" if hold_ms is not None else ""
-        return f"{button} tiklama{place}{kind}{press}"
+        place = where or " (where the pointer is)"
+        press = f" · held {hold_ms} ms" if hold_ms is not None else ""
+        return f"{button} click{place}{kind}{press}"
 
     def mouse_down(self, button: str, x: int | None, y: int | None,
                    monitor: int | None, shot: str | None = None) -> str:
         where = self._goto(x, y, monitor, shot)
         self.backend.mouse_down(button)
-        return f"{button} dugmesi{where} BASILI TUTULUYOR"
+        return f"{button} button{where} HELD DOWN"
 
     def mouse_up(self, button: str) -> str:
         self.backend.mouse_up(button)
-        return f"{button} dugmesi birakildi"
+        return f"{button} button released"
 
     def drag(self, x: int, y: int, to_x: int, to_y: int, button: str,
              monitor: int | None, shot: str | None = None) -> str:
         gx, gy = self._global(x, y, monitor, shot)
         ex, ey = self._global(to_x, to_y, monitor, shot)
         self.backend.drag(gx, gy, ex, ey, button=button)
-        return f"({gx}, {gy}) -> ({ex}, {ey}) {button} ile suruklendi"
+        return f"dragged ({gx}, {gy}) -> ({ex}, {ey}) with {button}"
 
     def scroll(self, amount: int, x: int | None, y: int | None,
                monitor: int | None, horizontal: bool = False,
                shot: str | None = None) -> str:
         self._goto(x, y, monitor, shot)
         self.backend.scroll(amount, horizontal=horizontal)
-        return f"{amount} tik {'yatay' if horizontal else 'dikey'} kaydirildi"
+        return f"scrolled {amount} step(s) {'horizontally' if horizontal else 'vertically'}"
 
     def _goto(self, x: int | None, y: int | None, monitor: int | None,
               shot: str | None = None) -> str:
@@ -212,13 +212,13 @@ class DeviceOps:
     # ------------------------------------------------- erisilebilirlik agaci
     def ui_click(self, node_id: str) -> str:
         res = self.tree.click(node_id)
-        return f"{res.get('role', '?')} \"{res.get('name', '')}\" tiklandi"
+        return f"{res.get('role', '?')} \"{res.get('name', '')}\" clicked"
 
     def ui_set_text(self, node_id: str, text: str) -> str:
         res = self.tree.set_text(node_id, text)
         return (
-            f"{res.get('role', '?')} icine {len(text)} karakter yazildi "
-            f"(silinen: {res.get('replaced_chars', 0)})"
+            f"{len(text)} characters written into the {res.get('role', '?')} "
+            f"(replaced: {res.get('replaced_chars', 0)})"
         )
 
     # ------------------------------------------------------------ uygulama
@@ -261,8 +261,8 @@ class DeviceOps:
             shell = appslib.extension_focused_window()
             if shell is None:
                 raise FocusUnreadable(
-                    f"{exc} · kabuk eklentisi de odagi soyleyemedi (kurulu "
-                    "degil, eski surumu yuklu ya da odakta pencere yok)"
+                    f"{exc} · the shell extension could not tell the focus either (not "
+                    "installed, an older version loaded, or no window has the focus)"
                 ) from exc
             app, win = shell
         return f"{app} | {win}"

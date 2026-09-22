@@ -165,9 +165,9 @@ def describe(env: dict[str, str] | None = None) -> str:
     runtime = _runtime_dir(e)  # type: ignore[arg-type]
     bus = e.get("DBUS_SESSION_BUS_ADDRESS", "")
     parts = [
-        f"XDG_RUNTIME_DIR={e.get('XDG_RUNTIME_DIR') or '(yok)'}",
-        "DBUS=" + ("gecerli" if _bus_ok(bus, runtime) else "GECERSIZ"),
-        f"WAYLAND_DISPLAY={e.get('WAYLAND_DISPLAY') or '(yok)'}",
-        f"DISPLAY={e.get('DISPLAY') or '(yok)'}",
+        f"XDG_RUNTIME_DIR={e.get('XDG_RUNTIME_DIR') or '(unset)'}",
+        "DBUS=" + ("valid" if _bus_ok(bus, runtime) else "INVALID"),
+        f"WAYLAND_DISPLAY={e.get('WAYLAND_DISPLAY') or '(unset)'}",
+        f"DISPLAY={e.get('DISPLAY') or '(unset)'}",
     ]
     return " · ".join(parts)

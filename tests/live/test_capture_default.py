@@ -53,7 +53,7 @@ from tests.live.test_capture_parity import (  # noqa: E402
 LIVE = os.environ.get("PCBRIDGE_TEST_CAPTURE") == "1"
 VENV_PYTHON = str(ROOT / ".venv" / "bin" / "python")
 SHARE_OPEN = "Ekran yayını açık"
-FALLBACK_NOTE = "Native yakalama kullanılamadı"
+FALLBACK_NOTE = "Native capture was unavailable"
 
 
 def shipped_config(root: Path, *, port: int | None = None, token: str | None = None) -> Path:

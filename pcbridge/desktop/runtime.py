@@ -473,8 +473,8 @@ def select_input_provider(cfg: Config, gate: GrantProvider) -> InputProvider:
     return PythonInputProvider(
         cfg,
         degraded_reason=(
-            "Native input yardimcisi kullanilamiyor, Python yolu seciliyor: "
-            + (reason or "yardimci bulunamadi")
+            "The native input helper is unavailable; using the Python path: "
+            + (reason or "helper not found")
         ),
     )
 
@@ -500,8 +500,8 @@ def select_accessibility_provider(cfg: Config, gate: GrantProvider) -> Accessibi
         return RustAccessibilityProvider(cfg, gate=gate)
     return PythonAccessibilityProvider(
         degraded_reason=(
-            "Native erisilebilirlik yardimcisi kullanilamiyor, Python yolu "
-            "seciliyor: " + (reason or "yardimci bulunamadi")
+            "The native accessibility helper is unavailable; using the Python "
+            "path: " + (reason or "helper not found")
         ),
     )
 

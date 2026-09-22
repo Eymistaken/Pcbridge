@@ -52,7 +52,7 @@ from pcbridge.desktop import capture as capturelib  # noqa: E402
 
 SHOT_LINE = re.compile(r"shot: `((?:m\d{1,2}|win)-[0-9a-f]{6})`")
 LINK = re.compile(r"https://example\.invalid/shot/([A-Za-z0-9_-]+)\.png")
-ORDER_LINE = re.compile(r"Goruntuler asagida bu sirayla: (.+)\.")
+ORDER_LINE = re.compile(r"The pictures follow below in this order: (.+)\.")
 
 
 def decode(block) -> Image.Image:
@@ -110,7 +110,7 @@ class InMemoryDelivery(DeliveryChecks, unittest.IsolatedAsyncioTestCase):
                 result = await client.call_tool("screen_capture", {"monitor": "all"})
 
             ids = self.assert_fixture_images(result)
-            self.assertNotIn("Native yakalama kullanılamadı", text_of(result))
+            self.assertNotIn("Native capture was unavailable", text_of(result))
             # The record a later `shot=` click maps through describes exactly
             # the picture the client decoded.
             for shot_id, block in zip(ids, images_of(result)):
@@ -126,15 +126,15 @@ class InMemoryDelivery(DeliveryChecks, unittest.IsolatedAsyncioTestCase):
         """Task 4.3: `auto` without a helper captures through Python, visibly."""
         with tempfile.TemporaryDirectory() as raw:
             server = fixture.build(
-                Path(raw), degraded_reason="Pcbridge native helper bulunamadi."
+                Path(raw), degraded_reason="The pcbridge native helper was not found."
             )
             async with Client(server.mcp) as client:
                 result = await client.call_tool("screen_capture", {"monitor": "all"})
 
             self.assert_fixture_images(result)
             text = text_of(result)
-            self.assertIn("Native yakalama kullanılamadı", text)
-            self.assertIn("bulunamadi", text)
+            self.assertIn("Native capture was unavailable", text)
+            self.assertIn("not found", text)
             audited = [fields for event, fields in server.gate.events if event == "screen_capture"]
             self.assertEqual(len(audited), 1)
             self.assertEqual(audited[0]["backend"], "screencast (PipeWire)")
@@ -192,7 +192,7 @@ class InMemoryDelivery(DeliveryChecks, unittest.IsolatedAsyncioTestCase):
             ids = SHOT_LINE.findall(text)
             self.assertEqual(len(ids), 2)
             self.assertIn(ids[1], error["message"])
-            self.assertIn("ULASTIRILAMADI", text)
+            self.assertIn("did NOT reach the client", text)
             self.assertEqual(result.structured_content["shots"], ids)
 
             images = images_of(result)
@@ -493,7 +493,7 @@ class LiveNativeDelivery(unittest.TestCase):
                         {"minutes": 2, "reason": "capture delivery live test"},
                         raise_on_error=False,
                     )
-                    if "Ekran yayını açık" not in text_of(unlock):
+                    if "Screen sharing is on" not in text_of(unlock):
                         return caps, unlock, [], None, None
                     # Two captures: the first also starts the helper and the
                     # Mutter session, the second shows what a warm call costs.
@@ -519,7 +519,7 @@ class LiveNativeDelivery(unittest.TestCase):
             capture_monitor = caps.structured_content["capabilities"]["capture.monitor"]
             self.assertEqual(capture_monitor["backend"], "linux.mutter.pipewire")
             self.assertEqual(capture_monitor["state"], "supported")
-            self.assertIn("Ekran yayını açık", text_of(unlock), text_of(unlock))
+            self.assertIn("Screen sharing is on", text_of(unlock), text_of(unlock))
 
             self.assertFalse(shot.is_error, text_of(shot))
             text = shot.content[0].text

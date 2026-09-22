@@ -42,10 +42,10 @@ def check_text_target(*, role: str | None, name: str | None = None) -> None:
     raise DesktopError(
         code=ErrorCode.PASSWORD_FIELD,
         message=(
-            f"Bu alan bir parola alani{where}; icine yazilmayacak. Kural "
-            "masaustu izninden bagimsiz ve `force` ile asilamaz. Parolayi "
-            "kullanici ya da parola yoneticisi girsin; gerekiyorsa once "
-            "kullaniciya sorun."
+            f"This is a password field{where}; nothing will be typed into it. The "
+            "rule is independent of the desktop grant and `force` does not lift it. "
+            "The user or a password manager must enter the password; ask the user "
+            "first if needed."
         ),
         category=ErrorCategory.SAFETY,
         retryable=False,
@@ -131,10 +131,10 @@ def check_key_combo(keys: str | None, *, confirm_close: bool = False) -> None:
     raise DesktopError(
         code=ErrorCode.CONFIRMATION_REQUIRED,
         message=(
-            f"{keys!r} pencereyi kapatir ya da uygulamadan cikar; kaydedilmemis "
-            "is varsa sorulmadan gider. Bunu gercekten istiyorsaniz ayni "
-            "cagriyi `confirm_close` ile tekrarlayin. Amaciniz kapatmak degilse "
-            "baska bir kisayol secin."
+            f"{keys!r} closes a window or quits the application; unsaved work "
+            "would be gone without anyone being asked. If that is really what you "
+            "want, repeat the call with `confirm_close`. If you do not mean to "
+            "close anything, pick another shortcut."
         ),
         category=ErrorCategory.SAFETY,
         retryable=False,

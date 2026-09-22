@@ -156,7 +156,7 @@ class Action:
             return f"mouse_up {self.args.get('button')}"
         if self.a == "type":
             n = len(self.args.get("text") or "")
-            return f"type ({n} karakter)"
+            return f"type ({n} characters)"
         if self.a in ("ui_click", "ui_set_text"):
             return f"{self.a} #{self.args.get('id')}"
         if self.a == "launch":
@@ -174,7 +174,7 @@ class Action:
             shot = self.args.get("shot")
             where = f" @{shot}" if shot else ""
             hold = self.args.get("hold_ms")
-            press = f" basili {hold} ms" if hold is not None else ""
+            press = f" held {hold} ms" if hold is not None else ""
             return f"{self.a}{pos}{where}{press}"
         return self.a
 
@@ -253,26 +253,26 @@ def _int(raw: dict, key: str, *, required: bool = False,
          lo: int | None = None, hi: int | None = None) -> int | None:
     if key not in raw or raw[key] is None:
         if required:
-            raise BatchError(f"`{raw.get('a')}` eyleminde `{key}` zorunlu.")
+            raise BatchError(f"`{raw.get('a')}` needs `{key}`.")
         return None
     try:
         val = int(raw[key])
     except (TypeError, ValueError):
         raise BatchError(
-            f"`{raw.get('a')}` eyleminde `{key}` sayi olmali, "
-            f"{raw[key]!r} verildi."
+            f"`{key}` of `{raw.get('a')}` must be a number, "
+            f"{raw[key]!r} given."
         ) from None
     if lo is not None and val < lo:
-        raise BatchError(f"`{key}` en az {lo} olabilir ({val} verildi).")
+        raise BatchError(f"`{key}` must be at least {lo} ({val} given).")
     if hi is not None and val > hi:
-        raise BatchError(f"`{key}` en fazla {hi} olabilir ({val} verildi).")
+        raise BatchError(f"`{key}` must be at most {hi} ({val} given).")
     return val
 
 
 def _text(raw: dict, key: str) -> str:
     val = raw.get(key)
     if val is None or not str(val).strip():
-        raise BatchError(f"`{raw.get('a')}` eyleminde `{key}` zorunlu.")
+        raise BatchError(f"`{raw.get('a')}` needs `{key}`.")
     return str(val)
 
 
@@ -282,8 +282,8 @@ def _button(raw: dict) -> str:
     val = str(raw.get("button") or "left").strip().lower()
     if val not in ("left", "right", "middle"):
         raise BatchError(
-            f"`{raw.get('a')}` eyleminde `button` left, right ya da middle "
-            f"olmali ({val!r} verildi)."
+            f"`button` of `{raw.get('a')}` must be left, right or middle "
+            f"({val!r} given)."
         )
     return val
 
@@ -297,9 +297,9 @@ def _shot(raw: dict) -> str | None:
     text = str(val).strip()
     if not SHOT_ID_RE.match(text):
         raise BatchError(
-            f"`{raw.get('a')}` eyleminde `shot` bicimi gecersiz ({text!r}). "
-            "Beklenen `m2-a1b2c3` — ekran goruntusu ciktisindaki `shot:` "
-            "satirindan aynen kopyalayin."
+            f"`shot` of `{raw.get('a')}` is malformed ({text!r}). "
+            "Expected something like `m2-a1b2c3`: copy it exactly from the `shot:` "
+            "line of the screenshot output."
         )
     return text
 
@@ -317,25 +317,25 @@ def _pair(raw: dict, args: dict) -> None:
     a = raw.get("a") or raw.get("action")
     if (args.get("x") is None) != (args.get("y") is None):
         raise BatchError(
-            f"`{a}` eyleminde `x` ve `y` birlikte verilmeli. Ikisini de "
-            "vermezseniz imlecin bulundugu yerde calisir."
+            f"`{a}` needs `x` and `y` together. Give neither to act "
+            "where the pointer already is."
         )
     if args.get("x") is None and (args.get("shot") or args.get("monitor") is not None):
         raise BatchError(
-            f"`{a}` eyleminde `shot`/`monitor` var ama `x`/`y` yok. Koordinati "
-            "ekleyin; imlecin bulundugu yerde tiklamak istiyorsaniz "
-            "`shot`/`monitor` vermeyin."
+            f"`{a}` has `shot`/`monitor` but no `x`/`y`. Add the coordinate; "
+            "to click where the pointer already is, leave out "
+            "`shot`/`monitor`."
         )
 
 
 def _one(raw: Any, index: int) -> Action:
     if not isinstance(raw, dict):
         raise BatchError(
-            f"{index}. eylem bir nesne olmali, {type(raw).__name__} verildi."
+            f"action {index} must be an object, {type(raw).__name__} given."
         )
     a = str(raw.get("a") or raw.get("action") or "").strip().lower()
     if not a:
-        raise BatchError(f"{index}. eylemde `a` alani yok (ornek: {{\"a\": \"key\"}}).")
+        raise BatchError(f"action {index} has no `a` field (for example: {{\"a\": \"key\"}}).")
 
     if a == "wait":
         return Action(a, {"ms": _int(raw, "ms", required=True, lo=0, hi=MAX_WAIT_MS)})
@@ -350,7 +350,7 @@ def _one(raw: Any, index: int) -> Action:
         # Metin bos olabilir (bir alani temizlemek gecerli bir istek), o yuzden
         # _text degil: yalnizca alanin VARLIGI aranir.
         if "text" not in raw:
-            raise BatchError("`type` eyleminde `text` zorunlu.")
+            raise BatchError("`type` needs `text`.")
         return Action(a, {"text": str(raw["text"]), "raw": bool(raw.get("raw", False))})
     if a in ("hold", "release"):
         keys = _text(raw, "keys")
@@ -376,9 +376,9 @@ def _one(raw: Any, index: int) -> Action:
             if hold is not None:
                 if CLICK_COUNTS[a] > 1 and hold > MULTI_CLICK_HOLD_MAX_MS:
                     raise BatchError(
-                        f"`{a}` eyleminde `hold_ms` en fazla "
-                        f"{MULTI_CLICK_HOLD_MAX_MS} olabilir ({hold} verildi): "
-                        "basislar cift tiklama esiginin icinde kalmali."
+                        f"`hold_ms` of `{a}` can be at most "
+                        f"{MULTI_CLICK_HOLD_MAX_MS} ({hold} given): "
+                        "both presses must stay inside the double-click threshold."
                     )
                 args["hold_ms"] = hold
         return Action(a, args)
@@ -414,7 +414,7 @@ def _one(raw: Any, index: int) -> Action:
         return Action(a, {"id": _text(raw, "id").lstrip("#")})
     if a == "ui_set_text":
         if "text" not in raw:
-            raise BatchError("`ui_set_text` eyleminde `text` zorunlu.")
+            raise BatchError("`ui_set_text` needs `text`.")
         return Action(a, {"id": _text(raw, "id").lstrip("#"), "text": str(raw["text"])})
     if a == "launch":
         return Action(a, {"app": _text(raw, "app")})
@@ -422,7 +422,7 @@ def _one(raw: Any, index: int) -> Action:
         return Action(a, {"window": _text(raw, "window")})
 
     raise BatchError(
-        f"Bilinmeyen eylem: {a!r}. Gecerli olanlar: key, type, hold, release, "
+        f"Unknown action: {a!r}. Valid: key, type, hold, release, "
         "wait, move, click, double_click, triple_click, right_click, "
         "middle_click, mouse_down, mouse_up, drag, scroll, move_by, "
         "ui_click, ui_set_text, launch, focus"
@@ -438,13 +438,13 @@ def parse(raw: Any, max_actions: int = 40) -> list[Action]:
     if isinstance(raw, str):
         text = raw.strip()
         if not text:
-            raise BatchError("Eylem listesi bos.")
+            raise BatchError("The action list is empty.")
         try:
             raw = json.loads(text)
         except json.JSONDecodeError as exc:
             raise BatchError(
-                f"Eylem listesi gecerli JSON degil ({exc.msg}, satir {exc.lineno} "
-                f"sutun {exc.colno}). Ornek: "
+                f"The action list is not valid JSON ({exc.msg}, line {exc.lineno} "
+                f"column {exc.colno}). Example: "
                 '[{"a": "key", "keys": "super"}, {"a": "wait", "ms": 400}]'
             ) from None
     if isinstance(raw, dict):
@@ -458,14 +458,14 @@ def parse(raw: Any, max_actions: int = 40) -> list[Action]:
             raw = [raw]
     if not isinstance(raw, list):
         raise BatchError(
-            f"Eylem listesi bir dizi olmali, {type(raw).__name__} verildi."
+            f"The action list must be an array, {type(raw).__name__} given."
         )
     if not raw:
-        raise BatchError("Eylem listesi bos.")
+        raise BatchError("The action list is empty.")
     if len(raw) > max_actions:
         raise BatchError(
-            f"En fazla {max_actions} eylem gonderilebilir, {len(raw)} verildi. "
-            "Listeyi bolun."
+            f"At most {max_actions} actions per call, {len(raw)} given. "
+            "Split the list."
         )
     return [_one(item, i) for i, item in enumerate(raw)]
 
@@ -512,14 +512,14 @@ def _dispatch(ops: Ops, act: Action, sleep: Callable[[float], None],
     a, kw = act.a, act.args
     if a == "wait":
         sleep((kw.get("ms") or 0) / 1000.0)
-        return f"{kw.get('ms')} ms beklendi"
+        return f"waited {kw.get('ms')} ms"
     if a == "key":
         return ops.key(kw["keys"])
     if a == "type":
         raw = bool(kw.get("raw")) or auto_raw
         note = ops.type(kw["text"], raw)
         if auto_raw and not kw.get("raw"):
-            note += " (overview acik: ham tus yoluna gecildi, pano orada bloklu)"
+            note += " (overview open: switched to raw keys, the clipboard is blocked there)"
         return note
     if a == "move":
         return ops.move(kw["x"], kw["y"], kw.get("monitor"), kw.get("shot"))
@@ -552,7 +552,7 @@ def _dispatch(ops: Ops, act: Action, sleep: Callable[[float], None],
         return ops.launch(kw["app"], budget_left=budget_left)
     if a == "focus":
         return ops.focus(kw["window"], budget_left=budget_left)
-    raise BatchError(f"Calistirilamayan eylem: {a}")
+    raise BatchError(f"Action cannot be run: {a}")
 
 
 def run(
@@ -607,11 +607,11 @@ def run(
     if planned > budget:
         waits = sum(float(a.args.get("ms") or 0) for a in actions if a.a == "wait")
         detail = (
-            f"planin tahmini suresi ~{planned:.1f} sn, butce {budget:.1f} sn; "
-            "HICBIR eylem gonderilmedi"
+            f"the plan needs ~{planned:.1f} s, the budget is {budget:.1f} s; "
+            "NO action was sent"
         )
         if waits:
-            detail += f" (beklemelerin toplami {waits / 1000.0:.1f} sn)"
+            detail += f" (waits add up to {waits / 1000.0:.1f} s)"
         try:
             held_now = list(ops.held())
         except Exception:  # noqa: BLE001 — durum sorgusu sonucu bozmasin
@@ -657,15 +657,15 @@ def run(
             if any(a.a in POINTER_ACTIONS for a in actions):
                 stopped = "focus"
                 detail = (
-                    f"odak okunamadi ({str(exc)[:200]}); tiklamadan sonra odagin "
-                    "kaymadigi dogrulanamayacagi icin HICBIR eylem gonderilmedi. "
-                    "`ui_click` odaga bakmaz; koordinatli tiklama gerekiyorsa "
-                    "once erisilebilirligin neden okunamadigina bakin "
+                    f"the focus could not be read ({str(exc)[:200]}); since focus could not "
+                    "be checked after a click, NO action was sent. "
+                    "`ui_click` does not look at focus; if a coordinate click is needed, "
+                    "first find out why accessibility cannot be read "
                     "(`system_capabilities`)"
                 )
             else:
                 check_focus = False
-                detail = f"odak okunamadi, takip kapatildi ({str(exc)[:80]})"
+                detail = f"the focus could not be read, tracking is off ({str(exc)[:80]})"
 
     pending = [] if stopped else actions
     i = 0
@@ -676,8 +676,8 @@ def run(
         if elapsed + need > budget:
             stopped = "budget"
             detail = (
-                f"sonraki eylem ({act.describe()}) icin ~{need:.1f} sn gerekiyor, "
-                f"butcede {max(0.0, budget - elapsed):.1f} sn kaldi"
+                f"the next action ({act.describe()}) needs ~{need:.1f} s, "
+                f"{max(0.0, budget - elapsed):.1f} s of the budget is left"
             )
             break
 
@@ -690,10 +690,10 @@ def run(
             if repeat_run >= repeat_limit:
                 stopped = "repeat"
                 detail = (
-                    f"ayni hedefe ust uste {repeat_limit}. tiklama "
-                    f"({act.describe()}) durduruldu. Ilk iki tiklama beklenen "
-                    "etkiyi yapmadiysa ucuncusu de yapmaz: once ekrani "
-                    "`ui_dump` ya da `screen_capture` ile yeniden okuyun"
+                    f"click number {repeat_limit} in a row on the same target "
+                    f"({act.describe()}) was stopped. If the first two did not have the "
+                    "expected effect, a third will not either: read the screen again "
+                    "with `ui_dump` or `screen_capture` first"
                 )
                 break
         elif act.a != "wait":
@@ -704,9 +704,9 @@ def run(
         if check_focus and not focus_known and act.a in POINTER_ACTIONS:
             stopped = "focus"
             detail = (
-                f"{i}. eylem ({act.describe()}) gonderilmedi: onceki pencere "
-                "degisiminden sonra odak okunamadi, bu tiklamanin sonucu "
-                "dogrulanamazdi"
+                f"action {i} ({act.describe()}) was not sent: after the previous "
+                "window change the focus could not be read, so the result of this "
+                "click could not be checked"
             )
             break
 
@@ -717,7 +717,7 @@ def run(
                 before_action(act)
             except Exception as exc:  # noqa: BLE001 - kapali basarisizlik
                 stopped = "safety"
-                detail = f"{i}. eylem ({act.describe()}) gonderilmedi: {str(exc)[:200]}"
+                detail = f"action {i} ({act.describe()}) was not sent: {str(exc)[:200]}"
                 caught_error = exc
                 break
 
@@ -740,7 +740,7 @@ def run(
 
         if not ok:
             stopped = "error"
-            detail = f"{i}. eylem ({act.describe()}) basarisiz: {note[:120]}"
+            detail = f"action {i} ({act.describe()}) failed: {note[:120]}"
             i += 1
             break
 
@@ -771,13 +771,13 @@ def run(
                 if i + 1 < len(actions):
                     stopped = "focus"
                     detail = (
-                        f"tiklama sonrasi odak okunamadi ({str(exc)[:200]}); "
-                        "sonraki eylemlerin dogru pencereye gidecegi "
-                        "dogrulanamadi, durduruldu"
+                        f"the focus could not be read after the click ({str(exc)[:200]}); "
+                        "there was no way to check that the next actions reach the "
+                        "right window, so it stopped"
                     )
                     i += 1
                     break
-                detail = f"son tiklamadan sonra odak okunamadi ({str(exc)[:80]})"
+                detail = f"the focus could not be read after the last click ({str(exc)[:80]})"
                 continue
             if focus_now != focus_start:
                 if want_focus and want_focus in focus_now.lower():
@@ -787,17 +787,17 @@ def run(
                 else:
                     stopped = "focus"
                     detail = (
-                        f"tiklama sonrasi odak degisti: {focus_start!r} -> "
-                        f"{focus_now!r}. Sonraki tuslar yanlis pencereye giderdi, "
-                        "durduruldu"
+                        f"the focus changed after a click: {focus_start!r} -> "
+                        f"{focus_now!r}. The next keys would have gone to the wrong window, "
+                        "so it stopped"
                     )
                     if want_focus:
-                        detail += f" (beklenen: {expect_focus!r})"
+                        detail += f" (expected: {expect_focus!r})"
                     else:
                         detail += (
-                            ". Bu tiklamayla pencere degistirmek ISTIYORDUYSANIZ "
-                            "hedef pencerenin adini `expect_focus` ile onceden "
-                            "bildirin"
+                            ". If this click was MEANT to switch windows, "
+                            "name the target window in `expect_focus` "
+                            "beforehand"
                         )
                     i += 1
                     break
@@ -819,7 +819,7 @@ def run(
     if held and stopped:
         try:
             ops.release_all()
-            detail += f" · basili kalanlar birakildi ({', '.join(held)})"
+            detail += f" · held input released ({', '.join(held)})"
             held = []
         except Exception:  # noqa: BLE001
             pass
@@ -842,8 +842,8 @@ def run(
 def describe(result: Result) -> str:
     """Sonucu modele gosterilecek duz metne cevir."""
     head = (
-        f"**{result.total} eylemin {result.done} tanesi yapildi** "
-        f"({result.elapsed:.1f} sn)"
+        f"**{result.done} of {result.total} actions done** "
+        f"({result.elapsed:.1f} s)"
     )
     lines = [head, ""]
     for s in result.steps:
@@ -853,52 +853,52 @@ def describe(result: Result) -> str:
     if result.stopped:
         lines.append("")
         reason = {
-            "budget": ("⏱️ Plan sure butcesine sigmiyor"
+            "budget": ("⏱️ The plan does not fit the time budget"
                        if result.plan_seconds is not None
-                       else "⏱️ Sure butcesi doldu"),
-            "error": "⛔ Eylem basarisiz",
-            "focus": "⚠️ Odak kaydi",
-            "repeat": "🔁 Ayni hedefe tekrar tiklama",
-            "safety": "🔒 Guvenlik kapisi",
+                       else "⏱️ The time budget ran out"),
+            "error": "⛔ Action failed",
+            "focus": "⚠️ Focus moved",
+            "repeat": "🔁 Repeated click on the same target",
+            "safety": "🔒 Safety gate",
         }.get(result.stopped, result.stopped)
         lines.append(f"{reason}: {result.detail}")
 
     if result.held:
         lines.append("")
         lines.append(
-            f"⌨️ HALA BASILI: {', '.join(result.held)} — isiniz bitince "
-            "`release` / `mouse_up` gonderin. Gonderilmezse sunucu bir sure "
-            "sonra kendisi birakir, ama o zamana kadar kullanici makinesini "
-            "kullanamaz."
+            f"⌨️ STILL HELD: {', '.join(result.held)} — send `release` / "
+            "`mouse_up` when you are done. Otherwise the server releases them after "
+            "a while, but until then the user cannot use the "
+            "machine."
         )
 
     if result.remaining:
         lines.append("")
-        lines.append(f"Yapilmayan {len(result.remaining)} eylem:")
+        lines.append(f"{len(result.remaining)} action(s) not done:")
         for act in result.remaining:
             lines.append(f"  - {act.describe()}")
         if result.stopped == "budget" and result.plan_seconds is not None:
             lines.append(
-                "Liste bastan reddedildi, hicbiri calismadi. Ikiye bolup ayri "
-                "cagrilarla gonderin ya da beklemeleri kisaltin; bir seyin "
-                "ekrana gelmesini bekliyorsaniz korlemesine `wait` yerine "
-                "`wait_for_text` kullanin."
+                "The list was refused up front; none of it ran. Split it into "
+                "separate calls or shorten the waits; to wait for something to "
+                "appear on the screen, use `wait_for_text` instead of a blind "
+                "`wait`."
             )
         elif result.stopped == "budget":
             lines.append(
-                "Kalanlari yeni bir cagriyla gonderebilirsiniz; once ekranin "
-                "gercekten beklediginiz durumda oldugunu dogrulayin."
+                "You can send the rest in a new call; first check that the screen "
+                "really is in the state you expect."
             )
         elif result.stopped == "focus":
             lines.append(
-                "Once ui_dump ile nerede oldugunuza bakin. Koordinatla "
-                "tiklamak yerine ui_click kullanmak bu sorunu tamamen ortadan "
-                "kaldirir."
+                "First look where you are with ui_dump. Using ui_click instead of "
+                "coordinate clicks removes this problem "
+                "entirely."
             )
         elif result.stopped == "safety":
             lines.append(
-                "Kalanlari gondermeden once izni ve ekrani yeniden dogrulayin: "
-                "`system_capabilities`, gerekiyorsa kullanicidan yeni bir "
-                "`desktop_unlock`."
+                "Before sending the rest, check the grant and the screen again: "
+                "`system_capabilities`, and if needed a new `desktop_unlock` from "
+                "the user."
             )
     return "\n".join(lines)

@@ -88,7 +88,7 @@ class JobManager:
     def read_meta(self, job_id: str) -> dict[str, Any]:
         p = self._meta_path(job_id)
         if not p.exists():
-            raise KeyError(f"job bulunamadi: {job_id}")
+            raise KeyError(f"job not found: {job_id}")
         return json.loads(p.read_text(encoding="utf-8"))
 
     def _write_meta(self, job_id: str, meta: dict[str, Any]) -> None:
@@ -253,7 +253,7 @@ class JobManager:
         meta = self.read_meta(job_id)
         pid = int(meta["pid"])
         if not self._pid_alive(pid):
-            return "is zaten calismiyordu"
+            return "the job was not running"
         try:
             os.killpg(os.getpgid(pid), signal.SIGTERM)
         except (ProcessLookupError, PermissionError):
@@ -269,7 +269,7 @@ class JobManager:
                 pass
         if not self._exit_path(job_id).exists():
             self._exit_path(job_id).write_text("130", encoding="utf-8")
-        return "is durduruldu"
+        return "job stopped"
 
     def wait(self, job_id: str, seconds: float) -> dict[str, Any]:
         deadline = time.time() + seconds
@@ -315,8 +315,8 @@ def parse_claude_stream_json(text: str) -> dict[str, Any]:
                 session_id = evt.get("session_id") or session_id
                 init_model = evt.get("model") or init_model
                 steps.append(
-                    f"· oturum baslatildi (model: {evt.get('model', '?')}, "
-                    f"dizin: {evt.get('cwd', '?')})"
+                    f"· session started (model: {evt.get('model', '?')}, "
+                    f"directory: {evt.get('cwd', '?')})"
                 )
         elif etype == "assistant":
             for blk in (evt.get("message") or {}).get("content", []) or []:
@@ -324,7 +324,7 @@ def parse_claude_stream_json(text: str) -> dict[str, Any]:
                     steps.append("· " + _short(blk["text"].strip(), 400))
                 elif blk.get("type") == "tool_use":
                     steps.append(
-                        f"→ arac: {blk.get('name')} ({_short(blk.get('input'), 120)})"
+                        f"→ tool: {blk.get('name')} ({_short(blk.get('input'), 120)})"
                     )
         elif etype == "user":
             for blk in (evt.get("message") or {}).get("content", []) or []:
@@ -334,7 +334,7 @@ def parse_claude_stream_json(text: str) -> dict[str, Any]:
                         body = " ".join(
                             b.get("text", "") for b in body if isinstance(b, dict)
                         )
-                    steps.append("← sonuc: " + _short(body, 120))
+                    steps.append("← result: " + _short(body, 120))
         elif etype == "result":
             session_id = evt.get("session_id") or session_id
             result_text = evt.get("result")
@@ -373,15 +373,15 @@ _ID_RE = re.compile(
 _MODEL_WARN_PATTERNS: tuple[tuple[str, str], ...] = (
     (
         "using the default model instead",
-        "CLI istenen modeli yok sayip kendi varsayilanina dustu.",
+        "The CLI ignored the requested model and fell back to its default.",
     ),
     (
         "requires --effort",
-        "Model effort ile birlikte verilmeliydi; cagri reddedildi.",
+        "The model needed an effort as well; the call was refused.",
     ),
     (
         "invalid model selection",
-        "Gecersiz model/effort birlesimi — CLI cagriyi reddetti.",
+        "Invalid model/effort combination — the CLI refused the call.",
     ),
 )
 

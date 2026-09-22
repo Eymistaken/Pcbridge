@@ -170,7 +170,7 @@ class FakeEngineTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"PATH": str(self.bin)}):
             ok, why = ocr.available("tur+eng")
             self.assertFalse(ok)
-            self.assertIn("sudo apt install tesseract-ocr tesseract-ocr-tur", why)
+            self.assertIn("sudo apt install tesseract-ocr", why)
             with self.assertRaises(ocr.OcrError) as caught:
                 ocr.read_words(self.png((1920, 1080), (250, 250, 250)), "tur+eng")
             self.assertTrue(caught.exception.missing)
@@ -288,7 +288,7 @@ class OcrToolTests(unittest.TestCase):
         with mock.patch.object(ocr, "read_words", return_value=ocr.parse_tsv(SCREEN)):
             result = self.tool("find_text")(text="Yukleniyor tamam")
         self.assertFalse(result.structured_content["found"])
-        self.assertIn("bulunamadi", result.content[0].text)
+        self.assertIn("is not on the screen", result.content[0].text)
         self.assertIn("Yükleniyor...", result.content[0].text)
 
     def test_the_window_capture_is_refused(self) -> None:
@@ -305,7 +305,7 @@ class OcrToolTests(unittest.TestCase):
         data = result.structured_content
         self.assertTrue(data["done"])
         self.assertEqual(data["attempts"], 3)
-        self.assertIn("Goruldu", result.content[0].text)
+        self.assertIn("Seen", result.content[0].text)
         # Only the capture whose id was returned is kept.
         pngs = sorted(p.name for p in self.store.dir.glob("ocr-*.png"))
         records = sorted(p.name for p in self.store.dir.glob("m2-*.json"))
@@ -319,7 +319,7 @@ class OcrToolTests(unittest.TestCase):
                 mock.patch.object(toolslib.time, "sleep"):
             result = self.tool("wait_for_text")(text="Yükleniyor", gone=True)
         self.assertTrue(result.structured_content["done"])
-        self.assertIn("Kayboldu", result.content[0].text)
+        self.assertIn("Gone", result.content[0].text)
 
     def test_a_timeout_reports_what_was_read(self) -> None:
         loading = ocr.parse_tsv(tsv((1, 1, 1, 1, 50, 50, 140, 20, 70.0, "Yükleniyor...")))
@@ -328,7 +328,7 @@ class OcrToolTests(unittest.TestCase):
             result = self.tool("wait_for_text")(text="Singleplayer", timeout_seconds=2)
             elapsed = time.monotonic() - started
         self.assertFalse(result.structured_content["done"])
-        self.assertIn("Zaman asimi", result.content[0].text)
+        self.assertIn("Timed out", result.content[0].text)
         self.assertLess(elapsed, 4.0)
         self.assertEqual(len(list(self.store.dir.glob("ocr-*.png"))), 1)
 
@@ -337,7 +337,7 @@ class OcrToolTests(unittest.TestCase):
         from pcbridge.desktop.safety import Decision
         from pcbridge.desktop.errors import ErrorCode
 
-        closed = Decision(False, "Masaustu kontrolu su an kilitli.",
+        closed = Decision(False, "Desktop control is locked right now.",
                           code=ErrorCode.GRANT_REQUIRED, permission_scope="pcbridge.desktop")
         calls = {"n": 0}
 

@@ -311,17 +311,17 @@ impl DumpRegistry {
         let Some((_, record)) = self.dumps.iter().find(|(id, _)| id == snapshot) else {
             return Err(AccessibilityError {
                 code: "ELEMENT_STALE",
-                message: "Bu liste bu yardimcinin elinde yok (izin yenilenmis ya da yardimci \
-                          yeniden baslamis olabilir). Hicbir sey yapilmadi; ui_dump ile listeyi \
-                          yenileyin."
+                message: "This helper does not hold that list (the grant may have been renewed \
+                          or the helper restarted). Nothing was done; refresh the list with \
+                          ui_dump."
                     .to_owned(),
             });
         };
         let Some(node) = record.nodes.get(reference) else {
             return Err(AccessibilityError {
                 code: "ELEMENT_STALE",
-                message: "Bu oge o listede yok. Hicbir sey yapilmadi; ui_dump ile listeyi \
-                          yenileyin."
+                message: "That element is not in that list. Nothing was done; refresh the \
+                          list with ui_dump."
                     .to_owned(),
             });
         };

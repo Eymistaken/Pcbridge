@@ -185,7 +185,7 @@ class WindowOperationsLive(unittest.TestCase):
         ms = _measure(f"{self.label}_cold_launch_ms", started)
 
         self.assertEqual(outcome.path, "launch", outcome.note)
-        self.assertIn("odakta", outcome.note)
+        self.assertIn("focused", outcome.note)
         self.assertEqual(keys.events, [])
         pids = app.pids()
         self.assertEqual(len(pids), 1, pids)
