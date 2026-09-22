@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+import dataclasses
+import datetime
 import os
 import re
+import shutil
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import tomllib
 
+from . import paths as pathslib
 
-DEFAULT_CONFIG_NAMES = ("config.toml",)
+# The config file format version this code writes and understands. Files
+# without a `config_version` key are version 1 (everything before 2.0).
+CONFIG_VERSION = 2
 
 
 def _expand(p: str) -> Path:
@@ -117,7 +124,10 @@ class DesktopSpec:
     restore_clipboard: bool = True
     # Yalnizca bilgi/tani amacli: ham tus yolunun (raw=true) hangi duzende
     # yorumlanacagini soyler. Girdi gonderimini DEGISTIRMEZ.
-    keyboard_layout: str = "tr+intl"
+    #
+    # Not used for typing: text goes through the clipboard, so the layout
+    # does not matter. Kept so existing config files still load.
+    keyboard_layout: str = ""
 
     # -- fare hareketi (I bolumu) -------------------------------------------
     # Imlec hedefe ISINLANMAK yerine ara noktalardan gecerek gider. Piksel/sn.
@@ -162,7 +172,7 @@ class DesktopSpec:
     capture_backend: str = "auto"
     # `find_text` / `wait_for_text` (Adim 8.6) icin tesseract dilleri, `+` ile.
     # Her dilin verisi ayri paket: `tesseract-ocr-tur`, `tesseract-ocr-eng`.
-    ocr_languages: str = "tur+eng"
+    ocr_languages: str = "eng"
 
     # -- toplu eylem (E bolumu) ---------------------------------------------
     # computer_batch tek cagrida en fazla kac eylem alir.
@@ -276,6 +286,13 @@ class Config:
     # icin dosya artik hizli buyuyor.
     audit_max_bytes: int = 5_000_000
     source_path: Path | None = None
+    # Where the file was found: "explicit" (-c), "env" ($PCBRIDGE_CONFIG),
+    # "xdg" (~/.config/pcbridge) or "legacy" (<repo>/config.toml).
+    source_kind: str = ""
+    config_version: int = 1
+    # English, one line each: unknown keys, a loose file mode, a legacy
+    # location. Logged at startup and shown by `pcbridge doctor`.
+    warnings: list[str] = field(default_factory=list)
 
     # -- turetilmis ---------------------------------------------------------
     @property
@@ -338,33 +355,231 @@ class Config:
         return Path(runtime) / "pcbridge" / "shots" if runtime else Path("/tmp/pcb")
 
 
-def find_config(explicit: str | None = None) -> Path:
+def locate_config(explicit: str | None = None) -> tuple[Path, str]:
+    """Find the config file and say where it came from.
+
+    Search order, first hit wins:
+
+        1. an explicit path (-c / --config)
+        2. $PCBRIDGE_CONFIG
+        3. $XDG_CONFIG_HOME/pcbridge/config.toml  (~/.config/pcbridge)
+        4. <repository>/config.toml               (legacy, before 2.0)
+
+    When both 3 and 4 exist, the XDG file wins. The legacy file is left as it
+    is: older stdio processes that are still running keep reading it.
+    """
     if explicit:
         p = _expand(explicit)
         if not p.exists():
-            raise SystemExit(f"Yapilandirma bulunamadi: {p}")
-        return p
+            raise SystemExit(f"Config file not found: {p}")
+        return p, "explicit"
 
     env = os.environ.get("PCBRIDGE_CONFIG")
     if env:
-        return _expand(env)
+        return _expand(env), "env"
 
-    here = Path(__file__).resolve().parent.parent
-    for name in DEFAULT_CONFIG_NAMES:
-        cand = here / name
-        if cand.exists():
-            return cand
+    xdg = pathslib.config_file()
+    if xdg.exists():
+        return xdg, "xdg"
 
-    cand = _expand("~/.config/pcbridge/config.toml")
-    if cand.exists():
-        return cand
+    if pathslib.LEGACY_REPO_CONFIG.exists():
+        return pathslib.LEGACY_REPO_CONFIG, "legacy"
 
     raise SystemExit(
-        "config.toml bulunamadi.\n"
-        f"  cp {here / 'config.example.toml'} {here / 'config.toml'}\n"
-        f"  chmod 600 {here / 'config.toml'}\n"
-        "sonra dosyayi duzenleyin."
+        f"No pcbridge config file found. Run `pcbridge setup` to create one at {xdg}, "
+        "or copy config.example.toml there and set its mode to 0600."
     )
+
+
+def find_config(explicit: str | None = None) -> Path:
+    return locate_config(explicit)[0]
+
+
+# Keys each section may contain. Anything else earns a warning, never a crash:
+# a typo must not take the non-desktop tools down with it.
+_TOP_KEYS = {
+    "config_version", "public_url", "host", "port", "mcp_path", "default_agent",
+    "inline_images", "auth", "paths", "limits", "server", "native", "desktop",
+    "agents", "tools",
+}
+_SECTION_KEYS: dict[str, set[str]] = {
+    "auth": {
+        "password", "static_token", "access_token_ttl", "refresh_token_ttl",
+        "auth_code_ttl", "max_failed_attempts", "lockout_seconds", "manual_redirect",
+    },
+    "paths": {"state_dir", "default_workdir"},
+    "limits": {"max_output_chars", "default_job_timeout", "max_sync_timeout", "audit_max_bytes"},
+    "server": {"inline_images"},
+    "native": {"capture", "input", "accessibility", "binary_path"},
+    "tools": {"profile"},
+}
+_HINTS = {
+    ("limits", "default_agent"): "`default_agent` belongs at the top of the file, before any [section]",
+}
+
+
+def _unknown_key_warnings(raw: dict[str, Any]) -> list[str]:
+    desktop_keys = {f.name for f in dataclasses.fields(DesktopSpec)}
+    agent_keys = {f.name for f in dataclasses.fields(AgentSpec)} - {"name"}
+    out: list[str] = []
+
+    def note(section: str, key: str) -> None:
+        where = f"[{section}] " if section else ""
+        hint = _HINTS.get((section, key))
+        out.append(
+            f"Unknown config key {where}`{key}` is ignored"
+            + (f"; {hint}." if hint else "; check the spelling against config.example.toml.")
+        )
+
+    for key in raw:
+        if key not in _TOP_KEYS:
+            note("", key)
+    for section, allowed in _SECTION_KEYS.items():
+        for key in raw.get(section) or {}:
+            if key not in allowed:
+                note(section, key)
+    for key in raw.get("desktop") or {}:
+        if key not in desktop_keys:
+            note("desktop", key)
+    for name, spec in (raw.get("agents") or {}).items():
+        for key in spec or {}:
+            if key not in agent_keys:
+                note(f"agents.{name}", key)
+    return out
+
+
+def _mode_warning(path: Path) -> str | None:
+    try:
+        mode = stat.S_IMODE(path.stat().st_mode)
+    except OSError:
+        return None
+    if mode & 0o077:
+        return (
+            f"{path} holds the password and static token but is readable by other users "
+            f"(mode {mode:o}); run `pcbridge doctor --fix` or `chmod 600 {path}`."
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Migration
+# ---------------------------------------------------------------------------
+
+# Defaults that changed in a config_version. When a file of an older version
+# relied on the old default, the migration writes the old value out, so the
+# effective settings do not move under the user's feet.
+_PINNED_DEFAULTS: dict[int, list[tuple[str, str, str]]] = {
+    # version 2: OCR defaults to English only; version 1 read Turkish too.
+    2: [("desktop", "ocr_languages", '"tur+eng"')],
+}
+
+
+def _apply_version_defaults(raw: dict[str, Any], version: int) -> None:
+    """Give an older file the defaults of its own version.
+
+    An unmigrated version-1 file must mean exactly what it meant before 2.0,
+    so a default that changed later is filled in with its old value here.
+    """
+    for newer in range(version + 1, CONFIG_VERSION + 1):
+        for section, key, value in _PINNED_DEFAULTS.get(newer, []):
+            table = raw.setdefault(section, {})
+            if isinstance(table, dict) and key not in table:
+                table[key] = tomllib.loads(f"v = {value}")["v"]
+
+
+@dataclass
+class MigrationResult:
+    source: Path
+    dest: Path
+    from_version: int
+    to_version: int
+    backup: Path | None
+    changed: bool
+
+
+def _file_version(raw: dict[str, Any]) -> int:
+    try:
+        return int(raw.get("config_version", 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _set_in_section(text: str, section: str, line: str) -> str:
+    """Add `line` at the top of `[section]`, creating the section if needed."""
+    header = re.compile(rf"^\[{re.escape(section)}\][ \t]*(#.*)?$", re.M)
+    m = header.search(text)
+    if m:
+        end = text.index("\n", m.end()) + 1 if "\n" in text[m.end():] else len(text)
+        return text[:end] + line + "\n" + text[end:]
+    sep = "" if text.endswith("\n") else "\n"
+    return f"{text}{sep}\n[{section}]\n{line}\n"
+
+
+def migrate_text(text: str) -> tuple[str, int]:
+    """Bring config text to CONFIG_VERSION. Comments and layout are kept.
+
+    Returns the new text and the version it started from. Pure: no I/O.
+    """
+    raw = tomllib.loads(text)
+    start = _file_version(raw)
+    if start >= CONFIG_VERSION:
+        return text, start
+    out = text
+    for version in range(start + 1, CONFIG_VERSION + 1):
+        for section, key, value in _PINNED_DEFAULTS.get(version, []):
+            if key not in (raw.get(section) or {}):
+                out = _set_in_section(out, section, f"{key} = {value}")
+    stamp = (
+        f"# Written by pcbridge {CONFIG_VERSION}.x migration; see config.example.toml.\n"
+        f"config_version = {CONFIG_VERSION}\n\n"
+    )
+    if "config_version" in raw:
+        out = re.sub(r"(?m)^config_version\s*=.*$", f"config_version = {CONFIG_VERSION}", out, count=1)
+    else:
+        out = stamp + out
+    # The result must still parse; never write a file that would not load.
+    tomllib.loads(out)
+    return out, start
+
+
+def _backup(path: Path, now: datetime.datetime | None = None) -> Path:
+    ts = (now or datetime.datetime.now()).strftime("%Y%m%d-%H%M%S")
+    dest = path.with_name(f"{path.name}.backup-{ts}")
+    n = 1
+    while dest.exists():
+        dest = path.with_name(f"{path.name}.backup-{ts}-{n}")
+        n += 1
+    shutil.copy2(path, dest)
+    os.chmod(dest, 0o600)
+    return dest
+
+
+def migrate_config(source: Path, dest: Path | None = None) -> MigrationResult:
+    """Copy or upgrade a config file to the current version at `dest`.
+
+    `dest` defaults to the XDG location. Every file that is about to be
+    rewritten gets a timestamped backup next to it first, and the written file
+    is mode 0600 because it holds secrets. The source is never modified unless
+    it is also the destination.
+    """
+    dest = dest or pathslib.config_file()
+    text = source.read_text(encoding="utf-8")
+    new_text, start = migrate_text(text)
+    backup = None
+    if dest.exists():
+        if dest.read_text(encoding="utf-8") == new_text:
+            os.chmod(dest, 0o600)
+            return MigrationResult(source, dest, start, CONFIG_VERSION, None, False)
+        backup = _backup(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(dest.parent, 0o700)
+    tmp = dest.with_name(dest.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(new_text)
+    os.replace(tmp, dest)
+    os.chmod(dest, 0o600)
+    return MigrationResult(source, dest, start, CONFIG_VERSION, backup, True)
 
 
 def _check_agents(agents: dict[str, AgentSpec], path: Path) -> None:
@@ -472,9 +687,31 @@ def _check_computer_task(
 
 
 def load_config(explicit: str | None = None) -> Config:
-    path = find_config(explicit)
-    with path.open("rb") as fh:
-        raw: dict[str, Any] = tomllib.load(fh)
+    path, source_kind = locate_config(explicit)
+    try:
+        with path.open("rb") as fh:
+            raw: dict[str, Any] = tomllib.load(fh)
+    except tomllib.TOMLDecodeError as exc:
+        raise SystemExit(f"{path} is not valid TOML: {exc}. Fix that line and restart pcbridge.")
+    except OSError as exc:
+        raise SystemExit(f"Cannot read the config file {path}: {exc.strerror}.")
+
+    warnings = _unknown_key_warnings(raw)
+    mode_note = _mode_warning(path)
+    if mode_note:
+        warnings.append(mode_note)
+    if source_kind == "legacy":
+        warnings.append(
+            f"Using the legacy config file {path}; run `pcbridge setup` to move it to "
+            f"{pathslib.config_file()}."
+        )
+    config_version = _file_version(raw)
+    _apply_version_defaults(raw, config_version)
+    if config_version > CONFIG_VERSION:
+        warnings.append(
+            f"{path} has config_version {config_version}, newer than this pcbridge "
+            f"understands ({CONFIG_VERSION}); unknown settings are ignored."
+        )
 
     auth = raw.get("auth", {})
     paths = raw.get("paths", {})
@@ -507,14 +744,15 @@ def load_config(explicit: str | None = None) -> Config:
     ).rstrip("/")
 
     if not public_url:
-        raise SystemExit("config.toml icinde `public_url` zorunlu.")
+        raise SystemExit(f"{path}: `public_url` is required (for local use: http://localhost:8765).")
     if not public_url.startswith("https://") and "localhost" not in public_url:
         raise SystemExit(
-            "`public_url` https:// ile baslamali (Gemini Spark yalnizca HTTPS kabul ediyor)."
+            f"{path}: `public_url` must start with https:// (remote OAuth clients require HTTPS), "
+            "or point at localhost."
         )
     if len(password) < 12:
         raise SystemExit(
-            "`auth.password` en az 12 karakter olmali. Uzun ve tahmin edilemez bir parola secin."
+            f"{path}: `auth.password` must be at least 12 characters. Pick a long, unguessable one."
         )
 
     agents: dict[str, AgentSpec] = {}
@@ -576,7 +814,7 @@ def load_config(explicit: str | None = None) -> Config:
         max_actions_per_second=int(desktop_raw.get("max_actions_per_second", 10)),
         default_monitor=int(desktop_raw.get("default_monitor", 1)),
         restore_clipboard=bool(desktop_raw.get("restore_clipboard", True)),
-        keyboard_layout=str(desktop_raw.get("keyboard_layout", "tr+intl")),
+        keyboard_layout=str(desktop_raw.get("keyboard_layout", "")),
         pointer_speed=int(desktop_raw.get("pointer_speed", 5000)),
         pointer_move_max_ms=int(desktop_raw.get("pointer_move_max_ms", 500)),
         hold_max_seconds=int(desktop_raw.get("hold_max_seconds", 120)),
@@ -592,7 +830,7 @@ def load_config(explicit: str | None = None) -> Config:
         # config.example.toml'da belgeliydi ama buradan okunmuyordu, yani
         # config.toml'a yazilan deger hicbir sey yapmiyordu. F0 sirasinda
         # fark edildi.
-        ocr_languages=str(desktop_raw.get("ocr_languages", "tur+eng")).strip(),
+        ocr_languages=str(desktop_raw.get("ocr_languages", "eng")).strip(),
         batch_max_actions=int(desktop_raw.get("batch_max_actions", 40)),
         batch_budget_seconds=int(desktop_raw.get("batch_budget_seconds", 50)),
         batch_check_focus=bool(desktop_raw.get("batch_check_focus", True)),
@@ -723,7 +961,9 @@ def load_config(explicit: str | None = None) -> Config:
         binary_path=_expand(native_binary) if native_binary else None,
     )
 
-    state_dir = _expand(paths.get("state_dir", "~/.local/state/pcbridge"))
+    state_dir = (
+        _expand(paths["state_dir"]) if paths.get("state_dir") else pathslib.state_home()
+    )
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / "jobs").mkdir(parents=True, exist_ok=True)
 
@@ -755,4 +995,7 @@ def load_config(explicit: str | None = None) -> Config:
         desktop=desktop,
         native=native,
         source_path=path,
+        source_kind=source_kind,
+        config_version=config_version,
+        warnings=warnings,
     )

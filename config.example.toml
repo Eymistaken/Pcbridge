@@ -3,6 +3,13 @@
 # Bu dosyayi "config.toml" olarak kopyalayip duzenleyin, sonra: chmod 600 config.toml
 # ---------------------------------------------------------------------------
 
+# Format version of this file. `pcbridge setup` migrates older files and keeps
+# a timestamped backup; do not change it by hand.
+config_version = 2
+
+# Agent used when a call names neither an agent nor a model of a known agent.
+default_agent = "claude"
+
 # Tailscale Funnel / Cloudflare Tunnel'in verdigi DIS adres.
 # Sonunda / OLMAYACAK. Uzak istemciye bu adresin sonuna /mcp ekleyerek verilir.
 # YEREL istemciler (stdio) bu adresi HIC kullanmiyor -- onlar icin gereksiz.
@@ -86,9 +93,6 @@ max_sync_timeout = 120
 # dosya yolu evet icerigi hayir).
 audit_max_bytes = 5000000
 
-
-# Ajan adi verilmedigi ve model hicbir ajana ait olmadigi durumda kullanilir.
-default_agent = "claude"
 
 
 # ---------------------------------------------------------------------------
@@ -277,11 +281,8 @@ default_monitor = 1
 # — sessizce pano calmamak icin.
 restore_clipboard = true
 
-# YALNIZCA BILGI: ham tus yolunun (keyboard(..., raw = true)) hangi duzende
-# yorumlanacagini soyler, girdiyi degistirmez. uinput ham keycode gonderir;
-# ekrana ne dusecegini sistemin XKB duzeni belirler. Turkce duzende ham yol
-# isaretleri bozar (`@` yerine `"`), bu yuzden varsayilan yol PANO.
-keyboard_layout = "tr+intl"
+# keyboard_layout is no longer used: text is typed through the clipboard, so
+# the keyboard layout does not matter. Older files may still set it.
 
 # --- fare hareketi ---------------------------------------------------------
 # Imlec hedefe ISINLANMAK yerine ara noktalardan gecerek gider; piksel/saniye.
@@ -385,7 +386,7 @@ capture_backend = "auto"
 #   sudo apt install tesseract-ocr tesseract-ocr-tur
 # (`eng` verisi `tesseract-ocr` ile birlikte geliyor.) Kurulu degilse iki arac
 # bunu kurulum komutuyla birlikte soyler; baska hicbir sey etkilenmez.
-ocr_languages = "tur+eng"
+ocr_languages = "eng"
 
 # computer_batch tek cagrida en fazla kac eylem alir. Listeyi bolmek her zaman
 # mumkun; bu sinir sonsuz donguye giren bir ajana karsi.
