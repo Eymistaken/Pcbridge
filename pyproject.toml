@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pcbridge"
+dynamic = ["version"]
+description = "An MCP server that lets coding agents drive a GNOME on Wayland desktop: agents, jobs, tmux, shell, files, screen, keyboard and pointer."
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "Eymistaken" }]
+requires-python = ">=3.12"
+classifiers = [
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Environment :: No Input/Output (Daemon)",
+]
+# FastMCP is pinned: ToolResult and output_schema=None behavior was verified
+# against exactly this version (see CLAUDE.md). The other exact versions the
+# release was tested with live in packaging/constraints.txt.
+dependencies = [
+    "fastmcp==3.4.5",
+    "uvicorn>=0.30.0",
+    "starlette>=0.37.0",
+]
+
+[project.optional-dependencies]
+# Desktop control: evdev drives the virtual keyboard and pointer through
+# /dev/uinput, Pillow crops and scales screenshots. Without them pcbridge
+# still runs; only the desktop tools report that they are unavailable.
+desktop = [
+    "evdev>=1.7.0",
+    "Pillow>=10.0.0",
+]
+
+[project.scripts]
+pcbridge = "pcbridge.cli.main:main"
+pcb-shot = "pcbridge.cli.shot:main"
+pcb-do = "pcbridge.cli.do:main"
+
+[project.urls]
+Homepage = "https://github.com/Eymistaken/Pcbridge"
+Issues = "https://github.com/Eymistaken/Pcbridge/issues"
+
+[tool.setuptools.dynamic]
+version = { attr = "pcbridge.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["pcbridge*"]
+
+[tool.setuptools.package-data]
+# The native helper is gitignored and exists only after scripts/build-native.sh.
+pcbridge = ["_native/*/pcbridge-native", "_native/*/build-info.json"]

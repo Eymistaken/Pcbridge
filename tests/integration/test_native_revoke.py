@@ -62,6 +62,8 @@ def _late_heartbeat(
 class NativeRevokeIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        if not (ROOT / "rust" / "Cargo.toml").is_file():
+            raise unittest.SkipTest("builds the native test harness; needs the rust/ workspace of a git checkout")
         completed = subprocess.run(
             [
                 "cargo",

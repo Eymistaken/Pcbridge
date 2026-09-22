@@ -22,8 +22,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-
 # Cikis kodlari. Ajan bunlara Bash'ten bakip karar veriyor, o yuzden
 # anlamlari SKILL.md'de de birebir yaziyor.
 EXIT_OK = 0            # istenen her sey yapildi

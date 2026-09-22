@@ -37,9 +37,10 @@ FIXTURE = json.loads(
 
 
 def _load_helper():
-    spec = importlib.util.spec_from_file_location(
-        "atspi_helper_contract", ROOT / "pcbridge" / "desktop" / "atspi_helper.py"
-    )
+    # Load the helper file the imported package ships, so the test also
+    # works against an installed pcbridge.
+    origin = importlib.util.find_spec("pcbridge.desktop.atspi_helper").origin
+    spec = importlib.util.spec_from_file_location("atspi_helper_contract", origin)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

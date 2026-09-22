@@ -8,10 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-try:  # Python 3.11+
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover
-    import tomli as tomllib  # type: ignore[no-redef]
+import tomllib
 
 
 DEFAULT_CONFIG_NAMES = ("config.toml",)

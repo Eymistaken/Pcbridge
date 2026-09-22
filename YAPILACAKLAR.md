@@ -327,22 +327,22 @@ Every step follows the same loop:
 
 ### Step 1 — Packaging foundation  (time box: 3 h)
 
-- [ ] Add a `pyproject.toml`: a standard build backend, pinned
+- [x] Add a `pyproject.toml`: a standard build backend, pinned
       `fastmcp==3.4.5`, optional extras for the desktop (evdev, Pillow),
       and Python ≥ 3.12. Measure first: does anything in the code rely on
       3.10/3.11 behavior?
-- [ ] Keep one version source (`pcbridge/__init__.py`, bumped to
+- [x] Keep one version source (`pcbridge/__init__.py`, bumped to
       `2.0.0.dev0` during the run and to `2.0.0` in step 12).
-- [ ] Add console entry points: `pcbridge` (the CLI from step 4; for now a
+- [x] Add console entry points: `pcbridge` (the CLI from step 4; for now a
       stub that dispatches `pcbridge serve`, `pcbridge stdio` and
       `pcbridge --version`), `pcb-shot` and `pcb-do`.
-- [ ] Package data: the native helper binary, the extension, the systemd
+- [x] Package data: the native helper binary, the extension, the systemd
       units and udev rule templates, and `config.example.toml`.
-- [ ] `python -m pcbridge.server [--stdio]` keeps working unchanged (I2).
-- [ ] **Verify.** Build a wheel, install it into a throwaway venv outside
+- [x] `python -m pcbridge.server [--stdio]` keeps working unchanged (I2).
+- [x] **Verify.** Build a wheel, install it into a throwaway venv outside
       the repo, run the non-live suites against the installed package, and
       run the readiness check against the installed entry point.
-- [ ] **Commit**: `build: package pcbridge with pyproject and a single version source`.
+- [x] **Commit**: `build: package pcbridge with pyproject and a single version source`.
 
 ### Step 2 — Standard locations, config migration, no machine-specific assumptions  (time box: 4 h)
 
@@ -929,6 +929,9 @@ freely **after** extracting what is still true and useful.
 | 2026-09-22 | 0 | The readiness check spawns every client's registered command with the environment that client really provides: Claude Desktop only `HOME LOGNAME PATH SHELL USER`; Codex the full session but `DBUS_SESSION_BUS_ADDRESS` as the literal `$DBUS_SESSION_BUS_ADDRESS`; Claude Code the full session. It strips its own `CLAUDE*`/`MCP_*` variables. | Both environments broke pcbridge before (CLAUDE.md). A check that spawns with a healthy environment would pass while the real client fails. |
 | 2026-09-22 | 0 | `tests/readiness/bench.py` sleeps 0.25 s before each call. | The desktop gate refuses more than 10 actions per second; without pacing the benchmark measured the rate limiter. |
 | 2026-09-22 | 0 | The PcBridgeDesktop app (`~/Masaüstü/app/PcBridgeDesktop`) talks to pcbridge over HTTP (`http://127.0.0.1:8765/mcp`, static token) and reads `state_dir/desktop_unlock.json` and the jobs directory **directly from disk**. The daemon keeps the HTTP listener on 8765 and both on-disk formats stay backward compatible. The readiness check probes HTTP too. | Keep that consumer working (step 0 inventory). |
+| 2026-09-22 | 1 | Build backend: setuptools with a small `setup.py`. Its `build_py` hook copies the root-level assets (GNOME extension, systemd units, udev rule, modules-load file, `config.example.toml`, `skills/`) into `pcbridge/_assets/` inside the built package; `pcbridge/assets.py` resolves an asset from `_assets/` when installed and from the repository root in a checkout. When `pcbridge/_native` holds a built helper, the wheel is tagged `py3-none-linux_x86_64` instead of pure. | Keeps every source file where docs, tests and the live extension symlink expect it, while an installed package still carries everything setup needs. |
+| 2026-09-22 | 1 | Exact dependency versions live in `packaging/constraints.txt` (the `pip freeze` of the reference install); `pyproject.toml` keeps ranges plus the `fastmcp==3.4.5` pin. Product installs use `pip install -c packaging/constraints.txt`. | A fresh resolve picked mcp 1.30.0 and evdev 2.0.0, which were never tested. Ranges stay loose so distro Pythons 3.13/3.14 can still resolve. |
+| 2026-09-22 | 1 | Python >= 3.12. The only pre-3.11 code was the `tomli` fallback in `config.py`; removed, and dropped from `requirements.txt`. | Measured: grep for version_info, removed stdlib modules (imghdr, cgi, pipes, audioop, telnetlib, crypt, distutils), utcnow and pkg_resources found nothing else. |
 
 ## 8. Progress log and measurements
 
@@ -950,6 +953,7 @@ Append-only. One line per meaningful event, with numbers.
 - 2026-09-22 step 0 — **Baseline performance** (`tests/readiness/bench.py`, legacy command from the original checkout, median of 5, 0.25 s pacing): cold stdio start to `tools/list` **692.8 ms**; `system_status` **135.2 ms**; `system_capabilities` **35.1 ms**; first `screen_capture` of one monitor (opens the share) 345.4 ms; `screen_capture` one monitor **301.7 ms**; both monitors **770.7 ms**; `ui_dump` of the focused window **32.7 ms**; `window_list` **14.1 ms**; `window_focus` on the already-focused Claude window **29.7 ms**; stdio server RSS **92.4 MB** (tree, after desktop_lock); service RSS **85.9 MB** (pid 2199).
 - 2026-09-22 step 0 — **Readiness check** `tests/readiness/check.py` against the live setup: PASS claude-code (tools/list 719.5 ms), codex (666.2 ms, broken-DBus env), claude-desktop (732.0 ms, minimal env), legacy (724.9 ms), http (healthz 16.4 ms, system_status 125.8 ms). `--desktop` on legacy: `desktop_unlock` 134.6 ms, `desktop_lock` 132.9 ms, grant closed afterwards (`until` 0).
 - 2026-09-22 step 0 — Findings that change later steps (from the read-only survey during planning): `ui_dump` short ids, held input, the gate rate limiter and the thread-local `last_token` are per-process today and must become per-session in the daemon; jobs started by a systemd daemon would die with it (crash or restart), today they do not; Mutter's `layout-mode` is never read (physical layout mode would size HiDPI monitors wrongly); the xrandr fallback hard-codes scale 1 and transform 0; `keyboard_layout` is a dead setting; `doctor.sh` has 10 headings, not 35; `install.sh` ends by enabling the service although three comments say it does not; the packaged native helper's build id is `ee96fde90d06-dirty`, one commit behind HEAD.
+- 2026-09-22 step 1 — Wheel `pcbridge-2.0.0.dev0-py3-none-linux_x86_64.whl` (2.6 MB, includes the native helper with its exec bit). Installed into a throwaway venv outside the repo with the constraints file: `pcbridge --version` → `pcbridge 2.0.0.dev0`; the suites run from a copy of `tests/` outside the repo so they import the installed package. First run found two real bugs: `computer_task` located `skills/computer-use/SKILL.md` relative to the repository (every installed layout would fail with DEPENDENCY_MISSING; now resolved through `pcbridge.assets`), and tests loading `atspi_helper.py` by repository path. After the fixes, installed: models 106, desktop 614, safety OK, contracts 446 OK, integration OK (7 skipped: the 3 native-harness classes need `rust/` and now skip with a reason). Repo: models 106, desktop 614, contracts OK, integration OK (1 skipped). Readiness: legacy (worktree) tools/list 680.0 ms, installed `pcbridge stdio` 682.2 ms, both PASS.
 
 ## 9. Needs eymistaken (physical presence, sudo, or a decision only he can make)
 

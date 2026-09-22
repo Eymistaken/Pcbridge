@@ -1,0 +1,4 @@
+# pcbridge: let the logged-in user open /dev/uinput (virtual keyboard and pointer).
+# The number is functional: the uaccess builtin runs in 73-seat-late.rules, so
+# this rule must sort BEFORE 73 or the tag is never seen and no ACL is created.
+KERNEL=="uinput", GROUP="input", MODE="0660", TAG+="uaccess"

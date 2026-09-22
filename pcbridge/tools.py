@@ -22,6 +22,7 @@ from fastmcp.tools.base import ToolResult
 from mcp.types import ContentBlock, TextContent
 from pydantic import Field
 
+from . import assets as assetslib
 from . import jobs as jobslib
 from . import models as modelslib
 from . import shots as shotslib
@@ -63,7 +64,15 @@ _DESC_EFFORT = "Reasoning effort level."
 # surerken lazim), ama `computer_task` symlink'e GUVENMIYOR ve metni dogrudan
 # okuyup prompt'a koyuyor: varsayilan surucu `agy` ve onda Claude-skill
 # kavrami yok. Tek dosya, tek kod yolu, ajandan bagimsiz.
-_SKILL_PATH = Path(__file__).resolve().parent.parent / "skills" / "computer-use" / "SKILL.md"
+def _default_skill_path() -> Path:
+    """The computer-use skill, from an installed package or a git checkout."""
+    try:
+        return assetslib.asset_path("skills/computer-use/SKILL.md")
+    except FileNotFoundError:
+        return Path(__file__).resolve().parent / "_assets" / "skills" / "computer-use" / "SKILL.md"
+
+
+_SKILL_PATH = _default_skill_path()
 
 
 # `find_text` / `wait_for_text` parametreleri (Adim 8.6). Modul duzeyinde,

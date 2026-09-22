@@ -1387,7 +1387,7 @@ def test_uitree_helper_filters() -> None:
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
-        "atspi_helper_probe", ROOT / "pcbridge" / "desktop" / "atspi_helper.py"
+        "atspi_helper_probe", importlib.util.find_spec("pcbridge.desktop.atspi_helper").origin
     )
     mod = importlib.util.module_from_spec(spec)
     try:

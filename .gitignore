@@ -21,3 +21,6 @@ pcbridge/_native/
 
 # graphify ciktisi: uretilen bilgi grafigi, depoya girmiyor.
 graphify-out/
+build/
+dist/
+*.egg-info/

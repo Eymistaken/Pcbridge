@@ -70,6 +70,8 @@ def summary(dump: uitreelib.Dump) -> dict:
 class NativeAccessibilityEndToEnd(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        if not (ROOT / "rust" / "Cargo.toml").is_file():
+            raise unittest.SkipTest("builds the native test harness; needs the rust/ workspace of a git checkout")
         completed = subprocess.run(
             ["cargo", "build", "-p", "pcbridge-native", "--features", "test-harness"],
             cwd=ROOT / "rust",
