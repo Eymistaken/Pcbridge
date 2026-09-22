@@ -18,7 +18,7 @@ Proje Gemini Spark için başlamıştı; **artık hedef değil.** Mimarinin
 "görüntü yerine metin" tercihleri (`ui_dump`, `/shot` bağlantıları) o çağdan
 kalma ve **kazanç oldukları için duruyorlar** — daha ucuz ve ıskalamıyorlar.
 
-**Sıradaki iş [WALKTHROUGH.md](WALKTHROUGH.md).** Depodaki tek yapılacak-iş
+**Etkin iş: [YAPILACAKLAR.md](YAPILACAKLAR.md) (pcbridge 2.0 ürünleşme). O dosya varken önce onu oku; bu çalışma boyunca WALKTHROUGH.md'nin yerine geçer.** Sıradaki iş (normalde) [WALKTHROUGH.md](WALKTHROUGH.md). Depodaki tek yapılacak-iş
 listesi odur: yol haritası, her adımın kabul ölçütü ve şimdiye kadar ne
 yapıldığının kaydı. Native migration'ın implementation sözleşmesi ayrı bir
 dosyada: [PLAN.md](PLAN.md). **Durum özetini başka dosyaya kopyalama** — bu

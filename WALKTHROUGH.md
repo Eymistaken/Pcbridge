@@ -10,6 +10,7 @@ iki günde 83 satır ayrıştı. İki gerçeğin olduğu yerde biri eskir.
 
 ## Durum özeti
 
+- **ETKİN İŞ: [YAPILACAKLAR.md](YAPILACAKLAR.md) — pcbridge 2.0 ürünleşme planı. O dosya varken bu bölümün yerine geçer.**
 - **SIRADAKİ İŞ: kodda yapılacak zorunlu bir madde kalmadı; sıradaki iki
   adım kullanıcıda.** Adım 8 (2026-09-21/22, kullanıcı yokken) uygulandı:
   8.2, 8.3, 8.4, 8.5, 8.7 gerçek masaüstünde ölçülerek bitti; 8.1 nested
