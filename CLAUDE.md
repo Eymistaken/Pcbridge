@@ -251,7 +251,8 @@ uzunluğu evet metnin kendisi hayır.
 **MCP araçları**
 
 - Docstring ve `Field(description=…)` **İngilizce** — istemci araç seçerken
-  yalnızca bunları okuyor. Kullanıcıya dönen metinler Türkçe.
+  yalnızca bunları okuyor. **Kullanıcıya ya da modele dönen her metin de
+  İngilizce** (2.0'dan beri; `tests/contracts/test_english_only.py` bekçi).
 - Docstring "ne zaman kullanılır"ı söylesin, sadece "ne yapar"ı değil.
 - Düz metin dönüş tipi `str`; uzun çıktı `jobslib.tail_chars(metin, 4000)` ile
   kırpılmış. Görüntü de dönüyorsa başarı tipi `list[ContentBlock]`.

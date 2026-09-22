@@ -52,7 +52,7 @@ from tests.live.test_capture_parity import (  # noqa: E402
 
 LIVE = os.environ.get("PCBRIDGE_TEST_CAPTURE") == "1"
 VENV_PYTHON = str(ROOT / ".venv" / "bin" / "python")
-SHARE_OPEN = "Ekran yayını açık"
+SHARE_OPEN = "Screen sharing is on"
 FALLBACK_NOTE = "Native capture was unavailable"
 
 

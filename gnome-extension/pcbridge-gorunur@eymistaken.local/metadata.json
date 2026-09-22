@@ -1,8 +1,12 @@
 {
   "uuid": "pcbridge-gorunur@eymistaken.local",
-  "name": "pcbridge — Ajan Görünür",
-  "description": "pcbridge masaüstü izni açıkken ekran kenarlarında görünür bir çerçeve gösterir ve izinliyken açık bir pencereyi etkinleştiren ve odaktaki pencerenin adını söyleyen iki dar D-Bus yöntemi sunar.",
-  "shell-version": ["46"],
-  "session-modes": ["user"],
+  "name": "pcbridge — agent visible",
+  "description": "While pcbridge desktop control is granted, draws a visible frame at the screen edges; offers two narrow D-Bus methods: raise an open window while the grant is open, and report the name of the focused window.",
+  "shell-version": [
+    "46"
+  ],
+  "session-modes": [
+    "user"
+  ],
   "version-name": "0.1.0"
 }

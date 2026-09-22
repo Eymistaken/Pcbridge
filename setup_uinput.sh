@@ -37,74 +37,74 @@ info() { printf "  \033[2m·\033[0m %s\n" "$*"; }
 head_(){ printf "\n\033[1m%s\033[0m\n" "$*"; }
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "Bu betik root olarak calismali:  sudo $0" >&2
+  echo "This script must run as root:  sudo $0" >&2
   exit 1
 fi
 
 TARGET_USER="${SUDO_USER:-}"
 if [ -z "$TARGET_USER" ] || [ "$TARGET_USER" = "root" ]; then
-  echo "SUDO_USER bos. 'sudo ./setup_uinput.sh' seklinde calistirin." >&2
+  echo "SUDO_USER is empty. Run it as: sudo ./setup_uinput.sh" >&2
   exit 1
 fi
 
-head_ "1. uinput cekirdek modulu"
+head_ "1. uinput kernel module"
 if lsmod | grep -qw uinput; then
-  ok "zaten yuklu"
+  ok "already loaded"
 else
   modprobe uinput
-  ok "yuklendi (modprobe uinput)"
+  ok "loaded (modprobe uinput)"
 fi
 
 if [ -f "$MODCONF" ] && grep -qx uinput "$MODCONF"; then
-  ok "acilista yukleniyor ($MODCONF)"
+  ok "loaded at boot ($MODCONF)"
 else
   echo uinput > "$MODCONF"
-  ok "acilista yuklenecek: $MODCONF"
+  ok "will be loaded at boot: $MODCONF"
 fi
 
-head_ "2. udev kurali"
+head_ "2. udev rule"
 if [ -f "$OLD_RULE" ]; then
   rm -f "$OLD_RULE"
-  ok "eski (cok gec calisan) kural silindi: $OLD_RULE"
+  ok "removed the old rule (it ran too late): $OLD_RULE"
 fi
 if [ -f "$RULE" ] && grep -qF 'TAG+="uaccess"' "$RULE"; then
-  ok "kural zaten var ($RULE)"
+  ok "rule already present ($RULE)"
 else
-  printf '# pcbridge: sanal klavye/fare icin /dev/uinput erisimi\n%s\n' "$RULE_LINE" > "$RULE"
-  ok "yazildi: $RULE"
+  printf '# pcbridge: /dev/uinput access for the virtual keyboard and pointer\n%s\n' "$RULE_LINE" > "$RULE"
+  ok "written: $RULE"
 fi
 info "$RULE_LINE"
 
-head_ "3. input grubu"
+head_ "3. input group"
 getent group input >/dev/null || groupadd -r input
 if id -nG "$TARGET_USER" | tr ' ' '\n' | grep -qx input; then
-  ok "$TARGET_USER zaten input grubunda"
+  ok "$TARGET_USER is already in the input group"
 else
   usermod -aG input "$TARGET_USER"
-  ok "$TARGET_USER input grubuna eklendi (bu yol oturum kapatip acmayi ister)"
+  ok "$TARGET_USER added to the input group (this path needs a logout and login)"
 fi
 
-head_ "4. Kurallari uygula"
+head_ "4. Apply the rules"
 udevadm control --reload-rules
 # --action=add: uaccess builtin'i "remove" disindaki her eylemde calisir ama
 # "add" ile tetiklemek cihaz hic hotplug olmadigi icin en guvenilir yol.
 udevadm trigger --action=add --name-match=uinput || true
 udevadm settle --timeout=5 || true
 sleep 1
-ok "udev kurallari yeniden yuklendi ve /dev/uinput tetiklendi"
+ok "udev rules reloaded and /dev/uinput triggered"
 
-head_ "5. Sonuc"
+head_ "5. Result"
 ls -l /dev/uinput | sed 's/^/  /'
 ACL="$(getfacl -p /dev/uinput 2>/dev/null | grep -E "^user:${TARGET_USER}:" || true)"
 if [ -n "$ACL" ]; then
-  ok "uaccess ACL verildi: $ACL"
+  ok "uaccess ACL granted: $ACL"
   echo
-  echo "  Hazir. Oturum kapatmana GEREK YOK."
+  echo "  Ready. NO need to log out."
 else
-  warn "uaccess ACL gorunmuyor."
+  warn "No uaccess ACL is visible."
   echo
-  echo "  Bu durumda erisim 'input' grubu uyeligine kaliyor ve o da ancak"
-  echo "  OTURUM KAPATIP ACINCA gecerli olur. Cikis yapip tekrar gir, sonra:"
+  echo "  Access then depends on membership of the 'input' group, which only"
+  echo "  takes effect AFTER LOGGING OUT AND IN. Log out and back in, then:"
   echo
   echo "      getfacl -p /dev/uinput ; id -nG | tr ' ' '\\n' | grep -x input"
 fi

@@ -142,10 +142,10 @@ export class WindowControl {
                 this._dbus.export(connection, OBJECT_PATH);
                 this._exported = true;
             },
-            () => console.log('[pcbridge-gorunur] pencere etkinleştirme hazır'),
+            () => console.log('[pcbridge-gorunur] window activation ready'),
             () => {
                 if (this._started)
-                    console.warn('[pcbridge-gorunur] pencere etkinleştirme D-Bus adı alınamadı');
+                    console.warn('[pcbridge-gorunur] could not own the window activation D-Bus name');
             },
         );
     }
@@ -181,11 +181,11 @@ export class WindowControl {
             try {
                 this._onActivated?.(window, target);
             } catch (error) {
-                console.warn(`[pcbridge-gorunur] etkinleştirme doğrulaması: ${error}`);
+                console.warn(`[pcbridge-gorunur] activation check: ${error}`);
             }
             return activated;
         } catch (error) {
-            console.warn(`[pcbridge-gorunur] pencere etkinleştirilemedi: ${error}`);
+            console.warn(`[pcbridge-gorunur] could not activate the window: ${error}`);
             return false;
         }
     }
@@ -216,7 +216,7 @@ export class WindowControl {
                 rawField(window, 'get_title'),
             ];
         } catch (error) {
-            console.warn(`[pcbridge-gorunur] odaktaki pencere okunamadı: ${error}`);
+            console.warn(`[pcbridge-gorunur] cannot read the focused window: ${error}`);
             return none;
         }
     }

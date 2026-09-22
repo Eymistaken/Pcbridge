@@ -1,152 +1,153 @@
 #!/usr/bin/env bash
-# pcbridge gorunur eklentisi: kur / kaldir / durum.
+# Developer install of the pcbridge GNOME Shell extension: link / remove /
+# status. (A normal install copies the extension with `pcbridge setup`.)
 #
-# Kurulum SYMLINK ile yapilir -- depoda duzenledigin dosya dogrudan calisan
-# eklentidir, kopyalama adimi yok. Bozuk bir eklenti Wayland'de kabugu
-# dusurebilecegi icin acil geri alma yolu her calismada ekrana basilir.
+# This installs a SYMLINK: the file you edit in the repository is the running
+# extension, with no copy step. A broken extension can take the shell down on
+# Wayland, so the emergency undo is printed on every run.
 
 set -euo pipefail
 
 UUID="pcbridge-gorunur@eymistaken.local"
-BURASI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-KAYNAK="$BURASI/$UUID"
-HEDEF_DIZIN="${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions"
-HEDEF="$HEDEF_DIZIN/$UUID"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOURCE="$HERE/$UUID"
+TARGET_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions"
+TARGET="$TARGET_DIR/$UUID"
 
-kirmizi() { printf '\033[31m%s\033[0m\n' "$*"; }
-yesil()   { printf '\033[32m%s\033[0m\n' "$*"; }
-sari()    { printf '\033[33m%s\033[0m\n' "$*"; }
+red()    { printf '\033[31m%s\033[0m\n' "$*"; }
+green()  { printf '\033[32m%s\033[0m\n' "$*"; }
+yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
 
-# gsettings'teki `enabled-extensions` listesine UUID ekler/cikarir.
-# `gnome-extensions enable` calisan kabuga D-Bus'tan soruyor ve eklentiyi
-# heniz taramamis bir kabukta HATA veriyor; gsettings her durumda calisiyor.
-liste_duzenle() {
-    local eylem="$1"
-    python3 - "$eylem" "$UUID" <<'PY'
+# Add the UUID to (or remove it from) gsettings' `enabled-extensions`.
+# `gnome-extensions enable` asks the running shell over D-Bus and FAILS in a
+# shell that has not scanned the extension yet; gsettings always works.
+edit_list() {
+    local action="$1"
+    python3 - "$action" "$UUID" <<'PY'
 import ast, subprocess, sys
 
-eylem, uuid = sys.argv[1], sys.argv[2]
-anahtar = ["gsettings", "get", "org.gnome.shell", "enabled-extensions"]
-ham = subprocess.run(anahtar, capture_output=True, text=True, check=True).stdout.strip()
-# Bos liste `@as []` olarak basiliyor.
-if ham.startswith("@as "):
-    ham = ham[4:]
-liste = list(ast.literal_eval(ham))
+action, uuid = sys.argv[1], sys.argv[2]
+key = ["gsettings", "get", "org.gnome.shell", "enabled-extensions"]
+raw = subprocess.run(key, capture_output=True, text=True, check=True).stdout.strip()
+# An empty list prints as `@as []`.
+if raw.startswith("@as "):
+    raw = raw[4:]
+items = list(ast.literal_eval(raw))
 
-if eylem == "ekle" and uuid not in liste:
-    liste.append(uuid)
-elif eylem == "cikar":
-    liste = [x for x in liste if x != uuid]
+if action == "add" and uuid not in items:
+    items.append(uuid)
+elif action == "remove":
+    items = [x for x in items if x != uuid]
 else:
-    print("degisiklik yok")
+    print("no change")
     sys.exit(0)
 
-deger = "[" + ", ".join(f"'{x}'" for x in liste) + "]"
-subprocess.run(["gsettings", "set", "org.gnome.shell", "enabled-extensions", deger], check=True)
-print(f"enabled-extensions guncellendi ({len(liste)} eklenti)")
+value = "[" + ", ".join(f"'{x}'" for x in items) + "]"
+subprocess.run(["gsettings", "set", "org.gnome.shell", "enabled-extensions", value], check=True)
+print(f"enabled-extensions updated ({len(items)} extensions)")
 PY
 }
 
-geri_alma_yolu() {
+undo_help() {
     echo
-    sari "─── ACIL GERI ALMA ───────────────────────────────────────────────"
-    kirmizi "ONCE BUNU CALISTIR — ANINDA etki eder:"
+    yellow "─── EMERGENCY UNDO ──────────────────────────────────────"
+    red "RUN THIS FIRST — it takes effect IMMEDIATELY:"
     echo
     echo "    gnome-extensions disable $UUID"
     echo
-    echo "Sonra kalicilastir:"
+    echo "Then make it permanent:"
     echo
-    echo "    $BURASI/install.sh --kaldir"
+    echo "    $HERE/install.sh --remove"
     echo
-    sari 'DIKKAT: rm TEK BASINA YETMEZ.'
-    echo "Diskteki dosyayi silmek CALISAN eklentiyi durdurmuyor; kabuk onu"
-    echo "zaten bellege almis oluyor. Etkisi ancak kabuk yeniden baslayinca"
-    echo "(cikis/giris ya da yeniden baslatma) goruluyor. Bir kere yasandi:"
-    echo 'kullanici rm yazdi, hicbir sey degismedi, makineyi restart etti.'
+    yellow 'NOTE: rm ALONE IS NOT ENOUGH.'
+    echo "Deleting the files does not stop the RUNNING extension; the shell"
+    echo "has already loaded it. It only goes away when the shell restarts"
+    echo "(log out and in, or reboot). This happened once: rm was typed,"
+    echo 'nothing changed, and the machine had to be restarted.'
     echo
-    echo "Kabuk tamamen kilitliyse Ctrl+Alt+F3 ile TTY'ye gecip yukaridaki"
-    echo 'gnome-extensions disable komutunu oradan calistir.'
-    sari "──────────────────────────────────────────────────────────────────"
+    echo "If the shell is frozen, switch to a TTY with Ctrl+Alt+F3 and run the"
+    echo 'gnome-extensions disable command above from there.'
+    yellow "─────────────────────────────────────────────────────────"
 }
 
-durum() {
+status() {
     echo "UUID    : $UUID"
-    echo "kaynak  : $KAYNAK"
-    echo "hedef   : $HEDEF"
-    if [[ -L "$HEDEF" ]]; then
-        yesil "kurulu  : evet (symlink -> $(readlink "$HEDEF"))"
-    elif [[ -e "$HEDEF" ]]; then
-        kirmizi "kurulu  : hedefte symlink DEGIL gercek bir dizin var -- elle bak"
+    echo "source  : $SOURCE"
+    echo "target  : $TARGET"
+    if [[ -L "$TARGET" ]]; then
+        green "installed: yes (symlink -> $(readlink "$TARGET"))"
+    elif [[ -e "$TARGET" ]]; then
+        red "installed: the target is a real directory, NOT a symlink -- look at it by hand"
     else
-        echo "kurulu  : hayir"
+        echo "installed: no"
     fi
-    local etkin
-    etkin="$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null || echo '?')"
-    if [[ "$etkin" == *"$UUID"* ]]; then
-        yesil "etkin   : evet"
+    local enabled
+    enabled="$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null || echo '?')"
+    if [[ "$enabled" == *"$UUID"* ]]; then
+        green "enabled : yes"
     else
-        echo "etkin   : hayir"
+        echo "enabled : no"
     fi
-    echo "kabuk   : $(gnome-shell --version 2>/dev/null || echo '?')"
+    echo "shell   : $(gnome-shell --version 2>/dev/null || echo '?')"
 }
 
-kur() {
-    [[ -d "$KAYNAK" ]] || { kirmizi "kaynak dizin yok: $KAYNAK"; exit 1; }
-    [[ -f "$KAYNAK/metadata.json" ]] || { kirmizi "metadata.json yok"; exit 1; }
+install_link() {
+    [[ -d "$SOURCE" ]] || { red "source directory missing: $SOURCE"; exit 1; }
+    [[ -f "$SOURCE/metadata.json" ]] || { red "metadata.json missing"; exit 1; }
 
-    if [[ -e "$HEDEF" && ! -L "$HEDEF" ]]; then
-        kirmizi "$HEDEF symlink degil, gercek bir dizin. Ustune yazmiyorum;"
-        kirmizi "once kendin bak ve tasi/sil."
+    if [[ -e "$TARGET" && ! -L "$TARGET" ]]; then
+        red "$TARGET is a real directory, not a symlink. Not overwriting it;"
+        red "look at it yourself and move it away first."
         exit 1
     fi
 
-    mkdir -p "$HEDEF_DIZIN"
-    ln -sfn "$KAYNAK" "$HEDEF"
-    yesil "symlink kuruldu: $HEDEF -> $KAYNAK"
+    mkdir -p "$TARGET_DIR"
+    ln -sfn "$SOURCE" "$TARGET"
+    green "symlink created: $TARGET -> $SOURCE"
 
-    if [[ "${1:-}" != "--yalniz-baglanti" ]]; then
-        liste_duzenle ekle
-        yesil "eklenti etkinlestirildi"
+    if [[ "${1:-}" != "--link-only" ]]; then
+        edit_list add
+        green "extension enabled"
     else
-        echo "etkinlestirme atlandi (--yalniz-baglanti)"
+        echo "enabling skipped (--link-only)"
     fi
 
     echo
-    sari "GNOME 45+ ESM modullerini onbellege aliyor: kod degisikligi ve ilk"
-    sari "kurulum icin KABUGUN YENIDEN BASLAMASI gerekiyor. Wayland'de bu"
-    sari "cikis/giris demek. Denemek icin ayri bir oturum:"
+    yellow "GNOME 45+ caches ESM modules: code changes and the first install"
+    yellow "need a SHELL RESTART. On Wayland that means logging out and in."
+    yellow "To try it in a separate session:"
     echo
     echo "    dbus-run-session -- gnome-shell --nested --wayland"
-    geri_alma_yolu
+    undo_help
 }
 
-kaldir() {
-    liste_duzenle cikar || true
-    if [[ -L "$HEDEF" ]]; then
-        rm "$HEDEF"
-        yesil "symlink silindi: $HEDEF"
-    elif [[ -e "$HEDEF" ]]; then
-        kirmizi "$HEDEF symlink degil; elle sil."
+remove_link() {
+    edit_list remove || true
+    if [[ -L "$TARGET" ]]; then
+        rm "$TARGET"
+        green "symlink removed: $TARGET"
+    elif [[ -e "$TARGET" ]]; then
+        red "$TARGET is not a symlink; remove it by hand."
     else
-        echo "zaten kurulu degil"
+        echo "not installed"
     fi
-    echo "Kabuk yeniden baslayinca (cikis/giris) eklenti tamamen gider."
+    echo "The extension is fully gone once the shell restarts (log out and in)."
 }
 
 case "${1:-}" in
-    ""|--kur)            kur ;;
-    --yalniz-baglanti)   kur --yalniz-baglanti ;;
-    --kaldir)            kaldir ;;
-    --durum)             durum ;;
-    -h|--yardim|--help)
+    ""|--install|--kur)               install_link ;;
+    --link-only|--yalniz-baglanti)    install_link --link-only ;;
+    --remove|--kaldir)                remove_link ;;
+    --status|--durum)                 status ;;
+    -h|--help|--yardim)
         cat <<EOF
-Kullanim: install.sh [secenek]
+Usage: install.sh [option]
 
-  (bos) | --kur        symlink kur + etkinlestir + geri alma yolunu yazdir
-  --yalniz-baglanti    yalnizca symlink kur, etkinlestirme
-  --kaldir             etkinligi kaldir + symlink'i sil
-  --durum              kurulu mu, etkin mi, kabuk surumu
+  (none) | --install   create the symlink, enable it, print the undo steps
+  --link-only          only create the symlink, do not enable
+  --remove             disable and remove the symlink
+  --status             installed? enabled? shell version
 EOF
         ;;
-    *) kirmizi "bilinmeyen secenek: $1"; exit 1 ;;
+    *) red "unknown option: $1"; exit 1 ;;
 esac

@@ -2599,11 +2599,13 @@ def test_computer_task_prompt() -> None:
     skill = T._SKILL_PATH.read_text(encoding="utf-8")
     # Yonergenin icindekiler tesadufe birakilmiyor: her biri bir olcumun ya da
     # bir kazanin karsiligi.
-    check("ust cubugun yeri yaziyor", "monitör 2" in skill or "monitor 2" in skill)
-    check("kor tiklama yasagi var", "Kör tıklama" in skill)
-    check("kazanin hikayesi var", "23 öğeyi" in skill)
-    check("cikis kodlari yaziyor", "pcb-do --dry-run" in skill and "| 3 |" in skill)
-    check("eylemleri gruplama gerekcesi", "1,4 s" in skill)
+    check("the skill says where the panel is", "primary monitor" in skill)
+    check("the skill does not hard-code this machine's layout",
+          "DP-1" not in skill and "3840" not in skill)
+    check("the no-blind-clicks rule is there", "No blind clicks" in skill)
+    check("the accident story is there", "23 items" in skill)
+    check("exit codes are there", "pcb-do --dry-run" in skill and "| 3 |" in skill)
+    check("the reason to group actions is there", "1.4 s" in skill)
 
     p = T._task_prompt("YONERGE", "hedef metni", "Vesktop acildi", 12)
     check("yonerge basta", p.startswith("YONERGE"), p[:40])

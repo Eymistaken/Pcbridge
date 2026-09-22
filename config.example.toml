@@ -1,6 +1,10 @@
 # ---------------------------------------------------------------------------
-# pcbridge yapilandirmasi
-# Bu dosyayi "config.toml" olarak kopyalayip duzenleyin, sonra: chmod 600 config.toml
+# pcbridge configuration
+#
+# `pcbridge setup` creates ~/.config/pcbridge/config.toml from this file with a
+# fresh password and token. To do it by hand: copy it there and run
+#   chmod 600 ~/.config/pcbridge/config.toml
+# The file holds secrets; `pcbridge doctor --fix` tightens its mode.
 # ---------------------------------------------------------------------------
 
 # Format version of this file. `pcbridge setup` migrates older files and keeps
@@ -10,538 +14,512 @@ config_version = 2
 # Agent used when a call names neither an agent nor a model of a known agent.
 default_agent = "claude"
 
-# Tailscale Funnel / Cloudflare Tunnel'in verdigi DIS adres.
-# Sonunda / OLMAYACAK. Uzak istemciye bu adresin sonuna /mcp ekleyerek verilir.
-# YEREL istemciler (stdio) bu adresi HIC kullanmiyor -- onlar icin gereksiz.
-public_url = "https://DEGISTIR.tailXXXX.ts.net"
+# The PUBLIC address a tunnel (Tailscale Funnel, Cloudflare Tunnel) gives you,
+# WITHOUT a trailing slash. Remote clients get this address plus /mcp.
+# Local clients (Claude Code, Codex, Claude Desktop) never use it; for a
+# local-only machine "http://localhost:8765" is fine.
+public_url = "https://CHANGE-ME.tailXXXX.ts.net"
 
-# Sunucunun yerelde dinledigi adres. Tunel bu porta baglanir.
+# Where the server listens locally. The tunnel connects to this port.
 host = "127.0.0.1"
 port = 8765
 
-# MCP endpoint yolu (uzak istemciye girecegin adres: public_url + bu yol)
+# MCP endpoint path (the remote address is public_url + this path).
 mcp_path = "/mcp"
 
 
 [server]
-# Ekran goruntusu arac SONUCUNDA goruntu blogu olarak da gonderilsin mi?
+# Send screenshots as image blocks in the tool RESULT as well?
 #
-#   true    (varsayilan) her istemciye goruntu gider
-#   false   hicbir istemciye gitmez, yalnizca /shot/<token>.png baglantisi
-#   "auto"  tasimaya bakar: stdio'da ACIK, HTTP'de KAPALI
+#   true    (default) every client gets the image
+#   false   no client gets it, only a /shot/<token>.png link or file path
+#   "auto"  depends on the transport: ON for local sessions, OFF over HTTP
 #
-# Varsayilan neden true: hedeflenen butun istemciler goruntuyu okuyabiliyor.
-# OLCULDU (2026-08-03): bilinen icerikli bir PNG'ye yazilan gizli deger Claude
-# Code'dan birebir geri geldi; uctan uca `screen_capture` cagiran gercek bir
-# oturum ekrani dogru tarif etti.
+# Why true: every targeted client reads images. Measured (2026-08-03): a
+# secret written into a known PNG came back verbatim from Claude Code, and a
+# real session calling `screen_capture` described the screen correctly.
 #
-# "auto" GERI DONUS YOLU. Gemini Spark cagindan kalma: oraya giden
-# function-response kanali yalnizca METIN tasiyor ve goruntu blogu gelince
-# BOZULUYOR. Spark artik hedef degil, ama goruntu isleyemeyen baska bir
-# istemciyle karsilasirsan "auto" (ya da false) yine ise yarar.
+# "auto" is the fallback for a client that cannot handle image blocks.
 #
-# Goruntunun maliyeti (olculdu, Claude): 1920x1080 ~12976, 1280x720 ~11712
-# cache_creation jeton. `agy`'de olculen ~40 bin BURADA GECERLI DEGIL.
-# Yine de metin yolu (`ui_dump`) hala hem daha ucuz hem ISKALAMIYOR --
-# koordinat kullanmadigi icin.
+# Cost of an image (measured, Claude): 1920x1080 ~12976, 1280x720 ~11712
+# cache-creation tokens. The text path (`ui_dump`) is still cheaper and
+# cannot miss, because it uses no coordinates.
 inline_images = true
 
 
 [auth]
-# /authorize sayfasinda soracagi parola. UZUN ve SIZE OZEL olsun.
-# Ortam degiskeni ile de verilebilir: PCBRIDGE_PASSWORD=...
-password = "BURAYA-COK-UZUN-BIR-PAROLA-YAZ"
+# The password the /authorize consent page asks for. Make it LONG and unique.
+# Can also come from the environment: PCBRIDGE_PASSWORD=...
+password = "WRITE-A-VERY-LONG-PASSWORD-HERE"
 
-# Opsiyonel: curl/test icin sabit bearer token. Bos birakilirsa devre disi.
-# Ornek kullanim: curl -H "Authorization: Bearer <token>" https://.../mcp
-# Ortam degiskeni: PCBRIDGE_STATIC_TOKEN=...
+# Optional: a fixed bearer token for curl, tests and trusted local apps.
+# Empty = disabled. Example: curl -H "Authorization: Bearer <token>" https://.../mcp
+# Environment: PCBRIDGE_STATIC_TOKEN=...
 static_token = ""
 
-# Token omurleri (saniye)
-access_token_ttl = 43200      # 12 saat
-refresh_token_ttl = 7776000   # 90 gun
-auth_code_ttl = 300           # 5 dakika
+# Token lifetimes (seconds)
+access_token_ttl = 43200      # 12 hours
+refresh_token_ttl = 7776000   # 90 days
+auth_code_ttl = 300           # 5 minutes
 
-# Ayni IP'den art arda yanlis parola denemesi limiti
+# Failed password attempts from one IP before a lockout
 max_failed_attempts = 8
 lockout_seconds = 900
 
-# HATA AYIKLAMA: true yapilirsa parola dogrulandiktan sonra otomatik
-# yonlendirme yapilmaz, tiklanabilir bir baglanti gosterilir. Karsi tarafin
-# (Gemini'nin) hata sayfasini gorebilmek icin. Normal kullanimda false olmali.
+# DEBUGGING: when true, the consent page does not redirect automatically after
+# the password is accepted; it shows a link instead, so you can see the other
+# side's error page. Keep false in normal use.
 manual_redirect = false
 
 
 [paths]
-# Arac cagrilarinda workdir verilmezse kullanilacak dizin
+# Directory used when a tool call gives no workdir
 default_workdir = "~"
-# Job kayitlari, loglar ve oauth veritabani buraya yazilir
+# Job records, logs, the grant state and the OAuth database live here.
+# Default: $XDG_STATE_HOME/pcbridge (~/.local/state/pcbridge).
 state_dir = "~/.local/state/pcbridge"
 
 
 [limits]
-# Tek bir cevapta don(dur)ulacak maksimum karakter (telefonda okunabilirlik icin)
+# Maximum characters returned in one answer
 max_output_chars = 12000
-# Arka plan islerinin varsayilan zaman asimi (saniye)
+# Default timeout of background jobs (seconds)
 default_job_timeout = 1800
-# shell_run (senkron) icin maksimum bekleme
+# Maximum wait for shell_run (synchronous)
 max_sync_timeout = 120
 
-# audit.log bu boyutu (bayt) asinca `.1` olarak devredilir. 0 = donderme yok.
-# Denetim kaydi yalnizca masaustu araclarini degil, kabuk/ajan/dosya araclarini
-# da iceriyor: ne yapildigi yazilir, ICERIK yazilmaz (komut evet ciktisi hayir,
-# dosya yolu evet icerigi hayir).
+# audit.log rolls over to `.1` above this size (bytes). 0 = never.
+# The audit log covers the shell, agent and file tools too: what was done is
+# recorded, CONTENT is not (the command yes, its output no; the file path yes,
+# its content no).
 audit_max_bytes = 5000000
 
 
-
 # ---------------------------------------------------------------------------
-# YEREL MASAUSTU YARDIMCI SURECI
+# NATIVE DESKTOP HELPER
 #
-# Rust yakalama esligi ve yayina alma kapilari gecilene kadar Python
-# varsayilan olarak kalir. Yardimci surec calisma aninda indirilmez veya
-# derlenmez.
+# pcbridge-native is an optional compiled helper for capture, input and
+# accessibility. It is never downloaded or built at run time; the package
+# ships it, or `scripts/build-native.sh` builds it in a git checkout.
 # ---------------------------------------------------------------------------
 
 [native]
-# Ekran goruntusunun HAM KARESINI kimin aldigi. Kirpma, olcekleme, cekim
-# kimligi, kayit dosyasi ve butun koordinat donusumu her halukarda Python'da
-# kalir -- yalnizca karenin geldigi yer degisir.
+# Who grabs the RAW FRAME of a screenshot. Cropping, scaling, the shot id, the
+# record file and every coordinate conversion stay in Python either way --
+# only the source of the frame changes.
 #
-#   "auto"    VARSAYILAN (Task 4.3'ten beri): paketlenmis yerel yardimci
-#             varsa o, yoksa Python yolu. Geri donus `system_capabilities`
-#             ciktisinda `degraded` olarak ve `screen_capture` sonucunda
-#             acikca yazar. `[desktop] capture_backend = "gnome-screenshot"`
-#             secilmisse Python yolu kalir.
-#   "python"  eski yol: Mutter ScreenCast + GStreamer, sistem python3'unde
-#             yasayan `screencast_helper.py` sureci. Geri almak icin bunu yazin.
-#   "rust"    yerel yardimciyi ZORUNLU tut. Yardimci yoksa ya da kare
-#             alamazsa cagri HATA verir; sessizce Python yoluna DONMEZ --
-#             zorunlu tutmanin amaci tam olarak bunu gormek.
+#   "auto"    DEFAULT: the packaged native helper when present, otherwise the
+#             Python path. A fallback shows as `degraded` in
+#             `system_capabilities` and in the `screen_capture` result. With
+#             `[desktop] capture_backend = "gnome-screenshot"` the Python path
+#             stays.
+#   "python"  the older path: Mutter ScreenCast + GStreamer in
+#             `screencast_helper.py`, run by the system python3.
+#   "rust"    REQUIRE the native helper. Without it, or when it cannot get a
+#             frame, the call FAILS; it never falls back silently.
 #
-# Secim bir runtime kurulurken BIR KEZ yapilir; acik bir oturumun ortasinda
-# backend degismez (bir `all` cekimi iki farkli kaynaktan birlestirilmez).
+# The choice is made ONCE when a runtime starts; the backend never changes in
+# the middle of an open session.
 #
-# Iki yolda da ekran paylasimi `desktop_unlock` ile acilir: ust cubuktaki
-# paylasim gostergesi izinle birlikte belirir ve izin kapaninca (`desktop_lock`,
-# sure dolumu) kaybolur. Olcum ve parite: docs/native/verification-linux.md.
+# Either way, screen sharing starts with `desktop_unlock`: the sharing
+# indicator appears with the grant and disappears when it closes
+# (`desktop_lock`, expiry). Measurements: docs/native/verification-linux.md.
 capture = "auto"
 
-# Klavye, fare ve pano hangi yoldan gitsin. Gate 5 gectikten sonra
-# (2026-09-19, gercek masaustunde 8/8: iki monitorde 0 px sapma, Turkce metin
-# birebir, basili girdi revoke'ta 67 ms'de birakildi) varsayilan `auto`.
+# Which path keyboard, pointer and clipboard take. Default `auto` since Gate 5
+# (2026-09-19, 8/8 on a real desktop: 0 px error on two monitors, Turkish text
+# exact, held input released 67 ms after a revoke).
 #
-#   "auto"    VARSAYILAN: paketlenmis yardimci varsa native, yoksa Python yolu.
-#             Geri dusus gizlenmez: system_capabilities input.keyboard ve
-#             input.pointer'i `degraded` + gerekceyle gosterir.
-#   "rust"    native zorunlu: yardimci yoksa sessiz fallback yok, cagri hata
-#             verir.
-#   "python"  eski yol: Python evdev klavye/fare ve wl-clipboard. Geri almak
-#             icin bu satiri yazip pcbridge'i yeniden baslatmak yeter.
+#   "auto"    DEFAULT: native when the helper is packaged, otherwise Python.
+#             The fallback is visible: system_capabilities shows
+#             input.keyboard and input.pointer as `degraded` with the reason.
+#   "rust"    native required: no helper, no silent fallback, the call fails.
+#   "python"  the older path: Python evdev keyboard/pointer and wl-clipboard.
 #
-# Her iki yolda da metin yazmanin sirasi (panoyu yedekle -> metni koy ->
-# Ctrl+V -> geri yukle) Python'da; native yolda wl-paste/wl-copy yardimcida
-# calisir.
+# On both paths the order of typing text (save the clipboard -> put the text
+# -> Ctrl+V -> restore) is Python's; on the native path wl-paste/wl-copy run
+# in the helper.
 input = "auto"
 
-# Erisilebilirlik agacini (ui_dump, window_list, odaktaki pencere) kim okusun
-# ve ui_click / ui_set_text'i kim yapsin. Native yardimci ikisini de yapiyor
-# (Task 6.2, 6.3): GI ve GTK yok, AT-SPI'a dogrudan D-Bus ile gider; ayni
-# fixture'da Python yardimcisiyla ayni listeyi, ayni hatalari veriyor. Eylem,
-# dokumu yapan yardimciya gider.
+# Who reads the accessibility tree (ui_dump, window_list, the focused window)
+# and performs ui_click / ui_set_text. The native helper talks to AT-SPI
+# directly over D-Bus (no GI, no GTK) and gives the same list and the same
+# errors as the Python helper on the same fixture. An action goes to the helper
+# that made the dump.
 #
-#   "auto"    VARSAYILAN (Task 6.3'ten beri): paketlenmis yardimci varsa
-#             native, yoksa Python yolu (gorunur sekilde: system_capabilities
-#             accessibility.read'i `degraded` gosterir). Eski bir yardimci
-#             (Task 6.3 oncesi derleme) ui_dump/ui_click'te hata verir;
-#             doctor.sh bunu soyler, scripts/build-native.sh ile yeniden
-#             derleyin.
-#   "python"  sistem python3'unde calisan atspi_helper.py (eski yol; geri
-#             almak icin).
-#   "rust"    native zorunlu; yardimci yoksa cagri hata verir.
+#   "auto"    DEFAULT: native when packaged, otherwise Python (visibly:
+#             system_capabilities shows accessibility.read as `degraded`). An
+#             old helper (built before Task 6.3) fails in ui_dump/ui_click;
+#             `pcbridge doctor` says so; rebuild with scripts/build-native.sh.
+#   "python"  atspi_helper.py in the system python3.
+#   "rust"    native required; no helper means the call fails.
 #
-# Izin (desktop_unlock) yokken screen_info'nun pencere listesi her durumda
-# Python yardimcisindan okunur: native yardimci yalnizca bir izne bagli calisir.
+# Without a grant (desktop_unlock), screen_info's window list always comes from
+# the Python helper: the native helper only runs bound to a grant.
 accessibility = "auto"
 
-# pcbridge-native icin istege bagli mutlak yol. PCBRIDGE_NATIVE_BIN ortam
-# degiskeni onceliklidir. Bos deger paketlenmis executable yolunu kullanir.
+# Optional absolute path of pcbridge-native. The PCBRIDGE_NATIVE_BIN
+# environment variable wins. Empty = the packaged executable.
 binary_path = ""
 
 
 # ---------------------------------------------------------------------------
-# MASAUSTU KONTROLU (klavye + fare)
+# DESKTOP CONTROL (keyboard + pointer + screen)
 #
-# Bu bolum acildiginda pcbridge, /dev/uinput uzerinden sanal bir klavye ve fare
-# yaratip bilgisayari fiilen KULLANABILIR hale gelir. Wayland'de baska yolu yok
-# (xdotool yalnizca XWayland'i gorur, portal her oturumda onay ister).
+# With this section enabled, pcbridge creates a virtual keyboard and pointer
+# through /dev/uinput and can really USE the computer. On Wayland there is no
+# other way (xdotool only sees XWayland, the portal asks every session).
 #
-# NE DEMEK OLDUGUNU BILEREK ACIN: acik oturumunuzdaki her uygulama, oturum
-# acilmis tarayiciniz ve parola yoneticiniz erisime girer. Telefonunuzu
-# kaybederseniz ne olacagi sorusuna cevabiniz olmali.
+# ENABLE IT KNOWING WHAT IT MEANS: every application in your session, your
+# logged-in browser and your password manager come within reach. The agent
+# still has to call desktop_unlock (time-limited, visible) before any desktop
+# tool works.
 #
-# Onkosul (bir kez):  sudo ./setup_uinput.sh
-# Tani:               ./doctor.sh   (8. baslik)
-# Acil durdurma:      systemctl --user stop pcbridge
+# One-time prerequisite: /dev/uinput access (`pcbridge doctor` prints the command)
+# Diagnosis:             pcbridge doctor
+# Emergency stop:        pcbridge lock   (grant closed, screen sharing stopped)
 # ---------------------------------------------------------------------------
 
 [desktop]
-# VARSAYILAN KAPALI. Acmak bilincli bir islem olsun diye.
+# OFF BY DEFAULT, so that enabling it is a deliberate act.
 enabled = false
 
-# GUI araclari yalnizca desktop_unlock(dakika) sonrasi calisir ve sure dolunca
-# izin kendiliginden kapanir. Dakika verilmezse ilk deger, tavan ikinci deger.
+# Desktop tools only work after desktop_unlock(minutes); the grant closes by
+# itself when the time is up. No minutes given: the first value; the second is
+# the ceiling.
 unlock_default_minutes = 15
 unlock_max_minutes = 120
 
-# KAYAN KIRA: izin son TARIHE degil son EYLEME bagli olsun. Basarili her
-# masaustu cagrisi izni "simdi + bu deger"e ceker; ajan durunca izin bu kadar
-# saniye sonra kendiliginden duser ve ekran kenarindaki cerceve soner.
+# SLIDING GRANT: tie the grant to the last ACTION, not to a fixed end. Every
+# successful desktop call moves the end to "now + this value"; when the agent
+# stops, the grant drops this many seconds later and the screen-edge frame goes
+# out.
 #
-# NEDEN: ajanin "isim bitti" diye bir olayi YOK -- son arac cagrisindan sonra
-# ne oldugunu bilmiyor. Bu yuzden `desktop_lock`u unutmasi dikkatsizlik degil
-# YAPISAL, ve cozumun ajanda degil kodda olmasi gerekiyor. Sabit son tarihte
-# izin (ve cerceve) dakikalarca acik kaliyordu.
+# Why: an agent has no "I am done" event -- it cannot know what happens after
+# its last tool call. Forgetting `desktop_lock` is therefore structural, not
+# carelessness, and the fix belongs in the code. With a fixed end the grant
+# (and the frame) stayed open for minutes.
 #
-# `unlock_default_minutes` SERT TAVAN olarak durmaya devam ediyor: kayan kira
-# ondan once devreye giren yumusak sinir, izni asla onun otesine uzatamaz.
-# Reddedilen bir cagri damgalamaz; suresi dolmus bir izni de diriltmez.
+# `unlock_default_minutes` remains the HARD CEILING: the sliding window is a
+# softer limit that ends earlier and can never extend the grant beyond it. A
+# refused call does not slide it and never revives an expired grant.
 #
-# Yerel gorsel ajan (`computer_task`) icin ayrica bir kalp atisi var: is
-# kostugu surece sunucu izni tazeliyor, cunku ajanin DUSUNME suresi bu
-# esikten uzun olabilir. Sert tavan orada da gecerli.
+# The local visual agent (`computer_task`) also has a heartbeat: while the job
+# runs the server keeps the grant fresh, because the agent's THINKING time can
+# exceed this threshold. The hard ceiling applies there too.
 #
-# 0 = kapali (eski davranis: sabit son tarih). 0 disinda en az 10.
+# 0 = off (a fixed end). Otherwise at least 10.
 unlock_idle_seconds = 90
 
-# `desktop_unlock` calisinca masaustune bir bildirim dusurulsun mu.
+# Show a desktop notification when `desktop_unlock` runs.
 #
-# Iznin acildiginin KULLANICIYA gorunmesi onemli -- ajanin klavye/fareye
-# eristigini fark etmediginiz bir an olmamali. Ama bunun tek yolu bildirim
-# degil: `gnome-extension/` altindaki GNOME kabuk eklentisi ayni durumu
-# ekran kenarlarindaki cerceveyle gosteriyor ve o SUREKLI duruyor, bildirim
-# ise birkac saniyede kayboluyor.
-#
-# Eklenti kuruluysa bildirim gereksiz tekrar olur; false yapabilirsiniz.
-# IKISINI BIRDEN kapatmayin: o zaman izin gorunmez olur ve geriye yalnizca
-# GNOME'un ust cubuktaki kucuk paylasim simgesi kalir.
+# The user must SEE that access is open. A notification is not the only way:
+# the GNOME Shell extension shows the same state as a frame around the screens
+# and it stays, while a notification disappears after a few seconds. With the
+# extension installed the notification is redundant; you may set false.
+# Do not turn BOTH off: then the grant is invisible except for GNOME's small
+# screen-sharing icon.
 unlock_notification = true
 
-# --- kabuktan GUI uygulamasi baslatma ---------------------------------------
-# Bu opt-in kural true yapilirsa, masaustu izni ACIKKEN `shell_run` /
-# `shell_run_background` asagidaki listedeki YENI bir GUI sureci baslatmaya
-# calisinca reddedilir ve `window_focus` onerilir.
+# --- starting GUI applications from the shell ------------------------------
+# Opt-in rule: when true, while the desktop grant is OPEN, `shell_run` /
+# `shell_run_background` refuse to start a NEW GUI process from the list below
+# and suggest `window_focus` instead.
 #
-# NEDEN: kabuktan YENI acilan uygulama pcbridge'in COCUGU oluyor ve
-# `systemctl --user restart pcbridge` onu kapatiyor (start_new_session oturum
-# grubunu ayiriyor ama cgroup'u degil). Ayrica cogu zaman uygulama kimligi
-# olusmuyor, yani `window_list` ve `window_focus` pencereyi sonradan
-# BULAMIYOR -- ajan kendi actigi pencereyi kaybediyor. `window_focus`
-# masaustunun kendi aramasindan gectigi icin ikisi de olmuyor.
+# Why: an application started from the shell becomes a child of pcbridge and a
+# restart of pcbridge closes it (start_new_session separates the session, not
+# the cgroup). It also often gets no application id, so `window_list` and
+# `window_focus` cannot FIND its window later. `window_focus` goes through the
+# desktop's own launcher and has neither problem.
 #
-# LISTE BOS: varsayilan olarak HICBIR SEY ENGELLENMEZ. Bilincli, cunku yanlis
-# pozitif riski tasiyan tek kural bu. Sürtünme yaratan adi siz ekleyin:
+# The list is EMPTY by default: NOTHING is blocked. On purpose -- this is the
+# only rule with a false-positive risk. Add the names that hurt you:
 #
 #   gui_launch_blocklist = ["Vesktop", "Text Editor", "code"]
 #
-# Adlar `.desktop` tablosunda ARANIYOR (tahmin degil veri): "Text Editor"
-# yazmak `gnome-text-editor x.md` komutunu da yakalar, cunku girdinin
-# `Exec=` ikilisi de anahtar oluyor. Flatpak uygulamalarinda
-# `flatpak run <kimlik>` bicimi de taniniyor.
+# Names are LOOKED UP in the `.desktop` table (data, not guesses): "Text Editor"
+# also catches `gnome-text-editor x.md`, because the entry's `Exec=` binary is
+# a key too. Flatpak's `flatpak run <id>` form is recognized as well.
 #
-# Calisan bir tarayiciya URL vermek farklidir: `google-chrome https://...`
-# mevcut Chrome surecine bir istek devrederse pencere pcbridge'in cocugu olmaz.
-# Deterministik URL acma gibi komutlari engellemek istemiyorsaniz bu ayari
-# false birakin.
+# Handing a URL to a running browser is different: `google-chrome https://...`
+# passes the request to the existing Chrome process, so no window becomes a
+# child of pcbridge. Keep this false if you do not want such commands blocked.
 #
-# Masaustu izni KAPALIYKEN bu kapi hic devreye girmez: masaustu kapaliyken
-# kabuk normal kabuktur.
+# While the desktop grant is CLOSED this gate never applies.
 block_gui_launch_in_shell = false
 gui_launch_blocklist = []
 
-# Kullanicinin son klavye/fare hareketinden bu kadar saniye gecmediyse YAZMA
-# eylemleri reddedilir: makinenin basindaysaniz telefondan gelen fare ile
-# sizinki kavga etmesin. Arac cagrisinda force = true ile bilincli olarak
-# gecilebilir. 0 = bu kontrol kapali.
+# WRITE actions are refused unless this many seconds passed since the user's
+# last keyboard/pointer input: when you are at the machine, remote input and
+# your own mouse should not fight. A tool call can pass force = true on
+# purpose. 0 = no check.
 idle_guard_seconds = 60
 
-# Saniyede en fazla kac eylem gonderilebilir. Sonsuz donguye giren bir ajan
-# makineyi kilitleyemesin diye. 0 = sinirsiz (onerilmez).
-# Yazma eylemleri icin pencere SURECLER ARASI paylasilir: MCP sunucusu, pcb-do
-# ve tek eylemli araclar ayni yurutme kilidi altinda sayilir; biri bitip digeri
-# hemen baslayinca siniri ikinci kez harcayamaz.
+# At most this many actions per second, so an agent stuck in a loop cannot
+# take over the machine. 0 = unlimited (not recommended).
+# For write actions the window is shared ACROSS PROCESSES: the MCP server,
+# pcb-do and the single-action tools count under one execution lock.
 max_actions_per_second = 10
 
-# monitor= verilmeyen ve monitore ozel yorumlanan cagrilar icin varsayilan.
-# Numaralandirma SOLDAN SAGA, 1'den baslar (birincil monitor sagda olabilir).
+# Default for calls that give no monitor= and are read per monitor.
+# Monitors are numbered by position, left to right, starting at 1 (the
+# primary monitor need not be number 1).
 default_monitor = 1
 
-# Metin girisinin varsayilan yolu pano + Ctrl+V (klavye duzeninden bagimsiz
-# oldugu icin). true ise yapistirmadan sonra panonun eski icerigi geri yuklenir
-# — sessizce pano calmamak icin.
+# Text is typed through the clipboard + Ctrl+V by default (independent of the
+# keyboard layout). true = the clipboard's previous content is restored after
+# pasting, so the clipboard is never silently taken.
 restore_clipboard = true
 
 # keyboard_layout is no longer used: text is typed through the clipboard, so
 # the keyboard layout does not matter. Older files may still set it.
 
-# --- fare hareketi ---------------------------------------------------------
-# Imlec hedefe ISINLANMAK yerine ara noktalardan gecerek gider; piksel/saniye.
-# 0 = isinla (eski davranis, en hizlisi). 5000 -> ekranin bir ucundan digerine
-# (1920 piksel) yaklasik 0,4 saniye.
+# --- pointer movement ------------------------------------------------------
+# The pointer travels through intermediate points instead of JUMPING to the
+# target; pixels per second. 0 = jump (the fastest). 5000 -> across one
+# 1920-pixel screen in about 0.4 s.
 #
-# Ara noktalarin fiilen gittigi OLCULDU (2026-08-03): 48 adimlik bir hareketin
-# 48 ABS_X + 48 ABS_Y olayinin tamami cihazin event node'undan okundu, kernel
-# hicbirini birlestirmedi.
+# The intermediate points really arrive (measured 2026-08-03): all 48 ABS_X +
+# 48 ABS_Y events of a 48-step move were read from the device's event node;
+# the kernel merged none.
 #
-# `drag` bu ayardan BAGIMSIZ: 0 verilse bile sürükleme ara noktalardan gecer,
-# cunku tek sicrayista birakilan hareketi cogu uygulama surukleme saymiyor.
+# `drag` does NOT depend on this: even with 0 a drag goes through intermediate
+# points, because most applications do not count a single jump as a drag.
 pointer_speed = 5000
 
-# Tek bir hareket en fazla bu kadar surer (ms). Cok uzun mesafede hizi artirir;
-# tuvalin kosegeni (~3900 px) bu tavana takilir.
+# One movement takes at most this long (ms); longer distances go faster.
 pointer_move_max_ms = 500
 
-# `mouse(action = "hold")` / `keyboard(action = "hold")` ile basili birakilan
-# tus ve dugmeler bu sureden sonra KENDILIGINDEN birakilir (saniye).
-# 0 = otomatik birakma yok. ONERILMEZ: `release` unutulursa tus sonsuza kadar
-# basili kalir, ajan bunu fark etmez ve makine kullanilamaz hale gelir.
+# Keys and buttons held with `mouse(action = "hold")` / `keyboard(action =
+# "hold")` are released AUTOMATICALLY after this many seconds.
+# 0 = never. NOT RECOMMENDED: a forgotten `release` keeps the key down for
+# good, the agent does not notice, and the machine becomes unusable.
 hold_max_seconds = 120
 
-# Tiklamada dugmenin basili kaldigi sure (ms). Eskiden sabit 30 ms'ydi.
-# Girdiyi sabit araliklarla yoklayan uygulamalar -- oyunlar 50 ms'lik
-# tick'lerle -- basma ile birakmanin ayni araliga dustugu bir tiklamayi hic
-# gormeyebiliyor; 60 ms, 50 ms'lik bir yoklamanin en az birine denk geliyor.
-# `mouse` ve `computer_batch` cagri basina `hold_ms` ile degistirebilir.
-# 0-150: cift/uclu tiklamada her basis bu kadar surer ve basislar GNOME'un
-# 400 ms'lik cift tiklama esiginin icinde kalmali.
+# How long a click holds the button down (ms). It used to be a fixed 30 ms.
+# Applications that poll input at fixed intervals -- games with 50 ms ticks --
+# can miss a click whose press and release fall into one interval; 60 ms
+# always overlaps at least one 50 ms poll. `mouse` and `computer_batch` can
+# override it per call with `hold_ms`. 0-150: in a double/triple click every
+# press lasts this long and all presses must fit GNOME's 400 ms threshold.
 click_hold_ms = 60
 
-# --- ekran goruntusu -------------------------------------------------------
-# screen_capture DE desktop_unlock ister: ekranda ne varsa (parolalar,
-# mesajlar) hepsini gosterdigi icin en gizlilik-hassas arac. Yalnizca "yakinda
-# klavye kullanildi" korumasi ona uygulanmaz -- makinenin basinda olmaniz
-# ekraniniza bakmanizi engellememeli. Ekran KILITLIYSE yine reddedilir.
+# --- screenshots -----------------------------------------------------------
+# screen_capture needs desktop_unlock TOO: it shows whatever is on the screen
+# (passwords, messages), which makes it the most privacy-sensitive tool. Only
+# the "keyboard used recently" guard does not apply to it -- being at the
+# machine should not stop you from looking at your own screen. It is still
+# refused while the screen is LOCKED.
 
-# Kirpma SONRASI uzun kenar. Tuval 3840x1080; tek parca 1280'e indirilse her
-# monitor ~640x180 kalir ve buton yazilari okunmaz olur. Bu yuzden once monitor
-# basina kirpilir, olcekleme ondan sonra yapilir. 0 = hic olcekleme (tam
-# cozunurluk, buyuk dosya). 0 disinda en az 320.
+# Long edge AFTER cropping. Every monitor is cropped out first and scaled
+# after that; scaling a wide canvas as one picture would make button labels
+# unreadable. 0 = no scaling (full resolution, large files). Otherwise at
+# least 320.
 #
-# HEM `screen_capture` HEM `pcb-shot` bu ayari kullanir. Ayri varsayilanlari
-# olsaydi ajanin gordugu cozunurluk hangi yoldan bagli oldugna gore degisirdi
-# (ayni ekran, iki farkli piksel uzayi); `pcb-shot --scale` ile tek seferlik
-# baskalastirilabilir.
+# BOTH `screen_capture` AND `pcb-shot` use this value, so the agent sees the
+# same pixel space whichever path it took; `pcb-shot --scale` overrides it once.
 #
-# ONEMLI SINIR: Anthropic API uzun kenari 1568'i asan goruntuleri KENDISI
-# kuculturuyor. Bu sinirin ustune cikmak yalnizca "raporlanan olcek yaniltici
-# olur" demek degil: koordinat donusumunu artik sunucu yapiyor, yani model
-# 1568'e indirilmis karedeki pikseli soyler, sunucu kayitli olcegi uygular ve
-# aradaki fark (1920 icin 1,22 kat) SESSIZCE koordinata girer. 1568 ustu
-# degerlerde `screen_capture` ve `pcb-shot` bunu uyari olarak basiyor;
-# o goruntuler bakmak icindir, koordinat cikarmak icin degil.
+# HARD LIMIT: the Anthropic API scales images whose long edge exceeds 1568
+# down BY ITSELF. Going above that is not just a misleading reported scale:
+# the server converts coordinates, so the model reports a pixel of the
+# downscaled frame, the server applies the recorded scale, and the difference
+# (1.22x for 1920) goes SILENTLY into the coordinate. Above 1568,
+# `screen_capture` and `pcb-shot` print a warning; such pictures are for
+# looking, not for reading coordinates.
 #
-# 1536 olculerek secildi (2026-09-06): 1280'de kucuk yazidaki Turkce
-# diakritikler (ğ, ş) bulaniklasip kayboluyor ve kelime tahmin edilerek
-# okunuyor; 1536'da dogrudan okunuyor. Bedeli goruntu basina ~540 jeton.
+# A very wide or very tall single monitor (ultrawide, portrait) is scaled by
+# its LONG edge too, which can make text small; `screen_capture` then says so
+# and suggests `region` to zoom in.
+#
+# 1536 was chosen by measurement (2026-09-06): at 1280, small diacritics blur
+# and words get guessed; at 1536 they read directly. Cost: ~540 tokens per
+# picture.
 screenshot_scale_long_edge = 1536
 
-# /shot/<token>.png baglantisinin omru (saniye). Bu baglanti OAuth'tan
-# BAGIMSIZ: token'i olan herkes goruntuyu gorur, o yuzden paylasmayin.
-# Sure icinde kac kez acilirsa acilsin calisir (tek kullanimlik degil, yoksa
-# telefonda yenileme/geri tusu goruntuyu yakardi). En az 10.
+# Lifetime of a /shot/<token>.png link (seconds). The link is INDEPENDENT of
+# OAuth: anyone with the token can see the picture, so do not share it. It
+# works any number of times within its lifetime. At least 10.
 shot_ttl_seconds = 300
 
-# Diskteki PNG'ler bu kadar saat sonra silinir. Baglantilari coktan olmustur;
-# bu yalnizca disk temizligi.
+# PNGs on disk are deleted after this many hours; only disk hygiene.
 shot_keep_hours = 24
 
-# Imlec goruntuye dahil edilsin mi. Varsayilan true: fareyi bir yere gonderip
-# "gercekten oraya gitti mi" diye dogrulamanin tek yolu bu.
+# Draw the pointer into screenshots. Default true: it is the only way to check
+# that the pointer really went where it was sent.
 include_pointer = true
 
-# Ekran nasil yakalansin:
-#   "auto"             ekran yayini varsa o, yoksa gnome-screenshot (varsayilan)
-#   "screencast"       yalnizca ekran yayini; kurulamazsa goruntu ALINMAZ
-#   "gnome-screenshot" eski yol
+# How the screen is captured:
+#   "auto"             screen sharing when available, else gnome-screenshot (default)
+#   "screencast"       screen sharing only; if it cannot start, NO picture
+#   "gnome-screenshot" the old path
 #
-# NEDEN YAYIN: `gnome-screenshot` her cekimde BEYAZ FLAS patlatiyor ve ses
-# cikariyor (flasi kendi ciziyor). XDG portal yolu da ayni. GNOME'un ekran
-# goruntusu D-Bus arayuzu ise disaridan cagrilamiyor ("Access denied",
-# GNOME 46). Ekran PAYLASIMI yolunda flas yok: sistem bunu fotograf degil
-# video sayiyor. OLCULDU 2026-08-03, kayip da yok: yayin ciktisi ile
-# gnome-screenshot'in ayni bolgesi %99,8 birebir ayni.
+# Why sharing: `gnome-screenshot` flashes the screen WHITE and plays a sound on
+# every capture (it draws the flash itself). The XDG portal does the same.
+# GNOME's screenshot D-Bus interface cannot be called from outside ("Access
+# denied", GNOME 46). The screen SHARING path has no flash: the system treats
+# it as video, not a photo. Measured 2026-08-03, no loss either: the same
+# region is 99.8% identical in both.
 #
-# Yayin `desktop_unlock` ile acilir, `desktop_lock` ya da sure dolumuyla
-# kapanir. Acikken GNOME ust cubukta bir paylasim gostergesi durur -- bu
-# ISTENEN bir sey: ajanin su an masaustune erisebildigi oradan gorunuyor.
-# Gosterge cekilen karede de gorunur.
+# Sharing starts with `desktop_unlock` and stops with `desktop_lock` or expiry.
+# While it runs the panel shows a sharing indicator -- WANTED: it tells you the
+# agent can reach the desktop right now. The indicator is visible in captured
+# frames too.
 #
-# Gerekenler (bu makinede kurulu): python3-gi, gstreamer1.0-pipewire,
-# gstreamer1.0-plugins-good. Yoksa kendiliginden gnome-screenshot'a duser.
+# Needs python3-gi, gstreamer1.0-pipewire and gstreamer1.0-plugins-good for the
+# Python path; otherwise it falls back to gnome-screenshot.
 capture_backend = "auto"
 
-# `find_text` / `wait_for_text` ekrandaki metni tesseract ile okuyor (Adim 8.6).
-# Diller `+` ile; her dilin verisi ayri paket. Tesseract varsayilan olarak
-# KURULU DEGIL ve kurulum sudo istiyor:
-#   sudo apt install tesseract-ocr tesseract-ocr-tur
-# (`eng` verisi `tesseract-ocr` ile birlikte geliyor.) Kurulu degilse iki arac
-# bunu kurulum komutuyla birlikte soyler; baska hicbir sey etkilenmez.
+# `find_text` / `wait_for_text` read on-screen text with tesseract. Languages
+# joined with `+`; every language is a separate package. Tesseract is NOT
+# installed by default and installing it needs sudo:
+#   sudo apt install tesseract-ocr            (English data included)
+#   sudo apt install tesseract-ocr-deu        (another language, e.g. German)
+# When missing, both tools say so with the install command; nothing else is
+# affected.
 ocr_languages = "eng"
 
-# computer_batch tek cagrida en fazla kac eylem alir. Listeyi bolmek her zaman
-# mumkun; bu sinir sonsuz donguye giren bir ajana karsi.
+# At most this many actions in one computer_batch call. Splitting a list is
+# always possible; the limit guards against an agent stuck in a loop.
 batch_max_actions = 40
 
-# Toplu eylemin sure butcesi (saniye).
+# Time budget of one batch (seconds).
 #
-# Tahmini suresi bu butceyi asan liste HIC BASLAMAZ: tek eylem bile
-# gonderilmeden reddedilir. Baslamis bir liste butce dolunca siradaki eyleme
-# baslamaz (yarim tiklama olmaz) ve yapilmayan eylemleri listeleyerek doner.
+# A list whose ESTIMATED time exceeds the budget NEVER STARTS: it is refused
+# before a single action is sent. A started list does not begin the next action
+# once the budget is used up (no half click) and returns the actions not done.
 #
-# Neden 50: istemcilerin cogu bir arac cagrisini 60 saniyede birakiyor.
-# OLCULDU 2026-09-21: dort `wait 30000`lik bir liste 90 saniyelik eski butceyle
-# 60 saniye kostu, istemci ise cevabi "did not respond within 60s" diyerek
-# birakmisti -- ajan neyin yapildigini hic ogrenemedi. Aradaki 10 saniye son
-# `ui_dump`/`screen_capture` ve cevap icin pay. Yalnizca Claude Code gibi uzun
-# bekleyen istemciler kullaniliyorsa 105'e kadar cikarilabilir (bir MCP
-# cagrisi 110 saniyeyi asamaz).
+# Why 50: most clients give up on a tool call after 60 seconds. Measured
+# 2026-09-21: a list of four `wait 30000` ran 60 seconds under the old 90 s
+# budget, and the client had already dropped the answer with "did not respond
+# within 60s" -- the agent never learned what was done. The 10 seconds left are
+# for the final `ui_dump`/`screen_capture` and the answer. With clients that
+# wait longer (Claude Code), up to 105 is possible (an MCP call cannot exceed
+# 110 s).
 batch_budget_seconds = 50
 
-# Fare tiklamasindan sonra odagin degisip degismedigi kontrol edilsin mi.
-# OLCULDU 2026-08-02: kor bir tiklama odagi baska pencereye kaydiriyor ve
-# ardindan gonderilen tuslar oraya gidiyor -- gelistirme sirasinda bir olcum
-# tiklamasi masaustune dustu, sonraki `ctrl+a` + `Delete` masaustundeki 23
-# ogeyi copa gonderdi. Kontrol acikken batch o noktada durur. Kapatmayin.
+# Check after every click whether the focus changed.
+# Measured 2026-08-02: a blind click moved the focus to another window and the
+# following keys went there -- during development a measuring click landed on
+# the desktop and the `ctrl+a` + `Delete` that followed trashed 23 items. With
+# this on, the batch stops at that point. Keep it on.
 batch_check_focus = true
 
-# --- yerel gorsel ajan (computer_task) --------------------------------------
-# computer_task gorsel isi MAKINEDEKI bir ajana devreder: ajan `pcb-shot` ile
-# ekrani ceker, PNG'yi kendi gozuyle okur, `pcb-do` ile tiklar, tekrar bakar.
+# --- local visual agent (computer_task) ------------------------------------
+# computer_task hands visual work to an agent ON THIS MACHINE: it captures the
+# screen with `pcb-shot`, reads the PNG itself, clicks with `pcb-do`, looks
+# again.
 #
-# GEREKCESI DEGISTI (faz H). Eskiden bu aracin varlik sebebi Spark'in goruntu
-# GOREMEMESIYDI. Claude Code ve Codex goruyor (olculdu: bilinen icerikli bir
-# PNG'deki gizli deger modelden birebir geri geldi), yani goren bir istemci
-# `screen_capture` + `computer_batch` ile isi kendisi yapabilir.
-# Bugunku gerekcesi: UZUN SUREN bir GUI isini arka plana atmak, ana ajan
-# bloke olmasin diye. Ikinci gerekce hala gecerli: erisilebilirlik agacinin
-# BOS geldigi uygulamalar (olculdu 2026-08-02 -> Vesktop'ta ui_dump 0 dugum).
+# Clients that see images (Claude Code, Codex) can do the work themselves with
+# `screen_capture` + `computer_batch`. computer_task exists to push a LONG GUI
+# task into the background so the calling agent is not blocked, and for
+# applications whose accessibility tree comes back EMPTY (measured: Vesktop's
+# ui_dump has 0 nodes).
 
-# Hangi ajan surer.
+# Which agent drives it.
 #
-# Antigravity'den claude'a GECILDI (faz H, kullanici karari). Iki sebep:
-# (1) agy'nin MCP istemcisi yok, proje kapsamindan cikti; (2) F canli
-# denemesinde gorevi iki kez tamamlayamadi. `[agents.antigravity]` blogu
-# duruyor ve `agent_run` hedefi olarak calisiyor -- yalnizca gorsel surucu
-# degisti. Geri almak icin: burayi "antigravity", modeli "gemini-3.6-flash",
-# effort'u "high" yapin (uclu birbirine ait, birlikte degistirin).
-#
-# Bedeli: uzun GUI dongusu artik kullanicinin kendi Claude Code kotasindan
-# yiyor (agy'nin kotasi ayriydi).
+# The cost: the long GUI loop uses that agent's own quota.
 computer_task_agent = "claude"
 
-# Model + effort. BOS BIRAKILIRSA secilen ajanin kendi varsayilani kullanilir
-# -- claude icin `sonnet` + effort `medium`. Gorsel is icin bilincli secim:
-# bak-eyle dongusu cok tur suruyor, opus her turda pahali.
+# Model + effort. EMPTY = the chosen agent's own default -- for claude that is
+# `sonnet` + effort `medium`, a deliberate choice for visual work: the
+# look-act loop runs many rounds and opus is expensive on every round.
 #
-# ⚠️ BU UCLU BIRBIRINE AIT. Model adi, yukarida secilen ajanin listesinden
-# gelmeli. Tutarsizlik ACILISTA yakalanir ve servis baslamaz (eskiden hata
-# yalnizca computer_task cagrilinca, yani bir GUI isi tam baslarken cikiyordu).
+# ⚠️ THESE THREE BELONG TOGETHER. The model must come from the chosen agent's
+# list. A mismatch is caught AT STARTUP and the service does not start.
 computer_task_model  = ""
 computer_task_effort = ""
 
-# Ajana verilen bak-eyle turu butcesi. DISARIDAN ZORLANAMAZ: prompt'a bir
-# butce olarak yaziliyor, arkasinda isin timeout'u ve pcb-do'nun hiz siniri
-# duruyor. Arac aciklamasi da bunu garanti diye sunmuyor.
+# Look-act rounds budgeted for the agent. It CANNOT be enforced from outside:
+# it is written into the prompt as a budget, backed by the job's timeout and
+# pcb-do's rate limit. The tool description does not present it as a
+# guarantee.
 computer_task_max_steps = 25
 
-# pcb-shot'un PNG yazdigi dizin. Bos = $XDG_RUNTIME_DIR/pcbridge/shots
-# (mod 700, tmpfs, oturum kapaninca silinir), o da yoksa /tmp/pcb.
-# UYGULAMA.md /tmp/pcb diyor; sapma bilincli: /tmp mod 775 yani herkese
-# okunur, ekran goruntusu ise bu projenin en gizlilik-hassas ciktisi.
+# Directory pcb-shot writes PNGs to. Empty = $XDG_RUNTIME_DIR/pcbridge/shots
+# (mode 700, tmpfs, removed at logout), or /tmp/pcb if that does not exist.
+# Not /tmp by default on purpose: screenshots are the most privacy-sensitive
+# output of this project.
 agent_shot_dir = ""
 
-# `shot` VERILMEDEN koordinat gonderildiginde: yakinda kucultulmus bir cekim
-# varsa ve koordinat o goruntunun kutusuna dusuyorsa cagriyi REDDET.
+# When a coordinate arrives WITHOUT `shot`: if a recent scaled-down capture
+# exists and the coordinate falls inside its box, REFUSE the call.
 #
-# Sebep: `shot` unutuldugunda koordinat global sayilir ve eylem sessizce
-# yanlis yere duser -- 1280'lik bir goruntuden okunan (640, 360) sag ekrandaki
-# bir dugmeyi degil SOL ekranin ortasini gosterir. Belirsizligi coz(e)meyiz
-# ((640, 360) gercekten de gecerli bir global koordinat), o yuzden tahmin
-# etmek yerine soruyoruz: `shot=` mi `monitor=` mi.
+# Why: without `shot` the coordinate counts as global and the action silently
+# lands in the wrong place -- (640, 360) read off a 1280-wide picture points at
+# the middle of the LEFT screen, not a button on the right one. The ambiguity
+# cannot be resolved ((640, 360) is a valid global coordinate too), so instead
+# of guessing, pcbridge asks: `shot=` or `monitor=`?
 #
-# Yanlis pozitif mumkun: gercekten global koordinat veren bir cagri bir tur
-# kaybeder ve `monitor=` ile tekrar dener. Sessiz yanlis tiklamadan iyi bir
-# takas -- 2026-08-02'de masaustundeki 23 oge tam da boyle gitti.
-# Yas olcutu asagidaki `agent_shot_max_age_seconds`ten geliyor.
+# False positives are possible: a call that really means a global coordinate
+# loses one round and retries with `monitor=`. A good trade against silent
+# misclicks -- 23 desktop items were lost exactly this way on 2026-08-02.
+# The age limit comes from `agent_shot_max_age_seconds` below.
 ambiguous_coord_guard = true
 
-# Ayni hedefe ust uste kacinci tiklamada dizi DURSUN. Ikisi gecer, ucuncusu
-# hic gonderilmez.
+# A sequence STOPS at this many consecutive clicks on the same target. Two go
+# through, the third is never sent.
 #
-# Sebep: donguye giren bir ajan ayni dugmeye basmayi surduruyor. Hiz siniri
-# onu YAVASLATIYOR ama DURDURMUYOR -- dizinin sonuna kadar ayni yere vurmaya
-# devam ediyor. Ilk iki tiklama beklenen etkiyi yapmadiysa ucuncusu de
-# yapmaz; dogru hamle ekrani `ui_dump` ya da `screen_capture` ile yeniden
-# okumak.
+# Why: an agent stuck in a loop keeps pressing the same button. The rate limit
+# SLOWS it but does not STOP it. If the first two clicks did not have the
+# expected effect, a third will not either; the right move is to read the
+# screen again with `ui_dump` or `screen_capture`.
 #
-# "Ayni hedef" = ayni dugum kimligi (`ui_click`) ya da ayni koordinat +
-# ayni uzay (`monitor`/`shot`). Araya `move`, `type` gibi bir eylem girerse
-# seri kirilir; `wait` KIRMAZ, cunku "tikla-bekle-tikla" tam da o desendir.
+# "Same target" = the same node id (`ui_click`) or the same coordinate in the
+# same space (`monitor`/`shot`). An action such as `move` or `type` in between
+# breaks the series; `wait` does NOT, because "click-wait-click" is exactly
+# the pattern.
 #
-# `double_click` / `triple_click` tek eylemdir, bu sayaci doldurmaz.
-# 0 = kapali. En kucuk gecerli deger 2.
+# `double_click` / `triple_click` are single actions and do not fill it.
+# 0 = off. The smallest valid value is 2.
 repeat_click_limit = 3
 
-# KOORDINATLI bir pcb-do eylemi gonderilirken en yeni ekran goruntusu en fazla
-# bu kadar saniye eski olabilir. 0 = kontrol kapali.
+# When pcb-do sends a COORDINATE action, the newest screenshot may be at most
+# this many seconds old. 0 = no check.
 #
-# batch_check_focus'tan FARKLI bir tehlikeye bakiyor. O, "tikladiktan SONRA
-# odak degisti mi" diyor. Bu ise goruntunun bayatlamasi: goruntuyu aldiktan
-# sonra kullanici baska pencereye gecerse odak zaten orada olur, tiklama da
-# oraya duser ve DEGISEN bir sey olmadigi icin odak korumasi hic otmez.
+# Different from batch_check_focus, which asks "did the focus change AFTER the
+# click". This one is about a stale picture: if the user switched windows
+# after the picture was taken, the focus is already there, the click lands
+# there, and because nothing CHANGES the focus guard never fires.
 #
-# OLCULDU 2026-08-03: 69 saniyelik bir goruntuye gore tiklandi; Vesktop
-# sanilan yerde Claude uygulamasi vardi, tiklama oraya dustu, hicbir koruma
-# calismadi. 2 Agustos'taki kazayla ayni sinif hata -- dogrulanmamis bir
-# varsayima gore tiklamak.
+# Measured 2026-08-03: a click based on a 69-second-old picture landed on the
+# Claude app where Vesktop was expected; no guard fired.
 agent_shot_max_age_seconds = 60
 
 
 # ---------------------------------------------------------------------------
-# AJANLAR
-# {prompt} ve {session_id} sablon olarak degistirilir.
-# `command` bir liste; ilk eleman calistirilabilir dosyanin adi.
+# AGENTS
+# {prompt} and {session_id} are template placeholders.
+# `command` is a list; its first element is the executable (a name found on
+#          PATH or in the usual per-user bin directories, or an absolute path).
 # `parser` = "claude_stream_json" | "agy_json" | "plain"
-# `pty`    = komutu sahte bir terminalde calistir (TTY yoksa ciktisini
-#            yutan CLI'lar icin gerekli)
+# `pty`    = run the command in a pseudo-terminal (for CLIs that print nothing
+#            without a TTY)
 #
-# MODEL / EFFORT SECIMI
-# Asagidaki alanlarin hepsi opsiyonel. Hicbiri tanimlanmazsa ajan eskisi gibi
-# davranir: komuta model/effort bayragi eklenmez, CLI kendi ayarindaki modeli
-# kullanir. NEDEN GEREKLI: Claude Code'un modeli ~/.claude/settings.json'dan
-# geliyor, yani interaktif oturumda /model ile secim degistirince telefondan
-# gelen isler de sessizce o modele geciyor.
+# MODEL / EFFORT SELECTION
+# All fields below are optional. Without them the agent runs as the CLI is
+# configured: no model/effort flag is added. Why it matters: Claude Code takes
+# its model from ~/.claude/settings.json, so changing /model in an interactive
+# session would otherwise silently change the model of remote jobs too.
 #
-#   model_args    Model bayraginin sozdizimi, orn. ["--model", "{model}"]
-#   effort_args   Effort bayraginin sozdizimi, orn. ["--effort", "{effort}"]
-#   models        Serbestce secilebilen modeller
-#   restricted_models  Yalnizca kullanici ADINI ACIKCA verdiyse secilebilir.
-#                 Varsayilan doldurma buraya asla dusemez.
-#   blocked_models     Hicbir kosulda secilemez
-#   efforts       Ajanin kabul ettigi effort seviyeleri (genel)
-#   model_efforts Model basina izinli effort listesi; `efforts`i ezer.
-#                 BOS LISTE = bu model --effort bayragini kabul etmiyor,
-#                 bayrak hic eklenmez.
-#   default_model      Model belirtilmezse kullanilir
-#   default_effort     Effort belirtilmezse (model_effort'tan sonra) kullanilir
-#   model_effort  Model basina varsayilan effort
-#   effort_required_with_model  Model verilince effort de sart mi
-#   aliases       Serbest metin -> kanonik ad. Hem model hem effort icin.
-#                 Eslestirme once normalize edilir: kucuk harf, nokta/tire/alt
-#                 cizgi ayirac sayilir, harf-rakam siniri bolunur. Yani
-#                 "Gemini 3.6 Flash" = "gemini-3.6-flash" = "gemini 3 6 flash"
-#                 ve "opus5" = "opus 5". Bu varyantlar icin alias YAZMANIZA
-#                 GEREK YOK; alias yalnizca gercekten farkli adlar icin.
+#   model_args    syntax of the model flag, e.g. ["--model", "{model}"]
+#   effort_args   syntax of the effort flag, e.g. ["--effort", "{effort}"]
+#   models        models that can be chosen freely
+#   restricted_models  only chosen when the user names them EXPLICITLY; a
+#                 default can never land here
+#   blocked_models     can never be chosen
+#   efforts       effort levels the agent accepts (general)
+#   model_efforts per-model allowed efforts; overrides `efforts`. An EMPTY list
+#                 means the model does not accept --effort: no flag is added.
+#   default_model      used when no model is given
+#   default_effort     used when no effort is given (after model_effort)
+#   model_effort  per-model default effort
+#   effort_required_with_model  an effort is required whenever a model is given
+#   aliases       free text -> canonical name, for models and efforts alike.
+#                 Matching is normalized first: lower case, dots, dashes and
+#                 underscores count as separators, letter-digit borders split.
+#                 So "Gemini 3.6 Flash" = "gemini-3.6-flash" = "gemini 3 6 flash"
+#                 and "opus5" = "opus 5". Aliases are only for really different
+#                 names.
 # ---------------------------------------------------------------------------
 
 [agents.claude]
@@ -553,23 +531,23 @@ command = [
   "--verbose",
   "--dangerously-skip-permissions",
 ]
-# Onceki oturumu surdurmek icin komuta EKLENECEK argumanlar
+# Arguments ADDED to the command to resume an earlier session
 resume_args = ["--resume", "{session_id}"]
 parser = "claude_stream_json"
 pty = false
 
 model_args  = ["--model", "{model}"]
 effort_args = ["--effort", "{effort}"]
-# Varsayilan Sonnet 5 + medium: telefondan atilan "su klasorde ne var" tarzi
-# isler Opus 5 + xhigh ile calisip bosuna kota yakmasin diye.
+# Default Sonnet + medium, so that small remote requests do not run on the
+# most expensive model and effort.
 default_model = "sonnet"
 models  = ["sonnet", "opus", "haiku"]
-# Fable 5 Pro planinda EK KULLANIM KREDISI istiyor. "best" takma adi da
-# Fable'a cozuluyor, o yuzden ikisi de kapali.
+# Fable needs extra usage credit on the Pro plan, and the "best" alias
+# resolves to Fable, so both are blocked.
 blocked_models = ["fable", "best"]
 efforts = ["low", "medium", "high", "xhigh", "max"]
-# Claude Code model tek basina verilince kendi varsayilan effort'unu kullanir,
-# hata vermez -> zorunlu degil.
+# Given a model alone, Claude Code uses its own default effort without an
+# error, so an effort is not required.
 effort_required_with_model = false
 
 [agents.claude.model_effort]
@@ -581,9 +559,10 @@ haiku  = "medium"
 "sonnet 5"  = "sonnet"
 "opus 5"    = "opus"
 "haiku 4.5" = "haiku"
-# Engelli modelin varyantlari da ayni yere gitsin ki "bilinmeyen model" yerine
-# "engelli" gerekcesiyle reddedilsin.
+# Variants of a blocked model map to it too, so they are refused as "blocked"
+# instead of "unknown model".
 "fable 5"   = "fable"
+# Effort aliases in Turkish (input only; the agent sees the canonical name).
 "dusuk"      = "low"
 "orta"       = "medium"
 "yuksek"     = "high"
@@ -594,55 +573,53 @@ haiku  = "medium"
 "en yuksek"  = "max"
 
 [agents.antigravity]
-# Antigravity CLI'in calistirilabilir adi `agy` (paket adi antigravity-cli).
+# The Antigravity CLI's executable is `agy` (package antigravity-cli).
 #
-# pty = false: agy 1.1.9'da upstream #76 (TTY olmadan bos cikti) DUZELMIS.
-# Olculdu -> `-p` ciktisi boruya/dosyaya sorunsuz yaziliyor, `script`
-# sarmalayicisina gerek yok.
+# pty = false: agy 1.1.9 fixed upstream #76 (no output without a TTY).
+# Measured: `-p` output goes to a pipe or a file fine; no `script` wrapper.
 #
-# --output-format json: agy yapisal cikti veriyor (conversation_id, status,
-# response, usage). Duz metinden UUID regex'i ile kimlik avlamaktan cok daha
-# saglam; `parser = "agy_json"` bunu okur.
+# --output-format json: agy prints structured output (conversation_id, status,
+# response, usage), which `parser = "agy_json"` reads -- far sturdier than
+# hunting ids in plain text.
 enabled = true
 description = "Antigravity CLI (agy) - Google's terminal coding agent"
 #
-# --print-timeout: agy'nin print modundaki varsayilani 5 DAKIKA ve doldugunda
-# yaptigi isi atip `status: ERROR, error: timeout waiting for response`
-# donuyor. OLCULDU 2026-08-03: bir computer_task GUI gorevi 239 saniyede bu
-# duvara tosladi -- ajan ekrani okuyup tikliyordu, hicbir seyi yanlis
-# yapmiyordu, yalnizca GUI isi yavas. 30 dakika `default_job_timeout` ile ayni;
-# gercek ust sinir orasi kalsin.
+# --print-timeout: agy's print mode defaults to 5 MINUTES and then throws the
+# work away with `status: ERROR, error: timeout waiting for response`.
+# Measured 2026-08-03: a computer_task GUI task hit that wall at 239 s while
+# doing nothing wrong -- GUI work is simply slow. 30 minutes matches
+# `default_job_timeout`, which stays the real ceiling.
 command = [
   "agy", "-p", "{prompt}",
   "--dangerously-skip-permissions",
   "--output-format", "json",
   "--print-timeout", "30m",
 ]
-# Onceki konusmaya donmek icin; kimlik JSON ciktisindaki conversation_id.
+# To continue a conversation; the id is the conversation_id of the JSON output.
 resume_args = ["--conversation", "{session_id}"]
 parser = "agy_json"
 pty = false
 
 model_args  = ["--model", "{model}"]
 effort_args = ["--effort", "{effort}"]
-# agy'de effort model kimliginin PARCASI: `--model X --effort Y` = `X-Y`.
-# Gemini modellerinde effort'suz cagri exit 1 verir -> zorunlu.
+# In agy the effort is PART of the model id: `--model X --effort Y` = `X-Y`.
+# Gemini models exit 1 without an effort, so it is required.
 effort_required_with_model = true
 default_model  = "gemini-3.8-flash"
 default_effort = "high"
 efforts = ["low", "medium", "high"]
 models  = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.1-pro"]
-# Yalnizca ACIKCA istenirse; varsayilan secimde asla kullanilmaz.
-# Kimlikler `agy models` ciktisindan birebir alindi -- nokta degil TIRE.
+# Only when asked for EXPLICITLY; never picked by default.
+# The ids are copied from `agy models` -- dashes, not dots.
 restricted_models = [
   "claude-sonnet-4-6",
   "claude-opus-4-6-thinking",
   "gpt-oss-120b-medium",
 ]
 
-# Model basina izinli effort. `agy models` ciktisindan turetildi:
-# gemini-3.1-pro'da MEDIUM YOK, Claude/GPT-OSS modelleri --effort KABUL ETMIYOR
-# (verilirse "Error: invalid model selection" + exit 1).
+# Per-model allowed efforts, derived from `agy models`: gemini-3.1-pro has NO
+# medium, and the Claude/GPT-OSS models do NOT accept --effort ("Error:
+# invalid model selection" + exit 1).
 [agents.antigravity.model_efforts]
 "gemini-3.8-flash"         = ["low", "medium", "high"]
 "gemini-3.7-flash"         = ["low", "medium", "high"]
@@ -674,7 +651,7 @@ restricted_models = [
 "orta"   = "medium"
 "yuksek" = "high"
 
-# Istersen baska ajanlar da ekleyebilirsin, ornek:
+# More agents can be added, for example:
 # [agents.codex]
 # enabled = true
 # description = "OpenAI Codex CLI"

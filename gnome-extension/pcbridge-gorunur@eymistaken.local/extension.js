@@ -59,8 +59,8 @@ export default class PcbridgeGorunurExtension extends Extension {
                     : null,
             });
             this._windowControl.start();
-            console.log(`${LOG} etkin · durum dosyası: ${yol} · başlangıç: ` +
-                `${this._state.active ? 'AKTİF' : 'pasif'}`);
+            console.log(`${LOG} enabled · state file: ${yol} · initially: ` +
+                `${this._state.active ? 'ACTIVE' : 'inactive'}`);
         } catch (error) {
             console.error(`${LOG} enable: ${error}`);
             // Yarım kurulmuş bir eklenti bırakma: ne kurulduysa geri al.
@@ -85,7 +85,7 @@ export default class PcbridgeGorunurExtension extends Extension {
             this._cursor = null;
             this._frame?.stop();
             this._frame = null;
-            console.log(`${LOG} kapatıldı`);
+            console.log(`${LOG} disabled`);
         } catch (error) {
             console.error(`${LOG} disable: ${error}`);
         }
@@ -94,7 +94,7 @@ export default class PcbridgeGorunurExtension extends Extension {
     /** pcbridge'in masaüstü izni açıldı/kapandı. */
     _onState(aktif, until) {
         const kalan = Math.max(0, Math.round(until - Date.now() / 1000));
-        console.log(`${LOG} durum: ${aktif ? `AKTİF (${kalan} sn kaldı)` : 'pasif'}`);
+        console.log(`${LOG} state: ${aktif ? `ACTIVE (${kalan} s left)` : 'inactive'}`);
         this._frame?.setVisible(aktif);
         // Katman kapalıysa hiçbir şey yapılmıyor ve gerçek imleç el
         // değmeden duruyor. Açıkken izin bitince kendi kendini kapatıyor.

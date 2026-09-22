@@ -759,7 +759,7 @@ class CaptureParityGate(unittest.TestCase):
                 )
             return ids
 
-        self.assertIn("Ekran yayını açık", text(unlock), text(unlock))
+        self.assertIn("Screen sharing is on", text(unlock), text(unlock))
         first_ids = check_images(first)
         self.assertEqual(len(first_ids), len(self.monitors))
         self.assertTrue(killed, "the server should have a native helper to crash")

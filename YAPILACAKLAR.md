@@ -561,7 +561,7 @@ All output is in English, `--json` is available where it makes sense,
 
 ### Step 5 — English everywhere  (time box: 5 h)
 
-- [ ] **Inventory every string that reaches a human or a model**:
+- [x] **Inventory every string that reaches a human or a model**:
   - tool return texts, `DesktopError.message`, `suggested_action`,
   - exceptions surfaced to clients,
   - log messages, CLI, installer and doctor output,
@@ -575,19 +575,19 @@ All output is in English, `--json` is available where it makes sense,
   them by special characters alone. Walk every `return`, `raise`, `log.*`,
   `print`, `f"…"` in the user-facing layers. Write the inventory into
   section 8 as a file count.
-- [ ] **Translate** into clear, specific English that tells the reader what
+- [x] **Translate** into clear, specific English that tells the reader what
       to do next. Keep error **codes**, categories, scopes and field names
       unchanged, because they are API. Keep messages short, since models
       read them on every error.
-- [ ] Update the tests that assert on message text. Prefer asserting on
+- [x] Update the tests that assert on message text. Prefer asserting on
       codes where possible.
-- [ ] Update the `CLAUDE.md` rule "Kullanıcıya dönen metinler Türkçe" to
+- [x] Update the `CLAUDE.md` rule "Kullanıcıya dönen metinler Türkçe" to
       "all user- and model-facing text is English".
-- [ ] **Verify.** Add a guard test: a script that scans the user-facing
+- [x] **Verify.** Add a guard test: a script that scans the user-facing
       modules for common Turkish words and characters, with an allow-list
       for test fixtures, the Turkish-typing tests and similar. Run all
       suites.
-- [ ] **Commit(s)**: `feat(i18n): English for every message a user or model reads`.
+- [x] **Commit(s)**: `feat(i18n): English for every message a user or model reads`.
 
 ### Step 6 — Any monitor layout  (time box: 6 h)
 
@@ -952,6 +952,8 @@ freely **after** extracting what is still true and useful.
 | 2026-09-23 | 4 | `pcbridge remote stop` (and so the `bridgekapat` alias) now only closes the Tailscale funnel; it no longer stops pcbridge.service, because local clients depend on the daemon. `pcbridge stop` is the new full stop (grant closed, daemon stopped, every pcbridge-job scope and remaining job ended); `pcbridge lock` stays the desktop emergency stop. | Stopping the service used to be harmless for local clients (they had their own processes); with the daemon it would not be. |
 | 2026-09-23 | 4 | Clients, aliases and units point at a stable launcher: `~/.local/bin/pcbridge` for the user install (a symlink setup maintains), `/usr/bin/pcbridge` for the .deb, the venv script for git/pip installs. A foreign file at `~/.local/bin/pcbridge` is moved into the run's backup directory, never deleted. | A reinstall or a switch of install kind then changes one symlink instead of three client configs. |
 | 2026-09-23 | 4 | `pcbridge setup` restarts pcbridge.service into the daemon only when idle (no running job, no open desktop grant; waits up to `--idle-wait`, default 600 s) and enables pcbridge.socket only after that restart; the relay only starts pcbridge.socket on demand when the unit is enabled (checks the `sockets.target.wants` link). Relay handshake wait lowered from 20 to 10 s. | An enabled socket in front of a still-running pre-2.0 service would accept connections nobody answers (I3, I5). |
+| 2026-09-23 | 5 | Comments and internal docstrings stay Turkish for now; only strings a user or model reads are English | Step 5 scope is what reaches a human or model; comment translation belongs to the docs pass and would triple the diff |
+| 2026-09-23 | 5 | Old Turkish flags of gnome-extension/install.sh (--kur, --kaldir, --durum...) kept as aliases; on-disk names gorunur-imlec and the extension UUID unchanged | Renaming what scripts or state files refer to by name silently breaks existing setups |
 
 ## 8. Progress log and measurements
 
@@ -979,6 +981,7 @@ Append-only. One line per meaningful event, with numbers.
 - 2026-09-22 step 3 — Done. Per-call relay overhead (40 calls each, same daemon vs PCBRIDGE_NO_DAEMON): ping p50 0.43 vs 0.46 ms, system_capabilities 30.30 vs 30.19 ms (+0.11), tools/list 1.75 vs 1.71 ms (+0.04): **overhead ≈0.1 ms** (budget 5 ms). Through relay + daemon vs baseline: screen_capture one monitor **293.7** (301.7) ms, both **761.1** (770.7), ui_dump **26.7** (32.7), window_list 11.4 (14.1), window_focus 25.5 (29.7); system_status 20-call median 121.2 ms vs 1.x 132.0 ms. Relay RSS 14.2 MB, daemon RSS 117 MB. test_e2e.py (NO_AGENT) against the daemon's HTTP on 18765: 262 passed, 0 failed, 9 skipped (= baseline). Live, all four flags: test_desktop.py 654 passed 0 failed; tests/live 61 OK (4 skipped by design, 'covered by WindowOperationsLive'). Real computer_batch through the relay into an empty gnome-text-editor: 34 characters incl. ğüşıöç pasted and verified on a screenshot, then cleared and discarded via ui_dump + ui_click (AT-SPI id, no coordinates); an empty 'Yeni Belge' editor window was left open. Idle self-restart: a new version stamp was deferred while a job ran ('1 job(s) running'), then the daemon exited 75 and systemd restarted it (NRestarts=1) once idle. New non-live tests: contracts/test_relay.py (4, fake daemon), contracts/test_sessionctx.py (4), integration/test_daemon.py (3, real daemon with a throwaway config: 36 tools, 3 sessions, SIGKILL mid-call → retryable error → stale socket replaced → next call ok). Suites: models 106, desktop 614, contracts 473 OK, integration 27 OK, gjs 70.
 - 2026-09-23 step 4 — CLI subcommands: serve, stdio, setup, connect, doctor, status, lock, unlock, stop, remote, logs, report, update, uninstall, --version. Codex edit dry-run on the real ~/.codex/config.toml: only the two command/args lines change, the five approval_mode sub-tables stay, idempotent. `pcbridge doctor` on the real machine (worktree, before install): 28 ok, 13 warnings, 3 failures, all expected before step 10 (socket unit not installed, clients on the 1.x command, worktree launcher missing before the editable install) plus tesseract missing; it also showed the Tailscale funnel is currently OPEN on 8765. End-to-end `packaging/install-user.sh` into a throwaway HOME with stubbed systemctl/claude: venv created, launchers linked, units rendered with the venv python, config migrated from a copy of the real one, extension copied, Codex + Claude Desktop registered, alias block rewritten in place, fresh client got 36 tools in 793 ms. Found and fixed: doctor's readiness probe closed stdin before the answer arrived (a server ends the session at EOF). New tests: contracts/test_cli.py (6: version, connect with backups and idempotence, alias block, report redaction, doctor JSON, unit rendering). Suites: models 106, desktop 614, contracts 479 OK, integration 27 OK, gjs 70.
 - 2026-09-23 step 5 (part 1) — Every user- and model-facing string in the Python package translated to English (~500 string lines in 40 modules: tools, batch, capture, apps, safety, uitree, atspi_helper, backends, config, app, auth consent page, models, diagnostics, CLI tools, jobs, tmux, OCR, monitors and the small desktop/native modules). The Rust accessibility helper's messages (action.rs, accessibility.rs, bus.rs, dispatch.rs; 20 strings) were translated to exactly the Python helper's wording, because the parity tests compare them byte for byte; native helper rebuilt (build b556f5b82db8-dirty). Error codes, categories, scopes and field names unchanged. Found on the way: `INSTALL_HINT` asked for Turkish tesseract data; the OCR report, job step labels (`→ arac`) and several `fail()` paths were still Turkish. Tests: ~130 assertions on Turkish text rewritten (fakes' Turkish data too); models 106, desktop 614, contracts 479 OK, integration 27 OK, cargo 190/168, gjs 70.
+- 2026-09-23 Step 5 done. Inventory: 82 files carried user- or model-facing Turkish (63 in part 1: the Python package, Rust accessibility messages, tests; 19 in part 2: extension strings + metadata.json, 5 shell scripts, bin wrappers, config.example.toml rewritten in English, SKILL.md rewritten without this machine's layout). Error codes, scopes, field names, config keys and values unchanged. Guard: tests/contracts/test_english_only.py (6 tests: package strings, bin wrappers, SKILL + example config, extension, shell output, native helper). Suites: models 106, desktop 615, contracts 485 OK, integration 27 OK, gjs 17/31/22, cargo 168 passed, fmt clean.
 
 ## 9. Needs eymistaken (physical presence, sudo, or a decision only he can make)
 

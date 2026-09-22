@@ -187,7 +187,7 @@ export class CursorOverlay {
             this._tracker = Meta.CursorTracker.get_for_display(global.display);
             this._laters = global.compositor.get_laters();
         } catch (error) {
-            console.error(`[pcbridge-gorunur] CursorTracker alınamadı: ${error}`);
+            console.error(`[pcbridge-gorunur] cannot get the CursorTracker: ${error}`);
             this._tracker = null;
             return;     // gerçek imleç dokunulmadan duruyor — güvenli taraf
         }
@@ -196,8 +196,8 @@ export class CursorOverlay {
         if (!this._actor) {
             // Aktör yoksa gerçek imleci GİZLEME. Yoksa kullanıcı hiç imleçsiz
             // kalırdı — iki imleçten çok daha kötü bir sonuç.
-            console.error('[pcbridge-gorunur] imleç aktörü kurulamadı, ' +
-                'gerçek imleç gizlenmiyor');
+            console.error('[pcbridge-gorunur] cannot set up the cursor actor, ' +
+                'the real cursor is not hidden');
             this._tracker = null;
             return;
         }
@@ -265,7 +265,7 @@ export class CursorOverlay {
             try {
                 this._tracker.set_pointer_visible(true);
             } catch (error) {
-                console.error(`[pcbridge-gorunur] imleç geri açılamadı: ${error}`);
+                console.error(`[pcbridge-gorunur] cannot show the cursor again: ${error}`);
             }
             this._tracker = null;
         }
@@ -336,9 +336,9 @@ export class CursorOverlay {
         this._deadlineId = GLib.timeout_add(GLib.PRIORITY_DEFAULT,
             Math.ceil(sn * 1000), () => {
                 this._deadlineId = 0;
-                console.warn('[pcbridge-gorunur] izin süresi geçti ama durum ' +
-                    'izleyicisinden haber gelmedi — imleç katmanı emniyetle ' +
-                    'kapatılıyor, gerçek imleç geri veriliyor');
+                console.warn('[pcbridge-gorunur] the grant expired but the state ' +
+                    'monitor did not report it — closing the cursor layer to be ' +
+                    'safe and giving the real cursor back');
                 this.stop();
                 return GLib.SOURCE_REMOVE;
             });
@@ -413,10 +413,10 @@ export class CursorOverlay {
             this._fails = 0;
         } catch (error) {
             this._fails = (this._fails || 0) + 1;
-            console.error(`[pcbridge-gorunur] imleç işleyicisi (${this._fails}): ${error}`);
+            console.error(`[pcbridge-gorunur] cursor handler (${this._fails}): ${error}`);
             if (this._fails >= 3) {
-                console.error('[pcbridge-gorunur] imleç katmanı kapatılıyor, ' +
-                    'gerçek imleç geri veriliyor');
+                console.error('[pcbridge-gorunur] closing the cursor layer, ' +
+                    'giving the real cursor back');
                 this.stop();
             }
         }
@@ -461,11 +461,11 @@ export class CursorOverlay {
             const {requests, applied} = this._frames.stats;
             if (applied % 60 === 0) {
                 const gecen = (GLib.get_monotonic_time() - this._t0) / 1e6;
-                console.log(`[pcbridge-gorunur][SELFTEST] imleç ` +
-                    `${requests} olay / ${applied} çizim · ` +
-                    `${(requests / gecen).toFixed(0)} olay/sn · ` +
-                    `${(applied / gecen).toFixed(0)} çizim/sn · ` +
-                    `konum (${px},${py}) · açı ${this._angle.toFixed(0)}°`);
+                console.log(`[pcbridge-gorunur][SELFTEST] cursor ` +
+                    `${requests} events / ${applied} paints · ` +
+                    `${(requests / gecen).toFixed(0)} events/s · ` +
+                    `${(applied / gecen).toFixed(0)} paints/s · ` +
+                    `position (${px},${py}) · angle ${this._angle.toFixed(0)}°`);
             }
         }
 

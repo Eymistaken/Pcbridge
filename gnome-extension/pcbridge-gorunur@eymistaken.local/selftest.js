@@ -72,14 +72,14 @@ export function startLoopWatchdog(aralikMs = 100, esikMs = 60) {
                 enKotu = gecikme;
         }
         if (tik % 50 === 0) {
-            yaz(`ana döngü: ${tik} tık · ${gec} gecikmeli (>${esikMs} ms) · ` +
-                `en kötü ${enKotu.toFixed(0)} ms`);
+            yaz(`main loop: ${tik} ticks · ${gec} late (>${esikMs} ms) · ` +
+                `worst ${enKotu.toFixed(0)} ms`);
             enKotu = 0;
             gec = 0;
         }
         return GLib.SOURCE_CONTINUE;
     });
-    yaz(`ana döngü gözcüsü açıldı (${aralikMs} ms aralık)`);
+    yaz(`main loop watchdog on (${aralikMs} ms interval)`);
     return id;
 }
 
@@ -92,7 +92,7 @@ export function startLoopWatchdog(aralikMs = 100, esikMs = 60) {
  */
 export function reportBreathing(actorlar, sureSn = 13, aralikMs = 900) {
     if (!actorlar.length) {
-        sonuc('nefes: aktör var', false);
+        sonuc('breathing: actor exists', false);
         return;
     }
     const a = actorlar[0];
@@ -108,23 +108,23 @@ export function reportBreathing(actorlar, sureSn = 13, aralikMs = 900) {
 
         const enAz = Math.min(...ornekler);
         const enCok = Math.max(...ornekler);
-        yaz(`nefes örnekleri: ${ornekler.map(v => v.toFixed(3)).join(' ')}`);
-        sonuc('nefes çalışıyor (ölçek değişiyor)', enCok - enAz > 0.02,
-            `aralık ${enAz.toFixed(3)} – ${enCok.toFixed(3)}`);
-        sonuc('KALINLAŞMA YOK (ölçek 1.0 üstüne çıkmıyor)', enCok <= 1.0001,
-            `en yüksek ${enCok.toFixed(4)}`);
+        yaz(`breathing samples: ${ornekler.map(v => v.toFixed(3)).join(' ')}`);
+        sonuc('breathing runs (the scale changes)', enCok - enAz > 0.02,
+            `range ${enAz.toFixed(3)} – ${enCok.toFixed(3)}`);
+        sonuc('NO THICKENING (the scale never goes above 1.0)', enCok <= 1.0001,
+            `highest ${enCok.toFixed(4)}`);
         return GLib.SOURCE_REMOVE;
     });
-    yaz(`nefes ölçümü başladı (${sureSn} sn, ${aralikMs} ms aralık)`);
+    yaz(`breathing measurement started (${sureSn} s, ${aralikMs} ms interval)`);
 }
 
 /** Monitör tablosu — koordinatların beklenen yerde olduğunu görmek için. */
 export function reportMonitors() {
     const ms = Main.layoutManager.monitors;
-    yaz(`monitör sayısı: ${ms.length}`);
+    yaz(`monitor count: ${ms.length}`);
     for (const m of ms)
         yaz(`  #${m.index}  ${m.width}x${m.height} @ (${m.x},${m.y})` +
-            `${m.index === Main.layoutManager.primaryIndex ? '  [birincil]' : ''}`);
+            `${m.index === Main.layoutManager.primaryIndex ? '  [primary]' : ''}`);
 }
 
 /**
@@ -140,25 +140,25 @@ export function checkClickThrough() {
     for (const m of ms) {
         // Kenardan 6 px içeri: şeridin en parlak, en kalın olduğu yer.
         const noktalar = [
-            ['üst', m.x + Math.floor(m.width / 2), m.y + 6],
-            ['alt', m.x + Math.floor(m.width / 2), m.y + m.height - 6],
-            ['sol', m.x + 6, m.y + Math.floor(m.height / 2)],
-            ['sağ', m.x + m.width - 6, m.y + Math.floor(m.height / 2)],
+            ['top', m.x + Math.floor(m.width / 2), m.y + 6],
+            ['bottom', m.x + Math.floor(m.width / 2), m.y + m.height - 6],
+            ['left', m.x + 6, m.y + Math.floor(m.height / 2)],
+            ['right', m.x + m.width - 6, m.y + Math.floor(m.height / 2)],
         ];
         for (const [kenar, px, py] of noktalar) {
             const actor = global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, px, py);
-            const ad = actor ? (actor.name || actor.constructor?.$gtype?.name || `${actor}`) : '(yok)';
+            const ad = actor ? (actor.name || actor.constructor?.$gtype?.name || `${actor}`) : '(none)';
             const bizimki = typeof ad === 'string' && ad.startsWith('pcbridge-gorunur-');
             if (bizimki)
                 hepsiGecti = false;
-            sonuc(`tıklama geçiyor · monitör ${m.index} ${kenar} (${px},${py})`,
+            sonuc(`clicks pass through · monitor ${m.index} ${kenar} (${px},${py})`,
                 !bizimki, `→ ${ad}`);
         }
     }
     // DİKKAT: bu `reactive = false`'un çalıştığını kanıtlıyor, `affectsInputRegion`
     // = false'u DEĞİL. İkincisi kabuğun Wayland girdi bölgesiyle ilgili ve ancak
     // gerçek bir tıklamayla ölçülür — gerçek oturum kontrol listesinde var.
-    sonuc('ÖZET: çerçeve aktörleri tıklama hedefi değil', hepsiGecti);
+    sonuc('SUMMARY: the frame actors are not click targets', hepsiGecti);
     return hepsiGecti;
 }
 
@@ -185,7 +185,7 @@ export function pointerBurst(cursor, {events = 2000, hz = 1000} = {}) {
         seat = Clutter.get_default_backend().get_default_seat();
         device = seat.create_virtual_device(Clutter.InputDeviceType.POINTER_DEVICE);
     } catch (error) {
-        sonuc('fare fırtınası: sanal aygıt', false, `${error}`);
+        sonuc('pointer storm: virtual device', false, `${error}`);
         return;
     }
 
@@ -224,7 +224,7 @@ export function pointerBurst(cursor, {events = 2000, hz = 1000} = {}) {
             try {
                 device.notify_absolute_motion(simdi + i, x, y);
             } catch (error) {
-                sonuc('fare fırtınası: hareket gönderildi', false, `${error}`);
+                sonuc('pointer storm: motion sent', false, `${error}`);
                 return GLib.SOURCE_REMOVE;
             }
             gonderilen++;
@@ -235,17 +235,17 @@ export function pointerBurst(cursor, {events = 2000, hz = 1000} = {}) {
 
         const gecen = (GLib.get_monotonic_time() - baslangic) / 1e6;
         const stats = cursor?.stats ?? null;
-        yaz(`fare fırtınası: ${gonderilen} hareket · ${gecen.toFixed(2)} sn · ` +
-            `${(gonderilen / gecen).toFixed(0)} hareket/sn · ` +
-            `ana döngü en kötü ${enKotuGecikme.toFixed(1)} ms`);
+        yaz(`pointer storm: ${gonderilen} moves · ${gecen.toFixed(2)} s · ` +
+            `${(gonderilen / gecen).toFixed(0)} moves/s · ` +
+            `main loop worst ${enKotuGecikme.toFixed(1)} ms`);
         if (stats) {
-            yaz(`  imleç: ${stats.requests} olay / ${stats.applied} çizim · ` +
-                `${(stats.applied / gecen).toFixed(0)} çizim/sn`);
-            sonuc('çizim sayısı olay sayısının altında (kare saati)',
+            yaz(`  cursor: ${stats.requests} events / ${stats.applied} paints · ` +
+                `${(stats.applied / gecen).toFixed(0)} paints/s`);
+            sonuc('fewer paints than events (frame clock)',
                 stats.applied < stats.requests / 2,
                 `${stats.applied} < ${stats.requests} / 2`);
         } else {
-            yaz('  imleç katmanı kapalı: yalnızca hareket üretildi');
+            yaz('  cursor layer off: only motion was produced');
         }
         // Aygıtı bırak: nested kabuk kapanınca sahipsiz kalmasın.
         try {
@@ -253,16 +253,16 @@ export function pointerBurst(cursor, {events = 2000, hz = 1000} = {}) {
         } catch { /* yalnızca tanı */ }
         return GLib.SOURCE_REMOVE;
     });
-    yaz(`fare fırtınası başladı: ${events} hareket, hedef ${hz} Hz ` +
-        `(${tikBasina} hareket / ${tikMs} ms)`);
+    yaz(`pointer storm started: ${events} moves, target ${hz} Hz ` +
+        `(${tikBasina} moves / ${tikMs} ms)`);
 }
 
 /** D-Bus etkinleştirmesinin gerçekten odak değiştirdiğini kabuğun içinden doğrula. */
 export function reportWindowActivation(window, target) {
     const focused = global.display.focus_window;
-    let title = '(başlık yok)';
+    let title = '(no title)';
     try {
         title = focused?.get_title?.() || title;
     } catch { /* yalnızca tanı */ }
-    sonuc(`ActivateWindow odak · ${target}`, focused === window, `→ ${title}`);
+    sonuc(`ActivateWindow focus · ${target}`, focused === window, `→ ${title}`);
 }

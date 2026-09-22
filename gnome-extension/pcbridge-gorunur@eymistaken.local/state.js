@@ -89,7 +89,7 @@ export class UnlockState {
             this._monitorId = this._monitor.connect('changed', () => this._schedule());
         } catch (error) {
             // İzleyici kurulamazsa emniyet taraması tek başına iş görür.
-            console.warn(`[pcbridge-gorunur] dosya izleyici kurulamadı: ${error}`);
+            console.warn(`[pcbridge-gorunur] cannot set up the file monitor: ${error}`);
         }
 
         this._sweeps = 0;
@@ -97,8 +97,8 @@ export class UnlockState {
             GLib.PRIORITY_DEFAULT, SWEEP_SECONDS, () => {
                 this._sweeps++;
                 if (GLib.getenv('PCBRIDGE_GORUNUR_SELFTEST') === '1') {
-                    console.log(`[pcbridge-gorunur][SELFTEST] tarama #${this._sweeps} ` +
-                        `· until=${this._until} · aktif=${this._active}`);
+                    console.log(`[pcbridge-gorunur][SELFTEST] sweep #${this._sweeps} ` +
+                        `· until=${this._until} · active=${this._active}`);
                 }
                 this._reread();
                 return GLib.SOURCE_CONTINUE;
@@ -149,7 +149,7 @@ export class UnlockState {
             try {
                 this._onChange(active, until);
             } catch (error) {
-                console.error(`[pcbridge-gorunur] durum geri çağrısı: ${error}`);
+                console.error(`[pcbridge-gorunur] state callback: ${error}`);
             }
         }
     }
@@ -175,7 +175,7 @@ export class UnlockState {
             // Yazımın ortasına denk gelmiş olabiliriz: bir sonraki olay düzeltir.
             // Tekrar tekrar loglamıyoruz, yoksa bozuk bir dosya journal'ı doldurur.
             if (!this._warned) {
-                console.warn(`[pcbridge-gorunur] ${this._path} okunamadı: ${error}`);
+                console.warn(`[pcbridge-gorunur] cannot read ${this._path}: ${error}`);
                 this._warned = true;
             }
             return 0;

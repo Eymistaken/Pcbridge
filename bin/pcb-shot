@@ -1,7 +1,7 @@
 #!/bin/sh
-# pcbridge ekran goruntusu kabugu -- yerel gorsel ajan bunu Bash'ten cagirir.
-# Mantik `pcbridge/cli/shot.py`'de; burasi yalnizca venv'i bulan sarmalayici
-# (venv'de Pillow ve evdev var, sistem python'unda yok).
+# pcbridge screenshot shell -- a local visual agent calls this from Bash.
+# The logic lives in `pcbridge/cli/shot.py`; this only finds the venv
+# (the venv has Pillow and evdev, the system python does not).
 set -eu
 SELF=$(readlink -f "$0")
 ROOT=$(dirname "$(dirname "$SELF")")

@@ -1,6 +1,6 @@
 #!/bin/sh
-# pcbridge eylem kabugu -- yerel gorsel ajan bunu Bash'ten cagirir.
-# Mantik `pcbridge/cli/do.py`'de; burasi yalnizca venv'i bulan sarmalayici.
+# pcbridge action shell -- a local visual agent calls this from Bash.
+# The logic lives in `pcbridge/cli/do.py`; this only finds the venv.
 set -eu
 SELF=$(readlink -f "$0")
 ROOT=$(dirname "$(dirname "$SELF")")

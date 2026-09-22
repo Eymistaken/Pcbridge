@@ -59,7 +59,7 @@ oturum_temizle() {
         case "$adr" in *"/tmp/dbus-"*) liste="$liste $p";; esac
     done
     [[ -z "${liste// }" ]] && return 0
-    echo "nested oturumdan kalan $(echo $liste | wc -w) servis kapatiliyor"
+    echo "stopping $(echo $liste | wc -w) service(s) left over from nested sessions"
     kill -TERM $liste 2>/dev/null || true
     sleep 2
     local kalan="" q
@@ -68,7 +68,7 @@ oturum_temizle() {
 }
 
 inotify_durum() {
-    echo "inotify ornegi: $(ls -l /proc/*/fd/* 2>/dev/null | grep -c inotify)/$(cat /proc/sys/fs/inotify/max_user_instances)"
+    echo "inotify instances: $(ls -l /proc/*/fd/* 2>/dev/null | grep -c inotify)/$(cat /proc/sys/fs/inotify/max_user_instances)"
 }
 
 # DIKKAT: `pkill -f 'gnome-shell --nested'` KULLANMA. Desen tam komut satirina
@@ -88,7 +88,7 @@ oldur() {
         vurulan=1
     fi
     if (( vurulan )); then
-        echo "onceki nested kabuk kapatildi"
+        echo "previous nested shell stopped"
         sleep 1
     fi
     # Kabuk olsun olmasin: yetim servisler her zaman toplanir. Bir onceki
@@ -97,12 +97,12 @@ oldur() {
 }
 
 case "${1:-}" in
-    --oldur|--kapat)
+    --kill|--oldur|--kapat)
         oldur
         inotify_durum
         exit 0
         ;;
-    --temizle)
+    --clean|--temizle)
         oturum_temizle
         inotify_durum
         exit 0
@@ -110,44 +110,44 @@ case "${1:-}" in
     --log)
         exec tail -f "$LOG"
         ;;
-    -h|--yardim|--help)
+    -h|--help|--yardim)
         cat <<EOF
-Kullanim: nested.sh [secenek]
+Usage: nested.sh [option]
 
-  (bos)         onceki nested kabugu oldur, yenisini baslat, logu izle
-  --oldur       kabugu VE ardinda kalan oturum servislerini kapat
-  --temizle     yalnizca yetim servisleri topla (kabuga dokunmaz)
-  --log         calisan kabugun logunu izle
+  (none)        stop the previous nested shell, start a new one, follow its log
+  --kill        stop the shell AND the session services it leaves behind
+  --clean       only collect orphaned services (leaves the shell alone)
+  --log         follow the running shell's log
 
-Log dosyasi: $LOG
-Cevre degiskenleri: MUTTER_DEBUG_NUM_DUMMY_MONITORS, MUTTER_DEBUG_DUMMY_MODE_SPECS
+Log file: $LOG
+Environment: MUTTER_DEBUG_NUM_DUMMY_MONITORS, MUTTER_DEBUG_DUMMY_MODE_SPECS
 
-NOT: her nested kosumu ~13 oturum servisi (gvfsd, tracker-miner, dconf,
-at-spi...) baslatiyor ve kabuk olunce bunlar YASAMAYA DEVAM EDIYOR.
-Toplanmazlarsa fs.inotify.max_user_instances (128) doluyor ve o noktada
-Gio.FileMonitor SESSIZCE calismaz oluyor. Bu betik her kosumda topluyor.
+NOTE: every nested run starts ~13 session services (gvfsd, tracker-miner,
+dconf, at-spi...) and they KEEP RUNNING after the shell dies. Left alone they
+fill fs.inotify.max_user_instances (128), and then Gio.FileMonitor SILENTLY
+stops working. This script collects them on every run.
 EOF
         exit 0
         ;;
 esac
 
 [[ -L "${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions/pcbridge-gorunur@eymistaken.local" ]] \
-    || echo "UYARI: eklenti kurulu gorunmuyor -- once ./install.sh"
+    || echo "WARNING: the extension does not look installed -- run ./install.sh first"
 
 oldur
 : > "$LOG"
 dbus-run-session -- gnome-shell --nested --wayland >"$LOG" 2>&1 &
 echo "$!" > "$PIDF"
-echo "nested kabuk basladi (pid $!) · monitor: $MUTTER_DEBUG_DUMMY_MODE_SPECS"
+echo "nested shell started (pid $!) · monitors: $MUTTER_DEBUG_DUMMY_MODE_SPECS"
 echo "log  : $LOG"
 inotify_durum
-echo "durum: $PCBRIDGE_GORUNUR_STATE  (SAHTE -- gercek pcbridge izni degil)"
+echo "state: $PCBRIDGE_GORUNUR_STATE  (FAKE -- not the real pcbridge grant)"
 sleep 8
 
-echo "--- eklenti satirlari ---"
-grep -E 'pcbridge-gorunur' "$LOG" || echo "(henuz cikti yok)"
+echo "--- extension lines ---"
+grep -E 'pcbridge-gorunur' "$LOG" || echo "(no output yet)"
 echo
-echo "Izni ACMAK icin:"
+echo "To OPEN the grant:"
 echo "    echo \"{\\\"until\\\": \$(( \$(date +%s) + 120 ))}\" > '$PCBRIDGE_GORUNUR_STATE'"
-echo "KAPATMAK icin:"
+echo "To CLOSE it:"
 echo "    echo '{\"until\": 0}' > '$PCBRIDGE_GORUNUR_STATE'"

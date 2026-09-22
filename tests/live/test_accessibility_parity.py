@@ -327,8 +327,8 @@ class LiveActionTests(_LiveCase):
             self.tree.set_text(code.node_id, LONG_CODE)
         error = raised.exception
         self.assertEqual(error.code, ErrorCode.TEXT_MISMATCH)
-        self.assertIn(f"{len(LONG_CODE)} karakter gonderildi", error.message)
-        self.assertIn("simdi 5 karakter", error.message)
+        self.assertIn(f"{len(LONG_CODE)} characters", error.message)
+        self.assertIn("now holds 5", error.message)
         self.assertNotIn(LONG_CODE, error.message)
         got = self.window.wait(
             lambda e: e.get("field") == "code" and e.get("value") == LONG_CODE[:5], 3, since=mark

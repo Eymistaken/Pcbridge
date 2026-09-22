@@ -1,226 +1,224 @@
 ---
 name: computer-use
-description: Bu Linux masaüstünü ekrana bakarak sür. Ekran görüntüsü al, PNG'yi oku, tıkla/yaz, sonucu doğrula. GUI görevleri için — pencere, menü, düğme, form. AT-SPI'ın göremediği uygulamalarda (Electron: Vesktop, VS Code, Discord) tek yol budur.
+description: Drive this Linux desktop by looking at the screen. Take a screenshot, read the PNG, click and type, check the result. For GUI tasks — windows, menus, buttons, forms. The only way into applications that accessibility cannot see (Electron: Vesktop, VS Code, Discord).
 ---
 
-# Bilgisayarı ekrana bakarak sürmek
+# Driving the computer by looking at the screen
 
-Senin bir gözün var: PNG okuyabiliyorsun. Bu makinede iki komut seni ekrana
-bağlıyor.
+You have an eye: you can read PNG files. Two commands on this machine connect
+you to the screen.
 
-## Döngü
+## The loop
 
 ```bash
-pcb-shot --monitor 2                 # 1. bak
+pcb-shot --monitor 2                 # 1. look
 ```
 ```
-Read /run/user/1000/pcbridge/shots/...png      # 2. gerçekten gör
+Read /run/user/1000/pcbridge/shots/...png      # 2. really see it
 ```
 ```bash
-pcb-do '[{"a":"click","x":840,"y":312,"shot":"m2-a1b2c3"}]'   # 3. eyleme geç
-pcb-shot --monitor 2                                           # 4. SONUCU DOĞRULA
+pcb-do '[{"a":"click","x":840,"y":312,"shot":"m2-a1b2c3"}]'   # 3. act
+pcb-shot --monitor 2                                           # 4. CHECK THE RESULT
 ```
 
-Dördüncü adım isteğe bağlı değil. Bir eylemin işe yaradığını görmeden bir
-sonrakine geçme.
+Step four is not optional. Never move on before you have seen that an action
+worked.
 
-## Bu makinenin gerçekleri
+## Facts about the screen
 
-- **İki monitör**, ikisi de 1920×1080, yan yana, tek bir 3840×1080 tuval:
+- **Learn the layout first.** `pcb-shot` prints every monitor it captured: its
+  number, connector, size, offset and whether it is the primary one. Monitors
+  are numbered by position, left to right (then top to bottom), starting at 1.
+  Do not assume a layout; read it.
+- **GNOME's panel menus and the `Super` overview open on the primary monitor.**
+  `pcb-shot` names it. If you press `Super` and look for the overview on another
+  monitor, you will think it "did not work".
+- **Do not convert coordinates — carry the id.** `pcb-shot` writes a
+  `shot: m2-a1b2c3` line next to every picture. Give the pixel you see **as
+  is** and add that id; pcbridge applies the offset and the scale itself:
+  `{"a":"click","x":<picture_x>,"y":<picture_y>,"shot":"m2-a1b2c3"}`.
+  Without an id a coordinate counts as a **global canvas** coordinate (top left
+  `(0,0)`). If you forget the id and send a picture coordinate, `pcb-do`
+  notices and **refuses** — it asks which one you meant instead of guessing. If
+  you really mean a global or per-monitor coordinate, add `"monitor": 1` (or
+  the right number) and it goes through.
+- Keyboard layouts do not matter: `type` goes through the clipboard.
+- **After `Super` the clipboard is blocked**; to type while the overview is
+  open use `{"a":"type","text":"...","raw":true}` (ASCII only).
 
-  | monitör | konnektör | x aralığı | not |
-  |---|---|---|---|
-  | 1 | DP-2 | 0 – 1919 | sol |
-  | 2 | DP-1 | 1920 – 3839 | sağ, **birincil** |
+## GROUP your actions
 
-- **GNOME üst çubuğu ve `Super` menüsü monitör 2'de** (sağda) beliriyor.
-  Bunu bilmezsen `Super`'a basıp sol ekranda menü ararsın ve "çalışmadı"
-  sanırsın.
-- **Koordinatı çevirme — kimliği taşı.** `pcb-shot` her görüntünün yanına bir
-  `shot: m2-a1b2c3` satırı yazıyor. Gördüğün pikseli **olduğu gibi** ver ve o
-  kimliği ekle; ofseti ve ölçeği pcbridge kendisi uyguluyor:
-  `{"a":"click","x":<görüntü_x>,"y":<görüntü_y>,"shot":"m2-a1b2c3"}`.
-  Kimlik vermezsen koordinat **global tuval** koordinatı sayılır (sol üst
-  `(0,0)`, sağ ekran `x ≥ 1920`). Kimliği unutup görüntü koordinatı
-  gönderirsen `pcb-do` bunu fark edip **reddediyor** — hangisini kastettiğini
-  soruyor, tahmin etmiyor. Gerçekten global/monitör koordinatı veriyorsan
-  `"monitor": 1` (ya da 2) ekle; o zaman geçer.
-- Klavye düzeni Türkçe (`tr+intl`). `type` eylemi bunu kendisi hallediyor
-  (pano üzerinden), sen düşünme.
-- `Super`'a bastıktan **sonra** pano bloklanıyor; genel bakış açıkken metin
-  yazacaksan `{"a":"type","text":"...","raw":true}` kullan.
+Every `pcb-do` call is a separate process and sets the virtual keyboard and
+pointer up from scratch. Measured:
 
-## Eylemleri GRUPLA
-
-Her `pcb-do` çağrısı ayrı bir süreç ve sanal klavye/fare her seferinde
-sıfırdan kuruluyor. Ölçüldü:
-
-| | süre |
+| | time |
 |---|---|
-| süreç başına cihaz kurulumu | **1,4 s** |
-| gerçek tuş basımı | 0,03 s |
+| device setup per process | **1.4 s** |
+| an actual key press | 0.03 s |
 
-On eylemi tek tek göndermek ~14 saniyeyi çöpe atmak demek. Aynı listede
-gönder:
+Sending ten actions one by one wastes ~14 seconds. Send them in one list:
 
 ```bash
 pcb-do '[{"a":"click","x":840,"y":900,"shot":"m2-a1b2c3"},
          {"a":"wait","ms":300},
-         {"a":"type","text":"merhaba"},
+         {"a":"type","text":"hello"},
          {"a":"key","keys":"Return"}]'
 ```
 
-Ekran görüntüsü de bedava değil: bir görüntü ~40 bin girdi jetonu (bu sayı
-sürücüye göre 20–30 kat değişiyor; Claude'da ~1200–1900). Her eylemden sonra
-doğrula, ama aynı ekranı iki kez okuma.
+Screenshots are not free either: one costs roughly 1200–1900 input tokens on
+Claude (other models up to 20–30 times more). Check after every action, but
+do not read the same screen twice.
 
-`pcb-shot` görüntüyü küçültüyor (`screen_capture` ile **aynı** ayar,
-`[desktop] screenshot_scale_long_edge`), yani gördüğün piksel ekrandaki
-pikselden küçük. Bunu düşünmene gerek yok — koordinatı gördüğün gibi ver,
-`shot` kimliğini ekle.
+`pcb-shot` scales pictures down (the **same** setting as `screen_capture`,
+`[desktop] screenshot_scale_long_edge`), so the pixel you see is smaller than
+the one on screen. You do not need to think about it — give the coordinate as
+you see it and add the `shot` id.
 
-**`--scale 0`'dan koordinat çıkarma.** Tam çözünürlük (1920) senin
-gördüğünden büyük: görüntüyü işleyen taraf onu kendisi 1568'e indiriyor, yani
-senin okuduğun piksel ile kayıtlı ölçek ayrışıyor ve `shot` hesabı ~1,22 kat
-şaşıyor. `pcb-shot` bu durumda zaten uyarı basıyor. Tam çözünürlük yalnızca
-**bakmak** için — küçük bir yazıyı seçemediğinde.
+**Do not read coordinates off `--scale 0`.** Full resolution (1920) is larger
+than what you actually see: the image pipeline scales it down to 1568 itself,
+so your pixel and the recorded scale disagree and a `shot` coordinate is off
+by ~1.22 times. `pcb-shot` prints a warning in that case. Full resolution is
+only for **looking** — when you cannot make out small text.
 
-## Eylemler
+## Actions
 
 ```
-{"a":"key",          "keys":"ctrl+s"}          tuş / kombinasyon (kaç tuş olursa)
-{"a":"hold",         "keys":"shift"}           BASILI TUT — release'e kadar
-{"a":"release",      "keys":"shift"}           bırak
-{"a":"type",         "text":"...", "raw":false} metin yaz
-{"a":"wait",         "ms":400}                  bekle (en fazla 30000)
-{"a":"move",         "x":.., "y":..}            imleci taşı
-{"a":"click",        "x":.., "y":..}            sol tık (x/y yoksa yerinde)
+{"a":"key",          "keys":"ctrl+s"}          a key or combination
+{"a":"hold",         "keys":"shift"}           HOLD DOWN until release
+{"a":"release",      "keys":"shift"}           let go
+{"a":"type",         "text":"...", "raw":false} type text
+{"a":"wait",         "ms":400}                  wait (at most 30000)
+{"a":"move",         "x":.., "y":..}            move the pointer
+{"a":"click",        "x":.., "y":..}            left click (in place without x/y)
 {"a":"double_click", "x":.., "y":..}
-{"a":"triple_click", "x":.., "y":..}            satırın tamamını seçer
+{"a":"triple_click", "x":.., "y":..}            selects a whole line
 {"a":"right_click",  "x":.., "y":..}
 {"a":"middle_click", "x":.., "y":..}
-{"a":"mouse_down",   "button":"left", "x":.., "y":..}   BASILI TUT
-{"a":"mouse_up",     "button":"left"}                    bırak
+{"a":"mouse_down",   "button":"left", "x":.., "y":..}   HOLD DOWN
+{"a":"mouse_up",     "button":"left"}                    let go
 {"a":"drag",         "x":.., "y":.., "to_x":.., "to_y":.., "button":"left"}
-{"a":"scroll",       "amount":-3, "horizontal":false}   eksi = aşağı / sola
-{"a":"launch",       "app":"Vesktop"}           uygulama başlat
-{"a":"focus",        "window":"Metin Düzenleyici"}  pencereyi öne al (eklenti: ms; arama yedeği: ~6,7 sn)
-{"a":"ui_click",     "id":"90e6"}               erişilebilirlik düğümü
-{"a":"ui_set_text",  "id":"1b72", "text":"..."} metin kutusunu doğrudan doldur
+{"a":"scroll",       "amount":-3, "horizontal":false}   negative = down / left
+{"a":"launch",       "app":"Vesktop"}           start an application
+{"a":"focus",        "window":"Text Editor"}    raise a window (extension: ms; search fallback: ~6.7 s)
+{"a":"ui_click",     "id":"90e6"}               an accessibility node
+{"a":"ui_set_text",  "id":"1b72", "text":"..."} fill a text field directly
 ```
 
-**İmleç ışınlanmıyor**, hedefe ara noktalardan geçerek gidiyor (~5000 px/s,
-ekranın bir ucundan diğerine 0,4 sn). Bir `move` anlık dönmez; "takıldı" sanıp
-çağrıyı tekrarlarsanız iki hareket üst üste biner.
+**The pointer does not jump**; it travels through intermediate points (~5000
+px/s, 0.4 s across one screen). A `move` does not return instantly; repeating
+it because it "hung" stacks two movements.
 
-**`hold` / `mouse_down` sonraki eylemlere taşar.** Ara duraklaması olan bir
-sürükleme — kaydırıcı, seçim dikdörtgeni, dosyayı klasöre bırakma — böyle
-yapılır: `mouse_down`, `move`, `move`, `mouse_up`. `drag` bunun tek atışlık hâli.
+**`hold` / `mouse_down` carry over to later actions.** A drag with stops on
+the way — a slider, a selection rectangle, dropping a file on a folder — is
+`mouse_down`, `move`, `move`, `mouse_up`. `drag` is the one-shot version.
 
-Bıraktığınızdan emin olun. Dizi yarıda kalırsa (hata, bütçe, odak kayması)
-basılı kalanlar kendiliğinden bırakılır; düzgün biterse **bırakılmaz** —
-"tut, sonraki çağrıda tıkla" meşru bir kullanım. Rapor her iki durumda da ne
-olduğunu söyler. Son çare olarak sunucu bir süre sonra (varsayılan 120 sn)
-hepsini bırakır, ama o zamana kadar kullanıcı makinesini kullanamaz.
+Make sure you let go. If a sequence stops half way (error, budget, focus
+moved), held input is released automatically; if it finishes normally it is
+**not** — "hold, click in the next call" is a legitimate use. The report says
+which one happened. As a last resort the server releases everything after a
+while (default 120 s), but until then the user cannot use the machine.
 
-`ui_click` / `ui_set_text` koordinat gerektirmiyor ve **çok daha güvenilir** —
-ama yalnızca GTK/GNOME uygulamalarında çalışıyor. Electron uygulamalarında
-(Vesktop, VS Code, Discord) erişilebilirlik ağacı **boş**; orada gözünle
-çalışmak zorundasın. Zaten bu skill'in var olma sebebi o.
+`ui_click` / `ui_set_text` need no coordinates and are **far more reliable** —
+but they only work in GTK/GNOME applications. In Electron applications
+(Vesktop, VS Code, Discord) the accessibility tree is **empty**; there you have
+to work with your eyes. That is why this skill exists.
 
-## Başka bir pencereye tıklayacaksan önce söyle
+## Say so before you click into another window
 
-Bir tıklama odağı değiştirdiğinde `pcb-do` **durur** ve kalan tuşları
-göndermez. Sebebi aşağıdaki kaza; ama sen bunu bilerek yapıyorsan niyetini
-önceden bildir:
+When a click moves the focus, `pcb-do` **stops** and does not send the
+remaining keys. The reason is the accident below; if you do it on purpose,
+declare it first:
 
 ```bash
-pcb-do --expect-focus "Metin Düzenleyici" \
+pcb-do --expect-focus "Text Editor" \
        '[{"a":"click","x":900,"y":500},
          {"a":"wait","ms":300},
-         {"a":"type","text":"merhaba"}]'
+         {"a":"type","text":"hello"}]'
 ```
 
-Odak **beklediğin** pencereye giderse dizi devam eder. **Başka** bir yere
-giderse yine durur — koruma kalkmıyor, sadece niyetin ölçüt oluyor.
+If the focus goes to the window you **expected**, the sequence goes on. If it
+goes **anywhere else**, it still stops — the guard stays, your intent becomes
+its yardstick.
 
-Pencere adını `pcb-shot` görüntüsündeki başlık çubuğundan okuyabilirsin; bir
-parçası yeterli (`"Düzenleyici"` de olur).
+Read the window name off the title bar in the `pcb-shot` picture; a part of
+it is enough (`"Editor"` works too).
 
-Bunu yazmadan tıklarsan kod 2 alırsın ve mesajda hangi pencereye geçildiği
-yazar — oradan öğrenip tekrar deneyebilirsin.
+Without it a click that moves the focus returns code 2, and the message names
+the window it went to — learn from it and try again.
 
-## Çıkış kodları
+## Exit codes
 
-| kod | anlamı | ne yapmalısın |
+| code | meaning | what to do |
 |---|---|---|
-| 0 | hepsi yapıldı | devam |
-| 2 | **kısmen** yapıldı | `pcb-shot` ile bak, nerede kaldığını gör |
-| 3 | güvenlik kapısı reddetti | dur, kullanıcıya söyle |
-| 4 | bozuk JSON | düzelt, `--dry-run` ile doğrula |
+| 0 | everything done | go on |
+| 2 | **partly** done | look with `pcb-shot`, see where it stopped |
+| 3 | the safety gate refused | stop and tell the user |
+| 4 | malformed JSON | fix it, check with `--dry-run` |
 
-`pcb-do --dry-run '<json>'` hiçbir şey çalıştırmadan listeni ayrıştırır.
-Emin değilsen önce bunu kullan.
+`pcb-do --dry-run '<json>'` parses your list without running anything. Use it
+when unsure.
 
-Kod 3 aldıysan tekrar deneme. Kullanıcı izni kapatmış, ekran kilitlenmiş ya
-da süre dolmuş olabilir; bunları senin aşman gerekmiyor ve aşamazsın.
+After code 3 do not retry. The user may have closed the grant, the screen may
+be locked or the time may be up; getting past that is not your job and you
+cannot.
 
-## Bir execution yolu kapanırsa
+## When one execution path is closed
 
-Permission veya backend hatası kullanıcı görevini değiştirmez. Önce hangi
-kapsamın kapalı olduğunu koru: Pcbridge grant'i, ekran yakalama, pointer,
-klavye ve erişilebilirlik ayrı izinlerdir. Aynı çağrıyı körlemesine tekrarlama
-ve kendiliğinden daha geniş izin isteme.
+A permission or backend error does not change the user's task. Keep track of
+which scope is closed: the pcbridge grant, screen capture, pointer, keyboard
+and accessibility are separate permissions. Do not repeat the same call
+blindly and do not ask for broader access on your own.
 
-Görevi mevcut izinlerle tamamlayan başka bir yol varsa onu kullan. Pointer
-kapalı ama erişilebilirlik açıksa görünen düğümü `ui_click` ile çalıştırmak;
-çalışan bir tarayıcıya yalnızca URL vermek gerekiyorsa deterministik shell
-handoff'u kullanmak buna örnektir. Yol değiştirirken hedef uygulamayı, kullanıcı
-niyetini ve açık grant'in süresini baştan başlatma veya genişletme.
+If another path finishes the task with the permissions you already have, use
+it. With the pointer closed but accessibility open, run the visible node with
+`ui_click`; when a running browser only needs a URL, use a deterministic
+shell handoff. Switching paths must not restart or widen the target
+application, the user's intent or the open grant.
 
-## Ekran görüntün bayatlar
+## Your screenshot goes stale
 
-Bir görüntüye bakıp koordinat çıkardıktan sonra **hemen** tıkla. Arada kod
-yazma, düşünme molası verme, başka iş yapma. Kullanıcı o sırada başka bir
-pencereye geçmiş olabilir ve senin koordinatın artık bambaşka bir şeyin
-üstündedir.
+After reading a coordinate off a picture, click **right away**. Do not write
+code, pause to think or do other work in between. The user may have switched
+windows meanwhile, and your coordinate may now be on top of something else.
 
-`pcb-do` görüntü 60 saniyeden eskiyse koordinatlı eylemi **reddediyor**
-(kod 3). `shot` verdiysen ölçüt **o çekimin kendi yaşı**, klasördeki en yeni
-PNG değil — yani arada yeni bir görüntü almış olman eski bir kimliği taze
-yapmaz. Bu bir ağ, kural değil; ağa güvenip beklemek yerine döngüyü sıkı tut:
+`pcb-do` **refuses** a coordinate action when the picture is older than 60
+seconds (code 3). With `shot` the yardstick is **that capture's own age**, not
+the newest PNG in the folder — taking a new picture meanwhile does not make an
+old id fresh. This is a net, not a rule; keep the loop tight instead of
+relying on it:
 
 ```
-pcb-shot  →  Read  →  pcb-do        ← aralarında başka hiçbir şey yok
+pcb-shot  →  Read  →  pcb-do        ← nothing else in between
 ```
 
-Bu da bir kazadan geliyor: 3 Ağustos 2026'da 69 saniyelik bir görüntüye göre
-tıklandı. Vesktop sanılan yerde başka bir uygulama vardı, tıklama oraya düştü.
-Odak koruması **ötmedi**, çünkü odak zaten o uygulamadaydı — değişen bir şey
-yoktu. Aşağıdaki koruma bu durumu yakalamıyor; sıkı döngü yakalıyor.
+This also comes from an accident: on 3 August 2026 a click was based on a
+69-second-old picture. Where Vesktop was expected there was another
+application, and the click landed there. The focus guard did **not** fire,
+because the focus was already on that application — nothing changed. The
+guard below does not catch this case; a tight loop does.
 
-## Kör tıklama yasağı
+## No blind clicks
 
-**Bir noktaya, orada ne olduğunu görmeden tıklama.**
+**Never click a point without having seen what is there.**
 
-Bu kural bir kazadan geliyor. 2 Ağustos 2026, 21:13: bir ölçüm sırasında
-`move(920, 520)` + `click` yapıldı ve oranın metin düzenleyici penceresi
-olduğu **varsayıldı, doğrulanmadı**. Tıklama masaüstüne düştü. Odak oraya
-kaydı. Ardından temizlik için gönderilen `ctrl+a` + `Delete` masaüstündeki
-**23 öğeyi çöpe gönderdi**.
+This rule comes from an accident. 2 August 2026, 21:13: during a measurement a
+`move(920, 520)` + `click` was sent and the text editor window was **assumed
+to be there, not checked**. The click landed on the desktop. The focus moved
+there. The `ctrl+a` + `Delete` sent afterwards to clean up **moved 23 items
+from the desktop to the trash**.
 
-Karşılığı koda girdi: `pcb-do` artık fare tıklamalarından sonra odağın
-değişip değişmediğini kontrol ediyor ve kaymışsa **duruyor** (çıkış kodu 2).
-Bu ağ seni yakalar, ama ağa güvenerek atlama.
+The lesson went into the code: `pcb-do` now checks after mouse clicks whether
+the focus changed and **stops** if it did (exit code 2). This net catches you,
+but do not skip steps because of it.
 
-Pratikte: tıklamadan önceki `pcb-shot` çıktısını gerçekten `Read` et. Hedefin
-görüntüde nerede olduğunu göster kendine. Sonra tıkla.
+In practice: really `Read` the `pcb-shot` output before a click. Show yourself
+where the target is in the picture. Then click.
 
-## Takılırsan
+## If you get stuck
 
-Tahmin etme. Üç denemede ilerleyemediysen dur ve kullanıcıya ne gördüğünü,
-ne denediğini, neyin olmadığını anlat. Yanlış yere tıklamaya devam etmek her
-zaman en kötü seçenek.
+Do not guess. If three attempts made no progress, stop and tell the user what
+you see, what you tried and what did not happen. Clicking on in the wrong
+place is always the worst option.
 
-Aynı şey belirsizlikte de geçerli: "hangi sohbet penceresi", "hangi dosya"
-gibi sorularda ekrandan emin olamıyorsan sor.
+The same goes for ambiguity: when you cannot be sure from the screen ("which
+chat window", "which file"), ask.
