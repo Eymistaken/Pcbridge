@@ -80,6 +80,17 @@ class Monitor:
     # Verilmemisse ikisi ayni sayilir -- eski kayitlar ve testler icin.
     platform_x: int | None = None
     platform_y: int | None = None
+    # Mutter's layout mode (Step 6 of 2.0). In the PHYSICAL mode -- GNOME's
+    # default unless fractional scaling is turned on; this machine runs it,
+    # measured 2026-09-23: `layout-mode` 2 -- positions and sizes are in
+    # framebuffer pixels and the scale only enlarges the UI. A 4K monitor at
+    # scale 2 then spans 3840x2160 canvas units, not 1920x1080.
+    physical_layout: bool = False
+
+    @property
+    def pixel_ratio(self) -> float:
+        """Framebuffer pixels per canvas unit: 1 in the physical layout mode."""
+        return 1.0 if self.physical_layout else self.scale
 
     @property
     def platform(self) -> tuple[int, int]:
@@ -91,15 +102,15 @@ class Monitor:
 
     @property
     def source_pixel_size(self) -> tuple[int, int]:
-        """Monitorun ham piksel boyutu: mantiksal boyut x olcek.
+        """Monitorun ham piksel boyutu: tuval boyutu x `pixel_ratio`.
 
         Olcek 1 iken mantiksal boyutun aynisi. Kesirli olcekte yuvarlama
         kurali tabloyla ayni (`round_half_away`), yoksa bir piksel sessizce
         ayrisirdi.
         """
         return (
-            round_half_away(self.width * self.scale),
-            round_half_away(self.height * self.scale),
+            round_half_away(self.width * self.pixel_ratio),
+            round_half_away(self.height * self.pixel_ratio),
         )
 
     @property
@@ -116,9 +127,12 @@ class Monitor:
 
     def describe(self) -> str:
         star = " (primary)" if self.primary else ""
+        # In Mutter's physical layout mode the scale only enlarges the UI; the
+        # size above is then in real pixels, which is worth saying once.
+        unit = " (UI only; sizes are pixels)" if self.pixel_ratio != self.scale else ""
         return (
             f"{self.index}: {self.connector}{star} · {self.width}x{self.height} "
-            f"@ ({self.x}, {self.y}) · scale {self.scale:g}"
+            f"@ ({self.x}, {self.y}) · scale {self.scale:g}{unit}"
         )
 
 
@@ -159,6 +173,12 @@ def resolve_state(state: dict) -> list[Monitor]:
     """
     physical = state.get("physical") or []
     logical = state.get("logical") or []
+    # Missing means logical: fixtures written before 2.0 carry no mode, and
+    # their expected tables were computed with the division by scale.
+    layout_mode = str(state.get("layout_mode") or "logical")
+    if layout_mode not in ("logical", "physical"):
+        raise MonitorError(f"unknown Mutter layout mode {layout_mode!r}")
+    physical_layout = layout_mode == "physical"
 
     modes: dict[str, tuple[int, int]] = {}
     names: dict[str, str] = {}
@@ -194,8 +214,9 @@ def resolve_state(state: dict) -> list[Monitor]:
         mw, mh = modes[connector]
         if transform in _SWAPS_AXES:
             mw, mh = mh, mw
-        width = round_half_away(mw / scale)
-        height = round_half_away(mh / scale)
+        ratio = 1.0 if physical_layout else scale
+        width = round_half_away(mw / ratio)
+        height = round_half_away(mh / ratio)
         if width <= 0 or height <= 0:
             raise MonitorError(
                 f"invalid logical size for {connector}: {width}x{height}"
@@ -213,10 +234,11 @@ def resolve_state(state: dict) -> list[Monitor]:
                 name=names.get(connector, ""),
                 transform=transform,
                 serial=serials.get(connector, ""),
+                physical_layout=physical_layout,
             )
         )
     if not out:
-        raise MonitorError("Mutter hic mantiksal monitor bildirmedi")
+        raise MonitorError("Mutter reported no logical monitor")
     return _ordered(_normalize_origin(out))
 
 
@@ -248,11 +270,17 @@ def topology_id(mons: list[Monitor] | None = None) -> str:
 
     `transform` iceride, cunku 180 derece donus genislik/yukseklik degistirmez
     ama goruntuyu ve koordinat eslemesini degistirir.
+
+    A `,p` suffix marks a monitor whose pixel ratio differs from its scale
+    (physical layout mode at a scale other than 1). Only then: at scale 1 the
+    two modes map identically, so the id of such a layout -- this machine's --
+    stays what 1.x computed and a 1.x reader still accepts its shots.
     """
     mons = list_monitors() if mons is None else mons
     parts = [
         f"{m.x},{m.y},{m.width},{m.height},{m.scale:.4f},{m.transform},"
         f"{1 if m.primary else 0}"
+        + (",p" if m.pixel_ratio != m.scale else "")
         for m in mons
     ]
     return "|".join([TOPOLOGY_VERSION, *parts])
@@ -273,7 +301,12 @@ def _mutter_state(data: list) -> dict:
     ve iki kopya kural er gec ayrisir.
     """
     physical, logical = data[1], data[2]
+    # 1 = logical, 2 = physical (MetaLogicalMonitorLayoutMode). Anything else
+    # is passed through and refused by `resolve_state`, not guessed.
+    mode = _prop(data[3] if len(data) > 3 else {}, "layout-mode")
+    layout_mode = {1: "logical", 2: "physical", None: "logical"}.get(mode, str(mode))
     return {
+        "layout_mode": layout_mode,
         "physical": [
             {
                 "connector": mon[0][0],
@@ -326,6 +359,12 @@ def _from_xrandr() -> list[Monitor]:
     Mutter D-Bus'a ulasilamadiginda (ornegin arayuz adi degistiginde) devreye
     girer. XWayland tum mantiksal duzeni tek bir X ekrani olarak yansittigi
     icin koordinatlar ayni uzayda.
+
+    What xrandr cannot say is left at its neutral value, not guessed: the
+    scale is reported as 1.0 (a capture frame at any other size is then
+    refused by `check_source_size`), the rotation as 0 (the size already
+    reflects it) and the serial as empty. The origin is normalized like the
+    Mutter path, so both describe the same canvas.
     """
     proc = subprocess.run(
         ["xrandr", "--listmonitors"], capture_output=True, text=True, timeout=10
@@ -350,8 +389,8 @@ def _from_xrandr() -> list[Monitor]:
             )
         )
     if not out:
-        raise MonitorError("xrandr --listmonitors bos dondu")
-    return out
+        raise MonitorError("xrandr --listmonitors returned nothing")
+    return _normalize_origin(out)
 
 
 def _prop(props: dict, key: str):

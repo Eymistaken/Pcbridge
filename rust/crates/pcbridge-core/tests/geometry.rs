@@ -203,6 +203,7 @@ fn canvas_size_is_the_bounding_box_of_whatever_it_is_given() {
             serial: String::new(),
             platform_x: -1920,
             platform_y: -100,
+            physical_layout: false,
         },
         Monitor {
             index: 2,
@@ -218,6 +219,7 @@ fn canvas_size_is_the_bounding_box_of_whatever_it_is_given() {
             serial: String::new(),
             platform_x: 0,
             platform_y: 0,
+            physical_layout: false,
         },
     ];
     assert_eq!(canvas_size(&raw), (3840, 1180));

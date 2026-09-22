@@ -771,8 +771,8 @@ def main() -> int:
     if ATSPI_ERROR:
         return _reply({
             "ok": False,
-            "error": f"AT-SPI baglantilari yuklenemedi ({ATSPI_ERROR}). "
-                     "Kurulum: sudo apt install python3-gi gir1.2-atspi-2.0",
+            "error": f"The AT-SPI bindings could not be loaded ({ATSPI_ERROR}). "
+                     "Install: sudo apt install python3-gi gir1.2-atspi-2.0",
         })
     raw = sys.stdin.read()
     try:

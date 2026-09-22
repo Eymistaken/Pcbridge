@@ -153,6 +153,9 @@ class DesktopSpec:
     # monitor ~640x180 kaliyor ve buton yazilari okunmaz oluyor; bu yuzden once
     # monitor basina kirpiliyor, olcekleme ondan sonra. 0 = hic olcekleme.
     screenshot_scale_long_edge: int = 1536
+    # Pixel-area cap of a scaled picture (Step 6 of 2.0); 0 = no cap. The
+    # default is the area of a 16:9 picture at 1536 (1536x864).
+    screenshot_max_pixels: int = 1536 * 864
     # /shot/<token>.png baglantisinin omru. Baglanti OAuth'tan BAGIMSIZ, yani
     # token'i olan herkes goruntuyu gorur -- kisa tutuluyor.
     shot_ttl_seconds: int = 300
@@ -470,7 +473,11 @@ def _mode_warning(path: Path) -> str | None:
 # effective settings do not move under the user's feet.
 _PINNED_DEFAULTS: dict[int, list[tuple[str, str, str]]] = {
     # version 2: OCR defaults to English only; version 1 read Turkish too.
-    2: [("desktop", "ocr_languages", '"tur+eng"')],
+    2: [
+        ("desktop", "ocr_languages", '"tur+eng"'),
+        # version 2 caps the area of scaled pictures; version 1 did not.
+        ("desktop", "screenshot_max_pixels", "0"),
+    ],
 }
 
 
@@ -822,6 +829,7 @@ def load_config(explicit: str | None = None) -> Config:
         screenshot_scale_long_edge=int(
             desktop_raw.get("screenshot_scale_long_edge", 1536)
         ),
+        screenshot_max_pixels=int(desktop_raw.get("screenshot_max_pixels", 1536 * 864)),
         shot_ttl_seconds=int(desktop_raw.get("shot_ttl_seconds", 300)),
         shot_keep_hours=int(desktop_raw.get("shot_keep_hours", 24)),
         include_pointer=bool(desktop_raw.get("include_pointer", True)),
@@ -875,6 +883,12 @@ def load_config(explicit: str | None = None) -> Config:
             f"[desktop] ({path}): `screenshot_scale_long_edge` "
             f"({desktop.screenshot_scale_long_edge}) must be 0 (no scaling) or "
             "at least 320."
+        )
+    if desktop.screenshot_max_pixels and desktop.screenshot_max_pixels < 320 * 180:
+        raise SystemExit(
+            f"[desktop] ({path}): `screenshot_max_pixels` "
+            f"({desktop.screenshot_max_pixels}) must be 0 (no cap) or at least "
+            f"{320 * 180}."
         )
     # Bir MCP cagrisi 110 saniyeyi asamaz; butce ondan buyuk olursa arac
     # cevabini hazirlayamadan kesilir. Sessizce kirpmak yerine soyluyoruz.

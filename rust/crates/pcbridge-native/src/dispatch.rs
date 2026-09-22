@@ -653,6 +653,7 @@ impl Dispatcher {
                             "width": monitor.width,
                             "height": monitor.height,
                             "scale": monitor.scale,
+                            "pixel_ratio": monitor.pixel_ratio(),
                             "primary": monitor.primary,
                             "name": monitor.name,
                             "transform": monitor.transform,

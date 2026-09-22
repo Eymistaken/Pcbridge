@@ -67,9 +67,25 @@ pub struct LogicalMonitor {
     pub connectors: Vec<String>,
 }
 
+/// Mutter's `layout-mode` property.
+///
+/// In the physical mode -- GNOME's default unless fractional scaling is on,
+/// and what the target machine runs (measured 2026-09-23: `layout-mode` 2) --
+/// positions and sizes are framebuffer pixels and the scale only enlarges the
+/// UI. A missing mode means logical: fixtures written before 2.0 carry none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutMode {
+    #[default]
+    Logical,
+    Physical,
+}
+
 /// The meaning of a `GetCurrentState` reply, free of its wire encoding.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct DisplayState {
+    #[serde(default)]
+    pub layout_mode: LayoutMode,
     #[serde(default)]
     pub physical: Vec<PhysicalMonitor>,
     #[serde(default)]
@@ -103,18 +119,30 @@ pub struct Monitor {
     /// position, which always starts at (0, 0); these two may be negative.
     pub platform_x: i32,
     pub platform_y: i32,
+    /// True in Mutter's physical layout mode, where one canvas unit is one
+    /// framebuffer pixel whatever the scale.
+    pub physical_layout: bool,
 }
 
 impl Monitor {
-    /// The monitor's size in raw pixels: the logical size times its scale.
+    /// Framebuffer pixels per canvas unit: 1 in the physical layout mode.
+    pub fn pixel_ratio(&self) -> f64 {
+        if self.physical_layout {
+            1.0
+        } else {
+            self.scale
+        }
+    }
+
+    /// The monitor's size in raw pixels: the canvas size times `pixel_ratio`.
     ///
     /// Equal to the logical size at scale 1. The rounding rule is the table's
     /// own, so a fractional scale cannot drift by a pixel between the two
     /// languages.
     pub fn source_pixel_size(&self) -> (u32, u32) {
         (
-            round_half_away(f64::from(self.width) * self.scale) as u32,
-            round_half_away(f64::from(self.height) * self.scale) as u32,
+            round_half_away(f64::from(self.width) * self.pixel_ratio()) as u32,
+            round_half_away(f64::from(self.height) * self.pixel_ratio()) as u32,
         )
     }
 }
@@ -188,8 +216,10 @@ pub fn resolve(state: &DisplayState) -> Result<Vec<Monitor>, DisplayError> {
             (mode.width, mode.height)
         };
 
-        let width = round_half_away(f64::from(mode_width) / logical.scale) as i64;
-        let height = round_half_away(f64::from(mode_height) / logical.scale) as i64;
+        let physical_layout = state.layout_mode == LayoutMode::Physical;
+        let ratio = if physical_layout { 1.0 } else { logical.scale };
+        let width = round_half_away(f64::from(mode_width) / ratio) as i64;
+        let height = round_half_away(f64::from(mode_height) / ratio) as i64;
         if width <= 0 || height <= 0 {
             return Err(DisplayError::InvalidSize {
                 connector: connector.clone(),
@@ -218,6 +248,7 @@ pub fn resolve(state: &DisplayState) -> Result<Vec<Monitor>, DisplayError> {
             serial: physical.serial.clone(),
             platform_x: logical.x,
             platform_y: logical.y,
+            physical_layout,
         });
     }
 
@@ -248,6 +279,10 @@ pub fn resolve(state: &DisplayState) -> Result<Vec<Monitor>, DisplayError> {
 /// A canonical string rather than a hash: no collisions, readable in a log, and
 /// comparable across the two languages byte for byte. The connector name is
 /// deliberately excluded, because it demonstrably drifts while nothing moves.
+///
+/// A `,p` suffix marks a monitor whose pixel ratio differs from its scale
+/// (physical layout mode at a scale other than 1). Only then: at scale 1 both
+/// modes map identically, so such a layout keeps the id 1.x computed.
 pub fn topology_id(monitors: &[Monitor]) -> String {
     let mut out = String::from(TOPOLOGY_VERSION);
     for monitor in monitors {
@@ -262,6 +297,9 @@ pub fn topology_id(monitors: &[Monitor]) -> String {
             monitor.transform,
             u8::from(monitor.primary),
         ));
+        if monitor.pixel_ratio() != monitor.scale {
+            out.push_str(",p");
+        }
     }
     out
 }

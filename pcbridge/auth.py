@@ -363,7 +363,7 @@ class SqliteOAuthProvider(OAuthProvider):
         scopes: list[str],
     ) -> OAuthToken:
         if scopes and not set(scopes).issubset(set(refresh_token.scopes)):
-            raise TokenError("invalid_scope", "Istenen kapsam yetkiyi asiyor.")
+            raise TokenError("invalid_scope", "The requested scope exceeds the granted scope.")
         assert client.client_id
 
         # Eski access token'i dusur; refresh token'i DONDURMUYORUZ (rotation yok)

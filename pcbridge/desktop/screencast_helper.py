@@ -64,7 +64,7 @@ try:
     gi.require_version("Gst", "1.0")
     from gi.repository import Gio, GLib, Gst
 except Exception as exc:  # noqa: BLE001 - bagimlilik yoksa duzgun rapor et
-    print(json.dumps({"ok": False, "error": f"gi/Gst yuklenemedi: {exc}"}),
+    print(json.dumps({"ok": False, "error": f"gi/Gst could not be loaded: {exc}"}),
           flush=True)
     sys.exit(3)
 

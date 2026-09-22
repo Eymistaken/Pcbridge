@@ -885,6 +885,7 @@ def register(
     backend = runtime.input_provider
     tree = runtime.accessibility_provider
     capture_provider = runtime.capture_provider
+    capturelib.set_max_pixels(cfg.desktop.screenshot_max_pixels)
 
     def _unavailable_result(
         capability_name: str,
@@ -2037,6 +2038,7 @@ def register(
                 if note:
                     out.append(note)
                     break
+            out.extend(n for n in map(capturelib.legibility_note, shots) if n)
             if any(s.scale < 1.0 for s in shots):
                 # Olculdu: tam cozunurlukte gidis-donus sapmasi 1 px, 1280'e
                 # kucultulmusde ~5 px. Bu sapma DONUSUMDEN degil kucultmenin

@@ -17,7 +17,7 @@ use std::time::Duration;
 use async_io::Timer;
 use futures_lite::{StreamExt, future};
 use pcbridge_core::display::{
-    DisplayError, DisplayState, LogicalMonitor, Monitor, PhysicalMonitor,
+    DisplayError, DisplayState, LayoutMode, LogicalMonitor, Monitor, PhysicalMonitor,
 };
 use pcbridge_core::display::{DisplayMode, resolve, topology_id};
 use zbus::proxy::SignalStream;
@@ -72,10 +72,23 @@ fn prop_string(props: &Props, key: &str) -> String {
         .unwrap_or_default()
 }
 
+fn prop_u32(props: &Props, key: &str) -> Option<u32> {
+    props
+        .get(key)
+        .and_then(|value| u32::try_from(value.clone()).ok())
+}
+
 /// Wire reply to the neutral state. No rules here on purpose.
 fn to_state(wire: WireState) -> DisplayState {
-    let (_serial, monitors, logical, _props) = wire;
+    let (_serial, monitors, logical, props) = wire;
+    // 2 = physical (MetaLogicalMonitorLayoutMode); 1 and a missing property
+    // are the logical mode.
+    let layout_mode = match prop_u32(&props, "layout-mode") {
+        Some(2) => LayoutMode::Physical,
+        _ => LayoutMode::Logical,
+    };
     DisplayState {
+        layout_mode,
         physical: monitors
             .into_iter()
             .map(|(identity, modes, props)| {

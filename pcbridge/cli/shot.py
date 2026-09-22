@@ -134,6 +134,9 @@ def describe(shots, mons, capture_provider=None) -> list[str]:
         if note:
             out.append("\n" + note)
             break
+    from ..desktop import capture as _legible
+
+    out.extend("\n" + n for n in map(_legible.legibility_note, shots) if n)
     return out
 
 
@@ -174,6 +177,8 @@ def main(argv: list[str] | None = None) -> int:
              else max(0, args.scale))
     from ..desktop import capture as capturelib
     from ..desktop.errors import DesktopError
+
+    capturelib.set_max_pixels(cfg.desktop.screenshot_max_pixels)
     from ..desktop import monitors as monitorslib
     from ..desktop import screencast as screencastlib
 

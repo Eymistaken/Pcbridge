@@ -33,7 +33,9 @@ uyari tuval olcek yardimci yardimcisi kurulu kaldir sonuc sonucu tekrar
 deneyin verin alin bakin kullanin secin gidin ekleyin hicbir hicbiri eylem
 eylemi eylemler tusu dugme dugmesi imlec imleci klavye pano metin yazildi
 karakter oturum oturumu ajani ajanin istegi cagri cagriyi uygulama uygulamasi
-uygulamanin kimlik kimligi listesi""".split()
+uygulamanin kimlik kimligi listesi olabilir degismis duzeni bos dondu istenen
+lutfen yeniden gerekiyor reddedildi kilitli goruntusundeki baglantilari
+yuklenemedi asimina ugradi sinirina ulasti kapatiliyor""".split()
 WORD_RX = re.compile(r"(?<![A-Za-z_])(" + "|".join(WORDS) + r")(?![A-Za-z_])", re.I)
 LETTER_RX = re.compile(r"[çğıöşüÇĞİÖŞÜ]")
 
@@ -44,6 +46,8 @@ ALLOWED_LITERALS = {
     ("pcbridge/desktop/ocr.py", "*letter*"),
     # `monitor="birincil"` is accepted as an alias of "primary".
     ("pcbridge/desktop/monitors.py", "birincil"),
+    # doctor recognizes the placeholder of 1.x example configs.
+    ("pcbridge/cli/doctor.py", "DEGISTIR"),
     # On-disk names the extension already uses: the visible-pointer flag file
     # in the state directory and the actor name. Renaming would orphan them.
     ("gnome-extension/pcbridge-gorunur@eymistaken.local/cursor.js", "gorunur-imlec"),

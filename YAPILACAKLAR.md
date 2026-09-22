@@ -591,7 +591,7 @@ All output is in English, `--json` is available where it makes sense,
 
 ### Step 6 — Any monitor layout  (time box: 6 h)
 
-- [ ] **Audit.** Look for every code path that assumes:
+- [x] **Audit.** Look for every code path that assumes:
   - 2 monitors,
   - side-by-side placement,
   - equal heights,
@@ -604,7 +604,7 @@ All output is in English, `--json` is available where it makes sense,
   record), `input.py` and the native `input` (absolute axis range across a
   non-rectangular canvas), `uitree.py`, `ocr.py`, `batch.py`, the extension
   (`frame.js` glow per monitor, cursor), `topology_id`, and the Rust side.
-- [ ] **Fixture matrix.** Contract tests in Python and Rust, with parity
+- [x] **Fixture matrix.** Contract tests in Python and Rust, with parity
       between them, for these layouts:
   - single 1920×1080
   - single 2560×1440 @1.25
@@ -626,7 +626,7 @@ All output is in English, `--json` is available where it makes sense,
   - the refusal of coordinates in gaps,
   - the ambiguous-coordinate guard,
   - the `topology_id` stability rules.
-- [ ] **Screenshot sizing policy for extreme aspect ratios.**
+- [x] **Screenshot sizing policy for extreme aspect ratios.**
   - Keep the 1568 long-edge ceiling (see `CLAUDE.md`).
   - Also cap the pixel area.
   - Portrait monitors scale by their height.
@@ -954,6 +954,9 @@ freely **after** extracting what is still true and useful.
 | 2026-09-23 | 4 | `pcbridge setup` restarts pcbridge.service into the daemon only when idle (no running job, no open desktop grant; waits up to `--idle-wait`, default 600 s) and enables pcbridge.socket only after that restart; the relay only starts pcbridge.socket on demand when the unit is enabled (checks the `sockets.target.wants` link). Relay handshake wait lowered from 20 to 10 s. | An enabled socket in front of a still-running pre-2.0 service would accept connections nobody answers (I3, I5). |
 | 2026-09-23 | 5 | Comments and internal docstrings stay Turkish for now; only strings a user or model reads are English | Step 5 scope is what reaches a human or model; comment translation belongs to the docs pass and would triple the diff |
 | 2026-09-23 | 5 | Old Turkish flags of gnome-extension/install.sh (--kur, --kaldir, --durum...) kept as aliases; on-disk names gorunur-imlec and the extension UUID unchanged | Renaming what scripts or state files refer to by name silently breaks existing setups |
+| 2026-09-23 | 6 | topology_id format unchanged except a ',p' suffix on monitors whose pixel ratio differs from their scale | An unconditional change would make every 1.x process (old stdio clients, old pcb-do) refuse shots taken by 2.0 on this machine (I6) |
+| 2026-09-23 | 6 | Area cap default = 1536x864 (the current 16:9 output), pinned to 0 for version-1 configs | Keeps this machine's pictures byte-identical and an unmigrated 1.x file meaning what it meant. Whether the Anthropic API itself shrinks 1536x864 (~1.33 MP) is UNMEASURED; not changed without a measurement |
+| 2026-09-23 | 6 | xrandr fallback reports scale 1.0 / transform 0 instead of guessing | xrandr --listmonitors does not carry them; with scale 1.0 a scaled frame is refused by check_source_size rather than mis-mapped |
 
 ## 8. Progress log and measurements
 
@@ -982,6 +985,7 @@ Append-only. One line per meaningful event, with numbers.
 - 2026-09-23 step 4 — CLI subcommands: serve, stdio, setup, connect, doctor, status, lock, unlock, stop, remote, logs, report, update, uninstall, --version. Codex edit dry-run on the real ~/.codex/config.toml: only the two command/args lines change, the five approval_mode sub-tables stay, idempotent. `pcbridge doctor` on the real machine (worktree, before install): 28 ok, 13 warnings, 3 failures, all expected before step 10 (socket unit not installed, clients on the 1.x command, worktree launcher missing before the editable install) plus tesseract missing; it also showed the Tailscale funnel is currently OPEN on 8765. End-to-end `packaging/install-user.sh` into a throwaway HOME with stubbed systemctl/claude: venv created, launchers linked, units rendered with the venv python, config migrated from a copy of the real one, extension copied, Codex + Claude Desktop registered, alias block rewritten in place, fresh client got 36 tools in 793 ms. Found and fixed: doctor's readiness probe closed stdin before the answer arrived (a server ends the session at EOF). New tests: contracts/test_cli.py (6: version, connect with backups and idempotence, alias block, report redaction, doctor JSON, unit rendering). Suites: models 106, desktop 614, contracts 479 OK, integration 27 OK, gjs 70.
 - 2026-09-23 step 5 (part 1) — Every user- and model-facing string in the Python package translated to English (~500 string lines in 40 modules: tools, batch, capture, apps, safety, uitree, atspi_helper, backends, config, app, auth consent page, models, diagnostics, CLI tools, jobs, tmux, OCR, monitors and the small desktop/native modules). The Rust accessibility helper's messages (action.rs, accessibility.rs, bus.rs, dispatch.rs; 20 strings) were translated to exactly the Python helper's wording, because the parity tests compare them byte for byte; native helper rebuilt (build b556f5b82db8-dirty). Error codes, categories, scopes and field names unchanged. Found on the way: `INSTALL_HINT` asked for Turkish tesseract data; the OCR report, job step labels (`→ arac`) and several `fail()` paths were still Turkish. Tests: ~130 assertions on Turkish text rewritten (fakes' Turkish data too); models 106, desktop 614, contracts 479 OK, integration 27 OK, cargo 190/168, gjs 70.
 - 2026-09-23 Step 5 done. Inventory: 82 files carried user- or model-facing Turkish (63 in part 1: the Python package, Rust accessibility messages, tests; 19 in part 2: extension strings + metadata.json, 5 shell scripts, bin wrappers, config.example.toml rewritten in English, SKILL.md rewritten without this machine's layout). Error codes, scopes, field names, config keys and values unchanged. Guard: tests/contracts/test_english_only.py (6 tests: package strings, bin wrappers, SKILL + example config, extension, shell output, native helper). Suites: models 106, desktop 615, contracts 485 OK, integration 27 OK, gjs 17/31/22, cargo 168 passed, fmt clean.
+- 2026-09-23 Step 6 code part. MEASURED 2026-09-23: this machine runs Mutter's PHYSICAL layout mode (GetCurrentState property layout-mode = 2, experimental-features empty). In that mode positions/sizes are framebuffer pixels, so 1.x divided a 4K@2 panel down to 1920x1080 while Mutter put its neighbor at x=3840 -- wrong table, wrong pointer axis, refused frames. Fixed in Python and Rust (layout_mode in the neutral state, Monitor.physical_layout, pixel_ratio). topology_id gains ',p' only when pixel ratio != scale, so ids at scale 1 (this machine) are byte-identical to 1.x and mixed-version shots keep working. xrandr fallback now normalizes its origin; scale/rotation/serial stay neutral and are documented. Picture policy: long edge 1536 kept, new area cap screenshot_max_pixels = 1536x864 (this machine's pictures unchanged; 2880x1800 goes 1536x960 -> 1457x911; scale=0/OCR exempt; v1 configs pinned to 0). Legibility note when shown share x UI scale < 0.5 (ultrawide 3440 at 45 %, 5120 at 30 %), suggests region=. Matrix: tests/fixtures/native/layout_matrix.json, 14 layouts, both modes; Python 14 tests, Rust 4 tests; mutation (re-dividing in physical mode) caught on both sides. More leftover Turkish found by a suffix scan (native client, AT-SPI, screencast helper, auth/app messages) and fixed; guard word list widened. Suites: models 106, desktop 615, contracts 499 OK, integration 27 OK, gjs 17/31/22, cargo 172.
 
 ## 9. Needs eymistaken (physical presence, sudo, or a decision only he can make)
 

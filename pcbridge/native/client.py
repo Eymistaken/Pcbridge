@@ -219,7 +219,7 @@ class NativeClient:
             self._fail_pending(
                 _desktop_error(
                     ErrorCode.CANCELLED,
-                    "Native helper kapatiliyor.",
+                    "The native helper is shutting down.",
                     suggested_action="start_a_new_native_request",
                     execution_state="canceled",
                 )
@@ -458,7 +458,7 @@ class NativeClient:
             if len(self._pending) >= self.pending_limit:
                 raise _desktop_error(
                     ErrorCode.BUSY,
-                    "Native helper pending request sinirina ulasti.",
+                    "The native helper reached its limit of pending requests.",
                     retryable=True,
                     suggested_action="retry_after_pending_requests_finish",
                     execution_state="not_started",
@@ -473,7 +473,7 @@ class NativeClient:
                 self._pending.pop(request_id, None)
                 raise _desktop_error(
                     ErrorCode.BUSY,
-                    "Native helper outgoing frame sinirina ulasti.",
+                    "The native helper reached its limit of outgoing frames.",
                     retryable=True,
                     suggested_action="retry_after_pending_requests_finish",
                     execution_state="not_started",
@@ -486,7 +486,7 @@ class NativeClient:
                 self._send_cancel(process, generation, request_id)
                 raise _desktop_error(
                     ErrorCode.TIMEOUT,
-                    "Native helper request zaman asimina ugradi.",
+                    "A native helper request timed out.",
                     suggested_action="inspect_native_status_before_retry",
                     execution_state="unknown",
                 )
@@ -497,7 +497,7 @@ class NativeClient:
         if pending.response is None:
             raise _desktop_error(
                 ErrorCode.INVALID_FRAME,
-                "Native helper bos response tamamladi.",
+                "The native helper completed an empty response.",
                 suggested_action="check_native_protocol",
             )
         if pending.response.error is not None:

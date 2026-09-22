@@ -153,7 +153,7 @@ def available() -> tuple[bool, str]:
             check=False,
         )
     except subprocess.TimeoutExpired:
-        return False, "AT-SPI kontrolu zaman asimina ugradi."
+        return False, "The AT-SPI check timed out."
     if proc.returncode != 0:
         return False, (
             "AT-SPI bindings are missing. Install them: "

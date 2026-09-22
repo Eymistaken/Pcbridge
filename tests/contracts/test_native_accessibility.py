@@ -292,7 +292,7 @@ class ActionRequestTests(_Case):
     def test_an_unanswered_action_is_unknown_and_never_sent_again(self) -> None:
         lost = DesktopError(
             code=ErrorCode.TIMEOUT,
-            message="Native helper request zaman asimina ugradi.",
+            message="A native helper request timed out.",
             category=ErrorCategory.EXECUTION,
             retryable=False,
             suggested_action="inspect_native_status_before_retry",

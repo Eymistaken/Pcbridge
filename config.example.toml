@@ -336,6 +336,18 @@ click_hold_ms = 60
 # picture.
 screenshot_scale_long_edge = 1536
 
+# Largest pixel AREA of a scaled picture; 0 = no cap. The long edge alone lets
+# a 16:10, 4:3 or square monitor cost more than a 16:9 one, so this keeps
+# every shape at the area of a 16:9 picture at 1536 (1536x864 = 1327104).
+# Portrait monitors are limited by their height (their long edge). A full-
+# resolution capture (`scale=0`, and OCR) is never capped.
+#
+# When a monitor's small text ends up below half its real size -- the shown
+# share times the monitor's UI scale, e.g. a 5120x1440 super-ultrawide or a
+# 4K monitor at scale 1 -- `screen_capture` and `pcb-shot` say so and suggest
+# `region=`. A 4K monitor at scale 2 keeps 80 % and does not warn.
+screenshot_max_pixels = 1327104
+
 # Lifetime of a /shot/<token>.png link (seconds). The link is INDEPENDENT of
 # OAuth: anyone with the token can see the picture, so do not share it. It
 # works any number of times within its lifetime. At least 10.

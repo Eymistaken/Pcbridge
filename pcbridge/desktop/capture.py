@@ -140,6 +140,44 @@ OVERSIZE_NOTE = (
 )
 
 
+# Pixel-area cap for scaled pictures (Step 6 of 2.0). The long-edge limit
+# alone lets a 4:3 or 16:10 picture grow past what a 16:9 one costs; the cap
+# keeps every aspect ratio at the area of a 16:9 picture at the default long
+# edge (1536x864), so this machine's pictures are unchanged. It applies only
+# when a picture is scaled at all: `scale=0` (full resolution, also OCR's
+# path) is exempt. `[desktop] screenshot_max_pixels`, 0 turns it off.
+DEFAULT_MAX_PIXELS = 1536 * 864
+_max_pixels = DEFAULT_MAX_PIXELS
+
+# Below this share of its real size a picture's small text is hard to read:
+# the shown size times the monitor's UI scale. A 4K monitor at scale 2 shown
+# at 1536 px keeps 0.8 of its text size; the same monitor at scale 1 or a
+# 5120x1440 super-ultrawide at 1536 px keeps 0.4 and 0.3.
+LEGIBLE_TEXT_RATIO = 0.5
+
+
+def set_max_pixels(value: int) -> None:
+    """Take `[desktop] screenshot_max_pixels` from the config (0 = no cap)."""
+    global _max_pixels
+    _max_pixels = max(0, int(value))
+
+
+def legibility_note(shot: "Shot") -> str:
+    """Warn when small text of a monitor picture is likely unreadable."""
+    if shot.monitor is None or getattr(shot, "region", False) or not shot.size[0]:
+        return ""
+    shown = min(shot.scaled[0] / shot.size[0], shot.scaled[1] / shot.size[1])
+    text_ratio = shown * getattr(shot.monitor, "scale", 1.0)
+    if text_ratio >= LEGIBLE_TEXT_RATIO:
+        return ""
+    return (
+        f"⚠️ Monitor {shot.monitor.index} is shown at {shown:.0%} of its pixels, "
+        f"so small text is at {text_ratio:.0%} of its real size and may be "
+        "unreadable. To read text, capture a part of it with `region=` (or use "
+        "`find_text`)."
+    )
+
+
 def oversize_note(shot: "Shot") -> str:
     """Buyuk cekim uyarisi (koordinat cikarilacaksa). Sorun yoksa bos."""
     if not oversized(shot):
@@ -491,7 +529,7 @@ def to_global(
                 "that picture would land somewhere else now; take a new "
                 "screenshot."
             )
-        return _on_a_monitor(point, f"`{shot}` goruntusundeki ({x}, {y})")
+        return _on_a_monitor(point, f"({x}, {y}) in the `{shot}` picture")
 
     if monitor is None and guard_age > 0:
         # BELIRSIZ KOORDINAT KORUMASI. `shot` da `monitor` da yoksa koordinat
@@ -772,7 +810,7 @@ def canvas_pixel_ratio(
     expected = monitorslib.canvas_size(mons)
     if canvas == expected:
         return 1.0
-    scales = {round(m.scale, 4) for m in mons}
+    scales = {round(m.pixel_ratio, 4) for m in mons}
     if len(scales) == 1:
         scale = scales.pop()
         scaled = (
@@ -788,20 +826,28 @@ def canvas_pixel_ratio(
             " and the monitors have different scales, so this picture cannot tell "
             "which pixel belongs to which monitor"
             if len(scales) > 1
-            else ". Monitor duzeni degismis olabilir"
+            else ". The monitor layout may have changed"
         )
         + "; try again."
     )
 
 
-def _scaled_size(w: int, h: int, long_edge: int) -> tuple[int, int]:
-    """Uzun kenari `long_edge`e indiren boyut. 0 ya da zaten kucukse aynen."""
+def _scaled_size(
+    w: int, h: int, long_edge: int, max_pixels: int | None = None
+) -> tuple[int, int]:
+    """Size with the long edge at most `long_edge` and the area at most
+    `max_pixels`. `long_edge` 0 means full resolution: no limit at all.
+
+    A portrait picture is limited by its height, since that is its long edge.
+    """
     if long_edge <= 0:
         return (w, h)
-    longest = max(w, h)
-    if longest <= long_edge:
+    max_pixels = _max_pixels if max_pixels is None else max_pixels
+    ratio = min(1.0, long_edge / max(w, h))
+    if max_pixels and w * h * ratio * ratio > max_pixels:
+        ratio = math.sqrt(max_pixels / (w * h))
+    if ratio >= 1.0:
         return (w, h)
-    ratio = long_edge / longest
     return (max(1, round(w * ratio)), max(1, round(h * ratio)))
 
 

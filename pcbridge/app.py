@@ -288,7 +288,7 @@ class BasicAuthFormShim:
 
         fields = parse_qsl(body.decode("utf-8", "replace"), keep_blank_values=True)
         present = {k for k, _ in fields}
-        log.info("/token govde alanlari: %s", sorted(present) or "(bos)")
+        log.info("/token body fields: %s", sorted(present) or "(none)")
         try:
             decoded = base64.b64decode(auth[6:]).decode("utf-8")
             cid, sep, csec = decoded.partition(":")
