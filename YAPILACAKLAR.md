@@ -346,26 +346,26 @@ Every step follows the same loop:
 
 ### Step 2 — Standard locations, config migration, no machine-specific assumptions  (time box: 4 h)
 
-- [ ] **Config search order**, decided in one function:
+- [x] **Config search order**, decided in one function:
   1. `$PCBRIDGE_CONFIG`
   2. `$XDG_CONFIG_HOME/pcbridge/config.toml`
   3. the legacy `<repo>/config.toml`
 
   With the legacy file, add a one-line English deprecation note in the log
   and in doctor. Record in section 7 which file wins when both exist.
-- [ ] **Other data locations**:
+- [x] **Other data locations**:
   - state stays in `$XDG_STATE_HOME/pcbridge` (already there; do not move
     it while old processes may still be running),
   - logs go to `$XDG_STATE_HOME/pcbridge/log`,
   - cache goes to `$XDG_CACHE_HOME/pcbridge`,
   - runtime files (the socket) go to `$XDG_RUNTIME_DIR/pcbridge`, with the
     directory set to `0700`.
-- [ ] **Config schema.**
+- [x] **Config schema.**
   - Add `config_version`, plus a migration function that writes a
     timestamped backup before any rewrite.
   - Secret-bearing files are `0600`, and `pcbridge doctor` fixes the mode.
   - Unknown keys raise a clear English warning, not a crash.
-- [ ] **Remove machine-specific assumptions.**
+- [x] **Remove machine-specific assumptions.**
   - `server.py` `INSTRUCTIONS`: remove "ZorinOS, two 1920x1080 monitors".
     Describe the capabilities generically, and tell the model to call
     `system_capabilities` / `screen_info` for the actual layout. The
@@ -382,11 +382,11 @@ Every step follows the same loop:
   - `grep` for `1920`, `3840`, `1080`, `DP-`, `Zorin`, `eymistaken`, `/home/`
     and similar hard-coded values. Every hit that is not a comment, a test
     fixture or a documented measurement must be derived at runtime.
-- [ ] **Verify.** Run the non-live suites, the readiness check (legacy and
+- [x] **Verify.** Run the non-live suites, the readiness check (legacy and
       packaged), and a migration test: a copy of eymistaken's config migrated in a
       temporary `XDG_CONFIG_HOME` gives identical effective settings
       (compare the dataclasses, not the text).
-- [ ] **Commit(s)**: `feat(config): XDG locations and versioned migration`,
+- [x] **Commit(s)**: `feat(config): XDG locations and versioned migration`,
       `fix: remove assumptions about the author's machine`.
 
 ### Step 3 — Persistent daemon and a thin stdio relay  (time box: 8 h; highest risk, do it carefully)
@@ -932,6 +932,12 @@ freely **after** extracting what is still true and useful.
 | 2026-09-22 | 1 | Build backend: setuptools with a small `setup.py`. Its `build_py` hook copies the root-level assets (GNOME extension, systemd units, udev rule, modules-load file, `config.example.toml`, `skills/`) into `pcbridge/_assets/` inside the built package; `pcbridge/assets.py` resolves an asset from `_assets/` when installed and from the repository root in a checkout. When `pcbridge/_native` holds a built helper, the wheel is tagged `py3-none-linux_x86_64` instead of pure. | Keeps every source file where docs, tests and the live extension symlink expect it, while an installed package still carries everything setup needs. |
 | 2026-09-22 | 1 | Exact dependency versions live in `packaging/constraints.txt` (the `pip freeze` of the reference install); `pyproject.toml` keeps ranges plus the `fastmcp==3.4.5` pin. Product installs use `pip install -c packaging/constraints.txt`. | A fresh resolve picked mcp 1.30.0 and evdev 2.0.0, which were never tested. Ranges stay loose so distro Pythons 3.13/3.14 can still resolve. |
 | 2026-09-22 | 1 | Python >= 3.12. The only pre-3.11 code was the `tomli` fallback in `config.py`; removed, and dropped from `requirements.txt`. | Measured: grep for version_info, removed stdlib modules (imghdr, cgi, pipes, audioop, telnetlib, crypt, distutils), utcnow and pkg_resources found nothing else. |
+| 2026-09-22 | 2 | Config search order: `-c` > `$PCBRIDGE_CONFIG` > `$XDG_CONFIG_HOME/pcbridge/config.toml` > legacy `<repo>/config.toml`. **When both the XDG and the legacy file exist, the XDG file wins**; the legacy file is never modified by migration. Loading the legacy file adds an English warning pointing at `pcbridge setup`. | Old stdio processes (old code) keep reading the repo file, so it must stay intact; new code must prefer the migrated file. |
+| 2026-09-22 | 2 | `config_version = 2`. A file without the key is version 1. A default that changes in a later version is recorded in `_PINNED_DEFAULTS`: the loader gives an unmigrated older file its old default, and the migration writes the old value into the file. First use: `[desktop] ocr_languages` default `tur+eng` → `eng` for new files (tesseract's Turkish data is not installed by default); version-1 files keep `tur+eng`. | I8: migration must not change effective settings. A product default must not depend on the author's language. |
+| 2026-09-22 | 2 | Migration is text-preserving (comments and layout kept): it prepends `config_version` and inserts pinned keys at the top of their section, re-parses the result before writing, writes atomically with mode 0600 (directory 0700), and backs up any existing destination as `<name>.backup-<timestamp>` (0600) first. Idempotent. | No TOML writer in the standard library, and rewriting through one would drop the user's comments. |
+| 2026-09-22 | 2 | Unknown config keys produce English warnings (logged at startup, kept in `Config.warnings` for doctor), never a crash. A loose file mode (group/world readable) is a warning. Invalid TOML is a one-line English message instead of a traceback. | Step 2 requirement; a typo must not take the non-desktop tools down. |
+| 2026-09-22 | 2 | `[desktop] keyboard_layout` is kept as an accepted key but documented as unused (default now empty). `config.example.toml` had `default_agent` inside `[limits]`, which is where the maintainer's file got the same misplacement from; the example now has it at the top, and the warning for that exact mistake says where the key belongs. | Removing an accepted key would make old files warn for nothing; the misplacement is a real (harmless, default-equal) bug. |
+| 2026-09-22 | 2 | Agent CLIs are located by `pcbridge/executables.py`: configured path as is, then PATH, then `~/.local/bin ~/bin ~/.npm-global/bin ~/.bun/bin ~/.cargo/bin ~/.deno/bin /usr/local/bin` and nvm node versions (newest first). `agent_run` and `computer_task` run the resolved absolute path; `list_agents` uses the same lookup instead of `bash -lc command -v`. The systemd unit no longer sets PATH, DISPLAY (`ensure_session_env` derives it) or a Gemini description; its working directory is `%h`. | A systemd daemon does not see nvm/npm/bun PATH entries from ~/.bashrc; measured here: `gemini` lives only in `~/.nvm/versions/node/v20.20.2/bin`. |
 
 ## 8. Progress log and measurements
 
@@ -954,6 +960,7 @@ Append-only. One line per meaningful event, with numbers.
 - 2026-09-22 step 0 — **Readiness check** `tests/readiness/check.py` against the live setup: PASS claude-code (tools/list 719.5 ms), codex (666.2 ms, broken-DBus env), claude-desktop (732.0 ms, minimal env), legacy (724.9 ms), http (healthz 16.4 ms, system_status 125.8 ms). `--desktop` on legacy: `desktop_unlock` 134.6 ms, `desktop_lock` 132.9 ms, grant closed afterwards (`until` 0).
 - 2026-09-22 step 0 — Findings that change later steps (from the read-only survey during planning): `ui_dump` short ids, held input, the gate rate limiter and the thread-local `last_token` are per-process today and must become per-session in the daemon; jobs started by a systemd daemon would die with it (crash or restart), today they do not; Mutter's `layout-mode` is never read (physical layout mode would size HiDPI monitors wrongly); the xrandr fallback hard-codes scale 1 and transform 0; `keyboard_layout` is a dead setting; `doctor.sh` has 10 headings, not 35; `install.sh` ends by enabling the service although three comments say it does not; the packaged native helper's build id is `ee96fde90d06-dirty`, one commit behind HEAD.
 - 2026-09-22 step 1 — Wheel `pcbridge-2.0.0.dev0-py3-none-linux_x86_64.whl` (2.6 MB, includes the native helper with its exec bit). Installed into a throwaway venv outside the repo with the constraints file: `pcbridge --version` → `pcbridge 2.0.0.dev0`; the suites run from a copy of `tests/` outside the repo so they import the installed package. First run found two real bugs: `computer_task` located `skills/computer-use/SKILL.md` relative to the repository (every installed layout would fail with DEPENDENCY_MISSING; now resolved through `pcbridge.assets`), and tests loading `atspi_helper.py` by repository path. After the fixes, installed: models 106, desktop 614, safety OK, contracts 446 OK, integration OK (7 skipped: the 3 native-harness classes need `rust/` and now skip with a reason). Repo: models 106, desktop 614, contracts OK, integration OK (1 skipped). Readiness: legacy (worktree) tools/list 680.0 ms, installed `pcbridge stdio` 682.2 ms, both PASS.
+- 2026-09-22 step 2 — `pcbridge/paths.py` (XDG config/state/log/cache/data/runtime, runtime dir created 0700, socket path `$XDG_RUNTIME_DIR/pcbridge/mcp.sock`, overridable with `$PCBRIDGE_SOCKET`). Existing `/run/user/1000/pcbridge` is already 0700. The maintainer's real config migrated in a temp dir: effective settings identical (dataclass comparison, `PCBRIDGE_TEST_REAL_CONFIG`), dest mode 0600; its only warning is the misplaced `[limits] default_agent`. INSTRUCTIONS no longer name ZorinOS or a two-monitor layout; they tell the model to call `screen_info`/`system_capabilities`. `notify`'s default title is now `pcbridge` (was `Gemini`). Remaining hits of 1920/3840/DP-/eymistaken in code are comments, docstrings, examples, the extension UUID and the D-Bus name (identifiers, unchanged); `skills/computer-use/SKILL.md` still hard-codes the layout for the model and is rewritten in step 5. Suites: models 106, desktop 614, contracts 459 OK (+13 config, +5 executables; 1 skip = real-config test without the env var), integration 24 OK, gjs 17/31/22. Readiness: legacy (worktree) 681.7 ms, packaged 684.5 ms, PASS.
 
 ## 9. Needs eymistaken (physical presence, sudo, or a decision only he can make)
 

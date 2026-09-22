@@ -34,12 +34,15 @@ logging.basicConfig(
 log = logging.getLogger("pcbridge")
 
 INSTRUCTIONS = """\
-This MCP server controls the user's personal Linux desktop computer (ZorinOS,
-GNOME on Wayland, two 1920x1080 monitors side by side).
+This MCP server controls the user's Linux desktop computer (GNOME on
+Wayland). The monitor layout differs from machine to machine and can change:
+call `screen_info` (or `system_capabilities`) to learn the actual monitors,
+their sizes and their order before you act on coordinates.
 
 You can:
-  * send prompts to terminal coding agents (Claude Code, Antigravity CLI) with
-    `agent_run`, then follow them with `job_status`;
+  * send prompts to the terminal coding agents configured on this machine
+    (`list_agents` names them) with `agent_run`, then follow them with
+    `job_status`;
   * drive an already-open interactive terminal with `tmux_start` / `tmux_send`
     / `tmux_keys` / `tmux_capture`;
   * run shell commands, read and write files, and check machine status;
@@ -450,6 +453,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     cfg = load_config(args.config)
+    for warning in cfg.warnings:
+        log.warning("config: %s", warning)
     transport = "stdio" if args.stdio else "http"
 
     # Oturum ortamini ONAR. stdio'da sunucuyu istemci baslatiyor ve onun

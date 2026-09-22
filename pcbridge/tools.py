@@ -23,6 +23,7 @@ from mcp.types import ContentBlock, TextContent
 from pydantic import Field
 
 from . import assets as assetslib
+from . import executables as exelib
 from . import jobs as jobslib
 from . import models as modelslib
 from . import shots as shotslib
@@ -271,13 +272,14 @@ def register(
 ) -> DesktopRuntime:
     global _DESC_AGENT, _DESC_MODEL, _DESC_EFFORT
     _DESC_AGENT = (
-        "Agent name, e.g. 'claude' or 'antigravity'. Optional: if omitted it is "
+        "Agent name; configured here: "
+        + (", ".join(f"'{n}'" for n, a in cfg.agents.items() if a.enabled) or "none")
+        + ". Optional: if omitted it is "
         f"inferred from the model, defaulting to '{cfg.default_agent}'. Give it "
         "explicitly to reach an agent's restricted models."
     )
     _DESC_MODEL = (
-        "Model to run with. Aliases and free text are accepted ('opus', "
-        "'Gemini 3.6 Flash', '3.1 pro'). Valid values — "
+        "Model to run with. Aliases and free text are accepted. Valid values — "
         + (modelslib.model_hint(cfg) or "(not configured)")
         + ". Omit to use the agent's default."
     )
@@ -351,21 +353,17 @@ def register(
         Antigravity CLI, ...), whether their executables are found on PATH, and
         which models and reasoning effort levels each one accepts. Call this
         first if you are unsure which agent, model or effort value to use."""
-        out = ["**Tanimli ajanlar**", ""]
+        out = ["**Configured agents**", ""]
         for name, spec in cfg.agents.items():
             if not spec.enabled:
-                out.append(f"- `{name}` — devre disi (config.toml)")
+                out.append(f"- `{name}` — disabled (config.toml)")
                 continue
             exe = spec.command[0] if spec.command else ""
-            found = subprocess.run(
-                ["bash", "-lc", f"command -v {shlex.quote(exe)}"],
-                capture_output=True,
-                text=True,
-            )
-            where = found.stdout.strip()
-            mark = "✅" if where else "❌ PATH'te bulunamadi"
+            found = exelib.find_executable(exe)
+            where = str(found) if found else ""
+            mark = "✅" if where else "❌ not installed (PATH and the usual user bin directories)"
             out.append(f"- `{name}` — {spec.description or exe} · {mark} {where}")
-            out.append(f"  - komut: `{shlex.join(spec.command)}`")
+            out.append(f"  - command: `{shlex.join(spec.command)}`")
             out.extend(modelslib.describe_agent(spec))
             out.append("")
         out.append(f"ajan belirtilmezse: `{cfg.default_agent}`")
@@ -423,6 +421,10 @@ def register(
             for a in spec.command
         ]
         argv += modelslib.build_args(spec, res)
+        exe = exelib.find_executable(argv[0]) if argv else None
+        if exe is None:
+            return exelib.not_found_message(res.agent, argv[0] if argv else "", cfg.source_path)
+        argv[0] = str(exe)
         if resume_session and spec.resume_args:
             argv += [a.replace("{session_id}", resume_session) for a in spec.resume_args]
 
@@ -3151,12 +3153,20 @@ def register(
         steps = int(max_steps or spec.computer_task_max_steps)
         prompt = _task_prompt(instructions, str(goal), opened, steps)
 
+        task_argv = [
+            a.replace("{prompt}", prompt) if "{prompt}" in a else a
+            for a in agent_spec.command
+        ] + modelslib.build_args(agent_spec, res)
+        task_exe = exelib.find_executable(task_argv[0]) if task_argv else None
+        if task_exe is None:
+            return exelib.not_found_message(
+                res.agent, task_argv[0] if task_argv else "", cfg.source_path
+            )
+        task_argv[0] = str(task_exe)
+
         job_id = jm.start(
             kind=f"computer_task:{res.agent}",
-            argv=[
-                a.replace("{prompt}", prompt) if "{prompt}" in a else a
-                for a in agent_spec.command
-            ] + modelslib.build_args(agent_spec, res),
+            argv=task_argv,
             cwd=cfg.default_workdir,
             label=jobslib._short(goal, 90),
             parser=agent_spec.parser,
@@ -3266,7 +3276,7 @@ def register(
     @mcp.tool(annotations={"title": "Show a desktop notification"})
     def notify(
         message: Annotated[str, Field(description="Notification body text.")],
-        title: str = "Gemini",
+        title: Annotated[str, Field(description="Notification title.")] = "pcbridge",
     ) -> str:
         """Pop up a desktop notification on the user's computer screen. Useful to
         leave a note for when they get back to the machine."""

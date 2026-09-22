@@ -1,52 +1,34 @@
 [Unit]
-Description=pcbridge - kisisel MCP sunucusu (Gemini Spark -> bu bilgisayar)
-Documentation=file://__DIR__/README.md
+Description=pcbridge MCP server
+Documentation=https://github.com/Eymistaken/Pcbridge
 After=network-online.target
-# Masaustu kontrolu ve bildirimler oturum ortamina (WAYLAND_DISPLAY,
-# DBUS_SESSION_BUS_ADDRESS) ihtiyac duyuyor; grafik oturum kurulduktan sonra
-# baslasin. BILINCLI OLARAK EKLENMEYENLER:
-#   PartOf=graphical-session.target   -> oturum kapaninca pcbridge'i oldururdu;
-#     bugun oldurmuyor ve ajan/tmux/kabuk araclarinin masaustune ihtiyaci yok.
-#   WantedBy=graphical-session.target -> acilista otomatik baslatirdi; bu proje
-#     otomatik baslatmayi bilincle reddediyor (install.sh servisi disable eder).
+# Desktop control and notifications need the graphical session's environment
+# (WAYLAND_DISPLAY, DBUS_SESSION_BUS_ADDRESS). GNOME imports it into the user
+# manager at login; pcbridge also repairs a missing or broken value itself.
+# Deliberately NOT added:
+#   PartOf=graphical-session.target  -> logging out would kill pcbridge, and
+#     the agent, tmux and shell tools do not need the desktop at all.
 After=graphical-session.target
 
 [Service]
 Type=simple
-WorkingDirectory=__DIR__
+WorkingDirectory=%h
 ExecStart=__DIR__/.venv/bin/python -m pcbridge.server
 Restart=on-failure
 RestartSec=5
-# Ajanlarin (claude, antigravity) PATH'te bulunabilmesi icin
-Environment=PATH=%h/.local/bin:%h/bin:%h/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=PYTHONUNBUFFERED=1
-# XWayland'e ihtiyac duyan araclar icin (xrandr yedegi gibi). Wayland'e ozgu
-# WAYLAND_DISPLAY / DBUS_SESSION_BUS_ADDRESS / XDG_RUNTIME_DIR degiskenleri
-# BURAYA YAZILMAZ; oturum acilisinda systemd kullanici yoneticisine import
-# edilir (install.sh bunu garantiye alir) ve buradan ajanlara gecer.
-Environment=DISPLAY=:0
-# ANTHROPIC_MODEL / CLAUDE_CODE_EFFORT_LEVEL BURAYA EKLENMEZ. Isler
-# os.environ.copy() ile basliyor (jobs.py), yani birimin ortami ajanlara aynen
-# geciyor ve CLAUDE_CODE_EFFORT_LEVEL --effort bayragini SESSIZCE etkisiz
-# kiliyor -- A bolumundeki model/effort secimi bosa giderdi.
+# No PATH, DISPLAY or model variables here:
+#   PATH     comes from the user manager; agent CLIs installed per user
+#            (~/.local/bin, ~/.npm-global/bin, nvm, bun) are found anyway.
+#   DISPLAY  is derived from the running Xwayland when it is missing.
+#   ANTHROPIC_MODEL / CLAUDE_CODE_EFFORT_LEVEL must never be set: jobs inherit
+#            this environment and that variable silently overrides --effort.
 StandardOutput=journal
 StandardError=journal
-# Servis durunca masaustu iznini SIL. Izin durumu diskte tutuluyor
-# (state_dir/desktop_unlock.json) ve sunucudan bagimsiz calisan `bin/pcb-do`
-# de oradan okuyor -- yani pcbridge oldukten sonra elle calistirilan bir
-# pcb-do'yu hala yetkilendirebilirdi. Dosyayi silmek izni kapatiyor
-# (_read_state bos donunce "until" 0 sayiliyor).
-#
-# OLCULDU 2026-08-02: `systemctl --user stop` ZATEN calisan ajan islerini de
-# olduruyor. Isler `start_new_session` ile kendi oturum grubunda ama servisin
-# CGROUP'unda kaliyor ve KillMode=control-group hepsini aliyor. Yani acil
-# durdurma bugun de calisiyor; asagidaki satir onun yerine gecmiyor, diskte
-# unutulmus bir izne karsi ikinci kat.
-#
-# Dosya yolu BURAYA YAZILMIYOR: `state_dir` yapilandirilabilir, sabitlenirse
-# ayari degistiren kullanicida sessizce yanlis dosyayi siler. Modul kendi
-# config'ini okuyor. Bastaki `-` : basarisiz olursa servis durdurma
-# engellenmesin.
+# When the service stops, close the desktop grant and stop every screencast
+# helper. The grant lives on disk (state_dir/desktop_unlock.json) and
+# `pcb-do` reads it from there, so a grant left open would still authorize
+# it. The leading `-` keeps a failure here from blocking the stop.
 ExecStopPost=-__DIR__/.venv/bin/python -m pcbridge.cli.lock
 
 [Install]
