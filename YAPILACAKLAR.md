@@ -415,7 +415,7 @@ pcbridged  (systemd --user pcbridge.service, socket-activated via pcbridge.socke
 
 **Measure first. Decide, record the decision in section 7, then build.**
 
-- [ ] Can the daemon serve **raw MCP JSON-RPC** (the stdio framing,
+- [x] Can the daemon serve **raw MCP JSON-RPC** (the stdio framing,
       newline-delimited) per socket connection? Use the MCP SDK's server
       session over anyio streams, fed from the socket. If so, the relay is
       a dumb byte pipe. Nothing is translated, so image blocks,
@@ -424,7 +424,7 @@ pcbridged  (systemd --user pcbridge.service, socket-activated via pcbridge.socke
       design.** The alternative is a FastMCP proxy over streamable HTTP on
       a unix socket. Use it only if it measures equally faithful, and prove
       it with tests that compare responses byte for byte.
-- [ ] How does per-process context used today map into the daemon? Check
+- [x] How does per-process context used today map into the daemon? Check
       each of these:
   - the stdio process's **cwd** (relative paths in `_resolve_dir` /
     `_resolve_file`, and the working directory of `agent_run`),
@@ -437,12 +437,12 @@ pcbridged  (systemd --user pcbridge.service, socket-activated via pcbridge.socke
   measured that it is needed. The daemon applies the preamble per session,
   so behavior per client is identical to today. Record every difference
   you find, and how it was preserved.
-- [ ] Socket activation in Python: take the inherited fd via `LISTEN_FDS`,
+- [x] Socket activation in Python: take the inherited fd via `LISTEN_FDS`,
       and serve the HTTP listener in the same event loop.
 
 **Build:**
 
-- [ ] **Relay** (`pcbridge stdio`). The legacy entry point routes here.
+- [x] **Relay** (`pcbridge stdio`). The legacy entry point routes here.
   - Connect to the socket.
   - If that fails, run `systemctl --user start pcbridge.socket` (or the
     service) and wait at most 2 s.
@@ -450,7 +450,7 @@ pcbridged  (systemd --user pcbridge.service, socket-activated via pcbridge.socke
     path, with identical behavior. Log it as `degraded: in-process`, visible
     in `system_status` and in doctor.
   - The relay never exits while its client is alive.
-- [ ] **Daemon-restart transparency.** The relay records the client's
+- [x] **Daemon-restart transparency.** The relay records the client's
       `initialize` request and `notifications/initialized`. When the socket
       drops:
   - it reconnects (activation if needed),
@@ -458,37 +458,37 @@ pcbridged  (systemd --user pcbridge.service, socket-activated via pcbridge.socke
   - for every request that was in flight, it synthesizes a JSON-RPC error
     with the matching id: English message, retryable. The client must never
     hang.
-- [ ] **Version handling.**
+- [x] **Version handling.**
   - Daemon and relay exchange versions and a protocol number.
   - A compatible daemon is used even if it is older.
   - The daemon detects that newer code was installed (a version file or
     stamp) and **restarts itself only when idle**: no running jobs (I5), no
     open desktop grant, no in-flight calls. That is what finally kills the
     "stale stdio process" problem.
-- [ ] **Units.**
+- [x] **Units.**
   - `pcbridge.socket` and `pcbridge.service` (user units), both enabled.
   - `Restart=on-failure`.
   - Keep `ExecStopPost` lock behavior.
   - The service starts at login and is also socket-activated (I4).
-- [ ] **State shared with old processes.** Old stdio processes (eymistaken's
+- [x] **State shared with old processes.** Old stdio processes (eymistaken's
       running clients) will run next to the daemon for a while. Everything
       they share on disk must stay backward compatible (I2, I6): the grant
       file format, `pointer.json`, the shot records, and the execution lock.
-- [ ] **Audit log.** Include the client name from the preamble.
+- [x] **Audit log.** Include the client name from the preamble.
 
 **Verify (record the numbers):**
 
-- [ ] **Byte-for-byte parity.** The same scripted session (`tools/list`, a
+- [x] **Byte-for-byte parity.** The same scripted session (`tools/list`, a
       text tool, an error case, a `screen_capture` with image, a
       `structuredContent` tool, a cancellation, a long job with
       `job_status`) goes through in-process stdio and through the relay +
       daemon. The responses must be identical apart from ids and timestamps.
-- [ ] **Timing budgets.**
+- [x] **Timing budgets.**
   - Warm overhead per call: ≤ 5 ms at p50.
   - Cold start with the socket not yet running, until the first `tools/list`
     answers: ≤ 3 s.
   - Screenshot end to end: within I9.
-- [ ] **Faults.** Each of these must recover within 3 s with no client
+- [x] **Faults.** Each of these must recover within 3 s with no client
       hang:
   - `kill -9` of the daemon mid-session: the next call succeeds, the
     in-flight call gets a retryable error;
@@ -496,13 +496,13 @@ pcbridged  (systemd --user pcbridge.service, socket-activated via pcbridge.socke
   - socket file deleted or stale;
   - `XDG_RUNTIME_DIR` unusable: in-process fallback;
   - three clients at once: execution lock serialization still works.
-- [ ] Full non-live suites. The readiness check on all registered commands
+- [x] Full non-live suites. The readiness check on all registered commands
       and the legacy command. `test_e2e.py` (`PCBRIDGE_TEST_NO_AGENT=1`)
       against the daemon's HTTP path.
-- [ ] **Live desktop suite through the relay**, with all four flags; see
+- [x] **Live desktop suite through the relay**, with all four flags; see
       `CLAUDE.md`. Also run a real `computer_batch` in an empty
       `gnome-text-editor` window.
-- [ ] **Commit(s)**: `feat(daemon): one resident server behind a thin stdio relay`,
+- [x] **Commit(s)**: `feat(daemon): one resident server behind a thin stdio relay`,
       and separate commits for tests and units.
 
 ### Step 4 — One CLI: `pcbridge`  (time box: 4 h)
@@ -946,6 +946,8 @@ freely **after** extracting what is still true and useful.
 | 2026-09-22 | 3 | Relay fallback: at start, if the socket is unreachable (and `pcbridge.socket` is installed, after `systemctl --user start pcbridge.socket` and ≤2 s), the relay execs the classic in-process server (zero extra hop, identical behavior), marked `PCBRIDGE_MODE=degraded: in-process (...)`, visible in system_status. Mid-session loss: in-flight requests get JSON-RPC error -32000 with data.retryable=true (an unanswered `initialize` is resent instead), the relay reconnects for up to 10 s (socket activation), replays initialize under a private id and swallows its answer; if the daemon stays away it continues through an in-process child. | I3: never hang, never require a client restart. |
 | 2026-09-22 | 3 | MCP SDK 1.29 bug worked around in `app.py`: after `notifications/cancelled`, a synchronous tool that finishes later makes the SDK call `respond()` twice and its assertion kills the whole session (the in-process stdio server died in the parity test; pre-2.0 had the same bug). A late answer to a cancelled request is now dropped, which is what the SDK code intends after the assert. | Found by the parity test; FastMCP/mcp versions stay pinned. |
 | 2026-09-22 | 3 | Units: `pcbridge.socket` (`%t/pcbridge/mcp.sock`, 0600, dir 0700, WantedBy=sockets.target) and `pcbridge.service` (Requires the socket, `ExecStart=<python> -m pcbridge serve`, Restart=on-failure, RestartSec=1, RestartForceExitStatus=75 for the idle self-restart, ExecStopPost lock kept, WantedBy=default.target, Also=pcbridge.socket). Template placeholder is `__PYTHON__`. Tested as temporary units `pcbridge-v2test.{socket,service}` on `%t/pcbridge-test/mcp.sock` and port 18765 so the live service was never touched. | I4 and 'no live changes before step 10'. |
+| 2026-09-22 | 3 | Memory is compared as total footprint, not daemon RSS alone: the daemon holds HTTP, desktop helpers and a 128-thread limit for every client (117 MB measured), each relay is 14 MB. Before: service 86 MB + one 92 MB stdio server per client (4 at the start of this run = ~454 MB). After, same clients: ~117 + 4 × 14 = ~173 MB. | I9 lists 'daemon or service RSS' as a baseline; the per-process number went up by design while the machine total went down by ~60 %. |
+| 2026-09-22 | 3 | The temporary test units `pcbridge-v2test.{socket,service}` (socket `%t/pcbridge-test/mcp.sock`, HTTP 18765, `XDG_DATA_HOME=%t/pcbridge-test/data`) stay installed in `~/.config/systemd/user` while the work continues and are moved to the trash (`gio trash`) in step 10. | They let every later step be verified through socket activation without touching the live pcbridge.service. |
 
 ## 8. Progress log and measurements
 
@@ -970,6 +972,7 @@ Append-only. One line per meaningful event, with numbers.
 - 2026-09-22 step 1 — Wheel `pcbridge-2.0.0.dev0-py3-none-linux_x86_64.whl` (2.6 MB, includes the native helper with its exec bit). Installed into a throwaway venv outside the repo with the constraints file: `pcbridge --version` → `pcbridge 2.0.0.dev0`; the suites run from a copy of `tests/` outside the repo so they import the installed package. First run found two real bugs: `computer_task` located `skills/computer-use/SKILL.md` relative to the repository (every installed layout would fail with DEPENDENCY_MISSING; now resolved through `pcbridge.assets`), and tests loading `atspi_helper.py` by repository path. After the fixes, installed: models 106, desktop 614, safety OK, contracts 446 OK, integration OK (7 skipped: the 3 native-harness classes need `rust/` and now skip with a reason). Repo: models 106, desktop 614, contracts OK, integration OK (1 skipped). Readiness: legacy (worktree) tools/list 680.0 ms, installed `pcbridge stdio` 682.2 ms, both PASS.
 - 2026-09-22 step 2 — `pcbridge/paths.py` (XDG config/state/log/cache/data/runtime, runtime dir created 0700, socket path `$XDG_RUNTIME_DIR/pcbridge/mcp.sock`, overridable with `$PCBRIDGE_SOCKET`). Existing `/run/user/1000/pcbridge` is already 0700. The maintainer's real config migrated in a temp dir: effective settings identical (dataclass comparison, `PCBRIDGE_TEST_REAL_CONFIG`), dest mode 0600; its only warning is the misplaced `[limits] default_agent`. INSTRUCTIONS no longer name ZorinOS or a two-monitor layout; they tell the model to call `screen_info`/`system_capabilities`. `notify`'s default title is now `pcbridge` (was `Gemini`). Remaining hits of 1920/3840/DP-/eymistaken in code are comments, docstrings, examples, the extension UUID and the D-Bus name (identifiers, unchanged); `skills/computer-use/SKILL.md` still hard-codes the layout for the model and is rewritten in step 5. Suites: models 106, desktop 614, contracts 459 OK (+13 config, +5 executables; 1 skip = real-config test without the env var), integration 24 OK, gjs 17/31/22. Readiness: legacy (worktree) 681.7 ms, packaged 684.5 ms, PASS.
 - 2026-09-22 step 3 (in progress) — Relay import 12.8 ms. Through relay + daemon: cold client start to tools/list **22–28 ms** warm daemon (baseline 692.8 ms); socket-activated with the daemon stopped **711 ms** (budget 3 s); fallback with no daemon at all 700.1 ms (+1 %, within I9). Faults (tests/readiness/faults.py against the test units): kill -9 mid-call → in-flight error after 9.8 ms, next call 1981.6 ms; daemon stopped → next client 743.5 ms served by the daemon; stale socket → in-process 719.6 ms; XDG_RUNTIME_DIR unusable → in-process 700.3 ms; three clients at once 55.3 ms wall; background job scope active before and after kill -9. Parity (tests/readiness/parity.py, in-process vs relay, normalized ids/times/image data): 12/12 SAME incl. tools/list 45907 B, structuredContent, error result, unknown tool, cancellation, background job + job_status, desktop_unlock, screen_capture with image, desktop_lock. Two bugs found and fixed on the way: the daemon's line reader dropped received bytes, and a blocking listening socket stalled anyio's event loop (accept() is called directly; the socket is now non-blocking). Suites: models 106, desktop 614, contracts 469 OK, integration 24 OK, gjs 70.
+- 2026-09-22 step 3 — Done. Per-call relay overhead (40 calls each, same daemon vs PCBRIDGE_NO_DAEMON): ping p50 0.43 vs 0.46 ms, system_capabilities 30.30 vs 30.19 ms (+0.11), tools/list 1.75 vs 1.71 ms (+0.04): **overhead ≈0.1 ms** (budget 5 ms). Through relay + daemon vs baseline: screen_capture one monitor **293.7** (301.7) ms, both **761.1** (770.7), ui_dump **26.7** (32.7), window_list 11.4 (14.1), window_focus 25.5 (29.7); system_status 20-call median 121.2 ms vs 1.x 132.0 ms. Relay RSS 14.2 MB, daemon RSS 117 MB. test_e2e.py (NO_AGENT) against the daemon's HTTP on 18765: 262 passed, 0 failed, 9 skipped (= baseline). Live, all four flags: test_desktop.py 654 passed 0 failed; tests/live 61 OK (4 skipped by design, 'covered by WindowOperationsLive'). Real computer_batch through the relay into an empty gnome-text-editor: 34 characters incl. ğüşıöç pasted and verified on a screenshot, then cleared and discarded via ui_dump + ui_click (AT-SPI id, no coordinates); an empty 'Yeni Belge' editor window was left open. Idle self-restart: a new version stamp was deferred while a job ran ('1 job(s) running'), then the daemon exited 75 and systemd restarted it (NRestarts=1) once idle. New non-live tests: contracts/test_relay.py (4, fake daemon), contracts/test_sessionctx.py (4), integration/test_daemon.py (3, real daemon with a throwaway config: 36 tools, 3 sessions, SIGKILL mid-call → retryable error → stale socket replaced → next call ok). Suites: models 106, desktop 614, contracts 473 OK, integration 27 OK, gjs 70.
 
 ## 9. Needs eymistaken (physical presence, sudo, or a decision only he can make)
 
