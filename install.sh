@@ -115,7 +115,8 @@ fi
 blue "==> 6/8  systemd kullanici servisi (otomatik baslatma KAPALI)"
 UNIT_DIR="$HOME/.config/systemd/user"
 mkdir -p "$UNIT_DIR"
-sed "s|__DIR__|$DIR|g" systemd/pcbridge.service > "$UNIT_DIR/pcbridge.service"
+sed "s|__PYTHON__|$DIR/.venv/bin/python|g" systemd/pcbridge.service > "$UNIT_DIR/pcbridge.service"
+cp systemd/pcbridge.socket "$UNIT_DIR/pcbridge.socket"
 systemctl --user daemon-reload
 systemctl --user disable pcbridge >/dev/null 2>&1 || true
 ok "Servis tanimlandi ama acilista baslamayacak."

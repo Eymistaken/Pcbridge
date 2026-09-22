@@ -52,14 +52,18 @@ def _executable(path: Path) -> bool:
     return path.is_file() and os.access(path, os.X_OK)
 
 
-def find_executable(name: str) -> Path | None:
-    """Absolute path of `name`, or None when it is not installed anywhere known."""
+def find_executable(name: str, path: str | None = None) -> Path | None:
+    """Absolute path of `name`, or None when it is not installed anywhere known.
+
+    `path` is the PATH to search first (a client's, when the daemon starts a
+    process on its behalf); default is this process's PATH.
+    """
     if not name:
         return None
     if "/" in name:
         path = Path(os.path.expanduser(name))
         return path.resolve() if _executable(path) else None
-    hit = shutil.which(name)
+    hit = shutil.which(name, path=path)
     if hit:
         return Path(hit)
     for directory in search_dirs():

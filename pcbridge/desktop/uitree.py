@@ -38,6 +38,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import sessionctx
 from .errors import ErrorCode
 
 HELPER = Path(__file__).resolve().parent / "atspi_helper.py"
@@ -326,7 +327,19 @@ class UiTree:
     """Agac okuma + eylem. Son dokumu, kimliklerden dugume donebilmek icin tutar."""
 
     def __init__(self) -> None:
-        self._last: Dump | None = None
+        # The last dump PER MCP SESSION: a short id like `#1b72` names a node in
+        # the dump the calling client made. One process serves many clients
+        # since 2.0; a shared "last dump" would resolve client A's id against
+        # client B's window.
+        self._dumps: sessionctx.PerSession[Dump] = sessionctx.PerSession()
+
+    @property
+    def _last(self) -> Dump | None:
+        return self._dumps.get()
+
+    @_last.setter
+    def _last(self, dump: Dump | None) -> None:
+        self._dumps.set(dump)
 
     # ------------------------------------------------------------------ okuma
     def dump(

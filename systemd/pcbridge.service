@@ -1,21 +1,25 @@
 [Unit]
 Description=pcbridge MCP server
 Documentation=https://github.com/Eymistaken/Pcbridge
-After=network-online.target
-# Desktop control and notifications need the graphical session's environment
-# (WAYLAND_DISPLAY, DBUS_SESSION_BUS_ADDRESS). GNOME imports it into the user
-# manager at login; pcbridge also repairs a missing or broken value itself.
-# Deliberately NOT added:
-#   PartOf=graphical-session.target  -> logging out would kill pcbridge, and
-#     the agent, tmux and shell tools do not need the desktop at all.
-After=graphical-session.target
+# The socket is what local clients connect to. It is always listening, so a
+# client that arrives while the daemon is down or restarting starts it.
+Requires=pcbridge.socket
+After=pcbridge.socket network-online.target graphical-session.target
+# Desktop control needs the graphical session's environment (WAYLAND_DISPLAY,
+# DBUS_SESSION_BUS_ADDRESS). GNOME imports it into the user manager at login,
+# and pcbridge repairs a missing or broken value itself. Deliberately NOT
+# added: PartOf=graphical-session.target, which would stop pcbridge at
+# logout although the agent, tmux and shell tools do not need the desktop.
 
 [Service]
 Type=simple
 WorkingDirectory=%h
-ExecStart=__DIR__/.venv/bin/python -m pcbridge.server
+ExecStart=__PYTHON__ -m pcbridge serve
+# A crash restarts quickly; exit code 75 is the daemon restarting itself to
+# load a newer installed version (only while no job, grant or call is active).
 Restart=on-failure
-RestartSec=5
+RestartSec=1
+RestartForceExitStatus=75
 Environment=PYTHONUNBUFFERED=1
 # No PATH, DISPLAY or model variables here:
 #   PATH     comes from the user manager; agent CLIs installed per user
@@ -25,11 +29,13 @@ Environment=PYTHONUNBUFFERED=1
 #            this environment and that variable silently overrides --effort.
 StandardOutput=journal
 StandardError=journal
-# When the service stops, close the desktop grant and stop every screencast
-# helper. The grant lives on disk (state_dir/desktop_unlock.json) and
-# `pcb-do` reads it from there, so a grant left open would still authorize
-# it. The leading `-` keeps a failure here from blocking the stop.
-ExecStopPost=-__DIR__/.venv/bin/python -m pcbridge.cli.lock
+# Jobs run in their own pcbridge-job-*.scope units and survive a restart of
+# this service; `pcbridge stop` ends them. When the service stops, close the
+# desktop grant and stop every screencast helper: the grant lives on disk and
+# `pcb-do` reads it from there. The leading `-` keeps a failure here from
+# blocking the stop.
+ExecStopPost=-__PYTHON__ -m pcbridge.cli.lock
 
 [Install]
 WantedBy=default.target
+Also=pcbridge.socket

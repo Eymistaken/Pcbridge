@@ -1,0 +1,14 @@
+[Unit]
+Description=pcbridge MCP socket for local clients
+Documentation=https://github.com/Eymistaken/Pcbridge
+
+[Socket]
+# Local MCP clients reach the daemon here through `pcbridge stdio`. The mode
+# is the whole access check, exactly as with stdio: only this user can connect.
+ListenStream=%t/pcbridge/mcp.sock
+SocketMode=0600
+DirectoryMode=0700
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

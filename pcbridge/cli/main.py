@@ -2,8 +2,8 @@
 
 One entry point for running and operating pcbridge. Subcommands:
 
-    pcbridge serve      run the resident server (HTTP listener; the daemon)
-    pcbridge stdio      serve one MCP client over stdin/stdout
+    pcbridge serve      run the resident server (the daemon: socket + HTTP)
+    pcbridge stdio      connect one MCP client to the daemon (the relay)
     pcbridge --version  print the version
 
 Heavy modules (FastMCP, the desktop layer) are imported only inside the
@@ -19,24 +19,24 @@ import sys
 from .. import __version__
 
 
-def _serve(args: argparse.Namespace) -> int:
-    from ..server import main as server_main
+def _serve(argv: list[str]) -> int:
+    if "--check" in argv:
+        from ..app import main as app_main
 
-    argv = []
-    if args.config:
-        argv += ["--config", args.config]
-    if args.check:
-        argv.append("--check")
-    return server_main(argv)
+        return app_main(argv)
+    from ..daemon import main as daemon_main
+
+    return daemon_main(argv)
 
 
-def _stdio(args: argparse.Namespace) -> int:
-    from ..server import main as server_main
+def _stdio(argv: list[str]) -> int:
+    from ..relay import main as relay_main
 
-    argv = ["--stdio"]
-    if args.config:
-        argv += ["--config", args.config]
-    return server_main(argv)
+    return relay_main(argv)
+
+
+# Subcommands whose arguments belong to another module's parser.
+_PASSTHROUGH = {"serve": _serve, "stdio": _stdio}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -47,18 +47,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"pcbridge {__version__}")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
-    p = sub.add_parser("serve", help="Run the resident server.")
-    p.add_argument("-c", "--config", help="Path to config.toml.")
-    p.add_argument("--check", action="store_true", help="Validate the configuration and exit.")
-    p.set_defaults(func=_serve)
-
-    p = sub.add_parser("stdio", help="Serve one MCP client over stdin and stdout.")
-    p.add_argument("-c", "--config", help="Path to config.toml.")
-    p.set_defaults(func=_stdio)
+    sub.add_parser(
+        "serve",
+        help="Run the resident server (daemon). Options: -c, --socket, --port, --no-http, --no-socket, --check.",
+        add_help=False,
+    )
+    sub.add_parser(
+        "stdio",
+        help="Connect one MCP client (stdin/stdout) to the daemon; falls back to an in-process server.",
+        add_help=False,
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in _PASSTHROUGH:
+        return _PASSTHROUGH[argv[0]](argv[1:])
     parser = build_parser()
     args = parser.parse_args(argv)
     if not getattr(args, "func", None):

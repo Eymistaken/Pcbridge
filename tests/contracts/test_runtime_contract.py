@@ -17,7 +17,7 @@ from fastmcp import FastMCP
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from pcbridge import server as serverlib  # noqa: E402
+from pcbridge import app as serverlib  # noqa: E402
 from pcbridge import tools as toolslib  # noqa: E402
 from pcbridge.cli import do as do_cli  # noqa: E402
 from pcbridge.config import AgentSpec, Config, DesktopSpec  # noqa: E402

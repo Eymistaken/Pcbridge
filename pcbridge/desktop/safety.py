@@ -27,11 +27,13 @@ import subprocess
 import threading
 import time
 from collections import deque
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .. import sessionctx
 from .errors import ErrorCategory, ErrorCode
 from .lease import LEASE_STATE_FILE, LeaseStore, LeaseToken
 
@@ -201,8 +203,15 @@ class SafetyGate:
         self._state_path = Path(cfg.state_dir) / STATE_FILE
         self._lease = LeaseStore(cfg.state_dir)
         self._state_provider = state_provider or _PythonDesktopStateProvider()
-        self._local = threading.local()
-        self._events: deque[float] = deque(maxlen=200)
+        # The token this CALL was admitted with. A context variable, not a
+        # thread-local: worker threads are reused across calls and, in the
+        # daemon, across clients.
+        self._call_token: ContextVar[LeaseToken | None] = ContextVar(
+            "pcbridge_gate_token", default=None
+        )
+        # The rate window is per MCP session, as it was per process when
+        # every client had its own server process.
+        self._events: sessionctx.PerSession[deque[float]] = sessionctx.PerSession()
 
     # ------------------------------------------------------------- izin durumu
     def _read_state(self) -> dict:
@@ -222,7 +231,7 @@ class SafetyGate:
         return self._lease.snapshot().token()
 
     def last_token(self) -> LeaseToken | None:
-        return getattr(self._local, "token", None)
+        return self._call_token.get()
 
     def unlocked_until(self) -> float:
         return self._lease.snapshot().until
@@ -272,7 +281,7 @@ class SafetyGate:
             granted=granted,
             granted_by=granted_by,
         )
-        self._local.token = snapshot.token(granted)
+        self._call_token.set(snapshot.token(granted))
         self.audit("desktop_unlock", minutes=mins, reason=reason or None,
                    granted_by=granted_by)
         msg = (
@@ -289,7 +298,7 @@ class SafetyGate:
 
     def lock(self) -> str:
         snapshot, was_remaining = self._lease.revoke()
-        self._local.token = None
+        self._call_token.set(None)
         self.audit(
             "desktop_lock",
             was_remaining=was_remaining,
@@ -332,11 +341,12 @@ class SafetyGate:
         if limit <= 0:
             return True
         now = time.monotonic()
-        while self._events and now - self._events[0] > 1.0:
-            self._events.popleft()
-        if len(self._events) >= limit:
+        events = self._events.setdefault(lambda: deque(maxlen=200))
+        while events and now - events[0] > 1.0:
+            events.popleft()
+        if len(events) >= limit:
             return False
-        self._events.append(now)
+        events.append(now)
         return True
 
     # ------------------------------------------------------------------ kapi
@@ -365,7 +375,7 @@ class SafetyGate:
 
     def check(self, tool: str, write: bool = True, force: bool = False) -> Decision:
         """GUI araci calisabilir mi? Reddin gerekcesi kullaniciya aynen doner."""
-        self._local.token = None
+        self._call_token.set(None)
         if not self.spec.enabled:
             return self._disabled_decision()
 
@@ -433,7 +443,7 @@ class SafetyGate:
                 retryable=True,
                 suggested_action="Call desktop_unlock before using desktop tools.",
             )
-        self._local.token = token
+        self._call_token.set(token)
         return Decision(True)
 
     def verify(self, token: LeaseToken | None) -> Decision:
@@ -520,6 +530,10 @@ class SafetyGate:
             "event": event,
             **{k: v for k, v in fields.items() if v is not None},
         }
+        # Which client asked, when the daemon knows (from the relay preamble).
+        client = sessionctx.client_name()
+        if client and "client" not in rec:
+            rec["client"] = client
         line = json.dumps(rec, ensure_ascii=False)
         logger.info(line)
         try:

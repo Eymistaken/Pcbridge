@@ -44,7 +44,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(HERE))
 
 import delivery_fixture as fixture  # noqa: E402
-from pcbridge import server as serverlib  # noqa: E402
+from pcbridge import app as serverlib  # noqa: E402
 from pcbridge import shots as shotslib  # noqa: E402
 from pcbridge import tools as toolslib  # noqa: E402
 from pcbridge.desktop import capture as capturelib  # noqa: E402

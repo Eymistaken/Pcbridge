@@ -29,6 +29,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import time
@@ -63,6 +64,13 @@ class JobManager:
         self.dir = jobs_dir
         self.dir.mkdir(parents=True, exist_ok=True)
         self.default_timeout = default_timeout
+        # Start every job in its own transient systemd scope
+        # (pcbridge-job-<id>.scope). The resident daemon turns this on: a job
+        # then survives the daemon being restarted or crashing, and an
+        # explicit `pcbridge stop` still ends it (measured: a scoped job
+        # outlived `kill -9` and `stop` of the service that started it; the
+        # scope costs ~12 ms per job).
+        self.use_scopes = False
 
     # ------------------------------------------------------------------ yollar
     def job_dir(self, job_id: str) -> Path:
@@ -128,8 +136,16 @@ class JobManager:
         if env:
             run_env.update(env)
 
+        argv_run = ["bash", "-lc", wrapper]
+        scope = None
+        if self.use_scopes and shutil.which("systemd-run"):
+            scope = f"pcbridge-job-{job_id}.scope"
+            argv_run = [
+                "systemd-run", "--user", "--scope", "--quiet", "--collect",
+                f"--unit={scope}", "--", *argv_run,
+            ]
         proc = subprocess.Popen(
-            ["bash", "-lc", wrapper],
+            argv_run,
             cwd=str(cwd),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
@@ -152,6 +168,7 @@ class JobManager:
             "started_at_h": time.strftime("%Y-%m-%d %H:%M:%S"),
             "timeout": to,
             "pty": pty,
+            "scope": scope,
             "deadline": time.time() + to if to > 0 else None,
             **(extra or {}),
         }

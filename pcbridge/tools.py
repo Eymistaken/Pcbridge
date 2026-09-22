@@ -22,7 +22,9 @@ from fastmcp.tools.base import ToolResult
 from mcp.types import ContentBlock, TextContent
 from pydantic import Field
 
+from . import __version__
 from . import assets as assetslib
+from . import sessionctx
 from . import executables as exelib
 from . import jobs as jobslib
 from . import models as modelslib
@@ -298,8 +300,14 @@ def register(
         runtime = create_runtime(cfg, gate=safetylib.SafetyGate(cfg))
     gate = runtime.gate
 
-    # Bir kez hesaplanir: arac calisma anina kadar ne ayar ne tasima degisir.
-    inline_images = _want_inline(cfg.inline_images, transport)
+    def _inline_images() -> bool:
+        # Per call: the daemon serves local (socket) and HTTP sessions at once.
+        return _want_inline(cfg.inline_images, sessionctx.transport(transport))
+
+    def _session_env() -> dict[str, str] | None:
+        # Allow-listed client environment (PATH, SSH_AUTH_SOCK, LANG, ...) for
+        # processes started on behalf of a daemon session; None elsewhere.
+        return sessionctx.job_env() or None
 
     # `shot="m2-a1b2c3"` kimliginin aranacagi dizinler (MCP'nin yazdigi yer +
     # `pcb-shot`unki). Ikisi de arandigi icin ajan hangi yoldan bakmis
@@ -421,7 +429,8 @@ def register(
             for a in spec.command
         ]
         argv += modelslib.build_args(spec, res)
-        exe = exelib.find_executable(argv[0]) if argv else None
+        env = _session_env()
+        exe = exelib.find_executable(argv[0], (env or {}).get("PATH")) if argv else None
         if exe is None:
             return exelib.not_found_message(res.agent, argv[0] if argv else "", cfg.source_path)
         argv[0] = str(exe)
@@ -440,6 +449,7 @@ def register(
             parser=spec.parser,
             timeout=timeout,
             pty=spec.pty,
+            env=env,
             extra={
                 "agent": res.agent,
                 "model": res.model,
@@ -711,6 +721,7 @@ def register(
         limit = min(timeout, cfg.max_sync_timeout)
         started = time.monotonic()
         try:
+            extra_env = _session_env()
             proc = subprocess.run(
                 ["bash", "-lc", command],
                 cwd=str(cwd),
@@ -718,6 +729,7 @@ def register(
                 text=True,
                 timeout=limit,
                 stdin=subprocess.DEVNULL,
+                env={**os.environ, **extra_env} if extra_env else None,
             )
         except subprocess.TimeoutExpired:
             gate.audit("shell_run", cmd=_short(command), timeout=limit)
@@ -764,6 +776,7 @@ def register(
             label=jobslib._short(command, 90),
             parser="plain",
             timeout=timeout,
+            env=_session_env(),
         )
         gate.audit("shell_run_background", cmd=_short(command), job=job_id)
         return f"Baslatildi: `{job_id}`\nDurum icin: job_status('{job_id}')"
@@ -1944,7 +1957,7 @@ def register(
         # stdio'da HTTP sunucusu YOK -> /shot/<token>.png rotasi da yok. Orada
         # baglanti uretmek sessizce olu bir URL vermek olurdu; onun yerine
         # diskteki yol soyleniyor (istemci dosyayi kendi okuyabilir).
-        links = transport != "stdio"
+        links = sessionctx.transport(transport) != "stdio"
         ttl_min = max(1, cfg.desktop.shot_ttl_seconds // 60)
         out: list[str] = []
         for item in shots:
@@ -1971,7 +1984,7 @@ def register(
                 )
 
         gate.audit("screen_capture", monitor=str(monitor), shots=len(shots),
-                   swept=swept or None, inline=inline_images or None,
+                   swept=swept or None, inline=_inline_images() or None,
                    region=list(area[0]) if area else None,
                    enhance=enhance or None,
                    backend=capture_provider.backend_name())
@@ -1994,7 +2007,7 @@ def register(
                 "Yollar diskteki dosyalari gosteriyor (stdio'da HTTP sunucusu "
                 "yok, bu yuzden baglanti uretilemiyor)."
             )
-        if not inline_images:
+        if not _inline_images():
             # SESSIZ BOSLUK YOK: goruntu blogu gelmiyorsa sebebi soylensin,
             # yoksa istemci "goruntu geldi ama ben goremedim" sanir.
             out.append(
@@ -2041,7 +2054,7 @@ def register(
         images: list[ContentBlock] = []
         delivered: list[Any] = []
         undelivered: list[DesktopError] = []
-        if inline_images:
+        if _inline_images():
             for item in shots:
                 try:
                     images.append(presentationlib.shot_image(item, enhance=enhance))
@@ -3157,7 +3170,10 @@ def register(
             a.replace("{prompt}", prompt) if "{prompt}" in a else a
             for a in agent_spec.command
         ] + modelslib.build_args(agent_spec, res)
-        task_exe = exelib.find_executable(task_argv[0]) if task_argv else None
+        task_env = _session_env() or {}
+        task_exe = (
+            exelib.find_executable(task_argv[0], task_env.get("PATH")) if task_argv else None
+        )
         if task_exe is None:
             return exelib.not_found_message(
                 res.agent, task_argv[0] if task_argv else "", cfg.source_path
@@ -3174,7 +3190,7 @@ def register(
             pty=agent_spec.pty,
             # `pcb-do` bunu gorup BOSTA kontrolunu atlar -- ve YALNIZCA onu.
             # Ekran kilidi, izin penceresi ve hiz siniri aynen isler.
-            env={"PCBRIDGE_TASK_FORCE": "1"},
+            env={**task_env, "PCBRIDGE_TASK_FORCE": "1"},
             extra={
                 "agent": res.agent,
                 "model": res.model,
@@ -3257,6 +3273,9 @@ def register(
             parts += ["**GPU**", "```", gpu, "```"]
 
         parts.append(f"\n**Masaustu:** {gate.status_line()}")
+        from . import daemon as daemonlib
+
+        parts.append(f"**pcbridge {__version__}:** {daemonlib.describe()}")
 
         running = jm.list_jobs(limit=10, only_running=True)
         parts.append(f"\n**Calisan isler:** {len(running)}")
