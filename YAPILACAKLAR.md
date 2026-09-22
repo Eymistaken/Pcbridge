@@ -510,7 +510,7 @@ pcbridged  (systemd --user pcbridge.service, socket-activated via pcbridge.socke
 All output is in English, `--json` is available where it makes sense,
 `--yes` makes it non-interactive, and every subcommand is idempotent.
 
-- [ ] `pcbridge setup`: first-run wizard. It covers:
+- [x] `pcbridge setup`: first-run wizard. It covers:
   - dependency check with exact `apt` commands printed,
   - config creation or migration,
   - units enabled,
@@ -518,33 +518,33 @@ All output is in English, `--json` is available where it makes sense,
   - extension install,
   - client registration via `connect`,
   - a final readiness check.
-- [ ] `pcbridge connect [--client claude-code|codex|claude-desktop|all] [--dry-run]`:
+- [x] `pcbridge connect [--client claude-code|codex|claude-desktop|all] [--dry-run]`:
   - back up each client config before editing it,
   - register Claude Code at **user** scope (`CLAUDE.md` explains why
     project scope silently fails),
   - point every client at `pcbridge stdio`.
-- [ ] `pcbridge doctor [--fix] [--json]`: port all ~35 checks from
+- [x] `pcbridge doctor [--fix] [--json]`: port all ~35 checks from
       `doctor.sh`, and add daemon, socket, relay, version-skew, readiness
       and XDG checks. `--fix` repairs only safe things: modes, units,
       registrations, a stale socket.
-- [ ] `pcbridge status`: daemon up or down, version, clients connected,
+- [x] `pcbridge status`: daemon up or down, version, clients connected,
       grant state and time remaining, running jobs, remote tunnel state,
       degraded mode.
-- [ ] `pcbridge lock`: the emergency stop. It revokes the grant and kills
+- [x] `pcbridge lock`: the emergency stop. It revokes the grant and kills
       the screencast helpers, exactly like `bridgekilit` today.
       `pcbridge unlock --minutes N` is for humans.
-- [ ] `pcbridge remote start|stop|status`: replaces `remote.sh`.
-- [ ] `pcbridge logs [-f]`.
-- [ ] `pcbridge report`: writes a sanitized tarball (versions, doctor JSON,
+- [x] `pcbridge remote start|stop|status`: replaces `remote.sh`.
+- [x] `pcbridge logs [-f]`.
+- [x] `pcbridge report`: writes a sanitized tarball (versions, doctor JSON,
       recent logs with secrets and paths redacted, config with secrets
       removed), for bug reports.
-- [ ] `pcbridge update`: drain-aware restart (I5). For git installs it also
+- [x] `pcbridge update`: drain-aware restart (I5). For git installs it also
       pulls and rebuilds; for package installs it only prints how to
       update.
-- [ ] `pcbridge uninstall [--purge]`: keeps config and state unless
+- [x] `pcbridge uninstall [--purge]`: keeps config and state unless
       `--purge`, and uses `gio trash` where possible.
-- [ ] `pcbridge --version`.
-- [ ] **Old scripts.**
+- [x] `pcbridge --version`.
+- [x] **Old scripts.**
   - `install.sh` becomes a small bootstrap for git checkouts:
     `uv`/venv, install the package, then `pcbridge setup`.
   - `connect.sh`, `doctor.sh`, `remote.sh`, `run.sh`, `add_client.py` and
@@ -554,10 +554,10 @@ All output is in English, `--json` is available where it makes sense,
   - `setup_uinput.sh` stays as the git-install path for the udev rule.
   - Update eymistaken's aliases in his shell rc to call `pcbridge …`, with a
     backup of the rc file.
-- [ ] **Verify.** CLI tests (subprocess, temporary `XDG_*` dirs), plus
+- [x] **Verify.** CLI tests (subprocess, temporary `XDG_*` dirs), plus
       `pcbridge doctor --json` on the real machine with every check green
       or explained.
-- [ ] **Commit**: `feat(cli): one pcbridge command for setup, connect, doctor and operation`.
+- [x] **Commit**: `feat(cli): one pcbridge command for setup, connect, doctor and operation`.
 
 ### Step 5 — English everywhere  (time box: 5 h)
 
@@ -948,6 +948,10 @@ freely **after** extracting what is still true and useful.
 | 2026-09-22 | 3 | Units: `pcbridge.socket` (`%t/pcbridge/mcp.sock`, 0600, dir 0700, WantedBy=sockets.target) and `pcbridge.service` (Requires the socket, `ExecStart=<python> -m pcbridge serve`, Restart=on-failure, RestartSec=1, RestartForceExitStatus=75 for the idle self-restart, ExecStopPost lock kept, WantedBy=default.target, Also=pcbridge.socket). Template placeholder is `__PYTHON__`. Tested as temporary units `pcbridge-v2test.{socket,service}` on `%t/pcbridge-test/mcp.sock` and port 18765 so the live service was never touched. | I4 and 'no live changes before step 10'. |
 | 2026-09-22 | 3 | Memory is compared as total footprint, not daemon RSS alone: the daemon holds HTTP, desktop helpers and a 128-thread limit for every client (117 MB measured), each relay is 14 MB. Before: service 86 MB + one 92 MB stdio server per client (4 at the start of this run = ~454 MB). After, same clients: ~117 + 4 × 14 = ~173 MB. | I9 lists 'daemon or service RSS' as a baseline; the per-process number went up by design while the machine total went down by ~60 %. |
 | 2026-09-22 | 3 | The temporary test units `pcbridge-v2test.{socket,service}` (socket `%t/pcbridge-test/mcp.sock`, HTTP 18765, `XDG_DATA_HOME=%t/pcbridge-test/data`) stay installed in `~/.config/systemd/user` while the work continues and are moved to the trash (`gio trash`) in step 10. | They let every later step be verified through socket activation without touching the live pcbridge.service. |
+| 2026-09-23 | 4 | Old scripts: `connect.sh`, `doctor.sh`, `remote.sh`, `run.sh` became forwarding wrappers (English deprecation note on stderr, then `pcbridge connect|doctor|remote|serve`); `install.sh` is now a git bootstrap (venv, editable install with constraints, optional native build, `pcbridge setup`); `setup_uinput.sh` stays; `add_client.py` and `capture.sh` were removed (`git rm`): both only served the abandoned Gemini Spark OAuth flow and nothing else referenced them. New `packaging/install-user.sh WHEEL` does the no-root user install into `~/.local/share/pcbridge/venv`. | Step 4 asks to record which scripts were wrapped and which removed. |
+| 2026-09-23 | 4 | `pcbridge remote stop` (and so the `bridgekapat` alias) now only closes the Tailscale funnel; it no longer stops pcbridge.service, because local clients depend on the daemon. `pcbridge stop` is the new full stop (grant closed, daemon stopped, every pcbridge-job scope and remaining job ended); `pcbridge lock` stays the desktop emergency stop. | Stopping the service used to be harmless for local clients (they had their own processes); with the daemon it would not be. |
+| 2026-09-23 | 4 | Clients, aliases and units point at a stable launcher: `~/.local/bin/pcbridge` for the user install (a symlink setup maintains), `/usr/bin/pcbridge` for the .deb, the venv script for git/pip installs. A foreign file at `~/.local/bin/pcbridge` is moved into the run's backup directory, never deleted. | A reinstall or a switch of install kind then changes one symlink instead of three client configs. |
+| 2026-09-23 | 4 | `pcbridge setup` restarts pcbridge.service into the daemon only when idle (no running job, no open desktop grant; waits up to `--idle-wait`, default 600 s) and enables pcbridge.socket only after that restart; the relay only starts pcbridge.socket on demand when the unit is enabled (checks the `sockets.target.wants` link). Relay handshake wait lowered from 20 to 10 s. | An enabled socket in front of a still-running pre-2.0 service would accept connections nobody answers (I3, I5). |
 
 ## 8. Progress log and measurements
 
@@ -973,6 +977,7 @@ Append-only. One line per meaningful event, with numbers.
 - 2026-09-22 step 2 — `pcbridge/paths.py` (XDG config/state/log/cache/data/runtime, runtime dir created 0700, socket path `$XDG_RUNTIME_DIR/pcbridge/mcp.sock`, overridable with `$PCBRIDGE_SOCKET`). Existing `/run/user/1000/pcbridge` is already 0700. The maintainer's real config migrated in a temp dir: effective settings identical (dataclass comparison, `PCBRIDGE_TEST_REAL_CONFIG`), dest mode 0600; its only warning is the misplaced `[limits] default_agent`. INSTRUCTIONS no longer name ZorinOS or a two-monitor layout; they tell the model to call `screen_info`/`system_capabilities`. `notify`'s default title is now `pcbridge` (was `Gemini`). Remaining hits of 1920/3840/DP-/eymistaken in code are comments, docstrings, examples, the extension UUID and the D-Bus name (identifiers, unchanged); `skills/computer-use/SKILL.md` still hard-codes the layout for the model and is rewritten in step 5. Suites: models 106, desktop 614, contracts 459 OK (+13 config, +5 executables; 1 skip = real-config test without the env var), integration 24 OK, gjs 17/31/22. Readiness: legacy (worktree) 681.7 ms, packaged 684.5 ms, PASS.
 - 2026-09-22 step 3 (in progress) — Relay import 12.8 ms. Through relay + daemon: cold client start to tools/list **22–28 ms** warm daemon (baseline 692.8 ms); socket-activated with the daemon stopped **711 ms** (budget 3 s); fallback with no daemon at all 700.1 ms (+1 %, within I9). Faults (tests/readiness/faults.py against the test units): kill -9 mid-call → in-flight error after 9.8 ms, next call 1981.6 ms; daemon stopped → next client 743.5 ms served by the daemon; stale socket → in-process 719.6 ms; XDG_RUNTIME_DIR unusable → in-process 700.3 ms; three clients at once 55.3 ms wall; background job scope active before and after kill -9. Parity (tests/readiness/parity.py, in-process vs relay, normalized ids/times/image data): 12/12 SAME incl. tools/list 45907 B, structuredContent, error result, unknown tool, cancellation, background job + job_status, desktop_unlock, screen_capture with image, desktop_lock. Two bugs found and fixed on the way: the daemon's line reader dropped received bytes, and a blocking listening socket stalled anyio's event loop (accept() is called directly; the socket is now non-blocking). Suites: models 106, desktop 614, contracts 469 OK, integration 24 OK, gjs 70.
 - 2026-09-22 step 3 — Done. Per-call relay overhead (40 calls each, same daemon vs PCBRIDGE_NO_DAEMON): ping p50 0.43 vs 0.46 ms, system_capabilities 30.30 vs 30.19 ms (+0.11), tools/list 1.75 vs 1.71 ms (+0.04): **overhead ≈0.1 ms** (budget 5 ms). Through relay + daemon vs baseline: screen_capture one monitor **293.7** (301.7) ms, both **761.1** (770.7), ui_dump **26.7** (32.7), window_list 11.4 (14.1), window_focus 25.5 (29.7); system_status 20-call median 121.2 ms vs 1.x 132.0 ms. Relay RSS 14.2 MB, daemon RSS 117 MB. test_e2e.py (NO_AGENT) against the daemon's HTTP on 18765: 262 passed, 0 failed, 9 skipped (= baseline). Live, all four flags: test_desktop.py 654 passed 0 failed; tests/live 61 OK (4 skipped by design, 'covered by WindowOperationsLive'). Real computer_batch through the relay into an empty gnome-text-editor: 34 characters incl. ğüşıöç pasted and verified on a screenshot, then cleared and discarded via ui_dump + ui_click (AT-SPI id, no coordinates); an empty 'Yeni Belge' editor window was left open. Idle self-restart: a new version stamp was deferred while a job ran ('1 job(s) running'), then the daemon exited 75 and systemd restarted it (NRestarts=1) once idle. New non-live tests: contracts/test_relay.py (4, fake daemon), contracts/test_sessionctx.py (4), integration/test_daemon.py (3, real daemon with a throwaway config: 36 tools, 3 sessions, SIGKILL mid-call → retryable error → stale socket replaced → next call ok). Suites: models 106, desktop 614, contracts 473 OK, integration 27 OK, gjs 70.
+- 2026-09-23 step 4 — CLI subcommands: serve, stdio, setup, connect, doctor, status, lock, unlock, stop, remote, logs, report, update, uninstall, --version. Codex edit dry-run on the real ~/.codex/config.toml: only the two command/args lines change, the five approval_mode sub-tables stay, idempotent. `pcbridge doctor` on the real machine (worktree, before install): 28 ok, 13 warnings, 3 failures, all expected before step 10 (socket unit not installed, clients on the 1.x command, worktree launcher missing before the editable install) plus tesseract missing; it also showed the Tailscale funnel is currently OPEN on 8765. End-to-end `packaging/install-user.sh` into a throwaway HOME with stubbed systemctl/claude: venv created, launchers linked, units rendered with the venv python, config migrated from a copy of the real one, extension copied, Codex + Claude Desktop registered, alias block rewritten in place, fresh client got 36 tools in 793 ms. Found and fixed: doctor's readiness probe closed stdin before the answer arrived (a server ends the session at EOF). New tests: contracts/test_cli.py (6: version, connect with backups and idempotence, alias block, report redaction, doctor JSON, unit rendering). Suites: models 106, desktop 614, contracts 479 OK, integration 27 OK, gjs 70.
 
 ## 9. Needs eymistaken (physical presence, sudo, or a decision only he can make)
 

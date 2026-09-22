@@ -46,7 +46,7 @@ from . import paths as pathslib
 
 PROTOCOL = 1
 CONNECT_WAIT_S = 2.0
-HANDSHAKE_WAIT_S = 20.0
+HANDSHAKE_WAIT_S = 10.0
 RECONNECT_WAIT_S = 10.0
 RETRYABLE_CODE = -32000
 
@@ -85,8 +85,16 @@ def _id_key(raw) -> str:
 
 
 def _socket_unit_installed() -> bool:
+    """True when pcbridge.socket is installed AND enabled.
+
+    Only an enabled socket is started on demand. `pcbridge setup` installs
+    the units first and enables the socket only once the service really runs
+    the daemon; starting the socket while an older, socket-less server holds
+    pcbridge.service would leave connections queued and unanswered.
+    """
     return any(
-        (Path(os.path.expanduser(d)) / "pcbridge.socket").exists() for d in UNIT_DIRS
+        (Path(os.path.expanduser(d)) / "sockets.target.wants" / "pcbridge.socket").exists()
+        for d in UNIT_DIRS
     )
 
 

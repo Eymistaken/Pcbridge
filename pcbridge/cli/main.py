@@ -35,8 +35,47 @@ def _stdio(argv: list[str]) -> int:
     return relay_main(argv)
 
 
+def _lazy(module: str, func: str):
+    def run(argv: list[str]) -> int:
+        import importlib
+
+        return getattr(importlib.import_module(module, __package__), func)(argv)
+
+    return run
+
+
 # Subcommands whose arguments belong to another module's parser.
-_PASSTHROUGH = {"serve": _serve, "stdio": _stdio}
+_PASSTHROUGH = {
+    "serve": _serve,
+    "stdio": _stdio,
+    "setup": _lazy(".ops", "setup"),
+    "connect": _lazy(".connect", "main"),
+    "doctor": _lazy(".doctor", "main"),
+    "status": _lazy(".ops", "status"),
+    "lock": _lazy(".ops", "lock"),
+    "unlock": _lazy(".ops", "unlock"),
+    "stop": _lazy(".ops", "stop"),
+    "remote": _lazy(".ops", "remote"),
+    "logs": _lazy(".ops", "logs"),
+    "report": _lazy(".ops", "report"),
+    "update": _lazy(".ops", "update"),
+    "uninstall": _lazy(".ops", "uninstall"),
+}
+
+_HELP = {
+    "setup": "Install or update pcbridge for this user: config, service, extension, clients, aliases.",
+    "connect": "Register pcbridge with Claude Code, Codex and Claude Desktop (--client, --dry-run).",
+    "doctor": "Check everything and say what to fix (--fix, --json).",
+    "status": "Daemon, desktop grant, running jobs, remote tunnel (--json).",
+    "lock": "Emergency stop for desktop control: close the grant, stop screen sharing.",
+    "unlock": "Open desktop control for agents (--minutes N).",
+    "stop": "Stop the daemon and every running job (the socket stays ready).",
+    "remote": "start | stop | status of remote access through Tailscale Funnel.",
+    "logs": "Show the daemon log (-f to follow).",
+    "report": "Write a sanitized bug-report bundle.",
+    "update": "Load the installed version into the daemon once no job is running.",
+    "uninstall": "Remove pcbridge for this user (--purge also trashes config and state).",
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -57,6 +96,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Connect one MCP client (stdin/stdout) to the daemon; falls back to an in-process server.",
         add_help=False,
     )
+    for name, text in _HELP.items():
+        sub.add_parser(name, help=text, add_help=False)
     return parser
 
 
