@@ -363,15 +363,12 @@ fn open_stream(
                 Ok(frame) => WorkerEvent::Frame(frame),
                 Err(error) => WorkerEvent::Error(error),
             };
-            let event = match stream.disconnect() {
-                Ok(()) => {
-                    state.borrow().attached.store(false, Ordering::Release);
-                    event
-                }
-                Err(error) => WorkerEvent::Error(CaptureError::Stream(format!(
-                    "failed to release the captured stream: {error}"
-                ))),
-            };
+            // The stream is NOT disconnected here. Disconnecting it inside
+            // its own process callback crashed libpipewire 1.6.9 in the main
+            // loop right after the callback returned (SIGSEGV, measured in
+            // the Arch VM with GNOME 50.5). The worker detaches as soon as it
+            // has a frame, from the loop and outside any callback, which
+            // releases the producer just as quickly.
             send_event(&state.borrow().events, event);
         })
         .register()
