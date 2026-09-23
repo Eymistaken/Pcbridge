@@ -348,6 +348,12 @@ probes in `tests/live/kde/`.
   it from the screen.
 - **wl-clipboard works without focus** (KWin offers `ext_data_control_v1`).
 - **`gtk-launch`, `gio` and `kstart` are all present** with Plasma plus GTK.
+- **A headless KWin in a CI container** (`kwin_wayland --virtual`, no GPU
+  render node) composites with QPainter, and ScreenShot2 then answers every
+  capture with "Screenshot got cancelled"; in the VM, where KWin uses
+  OpenGL, the same call returns the frame in 4-6 ms. Arch's `kwin_wayland`
+  also carries the file capability `cap_sys_nice=ep`, so a container needs
+  `--cap-add=SYS_NICE` or exec fails with EPERM.
 
 ## Build and test
 
