@@ -444,7 +444,11 @@ def setup(argv: list[str]) -> int:
 
     inst.say("\n4. Background service")
     changed = inst.install_units(backup)
-    inst.ok("units " + ("installed" if changed else "up to date") + f" in {inst.USER_UNIT_DIR}")
+    if inst.units_managed_by_package():
+        inst.ok("units provided by the package in /usr/lib/systemd/user"
+                + ("; leftover user units moved to the backup" if changed else ""))
+    else:
+        inst.ok("units " + ("installed" if changed else "up to date") + f" in {inst.USER_UNIT_DIR}")
     # Stamp BEFORE the restart: the new daemon then reads it as its starting
     # point. Written after, the daemon saw a "newer" install five seconds
     # later and restarted itself once more (seen in the journal, 2.0 install).

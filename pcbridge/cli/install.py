@@ -278,6 +278,11 @@ def install_units(backup: Backup) -> bool:
             if leftover.exists() or leftover.is_symlink():
                 backup.move(leftover)
                 changed = True
+        if changed:
+            # Without this systemd keeps the removed units in memory, and the
+            # restart that follows starts the old venv again (seen in the Arch
+            # VM: the package's setup restarted the checkout's daemon).
+            systemctl("daemon-reload")
         return changed
     changed = False
     for name in UNIT_NAMES:
