@@ -22,8 +22,11 @@ use crate::platform::linux::accessibility::fixture::FixtureTree;
 use crate::platform::linux::accessibility::{
     self, AccessibilityError, DumpRecord, DumpRequest, NodeRecord, Tree,
 };
-use crate::platform::linux::capture::{CaptureError, NativeCapture, NativeCaptureError};
+use crate::platform::linux::capture::{
+    CaptureError, KWIN_BACKEND, MUTTER_BACKEND, NativeCapture, NativeCaptureError,
+};
 use crate::platform::linux::clipboard::{self, Clipboard, ClipboardError, SystemPrograms};
+use crate::platform::linux::desktop::DesktopKind;
 #[cfg(feature = "test-harness")]
 use crate::platform::linux::desktop_state::DeterministicDesktopState;
 use crate::platform::linux::display::DisplayReader;
@@ -116,10 +119,21 @@ impl BackendMode {
             Self::Production { .. } => {
                 let [read, windows, act] =
                     readiness::accessibility(&readiness::accessibility_bus_owned());
-                json!({
-                    "backend": "linux.mutter.pipewire",
-                    "capabilities": [
+                let (backend, capture) = if DesktopKind::detect() == DesktopKind::Kde {
+                    (
+                        KWIN_BACKEND,
+                        readiness::capture_monitor_kwin(&readiness::probe_kwin()),
+                    )
+                } else {
+                    (
+                        MUTTER_BACKEND,
                         readiness::capture_monitor(&readiness::probe()),
+                    )
+                };
+                json!({
+                    "backend": backend,
+                    "capabilities": [
+                        capture,
                         readiness::input_keyboard(),
                         readiness::input_pointer(),
                         readiness::input_pointer_relative(),
@@ -809,15 +823,15 @@ impl Dispatcher {
         id: String,
         params: CaptureFrameParams,
     ) -> DispatchOutcome {
-        let Some(connector) = params.display_id.strip_prefix("mutter:") else {
+        let Some((scheme, connector)) = params.display_id.split_once(':') else {
             return self.error(
                 id,
                 "INVALID_PARAMS",
-                "production display_id must start with 'mutter:'",
+                "production display_id must be '<scheme>:<connector>' (mutter or kwin)",
                 None,
             );
         };
-        let connector = connector.to_owned();
+        let (scheme, connector) = (scheme.to_owned(), connector.to_owned());
         let lifecycle = self
             .lifecycle
             .as_ref()
@@ -866,6 +880,20 @@ impl Dispatcher {
             .capture
             .as_ref()
             .expect("capture resources were just constructed");
+        // A scheme names the compositor that produced the id; an id from the
+        // other one cannot be read correctly here.
+        if scheme != capture.display_scheme() {
+            return self.error(
+                id,
+                "INVALID_PARAMS",
+                format!(
+                    "display_id scheme '{scheme}' does not match this session's '{}'",
+                    capture.display_scheme()
+                ),
+                None,
+            );
+        }
+        let backend = capture.backend_name();
         match capture.capture(
             &snapshot,
             &params.topology_id,
@@ -897,7 +925,7 @@ impl Dispatcher {
                         "revoke_epoch": params.revoke_epoch,
                         "wait_ms": image.waited.as_secs_f64() * 1000.0,
                         "encode_ms": image.encoded_in.as_secs_f64() * 1000.0,
-                        "backend": "linux.mutter.pipewire",
+                        "backend": backend,
                         "mime_type": "image/png",
                     }),
                     image.png,
@@ -1000,6 +1028,7 @@ impl Dispatcher {
             .capture
             .as_ref()
             .expect("capture resources were just constructed");
+        let backend = capture.backend_name();
         match capture.open_session(
             &snapshot,
             &params.topology_id,
@@ -1011,6 +1040,7 @@ impl Dispatcher {
                     OpenOutcome::Opened => "opened",
                     OpenOutcome::Reused => "reused",
                     OpenOutcome::Recreated => "recreated",
+                    OpenOutcome::NotNeeded => "not_needed",
                 };
                 let monitors: Vec<&str> = snapshot
                     .monitors
@@ -1025,7 +1055,7 @@ impl Dispatcher {
                         "outcome": outcome,
                         "monitors": monitors,
                         "include_pointer": params.include_pointer,
-                        "backend": "linux.mutter.pipewire",
+                        "backend": backend,
                     }),
                     None,
                 )

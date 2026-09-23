@@ -6,6 +6,7 @@ pub mod desktop_state;
 pub mod display;
 pub mod idle;
 pub mod input;
+pub mod kwin_screenshot;
 pub mod pipewire_source;
 pub mod readiness;
 pub mod session;

@@ -272,6 +272,8 @@ pub enum OpenOutcome {
     Reused,
     /// An open session did not match; it was stopped and a new one created.
     Recreated,
+    /// The backend keeps no session (KWin's ScreenShot2): nothing to open.
+    NotNeeded,
 }
 
 /// The session state machine. One entry point, `open`, so that cursor changes,

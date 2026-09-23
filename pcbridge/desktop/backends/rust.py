@@ -71,9 +71,11 @@ from .python import (
 from ...config import Config
 from ...native import NativeClient, discover_native_binary
 
-#: Mutter connectors are addressed with an explicit scheme so that a native
-#: backend for another compositor cannot be handed an id it would misread.
+#: Connectors are addressed with an explicit scheme so that a native backend
+#: for one compositor cannot be handed an id it would misread: `mutter:` on
+#: GNOME, `kwin:` on KDE Plasma (the helper refuses the other one).
 DISPLAY_SCHEME = "mutter"
+KWIN_DISPLAY_SCHEME = "kwin"
 
 #: Matches the native side's own ceiling. A frame that has not arrived in eight
 #: seconds is not coming, and one MCP call may not block for 110.
@@ -83,6 +85,15 @@ FRAME_TIMEOUT_MS = 8000
 CLIPBOARD_TIMEOUT_SECONDS = 25.0
 
 BACKEND_NAME = "linux.mutter.pipewire"
+KWIN_BACKEND_NAME = "linux.kwin.screenshot2"
+
+
+def _display_scheme() -> str:
+    return KWIN_DISPLAY_SCHEME if compositorlib.is_kde() else DISPLAY_SCHEME
+
+
+def _backend_name() -> str:
+    return KWIN_BACKEND_NAME if compositorlib.is_kde() else BACKEND_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -323,7 +334,7 @@ class NativeScreenCast:
                 category=ErrorCategory.SAFETY,
                 retryable=False,
                 suggested_action="Open the desktop grant with desktop_unlock and try again.",
-                backend=BACKEND_NAME,
+                backend=_backend_name(),
             )
             raise NativeCaptureError(refusal.message, cause=refusal)
         return str(token.grant_id), int(token.revoke_epoch)
@@ -419,7 +430,7 @@ class NativeScreenCast:
         response = client.request(
             "capture.frame",
             {
-                "display_id": f"{DISPLAY_SCHEME}:{connector}",
+                "display_id": f"{_display_scheme()}:{connector}",
                 "topology_id": topology,
                 "session_id": self._session_id,
                 "grant_id": grant_id,
@@ -497,7 +508,7 @@ def _error_from_response(error: dict[str, Any]) -> DesktopError:
         category=mapped[1],
         retryable=bool(error.get("retryable", False)),
         suggested_action="check_desktop_grant_and_display_layout",
-        backend=BACKEND_NAME,
+        backend=_backend_name(),
     )
 
 
@@ -538,7 +549,7 @@ class RustCaptureProvider(PythonCaptureProvider):
                 exc,
                 code=ErrorCode.BACKEND_UNAVAILABLE,
                 category=ErrorCategory.CAPABILITY,
-                backend=BACKEND_NAME,
+                backend=_backend_name(),
                 retryable=True,
                 suggested_action="Check the native capture helper and the desktop grant.",
             ) from exc
@@ -571,7 +582,17 @@ class RustCaptureProvider(PythonCaptureProvider):
 
     def backend_name(self) -> str:
         """What the next capture will actually use -- state, not a guess."""
-        return BACKEND_NAME if self.screencast.is_open() else "pcbridge-native"
+        return _backend_name() if self.screencast.is_open() else "pcbridge-native"
+
+    def _kwin_authorized(self) -> bool:
+        from .. import kwin as kwinlib
+
+        try:
+            binary = discover_native_binary(
+                self.cfg.native, package_root=Path(__file__).resolve().parents[2])
+        except Exception:  # noqa: BLE001 — `native_binary_ready` reports it
+            return False
+        return kwinlib.helper_authorized(binary) is not None
 
     def probe_capabilities(self) -> dict[str, Capability]:
         """Report monitor capture from the native path without opening a session."""
@@ -581,7 +602,7 @@ class RustCaptureProvider(PythonCaptureProvider):
             monitor = _capability(
                 "capture.monitor",
                 CapabilityState.UNAVAILABLE,
-                backend=BACKEND_NAME,
+                backend=_backend_name(),
                 scope="os.capture",
                 reason_code=ErrorCode.DEPENDENCY_MISSING,
                 limitations=(
@@ -589,18 +610,30 @@ class RustCaptureProvider(PythonCaptureProvider):
                     "(`pcbridge update`) so its environment has it.",
                 ),
             )
+        elif ready and compositorlib.is_kde() and not self._kwin_authorized():
+            monitor = _capability(
+                "capture.monitor",
+                CapabilityState.PERMISSION_REQUIRED,
+                backend=_backend_name(),
+                scope="os.capture",
+                reason_code=ErrorCode.PERMISSION_REQUIRED,
+                limitations=(
+                    "KWin allows screenshots only to programs its .desktop files "
+                    "authorize; run `pcbridge setup` to install the native helper's.",
+                ),
+            )
         elif ready:
             monitor = _capability(
                 "capture.monitor",
                 CapabilityState.SUPPORTED,
-                backend=BACKEND_NAME,
+                backend=_backend_name(),
                 scope="os.capture",
             )
         else:
             monitor = _capability(
                 "capture.monitor",
                 CapabilityState.UNAVAILABLE,
-                backend=BACKEND_NAME,
+                backend=_backend_name(),
                 scope="os.capture",
                 reason_code=ErrorCode.DEPENDENCY_MISSING,
                 limitations=(reason,) if reason else (),
@@ -653,7 +686,7 @@ class RustCaptureProvider(PythonCaptureProvider):
                 exc,
                 code=ErrorCode.BACKEND_UNAVAILABLE,
                 category=ErrorCategory.CAPABILITY,
-                backend=BACKEND_NAME,
+                backend=_backend_name(),
                 retryable=True,
                 suggested_action="Check the native capture helper and the desktop grant.",
             ) from exc
@@ -1443,6 +1476,7 @@ __all__ = [
     "ACCESSIBILITY_BACKEND",
     "BackendSelection",
     "BACKEND_NAME",
+    "KWIN_BACKEND_NAME",
     "NativeCaptureError",
     "NativeScreenCast",
     "RustAccessibilityProvider",

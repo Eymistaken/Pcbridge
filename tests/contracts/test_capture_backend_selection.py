@@ -283,6 +283,21 @@ class NativeHandle(unittest.TestCase):
         }
         self.client = FakeNativeClient(self.frames)
 
+    def test_plasma_addresses_kwin_connectors(self):
+        from pcbridge.desktop import compositor
+
+        handle = native_handle(self.cfg, self.client)
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(compositor, "is_kde", return_value=True), \
+                mock.patch.object(monitorslib, "list_monitors", return_value=MONITORS):
+            handle.capture("DP-4", Path(tmp) / "frame.png")
+        params = next(
+            request["params"]
+            for request in self.client.requests
+            if request["method"] == "capture.frame"
+        )
+        self.assertEqual(params["display_id"], "kwin:DP-4")
+
     def test_the_request_names_the_grant_topology_and_scheme(self):
         handle = native_handle(self.cfg, self.client)
         with tempfile.TemporaryDirectory() as tmp:
@@ -351,6 +366,27 @@ class NativeHandle(unittest.TestCase):
         self.assertIs(raised.exception.code, ErrorCode.REVOKED)
         self.assertIs(raised.exception.category, ErrorCategory.SAFETY)
         self.assertFalse(provider.is_open())
+
+    def test_plasma_capture_is_claimed_only_once_kwin_authorizes_the_helper(self):
+        from pcbridge.desktop import compositor, kwin
+
+        provider = RustCaptureProvider(
+            self.cfg,
+            screencast=NativeScreenCast(self.cfg, gate=FakeGate(), client=self.client),
+        )
+        ready = ("pcbridge.desktop.backends.rust.native_binary_ready", (True, ""))
+        for authorized, state in ((None, CapabilityState.PERMISSION_REQUIRED),
+                                  (Path("/x/pcbridge-native.desktop"), CapabilityState.SUPPORTED)):
+            with self.subTest(authorized=authorized), \
+                    mock.patch(ready[0], return_value=ready[1]), \
+                    mock.patch.object(compositor, "is_kde", return_value=True), \
+                    mock.patch("pcbridge.desktop.backends.rust.discover_native_binary",
+                               return_value=Path("/x/pcbridge-native")), \
+                    mock.patch.object(kwin, "helper_authorized", return_value=authorized), \
+                    mock.patch.object(monitorslib, "list_monitors", return_value=MONITORS):
+                monitor = provider.probe_capabilities()["capture.monitor"]
+            self.assertIs(monitor.state, state)
+            self.assertEqual(monitor.backend, "linux.kwin.screenshot2")
 
     def test_start_without_a_grant_is_refused_before_any_request(self):
         handle = NativeScreenCast(self.cfg, gate=None, client=self.client)

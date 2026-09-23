@@ -444,6 +444,20 @@ class PythonCaptureProvider:
             "capture.window",
             pillow_ok and screenshot_ok,
         )
+        if compositorlib.is_kde():
+            # Mutter's ScreenCast and gnome-screenshot are GNOME's; KWin gives
+            # screenshots only to the native helper it authorizes.
+            monitor = _capability(
+                "capture.monitor",
+                CapabilityState.UNSUPPORTED,
+                backend="linux.gnome-screencast",
+                scope="os.capture",
+                reason_code=ErrorCode.UNSUPPORTED,
+                limitations=(
+                    "On KDE Plasma screen capture needs pcbridge's native helper "
+                    "(KWin ScreenShot2); install a build that includes it.",
+                ),
+            )
         return {"capture.monitor": monitor, "capture.window": window}
 
     @staticmethod

@@ -303,6 +303,11 @@ probes in `tests/live/kde/`.
   within seconds (removing it revoked access after about 8 s). Authorizing
   the system python would let every python script take screenshots, so
   only the native helper is authorized.
+- **KWin's alpha channel is blending residue.** In an ARGB32_Premultiplied
+  frame of 1280x800, 2 pixels had alpha below 255; a monitor shows no
+  transparency, so the helper drops the alpha byte instead of leaving holes
+  in the PNG. Through the helper (debug build, conversion and PNG included)
+  a monitor took 49-80 ms.
 - **`zkde_screencast_unstable_v1` is not advertised** to an unauthorized
   client, so it was not measured; ScreenShot2 is enough.
 - **The absolute uinput pointer maps to the whole canvas, exactly as on

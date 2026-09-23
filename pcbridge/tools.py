@@ -35,6 +35,7 @@ from .config import Config
 from .desktop import apps as appslib
 from .desktop import batch as batchlib
 from .desktop import capture as capturelib
+from .desktop import compositor as compositorlib
 from .desktop import execution as executionlib
 from .desktop import input as inputlib
 from .desktop import monitors as monitorslib
@@ -1041,6 +1042,15 @@ def register(
         Yayin acilamazsa izin YINE DE verilir -- `gnome-screenshot` yedegi
         duruyor, yalnizca flas patlatiyor. Sebebi kullaniciya soyleniyor.
         """
+        if compositorlib.is_kde():
+            # KWin gives one frame per call; there is no share to open and no
+            # panel indicator, only the grant and the layout to confirm.
+            try:
+                runtime.start_capture(cursor=cfg.desktop.include_pointer)
+            except (DesktopError, monitorslib.MonitorError) as exc:
+                return f"⚠️ Screen capture is not ready: {exc}"
+            return ("📷 Screenshots come from KWin: silent, no flash. Plasma shows "
+                    "no sharing indicator; the grant notification stands for it.")
         if cfg.desktop.capture_backend == "gnome-screenshot":
             return ""
         try:

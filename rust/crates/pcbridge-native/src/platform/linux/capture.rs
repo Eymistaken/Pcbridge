@@ -37,7 +37,9 @@ use pipewire::spa::param::video::VideoFormat;
 
 use crate::lifecycle::Lifecycle;
 use crate::lifecycle::LifecycleFailure;
+use crate::platform::linux::desktop::DesktopKind;
 use crate::platform::linux::display::DisplaySnapshot;
+use crate::platform::linux::kwin_screenshot::KWinScreenShot;
 use crate::platform::linux::pipewire_source::PipeWireFrameSource;
 use crate::platform::linux::session::{
     CaptureSession, CursorMode, MutterScreenCast, OpenOutcome, SessionFailure, SessionGuard,
@@ -199,18 +201,32 @@ pub struct CapturedMonitor {
 
 /// The reusable production capture resources.
 ///
-/// The Mutter session stays open under the grant, while the PipeWire consumer
-/// attaches only for the duration of one frame. `Lifecycle` owns a second
-/// reference to the session handle so its watchdog can close the visible share
-/// immediately on revoke or lock.
+/// On GNOME the Mutter session stays open under the grant, while the PipeWire
+/// consumer attaches only for the duration of one frame. `Lifecycle` owns a
+/// second reference to the session handle so its watchdog can close the
+/// visible share immediately on revoke or lock. On KDE Plasma every frame is
+/// one `ScreenShot2` call and nothing stays open.
 #[derive(Debug)]
 pub struct NativeCapture {
-    session: Arc<SessionHandle<MutterScreenCast>>,
-    source: PipeWireFrameSource,
+    backend: CaptureBackend,
+}
+
+#[derive(Debug)]
+enum CaptureBackend {
+    Mutter {
+        session: Arc<SessionHandle<MutterScreenCast>>,
+        source: PipeWireFrameSource,
+    },
+    KWin(KWinScreenShot),
 }
 
 impl NativeCapture {
     pub fn connect(lifecycle: &Lifecycle) -> Result<Self, NativeCaptureError> {
+        if DesktopKind::detect() == DesktopKind::Kde {
+            return Ok(Self {
+                backend: CaptureBackend::KWin(KWinScreenShot::connect()?),
+            });
+        }
         let session = Arc::new(SessionHandle::new(CaptureSession::new(
             MutterScreenCast::connect().map_err(|error| {
                 CaptureError::Unavailable(format!("Mutter ScreenCast unavailable: {error}"))
@@ -218,7 +234,27 @@ impl NativeCapture {
         )));
         let source = PipeWireFrameSource::new()?;
         lifecycle.register_fail_closed(session.clone());
-        Ok(Self { session, source })
+        Ok(Self {
+            backend: CaptureBackend::Mutter { session, source },
+        })
+    }
+
+    /// The backend name reported with every frame and session.
+    #[must_use]
+    pub const fn backend_name(&self) -> &'static str {
+        match self.backend {
+            CaptureBackend::Mutter { .. } => MUTTER_BACKEND,
+            CaptureBackend::KWin(_) => KWIN_BACKEND,
+        }
+    }
+
+    /// The `display_id` prefix this backend accepts (`mutter:` / `kwin:`).
+    #[must_use]
+    pub const fn display_scheme(&self) -> &'static str {
+        match self.backend {
+            CaptureBackend::Mutter { .. } => "mutter",
+            CaptureBackend::KWin(_) => "kwin",
+        }
     }
 
     /// Open, reuse or recreate the Mutter session for every monitor in
@@ -227,7 +263,8 @@ impl NativeCapture {
     /// `desktop_unlock` reaches this (Task 4.3), so the sharing indicator
     /// appears with the grant, exactly when the Python path shows it.
     /// `capture` goes through the same call, so the two cannot build
-    /// different sessions.
+    /// different sessions. KWin has no session: only the layout and the
+    /// grant are checked.
     pub fn open_session(
         &self,
         snapshot: &DisplaySnapshot,
@@ -238,6 +275,12 @@ impl NativeCapture {
         if snapshot.topology_id != topology_id {
             return Err(NativeCaptureError::DisplayChanged);
         }
+        let CaptureBackend::Mutter { session, .. } = &self.backend else {
+            lifecycle
+                .check()
+                .map_err(|failure| NativeCaptureError::Capture(CaptureError::Guard(failure)))?;
+            return Ok(OpenOutcome::NotNeeded);
+        };
         let request = StartRequest {
             monitors: snapshot
                 .monitors
@@ -247,7 +290,7 @@ impl NativeCapture {
             cursor: CursorMode::embedded(include_pointer),
             topology_id: snapshot.topology_id.clone(),
         };
-        self.session
+        session
             .open(&request, lifecycle)
             .map_err(NativeCaptureError::from)
     }
@@ -269,22 +312,28 @@ impl NativeCapture {
             .iter()
             .find(|monitor| monitor.connector == connector)
             .ok_or_else(|| NativeCaptureError::DisplayUnknown(connector.to_owned()))?;
-        self.open_session(snapshot, topology_id, include_pointer, lifecycle)?;
-        let node = self
-            .session
-            .node_for(connector)
-            .ok_or_else(|| NativeCaptureError::DisplayUnknown(connector.to_owned()))?;
-
-        let image = match CaptureWorker::new(self.source.clone())
-            .with_frame_timeout(timeout)
-            .capture(node, lifecycle, &CancelFlag::new())
-        {
-            Ok(image) => image,
-            Err(error) => {
-                // A frame timeout or broken node invalidates the session/node
-                // map. A retry must negotiate a new one, not reuse stale ids.
-                let _ = self.session.stop();
-                return Err(error.into());
+        let image = match &self.backend {
+            CaptureBackend::Mutter { session, source } => {
+                self.open_session(snapshot, topology_id, include_pointer, lifecycle)?;
+                let node = session
+                    .node_for(connector)
+                    .ok_or_else(|| NativeCaptureError::DisplayUnknown(connector.to_owned()))?;
+                match CaptureWorker::new(source.clone())
+                    .with_frame_timeout(timeout)
+                    .capture(node, lifecycle, &CancelFlag::new())
+                {
+                    Ok(image) => image,
+                    Err(error) => {
+                        // A frame timeout or broken node invalidates the
+                        // session/node map. A retry must negotiate a new one,
+                        // not reuse stale ids.
+                        let _ = session.stop();
+                        return Err(error.into());
+                    }
+                }
+            }
+            CaptureBackend::KWin(kwin) => {
+                capture_kwin(kwin, connector, include_pointer, lifecycle)?
             }
         };
         Ok(CapturedMonitor {
@@ -295,6 +344,39 @@ impl NativeCapture {
             expected_height: monitor.height,
         })
     }
+}
+
+pub const MUTTER_BACKEND: &str = "linux.mutter.pipewire";
+pub const KWIN_BACKEND: &str = "linux.kwin.screenshot2";
+
+/// One `ScreenShot2` frame under the grant: checked before the call and
+/// again before it becomes a PNG, like the PipeWire worker.
+fn capture_kwin(
+    kwin: &KWinScreenShot,
+    connector: &str,
+    include_pointer: bool,
+    guard: &dyn SessionGuard,
+) -> Result<CapturedPng, CaptureError> {
+    let requested_at = Instant::now();
+    guard.check().map_err(CaptureError::Guard)?;
+    let SourceFrame {
+        frame,
+        received_at,
+        identity_source,
+    } = kwin.capture_screen(connector, include_pointer)?;
+    guard.check().map_err(CaptureError::Guard)?;
+    let started = Instant::now();
+    let png = frame.to_png()?;
+    Ok(CapturedPng {
+        png,
+        width: frame.width,
+        height: frame.height,
+        id: frame.id,
+        identity_source,
+        stale_frames: 0,
+        waited: received_at.saturating_duration_since(requested_at),
+        encoded_in: started.elapsed(),
+    })
 }
 
 /// Turns a node id into a PNG, under the desktop grant.

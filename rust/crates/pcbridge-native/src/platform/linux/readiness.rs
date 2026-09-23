@@ -125,6 +125,63 @@ pub fn capture_monitor(readiness: &CaptureReadiness) -> Value {
     })
 }
 
+/// What a KDE Plasma capture needs: KWin's `ScreenShot2` service, and a
+/// `.desktop` file that authorizes this helper for it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KWinReadiness {
+    pub screenshot: Result<bool, String>,
+    pub authorized_by: Option<PathBuf>,
+}
+
+#[must_use]
+pub fn probe_kwin() -> KWinReadiness {
+    KWinReadiness {
+        screenshot: name_owned(super::kwin_screenshot::SERVICE),
+        authorized_by: std::env::current_exe()
+            .ok()
+            .and_then(|exe| super::kwin_screenshot::authorizing_desktop_file(&exe)),
+    }
+}
+
+/// The `capture.monitor` entry on KDE Plasma.
+#[must_use]
+pub fn capture_monitor_kwin(readiness: &KWinReadiness) -> Value {
+    let service = super::kwin_screenshot::SERVICE;
+    let entry = |status: &str, code: &str, reason: String| {
+        json!({
+            "name": "capture.monitor",
+            "status": status,
+            "permission_scope": "os.capture",
+            "reason_code": code,
+            "reason": reason,
+        })
+    };
+    match &readiness.screenshot {
+        Err(error) => entry(
+            "unavailable",
+            "BACKEND_UNAVAILABLE",
+            format!("the session bus could not be asked: {error}"),
+        ),
+        Ok(false) => entry(
+            "unavailable",
+            "BACKEND_UNAVAILABLE",
+            format!("{service} has no owner; this is not a KWin session"),
+        ),
+        Ok(true) if readiness.authorized_by.is_none() => entry(
+            "permission_required",
+            "PERMISSION_REQUIRED",
+            "KWin allows screenshots only to programs its .desktop files authorize; \
+             run `pcbridge setup` to install the helper's"
+                .to_owned(),
+        ),
+        Ok(true) => json!({
+            "name": "capture.monitor",
+            "status": "supported",
+            "permission_scope": "os.capture",
+        }),
+    }
+}
+
 /// The `input.keyboard` entry of a `capabilities` response.
 ///
 /// This intentionally checks only whether the node exists. Opening it here
