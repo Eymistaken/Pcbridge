@@ -192,11 +192,20 @@ def capabilities_result(snapshot: CapabilitySnapshot) -> ToolResult:
         if value.state.value != "supported" and value.limitations:
             line += f" — {value.limitations[0]}"
         lines.append(line)
-    from .session import support_note
+    from .session import platform_summary
 
-    note = support_note()
-    if note:
-        lines += ["", f"⚠️ {note}"]
+    plat = platform_summary()
+    yes = {True: "available", False: "missing"}
+    lines += [
+        "",
+        "**Platform**",
+        f"- GNOME Shell: {plat['gnome_shell'] or 'not found'}",
+        f"- session: {plat['session_type'] or 'unknown'}"
+        + (f" ({plat['desktop']})" if plat["desktop"] else ""),
+        f"- Mutter ScreenCast: {yes[plat['screencast']]}"
+        f" · RemoteDesktop: {yes[plat['remote_desktop']]}",
+    ]
+    lines += [f"⚠️ {n}" for n in plat["notes"]]
     authorization = snapshot.authorization
     lines += [
         "",
@@ -210,6 +219,7 @@ def capabilities_result(snapshot: CapabilitySnapshot) -> ToolResult:
         structured_content={
             "type": "pcbridge.desktop.capabilities",
             **snapshot.as_dict(),
+            "platform": plat,
         },
     )
 

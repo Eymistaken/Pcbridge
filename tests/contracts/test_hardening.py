@@ -271,6 +271,33 @@ class UnsupportedSessionTests(unittest.TestCase):
         self.assertIn("the sway desktop",
                       support_note({"XDG_SESSION_TYPE": "wayland", "XDG_CURRENT_DESKTOP": "sway"}))
 
+    def test_the_platform_report_names_untested_versions_instead_of_failing(self) -> None:
+        from unittest import mock
+
+        from pcbridge.desktop import session
+
+        def fake(version):
+            def busctl(*args):
+                if "ShellVersion" in args:
+                    return f's "{version}"' if version else ""
+                return '{"data":[["org.gnome.Mutter.ScreenCast"]]}'
+            return busctl
+
+        env = {"XDG_SESSION_TYPE": "wayland", "XDG_CURRENT_DESKTOP": "GNOME"}
+        with mock.patch.object(session, "_busctl", fake("46.2")):
+            ok = session.platform_summary(env)
+        self.assertEqual(ok["gnome_shell"], "46.2")
+        self.assertTrue(ok["screencast"])
+        self.assertFalse(ok["remote_desktop"])
+        self.assertEqual(ok["notes"], [])
+        with mock.patch.object(session, "_busctl", fake("49.1")):
+            newer = session.platform_summary(env)
+        self.assertIn("GNOME Shell 49.1 is untested", newer["notes"][0])
+        with mock.patch.object(session, "_busctl", fake("")):
+            gone = session.platform_summary(env)
+        self.assertIsNone(gone["gnome_shell"])
+        self.assertIn("did not answer", gone["notes"][0])
+
     def test_an_unknown_lock_state_in_such_a_session_refuses_with_the_reason(self) -> None:
         from unittest import mock
 

@@ -198,3 +198,68 @@ def support_note(env: dict[str, str] | None = None) -> str:
         "need GNOME on Wayland and refuse here; the shell, file, tmux and agent "
         "tools work anywhere."
     )
+
+
+# GNOME Shell major versions pcbridge has actually run on. Others are
+# reported as untested rather than refused (Step 9 of 2.0).
+TESTED_SHELL_MAJORS = frozenset({"46"})
+_PLATFORM_TTL = 60.0
+_platform_cache: tuple[float, dict] | None = None
+
+
+def _busctl(*args: str) -> str:
+    import subprocess
+
+    try:
+        return subprocess.run(["busctl", "--user", *args], capture_output=True,
+                              text=True, timeout=3).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def platform_summary(env: dict[str, str] | None = None) -> dict:
+    """GNOME Shell version, session, and the Mutter interfaces pcbridge uses.
+
+    Read-only and cheap (measured: 3 ms + 15 ms, cached for a minute). An
+    unknown or missing piece is reported, never raised.
+    """
+    import json
+    import time
+
+    global _platform_cache
+    now = time.monotonic()
+    if env is None and _platform_cache and now - _platform_cache[0] < _PLATFORM_TTL:
+        return _platform_cache[1]
+    e = os.environ if env is None else env
+    raw = _busctl("get-property", "org.gnome.Shell", "/org/gnome/Shell",
+                  "org.gnome.Shell", "ShellVersion")
+    m = re.search(r'"([^"]+)"', raw)
+    shell = m.group(1) if m else ""
+    names: list[str] = []
+    try:
+        names = json.loads(_busctl("--json=short", "call", "org.freedesktop.DBus",
+                                   "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                                   "ListNames") or "{}").get("data", [[]])[0]
+    except ValueError:
+        names = []
+    notes = []
+    note = support_note(e)
+    if note:
+        notes.append(note)
+    if not shell:
+        notes.append("GNOME Shell did not answer on the session bus.")
+    elif shell.split(".")[0] not in TESTED_SHELL_MAJORS:
+        notes.append(f"GNOME Shell {shell} is untested (pcbridge was tested on "
+                     f"{', '.join(sorted(TESTED_SHELL_MAJORS))}); the capabilities "
+                     "above are what was actually found.")
+    result = {
+        "gnome_shell": shell or None,
+        "session_type": e.get("XDG_SESSION_TYPE") or None,
+        "desktop": e.get("XDG_CURRENT_DESKTOP") or None,
+        "screencast": "org.gnome.Mutter.ScreenCast" in names,
+        "remote_desktop": "org.gnome.Mutter.RemoteDesktop" in names,
+        "notes": notes,
+    }
+    if env is None:
+        _platform_cache = (now, result)
+    return result

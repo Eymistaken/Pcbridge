@@ -269,7 +269,16 @@ def units_managed_by_package() -> bool:
 def install_units(backup: Backup) -> bool:
     """Write the user units for this installation; True when something changed."""
     if units_managed_by_package():
-        return False
+        # Units in ~/.config/systemd/user override the package's
+        # /usr/lib/systemd/user ones; a leftover from an earlier user install
+        # would keep starting the old venv. Moved to the backup, not deleted.
+        changed = False
+        for name in UNIT_NAMES:
+            leftover = USER_UNIT_DIR / name
+            if leftover.exists() or leftover.is_symlink():
+                backup.move(leftover)
+                changed = True
+        return changed
     changed = False
     for name in UNIT_NAMES:
         changed |= write_if_changed(USER_UNIT_DIR / name, render_unit(name), backup, 0o644)
