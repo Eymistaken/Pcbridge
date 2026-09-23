@@ -146,6 +146,7 @@ cmd_sync() {
                   && rm -rf ~/pcbridge.src && { [ ! -d ~/pcbridge ] || mv ~/pcbridge ~/pcbridge.src; } \
                   && mv ~/pcbridge.new ~/pcbridge && { [ ! -d ~/pcbridge.src/.venv ] || mv ~/pcbridge.src/.venv ~/pcbridge/; } \
                   && { [ ! -d ~/pcbridge.src/rust/target ] || mv ~/pcbridge.src/rust/target ~/pcbridge/rust/; } \
+                  && { [ ! -d ~/pcbridge.src/pcbridge/_native ] || mv ~/pcbridge.src/pcbridge/_native ~/pcbridge/pcbridge/; } \
                   && rm -rf ~/pcbridge.src'
     echo "synced to ~/pcbridge"
 }

@@ -6,15 +6,19 @@ because in this project "it did not raise an error" is not evidence. When a
 design decision below looks odd, the measurement next to it is why.
 
 Reference machine: Zorin OS 18.1 (Ubuntu 24.04, GNOME Shell 46, Wayland),
-two 1920x1080 monitors at scale 1.0, keyboard layout `tr+intl`.
+two 1920x1080 monitors at scale 1.0, keyboard layout `tr+intl`. KDE Plasma
+and Arch Linux were measured in the test VM (`scripts/dev/arch-vm.sh`): Arch
+with Plasma 6.7.5 (KWin 6.7.5) and GNOME 50.5, Python 3.14, two virtio-gpu
+outputs of 1280x800; see [KDE Plasma](#kde-plasma).
 
 Older journals (`WALKTHROUGH.md`, `PLAN.md`, `UYGULAMA.md` and others) were
 folded into this file for 2.0 and removed; git history keeps them.
 
 ## Platform and session
 
-- **X11 is not an option.** The target is GNOME on Wayland; the desktop tools
-  are built on Mutter, GNOME Shell and AT-SPI.
+- **X11 is not an option.** The targets are GNOME and KDE Plasma on
+  Wayland; the desktop tools are built on Mutter and GNOME Shell, or KWin,
+  plus AT-SPI.
 - **Mutter runs the PHYSICAL layout mode by default** (`GetCurrentState`
   property `layout-mode` = 2, measured 2026-09-23; the logical mode needs the
   `scale-monitor-framebuffer` experimental feature). In that mode positions
@@ -275,6 +279,54 @@ folded into this file for 2.0 and removed; git history keeps them.
   shell with only the new extension: icon, " 10m" label, four status lines,
   `Version` "2.0.0" over D-Bus, the kill switch ran `pcbridge lock`; the main
   loop had 0 late ticks. The same headless smoke passes on a GitHub runner.
+
+## KDE Plasma
+
+Measured 2026-09-23 in the Arch VM, Plasma 6.7.5 on Wayland, with the
+probes in `tests/live/kde/`.
+
+- **Screen lock: `org.freedesktop.ScreenSaver` at `/ScreenSaver`**, owned by
+  `kwin_wayland` itself (Plasma 6 runs the locker inside KWin). `GetActive`
+  answers `b`; `ActiveChanged` is the signal. The name `org.gnome.ScreenSaver`
+  is listed on Plasma too, but only as an activatable name from the
+  installed GNOME packages; pcbridge does not ask it there.
+- **Idle time is not on D-Bus.** `GetSessionIdleTime` fails with "not
+  supported on this platform". KWin offers the Wayland protocol
+  `ext_idle_notifier_v1` (version 2, with `get_input_idle_notification`),
+  which a Wayland client has to hold open.
+- **Screenshots: KWin's `org.kde.KWin.ScreenShot2`, 7-12 ms a frame** for
+  `CaptureWorkspace` (2560x800) and `CaptureScreen` (1280x800), raw
+  `QImage` format 6 (ARGB32 premultiplied) written to a pipe. No dialog, no
+  flash, no sound. KWin allows it only for a program whose `.desktop` file
+  lists `X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2` with that
+  program as `Exec`; others get `NoAuthorized`. The check follows the file
+  within seconds (removing it revoked access after about 8 s). Authorizing
+  the system python would let every python script take screenshots, so
+  only the native helper is authorized.
+- **`zkde_screencast_unstable_v1` is not advertised** to an unauthorized
+  client, so it was not measured; ScreenShot2 is enough.
+- **The absolute uinput pointer maps to the whole canvas, exactly as on
+  Mutter.** ABS range 0..canvas-1 from the logical layout: every target
+  landed on the same pixel (5 of 5). With the right output at scale 1.5 the
+  canvas is the bounding box (2133x800); a point below the smaller output
+  is clamped onto it, as on Mutter.
+- **The monitor table: `kscreen-doctor -j`.** `pos` is logical, `size` is
+  the mode in physical pixels (logical size = size / scale), `rotation` is
+  1/2/4/8 (none/left/inverted/right), and `priority` 1 is the primary.
+- **A KWin script round trip takes 1-5 ms**: `loadScript` on `/Scripting`,
+  `run` on `/Scripting/Script<id>`, and the script answers with `callDBus`
+  to a name the caller owns. It lists windows (caption, resource class,
+  desktop file, pid, frame geometry), reads the cursor, and
+  `workspace.activeWindow = w` brings a window forward with no focus
+  stealing prevention in the way. No authorization is needed.
+- **Qt applications join AT-SPI only when `org.a11y.Status.IsEnabled` is
+  true.** With it false the tree held no kate, konsole or plasmashell;
+  setting it true made the already running ones appear within 2 s, and new
+  ones join as they start. The switch is persistent: it is stored as
+  `toolkit-accessibility=true` in dconf, so pcbridge restores the previous
+  value when the grant ends.
+- **wl-clipboard works without focus** (KWin offers `ext_data_control_v1`).
+- **`gtk-launch`, `gio` and `kstart` are all present** with Plasma plus GTK.
 
 ## Build and test
 
