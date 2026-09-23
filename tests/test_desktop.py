@@ -57,6 +57,13 @@ def section(title: str) -> None:
     print(f"\n\033[1m{title}\033[0m")
 
 
+def skip(name: str, detail: str = "") -> None:
+    """A check this machine cannot make (no Wayland socket, no Xwayland...).
+    Printed, not counted: called in three places but never defined until the
+    first CI run, which has no session, reached one of them."""
+    print(f"  \033[33mSKIP\033[0m  {name}  {detail}")
+
+
 # --------------------------------------------------------------- sahte veriler
 # Bu makinenin gercek duzeni: DP-2 solda (x=0), DP-1 sagda (x=1920, birincil).
 TWO_SCREENS = [

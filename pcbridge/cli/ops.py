@@ -434,6 +434,10 @@ def setup(argv: list[str]) -> int:
     inst.say("\n4. Background service")
     changed = inst.install_units(backup)
     inst.ok("units " + ("installed" if changed else "up to date") + f" in {inst.USER_UNIT_DIR}")
+    # Stamp BEFORE the restart: the new daemon then reads it as its starting
+    # point. Written after, the daemon saw a "newer" install five seconds
+    # later and restarted itself once more (seen in the journal, 2.0 install).
+    inst.write_version_stamp()
     running_daemon = False
     from .doctor import handshake
 
@@ -453,7 +457,6 @@ def setup(argv: list[str]) -> int:
         else:
             inst.warn(msg)
             notes.append("pcbridge update   # finishes the service switch when no job is running")
-    inst.write_version_stamp()
 
     if not args.no_extension:
         inst.say("\n5. GNOME Shell extension")
