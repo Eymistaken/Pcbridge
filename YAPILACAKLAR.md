@@ -690,7 +690,7 @@ All output is in English, `--json` is available where it makes sense,
     set; `core` = no desktop tools; `desktop`) so users can shrink context.
     Do not hide tools dynamically at runtime, because clients cache tool
     lists.
-- [ ] **Commit(s)**: `feat(extension): panel indicator and kill switch`,
+- [x] **Commit(s)**: `feat(extension): panel indicator and kill switch`,
       `feat(tools): audited annotations and optional profiles`.
 
 ### Step 8 — Hardening and self-healing  (time box: 5 h)
