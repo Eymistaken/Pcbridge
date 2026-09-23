@@ -671,3 +671,15 @@ restricted_models = [
 # resume_args = []
 # parser = "plain"
 # pty = false
+
+
+# ---------------------------------------------------------------------------
+# [tools] -- which tools this server offers
+# ---------------------------------------------------------------------------
+# "full"     every tool (default; the same set as pcbridge 1.x)
+# "core"     no desktop tools: agents, jobs, shell, files, tmux, status
+# "desktop"  the desktop tools plus job and status tools
+# A smaller set saves the client's context. Read at startup only: clients
+# cache the tool list, so restart pcbridge and the client after a change.
+[tools]
+profile = "full"

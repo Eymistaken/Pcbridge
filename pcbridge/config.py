@@ -290,6 +290,11 @@ class Config:
     # Masaustu araclarindan sonra kabuk/ajan/dosya araclari da kayit tuttugu
     # icin dosya artik hizli buyuyor.
     audit_max_bytes: int = 5_000_000
+    # [tools] profile: which tools this server offers. "full" (default) is
+    # every tool; "core" leaves the desktop tools out; "desktop" offers the
+    # desktop tools plus job and status tools. Applied at startup only:
+    # clients cache the tool list, so nothing is hidden at runtime.
+    tools_profile: str = "full"
     source_path: Path | None = None
     # Where the file was found: "explicit" (-c), "env" ($PCBRIDGE_CONFIG),
     # "xdg" (~/.config/pcbridge) or "legacy" (<repo>/config.toml).
@@ -721,6 +726,21 @@ def load_config(explicit: str | None = None) -> Config:
         raise
 
 
+TOOL_PROFILES = ("full", "core", "desktop")
+
+
+def _tools_profile(raw: dict[str, Any], path: Path) -> str:
+    tools = raw.get("tools") or {}
+    value = str(tools.get("profile", "full") if isinstance(tools, dict) else "full")
+    value = value.strip().lower()
+    if value not in TOOL_PROFILES:
+        raise SystemExit(
+            f"[tools] ({path}): `profile = {value!r}` is not one of "
+            f"{', '.join(TOOL_PROFILES)}. Use \"full\" for every tool."
+        )
+    return value
+
+
 def _ensure_writable_state(state_dir: Path) -> None:
     """Create the state directory and prove it takes a write, or say why not.
 
@@ -1060,6 +1080,7 @@ def _load_config(explicit: str | None = None) -> Config:
         default_job_timeout=int(limits.get("default_job_timeout", 1800)),
         max_sync_timeout=int(limits.get("max_sync_timeout", 120)),
         audit_max_bytes=int(limits.get("audit_max_bytes", 5_000_000)),
+        tools_profile=_tools_profile(raw, path),
         inline_images=inline_images,
         agents=agents,
         default_agent=default_agent,

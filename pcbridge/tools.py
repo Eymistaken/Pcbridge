@@ -264,6 +264,107 @@ def _fmt_job_summary(cfg: Config, jm: jobslib.JobManager, job_id: str) -> str:
     return "\n".join(lines)
 
 
+# Every tool's MCP hints, decided once and pinned by
+# tests/contracts/test_tool_surface.py (Step 7 of 2.0). An unset hint falls
+# back to the spec default (destructive, open world), so none is left unset.
+#   ro   readOnlyHint    changes nothing on the machine
+#   de   destructiveHint may change or delete what exists (kept conservative:
+#                        anything that drives input or runs commands)
+#   id   idempotentHint  the same call twice has no further effect
+#   ow   openWorldHint   reaches content outside pcbridge's own state: the
+#                        network, other applications, the screen (screen text
+#                        is untrusted input, so screen readers say so)
+TOOL_HINTS: dict[str, tuple[bool, bool, bool, bool]] = {
+    #                        ro     de     id     ow
+    "agent_run":            (False, True,  False, True),
+    "list_agents":          (True,  False, True,  False),
+    "job_status":           (True,  False, True,  False),
+    "job_output":           (True,  False, True,  False),
+    "job_list":             (True,  False, True,  False),
+    "job_cancel":           (False, True,  True,  False),
+    "tmux_list":            (True,  False, True,  False),
+    "tmux_start":           (False, False, True,  False),
+    "tmux_send":            (False, True,  False, True),
+    "tmux_keys":            (False, True,  False, True),
+    "tmux_capture":         (True,  False, True,  False),
+    "tmux_kill":            (False, True,  True,  False),
+    "shell_run":            (False, True,  False, True),
+    "shell_run_background": (False, True,  False, True),
+    "fs_list":              (True,  False, True,  False),
+    "fs_read":              (True,  False, True,  False),
+    "fs_search":            (True,  False, True,  False),
+    "fs_write":             (False, True,  True,  False),
+    "notify":               (False, False, False, False),
+    "system_status":        (True,  False, True,  False),
+    "system_capabilities":  (True,  False, True,  False),
+    "desktop_unlock":       (False, True,  False, False),
+    "desktop_lock":         (False, False, True,  False),
+    "screen_info":          (True,  False, True,  False),
+    "screen_capture":       (True,  False, False, True),
+    "find_text":            (True,  False, False, True),
+    "wait_for_text":        (True,  False, False, True),
+    "ui_dump":              (True,  False, False, True),
+    "window_list":          (True,  False, True,  True),
+    "ui_click":             (False, True,  False, True),
+    "ui_set_text":          (False, True,  True,  True),
+    "window_focus":         (False, True,  False, True),
+    "keyboard":             (False, True,  False, True),
+    "mouse":                (False, True,  False, True),
+    "computer_batch":       (False, True,  False, True),
+    "computer_task":        (False, True,  False, True),
+}
+
+
+# `[tools] profile = "desktop"` keeps these plus the job and status tools;
+# "core" drops them.
+DESKTOP_TOOLS = frozenset({
+    "desktop_unlock", "desktop_lock", "system_capabilities", "screen_info",
+    "screen_capture", "find_text", "wait_for_text", "ui_dump", "window_list",
+    "ui_click", "ui_set_text", "window_focus", "keyboard", "mouse",
+    "computer_batch", "computer_task",
+})
+_DESKTOP_PROFILE_EXTRA = frozenset({
+    "system_status", "notify", "job_status", "job_output", "job_list", "job_cancel",
+})
+
+
+def tools_in_profile(profile: str) -> frozenset[str]:
+    """The tool names a `[tools] profile` offers."""
+    every = frozenset(TOOL_HINTS)
+    if profile == "core":
+        return every - DESKTOP_TOOLS
+    if profile == "desktop":
+        return DESKTOP_TOOLS | _DESKTOP_PROFILE_EXTRA
+    return every
+
+
+def _with_hints(mcp: FastMCP, profile: str = "full") -> None:
+    """Make `mcp.tool` take each tool's hints from TOOL_HINTS, and leave out
+    tools the profile does not offer.
+
+    A tool missing from the table fails at registration, so a new tool
+    cannot ship with unset hints.
+    """
+    plain = mcp.tool
+    offered = tools_in_profile(profile)
+
+    def tool(*args: Any, **kwargs: Any):
+        annotations = dict(kwargs.pop("annotations", None) or {})
+
+        def decorate(fn):
+            name = kwargs.get("name") or fn.__name__
+            ro, de, idem, ow = TOOL_HINTS[name]
+            if name not in offered:
+                return fn
+            annotations.update(readOnlyHint=ro, destructiveHint=de,
+                               idempotentHint=idem, openWorldHint=ow)
+            return plain(*args, annotations=annotations, **kwargs)(fn)
+
+        return decorate
+
+    mcp.tool = tool  # type: ignore[method-assign]
+
+
 def register(
     mcp: FastMCP,
     cfg: Config,
@@ -273,6 +374,7 @@ def register(
     runtime: DesktopRuntime | None = None,
 ) -> DesktopRuntime:
     global _DESC_AGENT, _DESC_MODEL, _DESC_EFFORT
+    _with_hints(mcp, getattr(cfg, "tools_profile", "full"))
     _DESC_AGENT = (
         "Agent name; configured here: "
         + (", ".join(f"'{n}'" for n, a in cfg.agents.items() if a.enabled) or "none")
@@ -379,7 +481,7 @@ def register(
         return "\n".join(out)
 
     @mcp.tool(
-        annotations={"title": "Send a prompt to a coding agent", "destructiveHint": True},
+        annotations={"title": "Send a prompt to a coding agent"},
     )
     def agent_run(
         prompt: Annotated[
@@ -472,7 +574,7 @@ def register(
         return _fmt_job_summary(cfg, jm, job_id)
 
     # =================================================================== ISLER
-    @mcp.tool(annotations={"title": "Check a background job", "readOnlyHint": True})
+    @mcp.tool(annotations={"title": "Check a background job"})
     def job_status(
         job_id: Annotated[str, Field(description="Job id returned by agent_run.")],
         wait_seconds: Annotated[
@@ -488,7 +590,7 @@ def register(
         except KeyError as exc:
             return str(exc)
 
-    @mcp.tool(annotations={"title": "Read raw job output", "readOnlyHint": True})
+    @mcp.tool(annotations={"title": "Read raw job output"})
     def job_output(
         job_id: Annotated[str, Field(description="Job id.")],
         tail_chars: Annotated[
@@ -506,7 +608,7 @@ def register(
             return "No output yet."
         return "```\n" + jobslib.tail_chars(log, tail_chars) + "\n```"
 
-    @mcp.tool(annotations={"title": "List background jobs", "readOnlyHint": True})
+    @mcp.tool(annotations={"title": "List background jobs"})
     def job_list(
         limit: Annotated[int, Field(ge=1, le=100)] = 15,
         only_running: bool = False,
@@ -523,7 +625,7 @@ def register(
             )
         return "\n".join(out)
 
-    @mcp.tool(annotations={"title": "Cancel a job", "destructiveHint": True})
+    @mcp.tool(annotations={"title": "Cancel a job"})
     def job_cancel(job_id: str) -> str:
         """Stop a running background job (sends SIGTERM, then SIGKILL)."""
         try:
@@ -534,7 +636,7 @@ def register(
         return out
 
     # =================================================================== TMUX
-    @mcp.tool(annotations={"title": "List live terminal sessions", "readOnlyHint": True})
+    @mcp.tool(annotations={"title": "List live terminal sessions"})
     def tmux_list() -> str:
         """List the live tmux terminal sessions on the computer. These are real
         terminals the user can also attach to physically."""
@@ -583,7 +685,7 @@ def register(
             f"```\n{screen}\n```"
         )
 
-    @mcp.tool(annotations={"title": "Type into a live terminal", "destructiveHint": True})
+    @mcp.tool(annotations={"title": "Type into a live terminal"})
     def tmux_send(
         session: Annotated[str, Field(description="Session name from tmux_list.")],
         text: Annotated[str, Field(description="Text to type into the terminal.")],
@@ -637,7 +739,7 @@ def register(
         except tmuxctl.TmuxError as exc:
             return str(exc)
 
-    @mcp.tool(annotations={"title": "Read a live terminal screen", "readOnlyHint": True})
+    @mcp.tool(annotations={"title": "Read a live terminal screen"})
     def tmux_capture(
         session: str,
         lines: Annotated[int, Field(ge=5, le=400)] = 60,
@@ -648,7 +750,7 @@ def register(
         except tmuxctl.TmuxError as exc:
             return f"Error: {exc}"
 
-    @mcp.tool(annotations={"title": "Close a live terminal", "destructiveHint": True})
+    @mcp.tool(annotations={"title": "Close a live terminal"})
     def tmux_kill(session: str) -> str:
         """Close a live terminal session and everything running inside it."""
         try:
@@ -694,7 +796,7 @@ def register(
             f"Instead: window_focus(\"{hit}\")"
         )
 
-    @mcp.tool(annotations={"title": "Run a shell command", "destructiveHint": True})
+    @mcp.tool(annotations={"title": "Run a shell command"})
     def shell_run(
         command: Annotated[str, Field(description="Shell command line to execute.")],
         workdir: str | None = None,
@@ -748,7 +850,7 @@ def register(
         return head + "\n```\n" + jobslib.tail_chars(body, MAX_INLINE) + "\n```"
 
     @mcp.tool(
-        annotations={"title": "Run a long shell command in background", "destructiveHint": True}
+        annotations={"title": "Run a long shell command in background"}
     )
     def shell_run_background(
         command: str,
@@ -782,7 +884,7 @@ def register(
         return f"Started: `{job_id}`\nStatus: job_status('{job_id}')"
 
     # =================================================================== DOSYA
-    @mcp.tool(annotations={"title": "List a directory", "readOnlyHint": True})
+    @mcp.tool(annotations={"title": "List a directory"})
     def fs_list(
         path: str | None = None,
         show_hidden: bool = False,
@@ -807,7 +909,7 @@ def register(
             return f"`{d}` is empty."
         return f"`{d}` ({len(entries)} entries)\n```\n" + "\n".join(entries[:400]) + "\n```"
 
-    @mcp.tool(annotations={"title": "Read a file", "readOnlyHint": True})
+    @mcp.tool(annotations={"title": "Read a file"})
     def fs_read(
         path: Annotated[str, Field(description="Absolute path of the file to read.")],
         max_chars: Annotated[int, Field(ge=200, le=60000)] = 8000,
@@ -829,7 +931,7 @@ def register(
             data, max_chars
         ) + "\n```"
 
-    @mcp.tool(annotations={"title": "Write a file", "destructiveHint": True})
+    @mcp.tool(annotations={"title": "Write a file"})
     def fs_write(
         path: Annotated[str, Field(description="Absolute path of the file to write.")],
         content: str,
@@ -851,7 +953,7 @@ def register(
                    append=append or None)
         return f"{'Appended' if append else 'Written'}: `{f}` ({f.stat().st_size:,} bytes)"
 
-    @mcp.tool(annotations={"title": "Search inside files", "readOnlyHint": True})
+    @mcp.tool(annotations={"title": "Search inside files"})
     def fs_search(
         query: Annotated[str, Field(description="Text or regex to search for.")],
         path: str | None = None,
@@ -1146,7 +1248,7 @@ def register(
 
     @mcp.tool(
         output_schema=None,
-        annotations={"title": "Desktop capabilities", "readOnlyHint": True},
+        annotations={"title": "Desktop capabilities"},
     )
     def system_capabilities() -> ToolResult:
         """Report desktop backend capabilities and authorization independently.
@@ -1156,7 +1258,7 @@ def register(
 
     @mcp.tool(
         output_schema=None,
-        annotations={"title": "Allow desktop control for a while", "destructiveHint": True}
+        annotations={"title": "Allow desktop control for a while"}
     )
     def desktop_unlock(
         minutes: Annotated[
@@ -1290,7 +1392,7 @@ def register(
 
     @mcp.tool(
         output_schema=None,
-        annotations={"title": "Move or click the mouse", "destructiveHint": True},
+        annotations={"title": "Move or click the mouse"},
     )
     def mouse(
         action: Annotated[
@@ -1585,7 +1687,7 @@ def register(
 
     @mcp.tool(
         output_schema=None,
-        annotations={"title": "Type text or press keys", "destructiveHint": True},
+        annotations={"title": "Type text or press keys"},
     )
     def keyboard(
         action: Annotated[
@@ -1718,7 +1820,7 @@ def register(
     # ------------------------------------------------------- ekran goruntusu
     @mcp.tool(
         output_schema=None,
-        annotations={"title": "Describe the screens", "readOnlyHint": True},
+        annotations={"title": "Describe the screens"},
     )
     def screen_info() -> str:
         """Describe the monitors: how many there are, their resolution, where each
@@ -1808,7 +1910,7 @@ def register(
 
     @mcp.tool(
         output_schema=None,
-        annotations={"title": "Take a screenshot", "readOnlyHint": True},
+        annotations={"title": "Take a screenshot"},
     )
     def screen_capture(
         monitor: Annotated[
@@ -2292,7 +2394,7 @@ def register(
 
     @mcp.tool(
         output_schema=None,
-        annotations={"title": "Find text on screen", "readOnlyHint": True},
+        annotations={"title": "Find text on screen"},
     )
     def find_text(
         text: _OCR_TEXT,
@@ -2333,7 +2435,7 @@ def register(
 
     @mcp.tool(
         output_schema=None,
-        annotations={"title": "Wait for text on screen", "readOnlyHint": True},
+        annotations={"title": "Wait for text on screen"},
     )
     def wait_for_text(
         text: _OCR_TEXT,
@@ -2434,7 +2536,7 @@ def register(
     # Hicbiri uinput kullanmaz -> needs_input=False.
     @mcp.tool(
         output_schema=None,
-        annotations={"title": "Read the screen as text", "readOnlyHint": True},
+        annotations={"title": "Read the screen as text"},
     )
     def ui_dump(
         target: Annotated[
@@ -2491,7 +2593,7 @@ def register(
 
     @mcp.tool(
         output_schema=None,
-        annotations={"title": "Click something on screen", "destructiveHint": True},
+        annotations={"title": "Click something on screen"},
     )
     def ui_click(
         id: Annotated[
@@ -2553,7 +2655,7 @@ def register(
 
     @mcp.tool(
         output_schema=None,
-        annotations={"title": "Type into a text box", "destructiveHint": True},
+        annotations={"title": "Type into a text box"},
     )
     def ui_set_text(
         id: Annotated[
@@ -2603,7 +2705,7 @@ def register(
     # -------------------------------------------------------- pencere yonetimi
     @mcp.tool(
         output_schema=None,
-        annotations={"title": "List open windows", "readOnlyHint": True},
+        annotations={"title": "List open windows"},
     )
     def window_list() -> str | ToolResult:
         """List the windows that are currently open, marking which one has focus.
@@ -2639,7 +2741,7 @@ def register(
 
     @mcp.tool(
         output_schema=None,
-        annotations={"title": "Bring a window to the front", "destructiveHint": True}
+        annotations={"title": "Bring a window to the front"}
     )
     def window_focus(
         window: Annotated[
@@ -2722,7 +2824,7 @@ def register(
 
     @mcp.tool(
         output_schema=None,
-        annotations={"title": "Run several actions in one go", "destructiveHint": True}
+        annotations={"title": "Run several actions in one go"}
     )
     def computer_batch(
         actions: Annotated[
@@ -3025,8 +3127,7 @@ def register(
     # ----------------------------------------------------- yerel gorsel ajan
     @mcp.tool(
         output_schema=None,
-        annotations={"title": "Let a local agent drive the screen",
-                     "destructiveHint": True}
+        annotations={"title": "Let a local agent drive the screen"}
     )
     def computer_task(
         goal: Annotated[
@@ -3234,7 +3335,7 @@ def register(
         return "\n".join(head)
 
     # ================================================================== SISTEM
-    @mcp.tool(annotations={"title": "Computer status", "readOnlyHint": True})
+    @mcp.tool(annotations={"title": "Computer status"})
     def system_status() -> str:
         """Show the desktop computer's current status: uptime, load, memory, disk
         usage, GPU, plus running jobs and open terminal sessions."""
