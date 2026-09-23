@@ -25,7 +25,7 @@ OLCULMEDI
     Bu makinede tesseract kurulu degil (2026-09-22) ve kurulum `sudo`
     istiyor. Ayristirma, eslestirme ve koordinat donusumu sahte bir
     `tesseract` betigiyle uctan uca sinaniyor; gercek dogruluk ve sure
-    kullanicinin kurulumundan sonra olculecek (WALKTHROUGH, Adim 8.6).
+    kullanicinin kurulumundan sonra olculecek (ROADMAP.md, "OCR on this machine").
 """
 
 from __future__ import annotations
