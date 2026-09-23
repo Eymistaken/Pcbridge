@@ -11,6 +11,18 @@ The session opens with `capture.session_open` when `desktop_unlock` runs (so
 GNOME's sharing indicator appears with the grant), or at the first
 `capture.frame`.
 
+On KDE Plasma there is no session: each `capture.frame` is one call to
+KWin's `org.kde.KWin.ScreenShot2.CaptureScreen` (`kwin_screenshot.rs`),
+native resolution, the pointer included when asked, the raw `QImage`
+written to a pipe the helper hands over. KWin answers only a program that a
+`.desktop` file with `X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2`
+names as `Exec`; pcbridge installs one for the helper's full path.
+`capture.session_open` answers `not_needed`, and the backend is
+`linux.kwin.screenshot2`. KWin's alpha channel is blending residue, so the
+formats 4-6 (RGB32, ARGB32, ARGB32 premultiplied) are all read as BGRx.
+Measured: 7-12 ms a frame from KWin, 49-80 ms through the helper with the
+PNG (debug build).
+
 ## Why a session
 
 On GNOME 46 the only silent way to take a screenshot is **screen sharing**:

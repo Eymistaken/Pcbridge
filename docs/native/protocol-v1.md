@@ -118,8 +118,9 @@ connection. After the handshake, a request with a different minor returns
   `topology_id`, `session_id`, `grant_id`, `revoke_epoch`, `include_pointer`;
   the grant, layout and session rules are those of `capture.frame` (wrong
   grant `REVOKED`, old layout `DISPLAY_CHANGED`). Result: `outcome`
-  (`opened` / `reused` / `recreated`), `monitors`, `include_pointer`,
-  `backend`. `desktop_unlock` calls it so the sharing indicator appears with
+  (`opened` / `reused` / `recreated`, or `not_needed` on KDE Plasma, where
+  each frame is a KWin screenshot and there is no session), `monitors`,
+  `include_pointer`, `backend`. `desktop_unlock` calls it so the sharing indicator appears with
   the grant; a helper that does not know it answers `UNKNOWN_METHOD` and the
   client leaves the session to the first frame.
 - `input.keyboard.ensure`: opens the keyboard device lazily. Takes
@@ -341,7 +342,9 @@ the helper is bound to:
 }
 ```
 
-`display_id` is scoped (`mutter:<connector>`) and at most 256 bytes;
+`display_id` is scoped (`mutter:<connector>` on GNOME, `kwin:<output>` on
+KDE Plasma) and at most 256 bytes; an id whose scheme is not the running
+compositor's is refused, never mapped;
 `topology_id` is not empty and at most 16 KiB; `session_id` and `grant_id`
 are not empty and at most 256 bytes. Only `freshness: "after_request"` is
 accepted. A layout id that does not match the current snapshot is
@@ -520,8 +523,9 @@ The screen lock is a three-state observation (`known_locked`,
 - Batches and tasks check activity once at the start; it is not reread inside
   a running batch (uinput events reset the idle timer).
 
-The native lock watcher listens to `org.gnome.ScreenSaver.ActiveChanged` and
-treats a lost connection as `unknown`; an active native resource closes on a
+The native lock watcher listens to `org.gnome.ScreenSaver.ActiveChanged`
+(on KDE Plasma `org.freedesktop.ScreenSaver.ActiveChanged`, which KWin owns)
+and treats a lost connection as `unknown`; an active native resource closes on a
 locked or unknown observation. D-Bus method calls use finite timeouts.
 
 Grant-bound resources register with `Lifecycle::register_fail_closed`, and
@@ -559,3 +563,17 @@ restore an old active grant; the agent opens a new one with
   private data.
 - The helper never reads `config.toml` and never receives a password or
   token.
+
+## `pcbridge-native idle-watch` (KDE Plasma)
+
+KWin does not answer idle time over D-Bus (`GetSessionIdleTime` is "not
+supported on this platform"). `pcbridge-native idle-watch` is a separate,
+long-running mode of the same binary, outside this protocol: a Wayland
+client that holds an `ext_idle_notifier_v1` input-idle notification with a
+1000 ms timeout and writes `$XDG_RUNTIME_DIR/pcbridge/idle.json`
+(`version`, `pid`, `timeout_ms`, `idle`, `since_unix_ms`) on every change.
+While idle, `since_unix_ms` is the last input, so idle time is
+`now - since_unix_ms`; while active it is only known to be below the
+timeout and is reported as 0, the safe side for the idle guard. Readers trust the file only while its `pid` is alive and runs
+`idle-watch`; anything else is `unknown`. The daemon starts and supervises
+it on Plasma while desktop control is enabled.

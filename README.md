@@ -9,8 +9,8 @@
 pcbridge exposes one machine over the [Model Context Protocol](https://modelcontextprotocol.io).
 A connected agent can hand work to terminal coding agents, drive a live
 tmux session, run commands, read and write files, and, when explicitly
-permitted, operate the GNOME desktop with a virtual keyboard, pointer and
-screen reader.
+permitted, operate a GNOME or KDE Plasma desktop with a virtual keyboard,
+pointer and screen reader.
 
 > **Read [docs/security.md](docs/security.md) before installing.** pcbridge
 > is remote code execution on your own desktop, by design.
@@ -23,9 +23,9 @@ screen reader.
 | **Drive a live terminal** | Open a tmux session, type into it, read it back, answer an agent's prompts. |
 | **Shell and files** | Commands in the foreground or background; read, write, search. |
 | **Read the screen** | The accessibility tree as text (cheap, cannot miss), silent screenshots (screen sharing: no flash, no sound), or OCR as plain text. |
-| **Use the desktop** | Virtual keyboard and pointer through uinput, absolute and relative motion, windows raised in ~5 ms through its GNOME extension. |
+| **Use the desktop** | Virtual keyboard and pointer through uinput, absolute and relative motion, windows raised in ~5 ms through its GNOME extension, or through a KWin script on Plasma. |
 | **Click what you see** | Every screenshot has an id; send the pixel you see plus the id, and pcbridge applies the monitor offset and scale. Any monitor layout, scale and rotation. |
-| **Stay safe enough to leave on** | Desktop control is off by default; a time-limited grant that closes 90 s after the last action; nothing is sent behind a locked screen; a panel indicator and a one-click kill switch. |
+| **Stay safe enough to leave on** | Desktop control is off by default; a time-limited grant that closes 90 s after the last action; nothing is sent behind a locked screen; a panel indicator (a lasting notification on Plasma) and a one-click kill switch. |
 
 ## Always ready
 
@@ -38,7 +38,7 @@ Remote clients use HTTPS through Tailscale Funnel with OAuth 2.1.
  Claude Code / Codex / Claude Desktop ── pcbridge stdio ──► mcp.sock ──┐
  phone / web ── HTTPS ── Tailscale Funnel ── 127.0.0.1:8765 ───────────┼─► pcbridge daemon
                                                                        │   jobs in their own scopes
-                                        GNOME extension, native helper ┘   desktop: uinput, ScreenCast, AT-SPI
+                                GNOME extension or KWin, native helper ┘   desktop: uinput, ScreenCast, AT-SPI
 ```
 
 Measured on the reference machine (Zorin OS 18.1, GNOME 46, Wayland):
@@ -60,9 +60,11 @@ More numbers, and why things are the way they are:
 | | Status |
 |---|---|
 | Ubuntu 24.04, Zorin OS 18 (GNOME 46, Wayland) | tested daily |
+| Arch Linux, KDE Plasma 6 (Wayland) | tested end to end in a VM; the package builds, installs and passes the suites in CI |
+| Arch Linux, GNOME 50 (Wayland) | the extension and screen capture tested in a headless shell |
 | Debian 13, Ubuntu 26.04 | the `.deb` builds, installs and passes the suites in CI |
-| Other GNOME versions on Wayland | expected to work, untested; `system_capabilities` reports it |
-| X11, other desktops | desktop tools refuse and say why; everything else works |
+| GNOME 47-49 on Wayland | expected to work, untested; `system_capabilities` reports it |
+| X11, Plasma 5, other desktops | desktop tools refuse and say why; everything else works |
 | Python | 3.12, 3.13, 3.14 |
 
 ## Install
@@ -72,12 +74,15 @@ More numbers, and why things are the way they are:
 packaging/install-user.sh pcbridge-<version>-py3-none-linux_x86_64.whl --yes
 # or the package for your release:
 sudo apt install ./pcbridge_<version>_<distro>_amd64.deb && pcbridge setup
+# or on Arch, from a checkout:
+(cd packaging/arch && makepkg -si) && pcbridge setup
 # or from git:
 git clone https://github.com/Eymistaken/Pcbridge.git && cd Pcbridge && ./install.sh
 ```
 
 `pcbridge setup` writes the config, enables the socket and service,
-installs the GNOME extension, registers Claude Code, Codex and Claude
+installs the GNOME extension (on Plasma: authorizes the native helper for
+KWin screenshots), registers Claude Code, Codex and Claude
 Desktop, and checks that a fresh client works. Details:
 [docs/install.md](docs/install.md).
 
@@ -93,8 +98,9 @@ with Claude Code", "what is on my screen", "open Text Editor and type
 hello". Desktop control needs `[desktop] enabled = true` once; the agent
 then opens a time-limited grant by itself with `desktop_unlock`.
 
-Kill switch: `pcbridge lock` (alias `bridgekilit`), or the panel icon's
-"Lock desktop control now".
+Kill switch: `pcbridge lock` (alias `bridgekilit`), the panel icon's
+"Lock desktop control now" on GNOME, or the grant notification's "Lock now"
+on Plasma.
 
 ## Documentation
 

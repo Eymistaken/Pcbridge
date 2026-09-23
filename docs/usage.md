@@ -115,4 +115,20 @@ restart pcbridge and the client after changing it.
 | `pcb-shot`, `pcb-do` | Screenshot and action shells for a local agent's Bash (see `skills/computer-use/SKILL.md`) |
 
 The GNOME extension's panel icon shows the same state and has "Lock desktop
-control now" in its menu.
+control now" in its menu. On KDE Plasma the grant shows as a notification
+with a "Lock now" button, and `pcbridge-lock.desktop` can carry a shortcut
+(System Settings > Shortcuts).
+
+## On KDE Plasma
+
+The tools and their arguments are the same; a few answers differ:
+
+- `window_focus` raises windows through a KWin script (~90 ms) and falls
+  back to KRunner (`alt+space`) instead of GNOME search.
+- `screen_capture(monitor="window")` crops the focused window out of its
+  monitor's frame, and needs the native helper, as all capture there does.
+- `desktop_unlock` turns on Qt accessibility for the grant, so `ui_dump`
+  reads Qt applications (Kate, Konsole, Dolphin, System Settings); an
+  application that was already running appears within about 2 s.
+- `system_capabilities` names the KWin backends (`linux.kwin.screenshot2`,
+  `linux.kwin-script`, `linux.freedesktop-screen-saver`).

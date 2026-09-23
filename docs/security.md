@@ -57,6 +57,22 @@ commands does:
   (no flash, no sound), and for exactly that reason GNOME's sharing indicator
   stays on while the grant is open. The indicator disappears when the grant
   closes; sharing lives in a helper process, so it ends if pcbridge dies.
+- **On KDE Plasma capture shows no sharing indicator.** KWin's screenshot
+  interface (`org.kde.KWin.ScreenShot2`) is silent and leaves nothing on
+  screen, so pcbridge shows the grant itself: a critical notification that
+  stays for as long as the grant is open, with a "Lock now" button that runs
+  the kill switch. Every end of the grant closes it. There is no frame
+  around the screen as the GNOME extension draws.
+- **KWin gives screenshots only to programs a `.desktop` file names.**
+  pcbridge authorizes exactly one: its native helper, by full path
+  (`pcbridge-native.desktop`). The system Python is never authorized; that
+  would let every Python script take screenshots. Removing the file revokes
+  the access within seconds.
+- **On Plasma the grant turns on Qt accessibility**
+  (`org.a11y.Status.IsEnabled`), so `ui_dump` can read Qt applications, and
+  restores the previous value when the grant ends. While it is on, any
+  program of your user can read those applications' accessibility trees,
+  as on GNOME, where GTK applications are always readable.
 - **`[desktop] enabled` is `false` by default.** Decide what happens if the
   phone with the static token is lost before turning it on.
 
@@ -64,7 +80,8 @@ commands does:
 
 Every desktop call passes five layers: `[desktop] enabled` -> screen lock
 (nothing is sent behind a locked screen) -> the time-limited grant ->
-the "user is at the machine" guard (`Mutter.IdleMonitor`) -> a rate limit,
+the "user is at the machine" guard (`Mutter.IdleMonitor`; on Plasma the
+native helper's `ext_idle_notifier_v1` watcher) -> a rate limit,
 plus the audit log. A write sequence then takes a cross-process execution
 lock and rechecks the grant **before every action**: a `desktop_lock` from
 anywhere stops the next action. The grant slides: it closes 90 s after the
@@ -106,7 +123,7 @@ A client that can see images (Claude Code can) does the same work with
 
 | Want | Do |
 |---|---|
-| Stop the hands now, keep jobs running | `pcbridge lock` / `bridgekilit` / the panel menu / `desktop_lock` |
+| Stop the hands now, keep jobs running | `pcbridge lock` / `bridgekilit` / the panel menu (GNOME) / "Lock now" on the grant notification (Plasma) / `desktop_lock` |
 | Stop the daemon and its jobs | `pcbridge stop` (`--keep-jobs` leaves jobs alone) |
 | Stop the daemon only | `systemctl --user stop pcbridge.service` (jobs live in their own scopes and survive; the socket starts it again on the next client) |
 | Turn desktop control off | `[desktop] enabled = false`, restart pcbridge |

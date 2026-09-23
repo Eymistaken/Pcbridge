@@ -65,8 +65,8 @@ logging.basicConfig(
 log = logging.getLogger("pcbridge")
 
 INSTRUCTIONS = """\
-This MCP server controls the user's Linux desktop computer (GNOME on
-Wayland). The monitor layout differs from machine to machine and can change:
+This MCP server controls the user's Linux desktop computer (GNOME or KDE
+Plasma on Wayland). The monitor layout differs from machine to machine and can change:
 call `screen_info` (or `system_capabilities`) to learn the actual monitors,
 their sizes and their order before you act on coordinates.
 

@@ -81,7 +81,7 @@ _HELP = {
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pcbridge",
-        description="Run and operate pcbridge, an MCP server for the GNOME on Wayland desktop.",
+        description="Run and operate pcbridge, an MCP server for a GNOME or KDE Plasma desktop on Wayland.",
     )
     parser.add_argument("--version", action="version", version=f"pcbridge {__version__}")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")

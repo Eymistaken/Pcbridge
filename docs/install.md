@@ -1,9 +1,10 @@
 # Installing pcbridge
 
-Supported: GNOME Shell 46 on Wayland (Ubuntu 24.04, Zorin OS 18, Debian 13;
-Ubuntu 26.04 builds and installs in CI). Python 3.12 or newer. Other GNOME
-versions are expected to work and are untested; `system_capabilities` says
-so when it sees one. X11 and other desktops are not supported for the
+Supported: GNOME Shell 46 or 50, or KDE Plasma 6, on Wayland. Distributions:
+the Debian family (Ubuntu 24.04, Zorin OS 18, Debian 13; Ubuntu 26.04 builds
+and installs in CI) and Arch Linux. Python 3.12 or newer. GNOME 47-49 are
+expected to work and are untested; `system_capabilities` says so when it
+sees one. X11, Plasma 5 and other desktops are not supported for the
 desktop tools (they refuse and say why); the shell, file, tmux and agent
 tools work anywhere.
 
@@ -28,6 +29,22 @@ pcbridge setup
 There is one package per distribution release (the bundled venv is bound to
 that release's Python). Run `pcbridge setup` as **your own user**, not root.
 
+### On Arch Linux
+
+```bash
+sudo pacman -S --needed base-devel git rust clang
+git clone https://github.com/Eymistaken/Pcbridge.git && cd Pcbridge/packaging/arch
+makepkg -si
+pcbridge setup
+```
+
+`makepkg` builds the package from the checkout, native helper included, with
+the same layout as the `.deb`. Its venv is bound to the Python it was built
+with, so the package pins that minor version: when Arch moves to a new
+Python, pacman reports that the upgrade breaks pcbridge's dependency.
+Rebuild the package (`git pull && makepkg -si`) and upgrade both together.
+CI builds the same package and attaches it to each release.
+
 ### From git
 
 ```bash
@@ -42,14 +59,20 @@ installed, and runs `pcbridge setup`. `pcbridge update` then pulls
 
 ## 2. What `pcbridge setup` does
 
-1. Checks system packages and prints the one `apt` line for what is missing.
+1. Checks system packages and prints the one `apt` or `pacman` line for what
+   is missing.
 2. Writes `~/.config/pcbridge/config.toml` (0600) with a new password and
    static token, or migrates a 1.x `config.toml` (the old file stays where it
    was; `--from-config PATH` picks one explicitly).
 3. Links `~/.local/bin/pcbridge`, `pcb-shot` and `pcb-do`.
 4. Writes and enables `pcbridge.socket` and `pcbridge.service` for your user,
    then starts the daemon (only when no job is running and no grant is open).
-5. Copies the GNOME extension; it becomes active at your next login.
+5. On GNOME, copies the extension; it becomes active at your next login.
+   On KDE Plasma, writes two entries to `~/.local/share/applications/`:
+   `pcbridge-native.desktop`, which lets KWin give screenshots to the native
+   helper (and only to it), and `pcbridge-lock.desktop`, the kill switch, to
+   which System Settings > Shortcuts can bind a key. A package installs the
+   first one under `/usr/share/applications/` already.
 6. Registers Claude Code (user scope), Codex and Claude Desktop, keeping
    other entries and Codex's per-tool approval settings.
 7. Writes the shell aliases (`bridgekilit`, `bridgeac`, `bridgekapat`,
@@ -71,10 +94,16 @@ pcbridge doctor           # the /dev/uinput line prints the exact sudo commands
 
 Then set `[desktop] enabled = true` in the config and restart pcbridge
 (`pcbridge update`). OCR (`find_text`, `wait_for_text`) needs
-`sudo apt install tesseract-ocr`.
+`sudo apt install tesseract-ocr` (Arch: `sudo pacman -S tesseract
+tesseract-data-eng`).
 
-Log out and back in once so the new extension loads; the panel icon then
-shows pcbridge's state and the kill switch.
+On GNOME, log out and back in once so the new extension loads; the panel
+icon then shows pcbridge's state and the kill switch. On KDE Plasma nothing
+waits for a login. Screen capture there needs the native helper (every
+package and release wheel has it; a git install builds it when Rust is
+installed). While a grant is open, pcbridge shows a notification with a
+"Lock now" button and turns on Qt accessibility, so `ui_dump` sees Qt
+applications; the end of the grant closes the one and restores the other.
 
 ## 4. Remote access (optional)
 
@@ -102,5 +131,6 @@ processes started before the install keep their old server until then.
 
 - User install: run `packaging/install-user.sh` with the new wheel; the
   daemon restarts itself when idle.
-- Package: `sudo apt install ./pcbridge_<new>.deb`; same.
+- Package: `sudo apt install ./pcbridge_<new>.deb`, or on Arch
+  `sudo pacman -U pcbridge-<new>-x86_64.pkg.tar.zst`; same.
 - Git checkout: `pcbridge update` pulls and restarts the daemon when idle.

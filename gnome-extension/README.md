@@ -1,4 +1,4 @@
-# pcbridge — agent visible (GNOME Shell 46 extension)
+# pcbridge — agent visible (GNOME Shell 46 and 50 extension)
 
 pcbridge can give an agent keyboard, pointer and screen access. This
 extension makes that state hard to miss, and gives pcbridge two narrow

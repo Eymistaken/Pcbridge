@@ -61,6 +61,24 @@ PCBRIDGE_TEST_CAPTURE=1 PCBRIDGE_TEST_INPUT=1 PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TES
 PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_INPUT=1 ./.venv/bin/python -m unittest discover -s tests/live -t .
 ```
 
+### KDE Plasma and Arch Linux: the test VM
+
+Plasma and Arch are tested in a QEMU/KVM VM, never on the desktop you work
+on: input sent inside the VM stays in the VM.
+
+```bash
+scripts/dev/arch-vm.sh create      # download and verify the Arch cloud image
+scripts/dev/arch-vm.sh start       # boot it headless (VNC and SSH on 127.0.0.1)
+scripts/dev/arch-vm.sh provision   # Plasma, GNOME, build tools; log in to Plasma
+scripts/dev/arch-vm.sh sync        # copy this checkout to ~/pcbridge in the VM
+scripts/dev/arch-vm.sh session '.venv/bin/python tests/live/kde/check_mcp.py'
+```
+
+`tests/live/kde/` holds the Plasma probes and the MCP end-to-end check; each
+exits without doing anything outside a Plasma session.
+`tests/live/kde/headless_smoke.sh` needs no VM session: it starts a virtual
+KWin under its own `dbus-run-session` (CI runs it in an Arch container).
+
 ## Testing on your own desktop: the rules
 
 You are on the machine pcbridge controls. uinput clicks and keys go wherever

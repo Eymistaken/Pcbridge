@@ -39,6 +39,12 @@ screenshots) are filled in with their 1.x values.
 | `[agents.<name>]` | a coding agent: command, resume syntax, output parser, `pty`, models, efforts, aliases |
 | `[tools]` | `profile`: `full` (default), `core`, `desktop` |
 
+On KDE Plasma no new setting is needed. Three existing ones matter there:
+capture works only through the native helper (`[native] capture` `auto` or
+`rust`, and `[desktop] capture_backend = "auto"`), and
+`[desktop] unlock_notification` is the grant's only visible signal, so it
+should stay `true`.
+
 ## Adding an agent
 
 Agents live only in the config; no Python changes. Try the CLI by hand

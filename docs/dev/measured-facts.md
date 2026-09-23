@@ -279,6 +279,14 @@ folded into this file for 2.0 and removed; git history keeps them.
   shell with only the new extension: icon, " 10m" label, four status lines,
   `Version` "2.0.0" over D-Bus, the kill switch ran `pcbridge lock`; the main
   loop had 0 late ticks. The same headless smoke passes on a GitHub runner.
+- **GNOME 50 dropped `addTopChrome`'s `affectsInputRegion` parameter**
+  ("Unrecognized parameter", and the extension disabled itself at enable;
+  measured in a headless GNOME Shell 50.5 in the Arch VM). Without it the
+  strips follow their `reactive` flag, which is off.
+- **With animations off, `actor.ease()` completes at once** and calls
+  `onComplete` synchronously, so a chain that starts the next step from
+  `onComplete` recursed without end ("too much recursion"). A headless shell
+  has animations off; so does Reduce Animation in Settings.
 
 ## KDE Plasma
 
@@ -352,6 +360,19 @@ probes in `tests/live/kde/`.
 - **The non-live suites used to read the machine they ran on** (screen lock,
   idle time, monitor table, the real config); the first CI run showed it.
   They are hermetic now; live checks need the `PCBRIDGE_TEST_*` flags.
+- **Arch (2026-09-23)**: Python 3.14, libpipewire 1.6.9, libclang in
+  `/usr/lib`. A stream that disconnected itself inside its own process
+  callback crashed libpipewire 1.6.9 right after the callback returned
+  (SIGSEGV, every run); libpipewire 1.0.5 tolerated it. Python 3.14's venv
+  has a `𝜋thon` alias that tar cannot store in a C locale, so packaging
+  drops it. The package's venv is bound to the Python minor it was built
+  with; `depends` pins it.
+- **A checkout named `~/pcbridge` shadows the installed package** when a
+  process starts in the home directory (the service does): `python -m`
+  puts the working directory first. `-P` turns that off.
+- **The contract suites read the desktop they ran on**: inside a Plasma
+  session every GNOME expectation became a KDE one (16 failures). They pin
+  `XDG_CURRENT_DESKTOP=GNOME`; the Plasma tests patch the detection.
 - **`test_e2e.py` section 12 runs a real `claude -p` and spends quota**; it
   used up a daily limit once (2026-08-03). Run with `PCBRIDGE_TEST_NO_AGENT=1`.
 

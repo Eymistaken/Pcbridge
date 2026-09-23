@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pcbridge"
 dynamic = ["version"]
-description = "An MCP server that lets coding agents drive a GNOME on Wayland desktop: agents, jobs, tmux, shell, files, screen, keyboard and pointer."
+description = "An MCP server that lets coding agents drive a GNOME or KDE Plasma desktop on Wayland: agents, jobs, tmux, shell, files, screen, keyboard and pointer."
 readme = "README.md"
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]

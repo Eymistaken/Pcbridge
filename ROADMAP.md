@@ -21,6 +21,11 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   Done when clicking and scrolling with the physical mouse stay normal for a
   working session with it on.
 
+- **KDE Plasma on real hardware.** Plasma was tested end to end in a VM
+  (virtio-gpu, two 1280x800 outputs). Done when the Plasma checks
+  (`tests/live/kde/check_mcp.py`) pass on a physical machine, with a
+  fractional scale and a real lock and unlock.
+
 ## Optional: engineering
 
 - **`is_open()` does not see the screen lock.** When the screen locks,
@@ -42,6 +47,20 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   one sequence; an agent looping over separate `ui_click` calls is not
   caught (see [docs/dev/desktop-rules.md](docs/dev/desktop-rules.md)).
 - **lintian in CI** for the `.deb`.
+- **GNOME 47, 48 and 49.** The extension declares 46 and 50, the versions
+  verified; the ones between are expected to work. Done when each passes the
+  headless extension smoke and joins `shell-version`.
+- **An AUR package.** `packaging/arch/PKGBUILD` builds from a checkout;
+  publishing needs a `-git` or release-tarball variant and an AUR account.
+- **A frame around the screen on Plasma.** The grant shows as a lasting
+  notification there; a KWin effect or a layer-shell overlay could draw the
+  GNOME frame's equivalent.
+- **A lock shortcut on Plasma out of the box.** `pcbridge-lock.desktop` is
+  installed with no shortcut, like the GNOME one; binding one needs
+  kglobalaccel (`X-KDE-Shortcuts`), which was not measured.
+- **Plasma's grant notification can be dismissed.** Closing it by hand
+  does not end the grant (only "Lock now" does); ending the grant on dismiss
+  needs a check that it was not closed by pcbridge itself.
 - **A graphical control panel.** A proposal (Tauri + React) for status,
   grant and jobs in one window; nobody has started it.
 
@@ -51,7 +70,8 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   Linux desktops on Wayland.
 - An XDG-portal capture backend for GNOME was dropped (2026-09-20): it
   flashes and asks for consent. This still holds on GNOME.
-- "GNOME only" (2026-09-20) was reopened on 2026-09-23: KDE Plasma 6 on
-  Wayland and Arch Linux are being added.
+- "GNOME only" (2026-09-20) was reopened on 2026-09-23: 2.1 adds KDE
+  Plasma 6 on Wayland and Arch Linux. Plasma 5, X11 and other distributions
+  stay out.
 - `JARVIS.md`, a proposal to grow pcbridge into a personal assistant, is not
   documentation and was removed in 2.0; git history keeps it.

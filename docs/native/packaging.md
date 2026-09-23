@@ -10,8 +10,8 @@ and how an installation is diagnosed.
 | | To build | To run |
 |---|---|---|
 | Rust | 1.95.0 (`rust/rust-toolchain.toml`), rustup | none |
-| System packages | `libpipewire-0.3-dev`, `libspa-0.2-dev`, `libclang-dev`, `pkg-config` | `libpipewire-0.3-0t64`, `libc6` (>= 2.39), `libgcc-s1` |
-| Session | none | a PipeWire socket; `org.gnome.Mutter.ScreenCast` on the session bus |
+| System packages | `libpipewire-0.3-dev`, `libspa-0.2-dev`, `libclang-dev`, `pkg-config` (Arch: `pipewire`, `clang`, `pkgconf`) | `libpipewire-0.3-0t64`, `libc6` (>= 2.39), `libgcc-s1` (Arch: `libpipewire`, `glibc`, `gcc-libs`) |
+| Session | none | GNOME: a PipeWire socket and `org.gnome.Mutter.ScreenCast` on the session bus. KDE Plasma: `org.kde.KWin.ScreenShot2` and a `.desktop` entry that authorizes the helper (`pcbridge setup` writes it; packages ship it) |
 | `python3-gi`, GStreamer, `pipewiresrc` | none | **not needed** |
 
 Runtime libraries, measured with `readelf -d` on a release build:
@@ -20,7 +20,10 @@ Runtime libraries, measured with `readelf -d` on a release build:
 version is `GLIBC_2.39` (`objdump -T`): a helper built on Ubuntu 24.04 does
 **not** run on an older glibc (22.04). The only target is
 `x86_64-unknown-linux-gnu`; Ubuntu 24.04/26.04 and Debian 13 all qualify, so
-CI builds the helper once and every `.deb` shares it.
+CI builds the helper once and every `.deb` shares it. The Arch package
+builds its own from source (`packaging/arch/PKGBUILD`); `build-native.sh`
+finds Arch's libclang under `/usr/lib` and prints a `pacman` line when
+something is missing.
 
 The Python fallbacks for accessibility and screen sharing still need
 `python3-gi`; `pcbridge doctor` reports that separately.

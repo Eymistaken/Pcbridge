@@ -118,6 +118,9 @@ audit_max_bytes = 5000000
 #   "rust"    REQUIRE the native helper. Without it, or when it cannot get a
 #             frame, the call FAILS; it never falls back silently.
 #
+# On KDE Plasma only the native helper can capture (KWin's ScreenShot2, which
+# KWin grants to the helper alone); "python" leaves capture unavailable there.
+#
 # The choice is made ONCE when a runtime starts; the backend never changes in
 # the middle of an open session.
 #
@@ -219,6 +222,11 @@ unlock_idle_seconds = 90
 # extension installed the notification is redundant; you may set false.
 # Do not turn BOTH off: then the grant is invisible except for GNOME's small
 # screen-sharing icon.
+#
+# On KDE Plasma the notification IS the grant's visible signal: it stays on
+# screen while the grant is open, has a "Lock now" button that runs the kill
+# switch, and closes when the grant ends. There is no frame and no sharing
+# indicator on Plasma, so keep this true there.
 unlock_notification = true
 
 # --- starting GUI applications from the shell ------------------------------
@@ -379,6 +387,10 @@ include_pointer = true
 #
 # Needs python3-gi, gstreamer1.0-pipewire and gstreamer1.0-plugins-good for the
 # Python path; otherwise it falls back to gnome-screenshot.
+#
+# GNOME only. On KDE Plasma keep "auto": capture there works only through the
+# native helper, and KWin's screenshots show no indicator (see
+# `unlock_notification`).
 capture_backend = "auto"
 
 # `find_text` / `wait_for_text` read on-screen text with tesseract. Languages

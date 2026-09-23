@@ -15,6 +15,8 @@
                    native helper (pcbridge-native, Rust) ◄───────────┘
           GNOME extension: frame, panel indicator, ActivateWindow /
                            FocusedWindow (reads the grant and status.json)
+          on KDE Plasma instead: KWin ScreenShot2, one-shot KWin scripts,
+                           the grant notification, idle-watch
 ```
 
 - **One resident daemon** (`pcbridge serve`, `pcbridge.service`) serves
@@ -71,15 +73,43 @@ input.py       uinput keyboard + absolute/relative pointer; text via clipboard
 clipboard.py   wl-paste / wl-copy
 uitree.py      the accessibility tree as text, stable ids
 apps.py        launching and raising windows
+compositor.py  which compositor answers each question (GNOME Shell or KWin)
+kwin.py        the KWin screenshot authorization entry
+kwin_helper.py a one-shot KWin script (system python): raise / read windows
+idlewatch.py   Plasma's idle time, from the native helper's idle-watch
+a11y.py        Qt accessibility, switched on for a Plasma grant
+grantnotice.py the grant notification (Plasma: the grant's signal)
 batch.py       the action-list engine; knows nothing about devices (Ops protocol)
 ops.py         Ops bound to the real devices
 safety.py      THE GATE: every desktop tool passes here
 execution.py   the cross-process write lock; the grant rechecked per action
 lease.py       the grant file: atomic, flock-serialized
 policy.py      content gates (password fields, close shortcuts, repeat clicks)
-session.py     repairing the session environment; the platform report
+session.py     repairing the session environment; desktop detection; the platform report
 backends/      python.py and rust.py providers behind one runtime
 ```
+
+### GNOME and KDE Plasma
+
+`session.desktop_kind()` decides once which desktop this is:
+`XDG_CURRENT_DESKTOP` when it is set, otherwise the owner of `org.gnome.Shell`
+or `org.kde.KWin` on the session bus. An unknown desktop is treated as GNOME,
+so every check fails closed with GNOME's messages. `compositor.py` names the
+backend behind each question; the rest of the code asks it instead of
+testing the desktop itself.
+
+| Question | GNOME | KDE Plasma |
+|---|---|---|
+| Screen locked? | `org.gnome.ScreenSaver` | `org.freedesktop.ScreenSaver` (KWin) |
+| Idle time | `Mutter.IdleMonitor` | `pcbridge-native idle-watch` (`ext_idle_notifier_v1`), a file in the runtime dir |
+| Monitor table | Mutter `DisplayConfig` | `kscreen-doctor -j` |
+| Screenshots | Mutter ScreenCast over PipeWire | KWin `ScreenShot2` (native helper only), display ids `kwin:` |
+| Raise / name a window | the extension (D-Bus) | a one-shot KWin script; GNOME search / KRunner as fallback |
+| The grant on screen | frame + panel indicator | a lasting notification with "Lock now" |
+
+Both feed the same neutral display state (`monitors.resolve_state` in
+Python, `DisplayState` in Rust), so coordinates, scale and rotation follow
+one set of rules; a shared fixture pins both KScreen adapters.
 
 ## Two decisions that are defended hard
 
@@ -95,8 +125,11 @@ backends/      python.py and rust.py providers behind one runtime
 
 `pcbridge-native` is a separate Rust process, one per grant, speaking a
 framed JSON protocol over stdio ([native/protocol-v1.md](native/protocol-v1.md)).
-It captures through Mutter ScreenCast/PipeWire, drives uinput, and reads and
-acts on AT-SPI over raw D-Bus. Each subsystem (`[native] capture / input /
+It captures through Mutter ScreenCast/PipeWire (KWin ScreenShot2 on
+Plasma), drives uinput, and reads and acts on AT-SPI over raw D-Bus. On
+Plasma the daemon also runs `pcbridge-native idle-watch`, which holds a
+Wayland idle notification open and writes the idle state to
+`$XDG_RUNTIME_DIR/pcbridge/idle.json`. Each subsystem (`[native] capture / input /
 accessibility`) is `auto` by default: the helper when it is packaged, the
 Python path otherwise, and a fallback is reported, never silent. It
 revalidates the grant file before every protected operation, so a revoke
@@ -113,3 +146,4 @@ from any process stops it.
 | Package install | `/usr/lib/pcbridge/venv`, `/usr/bin/pcbridge` |
 | Units | `~/.config/systemd/user/` (user install) or `/usr/lib/systemd/user/` |
 | Extension | `~/.local/share/gnome-shell/extensions/pcbridge-gorunur@eymistaken.local/` |
+| KDE entries | `~/.local/share/applications/pcbridge-native.desktop`, `pcbridge-lock.desktop` (package: `/usr/share/applications/`) |
