@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.2.0 - 2026-09-23
+
+### Added
+
+- **`panel_icon`: hide the GNOME panel icon on request.** An agent can
+  show or hide pcbridge's icon in the top bar when the user asks
+  (`show`, `hide`, `status`). Hidden means hidden while desktop control is
+  closed: the extension shows the icon for as long as a grant is open,
+  whatever the setting, so hiding it cannot hide an agent's access. The
+  setting is the extension's new `indicator-mode` key (`always`, the
+  default, or `when-granted`), applies at once, and persists across logins.
+  On KDE Plasma there is no panel icon, and the tool says so.
+
+### API
+
+- **Tools**: 37 (`panel_icon` is new; `core` offers 21, `desktop` 23).
+- **GNOME extension**: the setting `indicator-mode` is new; the D-Bus
+  interface is unchanged. An older extension ignores the setting, and the
+  tool says it applies after the next login.
+
 ## 2.1.0 - 2026-09-23
 
 pcbridge 2.1 runs on KDE Plasma 6 as well as GNOME, and on Arch Linux as
