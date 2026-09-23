@@ -1,5 +1,80 @@
 # Changelog
 
+## 2.1.0 - 2026-09-23
+
+pcbridge 2.1 runs on KDE Plasma 6 as well as GNOME, and on Arch Linux as
+well as the Debian family. Everything was tested end to end in an Arch VM
+with Plasma 6.7.5 and in headless GNOME 50.5 and 46.0 shells.
+
+### Added
+
+- **KDE Plasma 6 on Wayland.** The desktop tools work on Plasma with the
+  same names, arguments and safety gate:
+  - screen lock from `org.freedesktop.ScreenSaver`, which KWin owns;
+  - idle time from `pcbridge-native idle-watch`, a Wayland
+    `ext_idle_notifier_v1` watcher the daemon runs, because KWin keeps idle
+    time off D-Bus;
+  - the monitor table from `kscreen-doctor -j`, through the same resolver as
+    Mutter's, pinned by a shared fixture in Python and Rust;
+  - silent screenshots from KWin's `ScreenShot2` (7-12 ms a frame), granted
+    by a `.desktop` entry to the native helper alone, and
+    `monitor="window"` as a crop of the focused window;
+  - windows raised and named by a one-shot KWin script (~90 ms), with
+    KRunner as the search fallback;
+  - Qt accessibility switched on for the grant, so `ui_dump` reads Kate,
+    Konsole, Dolphin and System Settings, and restored when it ends;
+  - the grant shown as a lasting notification with a "Lock now" button that
+    runs the kill switch, and a `pcbridge-lock.desktop` entry a shortcut can
+    be bound to.
+- **Arch Linux package.** `packaging/arch/PKGBUILD` builds pcbridge from a
+  checkout with the `.deb`'s layout (shared `packaging/stage.sh`), native
+  helper included; CI builds, installs and tests it, and releases attach it.
+- **Package hints per distribution.** `setup`, `doctor` and error messages
+  name `pacman` packages on Arch and `apt` packages on the Debian family.
+- **GNOME 50.** The extension declares 46 and 50, both verified.
+- **Desktop detection.** `system_capabilities` reports the environment and
+  the Plasma version next to GNOME Shell's; setup and doctor act per
+  desktop.
+- **CI**: an Arch package job, and a headless KWin smoke test.
+- **`scripts/dev/arch-vm.sh`**: the Arch test VM (QEMU/KVM, cloud image,
+  Plasma and GNOME) that this release was tested in.
+
+### Fixed
+
+- **A checkout named `~/pcbridge` stopped the daemon from starting** ("cannot
+  import name '__version__'"): the service runs in the home directory, and
+  Python put the checkout ahead of the installed package. The unit, the
+  relay and the kill switch now run Python with `-P`.
+- **`pcbridge setup` could start the old daemon** after moving leftover user
+  units aside, because systemd was not reloaded; the `.deb` was affected too.
+- **The native capture crashed with PipeWire 1.6** (SIGSEGV after the first
+  frame): the stream disconnected itself inside its own callback. It now
+  detaches outside any callback.
+- **The extension's frame recursed without end with animations off** (a
+  headless shell, or Reduce Animation), because `ease()` then completes at
+  once. The frame now stands still instead. GNOME 46 was affected too.
+- **`scripts/build-native.sh` did not find libclang on Arch.**
+
+### Changed
+
+- An unknown desktop is treated as GNOME: every check fails closed with
+  GNOME's messages, as before.
+- `ROADMAP.md` keeps only open, optional work.
+
+### API
+
+- **Tools**: the same 36 tools and schemas. `system_capabilities` adds
+  `platform.environment` (`gnome`, `kde` or null) and `platform.plasma`, and
+  names the KWin backends (`linux.kwin.screenshot2`, `linux.kwin-script`,
+  `linux.freedesktop-screen-saver`).
+- **Configuration**: no new keys.
+- **Native helper protocol**: 1.0, additive only. `display_id` may carry the
+  `kwin:` scheme; an id whose scheme is not the running compositor's is
+  refused. `capture.session_open` may answer `not_needed`. The binary gains
+  an `idle-watch` mode outside the protocol.
+- **Install kind**: a package install is `deb` or `pacman`; existing stamps
+  keep `deb`.
+
 ## 2.0.0 - 2026-09-23
 
 pcbridge 2.0 turns a personal setup into an installable product: one
