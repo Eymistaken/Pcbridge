@@ -55,7 +55,7 @@ The run is done when **all** of the following hold:
       priority order in section 5.
 - [ ] Every invariant in section 2 has been verified on eymistaken's real machine
       after the final install, with the numbers written into section 8.
-- [ ] pcbridge 2.0.0 is **installed and running on eymistaken's machine** through
+- [x] pcbridge 2.0.0 is **installed and running on eymistaken's machine** through
       the product install path, not from the working tree. Claude Code,
       Codex and Claude Desktop are all registered against it.
 - [ ] The repository documentation has been rewritten and pruned (step 11).
@@ -742,7 +742,7 @@ where not. Record the results in section 8.
   - `Recommends:` tesseract-ocr, tailscale (Suggests).
   - `postinst` reloads udev and prints "Run `pcbridge setup` as your user".
     It never touches user sessions.
-- [ ] Run `lintian` if available. Build locally. Install in a
+- [x] Run `lintian` if available. Build locally. Install in a
       docker/podman container if available (Ubuntu 24.04, Debian 13, and
       Ubuntu 26.04 if the image exists): `pcbridge --version`,
       `pcbridge doctor --json`, and the non-live suites against the
@@ -757,25 +757,25 @@ where not. Record the results in section 8.
     **draft** GitHub release.
 
   Move `actions/*` to versions that do not use the deprecated Node 20.
-- [ ] **Headless GNOME smoke in CI.** Try it with a time box of 1 h: run
+- [x] **Headless GNOME smoke in CI.** Try it with a time box of 1 h: run
       `gnome-shell --headless --virtual-monitor` inside the container, load
       the extension, and do one capture. If it is not feasible on GitHub
       runners, record why in section 7 and skip it.
 - [x] **Runtime platform check.** Detect GNOME Shell version, session type
       and the availability of Mutter ScreenCast and RemoteDesktop, then
       report capabilities instead of crashing on unknown versions.
-- [ ] **Commit(s)**: `build(deb): …`, `ci: …`.
+- [x] **Commit(s)**: `build(deb): …`, `ci: …`.
 
 ### Step 10 — Install 2.0 on eymistaken's machine through the product path  (time box: 4 h)
 
-- [ ] **Build the release artifacts** from the branch HEAD.
+- [x] **Build the release artifacts** from the branch HEAD.
   - If `sudo -n` works, install the `.deb`.
   - Otherwise do a **user-level install** of the same wheel and helper
     (`~/.local/share/pcbridge/venv` + `~/.local/bin/pcbridge` + user units).
     The CLI must know which install kind it is.
   - Record which path was used. If it was the user install, add the `.deb`
     install command to section 9.
-- [ ] **Before touching anything**, back up:
+- [x] **Before touching anything**, back up:
   - the client configs,
   - the shell rc,
   - the systemd user units,
@@ -784,17 +784,17 @@ where not. Record the results in section 8.
 
   Store the backups in `$XDG_STATE_HOME/pcbridge/backup-<timestamp>/`, with
   a `ROLLBACK.md` in that folder giving exact commands.
-- [ ] Run `pcbridge setup --yes`:
+- [x] Run `pcbridge setup --yes`:
   - migrate the config (the legacy file stays in place as a fallback),
   - enable the units,
   - install the new extension files (active after re-login; the old one
     keeps working, I6),
   - `pcbridge connect --client all`,
   - rewrite the aliases.
-- [ ] **Keep the repo's `.venv` and the legacy command working** (I2). eymistaken's
+- [x] **Keep the repo's `.venv` and the legacy command working** (I2). eymistaken's
       running Claude Desktop and Claude Code keep their old stdio processes
       until they restart.
-- [ ] **Verify everything with fresh processes.**
+- [x] **Verify everything with fresh processes.**
   - The readiness check (`--desktop`) against every registered command and
     the legacy command.
   - `claude mcp list` and `codex mcp list` (connection check).
@@ -802,10 +802,10 @@ where not. Record the results in section 8.
   - The full live desktop suite through the relay, with all four flags.
   - `pcbridge doctor --json` all green, or explained.
   - Record all numbers in section 8 against the baselines (I9).
-- [ ] **Hand the product path to eymistaken.** Run a sample of the commands eymistaken
+- [x] **Hand the product path to eymistaken.** Run a sample of the commands eymistaken
       will actually use. Confirm that nothing needs to be opened: start
       from the daemon stopped, then use a fresh client.
-- [ ] **Commit** any fixes this surfaced. Tick the "installed" box in
+- [x] **Commit** any fixes this surfaced. Tick the "installed" box in
       section 1.
 
 ### Step 11 — Documentation: rewrite and prune  (time box: 5 h)
@@ -965,6 +965,7 @@ freely **after** extracting what is still true and useful.
 | 2026-09-23 | 7 | Without status.json the indicator falls back to 'pcbridge' in PATH or ~/.local/bin for the kill switch | A 1.x server writes no status.json. On this machine ~/.local/bin/pcbridge is still the Hermes wrapper until step 10 replaces it; a 2.0 server always names its own CLI, so the fallback only matters for a 1.x server |
 | 2026-09-23 | 9 | Package built with plain dpkg-deb, venv via python3 -m venv + pip (no uv, nfpm or lintian on this machine) | Only dpkg-deb is available locally; CI can add lintian |
 | 2026-09-23 | 9 | Pushed the productize/v2 branch (not main, no tag) before step 12, after the secret and name scans | The CI workflows can only be checked on GitHub, and the headless smoke's feasibility is only known there; a branch can be fixed with normal commits, main stays untouched until step 12 |
+| 2026-09-23 | 9 | Headless smoke stays continue-on-error although it passed | It depends on GNOME/PipeWire packages of the runner image; a change there should not block a release, and a failure is still visible |
 
 ## 8. Progress log and measurements
 
@@ -1002,6 +1003,8 @@ Append-only. One line per meaningful event, with numbers.
 - 2026-09-23 Step 9, package. packaging/build-deb.sh (plain dpkg-deb; no nfpm/uv/lintian here): venv at /usr/lib/pcbridge/venv made with python3 -m venv --without-pip + the build venv's pip --python, pinned by constraints.txt, relocated (scripts, pyvenv.cfg, pip's direct_url.json, byte-compiled with the final path; the build refuses a venv that still names the build dir). pcbridge_2.0.0~dev0_amd64.deb = 25 MB (131 MB installed), Depends pins python3 >= 3.12, << 3.13 (the venv is bound to the host python; built per release). Without sudo it could not be installed; it was extracted instead and its venv run directly: --version ok, doctor --json 30 ok / 2 fail (both from not being installed: no user socket unit, shebangs point to /usr/lib), and with tests copied outside the repo: models 106/0, desktop 615/0, contracts all pass except the 4 English-guard tests (they scan the git checkout, not the package), integration 20 OK / 7 skipped (need rust/). Fix found: a deb install left ~/.config/systemd/user units from an earlier user install in place, and those override /usr/lib/systemd/user -- setup now moves them to the backup (test_cli). Runtime platform check: session.platform_summary() (GNOME Shell version over D-Bus 3 ms, Mutter ScreenCast/RemoteDesktop from ListNames 15 ms, cached 60 s) is in system_capabilities text and structuredContent; an untested major (not 46) or a silent shell is a note, never an error. INCIDENT: the first control template was an unquoted heredoc, so the backquoted `pcbridge setup` in the description RAN -- as the old Hermes wrapper at ~/.local/bin/pcbridge (hermes -p pcbridge setup). Checked right after: nothing under ~/.hermes or elsewhere in ~ changed in the last 15 min, no hermes process left; its output only broke the control file. The template is now a quoted heredoc with @PLACEHOLDERS@.
 - 2026-09-23 Step 9, CI. Action versions read from GitHub (tag + runs.using): checkout v7, setup-python v7, upload-artifact v7, download-artifact v8, softprops/action-gh-release v3 -- all node24; native.yml moved off checkout v4 / setup-python v5 / upload-artifact v4. ci.yml: python 3.12 (pinned constraints) / 3.13 / 3.14 (ranges) with the English guard, doc links (new tests/contracts/test_doc_links.py: 72 relative links in 21 tracked .md files), unit, contract, integration suites and the readiness check in-process (check.py now probes only --command targets when no --client is given); gjs job for the extension tests + strict schema compile. package.yml: native helper built once, then per release in a container (ubuntu:24.04, debian:trixie, ubuntu:26.04 experimental) build-deb.sh -> apt install -> file checks -> suites as a non-root user against /usr/lib/pcbridge (root would skip the permission tests). Deb file names now carry the release (pcbridge_<ver>_<id><version>_amd64.deb) so the release job cannot overwrite one with another. release.yml on v*: reuses package.yml, builds wheel + sdist with the helper, sha256sums, DRAFT release. Headless GNOME smoke added as an experimental job (continue-on-error, 20 min). None of this has run on GitHub yet. Local: cargo clippy -D warnings (both feature sets) and fmt clean.
 - 2026-09-23 Step 9, first CI run on GitHub (branch productize/v2): native OK (clippy -D warnings on the new action versions); gjs OK; headless GNOME smoke OK on the runner -- the extension loaded (Version '2.0.0'), monitor table 1280x720, a screen-sharing frame of 1280x720; package: the .deb BUILT and INSTALLED on ubuntu:24.04, debian:trixie and ubuntu:26.04. What failed was the tests themselves: the 'non-live' test_desktop.py read this machine's session (screen lock, idle time, Mutter monitor table) and its config -- it only ever passed at this desk, and its pcb-do refusal tests used the REAL config and grant, so an open grant during a run would have let pcb-do act. Fixed: without PCBRIDGE_TEST_* flags the module pins an unlocked session, an away user, a fixed two-monitor table and a throwaway config with a fresh state dir. pcb-do --dry-run now works without any config (a syntax check needs none). test_native_revoke skips with a reason when the screen lock cannot be read (the helper checks the real one). Reproduced CI locally first: empty private bus and no bus at all -> desktop 615/0, contracts 514 OK, integration OK.
+- 2026-09-23 Step 9 closed. lintian is not installed here (recorded; CI could add it). The container install matrix ran on GitHub: the .deb builds and installs on ubuntu:24.04, debian:trixie and ubuntu:26.04; the remaining CI reds were all tests that assumed this desk's session (fixed over four commits: hermetic test_desktop, pinned capture availability, an undefined skip(), /run/user/<uid> in containers, monitor table in the dependency test). Headless GNOME smoke on the GitHub runner: PASSED (extension loaded, Version '2.0.0', 1280x720 table, a 1280x720 screen-sharing frame) -- kept non-blocking (continue-on-error) so runner flakiness cannot block a release.
+- 2026-09-23 Step 10 done: pcbridge 2.0.0.dev0 INSTALLED on this machine by the user-level path (no sudo): packaging/install-user.sh with the wheel of c90d11d (native helper build c90d11d49901) -> ~/.local/share/pcbridge/venv, ~/.local/bin/{pcbridge,pcb-shot,pcb-do}, user units (socket + service enabled), config migrated to ~/.config/pcbridge/config.toml (the repo file untouched), extension COPIED (the old repo symlink moved to setup's backup; the running shell keeps 1.x until re-login), Claude Code (user scope) / Codex (per-tool approval_mode tables kept: computer_task, desktop_unlock, list_agents, shell_run, window_focus) / Claude Desktop registered to '~/.local/bin/pcbridge stdio', aliases rewritten. Setup took 19 s. Before it: full copy + ROLLBACK.md in ~/.local/state/pcbridge/backup-20260923-072027-preinstall/ (setup wrote backup-20260923-072822/ROLLBACK.md too); the pcbridge-v2test units stopped and moved to the Trash; the Hermes wrapper at ~/.local/bin/pcbridge re-checked (nothing referenced it: no alias, unit, MCP entry, crontab, PcBridgeDesktop file) and moved to the Trash with gio trash, as instructed. Found and fixed: setup stamped the install AFTER restarting, so the new daemon restarted itself once more 5 s later (journal) -> stamp first now. Verification with fresh processes: readiness --desktop PASS for claude-code (tools/list 24.4 ms), codex (39.7), claude-desktop (47.1), the worktree legacy (22.4) and HTTP (healthz 28.3, system_status 204.7); the real 1.x legacy command of the main checkout still works in-process (tools/list 655.5 ms, I2); claude mcp list 'Connected'; codex mcp list enabled; ONE real claude -p (of the two allowed) called mcp__pcbridge__system_status through 2.0 and answered ('OK up 10 hours, 12 minutes', 7.8 s); live suites through the installed config, four flags: test_desktop 655/0, tests/live 61 OK (4 skipped by design), grant closed after; e2e against the installed daemon's HTTP 262/0/9 (= baseline); doctor --json 38 ok / 6 warn / 0 fail (warn: [limits] default_agent in the user's 1.x config -- already ignored by 1.x, left as is; tesseract missing; native input/window.list 'degraded' = checked on first use). Product path from cold: service stopped -> a fresh Claude Code client started it through the socket in 693 ms (1.x cold start 692.8 ms), the next client 25 ms; status.json followed the new pid. Aliases in a new shell point at the new CLI; bridgedurum and bridgekilit work. system_status warm median 160.9 ms (the 1.x command measured 217 ms at the same moment; the 132 ms baseline was another hour's load).
 
 ## 9. Needs eymistaken (physical presence, sudo, or a decision only he can make)
 
@@ -1009,3 +1012,9 @@ Append-only. One line per meaningful event, with numbers.
 |---|---|---|---|
 | 1 | Author e-mail of the 154 existing commits | Nothing to do unless you want it changed: that needs a history rewrite and a force-push, which this run is not allowed to do. New commits use the GitHub noreply address. | Rewriting published history is a decision only the owner can make. |
 | 2 | Log out and back in once (after step 10 installs the 2.0 extension) | Then check: the pcbridge icon is in the panel tray; its menu shows 'pcbridge 2.0.x: running'; pcbridge doctor says 'extension in this session: version 2.0.0'. Optional kill-switch shortcut: gsettings --schemadir ~/.local/share/gnome-shell/extensions/pcbridge-gorunur@eymistaken.local/schemas set org.gnome.shell.extensions.pcbridge-gorunur lock-shortcut "['<Super><Control>Escape']" | GNOME 45+ caches extension code; only a new login loads it (restarting the shell is off limits) |
+| 3 | Restart Claude Desktop and Claude Code once | Quit and reopen both (Claude Code: start a new session) | Their running processes were started before the install and keep the 1.x server until they restart; new ones use the 2.0 relay |
+| 4 | Install tesseract-ocr for find_text / wait_for_text | sudo apt install tesseract-ocr | Needs sudo |
+| 5 | Optional: the .deb instead of the user install | Build: packaging/build-deb.sh; install: sudo apt install ./dist/pcbridge_<version>_zorin18_amd64.deb; then pcbridge setup (it moves the user units aside) | Needs sudo; the user install works without it |
+| 6 | Your config has default_agent under [limits] | Move the line 'default_agent = ...' to the top of ~/.config/pcbridge/config.toml if you want it to count | It has been ignored since 1.x; changing what the file means was not this run's call |
+| 7 | Untracked files in the repo root | config.toml.yedek-* and graphify-out/ in ~/Belgeler/Pcbridge are not in git; keep or move them as you like | Personal files; not mine to move |
+| 8 | An empty 'Yeni Belge' Text Editor window is open | Close it (nothing to save) | Left by the step 3 live test; closing windows was avoided |
