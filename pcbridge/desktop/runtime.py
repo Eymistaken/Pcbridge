@@ -10,6 +10,7 @@ from typing import Callable, Hashable, Iterator
 
 from ..config import Config
 from . import apps as appslib
+from . import compositor as compositorlib
 from . import execution as executionlib
 from .backends.python import (
     PythonAccessibilityProvider,
@@ -181,26 +182,23 @@ class DesktopRuntime:
         else:
             focus_state = CapabilityState.UNAVAILABLE
             focus_reason = ErrorCode.BACKEND_UNAVAILABLE
+        comp = compositorlib.current()
         values["window.focus"] = self._observed_capability(
             "window.focus",
             focus_state,
-            backend=(
-                "linux.gnome-shell-extension"
-                if extension_focus
-                else "linux.gnome-search"
-            ),
+            backend=comp.focus_backend if extension_focus else comp.search_backend,
             scope="os.window",
             reason_code=focus_reason,
             limitations=(
                 (
-                    "Already-open windows use the GNOME Shell extension; closed "
-                    "applications are launched directly; GNOME search is the "
-                    "fallback for a window the extension cannot activate. Results "
+                    f"Already-open windows use {comp.focus_path}; closed "
+                    f"applications are launched directly; {comp.search_path} is the "
+                    "fallback for a window it cannot activate. Results "
                     "are verified through accessibility."
                     if extension_focus
                     else "Closed applications are launched directly; open windows "
-                    "come forward through GNOME search, for installed applications "
-                    "only. Results are verified through accessibility."
+                    f"come forward through {comp.search_path}, for installed "
+                    "applications only. Results are verified through accessibility."
                 ),
             )
             if focus_usable
@@ -220,7 +218,7 @@ class DesktopRuntime:
             CapabilityState.SUPPORTED
             if activity.state == ActivityState.KNOWN
             else CapabilityState.UNAVAILABLE,
-            backend="linux.mutter-idle-monitor",
+            backend=activity.backend,
             scope="os.session",
             reason_code=(
                 None
@@ -234,7 +232,7 @@ class DesktopRuntime:
             CapabilityState.SUPPORTED
             if lock.state != ScreenLockState.UNKNOWN
             else CapabilityState.UNAVAILABLE,
-            backend="linux.gnome-screen-saver",
+            backend=lock.backend,
             scope="os.session",
             reason_code=(
                 None

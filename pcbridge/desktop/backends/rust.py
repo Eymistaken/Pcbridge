@@ -54,6 +54,7 @@ from typing import Any
 from ..capabilities import Capability, CapabilityState
 from ..errors import DesktopError, ErrorCategory, ErrorCode
 from .. import capture as capturelib
+from .. import compositor as compositorlib
 from .. import clipboard as clipboardlib
 from .. import input as inputlib
 from .. import monitors as monitorslib
@@ -611,7 +612,7 @@ class RustCaptureProvider(PythonCaptureProvider):
             monitor = _capability(
                 "capture.monitor",
                 CapabilityState.UNAVAILABLE,
-                backend="linux.mutter-display-config",
+                backend=compositorlib.current().display_backend,
                 scope="os.capture",
                 reason_code=ErrorCode.DISPLAY_MAPPING_UNKNOWN,
             )

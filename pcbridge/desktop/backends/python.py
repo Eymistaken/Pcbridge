@@ -11,6 +11,7 @@ from typing import Any, Callable, Sequence, TypeVar
 
 from ...config import Config
 from .. import capture as capturelib
+from .. import compositor as compositorlib
 from .. import clipboard as clipboardlib
 from .. import input as inputlib
 from .. import monitors as monitorslib
@@ -26,7 +27,7 @@ _T = TypeVar("_T")
 
 
 class PythonDesktopStateProvider:
-    """Expose GNOME session observations without collapsing unknown states."""
+    """Expose desktop session observations without collapsing unknown states."""
 
     def __init__(
         self,
@@ -228,7 +229,7 @@ def _display_mapping_error(exc: Exception) -> DesktopError:
         exc,
         code=ErrorCode.DISPLAY_MAPPING_UNKNOWN,
         category=ErrorCategory.CAPTURE,
-        backend="linux.mutter-display-config",
+        backend=compositorlib.current().display_backend,
         retryable=True,
         suggested_action="Refresh the screen layout and try again.",
     )
@@ -419,7 +420,7 @@ class PythonCaptureProvider:
             monitor = _capability(
                 "capture.monitor",
                 CapabilityState.UNAVAILABLE,
-                backend="linux.mutter-display-config",
+                backend=compositorlib.current().display_backend,
                 scope="os.capture",
                 reason_code=ErrorCode.DISPLAY_MAPPING_UNKNOWN,
             )

@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .. import sessionctx
+from . import compositor as compositorlib
 from .errors import ErrorCategory, ErrorCode
 from .lease import LEASE_STATE_FILE, LeaseStore, LeaseToken
 
@@ -141,7 +142,8 @@ def observe_screen_lock() -> ScreenLockObservation:
         if value is False
         else ScreenLockState.UNKNOWN
     )
-    return ScreenLockObservation(state=state, observed_at=time.time())
+    return ScreenLockObservation(state=state, observed_at=time.time(),
+                                 backend=compositorlib.current().lock_backend)
 
 
 def observe_user_activity() -> ActivityObservation:
@@ -151,11 +153,13 @@ def observe_user_activity() -> ActivityObservation:
             state=ActivityState.KNOWN,
             idle_ms=value,
             observed_at=time.time(),
+            backend=compositorlib.current().idle_backend,
         )
     return ActivityObservation(
         state=ActivityState.UNKNOWN,
         idle_ms=None,
         observed_at=time.time(),
+        backend=compositorlib.current().idle_backend,
     )
 
 

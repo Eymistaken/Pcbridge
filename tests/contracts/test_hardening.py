@@ -298,6 +298,21 @@ class UnsupportedSessionTests(unittest.TestCase):
         with mock.patch.object(session, "_busctl", names()):
             self.assertEqual(session.desktop_kind({}), "")
 
+    def test_the_capability_report_names_the_compositor_that_answered(self) -> None:
+        from unittest import mock
+
+        from pcbridge.desktop import compositor, safety, session
+
+        with mock.patch.object(session, "desktop_kind", return_value=session.KDE), \
+                mock.patch.object(safety, "screen_locked", return_value=False), \
+                mock.patch.object(safety, "idle_ms", return_value=None):
+            self.assertEqual(safety.observe_screen_lock().backend, compositor.KWIN.lock_backend)
+            self.assertEqual(safety.observe_user_activity().backend,
+                             compositor.KWIN.idle_backend)
+        with mock.patch.object(session, "desktop_kind", return_value=""):
+            # Unknown is GNOME: its calls fail and the tools refuse, as before.
+            self.assertIs(compositor.current(), compositor.GNOME_SHELL)
+
     def test_the_platform_report_names_plasma_and_its_version(self) -> None:
         from unittest import mock
 
