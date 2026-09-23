@@ -159,7 +159,7 @@ jobs:
     steps:
       - name: KWin, KScreen, python-gobject
         run: |
-          pacman -Syu --noconfirm --needed git python python-gobject kwin libkscreen \
+          pacman -Syu --noconfirm --needed git gcc python python-gobject kwin libkscreen \
             kservice dbus mesa fuse3
       - uses: actions/checkout@v7
       - name: pcbridge
