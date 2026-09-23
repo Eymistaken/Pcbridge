@@ -3304,8 +3304,12 @@ def test_session_env() -> None:
     # 5) XDG_RUNTIME_DIR bozuksa standart yerden turetilmeli
     env = {"XDG_RUNTIME_DIR": "$XDG_RUNTIME_DIR"}
     SESS.ensure_session_env(env)
-    check("bozuk XDG_RUNTIME_DIR turetildi",
-          env.get("XDG_RUNTIME_DIR") == runtime, str(env.get("XDG_RUNTIME_DIR")))
+    if Path(runtime).is_dir():
+        check("bozuk XDG_RUNTIME_DIR turetildi",
+              env.get("XDG_RUNTIME_DIR") == runtime, str(env.get("XDG_RUNTIME_DIR")))
+    else:
+        # A container user has no /run/user/<uid>; nothing to derive from.
+        skip("bozuk XDG_RUNTIME_DIR turetildi", f"{runtime} yok")
 
     # 6) WAYLAND_DISPLAY eksikse soketten bulunmali
     env = {"XDG_RUNTIME_DIR": runtime}

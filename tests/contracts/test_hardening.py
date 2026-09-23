@@ -249,7 +249,11 @@ class MissingDependencyTests(unittest.TestCase):
             caps = out["system_capabilities"]
             missing = [ln for ln in caps.splitlines() if "DEPENDENCY_MISSING" in ln]
             self.assertTrue(any("clipboard.read" in ln for ln in missing), caps)
-            self.assertTrue(any("capture.monitor" in ln and "Pillow" in ln for ln in missing), caps)
+            # Without a readable monitor table (a CI runner) capture.monitor
+            # reports that instead; where the table is readable, Pillow is named.
+            monitor_line = next((ln for ln in caps.splitlines() if "`capture.monitor`" in ln), "")
+            self.assertTrue("Pillow" in monitor_line or "DISPLAY_MAPPING_UNKNOWN" in monitor_line,
+                            monitor_line)
             for line in missing:
                 self.assertIn(" — ", line, f"no fix named: {line}")
             self.assertNotIn("Traceback", res.stderr)
