@@ -129,6 +129,13 @@ cmd_provision() {
     vm_ssh "sudo pacman -Syu --noconfirm --needed ${PACKAGES[*]}"
     vm_ssh 'sudo install -d /etc/sddm.conf.d && printf "[Autologin]\nUser='"$VM_USER"'\nSession=plasma\nRelogin=true\n" | sudo tee /etc/sddm.conf.d/autologin.conf >/dev/null'
     vm_ssh 'sudo systemctl enable sddm && sudo systemctl set-default graphical.target'
+    # The test user has no password: an automatic lock could not be undone
+    # from the keyboard (`sudo loginctl unlock-session <id>` still works).
+    vm_ssh 'kwriteconfig6 --file kscreenlockerrc --group Daemon --key Autolock false
+            kwriteconfig6 --file kscreenlockerrc --group Daemon --key LockOnResume false
+            kwriteconfig6 --file powerdevilrc --group AC --group Display --key TurnOffDisplayWhenIdle false
+            kwriteconfig6 --file powerdevilrc --group AC --group Display --key DimDisplayWhenIdle false
+            kwriteconfig6 --file powerdevilrc --group AC --group SuspendAndShutdown --key AutoSuspendAction 0'
     vm_ssh 'sudo reboot' || true
     sleep 5
     for _ in $(seq 1 90); do

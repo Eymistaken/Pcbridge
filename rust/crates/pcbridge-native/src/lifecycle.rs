@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use pcbridge_core::{DesktopLease, LEASE_STATE_FILE, LeaseToken};
 
 use crate::platform::linux::desktop_state::{
-    ActivityState, DesktopStateProvider, GnomeDesktopState, ScreenLockState, UnknownDesktopState,
+    ActivityState, DesktopStateProvider, ScreenLockState, SessionDesktopState, UnknownDesktopState,
 };
 
 const WATCHDOG_INTERVAL: Duration = Duration::from_millis(100);
@@ -118,7 +118,7 @@ impl fmt::Debug for Lifecycle {
 
 impl Lifecycle {
     pub fn start(state_dir: &Path) -> Result<Self, io::Error> {
-        let desktop_state: Arc<dyn DesktopStateProvider> = GnomeDesktopState::connect()
+        let desktop_state: Arc<dyn DesktopStateProvider> = SessionDesktopState::connect()
             .map_or_else(
                 |_| Arc::new(UnknownDesktopState) as Arc<dyn DesktopStateProvider>,
                 |provider| Arc::new(provider) as Arc<dyn DesktopStateProvider>,

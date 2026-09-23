@@ -113,23 +113,38 @@ def _busctl_json(dest: str, path: str, iface: str, method: str) -> Any:
         return None
 
 
+# On Plasma, KWin answers the lock on the freedesktop screen saver interface;
+# its idle time comes from the native idle watcher (`idlewatch`), since
+# `GetSessionIdleTime` is not supported on Wayland (docs/dev/measured-facts.md).
+_FREEDESKTOP_SCREEN_SAVER = ("org.freedesktop.ScreenSaver", "/ScreenSaver",
+                             "org.freedesktop.ScreenSaver")
+
+
 def screen_locked() -> bool | None:
     """Ekran kilitli mi? Ogrenilemezse None."""
-    val = _busctl_json(
-        "org.gnome.ScreenSaver", "/org/gnome/ScreenSaver", "org.gnome.ScreenSaver",
-        "GetActive",
-    )
+    if compositorlib.is_kde():
+        val = _busctl_json(*_FREEDESKTOP_SCREEN_SAVER, "GetActive")
+    else:
+        val = _busctl_json(
+            "org.gnome.ScreenSaver", "/org/gnome/ScreenSaver", "org.gnome.ScreenSaver",
+            "GetActive",
+        )
     return bool(val) if isinstance(val, bool) else None
 
 
 def idle_ms() -> int | None:
     """Kullanicinin son girdisinden bu yana gecen ms. Ogrenilemezse None."""
-    val = _busctl_json(
-        "org.gnome.Mutter.IdleMonitor",
-        "/org/gnome/Mutter/IdleMonitor/Core",
-        "org.gnome.Mutter.IdleMonitor",
-        "GetIdletime",
-    )
+    if compositorlib.is_kde():
+        from . import idlewatch
+
+        val = idlewatch.read_idle_ms()
+    else:
+        val = _busctl_json(
+            "org.gnome.Mutter.IdleMonitor",
+            "/org/gnome/Mutter/IdleMonitor/Core",
+            "org.gnome.Mutter.IdleMonitor",
+            "GetIdletime",
+        )
     return int(val) if isinstance(val, int) and not isinstance(val, bool) else None
 
 

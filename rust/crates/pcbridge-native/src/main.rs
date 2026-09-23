@@ -11,6 +11,7 @@ enum Command {
     Serve(BackendMode),
     Version,
     BuildInfo,
+    IdleWatch,
 }
 
 fn main() -> ExitCode {
@@ -35,7 +36,20 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Command::Serve(mode) => serve(mode),
+        Command::IdleWatch => idle_watch(),
     }
+}
+
+/// KDE Plasma's idle time (see `platform::linux::idle`); runs until the
+/// compositor goes away, and exits non-zero so the daemon restarts it.
+fn idle_watch() -> ExitCode {
+    let Some(path) = pcbridge_native::platform::linux::idle::state_path() else {
+        eprintln!("pcbridge-native idle-watch: XDG_RUNTIME_DIR is not set");
+        return ExitCode::from(2);
+    };
+    let reason = pcbridge_native::platform::linux::idle::watch(&path);
+    eprintln!("pcbridge-native idle-watch: {reason}");
+    ExitCode::from(1)
 }
 
 fn serve(mode: BackendMode) -> ExitCode {
@@ -56,6 +70,7 @@ fn command_from_args(arguments: Vec<OsString>) -> Result<Command, &'static str> 
         [] => Ok(Command::Serve(BackendMode::production())),
         [Some("--version")] => Ok(Command::Version),
         [Some("--build-info")] => Ok(Command::BuildInfo),
+        [Some("idle-watch")] => Ok(Command::IdleWatch),
         #[cfg(feature = "test-harness")]
         [Some("--test-mode")] => Ok(Command::Serve(BackendMode::deterministic_test())),
         _ => Err("unsupported command-line arguments"),

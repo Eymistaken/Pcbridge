@@ -504,6 +504,11 @@ async def _serve(args: argparse.Namespace, bind_socket: bool) -> int:
                     tg.start_soon(local)
                 tg.start_soon(daemon.watch_stamp, restart)
                 tg.start_soon(daemon.watch_status, cfg)
+                watcher = idle_watch_binary(cfg)
+                if watcher is not None:
+                    from .desktop import idlewatch
+
+                    tg.start_soon(idlewatch.supervise, watcher)
                 tg.start_soon(stop_on_restart)
                 tg.start_soon(stop_on_signal)
         if restart.is_set():
@@ -520,6 +525,30 @@ async def _serve(args: argparse.Namespace, bind_socket: bool) -> int:
                 pass
         runtime.close()
     return code
+
+
+def idle_watch_binary(cfg: Any) -> Path | None:
+    """The native helper that watches idle time, when this session needs one.
+
+    Only Plasma does (KWin gives the idle time to Wayland clients only), and
+    only with desktop control enabled. Without the helper, the idle time is
+    unknown there and write actions need force.
+    """
+    if not cfg.desktop.enabled:
+        return None
+    from .desktop.session import KDE, desktop_kind
+
+    if desktop_kind() != KDE:
+        return None
+    from .desktop.errors import DesktopError
+    from .native import discover_native_binary
+
+    try:
+        return discover_native_binary(cfg.native)
+    except DesktopError:
+        log.warning("KDE Plasma: the native helper is not installed, so the idle "
+                    "time is unknown and desktop write actions need force=true")
+        return None
 
 
 def build_parser() -> argparse.ArgumentParser:

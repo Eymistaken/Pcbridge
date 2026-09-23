@@ -241,6 +241,29 @@ class DesktopStateContractTests(unittest.TestCase):
         with mock.patch.object(safetylib, "_busctl_json", return_value=True):
             self.assertIsNone(safetylib.idle_ms())
 
+    def test_each_desktop_is_asked_on_its_own_interface(self) -> None:
+        from pcbridge.desktop import compositor
+
+        from pcbridge.desktop import idlewatch
+
+        with mock.patch.object(compositor, "is_kde", return_value=False), \
+                mock.patch.object(safetylib, "_busctl_json") as call:
+            call.side_effect = [False, 1234]
+            self.assertIs(safetylib.screen_locked(), False)
+            self.assertEqual(safetylib.idle_ms(), 1234)
+        self.assertEqual(call.call_args_list[0].args[0], "org.gnome.ScreenSaver")
+        self.assertEqual(call.call_args_list[1].args[-1], "GetIdletime")
+
+        # Plasma: the lock from KWin's freedesktop interface, the idle time
+        # from the native watcher's record (KWin has no D-Bus idle time).
+        with mock.patch.object(compositor, "is_kde", return_value=True), \
+                mock.patch.object(safetylib, "_busctl_json", return_value=True) as call, \
+                mock.patch.object(idlewatch, "read_idle_ms", return_value=4321):
+            self.assertIs(safetylib.screen_locked(), True)
+            self.assertEqual(safetylib.idle_ms(), 4321)
+        self.assertEqual(call.call_count, 1)
+        self.assertEqual(call.call_args.args[:2], ("org.freedesktop.ScreenSaver", "/ScreenSaver"))
+
     def test_python_provider_preserves_known_and_unknown_observations(self) -> None:
         provider = PythonDesktopStateProvider()
         cases = (

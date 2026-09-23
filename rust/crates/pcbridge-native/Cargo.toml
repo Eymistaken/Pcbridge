@@ -17,6 +17,8 @@ pipewire.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+wayland-client.workspace = true
+wayland-protocols.workspace = true
 zbus.workspace = true
 
 [dev-dependencies]

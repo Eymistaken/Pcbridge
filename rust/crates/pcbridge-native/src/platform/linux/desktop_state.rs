@@ -1,4 +1,9 @@
-//! Typed GNOME screen-lock and user-activity observations.
+//! Typed screen-lock and user-activity observations, from GNOME or KDE Plasma.
+//!
+//! GNOME answers on `org.gnome.ScreenSaver` (lock) and Mutter's IdleMonitor
+//! (idle time in ms). On Plasma, KWin answers the lock on the freedesktop
+//! `org.freedesktop.ScreenSaver`, but not the idle time: that comes from the
+//! `idle-watch` record (see `idle.rs` and docs/dev/measured-facts.md).
 
 use std::sync::Mutex;
 use std::thread;
@@ -8,12 +13,59 @@ use async_io::Timer;
 use futures_lite::{StreamExt, future};
 use zbus::{Connection, Message, Proxy, connection::Builder, proxy::SignalStream};
 
-const SCREEN_SAVER_DESTINATION: &str = "org.gnome.ScreenSaver";
-const SCREEN_SAVER_PATH: &str = "/org/gnome/ScreenSaver";
-const SCREEN_SAVER_INTERFACE: &str = "org.gnome.ScreenSaver";
-const IDLE_MONITOR_DESTINATION: &str = "org.gnome.Mutter.IdleMonitor";
-const IDLE_MONITOR_PATH: &str = "/org/gnome/Mutter/IdleMonitor/Core";
-const IDLE_MONITOR_INTERFACE: &str = "org.gnome.Mutter.IdleMonitor";
+use super::desktop::DesktopKind;
+use super::idle;
+
+/// Where one desktop answers the lock and idle questions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StateEndpoints {
+    pub lock_destination: &'static str,
+    pub lock_path: &'static str,
+    pub lock_interface: &'static str,
+    pub idle: IdleSource,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IdleSource {
+    /// A D-Bus method that returns the idle time in ms as `t`.
+    Dbus {
+        destination: &'static str,
+        path: &'static str,
+        interface: &'static str,
+        method: &'static str,
+    },
+    /// The record `pcbridge-native idle-watch` keeps (KDE Plasma).
+    WatchRecord,
+}
+
+pub const GNOME_ENDPOINTS: StateEndpoints = StateEndpoints {
+    lock_destination: "org.gnome.ScreenSaver",
+    lock_path: "/org/gnome/ScreenSaver",
+    lock_interface: "org.gnome.ScreenSaver",
+    idle: IdleSource::Dbus {
+        destination: "org.gnome.Mutter.IdleMonitor",
+        path: "/org/gnome/Mutter/IdleMonitor/Core",
+        interface: "org.gnome.Mutter.IdleMonitor",
+        method: "GetIdletime",
+    },
+};
+
+pub const KDE_ENDPOINTS: StateEndpoints = StateEndpoints {
+    lock_destination: "org.freedesktop.ScreenSaver",
+    lock_path: "/ScreenSaver",
+    lock_interface: "org.freedesktop.ScreenSaver",
+    idle: IdleSource::WatchRecord,
+};
+
+impl StateEndpoints {
+    #[must_use]
+    pub const fn for_desktop(kind: DesktopKind) -> Self {
+        match kind {
+            DesktopKind::Gnome => GNOME_ENDPOINTS,
+            DesktopKind::Kde => KDE_ENDPOINTS,
+        }
+    }
+}
 const DBUS_METHOD_TIMEOUT: Duration = Duration::from_millis(200);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -111,13 +163,19 @@ pub trait DesktopStateProvider: Send + Sync {
     }
 }
 
-pub struct GnomeDesktopState {
+pub struct SessionDesktopState {
     connection: Connection,
+    endpoints: StateEndpoints,
     lock_signals: Mutex<SignalStream<'static>>,
 }
 
-impl GnomeDesktopState {
+impl SessionDesktopState {
+    /// The provider for this session's desktop.
     pub fn connect() -> Result<Self, zbus::Error> {
+        Self::connect_to(StateEndpoints::for_desktop(DesktopKind::detect()))
+    }
+
+    pub fn connect_to(endpoints: StateEndpoints) -> Result<Self, zbus::Error> {
         let connection = zbus::block_on(
             Builder::session()?
                 .method_timeout(DBUS_METHOD_TIMEOUT)
@@ -125,13 +183,14 @@ impl GnomeDesktopState {
         )?;
         let proxy = zbus::block_on(Proxy::new(
             &connection,
-            SCREEN_SAVER_DESTINATION,
-            SCREEN_SAVER_PATH,
-            SCREEN_SAVER_INTERFACE,
+            endpoints.lock_destination,
+            endpoints.lock_path,
+            endpoints.lock_interface,
         ))?;
         let lock_signals = zbus::block_on(proxy.receive_signal("ActiveChanged"))?;
         Ok(Self {
             connection,
+            endpoints,
             lock_signals: Mutex::new(lock_signals),
         })
     }
@@ -140,9 +199,9 @@ impl GnomeDesktopState {
         let result: Result<bool, zbus::Error> = zbus::block_on(async {
             let proxy = Proxy::new(
                 &self.connection,
-                SCREEN_SAVER_DESTINATION,
-                SCREEN_SAVER_PATH,
-                SCREEN_SAVER_INTERFACE,
+                self.endpoints.lock_destination,
+                self.endpoints.lock_path,
+                self.endpoints.lock_interface,
             )
             .await?;
             proxy.call("GetActive", &()).await
@@ -160,20 +219,25 @@ impl GnomeDesktopState {
     }
 
     fn read_user_activity(&self) -> ActivityObservation {
-        let result: Result<u64, zbus::Error> = zbus::block_on(async {
-            let proxy = Proxy::new(
-                &self.connection,
-                IDLE_MONITOR_DESTINATION,
-                IDLE_MONITOR_PATH,
-                IDLE_MONITOR_INTERFACE,
-            )
-            .await?;
-            proxy.call("GetIdletime", &()).await
-        });
-        result.map_or_else(
-            |_| ActivityObservation::unknown(),
-            |idle_ms| ActivityObservation::new(ActivityState::Known, Some(idle_ms)),
-        )
+        let idle_ms = match self.endpoints.idle {
+            IdleSource::Dbus {
+                destination,
+                path,
+                interface,
+                method,
+            } => {
+                let result: Result<u64, zbus::Error> = zbus::block_on(async {
+                    let proxy = Proxy::new(&self.connection, destination, path, interface).await?;
+                    proxy.call(method, &()).await
+                });
+                result.ok()
+            }
+            IdleSource::WatchRecord => idle::state_path()
+                .and_then(|path| idle::read_idle_ms(&path, idle::unix_ms(SystemTime::now()))),
+        };
+        idle_ms.map_or_else(ActivityObservation::unknown, |idle_ms| {
+            ActivityObservation::new(ActivityState::Known, Some(idle_ms))
+        })
     }
 
     fn lock_from_signal(message: Message) -> ScreenLockObservation {
@@ -190,7 +254,7 @@ impl GnomeDesktopState {
     }
 }
 
-impl DesktopStateProvider for GnomeDesktopState {
+impl DesktopStateProvider for SessionDesktopState {
     fn screen_lock(&self) -> ScreenLockObservation {
         self.read_screen_lock()
     }
