@@ -7,6 +7,7 @@ TEST VM ONLY (scripts/dev/arch-vm.sh), with the daemon running and
 window it opened itself and TYPES into it, reads it back, and locks again.
 
     .venv/bin/python tests/live/kde/check_mcp.py
+    PCBRIDGE_LAUNCHER=/usr/bin/pcbridge .venv/bin/python tests/live/kde/check_mcp.py
 
 Each step prints one line: ok or FAIL, the step, and what came back.
 """
@@ -54,7 +55,8 @@ def images_of(result) -> int:
 
 
 async def main() -> int:
-    launcher = str(Path.home() / ".local/bin/pcbridge")
+    # The launcher of the install under test (a package puts it in /usr/bin).
+    launcher = os.environ.get("PCBRIDGE_LAUNCHER") or str(Path.home() / ".local/bin/pcbridge")
     doc = Path(f"/tmp/pcbridge-mcp-{os.getpid()}.txt")
     doc.write_text("", encoding="utf-8")
     # Kate with an unsaved document ignores SIGTERM; earlier runs leave one.

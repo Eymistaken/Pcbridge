@@ -23,6 +23,7 @@ from pathlib import Path
 
 from .. import __version__
 from .. import assets as assetslib
+from .. import distro as distrolib
 from .. import paths as pathslib
 
 HOME = Path.home()
@@ -32,7 +33,9 @@ LOCAL_BIN = HOME / ".local" / "bin"
 LAUNCHERS = ("pcbridge", "pcb-shot", "pcb-do")
 EXTENSIONS_DIR = HOME / ".local" / "share" / "gnome-shell" / "extensions"
 SYSTEM_EXTENSIONS_DIR = Path("/usr/share/gnome-shell/extensions")
-DEB_PREFIX = Path("/usr/lib/pcbridge")
+# Where the .deb and the Arch package put their venv.
+SYSTEM_PREFIX = Path("/usr/lib/pcbridge")
+SYSTEM_KINDS = ("deb", "pacman")
 ALIAS_BEGIN = "# >>> pcbridge >>>"
 ALIAS_END = "# <<< pcbridge <<<"
 # The shell aliases the maintainer has used since 1.x, now pointing at the CLI.
@@ -98,10 +101,11 @@ def repo_root() -> Path | None:
 
 
 def install_kind() -> str:
-    """"deb", "user" (setup's venv under ~/.local/share), "git" or "pip"."""
+    """"deb" or "pacman" (a distribution package), "user" (setup's venv
+    under ~/.local/share), "git" or "pip"."""
     prefix = Path(sys.prefix).resolve()
-    if str(prefix).startswith(str(DEB_PREFIX)):
-        return "deb"
+    if str(prefix).startswith(str(SYSTEM_PREFIX)):
+        return "pacman" if distrolib.family() == distrolib.ARCH else "deb"
     if prefix == (pathslib.data_home() / "venv").resolve():
         return "user"
     if repo_root() is not None:
@@ -118,11 +122,11 @@ def launcher_path() -> Path:
     """The stable path clients and aliases use to run pcbridge.
 
     ~/.local/bin/pcbridge for a user install (a symlink setup maintains, so a
-    reinstalled venv keeps the same path), /usr/bin/pcbridge for the .deb,
-    the venv's own script otherwise.
+    reinstalled venv keeps the same path), /usr/bin/pcbridge for a
+    distribution package, the venv's own script otherwise.
     """
     kind = install_kind()
-    if kind == "deb":
+    if kind in SYSTEM_KINDS:
         return Path("/usr/bin/pcbridge")
     if kind == "user":
         return LOCAL_BIN / "pcbridge"
@@ -236,7 +240,7 @@ def write_if_changed(path: Path, text: str, backup: Backup, mode: int | None = N
 def install_launchers(backup: Backup) -> list[str]:
     """~/.local/bin/{pcbridge,pcb-shot,pcb-do} -> this installation."""
     notes = []
-    if install_kind() == "deb":
+    if is_system_package():
         return notes
     LOCAL_BIN.mkdir(parents=True, exist_ok=True)
     for name in LAUNCHERS:
@@ -262,8 +266,13 @@ def render_unit(name: str, python: str | None = None) -> str:
     return text.replace("__PYTHON__", python or sys.executable)
 
 
+def is_system_package() -> bool:
+    """Installed by the .deb or the Arch package (owns /usr/bin and the units)."""
+    return install_kind() in SYSTEM_KINDS
+
+
 def units_managed_by_package() -> bool:
-    return install_kind() == "deb"
+    return is_system_package()
 
 
 def install_units(backup: Backup) -> bool:
@@ -362,7 +371,7 @@ def install_extension(backup: Backup) -> str:
     so this never disturbs the current session; the new files are picked up
     at the next login.
     """
-    if install_kind() == "deb" and (SYSTEM_EXTENSIONS_DIR / assetslib.EXTENSION_UUID).exists():
+    if is_system_package() and (SYSTEM_EXTENSIONS_DIR / assetslib.EXTENSION_UUID).exists():
         return "provided by the package"
     src = assetslib.asset_path("gnome-extension")
     dst = extension_target()

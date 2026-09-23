@@ -27,3 +27,8 @@ dist/
 
 # built by `pcbridge setup` / nested.sh from gnome-extension/*/schemas
 gschemas.compiled
+
+# makepkg work dirs and packages (packaging/arch)
+packaging/arch/src/
+packaging/arch/pkg/
+*.pkg.tar.zst

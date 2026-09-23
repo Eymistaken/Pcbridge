@@ -527,11 +527,9 @@ def update(argv: list[str]) -> int:
         res = inst.run(["git", "-C", str(root), "pull", "--ff-only"], timeout=120)
         inst.ok("git pull: " + (res.stdout.strip().splitlines() or ["done"])[-1])
     elif kind == "deb":
-        inst.say("Package install: update with "
-                 + ("`sudo pacman -U pcbridge-<version>-x86_64.pkg.tar.zst`"
-                    if distrolib.family() == distrolib.ARCH
-                    else "`sudo apt install ./pcbridge_<version>_amd64.deb`")
-                 + "; the daemon then restarts itself when idle.")
+        inst.say("Package install: update with `sudo apt install ./pcbridge_<version>_amd64.deb`; the daemon then restarts itself when idle.")
+    elif kind == "pacman":
+        inst.say("Package install: update with `sudo pacman -U pcbridge-<version>-x86_64.pkg.tar.zst`; the daemon then restarts itself when idle.")
     elif kind == "user":
         inst.say("User install: download the new wheel and run `pcbridge setup` from it; this command then restarts the daemon when idle.")
     inst.write_version_stamp()

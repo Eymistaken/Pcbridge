@@ -1,0 +1,15 @@
+post_install() {
+    # The rule tags /dev/uinput with uaccess; nothing here touches a user session.
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+    modprobe uinput >/dev/null 2>&1 || true
+    udevadm trigger --subsystem-match=misc --sysname-match=uinput >/dev/null 2>&1 || true
+    echo "pcbridge is installed. As your own user (not root), run:  pcbridge setup"
+}
+
+post_upgrade() {
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+}
+
+post_remove() {
+    udevadm control --reload-rules >/dev/null 2>&1 || true
+}

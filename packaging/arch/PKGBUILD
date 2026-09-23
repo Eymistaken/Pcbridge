@@ -1,0 +1,64 @@
+# Maintainer: Eymistaken <110712235+Eymistaken@users.noreply.github.com>
+#
+# Builds pcbridge from the checkout this file sits in:
+#
+#   cd packaging/arch && makepkg -si
+#
+# The layout is the .deb's (packaging/stage.sh): a self-contained venv under
+# /usr/lib/pcbridge/venv with the native helper, launchers in /usr/bin, the
+# systemd user units, the uinput udev rule and the GNOME Shell extension.
+# The venv is bound to the python it was built with, so `depends` pins that
+# minor version: when Arch moves to a new python, pacman reports that the
+# upgrade breaks this dependency; rebuild this package against the new python
+# and upgrade both together.
+
+pkgname=pcbridge
+pkgver=2.0.0
+pkgrel=1
+pkgdesc="MCP server that lets coding agents drive a GNOME or KDE Plasma desktop"
+arch=(x86_64)
+url="https://github.com/Eymistaken/Pcbridge"
+license=(GPL-3.0-or-later)
+_pyver="$(python -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")' 2>/dev/null || echo 3)"
+_pynext="$(python -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1] + 1}")' 2>/dev/null || echo 4)"
+depends=(
+    "python>=$_pyver" "python<$_pynext"
+    tmux wl-clipboard libnotify util-linux
+    python-gobject at-spi2-core
+    gst-plugin-pipewire gst-plugins-base gst-plugins-good
+    libpipewire glibc gcc-libs
+)
+makedepends=(git cargo clang pkgconf glib2)
+optdepends=(
+    'tesseract: find_text and wait_for_text (OCR); add tesseract-data-<lang>'
+    'gnome-screenshot: window capture on GNOME'
+    'tailscale: remote access through Tailscale Funnel'
+)
+install=pcbridge.install
+# The venv carries prebuilt wheels; stripping or splitting debug info from
+# them gains nothing and has broken such venvs before.
+options=(!strip !debug !lto)
+
+_root() {
+    realpath "$startdir/../.."
+}
+
+pkgver() {
+    sed -nE 's/^__version__ = "([^"]+)"/\1/p' "$(_root)/pcbridge/__init__.py" | tr - _
+}
+
+build() {
+    cd "$(_root)"
+    if [ "${PCBRIDGE_SKIP_NATIVE:-0}" != 1 ]; then
+        scripts/build-native.sh
+    fi
+}
+
+package() {
+    cd "$(_root)"
+    # The pins in constraints.txt are made for the oldest supported python;
+    # Arch's newer python resolves the ranges in pyproject.toml, as CI does.
+    PYTHON=/usr/bin/python PCBRIDGE_SKIP_NATIVE=1 PCBRIDGE_CONSTRAINTS=none \
+        packaging/stage.sh "$pkgdir"
+    install -D -m 0644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

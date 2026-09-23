@@ -170,21 +170,37 @@ class CliTests(unittest.TestCase):
         for g in ("install", "config", "daemon", "clients", "readiness", "agents", "desktop"):
             self.assertIn(g, groups)
 
-    def test_a_deb_install_moves_leftover_user_units_aside(self) -> None:
-        code = (
-            "from pathlib import Path; from unittest import mock; "
-            "from pcbridge.cli import install as i; "
-            "i.USER_UNIT_DIR.mkdir(parents=True, exist_ok=True); "
-            "(i.USER_UNIT_DIR / 'pcbridge.service').write_text('old'); "
-            "b = i.Backup(); "
-            "m = mock.patch.object(i, 'install_kind', return_value='deb'); m.start(); "
-            "print(i.install_units(b), (i.USER_UNIT_DIR / 'pcbridge.service').exists(), "
-            "[p.read_text() for p in b.root.iterdir() if p.name.endswith('__pcbridge.service')])"
-        )
-        res = subprocess.run([sys.executable, "-c", code], env=self.env, cwd=str(ROOT),
-                             capture_output=True, text=True, timeout=60)
-        self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertEqual(res.stdout.strip(), "True False ['old']")
+    def test_a_package_install_moves_leftover_user_units_aside(self) -> None:
+        for kind in ("deb", "pacman"):
+            code = (
+                "from pathlib import Path; from unittest import mock; "
+                "from pcbridge.cli import install as i; "
+                "i.USER_UNIT_DIR.mkdir(parents=True, exist_ok=True); "
+                "(i.USER_UNIT_DIR / 'pcbridge.service').write_text('old'); "
+                "b = i.Backup(); "
+                f"m = mock.patch.object(i, 'install_kind', return_value={kind!r}); m.start(); "
+                "print(i.install_units(b), (i.USER_UNIT_DIR / 'pcbridge.service').exists(), "
+                "[p.read_text() for p in b.root.iterdir() if p.name.endswith('__pcbridge.service')])"
+            )
+            with self.subTest(kind=kind):
+                res = subprocess.run([sys.executable, "-c", code], env=self.env, cwd=str(ROOT),
+                                     capture_output=True, text=True, timeout=60)
+                self.assertEqual(res.returncode, 0, res.stderr)
+                self.assertEqual(res.stdout.strip(), "True False ['old']")
+
+    def test_the_system_prefix_is_a_deb_or_an_arch_package(self) -> None:
+        from unittest import mock
+
+        from pcbridge import distro
+        from pcbridge.cli import install as inst
+
+        with mock.patch.object(inst.sys, "prefix", "/usr/lib/pcbridge/venv"):
+            for fam, kind in ((distro.DEBIAN, "deb"), (distro.ARCH, "pacman")):
+                with self.subTest(fam=fam), \
+                        mock.patch.object(distro, "family", return_value=fam):
+                    self.assertEqual(inst.install_kind(), kind)
+                    self.assertTrue(inst.is_system_package())
+                    self.assertEqual(inst.launcher_path(), Path("/usr/bin/pcbridge"))
 
     def test_units_render_the_running_python(self) -> None:
         from pcbridge.cli import install as inst
