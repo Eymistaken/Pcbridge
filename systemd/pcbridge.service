@@ -23,6 +23,9 @@ RestartForceExitStatus=75
 # 78 is a configuration error: it stays until the file is fixed, so do not
 # retry every second. The reason is in `journalctl --user -u pcbridge`.
 RestartPreventExitStatus=78
+# SIGTERM shuts down cleanly (held input released, status.json says stopped);
+# if that hangs, systemd kills it after this long.
+TimeoutStopSec=15
 Environment=PYTHONUNBUFFERED=1
 # No PATH, DISPLAY or model variables here:
 #   PATH     comes from the user manager; agent CLIs installed per user

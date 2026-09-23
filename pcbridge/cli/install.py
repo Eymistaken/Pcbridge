@@ -333,6 +333,14 @@ def extension_target() -> Path:
     return EXTENSIONS_DIR / assetslib.EXTENSION_UUID
 
 
+def _compile_schemas(ext_dir: Path) -> None:
+    """The kill-switch shortcut's setting needs a compiled schema. Without
+    glib-compile-schemas only the shortcut is missing; the indicator works."""
+    schemas = ext_dir / "schemas"
+    if schemas.is_dir() and shutil.which("glib-compile-schemas"):
+        run(["glib-compile-schemas", str(schemas)])
+
+
 def install_extension(backup: Backup) -> str:
     """Copy the extension into the user's extension directory.
 
@@ -346,19 +354,24 @@ def install_extension(backup: Backup) -> str:
     dst = extension_target()
     if dst.is_symlink():
         if dst.resolve() == src.resolve():
+            _compile_schemas(dst)
             return "already linked to this installation"
         backup.move(dst)
     if dst.is_dir():
         same = all(
-            (dst / f.name).exists() and (dst / f.name).read_bytes() == f.read_bytes()
-            for f in src.iterdir() if f.is_file()
+            (dst / f.relative_to(src)).is_file()
+            and (dst / f.relative_to(src)).read_bytes() == f.read_bytes()
+            for f in src.rglob("*")
+            if f.is_file() and f.name != "gschemas.compiled" and "__pycache__" not in f.parts
         )
         if same:
+            _compile_schemas(dst)
             return "up to date"
         backup.save(dst)
         shutil.rmtree(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "gschemas.compiled"))
+    _compile_schemas(dst)
     run(["gnome-extensions", "enable", assetslib.EXTENSION_UUID])
     return "installed (active after the next login)"
 

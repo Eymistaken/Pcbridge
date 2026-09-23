@@ -28,6 +28,7 @@ const INTERFACE_XML = `
       <arg name="app_id" type="s" direction="out"/>
       <arg name="title" type="s" direction="out"/>
     </method>
+    <property name="Version" type="s" access="read"/>
   </interface>
 </node>`;
 
@@ -116,8 +117,10 @@ export class WindowControl {
         currentTime = () => global.get_current_time(),
         focusedWindow = () => global.display.focus_window,
         onActivated = null,
+        version = '',
     } = {}) {
         this._state = state;
+        this._version = String(version);
         this._listWindows = listWindows;
         this._currentTime = currentTime;
         this._focusedWindow = focusedWindow;
@@ -126,6 +129,12 @@ export class WindowControl {
         this._exported = false;
         this._started = false;
         this._dbus = Gio.DBusExportedObject.wrapJSObject(INTERFACE_XML, this);
+    }
+
+    /** D-Bus property (2.0): lets the server tell an old extension from a new
+     * one. The two methods above are unchanged byte for byte. */
+    get Version() {
+        return this._version;
     }
 
     start() {

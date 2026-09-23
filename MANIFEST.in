@@ -1,5 +1,5 @@
 include LICENSE README.md config.example.toml requirements.txt
-recursive-include gnome-extension *.js *.json *.sh *.md
+recursive-include gnome-extension *.js *.json *.sh *.md *.xml
 recursive-include systemd *
 recursive-include packaging *
 recursive-include tests *.py *.json *.js

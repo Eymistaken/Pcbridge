@@ -45,7 +45,8 @@ class build_py(_build_py):
             src = ROOT / rel
             dst = target / logical
             if src.is_dir():
-                shutil.copytree(src, dst, dirs_exist_ok=True)
+                shutil.copytree(src, dst, dirs_exist_ok=True,
+                                ignore=shutil.ignore_patterns("__pycache__", "gschemas.compiled"))
             elif src.is_file():
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dst)

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.pcbridge-gorunur"
+          path="/org/gnome/shell/extensions/pcbridge-gorunur/">
+    <key name="lock-shortcut" type="as">
+      <!-- Off by default. <Super><Control>Escape was free on GNOME 46 /
+           Zorin OS 18 when checked; <Super><Shift>Escape is taken by
+           mutter's cancel-input-capture. -->
+      <default>[]</default>
+      <summary>Kill switch: lock pcbridge desktop control</summary>
+      <description>Runs `pcbridge lock`, like the panel menu's "Lock desktop control now". Example: ['&lt;Super&gt;&lt;Control&gt;Escape'].</description>
+    </key>
+  </schema>
+</schemalist>

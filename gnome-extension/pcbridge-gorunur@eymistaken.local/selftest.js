@@ -266,3 +266,22 @@ export function reportWindowActivation(window, target) {
     } catch { /* yalnızca tanı */ }
     sonuc(`ActivateWindow focus · ${target}`, focused === window, `→ ${title}`);
 }
+
+
+/** Step 7 of 2.0: what the indicator shows, and (on request) one kill-switch
+ * press, logged for a headless or nested run where no one can open the menu.
+ * The press only happens with PCBRIDGE_GORUNUR_SELFTEST_LOCK=1; point the
+ * status file's `cli` at a harmless script when using it. */
+export function reportIndicator(indicator) {
+    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
+        indicator.update();
+        const lines = indicator._lines.filter(i => i.visible).map(i => i.label.text);
+        console.log(`${ETIKET} indicator icon=${indicator._icon.icon_name} ` +
+            `label=${JSON.stringify(indicator._label.text)} lines=${JSON.stringify(lines)}`);
+        if (GLib.getenv('PCBRIDGE_GORUNUR_SELFTEST_LOCK') === '1') {
+            indicator.lockNow();
+            console.log(`${ETIKET} indicator kill switch pressed`);
+        }
+        return GLib.SOURCE_REMOVE;
+    });
+}

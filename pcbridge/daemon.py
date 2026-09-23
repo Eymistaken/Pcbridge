@@ -30,12 +30,16 @@ import argparse
 import json
 import logging
 import os
+import shutil
+import signal
 import socket
 import stat
+import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import anyio
 from anyio.abc import SocketListener, SocketStream
@@ -50,6 +54,10 @@ RELAY_PROTOCOL = 1
 RESTART_EXIT_CODE = 75  # pcbridge.service: RestartForceExitStatus=75
 # How often the version stamp is read; tests shorten it.
 STAMP_POLL_S = float(os.environ.get("PCBRIDGE_STAMP_POLL_S") or 5.0)
+# status.json for the GNOME extension's panel indicator (Step 7 of 2.0).
+STATUS_FILE = "status.json"
+STATUS_POLL_S = float(os.environ.get("PCBRIDGE_STATUS_POLL_S") or 5.0)
+STATUS_SCHEMA = 1
 THREAD_LIMIT = 128
 MAX_LINE = 64 * 1024 * 1024
 
@@ -175,6 +183,7 @@ class Daemon:
         self.runtime = getattr(mcp, "_pcbridge_desktop_runtime", None)
         self.counter = 0
         self.state = DaemonState()
+        self._last_status: dict[str, Any] | None = None
 
     # -- session -----------------------------------------------------------
     async def handle(self, stream: SocketStream) -> None:
@@ -314,6 +323,65 @@ class Daemon:
             pass
         return ""
 
+    # -- status for the panel indicator -------------------------------------
+    def _status(self, cfg: Any, running: bool = True) -> dict[str, Any]:
+        """What the extension shows. Read-only facts; nothing here is a switch.
+
+        The grant is NOT copied: the extension reads desktop_unlock.json
+        itself, as it always has, so there is a single source for it.
+        """
+        from .cli import install as inst
+
+        jobs = 0
+        if running and self.jm is not None:
+            try:
+                jobs = len(self.jm.list_jobs(limit=200, only_running=True))
+            except Exception:  # noqa: BLE001
+                jobs = 0
+        remote = None
+        if running and shutil.which("tailscale"):
+            try:
+                out = subprocess.run(["tailscale", "funnel", "status"], capture_output=True,
+                                     text=True, timeout=5).stdout
+                remote = f":{cfg.port}" in out
+            except (OSError, subprocess.SubprocessError):
+                remote = None
+        try:
+            cli = str(inst.launcher_path())
+        except Exception:  # noqa: BLE001
+            cli = ""
+        return {
+            "schema": STATUS_SCHEMA,
+            "version": __version__,
+            "daemon": "running" if running else "stopped",
+            "pid": os.getpid() if running else 0,
+            "jobs_running": jobs,
+            "remote": remote,
+            "cli": cli,
+        }
+
+    def write_status(self, cfg: Any, running: bool = True) -> bool:
+        """Write status.json atomically when it changed; True if written."""
+        data = self._status(cfg, running)
+        if data == self._last_status:
+            return False
+        path = Path(cfg.state_dir) / STATUS_FILE
+        tmp = path.with_name(f".{STATUS_FILE}.{os.getpid()}.tmp")
+        try:
+            tmp.write_text(json.dumps(data, sort_keys=True) + "\n", encoding="utf-8")
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, path)
+        except OSError as exc:
+            log.warning("could not write %s: %s", path, exc)
+            return False
+        self._last_status = data
+        return True
+
+    async def watch_status(self, cfg: Any) -> None:
+        while True:
+            await anyio.to_thread.run_sync(self.write_status, cfg)
+            await anyio.sleep(STATUS_POLL_S)
+
     async def watch_stamp(self, done: anyio.Event) -> None:
         path = pathslib.data_home() / "version-stamp"
 
@@ -421,15 +489,28 @@ async def _serve(args: argparse.Namespace, bind_socket: bool) -> int:
                     await restart.wait()
                     tg.cancel_scope.cancel()
 
+                async def stop_on_signal() -> None:
+                    # `systemctl stop` sends SIGTERM. Without this the process
+                    # died on the spot: held keys were not released by us, the
+                    # socket file stayed and status.json kept saying running.
+                    with anyio.open_signal_receiver(signal.SIGTERM, signal.SIGINT) as signals:
+                        async for signum in signals:
+                            log.info("received %s; shutting down", signal.Signals(signum).name)
+                            tg.cancel_scope.cancel()
+                            return
+
                 tg.start_soon(http)
                 if listener is not None:
                     tg.start_soon(local)
                 tg.start_soon(daemon.watch_stamp, restart)
+                tg.start_soon(daemon.watch_status, cfg)
                 tg.start_soon(stop_on_restart)
+                tg.start_soon(stop_on_signal)
         if restart.is_set():
             code = RESTART_EXIT_CODE
     finally:
         STATE = None
+        daemon.write_status(cfg, running=False)
         if daemon.state.socket_source == "bound" and daemon.state.socket_path:
             try:
                 p = Path(daemon.state.socket_path)

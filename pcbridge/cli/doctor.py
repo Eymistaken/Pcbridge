@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import socket
@@ -260,6 +261,23 @@ class Doctor:
             kind = "symlink to " + str(where.resolve()) if where.is_symlink() else str(where)
             self.add(g, "GNOME extension", "ok" if enabled else "warn", f"{kind}; {'enabled' if enabled else 'not enabled'}",
                      "" if enabled else f"gnome-extensions enable {inst.assetslib.EXTENSION_UUID}")
+            # What the RUNNING shell loaded: new files only load at the next
+            # login. A 1.x extension has no Version property; both work.
+            running = inst.run([
+                "gdbus", "call", "--session", "--dest", "io.github.eymistaken.Pcbridge.WindowFocus",
+                "--object-path", "/io/github/eymistaken/Pcbridge/WindowFocus",
+                "--method", "org.freedesktop.DBus.Properties.Get",
+                "io.github.eymistaken.Pcbridge.WindowFocus", "Version"], timeout=5)
+            m = re.search(r"'([^']*)'", running.stdout) if running.returncode == 0 else None
+            if m:
+                self.add(g, "extension in this session", "ok", f"version {m.group(1)} (panel indicator on)")
+            elif "UnknownProperty" in running.stderr or "No such property" in running.stderr \
+                    or "InvalidArgs" in running.stderr:
+                self.add(g, "extension in this session", "info",
+                         "the 1.x extension is loaded (no panel indicator yet)",
+                         "log out and back in to load the new one")
+            else:
+                self.add(g, "extension in this session", "info", "not running in this session")
         if self.cfg is not None:
             try:
                 from ..desktop import monitors

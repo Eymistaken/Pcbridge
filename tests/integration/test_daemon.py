@@ -216,6 +216,35 @@ class DaemonIntegrationTests(unittest.TestCase):
         if self.env.get("XDG_SESSION_TYPE"):
             self.assertIn(f"type=[{self.env['XDG_SESSION_TYPE']}]", result[0])
 
+    def test_status_file_for_the_panel_indicator(self) -> None:
+        self.env["PCBRIDGE_STATUS_POLL_S"] = "0.2"
+        self._start_daemon()
+        status = self.tmp / "state" / "status.json"
+
+        def read_until(pred, timeout=10.0):
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                try:
+                    data = json.loads(status.read_text())
+                    if pred(data):
+                        return data
+                except (OSError, ValueError):
+                    pass
+                time.sleep(0.05)
+            raise AssertionError(status.read_text() if status.exists() else "no status.json")
+
+        assert self.daemon is not None
+        data = read_until(lambda d: d["daemon"] == "running")
+        self.assertEqual(data["pid"], self.daemon.pid)
+        self.assertEqual(data["schema"], 1)
+        self.assertEqual(oct(status.stat().st_mode & 0o777), "0o600")
+        c = self._client()
+        c.tool("shell_run_background", {"command": "sleep 2", "workdir": str(self.tmp / "work")})
+        read_until(lambda d: d["jobs_running"] == 1)
+        read_until(lambda d: d["jobs_running"] == 0)
+        self._stop_daemon()
+        read_until(lambda d: d["daemon"] == "stopped" and d["pid"] == 0)
+
     def test_an_update_during_a_job_waits_until_idle(self) -> None:
         stamp = self.tmp / "data" / "pcbridge" / "version-stamp"
         stamp.parent.mkdir(parents=True)

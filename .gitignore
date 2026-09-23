@@ -24,3 +24,6 @@ graphify-out/
 build/
 dist/
 *.egg-info/
+
+# built by `pcbridge setup` / nested.sh from gnome-extension/*/schemas
+gschemas.compiled

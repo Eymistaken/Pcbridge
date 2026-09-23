@@ -16,13 +16,18 @@
  */
 
 import GLib from 'gi://GLib';
+import Meta from 'gi://Meta';
+import Shell from 'gi://Shell';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import {CursorOverlay, cursorEnabled} from './cursor.js';
 import {FrameOverlay} from './frame.js';
+import {PcbridgeIndicator} from './indicator.js';
 import * as SelfTest from './selftest.js';
 import {UnlockState, defaultStatePath} from './state.js';
+import {StatusWatcher, defaultStatusPath} from './status.js';
 import {WindowControl} from './windowcontrol.js';
 
 export const LOG = '[pcbridge-gorunur]';
@@ -35,6 +40,9 @@ export default class PcbridgeGorunurExtension extends Extension {
         this._selfTestId = 0;
         this._watchdogId = 0;
         this._windowControl = null;
+        this._status = null;
+        this._indicator = null;
+        this._shortcut = false;
         try {
             this._frame = new FrameOverlay();
             this._frame.start();
@@ -57,8 +65,10 @@ export default class PcbridgeGorunurExtension extends Extension {
                 onActivated: SelfTest.selfTestEnabled()
                     ? (window, target) => SelfTest.reportWindowActivation(window, target)
                     : null,
+                version: this.metadata['version-name'] ?? '',
             });
             this._windowControl.start();
+            this._startIndicator();
             console.log(`${LOG} enabled · state file: ${yol} · initially: ` +
                 `${this._state.active ? 'ACTIVE' : 'inactive'}`);
         } catch (error) {
@@ -76,6 +86,7 @@ export default class PcbridgeGorunurExtension extends Extension {
                     this[alan] = 0;
                 }
             }
+            this._stopIndicator();
             this._windowControl?.stop();
             this._windowControl = null;
             this._state?.stop();
@@ -91,8 +102,47 @@ export default class PcbridgeGorunurExtension extends Extension {
         }
     }
 
+    /** Panel indicator + optional kill-switch shortcut (2.0). A failure here
+     * only loses the indicator: the frame and the D-Bus methods keep working. */
+    _startIndicator() {
+        try {
+            this._status = new StatusWatcher(defaultStatusPath(), () => this._indicator?.update());
+            this._status.start();
+            this._indicator = new PcbridgeIndicator(this._state, this._status);
+            Main.panel.addToStatusArea(this.uuid, this._indicator);
+            if (SelfTest.selfTestEnabled())
+                SelfTest.reportIndicator(this._indicator);
+        } catch (error) {
+            console.error(`${LOG} indicator: ${error}`);
+        }
+        // OFF by default: `lock-shortcut` is empty until the user sets it.
+        // Without the compiled schema (a copy made by hand) only the shortcut
+        // is skipped.
+        try {
+            Main.wm.addKeybinding('lock-shortcut', this.getSettings(),
+                Meta.KeyBindingFlags.NONE,
+                Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP,
+                () => this._indicator?.lockNow());
+            this._shortcut = true;
+        } catch (error) {
+            console.warn(`${LOG} kill-switch shortcut unavailable: ${error}`);
+        }
+    }
+
+    _stopIndicator() {
+        if (this._shortcut) {
+            Main.wm.removeKeybinding('lock-shortcut');
+            this._shortcut = false;
+        }
+        this._indicator?.destroy();
+        this._indicator = null;
+        this._status?.stop();
+        this._status = null;
+    }
+
     /** pcbridge'in masaüstü izni açıldı/kapandı. */
     _onState(aktif, until) {
+        this._indicator?.update();
         const kalan = Math.max(0, Math.round(until - Date.now() / 1000));
         console.log(`${LOG} state: ${aktif ? `ACTIVE (${kalan} s left)` : 'inactive'}`);
         this._frame?.setVisible(aktif);
