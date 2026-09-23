@@ -66,7 +66,9 @@ class ShotLayoutTests(unittest.TestCase):
         self.out = Path(self.tmp.name)
 
     def shoot(self, screencast) -> list[capturelib.Shot]:
-        with mock.patch.object(monitorslib, "list_monitors", return_value=MONITORS):
+        # Whether gnome-screenshot is installed here is not what is measured.
+        with mock.patch.object(monitorslib, "list_monitors", return_value=MONITORS), \
+                mock.patch.object(capturelib, "available", return_value=(True, "")):
             return capturelib.capture(
                 "all",
                 out_dir=self.out,

@@ -82,7 +82,8 @@ class RegionCaptureTests(unittest.TestCase):
         )
 
     def shoot(self, screencast, region, scale_long_edge: int = 1536):
-        with mock.patch.object(capturelib, "_grab_canvas", self.canvas):
+        with mock.patch.object(capturelib, "_grab_canvas", self.canvas), \
+                mock.patch.object(capturelib, "available", return_value=(True, "")):
             return capturelib.capture(
                 "all",
                 out_dir=self.out,

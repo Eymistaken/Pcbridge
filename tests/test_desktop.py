@@ -1119,6 +1119,12 @@ def test_capture_sweeps() -> None:
             def is_unlocked(self):
                 return True
 
+            # What the capability report reads when capture is unavailable.
+            spec = type("Spec", (), {"enabled": True})()
+
+            def remaining_seconds(self):
+                return 600
+
         def fake_capture(spec, out_dir=None, **kw):
             dest = Path(out_dir) / "yeni-cekim.png"
             dest.write_bytes(b"\x89PNG")
@@ -1128,6 +1134,10 @@ def test_capture_sweeps() -> None:
 
         safetylib.SafetyGate = OpenGate
         toolslib.capturelib.capture = fake_capture
+        # This measures the sweep, not whether this machine can capture (a
+        # CI runner cannot): the Python capture path reports itself ready.
+        real_available = toolslib.capturelib.available
+        toolslib.capturelib.available = lambda *a, **k: (True, "")
 
         for transport in ("stdio", "http"):
             store = ShotStore(cfg)
@@ -1152,6 +1162,8 @@ def test_capture_sweeps() -> None:
     finally:
         safetylib.SafetyGate = real_gate
         toolslib.capturelib.capture = real_capture
+        if "real_available" in locals():
+            toolslib.capturelib.available = real_available
         import shutil as _sh
 
         _sh.rmtree(tmp, ignore_errors=True)
