@@ -135,7 +135,8 @@ cmd_provision() {
             kwriteconfig6 --file kscreenlockerrc --group Daemon --key LockOnResume false
             kwriteconfig6 --file powerdevilrc --group AC --group Display --key TurnOffDisplayWhenIdle false
             kwriteconfig6 --file powerdevilrc --group AC --group Display --key DimDisplayWhenIdle false
-            kwriteconfig6 --file powerdevilrc --group AC --group SuspendAndShutdown --key AutoSuspendAction 0'
+            kwriteconfig6 --file powerdevilrc --group AC --group SuspendAndShutdown --key AutoSuspendAction 0
+            busctl --user call org.freedesktop.ScreenSaver /ScreenSaver org.kde.screensaver configure'
     vm_ssh 'sudo reboot' || true
     sleep 5
     for _ in $(seq 1 90); do

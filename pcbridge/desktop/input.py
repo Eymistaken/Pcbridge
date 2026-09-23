@@ -11,7 +11,9 @@ OLCULDU (2026-08-01)
     ABS_X/ABS_Y araligi 0..tuval-1 verilen bir cihaz, ABS_X+ABS_Y+BTN_LEFT
     bileskesi sayesinde udev tarafindan ID_INPUT_MOUSE olarak isaretleniyor
     ("VMware mutlak faresi" yolu) ve **tuvalin tamamina** 1:1 esleniyor.
-    Cift monitorde 6 noktada olculdu, en buyuk sapma 1 piksel. BTN_TOUCH ya da
+    Cift monitorde 6 noktada olculdu, en buyuk sapma 1 piksel. KWin (Plasma
+    6.7) ayni cihazi ayni sekilde esliyor: 5 noktanin 5'i ayni piksel, 1.5
+    olcekli ikinci cikisla da (olculdu 2026-09-23, Arch VM). BTN_TOUCH ya da
     BTN_TOOL_PEN EKLENMEMELI: onlar cihazi dokunmatik ekran/tablet yapar ve
     kompozitor tek bir cikisa baglar -- ikinci monitore ulasilamaz.
 
