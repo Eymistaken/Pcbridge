@@ -17,7 +17,7 @@ What keeps it contained:
 * The user's clipboard is read before typing and compared afterwards, which is
   the restore under test. Only its first representation survives, as always.
 
-Evidence for `PLAN.md` Task 5.4 and Gate 5: Turkish text arrives byte for byte,
+Evidence for `PLAN.md` (1.x, in git history) Task 5.4 and Gate 5: Turkish text arrives byte for byte,
 the clipboard is restored, modifiers reach the application, the pointer lands
 within one pixel on both monitors, a click follows a verified move, drag and
 scroll arrive, and held input is released by revoke, by expiry and by the hold

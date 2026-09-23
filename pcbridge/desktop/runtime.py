@@ -428,7 +428,7 @@ def select_capture_provider(cfg: Config, gate: GrantProvider) -> CaptureProvider
 
     The choice is made when a runtime is built and never revisited inside it:
     swapping acquisition backends mid-session would let one `all` capture be
-    assembled from two different sources, and `PLAN.md` forbids exactly that.
+    assembled from two different sources, and `PLAN.md` (1.x, in git history) forbids exactly that.
     """
     from .backends.rust import (  # yerel import: native yol istege bagli
         RustCaptureProvider,

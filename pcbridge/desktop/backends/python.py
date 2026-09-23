@@ -963,7 +963,7 @@ class PythonAccessibilityProvider(uitreelib.UiTree):
             retryable=True,
         )
         # Icerik kapisi, izin kapisi degil: `SafetyGate` gecse de burasi
-        # reddeder ve `force` ile asilamaz (KURALLAR.md sec. 4, madde 7).
+        # reddeder ve `force` ile asilamaz (docs/dev/desktop-rules.md §4 item 7).
         policy.check_text_target(role=node.role, name=node.name)
         return self._translate_accessibility(
             lambda: super(PythonAccessibilityProvider, self).set_text(node_id, text),

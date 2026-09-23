@@ -105,7 +105,7 @@ def describe(shots, mons, capture_provider=None) -> list[str]:
 
     primary = next((m for m in mons if m.primary), None)
     if primary is not None:
-        # UYGULAMA.md bunu acikca istiyor: bilmeyen surucu `Super`'a basip
+        # UYGULAMA.md (1.x, in git history) bunu acikca istiyor: bilmeyen surucu `Super`'a basip
         # yanlis ekranda menu arar ve "calismadi" saniyor.
         out.append(
             f"\nThe primary monitor is {primary.index} ({primary.connector}); GNOME's "

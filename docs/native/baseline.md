@@ -1,77 +1,34 @@
 # Native migration baseline
 
-> Kurallar ve mimari: **[CLAUDE.md](../../CLAUDE.md)** · Sıradaki iş: **[WALKTHROUGH.md](../../WALKTHROUGH.md)**
+Before any desktop subsystem moved into the Rust helper (2026-09-08), the
+public behavior was pinned by contract tests so that a provider change could
+not alter it. Those contracts still hold every backend to the same answers.
 
-Bu belge, native desktop migration başlamadan önce korunacak public sözleşmeleri
-ve güvenli test sonuçlarını kaydeder. Son ölçüm 8 Eylül 2026 tarihinde yapıldı.
+## Pinned contracts
 
-## Tekrarlanabilir güvenli komutlar
+`tests/contracts/` checks, independently of the provider:
 
-Bütün gerçek desktop izinleri kapalıyken aşağıdaki komutlar çalıştırıldı:
+- MCP tool names, annotations (all four hints since 2.0), selected input
+  schema fields and defaults;
+- in `screen_capture` results the text block comes before the image blocks;
+- monitors are ordered by position; the primary can be on the right;
+- portrait and fractional-scale geometries and the combined canvas size;
+- each monitor is cropped from its own frame first, then resized;
+- shot ids, record lookup and server-side conversion of picture
+  coordinates;
+- the ambiguity guard for a fresh scaled shot; stale or full-size shots
+  convert as given;
+- a shot written elsewhere with `pcb-shot --out` is still found.
 
-```bash
-env -u PCBRIDGE_TEST_CAPTURE \
-  -u PCBRIDGE_TEST_INPUT \
-  -u PCBRIDGE_TEST_ATSPI \
-  -u PCBRIDGE_TEST_BATCH \
-  ./.venv/bin/python tests/test_desktop.py
+Fixtures are small JSON geometries and solid-color PNGs made at run time; no
+real screenshot is committed. The tests read only `config.example.toml` or
+synthetic `Config` objects, never a private `config.toml`.
 
-env -u PCBRIDGE_TEST_CAPTURE \
-  -u PCBRIDGE_TEST_INPUT \
-  -u PCBRIDGE_TEST_ATSPI \
-  -u PCBRIDGE_TEST_BATCH \
-  ./.venv/bin/python tests/test_models.py
+## Provider parity
 
-env -u PCBRIDGE_TEST_CAPTURE \
-  -u PCBRIDGE_TEST_INPUT \
-  -u PCBRIDGE_TEST_ATSPI \
-  -u PCBRIDGE_TEST_BATCH \
-  ./.venv/bin/python tests/test_test_safety.py
-
-./.venv/bin/python -m unittest discover \
-  -s tests/contracts -p 'test_*.py' -v
-```
-
-Ölçülen sonuçlar:
-
-- Desktop suite: `578 geçti, 0 kaldı`.
-- Model suite: `106 geçti, 0 kaldı`.
-- Live-test selector safety suite: `1 test`, `OK`.
-- Contract suite: `7 tests`, `OK`.
-
-`tests/test_e2e.py` çalıştırılmadı. Bu baseline canlı server, gerçek agent veya
-desktop eylemi gerektirmez.
-
-## Sabitlenen public sözleşmeler
-
-Contract suite şu davranışları provider değişiminden bağımsız olarak doğrular:
-
-- MCP tool adları, annotations, seçili input schema alanları ve varsayılanlar.
-- `screen_capture` sonucunda text block'un image block'lardan önce gelmesi.
-- Monitörlerin soldan sağa sıralanması; primary monitörün sağda olabilmesi.
-- Portrait ve fractional-scale monitor geometrileri ile birleşik canvas boyutu.
-- Her monitörün birleşik canvas'tan önce crop edilip sonra resize edilmesi.
-- Shot kimliği, metadata lookup ve server-side görüntü koordinatı dönüşümü.
-- Taze scaled shot için ambiguity guard; stale veya tam ölçekli shot için
-  koordinatın olduğu gibi kalması.
-- `pcb-shot --out` ile PNG custom dizine yazılsa da shot metadata'sının default
-  arama dizininde bulunabilmesi.
-
-Fixture'lar küçük JSON geometrileri ve çalışma anında oluşturulan düz renkli
-PNG'ler kullanır. Repoya gerçek screenshot eklenmez.
-
-## Yapılandırma bağımsızlığı
-
-Model testleri ve yeni contract suite yalnızca `config.example.toml` veya test
-içinde kurulan sentetik `Config` nesnelerini kullanır. Private `config.toml`
-okunmaz. Baseline öncesindeki dört model hatasının kök nedeni, örnek config'teki
-Antigravity varsayılanı `gemini-3.8-flash` iken test beklentisinin eski
-`gemini-3.6-flash` değerinde kalmasıydı. Beklentiler ayrı `3d7c31e` commit'inde
-örnek config ile hizalandı; başarısız test gizlenmedi.
-
-## Provider parity düzeni
-
-Capture contract, backend'leri `CAPTURE_PROVIDER_FACTORIES` üzerinden çalıştırır.
-Başlangıçta yalnızca mevcut Python adapter'ı kayıtlıdır. Native adapter eklendiği
-anda aynı sentetik canvas ve aynı assertion'lar ikinci factory için de çalışır.
-Production desktop kodunda bu task kapsamında davranış değişikliği yapılmadı.
+The capture contract runs every backend registered in
+`CAPTURE_PROVIDER_FACTORIES` (the Python adapter and the native one) through
+the same synthetic canvas and the same assertions. Input
+(`tests/fixtures/native/input_events.json`), accessibility and display tables
+(`display_state_cases.json`, `mixed_scale_cases.json`, `layout_matrix.json`)
+work the same way: one fixture, read by the Python tests and the Rust tests.

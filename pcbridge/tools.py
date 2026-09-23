@@ -1780,7 +1780,7 @@ def register(
                     return f"{act} needs `keys` (for example 'ctrl+v')."
                 if act in ("key", "hold"):
                     # Icerik kapisi: `force` bunu ACMAZ, ayri bir niyet beyani
-                    # ister (KURALLAR.md sec. 4, madde 5).
+                    # ister (docs/dev/desktop-rules.md §4 item 5).
                     policy.check_key_combo(keys, confirm_close=confirm_close)
                 if act == "key":
                     backend.key(keys)

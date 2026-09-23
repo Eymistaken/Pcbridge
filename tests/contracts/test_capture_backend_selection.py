@@ -3,7 +3,7 @@
 
 Two questions, both answerable without a compositor:
 
-1. Does the selector implement the table in `PLAN.md`? A forced native backend
+1. Does the selector implement the table in `PLAN.md` (1.x, in git history)? A forced native backend
    that cannot start must stay selected and fail visibly -- quietly becoming a
    Python screencast would hide exactly the thing forcing it was meant to find.
 2. Does a shot taken through the native handle come out identical to one taken

@@ -13,7 +13,7 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# The first artifact target; other targets are PLAN.md phase W/M work.
+# The only target: Windows and macOS builds were dropped (ROADMAP.md).
 TARGET="x86_64-unknown-linux-gnu"
 DEST="$DIR/pcbridge/_native/$TARGET"
 

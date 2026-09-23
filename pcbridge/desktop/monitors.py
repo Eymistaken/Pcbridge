@@ -11,7 +11,7 @@ koordinati `Monitor.platform` ile duruyor; hicbir hesap iki uzayi
 karistirmasin diye disari yalnizca tuval koordinati cikiyor. Bu makinede iki
 monitor de (0,0)'dan basliyor, yani oteleme sifir.
 Monitore ozel koordinat yalnizca disaridan `monitor=` ile gelir ve buradaki
-`to_global()` ile bir kez global uzaya cevrilir. `UYGULAMA.md`'nin kurali:
+`to_global()` ile bir kez global uzaya cevrilir. `UYGULAMA.md` (1.x, in git history)'nin kurali:
 "Bu donusumu tek bir yerde yap; iki yerde yapilirsa er gec biri unutulur ve
 sessizce 1920 piksel sola tiklanir."
 

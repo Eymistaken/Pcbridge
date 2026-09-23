@@ -353,7 +353,7 @@ class Config:
     def agent_shot_path(self) -> Path:
         """`pcb-shot`un PNG yazdigi dizin (yaratmadan, yalnizca yol).
 
-        Varsayilan `$XDG_RUNTIME_DIR/pcbridge/shots`. `UYGULAMA.md` `/tmp/pcb`
+        Varsayilan `$XDG_RUNTIME_DIR/pcbridge/shots`. `UYGULAMA.md` (1.x, in git history) `/tmp/pcb`
         diyor; sapma bilincli: /tmp herkese okunur (mod 775), $XDG_RUNTIME_DIR
         ise yalnizca kullaniciya acik ve oturum kapaninca siliniyor. Ekran
         goruntusu bu projenin en gizlilik-hassas ciktisi.

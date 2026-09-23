@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Target-policy gates: password fields, repeated clicks, destructive closes.
 
-These are KURALLAR.md section 4 items 7, 6 and 5. They are content gates: they
+These are docs/dev/desktop-rules.md §4 items 7, 6 and 5. They are content gates: they
 inspect what an action would do, not whether the caller holds a grant. Grant,
 lock, revoke and deadline checks stay in SafetyGate and are not retested here.
 

@@ -7,7 +7,7 @@ nothing is clicked, typed or moved. Every grant lives in a scratch state
 directory, so the user's real desktop grant is never read or written, and the
 captured images stay in a scratch directory that is removed at the end.
 
-The evidence is what Gate 4 asks for (`PLAN.md` Task 4.2): monitor identity,
+The evidence is what Gate 4 asks for (`PLAN.md` (1.x, in git history) Task 4.2): monitor identity,
 offset, size and mapping parity; static pixel parity at full size and at 1536;
 pointer modes; freshness after a request; warm latency p95 against the legacy
 path; session startups; revoke and expiry; the Python host dying; the native

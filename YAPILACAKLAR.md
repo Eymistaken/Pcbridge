@@ -58,7 +58,7 @@ The run is done when **all** of the following hold:
 - [x] pcbridge 2.0.0 is **installed and running on eymistaken's machine** through
       the product install path, not from the working tree. Claude Code,
       Codex and Claude Desktop are all registered against it.
-- [ ] The repository documentation has been rewritten and pruned (step 11).
+- [x] The repository documentation has been rewritten and pruned (step 11).
 - [ ] `main` is fast-forwarded to the work branch and pushed, together with
       tag `v2.0.0`, after a clean secret scan (step 12).
 - [ ] The final message to eymistaken contains four things:
@@ -814,7 +814,7 @@ where not. Record the results in section 8.
 duplicated status. Git history keeps everything deleted here, so remove
 freely **after** extracting what is still true and useful.
 
-- [ ] **Target set:**
+- [x] **Target set:**
   - `README.md`: the product front page. What it is, the supported
     platforms matrix, install (`.deb`, git), quick start, the
     always-ready architecture diagram, safety model, measured numbers,
@@ -854,7 +854,7 @@ freely **after** extracting what is still true and useful.
     (cursor overlay on a physical mouse), #10, #11, Faz 8 legacy
     retirement, plus anything cut in this run. This replaces the status
     role of `WALKTHROUGH.md`.
-- [ ] **Delete with `git rm` after extraction:**
+- [x] **Delete with `git rm` after extraction:**
   - `WALKTHROUGH.md`, `PLAN.md`, `UYGULAMA.md`, `ADIMLAR.md`,
     `GOREV-kurallar.md`, `GELISTIRME.md`, `KURULUM.md`, `KULLANIM.md`,
     `KURALLAR.md`;
@@ -863,13 +863,13 @@ freely **after** extracting what is still true and useful.
 
   If something in one of them is still true and has no home in the target
   set, give it one before deleting.
-- [ ] **Untracked clutter** in the repo root (`config.toml.yedek-*`,
+- [x] **Untracked clutter** in the repo root (`config.toml.yedek-*`,
       `graphify-out/`, `__pycache__`): do **not** delete it. Make sure
       `.gitignore` covers it, and list it in section 9 so eymistaken can decide.
-- [ ] **Verify.** All relative links resolve (the link check from step 9).
+- [x] **Verify.** All relative links resolve (the link check from step 9).
       No doc still mentions removed scripts, Gemini Spark as a target,
       "Turkish user messages", or the per-client stdio server.
-- [ ] **Commit**: `docs: rewrite for 2.0 and remove superseded journals`.
+- [x] **Commit**: `docs: rewrite for 2.0 and remove superseded journals`.
 
 ### Step 12 — Final verification, release, push  (time box: 2 h)
 
@@ -1005,6 +1005,7 @@ Append-only. One line per meaningful event, with numbers.
 - 2026-09-23 Step 9, first CI run on GitHub (branch productize/v2): native OK (clippy -D warnings on the new action versions); gjs OK; headless GNOME smoke OK on the runner -- the extension loaded (Version '2.0.0'), monitor table 1280x720, a screen-sharing frame of 1280x720; package: the .deb BUILT and INSTALLED on ubuntu:24.04, debian:trixie and ubuntu:26.04. What failed was the tests themselves: the 'non-live' test_desktop.py read this machine's session (screen lock, idle time, Mutter monitor table) and its config -- it only ever passed at this desk, and its pcb-do refusal tests used the REAL config and grant, so an open grant during a run would have let pcb-do act. Fixed: without PCBRIDGE_TEST_* flags the module pins an unlocked session, an away user, a fixed two-monitor table and a throwaway config with a fresh state dir. pcb-do --dry-run now works without any config (a syntax check needs none). test_native_revoke skips with a reason when the screen lock cannot be read (the helper checks the real one). Reproduced CI locally first: empty private bus and no bus at all -> desktop 615/0, contracts 514 OK, integration OK.
 - 2026-09-23 Step 9 closed. lintian is not installed here (recorded; CI could add it). The container install matrix ran on GitHub: the .deb builds and installs on ubuntu:24.04, debian:trixie and ubuntu:26.04; the remaining CI reds were all tests that assumed this desk's session (fixed over four commits: hermetic test_desktop, pinned capture availability, an undefined skip(), /run/user/<uid> in containers, monitor table in the dependency test). Headless GNOME smoke on the GitHub runner: PASSED (extension loaded, Version '2.0.0', 1280x720 table, a 1280x720 screen-sharing frame) -- kept non-blocking (continue-on-error) so runner flakiness cannot block a release.
 - 2026-09-23 Step 10 done: pcbridge 2.0.0.dev0 INSTALLED on this machine by the user-level path (no sudo): packaging/install-user.sh with the wheel of c90d11d (native helper build c90d11d49901) -> ~/.local/share/pcbridge/venv, ~/.local/bin/{pcbridge,pcb-shot,pcb-do}, user units (socket + service enabled), config migrated to ~/.config/pcbridge/config.toml (the repo file untouched), extension COPIED (the old repo symlink moved to setup's backup; the running shell keeps 1.x until re-login), Claude Code (user scope) / Codex (per-tool approval_mode tables kept: computer_task, desktop_unlock, list_agents, shell_run, window_focus) / Claude Desktop registered to '~/.local/bin/pcbridge stdio', aliases rewritten. Setup took 19 s. Before it: full copy + ROLLBACK.md in ~/.local/state/pcbridge/backup-20260923-072027-preinstall/ (setup wrote backup-20260923-072822/ROLLBACK.md too); the pcbridge-v2test units stopped and moved to the Trash; the Hermes wrapper at ~/.local/bin/pcbridge re-checked (nothing referenced it: no alias, unit, MCP entry, crontab, PcBridgeDesktop file) and moved to the Trash with gio trash, as instructed. Found and fixed: setup stamped the install AFTER restarting, so the new daemon restarted itself once more 5 s later (journal) -> stamp first now. Verification with fresh processes: readiness --desktop PASS for claude-code (tools/list 24.4 ms), codex (39.7), claude-desktop (47.1), the worktree legacy (22.4) and HTTP (healthz 28.3, system_status 204.7); the real 1.x legacy command of the main checkout still works in-process (tools/list 655.5 ms, I2); claude mcp list 'Connected'; codex mcp list enabled; ONE real claude -p (of the two allowed) called mcp__pcbridge__system_status through 2.0 and answered ('OK up 10 hours, 12 minutes', 7.8 s); live suites through the installed config, four flags: test_desktop 655/0, tests/live 61 OK (4 skipped by design), grant closed after; e2e against the installed daemon's HTTP 262/0/9 (= baseline); doctor --json 38 ok / 6 warn / 0 fail (warn: [limits] default_agent in the user's 1.x config -- already ignored by 1.x, left as is; tesseract missing; native input/window.list 'degraded' = checked on first use). Product path from cold: service stopped -> a fresh Claude Code client started it through the socket in 693 ms (1.x cold start 692.8 ms), the next client 25 ms; status.json followed the new pid. Aliases in a new shell point at the new CLI; bridgedurum and bridgekilit work. system_status warm median 160.9 ms (the 1.x command measured 217 ms at the same moment; the 132 ms baseline was another hour's load).
+- 2026-09-23 Step 11 done. The doc set is English and small: README (product page, CI badges, platform matrix, measured 1.x vs 2.0 table), CHANGELOG (2.0.0 with Fixed/Added/Changed/Removed and an API section; 1.x in one paragraph), ROADMAP (#8 cursor overlay, #10 FocusedWindow at login, #11 OCR, Faz 8 legacy retirement, the unmeasured area-cap vs API question, cross-call repeat-click counter, lintian; dropped W/M/portal; JARVIS in history), docs/{install,usage,configuration,security,troubleshooting,architecture}.md, docs/dev/{contributing,measured-facts,desktop-rules}.md, docs/native/* translated and updated to 2.0 (protocol-v1 keeps every contract detail, adds display.snapshot pixel_ratio and the 2.0 rollback; capture.md condensed with the wrong-monitor story and traps kept), gnome-extension/README.md (indicator, shortcut, Version). CLAUDE.md 61940 -> 8631 bytes, English, same rules (plus English-only, new architecture, gio trash), AGENTS.md a thin English pointer. 12593 lines of Turkish docs -> 2738 lines. Removed with git rm: WALKTHROUGH, PLAN, UYGULAMA, ADIMLAR, GOREV-kurallar, GELISTIRME, KURULUM, KULLANIM, KURALLAR, JARVIS; 22 code/test comments that cited them now point at docs/dev/desktop-rules.md or say '(1.x, in git history)'. Every claim with a number was checked against the code or this run's logs before writing (e.g. [native] choices are python/rust/auto, not 'native'; install.sh is an editable install, not a wheel; one unverifiable sentence was removed). Untracked clutter (config.toml.yedek-*, graphify-out/, __pycache__) is already covered by .gitignore; nothing deleted. Link check OK; no doc mentions removed scripts, Spark as a target or the per-client server. Suites unchanged: 106 / 615 / 514 / 30 / gjs 99 / cargo 172.
 
 ## 9. Needs eymistaken (physical presence, sudo, or a decision only he can make)
 

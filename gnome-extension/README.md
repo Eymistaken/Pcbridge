@@ -1,223 +1,195 @@
-# pcbridge — Ajan Görünür (GNOME 46 kabuk eklentisi)
+# pcbridge — agent visible (GNOME Shell 46 extension)
 
-> Kurallar ve mimari: **[CLAUDE.md](../CLAUDE.md)** · Sıradaki iş: **[WALKTHROUGH.md](../WALKTHROUGH.md)**
+pcbridge can give an agent keyboard, pointer and screen access. This
+extension makes that state hard to miss, and gives pcbridge two narrow
+window operations GNOME does not offer from outside.
 
-pcbridge bir ajana klavye, fare ve ekran erişimi verebiliyor. Bunun tek görünür
-işareti bugüne kadar GNOME'un üst çubuktaki küçük turuncu paylaşım simgesiydi.
-Bu eklenti aynı durumu **göz kaçırmayacak** biçimde gösteriyor.
+- **A soft white frame at the screen edges** while desktop control is
+  granted, on every monitor. It fades in and out with the grant and breathes
+  slowly (every 11 s it thins by at most 12 % and returns).
+- **A panel indicator** (2.0): server up or down, the grant and its minutes
+  left, running jobs, remote access, and a menu with **"Lock desktop control
+  now"** (runs `pcbridge lock`), "Open logs" and "Status…".
+- **An optional kill-switch shortcut** (2.0), off by default.
+- **The agent's pointer** (OFF by default, below).
+- **Two D-Bus methods**: `ActivateWindow(target) -> bool` raises the one,
+  unambiguous, already open window that matches; `FocusedWindow() -> (bool,
+  wm_class, app_id, title)` names the window with keyboard focus, for when
+  AT-SPI cannot (games, many Java/Electron windows). Nothing lists, moves,
+  closes or resizes windows. Both reread
+  `~/.local/state/pcbridge/desktop_unlock.json` on every call and return
+  `false` without doing anything when the grant is closed.
 
-- **Ekran kenarlarında yumuşak beyaz çerçeve** — masaüstü izni açıkken belirir,
-  kapanınca yumuşakça kaybolur, iki monitörde de görünür. Bant çok yavaş bir
-  nefes alıyor: 11 saniyede bir, en fazla çizildiği kalınlıkta kalarak %12
-  inceliyor ve geri dönüyor.
-- **Ajanın imleci** (VARSAYILAN KAPALI, aşağıda) — izin açıkken gerçek imleç
-  gizlenip yerine yöne dönen bir ok çiziliyor.
+The extension only **reads** state: the grant file and `status.json` (which
+the pcbridge daemon writes when its state changes). It never writes either,
+and the indicator adds no step to starting work.
 
-Görsel katmana ek olarak iki dar D-Bus yöntemi sunar.
-`ActivateWindow(hedef) -> bool` yalnızca zaten açık olan tek ve belirsiz
-olmayan eşleşmeyi öne alır. `FocusedWindow() -> (bool, wm_class, app_id,
-başlık)` klavye odağındaki pencerenin adını söyler (Adım 8.1): AT-SPI'ın
-göremediği bir pencere öndeyken — oyun, birçok Java/Electron penceresi —
-pcbridge'in toplu eylemleri odağı buradan okuyabiliyor. Pencere listelemez,
-taşımaz, kapatmaz veya boyutlandırmaz. Her çağrıda
-`~/.local/state/pcbridge/desktop_unlock.json` grant'ini yeniden okur; izin
-kapalıysa hiçbir şey yapmadan `false` döner. Eklenti grant dosyasını yazmaz.
+## Install
 
-## Kurulum
+`pcbridge setup` copies the extension to
+`~/.local/share/gnome-shell/extensions/pcbridge-gorunur@eymistaken.local/`,
+compiles its settings schema and enables it. The `.deb` installs it under
+`/usr/share/gnome-shell/extensions/`. It becomes active at the **next
+login**: GNOME 45+ caches extension code, and on Wayland a login is the only
+way to reload the shell.
+
+For development, a symlink to this directory instead of a copy:
 
 ```bash
-./gnome-extension/install.sh
+./gnome-extension/install.sh              # link + enable + print the undo
+./gnome-extension/install.sh --status     # installed? enabled?
+./gnome-extension/install.sh --remove     # disable + remove the link
 ```
 
-Symlink kurar (depoda düzenlediğiniz dosya doğrudan çalışan eklentidir) ve
-etkinleştirir. Sonra **çıkış yapıp yeniden girin** — GNOME 45+ eklenti kodunu
-önbelleğe aldığı için Wayland'de kabuğu yeniden başlatmanın başka yolu yok.
+## Emergency undo
 
-```bash
-./gnome-extension/install.sh --durum      # kurulu mu, etkin mi
-./gnome-extension/install.sh --kaldir     # etkinliği kaldır + symlink'i sil
-```
-
-## Acil geri alma
-
-**Önce bunu çalıştırın — anında etki eder:**
+**Run this first; it takes effect immediately:**
 
 ```bash
 gnome-extensions disable pcbridge-gorunur@eymistaken.local
 ```
 
-Sonra kalıcılaştırın:
+> **Deleting the files alone does not stop the running extension.** The
+> shell has already loaded it; only a restart of the shell (a new login)
+> drops it. This happened once: only `rm` was suggested, nothing changed, and
+> the machine had to be restarted.
+
+If the shell is frozen, switch to a text console with **Ctrl+Alt+F3** and
+run the `gnome-extensions disable` command there.
+
+## Panel indicator and kill switch
+
+The icon shows the grant open (pointer icon, minutes left), idle, or the
+daemon down. Without `status.json` (a 1.x server) the menu says the status is
+unknown; the kill switch still works through the `pcbridge` command.
+
+Kill-switch shortcut, off by default. `<Super><Control>Escape` was free on
+GNOME 46 / Zorin OS 18 (`<Super><Shift>Escape` belongs to mutter):
 
 ```bash
-./gnome-extension/install.sh --kaldir
+gsettings --schemadir ~/.local/share/gnome-shell/extensions/pcbridge-gorunur@eymistaken.local/schemas \
+  set org.gnome.shell.extensions.pcbridge-gorunur lock-shortcut "['<Super><Control>Escape']"
 ```
 
-> **`rm` tek başına yetmez.** Diskteki dosyayı silmek *çalışan* eklentiyi
-> durdurmuyor — kabuk onu zaten belleğe almış oluyor, GNOME 45+ ESM modüllerini
-> önbellekte tutuyor. Etkisi ancak kabuk yeniden başlayınca görülüyor. Bu bir
-> kez yaşandı: kullanıcıya yalnızca `rm` söylendi, hiçbir şey değişmedi ve
-> makineyi yeniden başlatmak zorunda kaldı.
-
-Kabuk tamamen kilitliyse **Ctrl+Alt+F3** ile bir TTY'ye geçip yukarıdaki
-`gnome-extensions disable` komutunu oradan çalıştırın.
-
-## Geliştirme
-
-GNOME 45+ ESM modüllerini önbelleğe alıyor: `gnome-extensions disable/enable`
-JS'i **yeniden okumaz**. Gerçek oturumda her kod değişikliği çıkış/giriş demek.
-Bu yüzden geliştirme iç içe (nested) bir kabukta yapılıyor:
-
-```bash
-./gnome-extension/nested.sh          # eskisini öldür, yenisini başlat, logu göster
-./gnome-extension/nested.sh --log    # logu izle
-./gnome-extension/nested.sh --oldur  # kapat
-```
-
-Nested kabuk sizin oturumunuza dokunmaz; bozuk bir eklenti yalnızca o pencereyi
-düşürür. **Ama nested her şeyi ölçemez:** monitörler sanal ve kompozitleme iki
-kat (nested bir pencereye çiziyor, gerçek kabuk onu bir kez daha
-kompozitliyor) — yani buradan çıkan maliyet sayıları gerçek oturumu abartıyor
-olabilir.
-
-Nested kabuk **sahte** bir durum dosyası okur (`PCBRIDGE_GORUNUR_STATE`).
-Gerçek `desktop_unlock.json`'a `{"until": …}` yazmak pcbridge'e **fiilen
-masaüstü izni vermek** olurdu — `SafetyGate` aynı dosyayı okuyor. Efekti
-denemek için:
-
-```bash
-echo "{\"until\": $(( $(date +%s) + 120 ))}" > /tmp/pcbridge-gorunur-test-state.json
-echo '{"until": 0}' > /tmp/pcbridge-gorunur-test-state.json
-```
-
-Kabuk gerekmeyen testler doğrudan `gjs` ile koşuyor (`-m` şart, dosya bir ESM
-modülü):
-
-```bash
-gjs -m gnome-extension/tests/test_state.js
-gjs -m gnome-extension/tests/test_window_control.js
-```
-
-## Dosyalar
-
-| Dosya | Ne |
-|---|---|
-| `pcbridge-gorunur@eymistaken.local/extension.js` | giriş noktası, durum makinesi |
-| `pcbridge-gorunur@eymistaken.local/state.js` | `desktop_unlock.json` izleyici |
-| `pcbridge-gorunur@eymistaken.local/windowcontrol.js` | iki yöntemli dar D-Bus pencere yüzü (etkinleştirme, odaktaki pencere) |
-| `pcbridge-gorunur@eymistaken.local/frame.js` | kenar çerçevesi |
-| `pcbridge-gorunur@eymistaken.local/cursor.js` | ajanın imleci (varsayılan kapalı) |
-| `pcbridge-gorunur@eymistaken.local/frameclock.js` | işi kare başına bire indiren yardımcı |
-| `pcbridge-gorunur@eymistaken.local/selftest.js` | kabuğun içinden ölçüm (aşağıda) |
-| `install.sh` / `nested.sh` | kurulum / geliştirme döngüsü |
-| `tests/test_state.js` | durum izleyici testi (kabuk gerekmez) |
-| `tests/test_window_control.js` | eşleşme, grant ve yöntem sözleşmesi (kabuk gerekmez) |
-| `tests/test_cursor.js` | kare saati mantığı (kabuk gerekmez) |
-
-### Ajanın imleci — varsayılan kapalı
-
-İzin açıkken gerçek imleç gizlenir ve yerine hareket yönüne dönen bir ok
-çizilir. **Kapalı geliyor**, çünkü bu katman bir kez çıkarıldı: gerçek
-makinede fiziksel fareyle tıklamalar basmıyor ve fare donuyordu (2026-08-04).
-Sebep bulunamadı; bütün denemeler sentetik fareyle yapılmıştı ve tek
-ölçülmemiş fark olay hızıydı — fiziksel fare ~1000 Hz rapor ediyor.
-
-Geri gelirken iki şey değişti: konum artık her olayda değil **kare başına bir
-kez** uygulanıyor ve aktör `addTopChrome` yerine `Main.uiGroup`ta duruyor.
-Nested kabukta ölçüldü (2026-09-20, aynı fare fırtınası): eski kod 1992 olayın
-1992'sini çiziyordu, yenisi 263'ünü (58 çizim/sn, yani kare hızı).
-**Gerçek oturumda fiziksel fareyle DOĞRULANMADI.**
-
-```bash
-touch ~/.local/state/pcbridge/gorunur-imlec     # aç
-rm    ~/.local/state/pcbridge/gorunur-imlec     # kapat
-```
-
-İşaret dosyası her izin açılışında yeniden okunuyor, yani açıp kapatmak için
-kabuğu yeniden başlatmak gerekmiyor: bir sonraki `desktop_unlock` yeni durumu
-alır. Fare yine tuhaflaşırsa dosyayı silin, izni kapatıp açın; hiçbir şey
-kalmaz. Eklentinin tamamını kapatmak için `gnome-extensions disable
-pcbridge-gorunur@eymistaken.local`.
-
-### Pencere etkinleştirme yüzü
-
-Oturum veriyolundaki ad, nesne ve arayüz:
+## D-Bus interface
 
 ```text
 io.github.eymistaken.Pcbridge.WindowFocus
 /io/github/eymistaken/Pcbridge/WindowFocus
 io.github.eymistaken.Pcbridge.WindowFocus.ActivateWindow(s) -> b
 io.github.eymistaken.Pcbridge.WindowFocus.FocusedWindow() -> (b, s, s, s)
+property Version: s        (2.0; a 1.x extension has none)
 ```
 
-`ActivateWindow`'un `true`'su, `Meta.Window.activate()` sonrasında GNOME
-kabuğunun odak penceresinin aynı pencere olduğunu doğruladığı anlamına gelir.
-Hedef yoksa, en iyi eşleşme belirsizse, grant kapalıysa veya etkinleştirme
-doğrulanmazsa `false` döner; pcbridge bu durumda mevcut GNOME arama yedeğine
-düşer.
+`ActivateWindow` returns `true` only after `Meta.Window.activate()` when the
+shell's focus window is that window; no match, an ambiguous match, a closed
+grant or an unconfirmed activation return `false`, and pcbridge falls back to
+GNOME search. Measured: ~5 ms per activation against ~6.7 s through search.
 
-`FocusedWindow` `global.display.focus_window`'u okur ve `[bulundu, wm_class,
-app_id, başlık]` döner (her alan en fazla 200 karakter). Grant kapalıysa ya da
-hiçbir pencere odakta değilse (overview, boş masaüstü) `bulundu = false`.
-pcbridge onu yalnızca AT-SPI odağı okuyamadığında sorar; ikisi de okuyamazsa
-tıklama içeren toplu eylem eskisi gibi hiç başlamaz. Nested kabukta ölçüldü
-(2026-09-22): izin kapalıyken, izin açık ama pencere yokken ve izin kapandıktan
-sonra pencere hâlâ odaktayken `false`; zenity odaktayken `[true, "zenity", "",
-"Pcbridge Nested A"]`; `busctl` dahil çağrı başına 4,8–11 ms.
+`FocusedWindow` reads `global.display.focus_window` and returns `[found,
+wm_class, app_id, title]` (each at most 200 characters); `found` is false
+with a closed grant or nothing focused (overview, empty desktop). pcbridge
+asks it only when AT-SPI cannot read the focus. Measured in a nested shell:
+4.8-11 ms per call including `busctl`.
+
+`pcbridge doctor` reads `Version` from the running shell and says whether
+the new extension is loaded yet. Either extension version works with either
+server version.
+
+## The agent's pointer (off by default)
+
+While the grant is open the real pointer is hidden and an arrow that turns
+with the movement is drawn. **It ships off**, because it was removed once:
+with a physical mouse, clicks did not register and the pointer froze
+(2026-08-04). The cause was not found; all tests had used a synthetic mouse,
+and the one unmeasured difference was the event rate (a physical mouse
+reports at ~1000 Hz).
+
+It came back with two changes: the position is applied **once per frame**
+instead of on every event, and the actor lives in `Main.uiGroup` instead of
+`addTopChrome`. In a nested shell (2026-09-20, the same pointer storm) the
+old code drew 1992 of 1992 events, the new one 263 (58 draws/s, the frame
+rate). **Not verified with a physical mouse in a real session.**
 
 ```bash
-busctl --user --json=short call io.github.eymistaken.Pcbridge.WindowFocus \
-  /io/github/eymistaken/Pcbridge/WindowFocus \
-  io.github.eymistaken.Pcbridge.WindowFocus FocusedWindow
+touch ~/.local/state/pcbridge/gorunur-imlec            # on
+gio trash ~/.local/state/pcbridge/gorunur-imlec        # off
 ```
 
-### Kabuğun içinden ölçüm
+The flag file is reread whenever the grant opens, so no shell restart is
+needed.
 
-Eklentinin iddiaları dışarıdan doğrulanamıyor — çerçevenin tıklamayı
-engellemediği, ana döngüyü tıkamadığı, nefesin doğru aralıkta kaldığı.
-`Shell.Eval` GNOME 41+ ile kapalı olduğu için kabuğa dışarıdan kod sokmak da
-mümkün değil. Ölçümü yapabilecek tek yer kabuğun içinde zaten çalışan
-eklentinin kendisi:
+## Development
+
+`gnome-extensions disable/enable` does not reload the code, so development
+happens in a nested shell (or a headless one, `gnome-shell --headless
+--virtual-monitor WxH` under its own `dbus-run-session`):
+
+```bash
+./gnome-extension/nested.sh           # stop the previous one, start a new one, follow the log
+./gnome-extension/nested.sh --log
+./gnome-extension/nested.sh --kill    # stop it AND the ~13 session services it leaves behind
+```
+
+A nested shell never touches your session, but it cannot measure
+everything: its monitors are virtual and it is composited twice, so cost
+numbers from it may exaggerate. It reads a **fake** grant file
+(`PCBRIDGE_GORUNUR_STATE`): writing `{"until": ...}` to the real
+`desktop_unlock.json` would really grant desktop control, since pcbridge's
+gate reads the same file.
+
+```bash
+echo "{\"until\": $(( $(date +%s) + 120 ))}" > /tmp/pcbridge-gorunur-test-state.json
+echo '{"until": 0}' > /tmp/pcbridge-gorunur-test-state.json
+```
+
+The logic that needs no shell runs under `gjs` (`-m`: the files are ES
+modules):
+
+```bash
+for t in gnome-extension/tests/*.js; do gjs -m "$t"; done
+```
+
+### Measuring from inside the shell
+
+What the extension claims cannot be checked from outside (the frame does not
+catch clicks, the main loop is not blocked, the indicator shows the right
+lines), and `Shell.Eval` is closed since GNOME 41. The extension measures
+itself when asked:
 
 ```bash
 PCBRIDGE_GORUNUR_SELFTEST=1 ./gnome-extension/nested.sh
-# izni açın, sonra:
 ./gnome-extension/nested.sh --log | grep SELFTEST
 ```
 
-Kapalıyken maliyeti tek bir `getenv`.
+`PCBRIDGE_GORUNUR_SELFTEST_LOCK=1` also presses the kill switch once (point
+`status.json`'s `cli` at a harmless script); `PCBRIDGE_GORUNUR_BURST=1`
+sends 2000 moves through a virtual pointer; `PCBRIDGE_GORUNUR_CURSOR=1`
+turns the pointer overlay on. Off, self-test costs one `getenv`.
 
-Fiziksel fareyi taklit eden ölçüm ayrıca isteniyor (imleci gerçekten
-oynatıyor): `PCBRIDGE_GORUNUR_BURST=1` ile sanal bir işaretçi 2000 hareket
-gönderiyor ve kaçının ekrana yansıdığını, ana döngünün ne kadar geciktiğini
-yazıyor. İmleç katmanını da açmak için `PCBRIDGE_GORUNUR_CURSOR=1`.
+## Files
 
-## Maliyet
+| File | What |
+|---|---|
+| `extension.js` | entry point |
+| `state.js` | watches the grant file |
+| `status.js` | the indicator's logic: reads `status.json`, checks the daemon's pid (no shell modules; tested with gjs) |
+| `indicator.js` | the panel button and menu |
+| `windowcontrol.js` | the D-Bus interface |
+| `frame.js` | the edge frame |
+| `cursor.js`, `frameclock.js` | the agent's pointer; once-per-frame scheduling |
+| `selftest.js` | measurement from inside the shell |
+| `schemas/` | the `lock-shortcut` setting |
+| `../install.sh`, `../nested.sh` | development install and loop |
+| `../tests/*.js` | gjs tests: state, status, window control, frame clock |
 
-Statik çerçeve ölçüm gürültüsünün altında (kapalı %0,55 · açık %0,45–0,50 CPU,
-+0,08 MB RSS). **Nefes animasyonu bunu değiştiriyor:** nested kabukta %19 CPU
-ölçüldü. Sebep seçilen özellik değil — aynı animasyon saydamlıkla denendiğinde
-%23,7 çıktı, yani maliyet büyük saydam şeritlerin 60 fps yeniden
-harmanlanmasından geliyor.
+## Cost
 
-Nested bu sayıyı abartıyor olabilir: nested bir pencereye çiziyor ve gerçek
-kabuk onu bir kez daha kompozitliyor. **Gerçek oturumda ölçülmedi.** Rahatsız
-edici bulursanız `frame.js` içindeki `_startBreathing` çağrılarını kaldırmak
-yeterli; çerçeve yine çalışır ve tekrar bedava olur.
+The static frame is below measurement noise (CPU 0.45-0.55 % either way,
++0.08 MB RSS). The breathing animation cost 19 % CPU in a nested shell (23.7 %
+when animating opacity instead): the cost is re-blending large translucent
+strips at 60 fps. The nested number may exaggerate; it was not measured in a
+real session. Removing the `_startBreathing` calls in `frame.js` makes the
+frame free again.
 
-## Ölçülmüş gerçekler
-
-- GNOME Shell 46.0, Wayland, Zorin OS 18.1.
-- `Clutter.Canvas` mutter çatalında **yok**; çizim `St.DrawingArea` + Cairo ile.
-- `Clutter.PropertyTransition`'a aktöre eklenmeden `set_from`/`set_to` verilirse
-  geçiş özelliğin tipini bilmiyor, aralık boş kalıyor ve özellik **0'a** düşüyor
-  (ölçüldü: 15 ölçek örneğinin hepsi 0.000). `actor.ease()` zincirlemesi
-  doğrulanmış yol.
-- İmleci değiştirme denendi, geri alındı ve 2026-09-20'de kare saati
-  düzeltmesiyle **kapalı olarak** geri geldi — gerekçesi, ölçülmüş bulgular ve
-  devam yolu [WALKTHROUGH.md](../WALKTHROUGH.md)'de.
-- `Meta.CursorTracker.set_pointer_visible(false)` gerçek oturumda imleci
-  gizliyor ve gizli kalıyor (görsel kanıt: 13×21 px fark, başka hiçbir piksel
-  değişmedi).
-- Fiziksel fare hareket halinde **~1000 Hz** rapor ediyor (medyan aralık
-  1,00 ms, ölçüldü 2026-09-13). Ekranda görünebilecek en fazla değişiklik kare
-  sayısı kadar; aradaki her şey kabuğa boşuna iş çıkarıyor.
+More measured facts about the shell: [docs/dev/measured-facts.md](../docs/dev/measured-facts.md#gnome-shell-extension).

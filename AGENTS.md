@@ -1,42 +1,28 @@
 # AGENTS.md
 
-Bu depoda çalışan **her** kodlama ajanı için giriş noktası — Codex, Claude
-Code, Gemini CLI, Antigravity, hangisi olursa.
+The entry point for **every** coding agent working in this repository:
+Codex, Claude Code, Gemini CLI, Antigravity, any other.
 
-## Talimatlar tek dosyada: [CLAUDE.md](CLAUDE.md)
+## The instructions are in one file: [CLAUDE.md](CLAUDE.md)
 
-Proje kuralları, mimari, ölçülmüş makine gerçekleri, değişmez kurallar ve
-"bu makinede test etmenin tehlikesi" bölümü hepsi orada. **Başlamadan önce
-baştan sona oku.** Adı `CLAUDE.md` ama içeriği ajandan bağımsız: dosya adı
-tarihsel, kural değil.
+Project rules, architecture, the do-not-touch list and the dangers of
+testing on this machine are all there. **Read it before you start.** Its name
+is historical; its content applies to any agent.
 
-Bu dosya bilinçli olarak ince tutuluyor. Bir zamanlar `CLAUDE.md`'nin
-kopyası olarak üretilmişti ve iki gün içinde 83 satır ayrıştı; üstelik
-otomatik değiştirme komut adlarını da bozmuştu (`claude -p` → `Codex -p`,
-"Claude Code, Codex, Claude Desktop" → "Codex, Codex, Codex"). İki
-gerçeğin olduğu yerde biri eskir, ve eskiyen kopya en kötü anda —
-yanlış bir komutu çalıştırırken — fark edilir.
+This file stays thin on purpose. It was once generated as a copy of
+`CLAUDE.md` and drifted by 83 lines in two days; an automatic replacement
+even broke command names (`claude -p` became `Codex -p`). Where two truths
+exist, one goes stale, and the stale one is noticed at the worst moment.
 
-## Hemen bilmen gereken üç şey
+## Three things to know at once
 
-1. **Bu depoda çalışırken pcbridge'in kontrol edeceği makinenin
-   üzerindesin.** Bir `type` testi senin terminaline yazabilir ve Enter'a
-   basabilir. `CLAUDE.md`'nin "⚠️ Bu makinede test etmenin tehlikesi"
-   bölümünü atlama.
-2. **Ölçmediğin şeyi "çalışıyor" diye yazma.** Bu depoda "hata vermedi"
-   kanıt sayılmıyor; ekran görüntüsü, pencere başlığı ya da bir ölçümle
-   doğrula.
-3. **`config.toml` parola ve statik token içeriyor.** `.gitignore`'da ve
-   öyle kalacak — loglama, ekrana basma, commit etme.
+1. **You are on the machine pcbridge controls.** A `type` test can type into
+   your own terminal and press Enter. Do not skip the testing section of
+   `CLAUDE.md`.
+2. **Do not call something working that you have not measured.** "It raised
+   no error" is not evidence here; verify with a screenshot, a window title,
+   a fresh process or a measurement.
+3. **`config.toml` holds the password and the static token.** It stays out
+   of git; never log, print or commit it.
 
-## Sıradaki iş
-
-**[WALKTHROUGH.md](WALKTHROUGH.md)** — depodaki tek yapılacak-iş listesi: yol
-haritası, her adımın kabul ölçütü, biten işlerin kaydı ve son doğrulanan gate.
-Native migration'ın implementation sözleşmesi [PLAN.md](PLAN.md); belge
-haritasının tamamı `CLAUDE.md` sonunda.
-
-**Durum özetini buraya kopyalama.** Bu dosyada bir zamanlar "Native migration
-durumu" bloğu vardı ve `WALKTHROUGH.md` ile aynı bilgiyi iki yerde tutuyordu —
-tıpkı bu dosyanın `CLAUDE.md` kopyası olduğu dönemdeki gibi. İki gerçeğin
-olduğu yerde biri eskir, ve eskiyen kopya en kötü anda fark edilir.
+Open work is in [ROADMAP.md](ROADMAP.md). Do not copy status summaries here.

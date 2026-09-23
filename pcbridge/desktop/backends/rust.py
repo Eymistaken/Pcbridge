@@ -128,7 +128,7 @@ def select_capture_backend(
 ) -> "BackendSelection":
     """Decide once, at runtime construction, which acquisition path is used.
 
-    Pure on purpose: the table in `PLAN.md` is the contract, and a table that
+    Pure on purpose: the table in `PLAN.md` (1.x, in git history) is the contract, and a table that
     lives in one function can be read and tested without a compositor.
 
     The rule that matters is the one for `rust`: a forced native backend that

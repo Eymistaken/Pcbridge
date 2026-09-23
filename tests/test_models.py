@@ -105,7 +105,7 @@ def test_normalize() -> None:
 
 
 def test_plan_table() -> None:
-    """UYGULAMA.md / PLAN.md §5.2.2'deki 'ne dersen / ne olur' tablosu."""
+    """UYGULAMA.md (1.x, in git history) / PLAN.md (1.x, in git history) §5.2.2'deki 'ne dersen / ne olur' tablosu."""
     section("2. Plandaki tablo")
     cfg = example_config()
     rows: list[tuple[str, dict, tuple[str, str | None, str | None]]] = [

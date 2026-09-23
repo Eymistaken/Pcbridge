@@ -446,7 +446,7 @@ def parse_agy_json(text: str) -> dict[str, Any]:
     JSON alanlari (agy 1.1.9): conversation_id, status, response,
     duration_seconds, num_turns, usage{input,output,thinking,cache_read,total}.
     Model adi JSON'da YOK — gerek de yok: yanlis model/effort birlesimi sessizce
-    calismiyor, exit 1 ile reddediliyor (bkz. PLAN.md "Faz 0 sonuclari").
+    calismiyor, exit 1 ile reddediliyor (bkz. PLAN.md (1.x, in git history) "Faz 0 sonuclari").
     """
     clean = strip_ansi(text)
     warnings = _scan_model_warnings(clean)

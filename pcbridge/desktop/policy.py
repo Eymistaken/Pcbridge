@@ -3,7 +3,7 @@
 `SafetyGate` answers "may this caller act at all" -- desktop enabled, screen
 lock, grant, revoke, activity, rate limit. This module answers a different
 question: "is this particular target off limits regardless of the grant."
-KURALLAR.md section 4 calls these class-K rules; items 7, 6 and 5 live here.
+docs/dev/desktop-rules.md §4 calls these gate (class G) rules; items 7, 6 and 5 live here.
 
 Pure decisions, no I/O, like `models.py`. That is deliberate: these gates must
 be testable without a desktop, and a future non-Python accessibility provider

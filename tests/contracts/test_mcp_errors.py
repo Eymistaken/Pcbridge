@@ -644,7 +644,7 @@ class McpErrorContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(input_provider.moves, [])
 
     async def test_unconfirmed_close_shortcut_is_refused_on_the_wire(self) -> None:
-        """KURALLAR.md sec. 4, madde 5 -- MCP telinde gorunur ve tus gitmez."""
+        """docs/dev/desktop-rules.md §4 item 5 -- MCP telinde gorunur ve tus gitmez."""
         input_provider = FakeInput()
         with tempfile.TemporaryDirectory() as raw:
             mcp, _tree = build_mcp(Path(raw), input_provider=input_provider)

@@ -115,7 +115,7 @@ META_SUFFIX = ".json"
 # yuzlerce piksel, ve hicbir yerde hata gorunmuyor.
 #
 # OLCULMEDI, cikarim: sinirin kendisi Anthropic'in belgelenmis davranisi
-# (PLAN.md §9b/2'de kayitli), buradaki sonuc ondan turuyor. Bu yuzden deger
+# (PLAN.md (1.x, in git history) §9b/2'de kayitli), buradaki sonuc ondan turuyor. Bu yuzden deger
 # bir KAPI degil UYARI: kullanici tam cozunurluk isteyebilir (insan gozu
 # icin), ama koordinat cikarmak icin kullanmamali.
 CLIENT_MAX_LONG_EDGE = 1568
@@ -518,7 +518,7 @@ def to_global(
             )
         # Kayittaki ofset CEKIM ANINDAKI duzene ait. Monitor eklendi, cikti,
         # tasindi ya da cozunurlugu degistiyse ayni ofset artik baska bir
-        # ekranin ustune duser ve tiklama sessizce yanlis yere gider (PLAN.md
+        # ekranin ustune duser ve tiklama sessizce yanlis yere gider (PLAN.md (1.x, in git history)
         # Task 5.3, madde 7). Kimligi olmayan eski kayit eskisi gibi gecer.
         if found.topology and found.topology != monitorslib.topology_id(
             monitorslib.list_monitors()

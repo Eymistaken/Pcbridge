@@ -171,7 +171,7 @@ def _build_key_table() -> dict[str, str]:
             "meta": "KEY_LEFTMETA",
             "win": "KEY_LEFTMETA",
             "cmd": "KEY_LEFTMETA",
-            # duzenden bagimsiz calisan tuslar (UYGULAMA.md bunlari onerir)
+            # duzenden bagimsiz calisan tuslar (UYGULAMA.md (1.x, in git history) bunlari onerir)
             "return": "KEY_ENTER",
             "enter": "KEY_ENTER",
             "kpenter": "KEY_KPENTER",

@@ -449,10 +449,10 @@ def parse(raw: Any, max_actions: int = 40) -> list[Action]:
             ) from None
     if isinstance(raw, dict):
         if "actions" in raw:
-            # {"actions": [...]} sarmali; UYGULAMA.md'nin computer_batch ornegi.
+            # {"actions": [...]} sarmali; UYGULAMA.md (1.x, in git history)'nin computer_batch ornegi.
             raw = raw["actions"]
         elif "a" in raw:
-            # TEK eylem: `pcb-do '{"a":"click","x":2760,"y":312}'`. UYGULAMA.md'nin
+            # TEK eylem: `pcb-do '{"a":"click","x":2760,"y":312}'`. UYGULAMA.md (1.x, in git history)'nin
             # pcb-do ornegi tam olarak boyle ve ajanin en dogal yazacagi bicim
             # bu -- "bir dizi olmali" diye reddetmek gereksiz surtunmeydi.
             raw = [raw]
@@ -681,7 +681,7 @@ def run(
             )
             break
 
-        # Ayni hedefe ust uste tiklama: KURALLAR.md sec. 4, madde 6. Kapi
+        # Ayni hedefe ust uste tiklama: docs/dev/desktop-rules.md §4 item 6. Kapi
         # eylemden ONCE calisir -- `repeat_limit`inci tiklama hic gonderilmez.
         if repeat_limit and act.a in policy.CLICK_ACTIONS:
             key = policy.click_target_key(act.a, act.args)

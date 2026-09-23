@@ -1,6 +1,6 @@
 """Guvenlik kapisi — GUI araclarinin gecmek zorunda oldugu tek nokta.
 
-`UYGULAMA.md`: "Bu modul olmadan girdi araclarini yayina alma."
+`UYGULAMA.md` (1.x, in git history): "Bu modul olmadan girdi araclarini yayina alma."
 
 Bu ozellik pcbridge'in risk profilini buyutuyor: bugune kadar "uzaktan komut
 calistirma" vardi, simdi acik oturumdaki her uygulamaya -- tarayicidaki oturum

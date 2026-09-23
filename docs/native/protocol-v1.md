@@ -1,57 +1,48 @@
 # Native IPC protocol v1
 
-> Kurallar ve mimari: **[CLAUDE.md](../../CLAUDE.md)** · Sıradaki iş: **[WALKTHROUGH.md](../../WALKTHROUGH.md)**
+The local stdio contract between the Python host and the `pcbridge-native`
+child process. This pipe is separate from the MCP transport: the helper's
+stdout carries only the framed responses defined here.
 
-Bu belge, Python host ile `pcbridge-native` child process'i arasındaki yerel
-stdio sözleşmesini tanımlar. Bu pipe, MCP stdio taşımasından ayrıdır. Native
-stdout yalnızca aşağıda tanımlanan framed response'ları taşır.
+On Linux the helper reads the monitor table, captures single-monitor frames
+through Mutter ScreenCast + PipeWire, produces uinput keyboard and pointer
+events, runs the clipboard programs, and reads and acts on the accessibility
+tree over D-Bus without GI. Each subsystem is selected by `[native]` (`auto`
+by default: the helper when packaged, the Python path otherwise, reported
+visibly). Besides the grant lifecycle, the helper watches the screen lock and
+user activity over the session bus as typed observations; every backend uses
+the same fail-closed boundary.
 
-Executable Linux'ta monitör tablosunu okur (Task 3.1), Mutter ScreenCast +
-PipeWire üzerinden tek monitör karesi alır (Task 3.3) ve seçildiğinde uinput
-klavye (Task 5.2) ve pointer (Task 5.3) olaylarını üretir, erişilebilirlik
-ağacını GI olmadan D-Bus'tan okur (Task 6.2) ve listelediği öğelere tıklar,
-metin yazar (Task 6.3'ten beri varsayılan `auto`). Task 4.3'ten beri varsayılan
-capture backend'i `auto`
-(paketlenmiş yardımcı varsa native). Input varsayılanı Gate 5'ten beri
-(2026-09-19) `auto`: paketlenmiş yardımcı varsa klavye, fare ve pano
-programları native, yoksa Python yolu (görünür şekilde). Native process
-grant/revoke lifecycle'ına ek olarak GNOME session D-Bus üzerinden ekran
-kilidini ve kullanıcı etkinliğini typed observation olarak izler; sonraki
-backend'ler aynı fail-closed güvenlik sınırını kullanır.
+## Frames and limits
 
-## Frame biçimi ve sınırlar
-
-Her frame şu sırayla kodlanır:
+Every frame is, in order:
 
 ```text
-4 byte unsigned big-endian JSON header length
+4-byte unsigned big-endian JSON header length
 JSON header, UTF-8
-header.binary_len kadar binary payload
+binary payload of header.binary_len bytes
 ```
 
-- JSON header en fazla 64 KiB'dir ve boş olamaz.
-- Binary payload en fazla 128 MiB'dir.
-- `binary_len`, request ve response header'larında zorunlu unsigned integer
-  alanıdır.
-- Okuma ve yazma işlemleri kısa I/O sonuçlarını normal kabul eder ve bütün
-  bölümü tamamlar.
-- İlan edilen boyut sınırları allocation öncesinde doğrulanır.
-- Task 2.1 kontrol metotları binary payload kabul etmez ve bütün
-  response'larında `binary_len: 0` kullanır.
-- Binary payload taşıyan **iki request** var: `clipboard.write` (Task 5.4) ve
-  `accessibility.set_text` (Task 6.3). Pano içeriği de bir alana yazılacak
-  metin de 64 KiB'lik header'a sığmayabilir ve bir log satırına ulaşabilecek
-  bir header alanına konmamalıdır. Başka bir metoda binary gönderilirse
-  `UNEXPECTED_BINARY` döner.
+- The JSON header is at most 64 KiB and never empty.
+- The binary payload is at most 128 MiB.
+- `binary_len` is a required unsigned integer in request and response
+  headers.
+- Short reads and writes are normal and are completed.
+- Declared sizes are checked before allocating.
+- Control methods take no payload and answer with `binary_len: 0`.
+- Two **requests** carry a payload: `clipboard.write` and
+  `accessibility.set_text`. Clipboard content and text for a field may not
+  fit a 64 KiB header and must never sit in a header field that could reach a
+  log line. A payload sent to any other method returns `UNEXPECTED_BINARY`.
 
-Temiz stdin EOF süreci başarıyla kapatır. Kısmi uzunluk alanı, kesik header,
-kesik payload, geçersiz JSON veya geçersiz `binary_len` protokol hatasıdır;
-süreç stderr'e yalnızca hata sınıfını yazar, exit code `2` ile kapanır ve
-stdout'a serbest metin yazmaz.
+A clean stdin EOF ends the process successfully. A partial length, a
+truncated header or payload, invalid JSON or an invalid `binary_len` is a
+protocol error: the process writes only the error class to stderr, exits with
+code `2`, and never writes free text to stdout.
 
 ## Handshake
 
-İlk başarılı request `initialize` olmalıdır:
+The first successful request must be `initialize`:
 
 ```json
 {
@@ -68,11 +59,11 @@ stdout'a serbest metin yazmaz.
 }
 ```
 
-`client_version` boş olamaz. `state_dir` ve `runtime_dir` absolute path
-olmalıdır; harness bu dizinleri açmaz veya oluşturmaz. İstemcinin
-`supported_minor` listesi server'ın desteklediği minor `0` sürümünü içermelidir.
+`client_version` is not empty; `state_dir` and `runtime_dir` are absolute
+(the helper neither opens nor creates them at this point); `supported_minor`
+must contain the server's minor `0`.
 
-Başarılı response seçilen sürümü ve process kimliğini döndürür:
+The answer names the chosen version and the process:
 
 ```json
 {
@@ -90,235 +81,212 @@ Başarılı response seçilen sürümü ve process kimliğini döndürür:
 }
 ```
 
-`build_id` Task 4.1'de eklendi: `scripts/build-native.sh` ile derlenmiş
-binary'de commit (Rust tarafında commit'lenmemiş değişiklik varsa `-dirty`),
-başka derlemelerde `dev`. İsteğe bağlı bir alandır; eski yardımcılar göndermez
-ve Python istemcisi yokluğunu kabul eder.
+`build_id` is the commit (with `-dirty` for uncommitted Rust changes) for a
+helper built by `scripts/build-native.sh`, `dev` otherwise. It is optional:
+older helpers do not send it and the client accepts that.
 
-Bilinmeyen major sürüm `UNSUPPORTED_PROTOCOL` error response'ından sonra
-bağlantıyı kapatır. Handshake sonrasında farklı minor sürüm kullanan request
-`UNSUPPORTED_PROTOCOL_MINOR` döndürür. İkinci `initialize` isteği
-`ALREADY_INITIALIZED` ile reddedilir.
+An unknown major version returns `UNSUPPORTED_PROTOCOL` and closes the
+connection. After the handshake, a request with a different minor returns
+`UNSUPPORTED_PROTOCOL_MINOR`. A second `initialize` returns
+`ALREADY_INITIALIZED`.
 
-## Metotlar
+## Methods
 
-Harness aşağıdaki metotları kabul eder:
+- `initialize`: validates the version and the required fields.
+- `ping`: returns `{"pong": true}`, echoing `params.nonce` if present.
+- `capabilities`: the state of `capture.monitor` (backend
+  `linux.mutter.pipewire`), `input.keyboard`, `input.pointer`,
+  `input.pointer_relative`, `clipboard.read`, `clipboard.write`,
+  `accessibility.read`, `accessibility.action` and `window.list`, decided **at
+  run time on every request** with cheap checks:
+  - capture: `org.gnome.Mutter.ScreenCast` has an owner on the session bus and
+    the PipeWire socket exists; otherwise `unavailable` with `reason_code`
+    (`BACKEND_UNAVAILABLE` or `DEPENDENCY_MISSING`) and `reason`. No session,
+    stream or sharing indicator is opened, no grant needed;
+  - keyboard and pointer: the `/dev/uinput` node's metadata; no device is
+    opened. With the node present the answer is `degraded` ("access is
+    checked on the first explicit request"), without it `DEPENDENCY_MISSING`;
+  - accessibility: whether `org.a11y.Bus` has an owner; no application is
+    read. `window.list` is `degraded` because only applications that publish
+    an accessibility tree are listed;
+  - clipboard: `wl-paste`/`wl-copy` on `PATH` and a Wayland socket; nothing is
+    run.
+- `display.snapshot`: the monitor table (below).
+- `capture.frame`: one monitor as a PNG payload (below).
+- `capture.session_open`: opens, reuses or rebuilds the Mutter session for all
+  monitors of the current layout without reading a frame. Parameters
+  `topology_id`, `session_id`, `grant_id`, `revoke_epoch`, `include_pointer`;
+  the grant, layout and session rules are those of `capture.frame` (wrong
+  grant `REVOKED`, old layout `DISPLAY_CHANGED`). Result: `outcome`
+  (`opened` / `reused` / `recreated`), `monitors`, `include_pointer`,
+  `backend`. `desktop_unlock` calls it so the sharing indicator appears with
+  the grant; a helper that does not know it answers `UNKNOWN_METHOD` and the
+  client leaves the session to the first frame.
+- `input.keyboard.ensure`: opens the keyboard device lazily. Takes
+  `grant_id`, `revoke_epoch`, `hold_max_seconds`; returns the settle time and
+  held keys.
+- `input.keyboard.key`, `.key_down`, `.key_up`: the grant fields plus
+  `combo`. Aliases and combination order match the Python provider; the
+  result carries the current `held` list.
+- `input.keyboard.held`: the keys the helper holds.
+- `input.keyboard.release_all`: releases every held key explicitly and
+  returns their canonical names. A cleanup path: no fresh grant needed.
+- `input.keyboard.take_auto_released`: returns, once, the keys the monotonic
+  hold timer released.
+- `input.pointer.ensure`: opens the pointer devices lazily. The grant fields
+  plus `topology_id`, `pointer_speed`, `pointer_max_ms`; returns the position,
+  held buttons and settle time.
+- `input.pointer.move`: the common fields plus `x`, `y` and optional
+  `smooth`. `x`/`y` are **global canvas** coordinates already resolved by the
+  Python shot adapter; the method takes no `shot` or `monitor` and never adds
+  an offset again. Clamping to the canvas and the global-to-device mapping
+  happen once, here.
+- `input.pointer.move_by`: relative motion in device units through the
+  relative device; marks the absolute position stale (the kernel drops a
+  repeated absolute value).
+- `input.pointer.click`: the common fields plus `button`, `count` and
+  optional `hold_ms` (0-1000, default 60). No coordinates: it clicks where the
+  pointer is and sends no absolute event, so it also works after relative
+  motion. The Python side always sends `[desktop] click_hold_ms`.
+- `input.pointer.drag`: `x1`, `y1`, `x2`, `y2`, `button`; the same minimum-
+  duration smoothstep path as the Python provider.
+- `input.pointer.scroll`: `amount`, `horizontal`.
+- `input.pointer.mouse_down`, `.mouse_up`: `button`; updates the held state.
+- `input.pointer.held`, `.release_all`, `.take_auto_released`, `.position`:
+  read the held state, release explicitly, take what the timer released, and
+  read the last persisted position. Cleanup and read methods need no fresh
+  grant.
+- `clipboard.read`, `clipboard.write`, `clipboard.clear`: run `wl-paste` /
+  `wl-copy` with the same arguments the Python path uses. All three take
+  `grant_id` and `revoke_epoch`; with a wrong grant the program never runs
+  (`REVOKED`); an unknown field is `INVALID_PARAMS`.
+  - `read` returns the first offered type and its bytes **in the response
+    payload** (`{"empty": false, "mime": ...}`), or `{"empty": true, "mime":
+    null}` when empty or unreadable. If the grant is revoked while reading, no
+    content is returned.
+  - `write` also takes `mime`; the content is the **request** payload, never
+    in the header. `clear` empties the clipboard.
+  - Each program has a 10 s timeout and is killed after it. `wl-copy`'s
+    stdout/stderr go to `/dev/null`, since the clipboard owner stays in the
+    background and would hold a pipe open.
+  - Errors: program missing `DEPENDENCY_MISSING`, timeout `TIMEOUT`, program
+    failed `EXECUTION_UNKNOWN`, content over 128 MiB `UNSUPPORTED`. Only the
+    first MIME type is kept; `capabilities` says so in `limitations`. Shared
+    fixture: `tests/fixtures/native/clipboard_cases.json`.
+- `accessibility.dump`, `accessibility.windows`, `accessibility.focused`:
+  read the tree from AT-SPI's own bus (found with `org.a11y.Bus.GetAddress`,
+  connected on first use); no GI, GTK or GLib main loop. All take `grant_id`
+  and `revoke_epoch`; the grant is checked again after reading, and a revoke
+  during the read returns no tree. Unknown fields are `INVALID_PARAMS`.
+  - `dump` also takes `target`, `interactive_only`, `max_nodes`,
+    `deadline_ms` (defaults `focused`, `true`, 400 (max 2000), 15000 ms (max
+    20000)).
+  - The answer has the Python helper's shape: `app`, `app_bus`, `app_pid`,
+    `same_name`, `scope`, `window`, `window_ref`, `nodes`, `truncated`, and
+    `snapshot`, the helper's 12-hex-digit id for this dump. Each node carries
+    `path`, `ref`, `role`, `name`, `states`, `actions`, `editable`, `depth`.
+  - The walk matches the Python helper step for step: depth first, left to
+    right, at most `max_nodes * 25` visits and depth 100; a node's children
+    are read together (at most 32 at once).
+  - Every call has a 2 s timeout; on expiry `TIMEOUT`, never a partial list.
+  - Roles are named from the `GetRole` number with libatspi's table;
+    `GetRoleName` is asked only outside the table (GTK4 answers "application"
+    for a window frame and "button" for a push button there).
+  - Action names come from `Action.GetName(i)`; `GetActions` is localized.
+  - `windows` goes two levels down (applications, windows); `focused` finds
+    the focused window without walking. Errors: no such application or no
+    focused window `TARGET_MISMATCH`; a partial name matching two
+    applications `ELEMENT_AMBIGUOUS`; no bus `BACKEND_UNAVAILABLE`. Messages
+    match the Python helper's word for word. Shared fixture:
+    `tests/fixtures/native/accessibility_cases.json`.
+- `accessibility.act`, `accessibility.set_text`: click or write into a node
+  of a dump. Both take `grant_id`, `revoke_epoch`, `snapshot`, `ref`; `act`
+  also `action` (default `click`). `set_text`'s text is UTF-8 **in the
+  request payload** (otherwise `INVALID_PARAMS`).
+  - **Only its own dumps.** The helper keeps the last 8 successful dumps: the
+    app's bus name, the window for a focus dump, and per node bus name +
+    object path, index path, role and name. An action names a `snapshot` and
+    the node's `ref` (object path); everything else comes from the helper's
+    record, not the request. Another helper's snapshot (another process, or
+    this one restarted under a new grant) is unknown: `ELEMENT_STALE`, take a
+    new `ui_dump`.
+  - **Identity check**, as the Python helper's `_resolve`: same application
+    (bus name), same object (index path first, then a search for bus name +
+    object path inside the same target, at most 10 000 nodes), same meaning
+    (role and name). Two objects with the same path on two buses in one dump
+    are `ELEMENT_AMBIGUOUS`. Not found within 8 s: `TIMEOUT`, nothing sent.
+  - The grant is checked **again** after the target is found and right before
+    the call; a revoke in between sends nothing.
+  - **The application's answer is checked.** `DoAction` returning false (a
+    disabled GTK4 button) is `ACTION_UNSUPPORTED`. Text is written with
+    `EditableText.SetTextContents` (no length argument; GTK4 ignores
+    `InsertText`'s length), then read back with `CharacterCount` +
+    `GetText(0, count)` and compared, waiting at most 300 ms: a difference is
+    `TEXT_MISMATCH`, with counts only in the message. Without a Text
+    interface the write cannot be verified and is not an error
+    (`verified: false`, `now_chars: -1`).
+  - **No retries.** `DoAction` and `SetTextContents` wait 5 s; no answer, or
+    the application leaving, is `EXECUTION_UNKNOWN` (it may have happened) and
+    the call is never sent again. The Python side reports its own request
+    timeout (20 s) and a helper crash the same way.
+  - Answers carry the Python helper's fields. `act`: `app`, `ref`, `role`,
+    `name`, `action`, `resolved_by` (`path`/`moved`), `returned`. `set_text`:
+    `app`, `ref`, `role`, `name`, `replaced_chars`, `now_chars`,
+    `resolved_by`, `verified`.
+  - Categories: `ELEMENT_STALE`, `ELEMENT_AMBIGUOUS`, `TARGET_MISMATCH`
+    accessibility, retryable; `ACTION_UNSUPPORTED`, `TEXT_MISMATCH`
+    accessibility, not retryable; `TIMEOUT` execution, retryable;
+    `EXECUTION_UNKNOWN` execution, not retryable.
+- `cancel`: validates `params.target_id` and today answers `canceled: false`;
+  capture has its own 1-8000 ms timeout and lifecycle gates, and the
+  dispatcher does not run requests concurrently yet.
+- `shutdown`: writes a framed success answer, then exits cleanly.
 
-- `initialize`: sürümü ve zorunlu handshake alanlarını doğrular.
-- `ping`: `{"pong": true}` döndürür; varsa `params.nonce` değerini aynen
-  response'a ekler.
-- `capabilities`: `backend: linux.mutter.pipewire`, `capture.monitor`,
-  `input.keyboard`, `input.pointer`, `clipboard.read` ve `clipboard.write`
-  durumunu döndürür. Capture durumu her
-  istekte **çalışma
-  zamanında**, ucuz bir
-  denetimle belirlenir (Task 4.1): oturum veriyolunda
-  `org.gnome.Mutter.ScreenCast` adının sahibi ve PipeWire soketi. İkisi de
-  varsa `supported`; değilse `unavailable` + `reason_code`
-  (`BACKEND_UNAVAILABLE` ya da `DEPENDENCY_MISSING`) + `reason`. Oturum,
-  PipeWire akışı ya da paylaşım göstergesi açmaz, izin istemez. Task 4.1'e kadar
-  sabit bir `supported` idi — capture'ın hiç çalışamayacağı makinede de.
-  Klavye ve pointer denetimleri `/dev/uinput` düğümünün varlığını metadata
-  üzerinden okur; default capability isteği aygıt açmaz. Düğüm varsa erişimin
-  ancak ilk açık input isteğinde doğrulanacağını anlatan `degraded`, yoksa
-  `DEPENDENCY_MISSING` döner. `accessibility.read`, `window.list` (Task 6.2)
-  ve `accessibility.action` (Task 6.3) yalnızca oturum veriyolunda
-  `org.a11y.Bus` adının sahibi olup olmadığına bakar; hiçbir uygulama okunmaz.
-  Sahibi varsa `accessibility.read` ve `accessibility.action` `supported`,
-  `window.list` ise `degraded` olur. Sebebi, yalnızca erişilebilirlik ağacı
-  yayınlayan uygulamaların görünmesi.
-- `display.snapshot`: Task 3.1 monitör tablosunu döndürür.
-- `capture.frame`: Task 3.3 tek monitör PNG'sini binary payload olarak döndürür.
-- `capture.session_open`: Task 4.3. Kare okumadan Mutter oturumunu mevcut
-  düzendeki bütün monitörler için açar, yeniden kullanır ya da yeniden kurar.
-  Parametreler `topology_id`, `session_id`, `grant_id`, `revoke_epoch`,
-  `include_pointer`; izin, düzen ve oturum kuralları `capture.frame` ile aynı
-  (yanlış izin `REVOKED`, eski düzen `DISPLAY_CHANGED`). Binary taşımaz. Sonuç:
-  `outcome` (`opened` / `reused` / `recreated`), `monitors`, `include_pointer`,
-  `backend`. `desktop_unlock` bunu çağırır, böylece paylaşım göstergesi izinle
-  birlikte belirir. Bu metodu bilmeyen eski bir yardımcı `UNKNOWN_METHOD` döndürür;
-  Python istemcisi o durumda oturumu ilk kareye bırakır.
-- `input.keyboard.ensure`: Klavye aygıtını tembel açar. `grant_id`,
-  `revoke_epoch` ve `hold_max_seconds` ister; bekleme süresini ve tutulmuş
-  tuşları döndürür.
-- `input.keyboard.key`, `input.keyboard.key_down`, `input.keyboard.key_up`:
-  Aynı grant alanlarına ek olarak `combo` ister. Alias ve kombinasyon sırası
-  Python provider ile aynıdır; sonuç güncel `held` listesini taşır.
-- `input.keyboard.held`: Native tarafta tutulmuş tuşları okur.
-- `input.keyboard.release_all`: Tutulmuş bütün tuşlara açık release gönderir ve
-  bırakılan canonical adları döndürür. Cleanup yolu olduğu için yeni grant
-  istemez.
-- `input.keyboard.take_auto_released`: Monotonic hold zamanlayıcısının bıraktığı
-  tuşları bir kez döndürüp temizler.
-- `input.pointer.ensure`: Pointer aygıtını tembel açar. Grant alanlarına ek
-  olarak `topology_id`, `pointer_speed` ve `pointer_max_ms` ister; mevcut
-  konumu, tutulmuş düğmeleri ve bekleme süresini döndürür.
-- `input.pointer.move`: Aynı ortak alanlara `x`, `y` ve isteğe bağlı `smooth`
-  ekler. `x`/`y`, Python shot adapter'ının çözdüğü **global canvas**
-  koordinatıdır. Metot `shot` veya `monitor` kabul etmez; offset'i ikinci kez
-  eklemez. Canvas clamp ve global→device dönüşümü native tarafta bir kez yapılır.
-- `input.pointer.click`: Ortak alanlarla `button`, `count` ve isteğe bağlı
-  `hold_ms` alır (her basışın süresi, 0–1000; yoksa 60). Koordinat almaz:
-  imlecin bulunduğu yerde tıklar ve ABS olayı göndermez, yani göreli bir
-  hareketten sonra da gider (Adım 8.2/8.3). Python tarafı süreyi her zaman
-  `[desktop] click_hold_ms`'ten çözüp açıkça gönderir.
-- `input.pointer.drag`: Ortak alanlarla `x1`, `y1`, `x2`, `y2`, `button` alır;
-  Python provider'ın minimum süreli smoothstep drag yolunu korur.
-- `input.pointer.scroll`: Ortak alanlarla `amount` ve `horizontal` alır.
-- `input.pointer.mouse_down`, `input.pointer.mouse_up`: Ortak alanlarla
-  `button` alır ve native held-button durumunu günceller.
-- `input.pointer.held`, `input.pointer.release_all`,
-  `input.pointer.take_auto_released`, `input.pointer.position`: Sırasıyla
-  native held state'i okur, açık release gönderir, monotonic zamanlayıcının
-  bıraktıklarını alır ve bilinen son persisted konumu okur. Cleanup/read
-  metotları yeni grant istemez.
-- `clipboard.read`, `clipboard.write`, `clipboard.clear` (Task 5.4): Python'un
-  hep kullandığı `wl-paste`/`wl-copy` programlarını aynı argümanlarla çalıştırır.
-  Üçü de `grant_id` ve `revoke_epoch` ister. İzin yanlışsa program hiç
-  çalışmadan `REVOKED` döner; bilinmeyen alan varsa `INVALID_PARAMS` döner.
-  `read`, ilk sunulan tipi ve baytlarını **response'un binary payload'unda**
-  döndürür (`{"empty": false, "mime": ...}`). Pano boşsa ya da okunamıyorsa
-  `{"empty": true, "mime": null}` döner. Okuma süresince izin geri alınırsa
-  içerik döndürülmez. `write` ek olarak `mime` alır; içerik **request'in**
-  binary payload'udur, header'da hiç bulunmaz. `clear` panoyu boşaltır.
-  Program başına 10 sn zaman aşımı vardır ve süre dolunca program öldürülür.
-  `wl-copy`'nin stdout/stderr'i `/dev/null`'a gider, çünkü arka planda kalan pano
-  sahibi bir boruyu açık tutardı. Hata kodları: program yoksa
-  `DEPENDENCY_MISSING`, zaman aşımında `TIMEOUT`, program başarısızsa
-  `EXECUTION_UNKNOWN`, 128 MiB'i aşan içerikte `UNSUPPORTED`. Yalnızca ilk MIME
-  tipi saklanır; `capabilities` bunu `clipboard.read`/`clipboard.write`
-  `limitations` alanında bildirir. Capability denetimi hiçbir programı
-  çalıştırmaz, `PATH`'e ve Wayland soketine bakar. Ortak fixture:
-  `tests/fixtures/native/clipboard_cases.json`.
-- `accessibility.dump`, `accessibility.windows`, `accessibility.focused` (Task
-  6.2). Erişilebilirlik ağacını AT-SPI'ın kendi D-Bus veriyolundan okurlar; GI,
-  GTK ve GLib ana döngüsü yok. Veriyolunun adresi oturum veriyolundan
-  `org.a11y.Bus.GetAddress` ile bulunur, bağlantı ilk istekte kurulur. Üçü de
-  `grant_id` ve `revoke_epoch` ister. İzin okuma bittikten sonra bir kez daha
-  doğrulanır; okuma sırasında geri alınmışsa ağaç döndürülmez. Bilinmeyen alan
-  `INVALID_PARAMS` olur.
-  - `dump` ayrıca `target`, `interactive_only`, `max_nodes` ve `deadline_ms`
-    alır. Varsayılanlar: `focused`, `true`, 400 (en fazla 2000) ve 15000 ms
-    (en fazla 20000).
-  - Cevap, Python yardımcısının `dump` cevabıyla aynı biçimde: `app`,
-    `app_bus`, `app_pid`, `same_name`, `scope`, `window`, `window_ref`,
-    `nodes`, `truncated`. Her düğüm `path`, `ref`, `role`, `name`, `states`,
-    `actions`, `editable` ve `depth` taşır. Task 6.3'ten beri bir de
-    `snapshot`: helper'ın bu döküme verdiği 12 onaltılık haneli kimlik.
-  - Yürüyüş yardımcınınkiyle adım adım aynı: derinlik önce, soldan sağa, en
-    fazla `max_nodes * 25` ziyaret ve derinlik 100. Tek fark, bir düğümün
-    çocuklarının birlikte okunması (bir kerede en fazla 32 düğüm).
-  - Her çağrının 2 sn zaman aşımı var; süre dolarsa `TIMEOUT` döner, yarım
-    liste döndürülmez.
-  - Rol, `GetRole` numarasından libatspi'nin tablosuyla adlandırılır.
-    `GetRoleName` yalnızca tablonun dışındaki roller için sorulur: GTK4 o
-    çağrıda pencere çerçevesine "application", düğmeye "button" diyor.
-  - Eylem adları `Action.GetName(i)` ile alınır. `GetActions` yerelleştirilmiş
-    ad veriyor ("Click").
+Any other method returns `UNKNOWN_METHOD`; the connection stays usable.
 
-  `windows` iki seviye iner: uygulamalar ve pencereleri. `focused` odaktaki
-  pencereyi ağaç gezmeden bulur. Hata kodları:
-  - Uygulama ya da odakta pencere bulunamazsa `TARGET_MISMATCH`.
-  - Kısmi ad iki farklı uygulamaya uyarsa `ELEMENT_AMBIGUOUS`.
-  - Veriyolu yoksa `BACKEND_UNAVAILABLE`.
+State-changing input requests must match exactly the grant id and revoke
+epoch the helper bound to at `initialize`. Pointer requests must also match
+the current display snapshot's `topology_id`, or they fail with
+`DISPLAY_CHANGED` before any event is injected; on a layout change the old
+pointer device is closed and rebuilt for the new canvas. `pointer.json`
+keeps its `{x, y, t}` format and 300 s age rule; opening a device does not
+clear it. Revoke, shutdown or a failed event write release held keys and
+buttons. The hold timer runs without waiting for another request. Input
+requests are never replayed across a process restart: an uncertain write is
+not sent twice.
 
-  Mesajlar Python yardımcısınınkiyle birebir aynı. Ortak fixture:
-  `tests/fixtures/native/accessibility_cases.json`.
-- `accessibility.act` ve `accessibility.set_text` (Task 6.3). Bir döküm
-  düğümüne tıklar ya da metin yazar. İkisi de `grant_id`, `revoke_epoch`,
-  `snapshot` ve `ref` ister. `act` ayrıca `action` alır (varsayılan `click`).
-  `set_text`'in metni UTF-8 olarak **binary payload'da** gelir, header'da
-  değil. UTF-8 değilse `INVALID_PARAMS` döner.
-  - **Yalnızca kendi dökümü.** Helper her başarılı `dump`'ın kaydını tutar
-    (son 8 döküm): uygulama veriyolu adı, odak dökümünde pencere, her düğümün
-    veriyolu adı + nesne yolu, indeks yolu, rolü ve adı. Eylem bir `snapshot`
-    ile düğümün `ref`'ini (nesne yolu) adlandırır; kimliğin geri kalanını
-    helper kendi kaydından alır, istekten değil. Başka bir helper'ın (başka
-    süreç, ya da yeni bir izinle yeniden başlamış bu helper) snapshot'ı
-    burada bilinmez: `ELEMENT_STALE`, yeni `ui_dump` ister.
-  - **Kimlik denetimi** Python yardımcısının `_resolve`'u: aynı uygulama
-    (veriyolu adı), aynı nesne (önce indeks yolu, sonra aynı hedefin içinde
-    veriyolu adı + nesne yolu ile arama, en fazla 10 000 düğüm), aynı anlam
-    (rol ve ad). D-Bus'ta veriyolu adı + nesne yolu tek bir nesnedir; aramada
-    ikinci kez karşılaşılan aynı nesnedir, ikinci aday değil. Aynı dökümde
-    aynı yolu iki farklı veriyolundaki iki nesne taşıyorsa `ELEMENT_AMBIGUOUS`.
-    Hedef 8 sn içinde bulunamazsa `TIMEOUT`; o ana kadar hiçbir şey
-    gönderilmemiştir.
-  - İzin, hedef bulunduktan sonra ve çağrıdan hemen önce **bir kez daha**
-    doğrulanır. Arada geri alınmışsa hiçbir şey gönderilmez.
-  - **Uygulamanın cevabı denetlenir.** `DoAction` false dönerse (GTK4'te
-    devre dışı düğme) `ACTION_UNSUPPORTED`: hiçbir şey yapılmadı. Metin
-    `EditableText.SetTextContents` ile yazılır, uzunluk parametresi yok. GTK4
-    girdi alanı `InsertText`'in uzunluğunu hiç kullanmıyor. Sonra metin
-    `CharacterCount` + `GetText(0, sayı)` ile geri okunup bütünüyle
-    karşılaştırılır; en fazla 300 ms beklenir. Aynı değilse `TEXT_MISMATCH`:
-    mesajda yalnızca sayılar var, metin yok. Text arayüzü yoksa yazma
-    doğrulanamaz ama hata da sayılmaz (`verified: false`, `now_chars: -1`).
-  - **Tekrar yok.** `DoAction` ve `SetTextContents` 5 sn bekler. Cevap
-    gelmezse ya da uygulama cevap vermeden ayrılırsa `EXECUTION_UNKNOWN`
-    döner: işlem yapılmış da olabilir. Helper çağrıyı bir daha göndermez.
-    Python tarafı da isteğin kendi zaman aşımını (20 sn) ve helper'ın
-    çökmesini aynı kodla bildirir.
-  - Cevaplar Python yardımcısınınkiyle aynı alanları taşır. `act`: `app`,
-    `ref`, `role`, `name`, `action`, `resolved_by` (`path`/`moved`),
-    `returned`. `set_text`: `app`, `ref`, `role`, `name`, `replaced_chars`,
-    `now_chars`, `resolved_by`, `verified`.
-  - Kategoriler: `ELEMENT_STALE`, `ELEMENT_AMBIGUOUS` ve `TARGET_MISMATCH`
-    `accessibility`, retryable. `ACTION_UNSUPPORTED` ve `TEXT_MISMATCH`
-    `accessibility`, retryable değil. `TIMEOUT` `execution`, retryable.
-    `EXECUTION_UNKNOWN` `execution`, retryable değil.
-- `cancel`: `params.target_id` alanını doğrular ve bugün `canceled: false`
-  döndürür. Capture'ın kendi 1–8000 ms zaman aşımı ve lifecycle kapıları vardır;
-  dispatcher henüz eşzamanlı request çalıştırmıyor.
-- `shutdown`: framed başarı response'ını yazdıktan sonra process'i temizce
-  kapatır.
+**A helper serves one grant.** It binds to the grant it reads at
+`initialize` and never rebinds, while every `desktop_unlock` (from any
+process) writes a new `grant_id`. The old helper's watchdog then closes its
+resources and every grant-bearing request returns `REVOKED`. On the Python
+side `backends/rust.py` -> `GrantBoundHelper` notices a new grant (id +
+revoke epoch), asks the old helper to release, stops it and starts a new
+one; the request goes to the new helper **once**. Capture and input share
+this class.
 
-Diğer metotlar `UNKNOWN_METHOD` döndürür ve bağlantı kullanılabilir kalır.
+## Command line
 
-State değiştiren input istekleri helper'ın `initialize` sırasında bağlandığı
-grant kimliği ve revoke epoch'u ile birebir eşleşir. Pointer istekleri ayrıca
-güncel native display snapshot'ının `topology_id` değeriyle eşleşmelidir;
-uyuşmazlık event injection'dan önce `DISPLAY_CHANGED` olur. Topoloji değişince
-eski pointer aygıtı kapatılır ve yeni canvas geometry'siyle kurulur.
-`pointer.json` mevcut `{x, y, t}` biçimini ve 300 saniyelik yaş kuralını korur;
-aygıt açılışı state'i silmez. Revoke, shutdown veya event write hatası
-tutulmuş tuş/düğmelere release gönderir. Hold zamanlayıcısı başka IPC isteği
-beklemeden çalışır. Input request'leri process restart'ı üzerinden otomatik
-tekrar edilmez; belirsiz bir write ikinci kez gönderilmez.
+Without arguments the helper speaks the protocol on stdin/stdout. Two flags
+are accepted; neither starts the protocol or touches the session bus,
+PipeWire or the state directory, and both exit `0`:
 
-**Bir helper tek bir izne hizmet eder.** `initialize`'da okuduğu grant'e
-bağlanır ve bir daha bağlanmaz; her `desktop_unlock` ise, bu süreçte ya da
-başka bir süreçte, yeni bir `grant_id` yazar. Eski helper'ın gözcüsü o anda
-kaynaklarını kapatır ve grant taşıyan bütün istekleri `REVOKED` olur. Python
-tarafında `backends/rust.py` → `GrantBoundHelper` izin kimliği (grant id +
-revoke epoch) değişince eski helper'dan release ister, onu kapatır ve yenisini
-başlatır; istek yeni helper'a **bir kez** gider, tekrar oynatılmaz. Yakalama ve
-input aynı sınıfı kullanır. Ölçüm ve düzeltme öncesi davranış: `WALKTHROUGH.md`
-→ "Codex'in 5.2/5.3 işinin kontrolü".
-
-## Komut satırı
-
-Argümansız çalıştırma protokolü stdin/stdout üzerinde başlatır. Bunun dışında
-yalnızca iki bayrak kabul edilir (Task 4.1). İkisi de protokol başlatmaz,
-oturum veriyoluna, PipeWire'a ya da state dizinine dokunmaz ve `0` ile çıkar:
-
-- `--version` → tek satır:
-  `pcbridge-native 0.1.0 (build …, protocol 1.0, x86_64-unknown-linux-gnu, release)`
-- `--build-info` → tek JSON nesnesi: `name`, `version`, `build_id`,
+- `--version`: one line,
+  `pcbridge-native 0.1.0 (build …, protocol 1.0, x86_64-unknown-linux-gnu, release)`.
+- `--build-info`: one JSON object with `name`, `version`, `build_id`,
   `protocol {major, minor}`, `target`, `profile`, `test_harness`.
 
-Başka her argüman stderr'e `unsupported command-line arguments` yazar ve `2`
-ile çıkar. `test-harness` özelliğiyle derlenmiş binary ayrıca `--test-mode`
-kabul eder ve `--build-info`'da `"test_harness": true` der: deterministik sahte
-backend'le cevap veren, gerçek ekran okumayan bir derleme. `scripts/build-native.sh`
-böyle bir binary'yi paketlemeyi reddeder, `doctor.sh` onu hata olarak işaretler.
+Any other argument prints `unsupported command-line arguments` to stderr and
+exits `2`. A helper built with the `test-harness` feature also accepts
+`--test-mode` and reports `"test_harness": true`: a deterministic fake that
+reads no real screen. `scripts/build-native.sh` refuses to package it and
+`pcbridge doctor` flags it as an error.
 
-## Task 3.1 metodu — `display.snapshot`
+## `display.snapshot`
 
-Sıralı monitör tablosunu ve düzen kimliğini döndürür. **Salt okunur metadata:**
-piksel okumaz, cihaz açmaz, masaüstü grant'i istemez — host tarafındaki
-`screen_info` gibi. Kurallar `pcbridge-core::display` içinde; bu metot yalnızca
-Mutter `GetCurrentState` cevabını taşıyıp çözücüye veriyor.
+The ordered monitor table and the layout id. **Read-only metadata**: no
+pixels, no devices, no grant (like the host's `screen_info`). The rules live
+in `pcbridge-core::display`; this method carries Mutter's `GetCurrentState`
+(including its `layout-mode` property) to the resolver.
 
 ```json
 {
@@ -326,37 +294,33 @@ Mutter `GetCurrentState` cevabını taşıyıp çözücüye veriyor.
   "canvas": [3840, 1080],
   "monitors": [
     {"index": 1, "connector": "DP-4", "x": 0, "y": 0, "width": 1920,
-     "height": 1080, "scale": 1.0, "primary": false, "name": "…",
-     "transform": 0, "serial": "…"}
+     "height": 1080, "scale": 1.0, "pixel_ratio": 1.0, "primary": false,
+     "name": "…", "transform": 0, "serial": "…"}
   ]
 }
 ```
 
-Düzen çözülemezse `DISPLAY_MAPPING_UNKNOWN` döner ve **hiçbir şey tahmin
-edilmez**: geçerli modu olmayan monitör, bilinmeyen connector, boş connector
-listesi ve pozitif olmayan ölçek reddedilir. "İlk modu seç" ya da "ilk monitöre
-düş" bir yakalamanın sessizce yanlış ekrana inmesinin yoludur.
+`pixel_ratio` (2.0) is framebuffer pixels per canvas unit: 1.0 in Mutter's
+physical layout mode, the scale in the logical mode. A monitor whose ratio
+differs from its scale adds `,p` to its part of `topology_id`; older hosts
+ignore the field.
 
-**Oturum veriyolu bağlantısı tembeldir.** İlk `display.snapshot`'a kadar
-kurulmaz. Ölçüldü 2026-09-12, release binary, `strace -e trace=connect`:
-`initialize` → `capabilities` → `shutdown` **1** bağlantı yapıyor; aynı dizide
-`capabilities` yerine `display.snapshot` olunca **2**. Yani bu metot tam olarak
-bir bağlantı ekliyor ve yalnızca çağrıldığında.
+If the layout cannot be resolved the answer is `DISPLAY_MAPPING_UNKNOWN`
+and **nothing is guessed**: a monitor without a current mode, an unknown
+connector, an empty connector list and a non-positive scale are refused.
+"Take the first mode" or "fall back to the first monitor" is how a capture
+silently lands on the wrong screen.
 
-> **Düzeltme:** Task 2.1 kaydı "connect syscall sayısı 0" diyor. O ölçüm Task
-> 2.1 kodu için doğruydu; **Task 2.4** desktop-state sağlayıcısını ekleyince
-> açılışta `/run/user/<uid>/bus`'a bir bağlantı kuruldu ve bu yeniden
-> ölçülmemişti. Bugünkü taban çizgisi 1'dir; `display.rs` olmadan derlenmiş
-> binary'de de 1 çıktı, yani artış bu task'tan gelmiyor.
+The session-bus connection is lazy: measured with `strace -e trace=connect`,
+`initialize` -> `capabilities` -> `shutdown` makes 1 connection (the
+desktop-state provider), and the same sequence with `display.snapshot`
+makes 2. The cache is invalidated by Mutter's `MonitorsChanged` signal, not
+a timer, so a monitor plugged in shows up in the next snapshot.
 
-Düzen değişikliği Mutter'ın `MonitorsChanged` sinyaliyle yakalanıyor: önbellek
-zamanlayıcıyla değil, sinyalle geçersizleşiyor. Yani takılan bir monitör bir
-sonraki snapshot'ta görünür, önbellek ömrü kadar sonra değil.
+## `capture.frame`
 
-## Task 3.3 metodu — `capture.frame`
-
-İstek tek bir monitörü, çağıranın bildiği düzeni ve `initialize` sırasında
-bağlanan grant snapshot'ını açıkça adlandırır:
+The request names one monitor, the layout the caller knows, and the grant
+the helper is bound to:
 
 ```json
 {
@@ -377,16 +341,16 @@ bağlanan grant snapshot'ını açıkça adlandırır:
 }
 ```
 
-`display_id` scoped ve en fazla 256 byte olmalıdır. `topology_id` boş olamaz ve
-16 KiB ile sınırlıdır; `session_id` ile `grant_id` boş olamaz ve 256 byte ile
-sınırlıdır. Yalnızca `freshness: "after_request"` kabul edilir. Production
-`display_id` şeması `mutter:<connector>`'dır. Düzen kimliği güncel snapshot ile
-eşleşmezse `DISPLAY_CHANGED`; connector çözülemezse
-`DISPLAY_MAPPING_UNKNOWN`; grant kimliği veya revoke epoch helper'ın bağlandığı
-snapshot ile eşleşmezse `REVOKED` döner. Hiçbirinde ilk monitöre düşülmez.
+`display_id` is scoped (`mutter:<connector>`) and at most 256 bytes;
+`topology_id` is not empty and at most 16 KiB; `session_id` and `grant_id`
+are not empty and at most 256 bytes. Only `freshness: "after_request"` is
+accepted. A layout id that does not match the current snapshot is
+`DISPLAY_CHANGED`; an unresolvable connector `DISPLAY_MAPPING_UNKNOWN`; a
+grant id or epoch that does not match the helper's binding `REVOKED`. None of
+them falls back to the first monitor.
 
-Başarı header'ının hemen ardından `binary_len` kadar ham PNG byte'ı gelir;
-native pipe üzerinde base64 yoktur:
+A success header is followed by `binary_len` bytes of raw PNG (no base64 on
+this pipe):
 
 ```json
 {
@@ -413,31 +377,27 @@ native pipe üzerinde base64 yoktur:
 }
 ```
 
-Frame identity'nin saat alanı `frame_identity_source` olmadan yorumlanmaz.
+The frame identity's clock fields are not interpreted without
+`frame_identity_source`. If the producer supplies `SPA_META_Header`, its
+sequence and PTS are carried unchanged (`spa_meta_header`); Mutter on GNOME 46
+does not, so the sequence is a local counter for the source's lifetime and
+the timestamp is nanoseconds since the source started
+(`source_monotonic_clock`). Freshness is decided by a separate local
+`Instant` taken when the frame arrives.
 
-Reddedilen bir `capture.frame` **hiçbir zaman** binary payload taşımaz
-(`binary_len: 0`), ve bir ret bağlantıyı kullanılamaz hale getirmez: sonraki
-geçerli istek kareyi verir. İkisi de `capture_frame_ipc_live.rs`'te
-(`PCBRIDGE_TEST_CAPTURE=1`) gerçek binary'ye karşı sınanıyor.
-Üretici `SPA_META_Header` verirse sequence ve PTS değiştirilmeden taşınır ve
-kaynak `spa_meta_header` olur. Ölçülen Mutter/GNOME 46 akışı bu metadata'yı
-vermiyor; o durumda sequence PipeWire source ömrü boyunca yerel sayaç,
-timestamp o source'un monotonic başlangıcından beri nanosaniye ve kaynak
-`source_monotonic_clock` olur. Bu değerler tazelik kararı için kullanılmaz;
-kare geldiğinde ayrı bir yerel `Instant` ile damgalanır.
+A refused `capture.frame` **never** carries a payload (`binary_len: 0`), and
+a refusal does not break the connection: the next valid request gets its
+frame (both tested against the real helper in `capture_frame_ipc_live.rs`
+with `PCBRIDGE_TEST_CAPTURE=1`). The session, the PipeWire thread and the
+display reader are created on the first real capture; `initialize`,
+`capabilities` and `ping` open no sharing. After a failed capture the
+session/node mapping is dropped, so a retry never uses an old node id. State
+machine, closing triggers and measurements: [capture.md](capture.md).
 
-Oturum, PipeWire thread'i ve display reader ilk gerçek capture isteğinde tembel
-kurulur. `initialize`, `capabilities` ve `ping` ekran paylaşımı açmaz. Capture
-başarısız olursa session/node eşlemesi kapatılır; sonraki deneme eski düğüm
-kimliğini kullanmaz. Durum makinesi, kapanma tetikleri ve ölçümler:
-**[capture.md](capture.md)**.
+## Matching and the error envelope
 
-## Response eşleştirme ve hata zarfı
-
-Her response request'in string `id` alanını taşır. İstemci birden çok request'i
-cevap beklemeden gönderebilir ve response'ları ID ile eşleştirmelidir.
-
-Hatalar aynı envelope içinde taşınır:
+Every response carries its request's string `id`. A client may send several
+requests without waiting and must match answers by id.
 
 ```json
 {
@@ -453,197 +413,149 @@ Hatalar aynı envelope içinde taşınır:
 }
 ```
 
-## Deterministik test kipi
+## Deterministic test mode
 
-Deterministik fake backend yalnızca default dışı `test-harness` Cargo feature'ı
-ile derlenebilir ve ayrıca `--test-mode` argümanı ister:
+The fake backend exists only with the non-default `test-harness` Cargo
+feature and additionally needs `--test-mode`:
 
 ```bash
-cargo test --workspace --all-targets \
-  --features pcbridge-native/test-harness
+cargo test --workspace --all-targets --features pcbridge-native/test-harness
 ```
 
-Default production derlemesinde feature kapalıdır. Bu binary `--test-mode`
-argümanını kabul etmez; production `capabilities` response'ı
-`linux.mutter.pipewire` monitor capture desteğini her istekte çalışma zamanında
-yoklar (Task 4.1): oturum veriyolunda `org.gnome.Mutter.ScreenCast` adının
-sahibi ve PipeWire soketi. Biri yoksa `unavailable` + `reason_code` döner. Bu
-sorgu izin istemez ya da oturum açmaz.
+It reports the fixed `test-native-instance`, platform `test` and backend
+`test.fake`, and claims no desktop support. Keyboard and pointer are bound to
+fake devices that emit nothing. The clipboard runs only the programs a test
+names in `PCBRIDGE_TEST_WL_PASTE` / `PCBRIDGE_TEST_WL_COPY` (otherwise
+`UNSUPPORTED`), so it never reaches the user's clipboard. `accessibility.*`
+reads only the `PCBRIDGE_TEST_A11Y_DESKTOP` desktop of the
+`PCBRIDGE_TEST_A11Y_FIXTURE` file (otherwise `UNSUPPORTED`);
+`test.accessibility_desktop` (`{"desktop": ...}`) switches later reads to
+another fixture desktop, to imitate a tree changing between dump and action,
+without clearing the dump records, and `test.accessibility_performed` returns
+the actions (`[path, action]`) and texts that took effect. This mode exists
+only for byte-level contract tests.
 
-Test kipi sabit `test-native-instance` kimliği, `test` platformu ve
-`test.fake` capability backend'i üretir. Fake capability açık bir desktop
-desteği iddia etmez; `input.keyboard` ve `input.pointer` feature'ları gerçek
-`/dev/uinput` yerine event üretmeyen sahte aygıtlara bağlıdır. `clipboard`
-yalnızca testin `PCBRIDGE_TEST_WL_PASTE` ve `PCBRIDGE_TEST_WL_COPY` ile adını
-verdiği programları çalıştırır. Bunlar verilmemişse `UNSUPPORTED` döner, yani
-test kipi kullanıcının panosuna hiç ulaşmaz. `accessibility.*` de yalnızca
-`PCBRIDGE_TEST_A11Y_FIXTURE` dosyasındaki `PCBRIDGE_TEST_A11Y_DESKTOP`
-masaüstünü okur. Yalnızca test kipinde olan `test.accessibility_desktop`
-(`{"desktop": ...}`) sonraki okumaları başka bir fixture masaüstüne çevirir;
-bir uygulamanın ağacının döküm ile eylem arasında değişmesini böyle taklit
-eder. Döküm kaydı bu geçişte silinmez. `test.accessibility_performed` o
-fixture masaüstünde etkisini gösteren eylemleri (`[yol, eylem]`) ve bütün
-metinleri döndürür. Fixture verilmemişse `UNSUPPORTED` döner, yani test kipi
-gerçek bir uygulamayı hiç okumaz ve hiçbir şeye dokunmaz. Bu kip yalnızca byte-düzeyi contract testleri içindir.
+## The Python supervisor
 
-## Python supervisor yaşam döngüsü
+`NativeClient` starts the helper on the first native request, over three
+pipes separate from the MCP transport. Discovery order is fixed:
+`$PCBRIDGE_NATIVE_BIN`, `[native] binary_path`, then the package path
+`pcbridge/_native/<target>/pcbridge-native`. An invalid explicit path does not
+silently fall back to a lower-priority binary (`NATIVE_NOT_FOUND`); the helper
+is never downloaded, built at run time or searched on `PATH`.
 
-Task 2.2'deki `NativeClient`, helper'ı MCP stdio taşımasından ayrı üç pipe ile
-ve yalnızca ilk native request geldiğinde başlatır. Binary arama sırası sabittir:
+Selection per subsystem (`[native] capture / input / accessibility`):
+`auto` (default) uses the helper when it is found and offers the capability,
+otherwise the Python path with a visible `degraded` reason in
+`system_capabilities`; `rust` never falls back and fails instead; `python`
+ignores the helper. An explicit `[desktop] capture_backend =
+"gnome-screenshot"` keeps capture on the Python path under `auto`.
 
-1. `PCBRIDGE_NATIVE_BIN` ortam değişkeni,
-2. `[native].binary_path`,
-3. `pcbridge/_native/<target>/pcbridge-native` paket yolu.
+The native accessibility reader lives in a grant-bound helper. Without a
+grant (for example `screen_info` listing windows before `desktop_unlock`),
+the window list and focused window come from the Python helper. Short ids
+and the last-dump record are produced in Python (`uitree`) for both readers;
+`ui_click` / `ui_set_text` go to the provider that made the dump, with its
+snapshot and the node's object path. The password-field rule is applied in
+Python, before the helper is asked.
 
-İlk iki explicit yol geçersizse daha düşük öncelikli bir binary'ye sessizce
-düşülmez; `NATIVE_NOT_FOUND` döner. Helper çalışma anında indirilmez, derlenmez
-ve `PATH` içinde aranmaz. Task 4.3'ten beri `[native].capture = "auto"`
-varsayılandır: helper bulunur ve `capture.monitor` destekleniyorsa native yol,
-değilse `system_capabilities`'te görünür bir `degraded` gerekçesiyle Python
-yolu. `[desktop] capture_backend = "gnome-screenshot"` açıkça seçilmişse `auto`
-o seçimi korur ve Python yolunda kalır. `rust` seçimi düşmez, hata verir.
+The reader, writer and stderr-drain threads are separate. Request ids are
+never reused, even across restarts, and answers are matched by id. At most 16
+requests may be pending; the next one gets `BUSY`. A request that cannot be
+framed locally returns `INVALID_FRAME` without stopping a healthy helper.
 
-Task 5.2'de `[native].input` seçimi eklenmiştir. Task 5.3'te `rust` seçimi
-klavye ve pointer çağrılarını helper'a yollar, Task 5.4'te pano da oraya
-taşındı. Gate 5'ten beri (2026-09-19) varsayılan `auto`: helper varsa native,
-yoksa görünür bir `degraded` gerekçesiyle Python yolu. `rust` seçiminde helper
-yoksa ya da `/dev/uinput` açılamıyorsa sessiz fallback yapılmaz.
+Every field of the `initialize` result is validated before the helper is
+declared usable. A major/minor mismatch is `PROTOCOL_MISMATCH`, a broken
+envelope or handshake `INVALID_FRAME`, EOF or an unexpected exit
+`NATIVE_CRASHED`. Losing the process completes every pending request of that
+generation; nothing is replayed on a new process. A new request may start a
+new helper; a helper found dead is removed from the process registry at once.
 
-Task 6.2'de `[native].accessibility` seçimi eklendi. Task 6.3'ten beri
-(2026-09-19) varsayılan `auto`; `rust` ve `python` aynı kurallarla çalışır.
-`doctor.sh` seçimi gösterir. Seçim `auto` ya da `rust` iken helper
-`accessibility.read` ya da `accessibility.action` sunmuyorsa uyarır; `rust`'ta
-bu hatadır. Native okuyucu bir izne
-bağlı helper'dan okur. İzin yokken (`screen_info` pencere listesini
-`desktop_unlock`'tan önce okur) pencere listesi ve odaktaki pencere Python
-yardımcısından gelir: helper izin olmadan yaşamaz. Kısa kimlikler ve son döküm
-kaydı iki okuyucuda da Python'da, `uitree`'de üretilir. Task 6.3'ten beri
-`ui_click` ve `ui_set_text` dökümü yapan sağlayıcıdan gider: native seçimde
-native helper'a, dökümün snapshot'ı ve düğümün nesne yoluyla. Parola alanı
-kuralı iki seçimde de Python'da, helper'a hiç sorulmadan uygulanır.
+When a deadline passes, the pending request is removed atomically and a
+best-effort `cancel` is sent. `close()` tries a framed `shutdown`, then after
+two seconds terminates and kills, and always reaps the child. Job children
+do not inherit the helper's pipe descriptors.
 
-Supervisor'ın reader, writer ve stderr drainer thread'leri birbirinden
-ayrıdır. Request ID'leri process yeniden başlasa bile tekrar kullanılmaz ve
-response'lar geliş sırasına göre değil ID ile eşleştirilir. Aynı anda en fazla
-16 request bekleyebilir; sınırdaki yeni request `BUSY` döner. Yerel olarak
-frame'e dönüştürülemeyen bir request `INVALID_FRAME` döndürür fakat sağlıklı
-helper process'ini kapatmaz.
+The helper receives only the environment variables a graphical session
+needs; names containing `PASSWORD`, `TOKEN`, `SECRET` or `API_KEY` are
+blocked. Its stderr is drained continuously, never written to stdout or an
+MCP answer, and only the last 64 KiB are kept in memory.
 
-`initialize` sonucundaki `instance_id`, `native_version`, `platform` ve
-`features` alanlarının tamamı kullanılabilirlik ilanından önce doğrulanır.
-Major/minor uyuşmazlığı `PROTOCOL_MISMATCH`, bozuk envelope veya handshake
-`INVALID_FRAME`, EOF ve beklenmeyen process çıkışı `NATIVE_CRASHED` olur.
-Process kaybı o nesilde bekleyen bütün request'leri tamamlar; hiçbir request
-yeni process üzerinde otomatik olarak yeniden oynatılmaz. Sonraki yeni request
-helper'ı yeniden başlatabilir.
+## Grant, revoke and the process registry
 
-Deadline dolunca bekleyen request tablodan atomik olarak çıkarılır ve
-best-effort `cancel` gönderilir. `close()` önce framed `shutdown` dener; iki
-saniyelik sınırın ardından sırasıyla terminate ve kill uygular, her durumda
-child process'i toplar. Job child process'leri native pipe descriptor'larını
-miras alamaz.
+`state_dir/desktop_unlock.json` keeps the backward-compatible fields `until`,
+`hard_until`, `reason`, `granted`, `granted_by`; new grants also carry
+`schema_version: 1`, a random `grant_id` and a monotonic `revoke_epoch`.
+Python reads old, `until`-only grants; the helper binds only to a new-format,
+active grant that has not passed its hard ceiling.
 
-Helper'a yalnızca grafik oturum için gereken izinli ortam değişkenleri
-aktarılır; adında `PASSWORD`, `TOKEN`, `SECRET` veya `API_KEY` bulunan değerler
-engellenir. stderr sürekli boşaltılır fakat stdout'a ya da MCP yanıtına
-yazılmaz; bellekte yalnızca son 64 KiB tutulur.
+Read-modify-write on the grant takes a Unix advisory lock on the separate,
+fixed `desktop_unlock.lock`. JSON is written to a 0600 temporary file in the
+same directory, `fsync`ed and atomically renamed. The state directory is
+0700, state and lock files 0600. `desktop_lock` first increments the epoch
+and zeroes `until` and `hard_until`; cleanup starts after that visible
+revoke. An old heartbeat cannot extend a new grant, because its grant id and
+epoch no longer match.
 
-## Grant, revoke ve process registry
+The helper binds once. Every protected dispatch revalidates the file, and a
+100 ms lease watchdog closes open native resources fail-closed on a grant
+change, revoke, expiry, or a missing or corrupt file. The watchdog runs on
+its own thread, apart from the D-Bus observations, so a hung session service
+cannot delay a revoke. The native protocol has no method to create or extend
+a grant.
 
-`state_dir/desktop_unlock.json` geriye uyumlu alanları korur:
-`until`, `hard_until`, `reason`, `granted` ve `granted_by`. Yeni yazılan grant
-ayrıca `schema_version: 1`, rastgele bir `grant_id` ve monoton
-`revoke_epoch` taşır. Python süreçleri eski, yalnızca `until` içeren grant'i
-okuyabilir; native helper yalnızca yeni biçimli, aktif ve sert tavanı geçmemiş
-grant'e bağlanabilir.
+## Desktop state and fail-closed rules
 
-Python read-modify-write işlemleri ayrı ve sabit `desktop_unlock.lock`
-üzerinde Unix advisory lock alır. JSON aynı dizindeki `0600` geçici dosyaya
-yazılıp `fsync` sonrasında atomik replace ile yayımlanır. State dizini `0700`,
-state ve lock dosyaları `0600` tutulur. `desktop_lock` önce epoch'u artırıp
-`until` ile `hard_until` alanlarını sıfırlar; kaynak cleanup'ı bu görünür revoke
-noktasından sonra başlar. Eski heartbeat, yakaladığı `grant_id` ve epoch artık
-eşleşmediği için yeni grant'i uzatamaz.
+The screen lock is a three-state observation (`known_locked`,
+`known_unlocked`, `unknown`), user activity `known` (with a non-negative
+`idle_ms`) or `unknown`; neither layer reduces them to booleans.
 
-Native helper initialize sırasında o anki grant kimliğine bir kez bağlanır.
-Her korumalı dispatch dosyayı yeniden doğrular; ayrıca 100 ms lease watchdog
-grant değişimi, revoke, expiry, eksik veya bozuk state halinde açık native
-kaynakları fail-closed kapatır. Lease watchdog, D-Bus gözleminden ayrı bir thread'de
-çalışır; takılan bir session servisi revoke süresini uzatamaz. Aynı helper daha
-sonra açılan grant'e bağlanmaz; yeni native session gerekir. Native protokolünde
-grant oluşturma veya uzatma metodu yoktur.
+- Locked: reads and writes fail with `SCREEN_LOCKED`.
+- Lock state unknown: reads and writes fail with `LOCK_STATE_UNKNOWN`.
+- Activity unknown: writes fail with `ACTIVITY_UNKNOWN`.
+- The user more active than the idle guard allows: writes fail with
+  `USER_ACTIVE`.
+- `force=true` skips only the activity check, never the lock, grant, revoke
+  or expiry checks.
+- Batches and tasks check activity once at the start; it is not reread inside
+  a running batch (uinput events reset the idle timer).
 
-## Desktop state ve fail-closed kuralları
+The native lock watcher listens to `org.gnome.ScreenSaver.ActiveChanged` and
+treats a lost connection as `unknown`; an active native resource closes on a
+locked or unknown observation. D-Bus method calls use finite timeouts.
 
-Ekran kilidi boolean değil, üç durumlu bir observation'dır:
-`known_locked`, `known_unlocked` veya `unknown`. Kullanıcı etkinliği de `known`
-ya da `unknown` durumunu ve yalnızca `known` iken negatif olmayan `idle_ms`
-değerini taşır. Python ve Rust katmanları bu durumları boolean'a indirgemez.
+Grant-bound resources register with `Lifecycle::register_fail_closed`, and
+the watchdog tells them to **close** on a revoke or lock edge. Notification is
+edge-triggered (a revoked grant does not wake them ten times a second), and
+whoever notices the revoke first on the request path owns the edge, so a
+close never runs twice. If a resource's lock is busy the watchdog does not
+wait; the operation in flight cancels itself at its next gate.
 
-- Ekran kilidi `known_locked` ise read ve write işlemleri `SCREEN_LOCKED` ile
-  reddedilir.
-- Ekran kilidi `unknown` ise read ve write işlemleri `LOCK_STATE_UNKNOWN` ile
-  reddedilir.
-- Etkinlik `unknown` ise write işlemi `ACTIVITY_UNKNOWN` ile reddedilir.
-- Kullanıcı idle guard eşiğinden daha etkinse write işlemi `USER_ACTIVE` ile
-  reddedilir.
-- `force=true` yalnızca etkinlik kontrolünü atlar; kilit, grant, revoke ve expiry
-  kontrollerini atlamaz.
-- Batch ve task akışı etkinliği başlangıçta bir kez kontrol eder. Devam eden bir
-  batch içinde etkinlik tekrar okunmaz.
+`desktop_unlock` does not need uinput to create a grant. If capture works but
+pointer or keyboard does not, the grant still opens; the structured result
+(type `pcbridge.desktop.grant`) carries the grant id, an authorization
+snapshot and a `capability_limitations` map, which neither hides the grant nor
+claims unusable input.
 
-Native lock watcher `org.gnome.ScreenSaver.ActiveChanged` sinyalini dinler ve
-bağlantı kaybını `unknown` kabul eder. Aktif native kaynak, kilitli veya bilinmeyen
-bir observation geldiğinde kapanır. D-Bus method çağrıları sonlu timeout kullanır.
+Every helper has a 0600 record under `runtime_dir/pcbridge/native/` (dirs
+0700) with its PID, process start id and instance id. Cleanup re-matches the
+PID and start id before sending a signal, so a reused PID is never signaled.
+The Python screen-sharing helper is still found by its exact executable path
+and UID (`kill_helpers()`).
 
-Kapanma artık bir bayrağı sıfırlamakla kalmıyor: grant'e bağlı kaynaklar
-`Lifecycle::register_fail_closed` ile kaydoluyor ve watchdog thread'i revoke ya
-da kilit kenarında onlara **kapan** diyor. Bildirim kenar tetiklemeli — revoke
-edilmiş bir grant kayıtlı kaynakları saniyede on kez uyandırmaz — ve istek
-yolunda revoke'u önce fark eden taraf kenarın sahibi olur, yani kapatma iki kez
-çalışmaz. Kaynağın kilidi meşgulse watchdog beklemez; uçuştaki işlem bir sonraki
-kapı noktasında kendini iptal eder.
+## Rolling back to the Python paths
 
-`desktop_unlock` grant oluşturmak için uinput desteği istemez. Ekran capture
-kullanılabilir, pointer veya keyboard kullanılamaz durumdaysa grant yine açılır;
-structured result `pcbridge.desktop.grant` tipini, grant kimliğini, authorization
-snapshot'ını ve `capability_limitations` haritasını döndürür. Bu sınırlamalar grant
-verildiğini gizlemez ve kullanılamayan girdiyi destekleniyor gibi ilan etmez.
+Set `capture`, `input` or `accessibility` under `[native]` to `"python"`, then
+`pcbridge lock` and `pcbridge update` (the daemon restarts when idle). Do not
+restore an old active grant; the agent opens a new one with
+`desktop_unlock`.
 
-Her helper `runtime_dir/pcbridge/native/` altında `0600` bir kayıt taşır;
-dizinler `0700` olur. Kayıt PID, process başlangıç kimliği ve native instance ID
-içerir. Cleanup sinyal göndermeden önce PID ile başlangıç kimliğini yeniden
-eşleştirir; yeniden kullanılmış PID'ye sinyal göndermez. Geçiş süresince Python
-screencast için exact executable path ve aynı UID kullanan legacy
-`kill_helpers()` ayrıca korunur.
+## Exit and logging rules
 
-### Native yola geçiş runbook'u
-
-Task 4.3 varsayılanı `auto` yaptı, yani `[native]` bölümü olmayan bir kurulum
-**bir sonraki başlatmada** native yola geçer; ayrıca bir seçim yapılması
-gerekmez. Çalışan süreçler kendiliğinden geçmez. Güncellemeden sonraki ilk
-yeniden başlatmada (ya da `rust`/`auto` elle seçildiğinde):
-
-1. `./.venv/bin/python -m pcbridge.cli.lock` çalıştırarak grant'i revoke edin.
-2. MCP istemcisinin açtığı eski `python -m pcbridge.server --stdio`
-   process'lerini istemciyi kapatarak sonlandırın; yalnızca systemd servisini
-   durdurmanın stdio process'lerini durdurmadığını varsayın.
-3. `systemctl --user stop pcbridge` ile service process'ini ve cgroup'undaki
-   işleri kapatın.
-4. Eski helper kayıtlarını inceleyin; yalnızca PID ile process başlangıç
-   kimliği eşleşen kayıtların kapanmış olduğunu doğrulayın.
-5. Native seçimini yaptıktan sonra yeni service ve yeni stdio process'lerini
-   başlatın. Eski aktif grant'i geri yüklemeyin; gerekirse yeni
-   `desktop_unlock` çağrısı oluşturun.
-
-Rollback sırası da revoke → native helper'ları kapat →
-`[native] capture = "python"` → yeni process'leri başlat şeklindedir.
-
-## Çıkış ve log kuralları
-
-- Temiz EOF, `shutdown` ve uyumsuz major sürüm bağlantıyı kaynak bırakmadan
-  kapatır.
-- stdout'ta log, banner veya panic metni bulunmaz.
-- stderr'e frame içeriği, binary payload, path parametreleri veya başka özel
-  veri yazılmaz.
-- Executable `config.toml` okumaz ve parola ya da token almaz.
+- A clean EOF, `shutdown` and an incompatible major version close the
+  connection without leaking resources.
+- stdout never carries logs, banners or panic text.
+- stderr never carries frame contents, payloads, path parameters or other
+  private data.
+- The helper never reads `config.toml` and never receives a password or
+  token.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A shot coordinate is refused once the display layout it was taken under changed.
 
-`PLAN.md` Task 5.3, item 7. A shot record keeps the offset and scale of its
+`PLAN.md` (1.x, in git history) Task 5.3, item 7. A shot record keeps the offset and scale of its
 monitor at capture time, and `capture.to_global()` turns an image pixel into a
 global point with them. If a monitor is added, removed, moved or resized
 between the capture and the click, the same offset lands on another screen and
