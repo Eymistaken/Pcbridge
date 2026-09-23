@@ -63,6 +63,30 @@ TWO_SCREENS = [
     M.Monitor(0, "DP-1", 1920, 0, 1920, 1080, 1.0, True),
     M.Monitor(0, "DP-2", 0, 0, 1920, 1080, 1.0, False),
 ]
+# Non-live runs must not read the machine they run on: CI has no GNOME
+# session, and a result that depends on the desk it ran at is not a test.
+# The live sections (PCBRIDGE_TEST_*=1) keep the real probes.
+LIVE_FLAGS = ("PCBRIDGE_TEST_CAPTURE", "PCBRIDGE_TEST_INPUT", "PCBRIDGE_TEST_ATSPI",
+              "PCBRIDGE_TEST_BATCH")
+if not any(os.environ.get(flag) == "1" for flag in LIVE_FLAGS):
+    S.screen_locked = lambda: False          # an unlocked session
+    S.idle_ms = lambda: 600_000               # the user away for ten minutes
+    _FIXED_SCREENS = M._ordered(list(TWO_SCREENS))
+    M.list_monitors = lambda use_cache=True: _FIXED_SCREENS
+    # The CLI tests (pcb-do, pcb-shot) run real subprocesses. Give them a
+    # throwaway config with a fresh state directory and NO grant: before,
+    # they read this machine's config, so a grant opened at the desk while
+    # the suite ran would have let pcb-do act for real.
+    _HERMETIC = Path(tempfile.mkdtemp(prefix="pcb-desktop-tests-"))
+    (_HERMETIC / "config.toml").write_text(
+        'config_version = 2\npublic_url = "http://localhost:8765"\n'
+        'default_agent = "claude"\n[auth]\npassword = "desktop-test-password"\n'
+        f'[paths]\nstate_dir = "{_HERMETIC / "state"}"\n'
+        '[desktop]\nenabled = true\n[agents.claude]\ncommand = ["true"]\n'
+    )
+    (_HERMETIC / "config.toml").chmod(0o600)
+    os.environ["PCBRIDGE_CONFIG"] = str(_HERMETIC / "config.toml")
+
 # Ucuncu bir kurulum: dikey yerlesim + kesirli olcek (ordered() bozulmasin)
 ODD_SCREENS = [
     M.Monitor(0, "HDMI-1", 2560, 0, 1280, 1024, 1.0, False),
@@ -2250,7 +2274,9 @@ def test_cli_gate() -> None:
     # geldigi ve TASK_FORCE ile DEGISMEDIGI.
     code, _, err = _run_cli("pcbridge.cli.do", ['[{"a":"key","keys":"Escape"}]'])
     check("izinsiz -> cikis 3", code == C.EXIT_DENIED, f"kod={code}")
-    check("gerekce masaustu kapisindan", "Desktop control" in err, err[:100])
+    # Without a session (CI) the gate stops at the screen lock, one step earlier.
+    check("gerekce masaustu kapisindan",
+          "Desktop control" in err or "screen lock state" in err, err[:100])
 
     # PCBRIDGE_TASK_FORCE YALNIZCA bosta kontrolunu atlatir. Ekran kilidi,
     # kapali masaustu ve izin penceresi gibi sert reddedislere etkisi

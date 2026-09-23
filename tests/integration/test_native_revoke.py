@@ -64,6 +64,12 @@ class NativeRevokeIntegrationTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         if not (ROOT / "rust" / "Cargo.toml").is_file():
             raise unittest.SkipTest("builds the native test harness; needs the rust/ workspace of a git checkout")
+        # The helper validates every grant against the REAL screen lock.
+        # Without a readable, unlocked session (CI) it rightly refuses.
+        from pcbridge.desktop.safety import ScreenLockState, observe_screen_lock
+
+        if observe_screen_lock().state != ScreenLockState.KNOWN_UNLOCKED:
+            raise unittest.SkipTest("needs an unlocked desktop session: the helper checks the real screen lock")
         completed = subprocess.run(
             [
                 "cargo",

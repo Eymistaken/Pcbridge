@@ -103,7 +103,20 @@ def main(argv: list[str] | None = None) -> int:
         fail("no action given. For an example: pcb-do --help",
              EXIT_BAD_INPUT, args.json)
 
-    cfg = load()
+    # A dry run only checks the syntax, so it works without a config file
+    # (an agent can validate its JSON before pcbridge is set up).
+    if args.dry_run:
+        from ..config import ConfigError, DesktopSpec
+
+        try:
+            desk = load().desktop
+        except (ConfigError, SystemExit):
+            desk = DesktopSpec()
+        cfg = None
+    else:
+        cfg = load()
+        desk = cfg.desktop
+    max_actions = desk.batch_max_actions
 
     from ..desktop import batch as batchlib
     from ..desktop import ops as opslib
@@ -112,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     # Ayristirma KAPIDAN ONCE: yalnizca sozdizimi, hicbir yan etkisi yok.
     # Bozuk bir liste "izin yok" degil "bozuk JSON" cevabi almali.
     try:
-        plan = batchlib.parse(text, max_actions=cfg.desktop.batch_max_actions)
+        plan = batchlib.parse(text, max_actions=max_actions)
     except batchlib.BatchError as exc:
         fail(str(exc), EXIT_BAD_INPUT, args.json)
     except DesktopError as exc:
@@ -152,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         estimate = batchlib.estimate(plan, fast_focus=fast_focus)
         lines.append(f"estimated time: {estimate:.1f} s")
-        budget = float(cfg.desktop.batch_budget_seconds)
+        budget = float(desk.batch_budget_seconds)
         if estimate > budget:
             # Gercek kosuda `batch.run` bu listeyi hic baslatmadan reddeder.
             lines.append(
