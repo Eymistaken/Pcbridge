@@ -454,10 +454,14 @@ def main(argv: list[str] | None = None, bind_socket: bool = True) -> int:
     args = build_parser().parse_args(argv)
     if args.no_socket:
         bind_socket = False
+    from .config import ConfigError, exit_on_config_error
+
     try:
         return anyio.run(_serve, args, bind_socket)
     except KeyboardInterrupt:
         return 0
+    except ConfigError as exc:
+        return exit_on_config_error(exc)
 
 
 if __name__ == "__main__":

@@ -49,7 +49,7 @@ def _tolerate_late_response_after_cancel() -> None:
 _tolerate_late_response_after_cancel()
 from .auth import SqliteOAuthProvider, make_consent_routes
 from .desktop import session as sessionlib
-from .config import Config, load_config
+from .config import Config, ConfigError, exit_on_config_error, load_config
 from .jobs import JobManager
 from .shots import ShotStore
 
@@ -484,7 +484,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    cfg = load_config(args.config)
+    try:
+        cfg = load_config(args.config)
+    except ConfigError as exc:
+        return exit_on_config_error(exc)
     for warning in cfg.warnings:
         log.warning("config: %s", warning)
     transport = "stdio" if args.stdio else "http"

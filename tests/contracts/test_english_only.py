@@ -35,7 +35,11 @@ eylemi eylemler tusu dugme dugmesi imlec imleci klavye pano metin yazildi
 karakter oturum oturumu ajani ajanin istegi cagri cagriyi uygulama uygulamasi
 uygulamanin kimlik kimligi listesi olabilir degismis duzeni bos dondu istenen
 lutfen yeniden gerekiyor reddedildi kilitli goruntusundeki baglantilari
-yuklenemedi asimina ugradi sinirina ulasti kapatiliyor""".split()
+yuklenemedi asimina ugradi sinirina ulasti kapatiliyor uyumsuz surumu
+islenemedi dondurdu masaustune baglanilamadi protokolunu denetleyin goreli
+gonderilen iyilestirme degistirdi denetimi calismadi dugumu gelmedi
+kurulamadi yakalanamadi varsayilani baslatilamadi ajan olusturuldu baslatmak
+hazirlanamadi""".split()
 WORD_RX = re.compile(r"(?<![A-Za-z_])(" + "|".join(WORDS) + r")(?![A-Za-z_])", re.I)
 LETTER_RX = re.compile(r"[çğıöşüÇĞİÖŞÜ]")
 
@@ -99,7 +103,9 @@ def _literal_hits(path: Path, rx: re.Pattern[str], text: str | None = None) -> l
     hits = []
     for n, line in enumerate(_strip_c_comments(text).splitlines(), 1):
         for m in rx.finditer(line):
-            if _is_turkish(m.group(0)) and not _allowed(rel, m.group(0)):
+            # `${name}` in a template literal is code, not text.
+            literal = re.sub(r"\$\{[^}]*\}", "", m.group(0))
+            if _is_turkish(literal) and not _allowed(rel, literal):
                 hits.append(f"{rel}:{n}: {m.group(0)[:100]}")
     return hits
 

@@ -890,7 +890,7 @@ def launch_application(
     """
     if target.entry is None:
         raise _not_an_app(target)
-    _check_time(deadline, LAUNCH_COST, f"{target.entry.name} baslatmak")
+    _check_time(deadline, LAUNCH_COST, f"Starting {target.entry.name}")
     started = time.monotonic()
     _gtk_launch(target.entry, timeout)
     seen = _watch(target, focused, windows, _until(deadline))

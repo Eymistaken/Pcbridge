@@ -225,7 +225,7 @@ def _desktop():
         Atspi.init()
         return Atspi.get_desktop(0)
     except Exception as exc:
-        _fail(f"AT-SPI masaustune baglanilamadi: {exc}")
+        _fail(f"Cannot connect to the AT-SPI desktop: {exc}")
 
 
 def _children(node) -> list:

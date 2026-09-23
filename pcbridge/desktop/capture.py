@@ -945,7 +945,7 @@ def enhanced_png(path: Path) -> tuple[bytes, dict]:
         size = img.size
         out, stats = enhance_image(img)
     if out.size != size:  # pragma: no cover - `point` boyutu degistirmez
-        raise CaptureError("iyilestirme goruntunun boyutunu degistirdi")
+        raise CaptureError("the enhancement changed the picture size")
     buffer = io.BytesIO()
     out.save(buffer, format="PNG")
     return buffer.getvalue(), stats

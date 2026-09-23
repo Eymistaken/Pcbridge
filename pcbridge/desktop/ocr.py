@@ -133,7 +133,7 @@ def available(langs: str) -> tuple[bool, str]:
             [binary, "--list-langs"], capture_output=True, text=True, timeout=10
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return False, f"`{ENGINE} --list-langs` calismadi: {exc}"
+        return False, f"`{ENGINE} --list-langs` did not run: {exc}"
     have = {line.strip() for line in (proc.stdout + proc.stderr).splitlines()}
     missing = [lang for lang in langs.split("+") if lang not in have]
     if missing:

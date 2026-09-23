@@ -3035,7 +3035,7 @@ def register(
                 description="What should end up being true on screen, in plain "
                 "language. Be specific about the target: which app, which "
                 "conversation, which file. Example: 'In Vesktop, open the DM "
-                "with oneaura and send: hello'."
+                "with alex and send: hello'."
             ),
         ],
         app: Annotated[
@@ -3157,7 +3157,7 @@ def register(
                            error=str(exc)[:160])
                 return _exception_result(
                     exc,
-                    text=f"⛔ `{app}` hazirlanamadi: {exc}",
+                    text=f"⛔ `{app}` could not be prepared: {exc}",
                     category=ErrorCategory.EXECUTION,
                     scope="os.window",
                     backend_name="desktop.window",

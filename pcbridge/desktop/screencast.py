@@ -89,7 +89,7 @@ def available() -> tuple[bool, str]:
             capture_output=True, text=True, timeout=15, check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return False, f"GStreamer denetimi calismadi: {exc}"
+        return False, f"The GStreamer check did not run: {exc}"
     if proc.returncode != 0:
         return False, (
             "GStreamer PipeWire support is missing "

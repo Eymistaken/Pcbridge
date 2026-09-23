@@ -780,7 +780,7 @@ def main() -> int:
     check("shell_run calisti", "merhaba-dunya" in out, out[:300])
 
     out = call("fs_write", {"path": "/tmp/pcb/work/deneme.txt", "content": "satir1\nsatir2\n"})
-    check("fs_write calisti", "Yazildi" in out, out[:200])
+    check("fs_write calisti", "Written:" in out, out[:200])
     out = call("fs_read", {"path": "/tmp/pcb/work/deneme.txt"})
     check("fs_read calisti", "satir2" in out, out[:200])
     out = call("fs_list", {"path": "/tmp/pcb/work"})
@@ -790,12 +790,12 @@ def main() -> int:
 
     out = call("list_agents", {})
     check("list_agents calisti", "claude" in out, out[:300])
-    check("list_agents model tablosu gosteriyor", "modeller:" in out, out[:600])
-    check("list_agents varsayilani gosteriyor", "varsayilan:" in out, out[:600])
+    check("list_agents model tablosu gosteriyor", "models:" in out, out[:600])
+    check("list_agents varsayilani gosteriyor", "default:" in out, out[:600])
 
     out = call("system_status", {})
-    check("system_status calisti", "Bilgisayar durumu" in out, out[:300])
-    check("system_status masaustu satirini gosteriyor", "asaustu" in out, out[:2000])
+    check("system_status calisti", "Computer status" in out, out[:300])
+    check("system_status masaustu satirini gosteriyor", "**Desktop:**" in out, out[:2000])
 
     # Masaustu araclari: HICBIRI girdi gondermemeli. Kontroller
     # `[desktop] enabled`in IKI DEGERINDE DE gecerli olacak sekilde yazildi --
@@ -829,7 +829,7 @@ def main() -> int:
         check("desktop_unlock kapaliyken reddediyor", "⛔" in out, out[:200])
 
     out = call("desktop_lock", {})
-    check("desktop_lock her durumda cevap veriyor", "kontrolu" in out, out[:200])
+    check("desktop_lock her durumda cevap veriyor", "Desktop control" in out, out[:200])
     # Ekran goruntusu de ayni kapidan geciyor: izin yokken EKRAN OKUNMAMALI.
     out = call("screen_capture", {})
     check("screen_capture izinsiz reddediyor", "⛔" in out, out[:200])
@@ -842,7 +842,7 @@ def main() -> int:
     # screen_info izin kapisindan gecmez (yalnizca donanim duzeni) ama
     # calismali ve koordinat sozlesmesini soylemeli.
     out = call("screen_info", {})
-    check("screen_info kapaliyken de calisiyor", "tuval:" in out, out[:200])
+    check("screen_info kapaliyken de calisiyor", "canvas:" in out, out[:200])
     check("screen_info koordinat sozlesmesini soyluyor", "global" in out, out[:300])
     # Erisilebilirlik araclari da ayni kapidan geciyor: izin yokken EKRAN
     # ICERIGI (etiketler, metin kutulari) okunmamali.
@@ -911,7 +911,7 @@ def main() -> int:
     # yeniden kuruyor -- gerekcesi `tests/fake_agents/claude`). Kapsam bu yuzden
     # `test_models.py` 11. bolume tasindi; burada FAIL saymak yaniltici olurdu.
     if "sess-abc-123" in out:
-        check("adimlar ayristirildi", "arac: Bash" in out, out[:600])
+        check("adimlar ayristirildi", "tool: Bash" in out, out[:600])
         check("oturum kimligi cikarildi", "sess-abc-123" in out, out[:600])
         check("sonuc metni var", "Istek tamamlandi: merhaba testi" in out, out[:600])
         check("maliyet gosterildi", "0.0123" in out, out[:800])
@@ -957,14 +957,14 @@ def main() -> int:
 
     section("14. tmux canli oturum")
     out = call("tmux_start", {"session": "pcbtest", "workdir": "/tmp/pcb/work"})
-    check("tmux oturumu acildi", "olusturuldu" in out or "zaten acik" in out, out[:300])
+    check("tmux oturumu acildi", "created" in out or "already open" in out, out[:300])
     out = call("tmux_send", {"session": "pcbtest", "text": "echo tmux-calisiyor",
                              "capture_after_seconds": 3})
     check("tmux_send ekrani okudu", "tmux-calisiyor" in out, out[:400])
     out = call("tmux_list", {})
     check("tmux_list gosteriyor", "pcbtest" in out, out[:300])
     out = call("tmux_kill", {"session": "pcbtest"})
-    check("tmux oturumu kapatildi", "kapatildi" in out, out[:200])
+    check("tmux oturumu kapatildi", "closed" in out, out[:200])
 
     section("15. Statik token ve refresh token")
     if STATIC:

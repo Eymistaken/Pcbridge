@@ -300,13 +300,13 @@ class NativeClient:
         except (FileNotFoundError, PermissionError) as error:
             raise _desktop_error(
                 ErrorCode.NATIVE_NOT_FOUND,
-                f"Native helper baslatilamadi: {self.binary}",
+                f"Cannot start the native helper: {self.binary}",
                 suggested_action="configure_native_binary",
             ) from error
         except OSError as error:
             raise _desktop_error(
                 ErrorCode.BACKEND_UNAVAILABLE,
-                "Native helper process'i baslatilamadi.",
+                "The native helper process could not be started.",
                 retryable=True,
                 suggested_action="inspect_native_runtime",
             ) from error
@@ -587,7 +587,7 @@ class NativeClient:
         except NativeProtocolMismatch:
             failure = _desktop_error(
                 ErrorCode.PROTOCOL_MISMATCH,
-                "Native helper uyumsuz protocol surumu dondurdu.",
+                "The native helper answered with an incompatible protocol version.",
                 suggested_action="install_matching_native_binary",
             )
         except NativeFrameError:
@@ -606,7 +606,7 @@ class NativeClient:
         except Exception:
             failure = _desktop_error(
                 ErrorCode.INVALID_FRAME,
-                "Native helper response'u islenemedi.",
+                "The native helper's response could not be processed.",
                 suggested_action="check_native_protocol",
             )
         self._fail_generation(process, generation, failure)
@@ -714,6 +714,15 @@ class NativeClient:
             writer_queue = self._writer_queue
             pending = list(self._pending.values())
             self._pending.clear()
+            # A helper that is already gone leaves the registry now, not at
+            # the next call: `doctor` and `desktop_lock` read that list, and a
+            # dead entry there would outlive the process for as long as no
+            # one asks for a new one (Step 8 of 2.0).
+            dead_entry = None
+            if process.poll() is not None:
+                dead_entry, self._registry_entry = self._registry_entry, None
+        if dead_entry is not None:
+            self._registry.unregister(dead_entry)
         if writer_queue is not None:
             try:
                 writer_queue.put_nowait(None)

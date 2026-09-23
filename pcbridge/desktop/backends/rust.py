@@ -785,7 +785,7 @@ class RustInputProvider(PythonInputProvider):
                 message="Native input returned an invalid answer.",
                 category=ErrorCategory.IPC,
                 retryable=False,
-                suggested_action="Native input protokolunu denetleyin.",
+                suggested_action="Check the native input protocol.",
                 backend="pcbridge-native",
             )
         return result
@@ -922,7 +922,7 @@ class RustInputProvider(PythonInputProvider):
                 message="The native pointer returned an invalid position.",
                 category=ErrorCategory.IPC,
                 retryable=False,
-                suggested_action="Native pointer protokolunu denetleyin.",
+                suggested_action="Check the native pointer protocol.",
                 backend="pcbridge-native",
             )
         return int(position[0]), int(position[1])
@@ -979,7 +979,7 @@ class RustInputProvider(PythonInputProvider):
                 message="The native pointer move returned no position.",
                 category=ErrorCategory.IPC,
                 retryable=False,
-                suggested_action="Native pointer protokolunu denetleyin.",
+                suggested_action="Check the native pointer protocol.",
                 backend="pcbridge-native",
             )
         return position
@@ -995,10 +995,10 @@ class RustInputProvider(PythonInputProvider):
         if not isinstance(sent, (list, tuple)) or len(sent) != 2:
             raise DesktopError(
                 code=ErrorCode.INVALID_FRAME,
-                message="Native goreli hareket gonderilen deltayi dondurmedi.",
+                message="The native relative move did not return the delta it sent.",
                 category=ErrorCategory.IPC,
                 retryable=False,
-                suggested_action="Native pointer protokolunu denetleyin.",
+                suggested_action="Check the native pointer protocol.",
                 backend="pcbridge-native",
             )
         return int(sent[0]), int(sent[1])

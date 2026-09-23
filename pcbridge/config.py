@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import sys
 import tomllib
 
 from . import paths as pathslib
@@ -693,7 +694,39 @@ def _check_computer_task(
             )
 
 
+# sysexits.h EX_CONFIG. The service unit does not restart on it: a broken file
+# stays broken until someone edits it, so retrying every second only floods
+# the journal (Step 8 of 2.0).
+EX_CONFIG = 78
+
+
+class ConfigError(SystemExit):
+    """The config cannot be used; `message` says what to fix, in English."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
 def load_config(explicit: str | None = None) -> Config:
+    """Load and check the config, or raise `ConfigError` with the fix."""
+    try:
+        return _load_config(explicit)
+    except ConfigError:
+        raise
+    except SystemExit as exc:
+        if isinstance(exc.code, str):
+            raise ConfigError(exc.code) from None
+        raise
+
+
+def exit_on_config_error(exc: ConfigError) -> int:
+    """Print the reason once, on stderr (the journal), and return EX_CONFIG."""
+    print(f"pcbridge: configuration error: {exc.message}", file=sys.stderr, flush=True)
+    return EX_CONFIG
+
+
+def _load_config(explicit: str | None = None) -> Config:
     path, source_kind = locate_config(explicit)
     try:
         with path.open("rb") as fh:

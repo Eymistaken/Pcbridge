@@ -57,9 +57,9 @@ class Resolution:
         return self.error is None
 
     def headline(self) -> str:
-        """Is ozetinin ilk satiri: `ajan: claude · model: opus · effort: high`."""
-        parts = [f"ajan: {self.agent}"]
-        parts.append(f"model: {self.model}" if self.model else "model: (CLI varsayilani)")
+        """First line of a job summary: `agent: claude · model: opus · effort: high`."""
+        parts = [f"agent: {self.agent}"]
+        parts.append(f"model: {self.model}" if self.model else "model: (CLI default)")
         if self.effort:
             parts.append(f"effort: {self.effort}")
         return " · ".join(parts)

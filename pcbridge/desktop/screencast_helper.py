@@ -147,7 +147,7 @@ class ScreenCastHelper:
         if pending:
             eksik = sorted(pending.values())
             self.stop()
-            raise HelperError(f"PipeWire dugumu gelmedi: {', '.join(eksik)}")
+            raise HelperError(f"No PipeWire node arrived for: {', '.join(eksik)}")
 
         self.started_at = time.time()
         return {"ok": True, "monitors": sorted(self.nodes),
@@ -206,7 +206,7 @@ class ScreenCastHelper:
             pipeline.add(el)
         for a, b in zip(sira, sira[1:]):
             if not a.link(b):
-                raise HelperError(f"GStreamer baglantisi kurulamadi: {a.name} -> {b.name}")
+                raise HelperError(f"Cannot link GStreamer elements: {a.name} -> {b.name}")
         return pipeline
 
     def capture(self, monitor: str, path: str) -> dict:
@@ -234,7 +234,7 @@ class ScreenCastHelper:
             )
         if msg.type == Gst.MessageType.ERROR:
             err, _ = msg.parse_error()
-            raise HelperError(f"kare yakalanamadi: {err.message}")
+            raise HelperError(f"Cannot capture a frame: {err.message}")
 
         return {"ok": True, "path": path, "monitor": monitor,
                 "ms": round((time.perf_counter() - t0) * 1000)}

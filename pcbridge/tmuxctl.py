@@ -103,7 +103,7 @@ def start(session: str, command: str | None, cwd: str) -> str:
         _run(["set-option", "-t", session, "history-limit", "50000"])
     except TmuxError:
         pass
-    return f"'{session}' olusturuldu"
+    return f"'{session}' created"
 
 
 def send_text(

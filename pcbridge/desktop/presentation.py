@@ -52,7 +52,7 @@ def shot_image(shot: Any, enhance: bool = False) -> ImageContent:
         except (OSError, capturelib.CaptureError) as exc:
             raise _undelivered(label, f"iyilestirilemedi ({exc})") from exc
         if struct.unpack(">II", data[16:24]) != expected:
-            raise _undelivered(label, "iyilestirme boyutu degistirdi")
+            raise _undelivered(label, "the enhancement changed the size")
     return ImageContent(
         type="image",
         data=base64.b64encode(data).decode("ascii"),
