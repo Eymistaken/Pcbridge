@@ -31,7 +31,7 @@ pub const TOPOLOGY_VERSION: &str = "v1";
 /// their mirrored twins.
 const SWAPS_AXES: [u32; 4] = [1, 3, 5, 7];
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct DisplayMode {
     pub width: u32,
     pub height: u32,
@@ -39,7 +39,7 @@ pub struct DisplayMode {
     pub is_current: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct PhysicalMonitor {
     pub connector: String,
     #[serde(default)]
@@ -54,7 +54,7 @@ pub struct PhysicalMonitor {
     pub modes: Vec<DisplayMode>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct LogicalMonitor {
     pub x: i32,
     pub y: i32,
@@ -82,7 +82,7 @@ pub enum LayoutMode {
 }
 
 /// The meaning of a `GetCurrentState` reply, free of its wire encoding.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct DisplayState {
     #[serde(default)]
     pub layout_mode: LayoutMode,

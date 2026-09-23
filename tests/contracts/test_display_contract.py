@@ -146,5 +146,48 @@ class ProviderSeamTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, ErrorCode.DISPLAY_MAPPING_UNKNOWN)
 
 
+
+KSCREEN = json.loads(
+    (ROOT / "tests" / "fixtures" / "native" / "kscreen_cases.json").read_text(encoding="utf-8")
+)
+
+
+class KScreenAdapterTests(unittest.TestCase):
+    """KDE Plasma: `kscreen-doctor -j` becomes the same neutral state."""
+
+    def test_every_case_maps_to_the_expected_state(self) -> None:
+        for case in KSCREEN["cases"]:
+            with self.subTest(case=case["name"]):
+                self.assertEqual(monitorslib._kscreen_state(case["kscreen"]), case["state"])
+
+    def test_the_vm_layout_resolves_like_kwin_places_the_pointer(self) -> None:
+        # Measured: two 1280x800 outputs side by side, a 2560x800 canvas.
+        mons = monitorslib.resolve_state(KSCREEN["cases"][0]["state"])
+        self.assertEqual(monitorslib.canvas_size(mons), (2560, 800))
+        self.assertEqual([m.connector for m in mons], ["Virtual-1", "Virtual-2"])
+        self.assertTrue(mons[0].primary)
+        # Scale 1.5 turned right: 800x1280 pixels become 533x853 canvas units.
+        rotated = monitorslib.resolve_state(KSCREEN["cases"][1]["state"])
+        self.assertEqual((rotated[1].width, rotated[1].height), (533, 853))
+
+    def test_an_unknown_rotation_is_refused_not_guessed(self) -> None:
+        bad = json.loads(json.dumps(KSCREEN["cases"][0]["kscreen"]))
+        bad["outputs"][0]["rotation"] = 3
+        with self.assertRaises(monitorslib.MonitorError):
+            monitorslib._kscreen_state(bad)
+
+    def test_plasma_reads_kscreen_and_gnome_reads_mutter(self) -> None:
+        from pcbridge.desktop import compositor
+
+        table = monitorslib.resolve_state(KSCREEN["cases"][0]["state"])
+        for kde, used in ((True, "_from_kscreen"), (False, "_from_mutter")):
+            with self.subTest(kde=kde), \
+                    mock.patch.object(compositor, "is_kde", return_value=kde), \
+                    mock.patch.object(monitorslib, "_from_kscreen", return_value=table) as ks, \
+                    mock.patch.object(monitorslib, "_from_mutter", return_value=table) as mu:
+                monitorslib.list_monitors(use_cache=False)
+            self.assertEqual((ks.called, mu.called), (used == "_from_kscreen", used == "_from_mutter"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

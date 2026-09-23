@@ -1,18 +1,22 @@
-//! Mutter `GetCurrentState` transport.
+//! Display table transports: Mutter `GetCurrentState` and KScreen.
 //!
 //! This module owns nothing but the wire: it asks `org.gnome.Mutter.DisplayConfig`
-//! for the current state, turns the reply into the neutral `DisplayState`, and
-//! hands it to `pcbridge_core::display::resolve`. Every rule -- which mode counts,
+//! (GNOME) or `kscreen-doctor -j` (KDE Plasma) for the current state, turns the
+//! reply into the neutral `DisplayState`, and hands it to
+//! `pcbridge_core::display::resolve`. Every rule -- which mode counts,
 //! when the axes swap, how the table is ordered, how the topology id is built --
 //! lives in core so that the Python host and this backend cannot drift apart.
 //!
-//! The cache is invalidated by Mutter's own `MonitorsChanged` signal rather than
-//! by a timer, so a monitor that is plugged in mid-session is picked up on the
-//! next snapshot instead of up to a cache lifetime later.
+//! On GNOME the cache is invalidated by Mutter's own `MonitorsChanged` signal
+//! rather than by a timer, so a monitor that is plugged in mid-session is picked
+//! up on the next snapshot instead of up to a cache lifetime later. KScreen has
+//! no such signal on this path; its table is kept for `KSCREEN_CACHE`, the same
+//! two seconds the Python host keeps it.
 
 use std::collections::HashMap;
+use std::process::Command;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_io::Timer;
 use futures_lite::{StreamExt, future};
@@ -20,9 +24,12 @@ use pcbridge_core::display::{
     DisplayError, DisplayState, LayoutMode, LogicalMonitor, Monitor, PhysicalMonitor,
 };
 use pcbridge_core::display::{DisplayMode, resolve, topology_id};
+use serde_json::Value;
 use zbus::proxy::SignalStream;
 use zbus::zvariant::OwnedValue;
 use zbus::{Connection, Proxy, connection::Builder};
+
+use super::desktop::DesktopKind;
 
 const DESTINATION: &str = "org.gnome.Mutter.DisplayConfig";
 const PATH: &str = "/org/gnome/Mutter/DisplayConfig";
@@ -30,6 +37,8 @@ const INTERFACE: &str = "org.gnome.Mutter.DisplayConfig";
 /// Same ceiling as the desktop-state observations: a hung compositor must not
 /// hold a protected request open.
 const METHOD_TIMEOUT: Duration = Duration::from_millis(200);
+/// How long a KScreen table is reused (`kscreen-doctor -j` takes 18-32 ms).
+const KSCREEN_CACHE: Duration = Duration::from_secs(2);
 
 type Props = HashMap<String, OwnedValue>;
 /// `(id, width, height, refresh, preferred_scale, supported_scales, props)`
@@ -54,6 +63,8 @@ pub struct DisplaySnapshot {
 pub enum SnapshotError {
     #[error("display config unavailable: {0}")]
     Transport(#[from] zbus::Error),
+    #[error("KScreen unavailable: {0}")]
+    KScreen(String),
     #[error(transparent)]
     Mapping(#[from] DisplayError),
 }
@@ -134,41 +145,179 @@ fn to_state(wire: WireState) -> DisplayState {
     }
 }
 
-/// Reads the display table and keeps it fresh from `MonitorsChanged`.
+/// KScreen's rotation flag to Mutter's transform code (the neutral state's).
+fn kscreen_transform(rotation: u64) -> Option<u32> {
+    match rotation {
+        1 => Some(0),
+        2 => Some(1),
+        4 => Some(2),
+        8 => Some(3),
+        16 => Some(4),
+        32 => Some(5),
+        64 => Some(6),
+        128 => Some(7),
+        _ => None,
+    }
+}
+
+fn json_u32(value: &Value) -> u32 {
+    value
+        .as_u64()
+        .and_then(|number| u32::try_from(number).ok())
+        .unwrap_or(0)
+}
+
+fn json_i32(value: &Value) -> i32 {
+    value
+        .as_i64()
+        .and_then(|number| i32::try_from(number).ok())
+        .unwrap_or(0)
+}
+
+/// `kscreen-doctor -j` to the neutral state; `monitors._kscreen_state` in
+/// Python does the same and `kscreen_cases.json` pins both. No rules here.
+pub fn kscreen_state(data: &Value) -> Result<DisplayState, String> {
+    let mut physical = Vec::new();
+    let mut logical = Vec::new();
+    for output in data["outputs"].as_array().into_iter().flatten() {
+        if output["connected"].as_bool() != Some(true) {
+            continue;
+        }
+        let name = output["name"].as_str().unwrap_or_default().to_owned();
+        let current = match &output["currentModeId"] {
+            Value::String(id) => id.clone(),
+            other => other.to_string(),
+        };
+        let modes = output["modes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|mode| {
+                let id = match &mode["id"] {
+                    Value::String(id) => id.clone(),
+                    other => other.to_string(),
+                };
+                DisplayMode {
+                    width: json_u32(&mode["size"]["width"]),
+                    height: json_u32(&mode["size"]["height"]),
+                    is_current: id == current,
+                }
+            })
+            .collect();
+        physical.push(PhysicalMonitor {
+            connector: name.clone(),
+            vendor: String::new(),
+            product: String::new(),
+            serial: String::new(),
+            display_name: name.clone(),
+            modes,
+        });
+        if output["enabled"].as_bool() != Some(true) {
+            continue;
+        }
+        let rotation = output["rotation"].as_u64().unwrap_or(1);
+        let transform = kscreen_transform(rotation)
+            .ok_or_else(|| format!("unknown KScreen rotation {rotation} for {name}"))?;
+        logical.push(LogicalMonitor {
+            x: json_i32(&output["pos"]["x"]),
+            y: json_i32(&output["pos"]["y"]),
+            scale: output["scale"].as_f64().unwrap_or(0.0),
+            transform,
+            primary: output["priority"].as_u64() == Some(1),
+            connectors: vec![name],
+        });
+    }
+    Ok(DisplayState {
+        layout_mode: LayoutMode::Logical,
+        physical,
+        logical,
+    })
+}
+
+fn read_kscreen() -> Result<DisplayState, SnapshotError> {
+    let output = Command::new("kscreen-doctor")
+        .arg("-j")
+        .output()
+        .map_err(|error| SnapshotError::KScreen(format!("kscreen-doctor did not run: {error}")))?;
+    if !output.status.success() {
+        return Err(SnapshotError::KScreen(
+            String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        ));
+    }
+    let data: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| SnapshotError::KScreen(format!("unreadable JSON: {error}")))?;
+    kscreen_state(&data).map_err(SnapshotError::KScreen)
+}
+
+enum Source {
+    Mutter {
+        connection: Connection,
+        changes: Box<Mutex<SignalStream<'static>>>,
+    },
+    KScreen,
+}
+
+/// Reads the display table and keeps it fresh (GNOME: `MonitorsChanged`;
+/// Plasma: a short cache).
 ///
 /// `Debug` is hand written: the signal stream is not `Debug`, and printing a
 /// live D-Bus connection would be noise rather than information.
 pub struct DisplayReader {
-    connection: Connection,
-    changes: Mutex<SignalStream<'static>>,
-    cached: Mutex<Option<DisplaySnapshot>>,
+    source: Source,
+    cached: Mutex<Option<(Instant, DisplaySnapshot)>>,
 }
 
 impl std::fmt::Debug for DisplayReader {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("DisplayReader")
+            .field("kscreen", &matches!(self.source, Source::KScreen))
             .field("cached", &self.cached_snapshot().is_some())
             .finish_non_exhaustive()
     }
 }
 
 impl DisplayReader {
+    /// The reader for this session's desktop.
     pub fn connect() -> Result<Self, zbus::Error> {
+        match DesktopKind::detect() {
+            DesktopKind::Kde => Ok(Self {
+                source: Source::KScreen,
+                cached: Mutex::new(None),
+            }),
+            DesktopKind::Gnome => Self::connect_mutter(),
+        }
+    }
+
+    pub fn connect_mutter() -> Result<Self, zbus::Error> {
         let connection =
             zbus::block_on(Builder::session()?.method_timeout(METHOD_TIMEOUT).build())?;
         let proxy = zbus::block_on(Proxy::new(&connection, DESTINATION, PATH, INTERFACE))?;
         let changes = zbus::block_on(proxy.receive_signal("MonitorsChanged"))?;
         Ok(Self {
-            connection,
-            changes: Mutex::new(changes),
+            source: Source::Mutter {
+                connection,
+                changes: Box::new(Mutex::new(changes)),
+            },
             cached: Mutex::new(None),
         })
     }
 
     /// Drain pending `MonitorsChanged` signals; true when the layout moved.
+    /// KScreen: true once the cached table is older than `KSCREEN_CACHE`.
     fn layout_changed(&self) -> bool {
-        let mut stream = match self.changes.lock() {
+        let changes = match &self.source {
+            Source::Mutter { changes, .. } => changes,
+            Source::KScreen => {
+                return self
+                    .cached
+                    .lock()
+                    .ok()
+                    .and_then(|cached| cached.as_ref().map(|(at, _)| at.elapsed()))
+                    .is_some_and(|age| age >= KSCREEN_CACHE);
+            }
+        };
+        let mut stream = match changes.lock() {
             Ok(stream) => stream,
             Err(poisoned) => poisoned.into_inner(),
         };
@@ -200,24 +349,33 @@ impl DisplayReader {
             return Ok(cached);
         }
 
-        let wire: WireState = zbus::block_on(async {
-            let proxy = Proxy::new(&self.connection, DESTINATION, PATH, INTERFACE).await?;
-            proxy.call("GetCurrentState", &()).await
-        })?;
+        let state = match &self.source {
+            Source::Mutter { connection, .. } => {
+                let wire: WireState = zbus::block_on(async {
+                    let proxy = Proxy::new(connection, DESTINATION, PATH, INTERFACE).await?;
+                    proxy.call("GetCurrentState", &()).await
+                })?;
+                to_state(wire)
+            }
+            Source::KScreen => read_kscreen()?,
+        };
 
-        let monitors = resolve(&to_state(wire))?;
+        let monitors = resolve(&state)?;
         let snapshot = DisplaySnapshot {
             topology_id: topology_id(&monitors),
             monitors,
         };
         if let Ok(mut cached) = self.cached.lock() {
-            *cached = Some(snapshot.clone());
+            *cached = Some((Instant::now(), snapshot.clone()));
         }
         Ok(snapshot)
     }
 
     fn cached_snapshot(&self) -> Option<DisplaySnapshot> {
-        self.cached.lock().ok().and_then(|cached| cached.clone())
+        self.cached
+            .lock()
+            .ok()
+            .and_then(|cached| cached.as_ref().map(|(_, snapshot)| snapshot.clone()))
     }
 
     pub fn invalidate(&self) {

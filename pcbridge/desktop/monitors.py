@@ -32,6 +32,8 @@ import math
 import re
 import subprocess
 import time
+
+from . import compositor as compositorlib
 from dataclasses import dataclass
 
 _BUSCTL = [
@@ -339,6 +341,63 @@ def _mutter_state(data: list) -> dict:
     }
 
 
+# KScreen's rotation flags -> Mutter's transform codes (the neutral state's).
+_KSCREEN_ROTATION = {1: 0, 2: 1, 4: 2, 8: 3, 16: 4, 32: 5, 64: 6, 128: 7}
+
+
+def _kscreen_state(data: dict) -> dict:
+    """`kscreen-doctor -j` to the neutral schema `resolve_state` expects.
+
+    Like `_mutter_state`, a transport adapter only; the Rust helper repeats
+    it and `tests/fixtures/native/kscreen_cases.json` pins both. KWin's
+    positions are logical (measured, docs/dev/measured-facts.md), `size` is
+    the current mode in pixels, and priority 1 is the primary output.
+    """
+    physical, logical = [], []
+    for out in data.get("outputs") or []:
+        if not out.get("connected"):
+            continue
+        name = str(out.get("name") or "")
+        current = str(out.get("currentModeId") or "")
+        physical.append({
+            "connector": name,
+            "vendor": "",
+            "product": "",
+            "serial": "",
+            "display_name": name,
+            "modes": [
+                {
+                    "width": int(mode["size"]["width"]),
+                    "height": int(mode["size"]["height"]),
+                    "is_current": str(mode.get("id")) == current,
+                }
+                for mode in out.get("modes") or []
+            ],
+        })
+        if not out.get("enabled"):
+            continue
+        rotation = int(out.get("rotation") or 1)
+        if rotation not in _KSCREEN_ROTATION:
+            raise MonitorError(f"unknown KScreen rotation {rotation} for {name}")
+        logical.append({
+            "x": int(out["pos"]["x"]),
+            "y": int(out["pos"]["y"]),
+            "scale": float(out.get("scale") or 0.0),
+            "transform": _KSCREEN_ROTATION[rotation],
+            "primary": int(out.get("priority") or 0) == 1,
+            "connectors": [name],
+        })
+    return {"layout_mode": "logical", "physical": physical, "logical": logical}
+
+
+def _from_kscreen() -> list[Monitor]:
+    """KDE Plasma: `kscreen-doctor -j` -> logical monitors (18-32 ms, measured)."""
+    proc = subprocess.run(["kscreen-doctor", "-j"], capture_output=True, text=True, timeout=10)
+    if proc.returncode != 0:
+        raise MonitorError((proc.stderr or "kscreen-doctor failed").strip())
+    return resolve_state(_kscreen_state(json.loads(proc.stdout)))
+
+
 def _from_mutter() -> list[Monitor]:
     """Mutter.DisplayConfig.GetCurrentState -> mantiksal monitorler."""
     proc = subprocess.run(_BUSCTL, capture_output=True, text=True, timeout=10)
@@ -416,14 +475,16 @@ def list_monitors(use_cache: bool = True) -> list[Monitor]:
     now = time.monotonic()
     if use_cache and _cache and now - _cache[0] < _CACHE_TTL:
         return _cache[1]
+    kde = compositorlib.is_kde()
     try:
-        mons = _from_mutter()
+        mons = _from_kscreen() if kde else _from_mutter()
     except Exception as exc:  # noqa: BLE001 — yedek yola dusmek istiyoruz
         try:
             mons = _from_xrandr()
         except Exception:
             raise MonitorError(
-                f"The monitor table could not be read. Mutter: {exc}. "
+                f"The monitor table could not be read. "
+                f"{'KScreen' if kde else 'Mutter'}: {exc}. "
                 "The xrandr fallback failed too."
             ) from exc
     mons = _ordered(mons)
@@ -532,7 +593,7 @@ def describe() -> str:
     lines = [f"canvas: {w}x{h} · {len(mons)} monitor(s), numbered by position (left to right, then top to bottom)"]
     lines += [f"  {m.describe()}" for m in mons]
     p = primary(mons)
-    lines.append(
-        f"  primary monitor (GNOME panel menus and the Super overview): {p.index}/{p.connector}"
-    )
+    where = ("where Plasma puts its panel by default" if compositorlib.is_kde()
+             else "GNOME panel menus and the Super overview")
+    lines.append(f"  primary monitor ({where}): {p.index}/{p.connector}")
     return "\n".join(lines)

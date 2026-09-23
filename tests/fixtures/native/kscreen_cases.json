@@ -1,0 +1,357 @@
+{
+  "schema_version": 1,
+  "note": "KScreen (kscreen-doctor -j) to the neutral display state. The Python adapter (monitors._kscreen_state) and the Rust one (platform::linux::display::kscreen_state) must both produce `state`; the rules after that are display_state_cases.json's.",
+  "cases": [
+    {
+      "name": "vm_two_outputs",
+      "note": "kscreen-doctor -j in the Arch VM, 2026-09-23 (Plasma 6.7.5), modes trimmed to two per output.",
+      "kscreen": {
+        "outputs": [
+          {
+            "name": "Virtual-2",
+            "connected": true,
+            "enabled": true,
+            "currentModeId": "1",
+            "pos": {
+              "x": 1280,
+              "y": 0
+            },
+            "scale": 1,
+            "rotation": 1,
+            "priority": 2,
+            "modes": [
+              {
+                "id": "1",
+                "name": "1280x800@75",
+                "size": {
+                  "height": 800,
+                  "width": 1280
+                }
+              },
+              {
+                "id": "10",
+                "name": "1792x1344@60",
+                "size": {
+                  "height": 1344,
+                  "width": 1792
+                }
+              }
+            ]
+          },
+          {
+            "name": "Virtual-1",
+            "connected": true,
+            "enabled": true,
+            "currentModeId": "27",
+            "pos": {
+              "x": 0,
+              "y": 0
+            },
+            "scale": 1,
+            "rotation": 1,
+            "priority": 1,
+            "modes": [
+              {
+                "id": "27",
+                "name": "1280x800@75",
+                "size": {
+                  "height": 800,
+                  "width": 1280
+                }
+              },
+              {
+                "id": "28",
+                "name": "1920x1440@60",
+                "size": {
+                  "height": 1440,
+                  "width": 1920
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "state": {
+        "layout_mode": "logical",
+        "physical": [
+          {
+            "connector": "Virtual-2",
+            "vendor": "",
+            "product": "",
+            "serial": "",
+            "display_name": "Virtual-2",
+            "modes": [
+              {
+                "width": 1280,
+                "height": 800,
+                "is_current": true
+              },
+              {
+                "width": 1792,
+                "height": 1344,
+                "is_current": false
+              }
+            ]
+          },
+          {
+            "connector": "Virtual-1",
+            "vendor": "",
+            "product": "",
+            "serial": "",
+            "display_name": "Virtual-1",
+            "modes": [
+              {
+                "width": 1280,
+                "height": 800,
+                "is_current": true
+              },
+              {
+                "width": 1920,
+                "height": 1440,
+                "is_current": false
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 1280,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": false,
+            "connectors": [
+              "Virtual-2"
+            ]
+          },
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": true,
+            "connectors": [
+              "Virtual-1"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "rotated_scaled_and_disabled",
+      "note": "Right output at scale 1.5 turned right (rotation 8 -> transform 3); a connected output that is off stays out of the logical list; an unplugged one is left out entirely.",
+      "kscreen": {
+        "outputs": [
+          {
+            "name": "Virtual-2",
+            "connected": true,
+            "enabled": true,
+            "currentModeId": "1",
+            "pos": {
+              "x": 1280,
+              "y": 0
+            },
+            "scale": 1.5,
+            "rotation": 8,
+            "priority": 2,
+            "modes": [
+              {
+                "id": "1",
+                "name": "1280x800@75",
+                "size": {
+                  "height": 800,
+                  "width": 1280
+                }
+              },
+              {
+                "id": "10",
+                "name": "1792x1344@60",
+                "size": {
+                  "height": 1344,
+                  "width": 1792
+                }
+              }
+            ]
+          },
+          {
+            "name": "Virtual-1",
+            "connected": true,
+            "enabled": true,
+            "currentModeId": "27",
+            "pos": {
+              "x": 0,
+              "y": 0
+            },
+            "scale": 1,
+            "rotation": 1,
+            "priority": 1,
+            "modes": [
+              {
+                "id": "27",
+                "name": "1280x800@75",
+                "size": {
+                  "height": 800,
+                  "width": 1280
+                }
+              },
+              {
+                "id": "28",
+                "name": "1920x1440@60",
+                "size": {
+                  "height": 1440,
+                  "width": 1920
+                }
+              }
+            ]
+          },
+          {
+            "name": "Virtual-3",
+            "connected": true,
+            "enabled": false,
+            "currentModeId": "1",
+            "pos": {
+              "x": 0,
+              "y": 0
+            },
+            "scale": 1,
+            "rotation": 1,
+            "priority": 0,
+            "modes": [
+              {
+                "id": "1",
+                "name": "1280x800@75",
+                "size": {
+                  "height": 800,
+                  "width": 1280
+                }
+              },
+              {
+                "id": "10",
+                "name": "1792x1344@60",
+                "size": {
+                  "height": 1344,
+                  "width": 1792
+                }
+              }
+            ]
+          },
+          {
+            "name": "Virtual-4",
+            "connected": false,
+            "enabled": false,
+            "currentModeId": "1",
+            "pos": {
+              "x": 1280,
+              "y": 0
+            },
+            "scale": 1,
+            "rotation": 1,
+            "priority": 2,
+            "modes": [
+              {
+                "id": "1",
+                "name": "1280x800@75",
+                "size": {
+                  "height": 800,
+                  "width": 1280
+                }
+              },
+              {
+                "id": "10",
+                "name": "1792x1344@60",
+                "size": {
+                  "height": 1344,
+                  "width": 1792
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "state": {
+        "layout_mode": "logical",
+        "physical": [
+          {
+            "connector": "Virtual-2",
+            "vendor": "",
+            "product": "",
+            "serial": "",
+            "display_name": "Virtual-2",
+            "modes": [
+              {
+                "width": 1280,
+                "height": 800,
+                "is_current": true
+              },
+              {
+                "width": 1792,
+                "height": 1344,
+                "is_current": false
+              }
+            ]
+          },
+          {
+            "connector": "Virtual-1",
+            "vendor": "",
+            "product": "",
+            "serial": "",
+            "display_name": "Virtual-1",
+            "modes": [
+              {
+                "width": 1280,
+                "height": 800,
+                "is_current": true
+              },
+              {
+                "width": 1920,
+                "height": 1440,
+                "is_current": false
+              }
+            ]
+          },
+          {
+            "connector": "Virtual-3",
+            "vendor": "",
+            "product": "",
+            "serial": "",
+            "display_name": "Virtual-3",
+            "modes": [
+              {
+                "width": 1280,
+                "height": 800,
+                "is_current": true
+              },
+              {
+                "width": 1792,
+                "height": 1344,
+                "is_current": false
+              }
+            ]
+          }
+        ],
+        "logical": [
+          {
+            "x": 1280,
+            "y": 0,
+            "scale": 1.5,
+            "transform": 3,
+            "primary": false,
+            "connectors": [
+              "Virtual-2"
+            ]
+          },
+          {
+            "x": 0,
+            "y": 0,
+            "scale": 1.0,
+            "transform": 0,
+            "primary": true,
+            "connectors": [
+              "Virtual-1"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -179,3 +179,25 @@ fn topology_id_changes_on_a_half_turn_that_keeps_the_size() {
     assert_eq!((monitors[0].width, monitors[0].height), (1920, 1080));
     assert_ne!(topology_id(&monitors), baseline);
 }
+
+/// KDE Plasma: `kscreen-doctor -j` must become the same neutral state the
+/// Python adapter builds (`tests/fixtures/native/kscreen_cases.json`).
+#[test]
+fn kscreen_output_maps_to_the_shared_neutral_state() {
+    use pcbridge_native::platform::linux::display::kscreen_state;
+
+    let path: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../tests/fixtures/native/kscreen_cases.json");
+    let raw: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&path).expect("kscreen fixture")).unwrap();
+    let cases = raw["cases"].as_array().expect("cases");
+    assert!(!cases.is_empty());
+    for case in cases {
+        let name = case["name"].as_str().unwrap_or("?");
+        let got = kscreen_state(&case["kscreen"]).unwrap_or_else(|err| panic!("{name}: {err}"));
+        let want: DisplayState =
+            serde_json::from_value(case["state"].clone()).expect("state in the shared schema");
+        assert_eq!(got, want, "{name}");
+        resolve(&got).unwrap_or_else(|err| panic!("{name} should resolve: {err}"));
+    }
+}
