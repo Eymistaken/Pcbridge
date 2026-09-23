@@ -14,7 +14,9 @@ After=pcbridge.socket network-online.target graphical-session.target
 [Service]
 Type=simple
 WorkingDirectory=%h
-ExecStart=__PYTHON__ -m pcbridge serve
+# -P: the working directory (the home directory here) is not put on the
+# module path, so a checkout named ~/pcbridge cannot shadow the package.
+ExecStart=__PYTHON__ -P -m pcbridge serve
 # A crash restarts quickly; exit code 75 is the daemon restarting itself to
 # load a newer installed version (only while no job, grant or call is active).
 Restart=on-failure
@@ -40,7 +42,7 @@ StandardError=journal
 # desktop grant and stop every screencast helper: the grant lives on disk and
 # `pcb-do` reads it from there. The leading `-` keeps a failure here from
 # blocking the stop.
-ExecStopPost=-__PYTHON__ -m pcbridge.cli.lock
+ExecStopPost=-__PYTHON__ -P -m pcbridge.cli.lock
 
 [Install]
 WantedBy=default.target

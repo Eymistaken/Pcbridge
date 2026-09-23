@@ -190,7 +190,7 @@ class CliTests(unittest.TestCase):
         from pcbridge.cli import install as inst
 
         text = inst.render_unit("pcbridge.service", "/opt/x/bin/python")
-        self.assertIn("ExecStart=/opt/x/bin/python -m pcbridge serve", text)
+        self.assertIn("ExecStart=/opt/x/bin/python -P -m pcbridge serve", text)
         self.assertNotIn("__PYTHON__", text)
         self.assertIn("RestartForceExitStatus=75", text)
         self.assertIn("ListenStream=%t/pcbridge/mcp.sock", inst.render_unit("pcbridge.socket"))

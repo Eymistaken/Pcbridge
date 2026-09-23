@@ -41,9 +41,11 @@ def _state_path() -> Path | None:
 
 def _lock_now() -> None:
     """The button's action: the kill switch, as its own process."""
-    subprocess.Popen([sys.executable, "-m", "pcbridge.cli.lock"], stdin=subprocess.DEVNULL,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=True)
+    # -P: the daemon's working directory is the home directory, and a checkout
+    # named ~/pcbridge there would shadow the package.
+    subprocess.Popen([sys.executable, "-P", "-m", "pcbridge.cli.lock"],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 def show(title: str, body: str) -> None:

@@ -191,7 +191,7 @@ class ChildBackend(Backend):
     def __init__(self, reason: str) -> None:
         env = dict(os.environ, PCBRIDGE_IN_PROCESS="1", PCBRIDGE_MODE=f"degraded: in-process ({reason})")
         self.proc = subprocess.Popen(
-            [sys.executable, "-m", "pcbridge.server", "--stdio"],
+            [sys.executable, "-P", "-m", "pcbridge.server", "--stdio"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             env=env,
@@ -465,7 +465,7 @@ def _exec_in_process(argv: list[str], reason: str) -> int:
     os.environ["PCBRIDGE_MODE"] = f"degraded: in-process ({reason})"
     args = [a for a in argv if a != "--stdio"]
     try:
-        os.execv(sys.executable, [sys.executable, "-m", "pcbridge.server", "--stdio", *args])
+        os.execv(sys.executable, [sys.executable, "-P", "-m", "pcbridge.server", "--stdio", *args])
     except OSError as exc:  # pragma: no cover - exec failing means a broken install
         _log(f"cannot start the in-process server: {exc}")
         return 1
