@@ -23,7 +23,8 @@ command -v pkg-config >/dev/null || missing+=("pkg-config")
 pkg-config --exists libpipewire-0.3 2>/dev/null || missing+=("the libpipewire-0.3 headers (with libspa-0.2)")
 # Debian keeps libclang under /usr/lib/llvm-*/lib; Arch in /usr/lib.
 if ! ldconfig -p 2>/dev/null | grep -q 'libclang' \
-   && ! ls /usr/lib/llvm-*/lib/libclang*.so* /usr/lib/libclang.so* >/dev/null 2>&1; then
+   && ! compgen -G '/usr/lib/llvm-*/lib/libclang*.so*' >/dev/null \
+   && ! compgen -G '/usr/lib/libclang.so*' >/dev/null; then
   missing+=("libclang (for the bindgen of the pipewire crate)")
 fi
 if [ ${#missing[@]} -gt 0 ]; then
