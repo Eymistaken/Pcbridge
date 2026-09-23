@@ -47,6 +47,9 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   one sequence; an agent looping over separate `ui_click` calls is not
   caught (see [docs/dev/desktop-rules.md](docs/dev/desktop-rules.md)).
 - **lintian in CI** for the `.deb`.
+- **One CLI for all of the settings.** A single command (the name is open)
+  to list, read and change all of pcbridge's settings in one place. Done
+  when every setting can be changed through it, with contract tests.
 - **GNOME 47, 48 and 49.** The extension declares 46 and 50, the versions
   verified; the ones between are expected to work. Done when each passes the
   headless extension smoke and joins `shell-version`.
