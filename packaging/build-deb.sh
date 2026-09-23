@@ -157,6 +157,9 @@ POSTRM
 chmod 0755 "$STAGE/DEBIAN/postinst" "$STAGE/DEBIAN/postrm"
 
 mkdir -p "$OUT"
-DEB="$OUT/pcbridge_${DEBVER}_amd64.deb"
+# One package per release (the venv is bound to its python3), so the file
+# name says which: pcbridge_2.0.0_ubuntu24.04_amd64.deb.
+DISTRO="$(. /etc/os-release && echo "${ID}${VERSION_ID:-}")"
+DEB="$OUT/pcbridge_${DEBVER}_${DISTRO}_amd64.deb"
 dpkg-deb --root-owner-group -Zxz --build "$STAGE" "$DEB" >/dev/null
 echo "==> $DEB ($(du -h "$DEB" | cut -f1))"

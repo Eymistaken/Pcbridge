@@ -1,0 +1,114 @@
+# Build the .deb per distribution release and install it in a clean container.
+#
+# The venv inside the package is bound to the release's python3, so every
+# release builds its own package. The native helper is built once (it needs
+# glibc >= 2.39, which all of these have) and shared.
+name: package
+
+on:
+  push:
+    paths:
+      - "packaging/**"
+      - "pyproject.toml"
+      - "setup.py"
+      - "pcbridge/**"
+      - "gnome-extension/**"
+      - "systemd/**"
+      - "rust/**"
+      - ".github/workflows/package.yml"
+  pull_request:
+    paths:
+      - "packaging/**"
+      - "pyproject.toml"
+      - "setup.py"
+      - "pcbridge/**"
+      - "gnome-extension/**"
+      - "systemd/**"
+      - "rust/**"
+      - ".github/workflows/package.yml"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpipewire-0.3-dev libspa-0.2-dev libclang-dev pkg-config
+      - name: Release helper
+        run: |
+          (cd rust && rustup toolchain install)
+          scripts/build-native.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-helper
+          path: pcbridge/_native/
+          if-no-files-found: error
+
+  deb:
+    name: deb ${{ matrix.name }}
+    needs: native
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.image }}
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: ubuntu-24.04, image: "ubuntu:24.04", experimental: false}
+          - {name: debian-13, image: "debian:trixie", experimental: false}
+          - {name: ubuntu-26.04, image: "ubuntu:26.04", experimental: true}
+    steps:
+      - name: Build tools
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates git python3 python3-venv python3-dev build-essential \
+            linux-libc-dev dpkg-dev libglib2.0-bin
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-helper
+          path: pcbridge/_native/
+      - name: Build the package
+        run: |
+          chmod +x pcbridge/_native/*/pcbridge-native   # artifacts drop the mode
+          PCBRIDGE_SKIP_NATIVE=1 packaging/build-deb.sh dist
+      - name: Install it
+        run: |
+          DEBIAN_FRONTEND=noninteractive apt-get install -y ./dist/pcbridge_*.deb
+          pcbridge --version
+          test -x /usr/lib/pcbridge/venv/lib/python3*/site-packages/pcbridge/_native/*/pcbridge-native
+          test -f /usr/lib/systemd/user/pcbridge.socket
+          test -f /usr/share/gnome-shell/extensions/pcbridge-gorunur@eymistaken.local/schemas/gschemas.compiled
+      # As a normal user: the tests check permission errors, which root skips.
+      - name: Suites against the installed package
+        run: |
+          useradd -m tester
+          mkdir /tmp/pkgtest
+          cp -r tests config.example.toml skills gnome-extension systemd packaging bin README.md /tmp/pkgtest/
+          chown -R tester /tmp/pkgtest
+          su tester -c '
+            set -e
+            cd /tmp/pkgtest
+            P=/usr/lib/pcbridge/venv/bin/python
+            $P -c "import pcbridge; assert pcbridge.__file__.startswith(\"/usr/lib/pcbridge/\"), pcbridge.__file__"
+            pcbridge doctor --json > doctor.json || true
+            $P -c "import json; print(json.load(open(\"doctor.json\"))[\"summary\"])"
+            $P tests/test_models.py
+            $P tests/test_desktop.py
+            # The English guard and the doc link check read the git checkout, not the package.
+            $P -m unittest $(ls tests/contracts/test_*.py | grep -v -e test_english_only -e test_doc_links | tr / . | sed "s/\.py$//")
+          '
+      - uses: actions/upload-artifact@v7
+        with:
+          name: deb-${{ matrix.name }}
+          path: dist/pcbridge_*.deb
+          if-no-files-found: error

@@ -1,0 +1,151 @@
+# Non-live checks on every push and pull request.
+#
+# Nothing here drives a desktop: live capture/input/AT-SPI tests need a
+# session and an explicit opt-in (PCBRIDGE_TEST_*), which CI never sets.
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: python ${{ matrix.python }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          allow-prereleases: true
+
+      # The integration suite builds the native test harness (rust/ pins
+      # the toolchain; rustup installs it on first use).
+      - name: System tools and native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tmux \
+            libpipewire-0.3-dev libspa-0.2-dev libclang-dev pkg-config
+
+      # 3.12 is the reference: exactly the pinned versions. Newer Pythons
+      # resolve the ranges in pyproject.toml, as a distro install would.
+      - name: Install
+        run: |
+          python -m venv .venv
+          if [ "${{ matrix.python }}" = "3.12" ]; then
+            .venv/bin/pip install -c packaging/constraints.txt -e ".[desktop]"
+          else
+            .venv/bin/pip install -e ".[desktop]"
+          fi
+
+      - name: English guard and doc links
+        run: .venv/bin/python -m unittest tests/contracts/test_english_only.py tests/contracts/test_doc_links.py -v
+
+      - name: Unit and contract suites
+        run: |
+          .venv/bin/python tests/test_models.py
+          .venv/bin/python tests/test_desktop.py
+          .venv/bin/python tests/test_test_safety.py
+          .venv/bin/python -m unittest discover -s tests/contracts -t .
+
+      - name: Integration suite
+        run: .venv/bin/python -m unittest discover -s tests/integration -t .
+
+      - name: Readiness check (in-process)
+        run: |
+          mkdir -p "$RUNNER_TEMP/pcb/state"
+          cat > "$RUNNER_TEMP/pcb/config.toml" <<EOF
+          config_version = 2
+          public_url = "http://localhost:8765"
+          default_agent = "claude"
+          [auth]
+          password = "ci-readiness-password"
+          [paths]
+          state_dir = "$RUNNER_TEMP/pcb/state"
+          [agents.claude]
+          command = ["true"]
+          EOF
+          chmod 600 "$RUNNER_TEMP/pcb/config.toml"
+          PCBRIDGE_CONFIG="$RUNNER_TEMP/pcb/config.toml" PCBRIDGE_IN_PROCESS=1 \
+            .venv/bin/python tests/readiness/check.py \
+            --command "$PWD/.venv/bin/python -m pcbridge stdio"
+
+  extension:
+    name: gnome extension (gjs)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: gjs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gjs gir1.2-glib-2.0
+      - name: Extension logic tests
+        run: |
+          for t in gnome-extension/tests/*.js; do
+            echo "== $t"
+            gjs -m "$t"
+          done
+      - name: Schema compiles
+        run: glib-compile-schemas --strict --dry-run gnome-extension/pcbridge-gorunur@eymistaken.local/schemas
+
+  # Time-boxed experiment (Step 9 of 2.0): a headless GNOME Shell on the
+  # runner, the extension loaded, one screen capture. Allowed to fail; what
+  # it proved is recorded in the maintainer's notes.
+  headless-smoke:
+    name: headless GNOME smoke (experimental)
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: GNOME Shell, PipeWire, Mesa
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gnome-shell mutter \
+            dbus-daemon pipewire wireplumber gstreamer1.0-pipewire \
+            gir1.2-gst-plugins-base-1.0 python3-gi libglib2.0-bin \
+            libegl-mesa0 libgl1-mesa-dri python3-venv
+      - name: pcbridge
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -c packaging/constraints.txt -e ".[desktop]"
+      - name: Shell, extension, capture
+        run: |
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP/xdg" XDG_DATA_HOME="$RUNNER_TEMP/data"
+          mkdir -m 700 -p "$XDG_RUNTIME_DIR"
+          ext=gnome-extension/pcbridge-gorunur@eymistaken.local
+          glib-compile-schemas "$ext/schemas"
+          mkdir -p "$XDG_DATA_HOME/gnome-shell/extensions"
+          ln -s "$PWD/$ext" "$XDG_DATA_HOME/gnome-shell/extensions/"
+          dbus-run-session -- bash -ec '
+            pipewire & wireplumber &
+            gsettings set org.gnome.shell enabled-extensions "[\"pcbridge-gorunur@eymistaken.local\"]"
+            gnome-shell --headless --wayland --no-x11 --wayland-display smoke \
+              --virtual-monitor 1280x720 > shell.log 2>&1 &
+            for i in $(seq 60); do busctl --user status org.gnome.Mutter.DisplayConfig >/dev/null 2>&1 && break; sleep 1; done
+            sleep 5
+            gdbus call --session --dest io.github.eymistaken.Pcbridge.WindowFocus \
+              --object-path /io/github/eymistaken/Pcbridge/WindowFocus \
+              --method org.freedesktop.DBus.Properties.Get \
+              io.github.eymistaken.Pcbridge.WindowFocus Version
+            WAYLAND_DISPLAY=smoke .venv/bin/python -c "
+          from pcbridge.desktop import monitors, screencast
+          from PIL import Image
+          mons = monitors.list_monitors(use_cache=False)
+          print(monitors.describe())
+          sc = screencast.ScreenCast(); sc.start([mons[0].connector], cursor=False)
+          sc.capture(mons[0].connector, \"frame.png\"); sc.close()
+          size = Image.open(\"frame.png\").size
+          print(\"frame\", size)
+          assert size == mons[0].source_pixel_size, size
+          "
+          ' || { grep -i -e pcbridge -e error shell.log | tail -40; exit 1; }

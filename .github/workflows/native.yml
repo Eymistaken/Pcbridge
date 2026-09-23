@@ -29,7 +29,7 @@ jobs:
   linux-x86_64:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build dependencies (not needed at runtime)
         run: |
@@ -64,7 +64,7 @@ jobs:
       - name: Package release helper
         run: scripts/build-native.sh
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -75,7 +75,7 @@ jobs:
           PCBRIDGE_TEST_REQUIRE_RELEASE=1 \
             .venv/bin/python -m unittest tests/integration/test_native_packaging.py -v
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: pcbridge-native-x86_64-unknown-linux-gnu
           path: pcbridge/_native/x86_64-unknown-linux-gnu/

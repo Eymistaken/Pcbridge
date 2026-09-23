@@ -447,7 +447,10 @@ def main(argv: list[str] | None = None) -> int:
         else EXPECTED_TOOLS
     )
 
-    wanted = set(args.client or ["claude-code", "codex", "claude-desktop", "legacy", "http"])
+    # `--command` alone probes only those commands (CI has no registered
+    # client, no legacy checkout and no running service).
+    default = [] if args.command else ["claude-code", "codex", "claude-desktop", "legacy", "http"]
+    wanted = set(args.client or default)
     targets: list[Target] = []
     for name, finder in (
         ("claude-code", _claude_code_target),

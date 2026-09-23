@@ -1,0 +1,57 @@
+# On a v* tag: build every artifact and open a DRAFT release. Publishing it
+# stays a human decision.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    uses: ./.github/workflows/package.yml
+
+  release:
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-helper
+          path: pcbridge/_native/
+
+      - name: Wheel and sdist (the wheel carries the native helper)
+        run: |
+          chmod +x pcbridge/_native/*/pcbridge-native
+          python -m pip install build
+          python -m build --outdir dist
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: deb-*
+          path: dist/
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum * > sha256sums.txt
+          cat sha256sums.txt
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          draft: true
+          name: pcbridge ${{ github.ref_name }}
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
