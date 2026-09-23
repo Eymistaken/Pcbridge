@@ -3,7 +3,8 @@
   "name": "pcbridge — agent visible",
   "description": "Shows pcbridge in the panel: server up or down, desktop grant and time left, running jobs, remote access, and a \"Lock desktop control now\" kill switch. While the grant is open it draws a visible frame at the screen edges. Offers two narrow D-Bus methods: raise an open window while the grant is open, and name the focused window.",
   "shell-version": [
-    "46"
+    "46",
+    "50"
   ],
   "session-modes": [
     "user"

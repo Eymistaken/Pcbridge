@@ -25,6 +25,27 @@ import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
+/**
+ * `addTopChrome` across GNOME versions. GNOME 50 dropped the
+ * `affectsInputRegion` parameter (measured on 50.5: "Unrecognized parameter"
+ * and the extension disabled itself); the chrome input region there follows
+ * reactivity, and these strips are not reactive. The call adds the actor
+ * before it parses the parameters, so a refused call is undone first.
+ */
+export function addTopChromeCompat(actor, params, layout = Main.layoutManager) {
+    try {
+        layout.addTopChrome(actor, params);
+    } catch (e) {
+        if (!('affectsInputRegion' in params) ||
+            !String(e?.message ?? e).includes('affectsInputRegion'))
+            throw e;
+        if (actor.get_parent())
+            actor.get_parent().remove_child(actor);
+        const {affectsInputRegion: _dropped, ...rest} = params;
+        layout.addTopChrome(actor, rest);
+    }
+}
+
 /* Parlaklığın kenardaki en yüksek değeri (0-1).
  * 0,42 ve aşağıdaki dik sönüş eğrisi kullanıcı tarafından üç varyant
  * gerçek monitör görüntüsü üzerine bindirilip karşılaştırılarak seçildi
@@ -148,6 +169,16 @@ export class FrameOverlay {
     _breathStep(actor, hedef) {
         if (!actor._pcbNefes)
             return;
+        // With animations off (a headless shell, or "Reduce Animation" in
+        // Settings) `ease()` jumps to the end and calls onComplete at once,
+        // so this chain recursed without end (measured on GNOME 50.5:
+        // "too much recursion", and the frame never showed). The frame then
+        // stands still instead of breathing.
+        if (!St.Settings.get().enable_animations) {
+            actor._pcbNefes = false;
+            actor.set_scale(1, 1);
+            return;
+        }
         const ozellik = actor._pcbYatay ? 'scale_y' : 'scale_x';
         actor.ease({
             [ozellik]: hedef,
@@ -226,7 +257,7 @@ export class FrameOverlay {
         // affectsInputRegion: false -> altındaki pencerelere tıklamayı
         // ENGELLEMEZ (kısıt). affectsStruts: false -> pencere yerleşimini
         // bozmaz, yani maksimize pencereler küçülmez.
-        Main.layoutManager.addTopChrome(area, {
+        addTopChromeCompat(area, {
             affectsInputRegion: false,
             affectsStruts: false,
         });
