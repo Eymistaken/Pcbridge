@@ -468,7 +468,7 @@ class BringToFrontTests(Harness):
     def test_the_old_adapter_returns_the_note(self) -> None:
         self.activate_result = True
         note = apps.focus("Text Editor", Keys(), Desk().focused)
-        self.assertEqual(note, "Text Editor raised by the GNOME extension")
+        self.assertEqual(note, "Text Editor raised by the GNOME Shell extension")
 
     def test_computer_task_uses_the_same_order(self) -> None:
         # It used to launch every time: an open application got a second window.

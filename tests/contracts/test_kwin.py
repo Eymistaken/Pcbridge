@@ -56,5 +56,48 @@ class HelperEntryTests(unittest.TestCase):
             self.assertEqual(kwin.data_dirs(), [Path("/h"), Path("/a"), Path("/b")])
 
 
+class SetupEntryTests(unittest.TestCase):
+    """`pcbridge setup` on Plasma: the helper's entry and the lock entry."""
+
+    def test_setup_installs_both_and_uninstall_moves_both_aside(self) -> None:
+        from pcbridge.cli import install as inst
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            binary = root / "pcbridge-native"
+            binary.write_text("", encoding="utf-8")
+            apps = root / "applications"
+            with mock.patch.object(inst, "applications_dir", return_value=apps), \
+                    mock.patch("pcbridge.native.discover_native_binary", return_value=binary), \
+                    mock.patch.object(inst, "launcher_path", return_value=Path("/usr/bin/pcbridge")):
+                first = inst.install_kde_entries(object())
+                again = inst.install_kde_entries(object())
+                self.assertTrue(all("installed" in line for line in first), first)
+                self.assertTrue(all("up to date" in line for line in again), again)
+                self.assertEqual(kwin.helper_authorized(binary, dirs=[root]),
+                                 apps / kwin.HELPER_ENTRY)
+                lock = (apps / inst.LOCK_ENTRY).read_text(encoding="utf-8")
+                self.assertIn("Exec=/usr/bin/pcbridge lock\n", lock)
+                self.assertNotIn("X-KDE-Shortcuts", lock, "no shortcut is set for the user")
+
+                backup = mock.Mock()
+                inst.remove_kde_entries(backup)
+                moved = sorted(call.args[0].name for call in backup.move.call_args_list)
+                self.assertEqual(moved, sorted([kwin.HELPER_ENTRY, inst.LOCK_ENTRY]))
+
+    def test_a_missing_helper_is_said_not_raised(self) -> None:
+        from pcbridge.cli import install as inst
+        from pcbridge.desktop.errors import DesktopError, ErrorCategory, ErrorCode
+
+        missing = DesktopError(code=ErrorCode.NATIVE_NOT_FOUND, message="x",
+                               category=ErrorCategory.IPC, retryable=False,
+                               suggested_action="configure_native_binary")
+        with tempfile.TemporaryDirectory() as raw, \
+                mock.patch.object(inst, "applications_dir", return_value=Path(raw)), \
+                mock.patch("pcbridge.native.discover_native_binary", side_effect=missing):
+            lines = inst.install_kde_entries(object())
+        self.assertTrue(lines[0].startswith("native helper not found"))
+
+
 if __name__ == "__main__":
     unittest.main()

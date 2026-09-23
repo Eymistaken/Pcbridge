@@ -46,7 +46,7 @@ class FocusFastPathTests(unittest.TestCase):
 
         self.assertEqual(backend.events, [])
         self.assertEqual(sleep.call_args_list, [])
-        self.assertIn("GNOME extension", result)
+        self.assertIn("GNOME Shell extension", result)
 
     def test_extension_not_installed_preserves_existing_search_path(self) -> None:
         backend = RecordingBackend()

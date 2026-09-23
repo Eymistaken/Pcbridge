@@ -977,7 +977,8 @@ def bring_to_front(
         raise AppError("`focus` needs a window or application name.")
 
     if activate_window(window):
-        return Outcome("extension", f"{window} raised by the GNOME extension")
+        return Outcome("extension",
+                       f"{window} raised by {compositorlib.current().focus_path}")
 
     target = resolve_application(window, pool)
     app, title = observe_focus(focused)
@@ -1012,7 +1013,8 @@ def bring_to_front(
         if activate_window(window):
             return Outcome(
                 "launch",
-                f"{target.entry.name} started and raised by the GNOME extension",
+                f"{target.entry.name} started and raised by "
+                f"{compositorlib.current().focus_path}",
                 app,
                 title,
             )

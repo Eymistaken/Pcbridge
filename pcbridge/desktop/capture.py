@@ -1246,6 +1246,7 @@ def _render(
         # its monitor's frame, which also gives the shot a global offset.
         region = _kwin_window_region()
         want_window = False
+        monitor = None  # the region names its monitor
     if want_window and region is not None:
         raise CaptureError(
             "A `window` capture cannot take a region: where the window sits on "

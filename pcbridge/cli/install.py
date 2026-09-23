@@ -386,6 +386,73 @@ def install_extension(backup: Backup) -> str:
 
 
 # ---------------------------------------------------------------------------
+# KDE Plasma entries
+# ---------------------------------------------------------------------------
+
+LOCK_ENTRY = "pcbridge-lock.desktop"
+
+
+def applications_dir() -> Path:
+    return Path(os.environ.get("XDG_DATA_HOME") or HOME / ".local" / "share") / "applications"
+
+
+def lock_entry(launcher: Path) -> str:
+    """A launcher entry for the kill switch, so a shortcut can be bound to it.
+
+    Plasma has no pcbridge extension with a lock shortcut; System Settings >
+    Shortcuts can bind any application entry. No shortcut is set here, as the
+    GNOME one is off by default too.
+    """
+    return (
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=pcbridge: lock desktop control\n"
+        "Comment=End pcbridge's desktop grant now (the kill switch)\n"
+        f"Exec={launcher} lock\n"
+        "Icon=system-lock-screen\n"
+        "Terminal=false\n"
+        "Categories=Utility;\n"
+    )
+
+
+def install_kde_entries(native_spec: object) -> list[str]:
+    """Plasma: authorize the native helper for KWin screenshots, add the lock entry."""
+    from ..desktop import kwin
+    from ..native import discover_native_binary
+
+    notes = []
+    try:
+        binary = discover_native_binary(native_spec)
+    except Exception:  # noqa: BLE001 — said below, not raised
+        notes.append("native helper not found: screen capture on Plasma needs it")
+    else:
+        path, changed = kwin.install_helper_entry(binary, dest_dir=applications_dir())
+        notes.append(f"{path.name}: {'installed' if changed else 'up to date'} "
+                     "(KWin screenshots for the native helper)")
+    lock_path = applications_dir() / LOCK_ENTRY
+    text = lock_entry(launcher_path())
+    try:
+        current = lock_path.read_text(encoding="utf-8")
+    except OSError:
+        current = None
+    if current != text:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text(text, encoding="utf-8")
+    notes.append(f"{LOCK_ENTRY}: {'up to date' if current == text else 'installed'} "
+                 "(bind a shortcut to it in System Settings > Shortcuts)")
+    return notes
+
+
+def remove_kde_entries(backup: Backup) -> None:
+    from ..desktop import kwin
+
+    for name in (kwin.HELPER_ENTRY, LOCK_ENTRY):
+        path = applications_dir() / name
+        if path.exists():
+            backup.move(path)
+
+
+# ---------------------------------------------------------------------------
 # Shell aliases
 # ---------------------------------------------------------------------------
 

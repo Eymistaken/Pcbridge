@@ -276,6 +276,7 @@ def report(argv: list[str]) -> int:
             f"pcbridge {__version__} ({inst.install_kind()})",
             f"python {sys.version.split()[0]}",
             inst.run(["gnome-shell", "--version"]).stdout.strip(),
+            inst.run(["plasmashell", "--version"]).stdout.strip(),
             open("/etc/os-release").read() if os.path.exists("/etc/os-release") else "",
         ]),
         "doctor.json": json.dumps(checks, indent=2),
@@ -469,8 +470,15 @@ def setup(argv: list[str]) -> int:
             notes.append("pcbridge update   # finishes the service switch when no job is running")
 
     if not args.no_extension:
-        inst.say("\n5. GNOME Shell extension")
-        inst.ok(inst.install_extension(backup))
+        from ..desktop.session import KDE, desktop_kind
+
+        if desktop_kind() == KDE:
+            inst.say("\n5. KDE Plasma")
+            for line in inst.install_kde_entries(cfg.native):
+                (inst.warn if line.startswith("native helper not found") else inst.ok)(line)
+        else:
+            inst.say("\n5. GNOME Shell extension")
+            inst.ok(inst.install_extension(backup))
 
     if not args.no_connect:
         inst.say("\n6. MCP clients")
@@ -552,6 +560,7 @@ def uninstall(argv: list[str]) -> int:
     if ext.exists() or ext.is_symlink():
         inst.run(["gnome-extensions", "disable", assetslib.EXTENSION_UUID])
         backup.move(ext)
+    inst.remove_kde_entries(backup)
     inst.remove_aliases(backup)
     for client in connectlib.CLIENTS:
         reg = connectlib.current(client)

@@ -224,14 +224,21 @@ class Doctor:
                      "" if have else distrolib.install_command(pkg))
 
     def desktop(self) -> None:
+        from ..desktop.session import KDE, desktop_kind
+
         g = "desktop"
+        kde = desktop_kind() == KDE
         session = os.environ.get("XDG_SESSION_TYPE", "")
         wayland = bool(os.environ.get("WAYLAND_DISPLAY")) or session == "wayland"
         self.add(g, "session", "ok" if wayland else "warn",
                  f"XDG_SESSION_TYPE={session or '(unset)'}, WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY', '(unset)')}",
-                 "" if wayland else "desktop tools need a GNOME on Wayland session")
-        shell = inst.run(["gnome-shell", "--version"]).stdout.strip()
-        self.add(g, "GNOME Shell", "ok" if shell else "warn", shell or "gnome-shell not found")
+                 "" if wayland else "desktop tools need a GNOME or KDE Plasma on Wayland session")
+        if kde:
+            plasma = inst.run(["plasmashell", "--version"]).stdout.strip()
+            self.add(g, "KDE Plasma", "ok" if plasma else "warn", plasma or "plasmashell not found")
+        else:
+            shell = inst.run(["gnome-shell", "--version"]).stdout.strip()
+            self.add(g, "GNOME Shell", "ok" if shell else "warn", shell or "gnome-shell not found")
         dev = Path("/dev/uinput")
         if not dev.exists():
             self.add(g, "/dev/uinput", "fail", "missing (uinput module not loaded)", udev_hint())
@@ -253,6 +260,56 @@ class Doctor:
             have = shutil.which(tool)
             self.add(g, tool, "ok" if have else level, have or "missing",
                      "" if have else distrolib.install_command(pkg))
+        if kde:
+            self.plasma(g)
+        else:
+            self.gnome_extension(g)
+        if self.cfg is not None:
+            try:
+                from ..desktop import monitors
+
+                mons = monitors.list_monitors(use_cache=False)
+                w, h = monitors.canvas_size(mons)
+                self.add(g, "monitors", "ok" if mons else "warn", f"{len(mons)} monitor(s), canvas {w}x{h}")
+            except Exception as exc:  # noqa: BLE001
+                self.add(g, "monitors", "warn", f"monitor table unreadable: {exc}"[:200])
+
+    def plasma(self, g: str) -> None:
+        """KDE Plasma's pieces: KWin screenshots, scripting, idle time, a11y."""
+        from ..desktop import a11y, idlewatch, kwin
+
+        binary = None
+        if self.cfg is not None:
+            try:
+                from ..native import discover_native_binary
+
+                binary = discover_native_binary(self.cfg.native)
+            except Exception:  # noqa: BLE001 — the native group reports it
+                binary = None
+        entry = kwin.helper_authorized(binary) if binary else None
+        self.add(g, "KWin screenshots", "ok" if entry else "fail",
+                 f"the native helper is authorized by {entry}" if entry
+                 else "the native helper is not authorized (KWin refuses its screenshots)",
+                 "" if entry else "pcbridge setup")
+        owned = inst.run(["busctl", "--user", "status", "org.kde.KWin"], timeout=5).returncode == 0
+        self.add(g, "KWin scripting", "ok" if owned else "fail",
+                 "org.kde.KWin answers (window focus and the focused window)" if owned
+                 else "org.kde.KWin has no owner: this is not a KWin session")
+        idle = idlewatch.read_idle_ms()
+        self.add(g, "idle time", "ok" if idle is not None else "warn",
+                 f"the idle watcher answers ({idle} ms since the last input)" if idle is not None
+                 else "no idle watcher: desktop writes need force=true",
+                 "" if idle is not None
+                 else "the daemon starts it when [desktop] enabled = true; see pcbridge logs")
+        state = a11y.is_enabled()
+        self.add(g, "Qt accessibility", "info",
+                 "on" if state else "off (desktop_unlock turns it on for the grant)"
+                 if state is False else "unknown (org.a11y.Bus did not answer)")
+        lock = inst.applications_dir() / inst.LOCK_ENTRY
+        self.add(g, "lock entry", "ok" if lock.exists() else "info",
+                 str(lock) if lock.exists() else "not installed", "" if lock.exists() else "pcbridge setup")
+
+    def gnome_extension(self, g: str) -> None:
         ext = inst.extension_target()
         sys_ext = inst.SYSTEM_EXTENSIONS_DIR / inst.assetslib.EXTENSION_UUID
         where = ext if (ext.exists() or ext.is_symlink()) else (sys_ext if sys_ext.exists() else None)
@@ -281,15 +338,6 @@ class Doctor:
                          "log out and back in to load the new one")
             else:
                 self.add(g, "extension in this session", "info", "not running in this session")
-        if self.cfg is not None:
-            try:
-                from ..desktop import monitors
-
-                mons = monitors.list_monitors(use_cache=False)
-                w, h = monitors.canvas_size(mons)
-                self.add(g, "monitors", "ok" if mons else "warn", f"{len(mons)} monitor(s), canvas {w}x{h}")
-            except Exception as exc:  # noqa: BLE001
-                self.add(g, "monitors", "warn", f"monitor table unreadable: {exc}"[:200])
 
     def native(self) -> None:
         g = "native helper"
