@@ -32,6 +32,7 @@ sys.path.insert(0, str(ROOT))
 
 from PIL import Image  # noqa: E402
 
+from pcbridge import distro  # noqa: E402
 from pcbridge import tools as toolslib  # noqa: E402
 from pcbridge.desktop import capture as capturelib  # noqa: E402
 from pcbridge.desktop import monitors as monitorslib  # noqa: E402
@@ -170,7 +171,7 @@ class FakeEngineTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"PATH": str(self.bin)}):
             ok, why = ocr.available("tur+eng")
             self.assertFalse(ok)
-            self.assertIn("sudo apt install tesseract-ocr", why)
+            self.assertIn(distro.install_command("tesseract"), why)
             with self.assertRaises(ocr.OcrError) as caught:
                 ocr.read_words(self.png((1920, 1080), (250, 250, 250)), "tur+eng")
             self.assertTrue(caught.exception.missing)
@@ -179,7 +180,7 @@ class FakeEngineTests(unittest.TestCase):
         self.install(langs="eng")
         ok, why = ocr.available("tur+eng")
         self.assertFalse(ok)
-        self.assertIn("tesseract-ocr-tur", why)
+        self.assertIn(distro.tesseract_language_package("tur"), why)
         self.assertTrue(ocr.available("eng")[0])
 
     def test_the_png_goes_on_stdin_and_the_boxes_come_back(self) -> None:

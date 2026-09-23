@@ -52,6 +52,8 @@ import subprocess
 import threading
 from pathlib import Path
 
+from .. import distro as distrolib
+
 HELPER = Path(__file__).resolve().parent / "screencast_helper.py"
 SYSTEM_PYTHON = "python3"
 
@@ -94,8 +96,7 @@ def available() -> tuple[bool, str]:
         return False, (
             "GStreamer PipeWire support is missing "
             f"({(proc.stderr or '').strip().splitlines()[-1:] or ['?']}). "
-            "Install it: sudo apt install gstreamer1.0-pipewire "
-            "gstreamer1.0-plugins-good python3-gi"
+            f"Install it: {distrolib.install_command('screencast')}"
         )
     return True, ""
 

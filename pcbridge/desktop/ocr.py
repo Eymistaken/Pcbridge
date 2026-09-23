@@ -40,6 +40,8 @@ import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
+from .. import distro as distrolib
+
 try:
     from PIL import Image, ImageOps
 
@@ -48,7 +50,12 @@ except Exception:  # pragma: no cover - kuruluysa calismaz
     PIL_AVAILABLE = False
 
 ENGINE = "tesseract"
-INSTALL_HINT = "sudo apt install tesseract-ocr"
+
+
+def install_hint() -> str:
+    return distrolib.install_command("tesseract")
+
+
 # Seyrek metin kipi: arayuz ve oyun ekranlari bir sayfa degil, daginik
 # etiketler. Duzen analizi (psm 3) sutunlar arar ve kisa etiketleri kacirir.
 PAGE_SEGMENTATION = "11"
@@ -127,7 +134,7 @@ def available(langs: str) -> tuple[bool, str]:
         return False, "Pillow is missing (reinstall pcbridge with its [desktop] extra: `pcbridge setup`)"
     binary = shutil.which(ENGINE)
     if binary is None:
-        return False, f"`{ENGINE}` is not installed. Install it: {INSTALL_HINT}"
+        return False, f"`{ENGINE}` is not installed. Install it: {install_hint()}"
     try:
         proc = subprocess.run(
             [binary, "--list-langs"], capture_output=True, text=True, timeout=10
@@ -137,10 +144,10 @@ def available(langs: str) -> tuple[bool, str]:
     have = {line.strip() for line in (proc.stdout + proc.stderr).splitlines()}
     missing = [lang for lang in langs.split("+") if lang not in have]
     if missing:
-        packages = " ".join(f"tesseract-ocr-{lang}" for lang in missing)
+        packages = tuple(distrolib.tesseract_language_package(lang) for lang in missing)
         return False, (
             f"`{ENGINE}` is missing language data: {', '.join(missing)}. "
-            f"Install it: sudo apt install {packages}"
+            f"Install it: {distrolib.install_command(raw=packages)}"
         )
     return True, ""
 
@@ -231,7 +238,7 @@ def read_words(png: Path, langs: str, timeout: float = RUN_TIMEOUT) -> list[Word
         raise OcrError(f"Invalid language list: {langs!r} (for example: eng+deu)")
     binary = shutil.which(ENGINE)
     if binary is None:
-        raise OcrError(f"`{ENGINE}` is not installed. Install it: {INSTALL_HINT}", missing=True)
+        raise OcrError(f"`{ENGINE}` is not installed. Install it: {install_hint()}", missing=True)
     data, factor = _prepare(png)
     env = dict(os.environ)
     # Arka planda calisan bir OCR butun cekirdekleri almasin.
@@ -389,7 +396,7 @@ def seen(matches: list[Match]) -> bool:
 
 __all__ = [
     "ENGINE",
-    "INSTALL_HINT",
+    "install_hint",
     "Match",
     "OcrError",
     "Word",

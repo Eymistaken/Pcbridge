@@ -20,16 +20,21 @@ DEST="$DIR/pcbridge/_native/$TARGET"
 missing=()
 command -v cargo >/dev/null || missing+=("the Rust toolchain: https://rustup.rs (rust/rust-toolchain.toml selects 1.95.0 by itself)")
 command -v pkg-config >/dev/null || missing+=("pkg-config")
-pkg-config --exists libpipewire-0.3 2>/dev/null || missing+=("libpipewire-0.3-dev (with libspa-0.2-dev)")
+pkg-config --exists libpipewire-0.3 2>/dev/null || missing+=("the libpipewire-0.3 headers (with libspa-0.2)")
+# Debian keeps libclang under /usr/lib/llvm-*/lib; Arch in /usr/lib.
 if ! ldconfig -p 2>/dev/null | grep -q 'libclang' \
-   && ! ls /usr/lib/llvm-*/lib/libclang*.so* >/dev/null 2>&1; then
-  missing+=("libclang-dev (for the bindgen of the pipewire crate)")
+   && ! ls /usr/lib/llvm-*/lib/libclang*.so* /usr/lib/libclang.so* >/dev/null 2>&1; then
+  missing+=("libclang (for the bindgen of the pipewire crate)")
 fi
 if [ ${#missing[@]} -gt 0 ]; then
   echo "Build requirements are missing:" >&2
   for item in "${missing[@]}"; do echo "  - $item" >&2; done
   echo "System packages (sudo, once):" >&2
-  echo "  sudo apt install libpipewire-0.3-dev libspa-0.2-dev libclang-dev pkg-config" >&2
+  if grep -qsE '^ID(_LIKE)?=.*\barch\b' /etc/os-release; then
+    echo "  sudo pacman -S --needed libpipewire clang pkgconf" >&2
+  else
+    echo "  sudo apt install libpipewire-0.3-dev libspa-0.2-dev libclang-dev pkg-config" >&2
+  fi
   exit 3
 fi
 if [ "${1:-}" = "--check" ]; then

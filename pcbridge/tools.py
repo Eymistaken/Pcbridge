@@ -24,6 +24,7 @@ from pydantic import Field
 
 from . import __version__
 from . import assets as assetslib
+from . import distro as distrolib
 from . import sessionctx
 from . import executables as exelib
 from . import jobs as jobslib
@@ -641,7 +642,7 @@ def register(
         """List the live tmux terminal sessions on the computer. These are real
         terminals the user can also attach to physically."""
         if not tmuxctl.available():
-            return "tmux is not installed: `sudo apt install tmux`"
+            return f"tmux is not installed: `{distrolib.install_command('tmux')}`"
         rows = tmuxctl.list_sessions()
         if not rows:
             return "No tmux sessions are open."
@@ -667,7 +668,7 @@ def register(
         """Open a new persistent terminal session on the computer, optionally
         launching an interactive CLI (like `claude`) inside it."""
         if not tmuxctl.available():
-            return "tmux is not installed: `sudo apt install tmux`"
+            return f"tmux is not installed: `{distrolib.install_command('tmux')}`"
         cwd = _resolve_dir(cfg, workdir)
         if not cwd.is_dir():
             return f"Directory not found: {cwd}"
@@ -2221,7 +2222,7 @@ def register(
             retryable=False,
             suggested_action=(
                 "Text recognition needs the tesseract OCR engine. Ask the user to "
-                f"install it ({ocrlib.INSTALL_HINT}); until then use "
+                f"install it ({ocrlib.install_hint()}); until then use "
                 "screen_capture and read the picture yourself."
             ),
             permission_scope="os.capture",
@@ -3410,7 +3411,7 @@ def register(
             )
             return "Notification sent."
         except FileNotFoundError:
-            return "notify-send not found: `sudo apt install libnotify-bin`"
+            return f"notify-send not found: `{distrolib.install_command('notify-send')}`"
         except Exception as exc:  # pragma: no cover
             return f"Notification failed: {exc}"
 

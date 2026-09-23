@@ -33,6 +33,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import Protocol
 
+from .. import distro as distrolib
+
 TEXT_MIME = "text/plain;charset=utf-8"
 TIMEOUT_SECONDS = 10
 
@@ -105,7 +107,9 @@ class WlClipboard:
         try:
             put = _write(["wl-copy", "--type", TEXT_MIME], data=text.encode())
         except FileNotFoundError as exc:
-            raise ClipboardError("wl-copy not found: sudo apt install wl-clipboard") from exc
+            raise ClipboardError(
+                "wl-copy not found: " + distrolib.install_command("wl-clipboard")
+            ) from exc
         except subprocess.TimeoutExpired as exc:
             raise ClipboardError(
                 "wl-copy did not answer (the clipboard owner may be stuck)"

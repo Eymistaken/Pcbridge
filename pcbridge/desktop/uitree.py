@@ -38,6 +38,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import distro as distrolib
 from .. import sessionctx
 from .errors import ErrorCode
 
@@ -157,7 +158,7 @@ def available() -> tuple[bool, str]:
     if proc.returncode != 0:
         return False, (
             "AT-SPI bindings are missing. Install them: "
-            "sudo apt install python3-gi gir1.2-atspi-2.0"
+            + distrolib.install_command("atspi")
         )
     return True, ""
 

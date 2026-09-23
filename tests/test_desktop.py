@@ -3025,7 +3025,7 @@ def test_screencast_backend() -> None:
         ok_kapali, why_kapali = C.available(kapali)
         check("yayin acikken gnome-screenshot aranmiyor", ok_acik is True)
         check("yayin kapaliyken eksiklik bildiriliyor", ok_kapali is False)
-        check("gerekce kurulum komutu veriyor", "apt install" in why_kapali,
+        check("gerekce kurulum komutu veriyor", "sudo " in why_kapali,
               why_kapali[:80])
     finally:
         C.shutil.which = gercek_which
@@ -3100,7 +3100,7 @@ def test_screencast_backend() -> None:
         check("bu makinede ekran yayini kullanilabilir", True)
     else:
         check("kullanilamiyorsa gerekce kurulum komutu veriyor",
-              "apt install" in why or "python" in why, why[:90])
+              "sudo " in why or "python" in why, why[:90])
 
 
 def test_kill_helpers() -> None:

@@ -72,6 +72,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .. import distro as distrolib
 from . import monitors as monitorslib
 from .errors import DesktopError
 
@@ -692,7 +693,7 @@ def available(screencast: Any = None) -> tuple[bool, str]:
     if not shutil.which(GNOME_SCREENSHOT):
         return False, (
             f"`{GNOME_SCREENSHOT}` is not installed. "
-            "Install it: sudo apt install gnome-screenshot"
+            f"Install it: {distrolib.install_command('gnome-screenshot')}"
         )
     return True, ""
 

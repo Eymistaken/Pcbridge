@@ -190,8 +190,9 @@ class ScreenCastHelper:
             if el is None:
                 raise HelperError(
                     f"GStreamer element not found: {name}. "
-                    "Install it: sudo apt install gstreamer1.0-pipewire "
-                    "gstreamer1.0-plugins-good"
+                    "Install it: " + _install_hint(
+                        "gstreamer1.0-pipewire gstreamer1.0-plugins-good",
+                        "gst-plugin-pipewire gst-plugins-good")
                 )
             elems[name] = el
 
@@ -239,6 +240,27 @@ class ScreenCastHelper:
         return {"ok": True, "path": path, "monitor": monitor,
                 "ms": round((time.perf_counter() - t0) * 1000)}
 
+
+
+def _install_hint(debian: str, arch: str) -> str:
+    """`sudo apt install …` or, on Arch, `sudo pacman -S --needed …`.
+
+    This helper runs under the system python and cannot import pcbridge, so
+    it repeats the small family check of `pcbridge.distro`.
+    """
+    try:
+        with open("/etc/os-release", encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        text = ""
+    ids = []
+    for line in text.splitlines():
+        key, _, value = line.partition("=")
+        if key in ("ID", "ID_LIKE"):
+            ids += value.strip().strip('"').lower().split()
+    if "arch" in ids:
+        return "sudo pacman -S --needed " + arch
+    return "sudo apt install " + debian
 
 def main() -> int:
     helper = ScreenCastHelper()

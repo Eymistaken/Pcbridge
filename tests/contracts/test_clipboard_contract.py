@@ -24,6 +24,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from pcbridge import distro  # noqa: E402
 from pcbridge.desktop import clipboard as clipboardlib  # noqa: E402
 from pcbridge.desktop import input as inputlib  # noqa: E402
 
@@ -173,7 +174,7 @@ class ClipboardFixtureTests(unittest.TestCase):
                 mock.patch.object(inputlib.time, "sleep", lambda _seconds: None):
             with self.assertRaises(inputlib.InputError) as raised:
                 typist.type_text("metin", restore_clipboard=False)
-        self.assertIn("sudo apt install wl-clipboard", str(raised.exception))
+        self.assertIn(distro.install_command("wl-clipboard"), str(raised.exception))
 
     def test_the_input_backend_uses_an_injected_clipboard(self) -> None:
         class Recording:

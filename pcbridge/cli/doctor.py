@@ -23,6 +23,7 @@ from pathlib import Path
 
 from .. import __version__
 from .. import paths as pathslib
+from .. import distro as distrolib
 from . import connect as connectlib
 from . import install as inst
 
@@ -215,11 +216,12 @@ class Doctor:
                      "" if found else f"install it, or set its full path in [agents.{name}] command")
         for tool, pkg, why in (
             ("tmux", "tmux", "tmux tools"),
-            ("script", "bsdutils", "agents with pty = true"),
-            ("notify-send", "libnotify-bin", "notifications"),
+            ("script", "script", "agents with pty = true"),
+            ("notify-send", "notify-send", "notifications"),
         ):
             have = shutil.which(tool)
-            self.add(g, tool, "ok" if have else "warn", have or f"missing ({why})", "" if have else f"sudo apt install {pkg}")
+            self.add(g, tool, "ok" if have else "warn", have or f"missing ({why})",
+                     "" if have else distrolib.install_command(pkg))
 
     def desktop(self) -> None:
         g = "desktop"
@@ -246,10 +248,11 @@ class Doctor:
         sysgi = inst.run(["/usr/bin/python3", "-c", "import gi; gi.require_version('Atspi','2.0'); from gi.repository import Atspi"])
         self.add(g, "AT-SPI (system python3-gi)", "ok" if sysgi.returncode == 0 else "fail",
                  "available" if sysgi.returncode == 0 else sysgi.stderr.strip()[-160:],
-                 "" if sysgi.returncode == 0 else "sudo apt install python3-gi gir1.2-atspi-2.0")
-        for tool, pkg, level in (("wl-copy", "wl-clipboard", "fail"), ("tesseract", "tesseract-ocr", "warn")):
+                 "" if sysgi.returncode == 0 else distrolib.install_command("atspi"))
+        for tool, pkg, level in (("wl-copy", "wl-clipboard", "fail"), ("tesseract", "tesseract", "warn")):
             have = shutil.which(tool)
-            self.add(g, tool, "ok" if have else level, have or "missing", "" if have else f"sudo apt install {pkg}")
+            self.add(g, tool, "ok" if have else level, have or "missing",
+                     "" if have else distrolib.install_command(pkg))
         ext = inst.extension_target()
         sys_ext = inst.SYSTEM_EXTENSIONS_DIR / inst.assetslib.EXTENSION_UUID
         where = ext if (ext.exists() or ext.is_symlink()) else (sys_ext if sys_ext.exists() else None)

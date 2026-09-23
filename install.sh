@@ -16,6 +16,7 @@ if ! "$PY" -c 'import sys; sys.exit(sys.version_info < (3, 12))'; then
   exit 1
 fi
 if ! "$PY" -c 'import venv, ensurepip' 2>/dev/null; then
+  # Arch ships venv inside the python package; this is Debian's split.
   echo "Python's venv module is missing: sudo apt install python3-venv" >&2
   exit 1
 fi

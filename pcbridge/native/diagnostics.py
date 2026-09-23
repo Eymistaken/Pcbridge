@@ -23,6 +23,7 @@ from typing import Any
 from pcbridge.config import Config, NativeSpec
 from pcbridge.desktop.errors import DesktopError
 
+from .. import distro as distrolib
 from .discovery import _target_triple, discover_native_binary
 from .protocol import PROTOCOL_MAJOR
 
@@ -252,7 +253,7 @@ def diagnose(
             findings.append(Finding(
                 "fail",
                 "unresolved libraries: " + ", ".join(missing)
-                + " (Ubuntu 24.04: sudo apt install libpipewire-0.3-0t64)",
+                + f" ({distrolib.install_command('libpipewire')})",
             ))
         else:
             findings.append(Finding(

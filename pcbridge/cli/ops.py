@@ -23,17 +23,17 @@ from pathlib import Path
 
 from .. import __version__
 from .. import assets as assetslib
+from .. import distro as distrolib
 from .. import paths as pathslib
 from . import connect as connectlib
 from . import install as inst
 
-APT_PACKAGES = {
-    # command or python import -> apt package
+REQUIRED_COMMANDS = {
+    # command -> what provides it (a logical name in pcbridge.distro)
     "tmux": "tmux",
     "wl-copy": "wl-clipboard",
-    "notify-send": "libnotify-bin",
-    "script": "bsdutils",
-    "gnome-screenshot": "gnome-screenshot",
+    "notify-send": "notify-send",
+    "script": "script",
 }
 
 
@@ -342,13 +342,22 @@ def _fresh_config(dest: Path) -> None:
 
 
 def _deps_report() -> list[str]:
-    missing = [pkg for cmd, pkg in APT_PACKAGES.items() if not shutil.which(cmd)]
+    """The logical needs (see `pcbridge.distro`) that are not installed."""
+    missing = [need for cmd, need in REQUIRED_COMMANDS.items() if not shutil.which(cmd)]
+    if session_desktop() == "gnome" and not shutil.which("gnome-screenshot"):
+        missing.append("gnome-screenshot")
     probe = inst.run(["/usr/bin/python3", "-c", "import gi; gi.require_version('Atspi','2.0'); from gi.repository import Atspi"])
     if probe.returncode != 0:
-        missing += ["python3-gi", "gir1.2-atspi-2.0"]
+        missing.append("atspi")
     if not shutil.which("tesseract"):
-        missing.append("tesseract-ocr")
+        missing.append("tesseract")
     return missing
+
+
+def session_desktop() -> str:
+    from ..desktop.session import desktop_kind
+
+    return desktop_kind()
 
 
 def _restart_when_idle(cfg, wait_s: float) -> str:
@@ -393,9 +402,10 @@ def setup(argv: list[str]) -> int:
     inst.say("1. System packages")
     missing = _deps_report()
     if missing:
-        inst.warn("missing: " + ", ".join(missing))
-        inst.say(f"          install with: sudo apt install {' '.join(missing)}")
-        notes.append(f"sudo apt install {' '.join(missing)}")
+        command = distrolib.install_command(*missing)
+        inst.warn("missing: " + ", ".join(distrolib.packages(*missing)))
+        inst.say(f"          install with: {command}")
+        notes.append(command)
     else:
         inst.ok("all present")
     if not os.access("/dev/uinput", os.R_OK | os.W_OK):
@@ -505,7 +515,11 @@ def update(argv: list[str]) -> int:
         res = inst.run(["git", "-C", str(root), "pull", "--ff-only"], timeout=120)
         inst.ok("git pull: " + (res.stdout.strip().splitlines() or ["done"])[-1])
     elif kind == "deb":
-        inst.say("Package install: update with `sudo apt install ./pcbridge_<version>_amd64.deb`; the daemon then restarts itself when idle.")
+        inst.say("Package install: update with "
+                 + ("`sudo pacman -U pcbridge-<version>-x86_64.pkg.tar.zst`"
+                    if distrolib.family() == distrolib.ARCH
+                    else "`sudo apt install ./pcbridge_<version>_amd64.deb`")
+                 + "; the daemon then restarts itself when idle.")
     elif kind == "user":
         inst.say("User install: download the new wheel and run `pcbridge setup` from it; this command then restarts the daemon when idle.")
     inst.write_version_stamp()

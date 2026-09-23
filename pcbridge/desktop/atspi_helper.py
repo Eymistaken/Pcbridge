@@ -767,12 +767,34 @@ def _reply(resp: dict) -> int:
     return 0
 
 
+def _install_hint(debian: str, arch: str) -> str:
+    """`sudo apt install …` or, on Arch, `sudo pacman -S --needed …`.
+
+    This helper runs under the system python and cannot import pcbridge, so
+    it repeats the small family check of `pcbridge.distro`.
+    """
+    try:
+        with open("/etc/os-release", encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        text = ""
+    ids = []
+    for line in text.splitlines():
+        key, _, value = line.partition("=")
+        if key in ("ID", "ID_LIKE"):
+            ids += value.strip().strip('"').lower().split()
+    if "arch" in ids:
+        return "sudo pacman -S --needed " + arch
+    return "sudo apt install " + debian
+
+
 def main() -> int:
     if ATSPI_ERROR:
         return _reply({
             "ok": False,
             "error": f"The AT-SPI bindings could not be loaded ({ATSPI_ERROR}). "
-                     "Install: sudo apt install python3-gi gir1.2-atspi-2.0",
+                     "Install: " + _install_hint("python3-gi gir1.2-atspi-2.0",
+                                                 "python-gobject at-spi2-core"),
         })
     raw = sys.stdin.read()
     try:
