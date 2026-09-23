@@ -169,10 +169,14 @@ class _PythonDesktopStateProvider:
 
 def screen_lock_decision(observation: ScreenLockObservation) -> Decision:
     if observation.state == ScreenLockState.UNKNOWN:
+        from .session import support_note
+
+        note = support_note()
         return Decision(
             False,
             "The screen lock state could not be read. No desktop action starts "
-            "before it is confirmed that the session is unlocked.",
+            "before it is confirmed that the session is unlocked."
+            + (f" {note}" if note else ""),
             code=ErrorCode.LOCK_STATE_UNKNOWN,
             permission_scope="pcbridge.desktop",
             retryable=True,

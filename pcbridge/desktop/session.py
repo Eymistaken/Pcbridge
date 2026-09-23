@@ -171,3 +171,30 @@ def describe(env: dict[str, str] | None = None) -> str:
         f"DISPLAY={e.get('DISPLAY') or '(unset)'}",
     ]
     return " · ".join(parts)
+
+
+def support_note(env: dict[str, str] | None = None) -> str:
+    """Name an unsupported session, or "" (Step 8 of 2.0).
+
+    pcbridge's desktop tools are built on Mutter, GNOME Shell and Wayland. In
+    another session they refuse (fail closed); this says why in words, so a
+    refusal is not blamed on the screen lock. An EMPTY value is not a verdict:
+    stdio clients and systemd often pass none (measured, see CLAUDE.md), and
+    `ensure_session_env` fills it in from the Wayland socket.
+    """
+    e = os.environ if env is None else env
+    kind = (e.get("XDG_SESSION_TYPE") or "").strip().lower()
+    desktop = (e.get("XDG_CURRENT_DESKTOP") or "").strip()
+    problems = []
+    if kind and kind != "wayland":
+        name = "X11" if kind == "x11" else kind
+        problems.append(f"{'an' if name[0].lower() in 'aeiox' else 'a'} {name} session")
+    if desktop and "gnome" not in desktop.lower():
+        problems.append(f"the {desktop} desktop")
+    if not problems:
+        return ""
+    return (
+        f"Unsupported session: {' on '.join(problems)}. pcbridge's desktop tools "
+        "need GNOME on Wayland and refuse here; the shell, file, tmux and agent "
+        "tools work anywhere."
+    )

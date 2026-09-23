@@ -193,6 +193,49 @@ class DaemonIntegrationTests(unittest.TestCase):
         self.assertIn("back", _text(res))
         self.assertIn(f"pid {self.daemon.pid}", _text(c.tool("system_status")))
 
+    def test_a_broken_client_environment_does_not_reach_the_tools(self) -> None:
+        # Codex hands over the literal text; Claude Desktop sends an empty
+        # session type (both measured, see CLAUDE.md). Through the relay the
+        # tools run in the daemon's environment, so neither arrives.
+        self._start_daemon()
+        broken = dict(self.env)
+        broken["DBUS_SESSION_BUS_ADDRESS"] = "$DBUS_SESSION_BUS_ADDRESS"
+        broken["XDG_SESSION_TYPE"] = ""
+        c = Client(broken)
+        self.addCleanup(c.close)
+        c.call("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                              "clientInfo": {"name": "codex-like", "version": "1"}})
+        c.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        out = _text(c.tool("shell_run", {
+            "command": 'echo "bus=[$DBUS_SESSION_BUS_ADDRESS] type=[$XDG_SESSION_TYPE]"'}))
+        # The first line echoes the command itself; the answer follows it.
+        result = [ln for ln in out.splitlines() if ln.startswith("bus=[")]
+        self.assertEqual(len(result), 1, out)
+        self.assertNotIn("$", result[0])
+        self.assertIn(f"bus=[{self.env.get('DBUS_SESSION_BUS_ADDRESS', '')}]", result[0])
+        if self.env.get("XDG_SESSION_TYPE"):
+            self.assertIn(f"type=[{self.env['XDG_SESSION_TYPE']}]", result[0])
+
+    def test_an_update_during_a_job_waits_until_idle(self) -> None:
+        stamp = self.tmp / "data" / "pcbridge" / "version-stamp"
+        stamp.parent.mkdir(parents=True)
+        stamp.write_text("2.0.0 old\n")
+        self.env["PCBRIDGE_STAMP_POLL_S"] = "0.2"
+        self._start_daemon()
+        c = self._client()
+        started = _text(c.tool("shell_run_background", {"command": "sleep 3", "workdir": str(self.tmp / "work")}))
+        self.assertIn("job", started.lower())
+        stamp.write_text("2.0.0 new\n")
+        time.sleep(1.5)
+        assert self.daemon is not None
+        self.assertIsNone(self.daemon.poll(), "restarted while a job was running")
+        self.assertIn("restart deferred", (self.tmp / "daemon.log").read_text())
+        # Idle once the job ends: the daemon exits 75 so systemd restarts it.
+        self.assertEqual(self.daemon.wait(timeout=15), 75)
+        self._start_daemon()  # what systemd does after RestartForceExitStatus=75
+        res = c.tool("shell_run", {"command": "echo after-update"})
+        self.assertIn("after-update", _text(res))
+
 
 if __name__ == "__main__":
     unittest.main()

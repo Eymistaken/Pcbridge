@@ -583,7 +583,10 @@ class RustCaptureProvider(PythonCaptureProvider):
                 backend=BACKEND_NAME,
                 scope="os.capture",
                 reason_code=ErrorCode.DEPENDENCY_MISSING,
-                limitations=("Pillow is required to crop and scale frames.",),
+                limitations=(
+                    "Pillow is required to crop and scale frames; reinstall pcbridge "
+                    "(`pcbridge update`) so its environment has it.",
+                ),
             )
         elif ready:
             monitor = _capability(

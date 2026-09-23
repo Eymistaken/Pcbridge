@@ -79,6 +79,21 @@ def _state_for(code: ErrorCode | None) -> CapabilityState:
     return CapabilityState.UNAVAILABLE
 
 
+# What to install when a capability reports DEPENDENCY_MISSING without a
+# reason of its own (Step 8 of 2.0): `system_capabilities` prints it, so the
+# reader gets the command instead of a bare code. First matching prefix wins.
+_INSTALL_HINTS: tuple[tuple[str, str], ...] = (
+    ("clipboard.", "wl-clipboard is not installed: sudo apt install wl-clipboard"),
+    ("capture.window", "needs gnome-screenshot: sudo apt install gnome-screenshot"),
+    ("capture.", "screen sharing needs GStreamer's PipeWire plugin and PyGObject: "
+                 "sudo apt install gstreamer1.0-pipewire python3-gi gir1.2-gst-plugins-base-1.0"),
+    ("accessibility.", "needs the AT-SPI bindings: sudo apt install python3-gi gir1.2-atspi-2.0"),
+    ("window.", "needs the AT-SPI bindings: sudo apt install python3-gi gir1.2-atspi-2.0"),
+    ("input.", "the uinput device is missing: run `pcbridge setup` (installs the udev "
+               "rule and loads the module; asks for sudo)"),
+)
+
+
 def _capability(
     name: str,
     state: CapabilityState,
@@ -88,6 +103,10 @@ def _capability(
     reason_code: ErrorCode | None = None,
     limitations: tuple[str, ...] = (),
 ) -> Capability:
+    if reason_code is ErrorCode.DEPENDENCY_MISSING and not limitations:
+        limitations = tuple(
+            hint for prefix, hint in _INSTALL_HINTS if name.startswith(prefix)
+        )[:1]
     return Capability(
         name=name,
         state=state,
@@ -360,7 +379,10 @@ class PythonCaptureProvider:
                 backend="linux.python.capture",
                 scope="os.capture",
                 reason_code=ErrorCode.DEPENDENCY_MISSING,
-                limitations=("Pillow is required to crop and scale frames.",),
+                limitations=(
+                    "Pillow is required to crop and scale frames; reinstall pcbridge "
+                    "(`pcbridge update`) so its environment has it.",
+                ),
             )
         elif requested == "gnome-screenshot":
             monitor = self._screenshot_capability("capture.monitor", screenshot_ok)

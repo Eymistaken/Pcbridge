@@ -39,7 +39,7 @@ yuklenemedi asimina ugradi sinirina ulasti kapatiliyor uyumsuz surumu
 islenemedi dondurdu masaustune baglanilamadi protokolunu denetleyin goreli
 gonderilen iyilestirme degistirdi denetimi calismadi dugumu gelmedi
 kurulamadi yakalanamadi varsayilani baslatilamadi ajan olusturuldu baslatmak
-hazirlanamadi""".split()
+hazirlanamadi yetkilendirme""".split()
 WORD_RX = re.compile(r"(?<![A-Za-z_])(" + "|".join(WORDS) + r")(?![A-Za-z_])", re.I)
 LETTER_RX = re.compile(r"[çğıöşüÇĞİÖŞÜ]")
 

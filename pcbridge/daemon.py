@@ -48,7 +48,8 @@ log = logging.getLogger("pcbridge")
 
 RELAY_PROTOCOL = 1
 RESTART_EXIT_CODE = 75  # pcbridge.service: RestartForceExitStatus=75
-STAMP_POLL_S = 5.0
+# How often the version stamp is read; tests shorten it.
+STAMP_POLL_S = float(os.environ.get("PCBRIDGE_STAMP_POLL_S") or 5.0)
 THREAD_LIMIT = 128
 MAX_LINE = 64 * 1024 * 1024
 

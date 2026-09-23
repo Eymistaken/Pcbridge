@@ -187,11 +187,20 @@ def capabilities_result(snapshot: CapabilitySnapshot) -> ToolResult:
         line = f"- `{name}`: {value.state.value} (`{value.backend}`)"
         if value.reason_code:
             line += f" · {value.reason_code.value}"
+        # Say why, and what to install, wherever a capability is not fully
+        # there; a bare code leaves the reader guessing (Step 8 of 2.0).
+        if value.state.value != "supported" and value.limitations:
+            line += f" — {value.limitations[0]}"
         lines.append(line)
+    from .session import support_note
+
+    note = support_note()
+    if note:
+        lines += ["", f"⚠️ {note}"]
     authorization = snapshot.authorization
     lines += [
         "",
-        "**Yetkilendirme**",
+        "**Authorization**",
         f"- configuration: {'enabled' if authorization.desktop_enabled else 'disabled'}",
         f"- grant: {authorization.grant_remaining_seconds} s left",
         f"- screen lock: {authorization.screen_lock_state}",

@@ -36,6 +36,10 @@ class Check:
     fixed: bool = False
 
 
+# Job records are never deleted by pcbridge; doctor warns above this size.
+JOBS_WARN_BYTES = 1_000_000_000
+
+
 class Doctor:
     def __init__(self, fix: bool = False) -> None:
         self.fix = fix
@@ -296,6 +300,24 @@ class Doctor:
         n = len([l for l in res.stdout.splitlines() if l.strip()])
         self.add(g, "errors (15 min)", "ok" if n == 0 else "warn", f"{n} error line(s) in the journal",
                  "" if n == 0 else "pcbridge logs")
+        # The daemon logs to the journal (journald rotates it) and audit.log
+        # rotates itself at [limits] audit_max_bytes. Job records are agent
+        # transcripts, so pcbridge never deletes them; it says when they grow.
+        cfg = getattr(self, "cfg", None)
+        if cfg is not None:
+            jobs = Path(cfg.state_dir) / "jobs"
+            total = count = 0
+            for root, _dirs, files in os.walk(jobs):
+                for name in files:
+                    try:
+                        total += (Path(root) / name).stat().st_size
+                    except OSError:
+                        pass
+            count = sum(1 for p in jobs.iterdir() if p.is_dir()) if jobs.is_dir() else 0
+            big = total > JOBS_WARN_BYTES
+            self.add(g, "job records", "warn" if big else "ok",
+                     f"{count} job(s), {total / 1_000_000:.1f} MB in {jobs}",
+                     f"move finished jobs you no longer need to the trash: gio trash {jobs}/<job-id>" if big else "")
 
     def run_all(self) -> list[Check]:
         for step in (self.install, self.config, self.daemon, self.clients, self.readiness,

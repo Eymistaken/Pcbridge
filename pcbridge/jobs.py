@@ -59,6 +59,10 @@ def tail_chars(text: str, limit: int) -> str:
     return "…(kirpildi)…\n" + text[-limit:]
 
 
+class JobStartError(RuntimeError):
+    """A job could not be recorded, so it was not started (or was stopped)."""
+
+
 class JobManager:
     def __init__(self, jobs_dir: Path, default_timeout: int = 1800):
         self.dir = jobs_dir
@@ -97,6 +101,13 @@ class JobManager:
         )
 
     # ----------------------------------------------------------------- baslat
+    def _unwritable(self, exc: OSError) -> str:
+        return (
+            f"Cannot write the job record under {self.dir} ({exc.strerror or exc}); "
+            "the job was NOT started. Free disk space or fix the permissions of "
+            "pcbridge's state directory, then try again."
+        )
+
     def start(
         self,
         *,
@@ -112,7 +123,16 @@ class JobManager:
     ) -> str:
         job_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
         jdir = self.job_dir(job_id)
-        jdir.mkdir(parents=True, exist_ok=True)
+        # Prove the record can be written BEFORE anything runs (Step 8 of
+        # 2.0): on a full or read-only disk the process used to start and the
+        # record write failed after it, leaving a job no tool could see or stop.
+        try:
+            jdir.mkdir(parents=True, exist_ok=True)
+            probe = jdir / ".write-probe"
+            probe.write_bytes(b"x" * 4096)
+            probe.unlink()
+        except OSError as exc:
+            raise JobStartError(self._unwritable(exc)) from None
 
         log = self._log_path(job_id)
         exitf = self._exit_path(job_id)
@@ -172,7 +192,14 @@ class JobManager:
             "deadline": time.time() + to if to > 0 else None,
             **(extra or {}),
         }
-        self._write_meta(job_id, meta)
+        try:
+            self._write_meta(job_id, meta)
+        except OSError as exc:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except OSError:
+                pass
+            raise JobStartError(self._unwritable(exc)) from None
         return job_id
 
     # ----------------------------------------------------------------- durum

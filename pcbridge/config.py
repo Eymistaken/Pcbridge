@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import sys
+import tempfile
 import tomllib
 
 from . import paths as pathslib
@@ -720,6 +721,30 @@ def load_config(explicit: str | None = None) -> Config:
         raise
 
 
+def _ensure_writable_state(state_dir: Path) -> None:
+    """Create the state directory and prove it takes a write, or say why not.
+
+    The grant, the job records and the audit log live there. A read-only or
+    full disk used to end in a traceback on the first write (Step 8 of 2.0);
+    now it is one English line and exit 78, which the unit does not retry in a
+    loop. The socket stays up, so the next client starts pcbridge again once
+    the disk is fixed.
+    """
+    try:
+        (state_dir / "jobs").mkdir(parents=True, exist_ok=True)
+        probe = tempfile.NamedTemporaryFile(dir=state_dir / "jobs", prefix=".write-probe-")
+        probe.write(b"x")
+        probe.flush()
+        probe.close()
+    except OSError as exc:
+        raise ConfigError(
+            f"The state directory {state_dir} cannot be written ({exc.strerror or exc}). "
+            "pcbridge keeps its grant, job records and audit log there. Free disk "
+            f"space or fix its permissions (chmod 700 {state_dir}), then start "
+            "pcbridge again."
+        ) from None
+
+
 def exit_on_config_error(exc: ConfigError) -> int:
     """Print the reason once, on stderr (the journal), and return EX_CONFIG."""
     print(f"pcbridge: configuration error: {exc.message}", file=sys.stderr, flush=True)
@@ -1011,8 +1036,7 @@ def _load_config(explicit: str | None = None) -> Config:
     state_dir = (
         _expand(paths["state_dir"]) if paths.get("state_dir") else pathslib.state_home()
     )
-    state_dir.mkdir(parents=True, exist_ok=True)
-    (state_dir / "jobs").mkdir(parents=True, exist_ok=True)
+    _ensure_writable_state(state_dir)
 
     return Config(
         public_url=public_url,
