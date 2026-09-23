@@ -153,7 +153,11 @@ jobs:
   kde-headless-smoke:
     name: headless KWin smoke (experimental)
     runs-on: ubuntu-24.04
-    container: archlinux:latest
+    container:
+      image: archlinux:latest
+      # kwin_wayland carries the file capability cap_sys_nice=ep; without it
+      # in the container's bounding set, exec fails with EPERM.
+      options: --cap-add=SYS_NICE
     continue-on-error: true
     timeout-minutes: 20
     steps:
