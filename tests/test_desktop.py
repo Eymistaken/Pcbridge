@@ -3162,7 +3162,7 @@ def test_real_screencast() -> None:
             sc.capture("DP-1", tmp / "olmaz.png")
             check("kapali yayindan cekim reddediliyor", False, "kabul edildi")
         except SC.ScreenCastError as exc:
-            check("kapali yayindan cekim reddediliyor", "acik degil" in str(exc),
+            check("kapali yayindan cekim reddediliyor", "is not on" in str(exc),
                   str(exc)[:80])
 
         connectors = [m.connector for m in M.list_monitors()]
@@ -3182,14 +3182,14 @@ def test_real_screencast() -> None:
             with Image.open(dest) as im:
                 mon = next(m for m in M.list_monitors() if m.connector == conn)
                 check(f"{conn} cozunurlugu monitorle ayni",
-                      im.size == (mon.width, mon.height),
-                      f"{im.size} vs {(mon.width, mon.height)}")
+                      im.size == mon.source_pixel_size,
+                      f"{im.size} vs {mon.source_pixel_size}")
 
         try:
             sc.capture("YOK-9", tmp / "x.png")
             check("olmayan monitor reddediliyor", False, "kabul edildi")
         except SC.ScreenCastError as exc:
-            check("olmayan monitor reddediliyor", "yayinda yok" in str(exc),
+            check("olmayan monitor reddediliyor", "is not being shared" in str(exc),
                   str(exc)[:80])
 
         sc.stop()
