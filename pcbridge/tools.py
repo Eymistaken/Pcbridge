@@ -32,6 +32,7 @@ from . import models as modelslib
 from . import shots as shotslib
 from . import tmuxctl
 from .config import Config
+from .desktop import a11y as a11ylib
 from .desktop import apps as appslib
 from .desktop import batch as batchlib
 from .desktop import capture as capturelib
@@ -1341,6 +1342,9 @@ def register(
             )
         out = [msg, "", capture_provider.describe_monitors(), ""]
         out.append(_open_screencast())
+        a11y_note = a11ylib.enable_for_grant(Path(cfg.state_dir))
+        if a11y_note:
+            out.append(a11y_note)
         out.append(
             "Coordinates are in the **global canvas space**; top left is (0, 0). For "
             "coordinates relative to one monitor, pass `monitor` as well."

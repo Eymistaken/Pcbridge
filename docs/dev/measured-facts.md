@@ -323,7 +323,10 @@ probes in `tests/live/kde/`.
   to a name the caller owns. It lists windows (caption, resource class,
   desktop file, pid, frame geometry), reads the cursor, and
   `workspace.activeWindow = w` brings a window forward with no focus
-  stealing prevention in the way. No authorization is needed.
+  stealing prevention in the way. No authorization is needed. Through
+  `kwin_helper.py` (a system-python process per call) `activate` and
+  `focused` take 83-95 ms; with several Kate windows open, "kate" was
+  ambiguous and nothing was activated, as the GNOME extension does.
 - **Qt applications join AT-SPI only when `org.a11y.Status.IsEnabled` is
   true.** With it false the tree held no kate, konsole or plasmashell;
   setting it true made the already running ones appear within 2 s, and new

@@ -322,6 +322,10 @@ class SafetyGate:
     def lock(self) -> str:
         snapshot, was_remaining = self._lease.revoke()
         self._call_token.set(None)
+        # Plasma: Qt accessibility goes back off if the grant turned it on.
+        from . import a11y
+
+        a11y.restore(Path(self.cfg.state_dir))
         self.audit(
             "desktop_lock",
             was_remaining=was_remaining,

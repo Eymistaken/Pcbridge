@@ -31,6 +31,7 @@ PACKAGES: dict[str, tuple[str, str]] = {
     "notify-send": ("libnotify-bin", "libnotify"),
     "script": ("bsdutils", "util-linux"),
     "gnome-screenshot": ("gnome-screenshot", "gnome-screenshot"),
+    "gtk-launch": ("libgtk-3-bin", "gtk3"),
     "atspi": ("python3-gi gir1.2-atspi-2.0", "python-gobject at-spi2-core"),
     "screencast": (
         "gstreamer1.0-pipewire gstreamer1.0-plugins-good gir1.2-gst-plugins-base-1.0 python3-gi",

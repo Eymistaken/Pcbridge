@@ -156,12 +156,15 @@ def main(argv: list[str] | None = None) -> int:
             f"relative-pointer={'yes' if want_r else 'no'}"
         )
         if "focus" in {a.a for a in plan}:
+            from ..desktop import compositor as compositorlib
+
+            comp = compositorlib.current()
             lines.append(
                 "focus path: "
-                + ("GNOME extension (open window); a closed application is started "
-                   "directly, GNOME search if the extension cannot raise it" if fast_focus
+                + (f"{comp.focus_path} (open window); a closed application is started "
+                   f"directly, {comp.search_path} if it cannot raise it" if fast_focus
                    else "no key if already focused; a closed application is started "
-                   "directly, an open window through GNOME search (no extension)")
+                   f"directly, an open window through {comp.search_path}")
             )
         estimate = batchlib.estimate(plan, fast_focus=fast_focus)
         lines.append(f"estimated time: {estimate:.1f} s")

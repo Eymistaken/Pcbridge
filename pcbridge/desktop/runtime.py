@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from pathlib import Path
 from contextlib import contextmanager
 from typing import Callable, Hashable, Iterator
 
@@ -325,6 +326,11 @@ class DesktopRuntime:
         if self.gate.is_unlocked():
             self.refresh_capture_deadline()
             return
+        state_dir = getattr(getattr(self.gate, "cfg", None), "state_dir", None)
+        if state_dir is not None:
+            from . import a11y
+
+            a11y.restore(Path(state_dir))
         self.stop_capture()
 
     def stop_capture(self) -> None:

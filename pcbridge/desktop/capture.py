@@ -73,6 +73,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import distro as distrolib
+from . import compositor as compositorlib
 from . import monitors as monitorslib
 from .errors import DesktopError
 
@@ -1191,6 +1192,37 @@ def _frame_box(
     )
 
 
+def _kwin_window_region() -> tuple[tuple[int, int, int, int], monitorslib.Monitor]:
+    """The focused window on Plasma as ((x, y, w, h) on the canvas, its monitor).
+
+    KWin reports the frame in its own (platform) coordinates; the canvas starts
+    at (0, 0), so the monitor table's offset is applied. The box is clipped to
+    the monitor holding the window's center: a window hanging over an edge is
+    shown as far as that monitor shows it.
+    """
+    from .apps import _kwin
+
+    reply = _kwin({"cmd": "focused"})
+    geometry = (reply or {}).get("geometry")
+    if not reply or reply.get("found") is not True or not geometry:
+        raise CaptureError("No focused window to capture (KWin reported none).")
+    mons = monitorslib.list_monitors()
+    px, py, pw, ph = (float(v) for v in geometry)
+    left, top = min(m.platform[0] for m in mons), min(m.platform[1] for m in mons)
+    x0, y0 = px - left, py - top
+    cx, cy = x0 + pw / 2, y0 + ph / 2
+    home = next((m for m in mons if m.contains(int(cx), int(cy))), None)
+    if home is None:
+        raise CaptureError("The focused window is not on any monitor.")
+    x1 = max(home.x, monitorslib.round_half_away(x0))
+    y1 = max(home.y, monitorslib.round_half_away(y0))
+    x2 = min(home.x + home.width, monitorslib.round_half_away(x0 + pw))
+    y2 = min(home.y + home.height, monitorslib.round_half_away(y0 + ph))
+    if x2 - x1 < REGION_MIN_EDGE or y2 - y1 < REGION_MIN_EDGE:
+        raise CaptureError("The focused window is too small to capture.")
+    return (x1, y1, x2 - x1, y2 - y1), home
+
+
 def _render(
     monitor: int | str | None,
     staging: Path,
@@ -1209,6 +1241,11 @@ def _render(
     raw_dir.mkdir()
 
     want_window = isinstance(monitor, str) and monitor.strip().lower() == "window"
+    if want_window and region is None and compositorlib.is_kde():
+        # Plasma has no gnome-screenshot: the focused window is a region of
+        # its monitor's frame, which also gives the shot a global offset.
+        region = _kwin_window_region()
+        want_window = False
     if want_window and region is not None:
         raise CaptureError(
             "A `window` capture cannot take a region: where the window sits on "

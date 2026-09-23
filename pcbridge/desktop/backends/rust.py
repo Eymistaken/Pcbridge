@@ -651,11 +651,23 @@ class RustCaptureProvider(PythonCaptureProvider):
             )
 
         # Window capture is not a native capability and is not claimed as one:
-        # the legacy screenshot path still owns it.
-        window = PythonCaptureProvider._screenshot_capability(
-            "capture.window",
-            pillow_ok and bool(shutil.which(capturelib.GNOME_SCREENSHOT)),
-        )
+        # the legacy screenshot path still owns it on GNOME. On Plasma it is a
+        # region of the monitor frame (KWin names the focused window), so it
+        # stands or falls with monitor capture.
+        if compositorlib.is_kde():
+            window = _capability(
+                "capture.window",
+                monitor.state,
+                backend="linux.kwin-script",
+                scope="os.capture",
+                reason_code=monitor.reason_code,
+                limitations=monitor.limitations,
+            )
+        else:
+            window = PythonCaptureProvider._screenshot_capability(
+                "capture.window",
+                pillow_ok and bool(shutil.which(capturelib.GNOME_SCREENSHOT)),
+            )
         return {"capture.monitor": monitor, "capture.window": window}
 
     def capture(

@@ -57,6 +57,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from . import compositor as compositorlib
 from .errors import DesktopError, ErrorCategory, ErrorCode
 
 SEARCH_SETTLE = 1.2      # overview acilmasi
@@ -114,8 +115,46 @@ def _busctl_bool(*args: str) -> bool:
     return proc.returncode == 0 and proc.stdout.split() == ["b", "true"]
 
 
+_KWIN_HELPER = Path(__file__).with_name("kwin_helper.py")
+
+
+def _kwin(request: dict) -> dict | None:
+    """KDE Plasma: one `kwin_helper.py` call (system python). None on failure.
+
+    The helper runs a one-shot KWin script (measured: 83-95 ms a call with
+    the interpreter start). Its answer is trusted only when it says ok.
+    """
+    from .uitree import SYSTEM_PYTHON
+
+    try:
+        proc = subprocess.run(
+            [SYSTEM_PYTHON, str(_KWIN_HELPER)],
+            input=json.dumps(request),
+            capture_output=True,
+            text=True,
+            timeout=6.0,
+        )
+        reply = json.loads(proc.stdout or "{}")
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+    return reply if isinstance(reply, dict) and reply.get("ok") is True else None
+
+
 def extension_focus_available() -> bool:
-    """Dar pencere odak servisinin bu oturumda bir sahibi var mi?"""
+    """Dar pencere odak servisinin bu oturumda bir sahibi var mi?
+
+    GNOME: pcbridge's shell extension. KDE Plasma: KWin itself, which runs
+    the one-shot scripts `kwin_helper.py` loads.
+    """
+    if compositorlib.is_kde():
+        return _busctl_bool(
+            "org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+            "NameHasOwner",
+            "s",
+            "org.kde.KWin",
+        )
     return _busctl_bool(
         "org.freedesktop.DBus",
         "/org/freedesktop/DBus",
@@ -145,6 +184,11 @@ def extension_focused_window() -> tuple[str, str] | None:
     verdigi addan FARKLI olabilir; ayni dizi icinde iki kaynagin karismasi
     "odak degisti" sayilir, yani yanlis yonde degil guvenli yonde hata.
     """
+    if compositorlib.is_kde():
+        reply = _kwin({"cmd": "focused"})
+        if not reply or reply.get("found") is not True:
+            return None
+        return str(reply.get("app") or "").strip() or "?", str(reply.get("title") or "")
     try:
         proc = subprocess.run(
             [
@@ -176,7 +220,12 @@ def _extension_activate(window: str) -> bool:
 
     Servis yoksa, grant kapaliysa veya hedef acik degilse False doner. Bu
     ayrim bilerek hata degildir: cagiran mevcut GNOME aramasina duser.
+    On KDE Plasma a KWin script does the same, with the same matching rules;
+    the grant is checked by pcbridge before it gets here.
     """
+    if compositorlib.is_kde():
+        reply = _kwin({"cmd": "activate", "target": window})
+        return bool(reply and reply.get("activated") is True)
     return _busctl_bool(
         _FOCUS_BUS_NAME,
         _FOCUS_OBJECT_PATH,
@@ -765,10 +814,12 @@ def _launch_argv(entry: Entry) -> list[str]:
 def _gtk_launch(entry: Entry, timeout: int) -> None:
     """`gtk-launch` ile baslat. Cikis kodu yalnizca "istek gitti" demek."""
     if not shutil.which("gtk-launch"):
+        from .. import distro as distrolib
+
         raise _refused(
             ErrorCode.DEPENDENCY_MISSING,
-            "`gtk-launch` is not installed (package: libgtk-3-bin).",
-            "Install the libgtk-3-bin package.",
+            "`gtk-launch` is not installed.",
+            f"Install it: {distrolib.install_command('gtk-launch')}",
             category=ErrorCategory.CAPABILITY,
             retryable=False,
         )
@@ -966,7 +1017,7 @@ def bring_to_front(
                 title,
             )
 
-    _check_time(deadline, SEARCH_COST, "the GNOME search")
+    _check_time(deadline, SEARCH_COST, f"the {compositorlib.current().search_path}")
     return _search(target, backend, focused, settle)
 
 
@@ -998,7 +1049,10 @@ def _search(
     ile toparlanip hata atilir; arama bir seyi acmis olabilecegi icin sonuc
     `EXECUTION_UNKNOWN`, tekrarlanmaz.
     """
-    backend.key("super")
+    comp = compositorlib.current()
+    # GNOME: Super opens the overview's search. Plasma: Alt+Space opens
+    # KRunner (Super would open the Kickoff menu instead).
+    backend.key("alt+space" if comp.kind == "kde" else "super")
     time.sleep(settle)
     # Overview'da pano bloklu -> ham yol. Olculdu 2026-08-02.
     backend.type_text(_typed(target.text), raw=True)
@@ -1020,15 +1074,15 @@ def _search(
     if _shows(target, app, title):
         return Outcome(
             "search",
-            f"{app} | {title} raised (GNOME search, fallback path)",
+            f"{app} | {title} raised ({comp.search_path}, fallback path)",
             str(app),
             str(title),
         )
 
     _escape(backend)
     raise _unknown(
-        f"{target.text!r} could not be raised; {app} | {title!r} has the focus. GNOME "
-        "search may have picked another result (a file, a chat or a "
+        f"{target.text!r} could not be raised; {app} | {title!r} has the focus. "
+        f"{comp.search_path} may have picked another result (a file, a chat or a "
         "web search).",
         "See the open windows with window_list; the search may have opened a tab "
         "or a file.",
