@@ -212,7 +212,10 @@ class DaemonIntegrationTests(unittest.TestCase):
         result = [ln for ln in out.splitlines() if ln.startswith("bus=[")]
         self.assertEqual(len(result), 1, out)
         self.assertNotIn("$", result[0])
-        self.assertIn(f"bus=[{self.env.get('DBUS_SESSION_BUS_ADDRESS', '')}]", result[0])
+        # The daemon's own bus: the one it was given, or the one
+        # ensure_session_env derived when it was given none (a CI runner).
+        own = self.env.get("DBUS_SESSION_BUS_ADDRESS") or f"unix:path=/run/user/{os.getuid()}/bus"
+        self.assertIn(f"bus=[{own}]", result[0])
         if self.env.get("XDG_SESSION_TYPE"):
             self.assertIn(f"type=[{self.env['XDG_SESSION_TYPE']}]", result[0])
 
