@@ -15,7 +15,7 @@ import threading
 import time
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from fastmcp.tools.base import ToolResult
@@ -43,6 +43,7 @@ from .desktop import input as inputlib
 from .desktop import monitors as monitorslib
 from .desktop import ocr as ocrlib
 from .desktop import ops as opslib
+from .desktop import panelicon as paneliconlib
 from .desktop import policy
 from .desktop import presentation as presentationlib
 from .desktop import safety as safetylib
@@ -299,6 +300,7 @@ TOOL_HINTS: dict[str, tuple[bool, bool, bool, bool]] = {
     "fs_search":            (True,  False, True,  False),
     "fs_write":             (False, True,  True,  False),
     "notify":               (False, False, False, False),
+    "panel_icon":           (False, False, True,  False),
     "system_status":        (True,  False, True,  False),
     "system_capabilities":  (True,  False, True,  False),
     "desktop_unlock":       (False, True,  False, False),
@@ -328,7 +330,8 @@ DESKTOP_TOOLS = frozenset({
     "computer_batch", "computer_task",
 })
 _DESKTOP_PROFILE_EXTRA = frozenset({
-    "system_status", "notify", "job_status", "job_output", "job_list", "job_cancel",
+    "system_status", "notify", "panel_icon", "job_status", "job_output", "job_list",
+    "job_cancel",
 })
 
 
@@ -3424,5 +3427,45 @@ def register(
             return f"notify-send not found: `{distrolib.install_command('notify-send')}`"
         except Exception as exc:  # pragma: no cover
             return f"Notification failed: {exc}"
+
+    @mcp.tool(annotations={"title": "Show or hide pcbridge's panel icon"})
+    def panel_icon(
+        action: Annotated[
+            Literal["show", "hide", "status"],
+            Field(description="`hide`: hide the icon while desktop control is closed. "
+                              "`show`: show it all the time (the default). "
+                              "`status`: report the current setting."),
+        ] = "status",
+    ) -> str:
+        """Show or hide pcbridge's icon in the GNOME top bar, when the user asks for
+        it. `hide` hides the icon only while desktop control is closed: whenever
+        desktop control is granted the icon appears anyway, and nothing can hide it
+        then. The setting persists across logins. The kill switch stays available
+        as `pcbridge lock` either way."""
+        if compositorlib.is_kde():
+            return ("KDE Plasma has no pcbridge panel icon: there the grant shows as a "
+                    "notification only while desktop control is open, so there is "
+                    "nothing to hide.")
+        try:
+            if action != "status":
+                paneliconlib.set_mode("when-granted" if action == "hide" else "always")
+            mode = paneliconlib.get_mode()
+        except paneliconlib.PanelIconError as exc:
+            return f"The panel icon setting could not be changed: {exc}"
+        gate.audit("panel_icon", action=action, mode=mode)
+        if mode == "when-granted":
+            text = ("The pcbridge panel icon is hidden while desktop control is closed. "
+                    "It appears whenever desktop control is granted, whatever this setting "
+                    "says. The kill switch stays available as `pcbridge lock`.")
+        else:
+            text = "The pcbridge panel icon is shown all the time."
+        version = paneliconlib.running_version()
+        if version is None:
+            text += (" The extension is not running in this session; the setting applies "
+                     "when it runs.")
+        elif not paneliconlib.running_supports_mode(version):
+            text += (f" The extension running in this session is version {version}, which "
+                     "does not know this setting; it applies after the next login.")
+        return text
 
     return runtime

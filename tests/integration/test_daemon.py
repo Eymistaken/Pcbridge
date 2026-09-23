@@ -164,7 +164,7 @@ class DaemonIntegrationTests(unittest.TestCase):
         self._start_daemon()
         c = self._client()
         tools = c.call("tools/list")["result"]["tools"]
-        self.assertEqual(len(tools), 36)
+        self.assertEqual(len(tools), 37)
         status = _text(c.tool("system_status"))
         self.assertIn("daemon pid", status)
         self.assertIn(f"pid {self.daemon.pid}", status)

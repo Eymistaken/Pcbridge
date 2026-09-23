@@ -107,7 +107,7 @@ on Plasma.
 | | |
 |---|---|
 | [docs/install.md](docs/install.md) | Install, update, remote access |
-| [docs/usage.md](docs/usage.md) | The 36 tools, which need the grant, how to drive the screen |
+| [docs/usage.md](docs/usage.md) | The 37 tools, which need the grant, how to drive the screen |
 | [docs/configuration.md](docs/configuration.md) | The config file; the reference is [config.example.toml](config.example.toml) |
 | [docs/security.md](docs/security.md) | What protects the machine, and what does not |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Symptoms and fixes |

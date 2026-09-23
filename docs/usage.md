@@ -1,6 +1,6 @@
 # Using pcbridge
 
-pcbridge offers 36 MCP tools. This page lists them, says which ones need the
+pcbridge offers 37 MCP tools. This page lists them, says which ones need the
 desktop grant, and shows the usual ways to use them. Every tool's own
 description (what a client sees) says when to use it; this is the overview.
 
@@ -50,6 +50,7 @@ same agent by passing its `session_id` as `resume_session`.
 | `tmux_kill` | destructive | Close a session |
 | `system_status` | ro | Uptime, load, memory, disk, GPU, jobs, terminal sessions, the daemon |
 | `notify` | write | A desktop notification |
+| `panel_icon` | write | Show or hide pcbridge's GNOME panel icon when the user asks; hidden, it still appears whenever desktop control is granted |
 
 These do not go through the desktop grant: `[desktop] enabled = false` does
 not turn them off. That is deliberate (see [security.md](security.md)).
@@ -97,8 +98,8 @@ the cheapest way to find a known label in an app with no accessibility tree.
 ## Profiles
 
 `[tools] profile` in the config offers a smaller set to save the client's
-context: `full` (default, all 36), `core` (20, no desktop tools) or `desktop`
-(22: the desktop tools plus job and status tools). It is read at startup;
+context: `full` (default, all 37), `core` (21, no desktop tools) or `desktop`
+(23: the desktop tools plus job and status tools). It is read at startup;
 restart pcbridge and the client after changing it.
 
 ## From a terminal
@@ -115,7 +116,18 @@ restart pcbridge and the client after changing it.
 | `pcb-shot`, `pcb-do` | Screenshot and action shells for a local agent's Bash (see `skills/computer-use/SKILL.md`) |
 
 The GNOME extension's panel icon shows the same state and has "Lock desktop
-control now" in its menu. On KDE Plasma the grant shows as a notification
+control now" in its menu. Ask an agent to hide it (`panel_icon`), or set it
+yourself:
+
+```bash
+gsettings --schemadir ~/.local/share/gnome-shell/extensions/pcbridge-gorunur@eymistaken.local/schemas \
+  set org.gnome.shell.extensions.pcbridge-gorunur indicator-mode when-granted   # or: always
+```
+
+Hidden, it still appears whenever desktop control is granted: the icon is
+one of the signals that an agent has the desktop, so neither setting can
+hide it then. (A package install keeps the schema under
+`/usr/share/gnome-shell/extensions/`.) On KDE Plasma the grant shows as a notification
 with a "Lock now" button, and `pcbridge-lock.desktop` can carry a shortcut
 (System Settings > Shortcuts).
 

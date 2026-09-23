@@ -9,7 +9,8 @@ window operations GNOME does not offer from outside.
   slowly (every 11 s it thins by at most 12 % and returns).
 - **A panel indicator** (2.0): server up or down, the grant and its minutes
   left, running jobs, remote access, and a menu with **"Lock desktop control
-  now"** (runs `pcbridge lock`), "Open logs" and "Status…".
+  now"** (runs `pcbridge lock`), "Open logs" and "Status…". It can be hidden
+  while desktop control is closed (2.2, below).
 - **An optional kill-switch shortcut** (2.0), off by default.
 - **The agent's pointer** (OFF by default, below).
 - **Two D-Bus methods**: `ActivateWindow(target) -> bool` raises the one,
@@ -69,6 +70,18 @@ GNOME 46 / Zorin OS 18 (`<Super><Shift>Escape` belongs to mutter):
 ```bash
 gsettings --schemadir ~/.local/share/gnome-shell/extensions/pcbridge-gorunur@eymistaken.local/schemas \
   set org.gnome.shell.extensions.pcbridge-gorunur lock-shortcut "['<Super><Control>Escape']"
+```
+
+When the icon shows (2.2): `indicator-mode` is `always` (the default) or
+`when-granted`, which hides it while desktop control is closed. An open
+grant shows it in either mode (`status.js: indicatorVisible`), so an agent
+that hid it through pcbridge's `panel_icon` tool cannot hide its own access.
+The change applies at once; the kill-switch shortcut keeps working while the
+icon is hidden.
+
+```bash
+gsettings --schemadir ~/.local/share/gnome-shell/extensions/pcbridge-gorunur@eymistaken.local/schemas \
+  set org.gnome.shell.extensions.pcbridge-gorunur indicator-mode when-granted
 ```
 
 ## D-Bus interface
@@ -179,7 +192,7 @@ turns the pointer overlay on. Off, self-test costs one `getenv`.
 | `frame.js` | the edge frame |
 | `cursor.js`, `frameclock.js` | the agent's pointer; once-per-frame scheduling |
 | `selftest.js` | measurement from inside the shell |
-| `schemas/` | the `lock-shortcut` setting |
+| `schemas/` | the `lock-shortcut` and `indicator-mode` settings |
 | `../install.sh`, `../nested.sh` | development install and loop |
 | `../tests/*.js` | gjs tests: state, status, window control, frame clock |
 

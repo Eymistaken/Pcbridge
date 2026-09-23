@@ -108,8 +108,15 @@ export default class PcbridgeGorunurExtension extends Extension {
         try {
             this._status = new StatusWatcher(defaultStatusPath(), () => this._indicator?.update());
             this._status.start();
-            this._indicator = new PcbridgeIndicator(this._state, this._status);
+            let settings = null;
+            try {
+                settings = this.getSettings();
+            } catch (error) {
+                console.warn(`${LOG} no compiled schema, the icon always shows: ${error}`);
+            }
+            this._indicator = new PcbridgeIndicator(this._state, this._status, settings);
             Main.panel.addToStatusArea(this.uuid, this._indicator);
+            this._indicator.update();
             if (SelfTest.selfTestEnabled())
                 SelfTest.reportIndicator(this._indicator);
         } catch (error) {

@@ -8,7 +8,8 @@ import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 
 import {
-    StatusWatcher, findCli, formatLeft, processAlive, readStatus, summarize,
+    INDICATOR_MODES, StatusWatcher, findCli, formatLeft, indicatorVisible, processAlive,
+    readStatus, summarize,
 } from '../pcbridge-gorunur@eymistaken.local/status.js';
 
 let ok = 0;
@@ -88,7 +89,21 @@ check('own CLI path used when executable', findCli({cli: sh}) === sh);
 check('a missing own path falls back to PATH or ~/.local/bin',
     findCli({cli: '/nonexistent/pcbridge'}) !== '/nonexistent/pcbridge');
 
-section('4. watcher');
+section('4. when the panel icon shows');
+check('"always" shows it with desktop control closed', indicatorVisible('always', false));
+check('"when-granted" hides it with desktop control closed', !indicatorVisible('when-granted', false));
+check('an open grant shows it in every mode',
+    INDICATOR_MODES.every(mode => indicatorVisible(mode, true)));
+check('an unknown mode shows it (the safe side)', indicatorVisible('bogus', false));
+const schemaFile = Gio.File.new_for_uri(import.meta.url).get_parent().get_parent()
+    .resolve_relative_path('pcbridge-gorunur@eymistaken.local/schemas/' +
+        'org.gnome.shell.extensions.pcbridge-gorunur.gschema.xml');
+const schema = schemaFile.load_contents(null)[1];
+const choices = [...new TextDecoder().decode(schema).matchAll(/<choice value="([^"]+)"/g)].map(m => m[1]);
+check('the schema offers exactly these modes', JSON.stringify(choices) === JSON.stringify(INDICATOR_MODES),
+    JSON.stringify(choices));
+
+section('5. watcher');
 const loop = new GLib.MainLoop(null, false);
 const seen = [];
 write(running);

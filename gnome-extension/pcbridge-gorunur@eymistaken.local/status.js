@@ -95,6 +95,15 @@ export function summarize(status, grant, now, alive = processAlive) {
 }
 
 /** The pcbridge command to run: status.json's own path, else PATH. */
+/** Is the panel icon shown? "when-granted" hides it only while desktop
+ * control is closed: an open grant always shows, whatever the mode, so an
+ * agent that hid the icon cannot hide its own access with it. */
+export const INDICATOR_MODES = ['always', 'when-granted'];
+
+export function indicatorVisible(mode, grantOpen) {
+    return Boolean(grantOpen) || mode !== 'when-granted';
+}
+
 export function findCli(status) {
     const own = status?.cli;
     if (own && GLib.file_test(own, GLib.FileTest.IS_EXECUTABLE))

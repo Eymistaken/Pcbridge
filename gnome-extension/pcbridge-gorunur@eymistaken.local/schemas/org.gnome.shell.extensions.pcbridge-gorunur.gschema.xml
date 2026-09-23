@@ -10,5 +10,14 @@
       <summary>Kill switch: lock pcbridge desktop control</summary>
       <description>Runs `pcbridge lock`, like the panel menu's "Lock desktop control now". Example: ['&lt;Super&gt;&lt;Control&gt;Escape'].</description>
     </key>
+    <key name="indicator-mode" type="s">
+      <choices>
+        <choice value="always"/>
+        <choice value="when-granted"/>
+      </choices>
+      <default>'always'</default>
+      <summary>When the panel icon is shown</summary>
+      <description>"always", or "when-granted": hidden while desktop control is closed. While desktop control is granted the icon is shown in either mode. pcbridge's panel_icon tool sets this.</description>
+    </key>
   </schema>
 </schemalist>

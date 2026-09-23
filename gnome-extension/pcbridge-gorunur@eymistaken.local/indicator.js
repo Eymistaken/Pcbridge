@@ -17,7 +17,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-import {findCli, summarize} from './status.js';
+import {findCli, indicatorVisible, summarize} from './status.js';
 
 const ICONS = {
     open: 'input-mouse-symbolic',
@@ -38,11 +38,15 @@ function terminalArgv(command) {
 
 export const PcbridgeIndicator = GObject.registerClass(
 class PcbridgeIndicator extends PanelMenu.Button {
-    _init(grant, statusWatcher) {
+    _init(grant, statusWatcher, settings = null) {
         super._init(0.0, 'pcbridge', false);
         this._grant = grant;
         this._watcher = statusWatcher;
         this._tickId = 0;
+        // `indicator-mode`; without a compiled schema the icon always shows.
+        this._settings = settings;
+        this._modeId = settings?.connect('changed::indicator-mode', () => this.update()) ?? 0;
+        this._shown = null;
 
         const box = new St.BoxLayout({style_class: 'panel-status-menu-box'});
         this._icon = new St.Icon({icon_name: ICONS.down, style_class: 'system-status-icon'});
@@ -74,10 +78,24 @@ class PcbridgeIndicator extends PanelMenu.Button {
         this.update();
     }
 
+    mode() {
+        return this._settings?.get_string('indicator-mode') ?? 'always';
+    }
+
     update() {
         const now = GLib.get_real_time() / 1e6;
         const s = summarize(this._watcher.status,
             {active: this._grant.active, until: this._grant.until}, now);
+        const shown = indicatorVisible(this.mode(), s.grantOpen);
+        // Applied every time: the panel shows a container when it adds it.
+        this.container.visible = shown;
+        if (shown !== this._shown) {
+            if (!shown)
+                this.menu.close();
+            this._shown = shown;
+            console.log(`[pcbridge-gorunur] indicator ${shown ? 'shown' : 'hidden'} ` +
+                `(mode ${this.mode()}, desktop control ${s.grantOpen ? 'open' : 'closed'})`);
+        }
         this._icon.icon_name = ICONS[s.icon];
         this._label.text = s.grantOpen ? ` ${Math.max(1, Math.round(s.grantLeft / 60))}m` : '';
         this._lines.forEach((item, i) => {
@@ -122,6 +140,10 @@ class PcbridgeIndicator extends PanelMenu.Button {
     }
 
     destroy() {
+        if (this._modeId) {
+            this._settings.disconnect(this._modeId);
+            this._modeId = 0;
+        }
         if (this._tickId) {
             GLib.Source.remove(this._tickId);
             this._tickId = 0;

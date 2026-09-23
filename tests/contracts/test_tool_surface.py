@@ -55,7 +55,7 @@ class ToolSurfaceTests(unittest.TestCase):
     def test_full_is_the_default_and_every_tool_has_all_four_hints(self) -> None:
         tools = build(None)
         self.assertEqual({t.name for t in tools}, set(toolslib.TOOL_HINTS))
-        self.assertEqual(len(tools), 36)
+        self.assertEqual(len(tools), 37)
         for tool in tools:
             a = tool.annotations
             for hint in ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"):

@@ -91,6 +91,11 @@ Content gates refuse typing into password fields, closing windows without
 `confirm_close`, and a third click in a row on the same element
 ([dev/desktop-rules.md](dev/desktop-rules.md)).
 
+An agent can hide the GNOME panel icon when you ask it to (`panel_icon`),
+but only while desktop control is closed: the extension shows the icon for
+as long as a grant is open, whatever the setting says, so hiding it cannot
+hide an agent's access. The frame around the screens is not affected.
+
 The agent opens the grant itself (`desktop_unlock`); no person is asked. The
 person's controls are the config switch, the lock screen, the kill switch and
 the audit log.

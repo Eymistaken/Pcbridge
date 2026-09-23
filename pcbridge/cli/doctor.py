@@ -195,7 +195,7 @@ class Doctor:
         res = probe(inst.client_command())
         ms = (time.monotonic() - t0) * 1000
         if isinstance(res, int):
-            self.add(g, "fresh client", "ok" if res >= 36 else "fail",
+            self.add(g, "fresh client", "ok" if res >= 37 else "fail",
                      f"`{shlex.join(inst.client_command())}` answered tools/list with {res} tools in {ms:.0f} ms")
         else:
             self.add(g, "fresh client", "fail", str(res), "pcbridge logs")

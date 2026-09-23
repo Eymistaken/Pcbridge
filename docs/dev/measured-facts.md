@@ -279,6 +279,13 @@ folded into this file for 2.0 and removed; git history keeps them.
   shell with only the new extension: icon, " 10m" label, four status lines,
   `Version` "2.0.0" over D-Bus, the kill switch ran `pcbridge lock`; the main
   loop had 0 late ticks. The same headless smoke passes on a GitHub runner.
+- **Hiding the panel icon** (2.2, `indicator-mode = when-granted`) was run
+  in headless GNOME Shell 46.0 and 50.5, each under its own
+  `dbus-run-session`: started hidden with the mode preset, shown within a
+  second of a grant file appearing, hidden again when it closed, and shown
+  at once when pcbridge wrote `always`. The icon's visibility is reapplied on
+  every update, because the panel shows an indicator's container when it
+  adds it.
 - **GNOME 50 dropped `addTopChrome`'s `affectsInputRegion` parameter**
   ("Unrecognized parameter", and the extension disabled itself at enable;
   measured in a headless GNOME Shell 50.5 in the Arch VM). Without it the

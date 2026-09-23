@@ -498,7 +498,7 @@ def setup(argv: list[str]) -> int:
 
     t0 = time.monotonic()
     n = probe(inst.client_command())
-    if isinstance(n, int) and n >= 36:
+    if isinstance(n, int) and n >= 37:
         inst.ok(f"a fresh client got {n} tools in {(time.monotonic() - t0) * 1000:.0f} ms")
     else:
         inst.fail(f"a fresh client failed: {n}")
@@ -509,7 +509,7 @@ def setup(argv: list[str]) -> int:
         inst.say("\nStill to do by hand:")
         for n_ in notes:
             inst.say(f"  {n_}")
-    return 0 if isinstance(n, int) and n >= 36 else 1
+    return 0 if isinstance(n, int) and n >= 37 else 1
 
 
 # ---------------------------------------------------------------------------

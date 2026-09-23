@@ -55,7 +55,7 @@
 | Server | `app.py` | Builds the FastMCP app, the two ASGI shims (`MetadataNormalizer`, `BasicAuthFormShim`, required by Google's OAuth client), routes `/consent`, `/healthz`, `/shot/<token>` |
 | Configuration | `config.py`, `paths.py` | TOML -> dataclasses; XDG locations; migration of 1.x files; typed `ConfigError` (exit 78) |
 | Authentication | `auth.py` | A small OAuth 2.1 server (DCR, PKCE, refresh) and consent page, SQLite |
-| Tools | `tools.py` | All 36 MCP tools and their hints (`TOOL_HINTS`); `[tools] profile` |
+| Tools | `tools.py` | All 37 MCP tools and their hints (`TOOL_HINTS`); `[tools] profile` |
 | Session context | `sessionctx.py` | Per-session maps and context variables |
 | Jobs | `jobs.py` | Background processes and agent output parsers (`plain`, `claude_stream_json`, `agy_json`) |
 | Agent selection | `models.py`, `executables.py` | Pure agent/model/effort resolution; finding agent CLIs (PATH, `~/.local/bin`, npm, bun, nvm) |
