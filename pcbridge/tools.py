@@ -38,6 +38,7 @@ from .desktop import batch as batchlib
 from .desktop import capture as capturelib
 from .desktop import compositor as compositorlib
 from .desktop import execution as executionlib
+from .desktop import grantnotice as grantnoticelib
 from .desktop import input as inputlib
 from .desktop import monitors as monitorslib
 from .desktop import ocr as ocrlib
@@ -1326,19 +1327,12 @@ def register(
         # duruyor -- bildirim birkac saniye sonra kayboluyor. Eklenti
         # kuruluysa bildirim gereksiz tekrar oluyor, o yuzden kapatilabilir.
         # Ikisini birden kapatmak izni GORUNMEZ yapar; bilerek yapilmali.
+        # On Plasma there is no extension: the notification stays for the
+        # grant and its "Lock now" button runs the kill switch (grantnotice).
         if cfg.desktop.unlock_notification:
-            subprocess.run(
-                [
-                    "notify-send",
-                    "-a",
-                    "pcbridge",
-                    "-u",
-                    "critical",
-                    "Desktop control granted",
-                    f"{minutes} min · {reason or 'no reason given'}",
-                ],
-                capture_output=True,
-                timeout=10,
+            grantnoticelib.show(
+                "Desktop control granted",
+                f"{minutes} min · {reason or 'no reason given'}",
             )
         out = [msg, "", capture_provider.describe_monitors(), ""]
         out.append(_open_screencast())

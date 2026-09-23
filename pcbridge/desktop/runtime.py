@@ -331,6 +331,9 @@ class DesktopRuntime:
             from . import a11y
 
             a11y.restore(Path(state_dir))
+        from . import grantnotice
+
+        grantnotice.close()
         self.stop_capture()
 
     def stop_capture(self) -> None:

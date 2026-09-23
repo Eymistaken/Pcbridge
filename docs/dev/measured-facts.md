@@ -333,6 +333,11 @@ probes in `tests/live/kde/`.
   ones join as they start. The switch is persistent: it is stored as
   `toolkit-accessibility=true` in dconf, so pcbridge restores the previous
   value when the grant ends.
+- **A critical notification is the grant's signal on Plasma.** It stays
+  until closed; `notify-send -p -w -A lock="Lock now"` prints its id, and a
+  click on the button (sent through pcbridge's own pointer) printed `lock`
+  and ended notify-send. `CloseNotification` from another process removed
+  it from the screen.
 - **wl-clipboard works without focus** (KWin offers `ext_data_control_v1`).
 - **`gtk-launch`, `gio` and `kstart` are all present** with Plasma plus GTK.
 
