@@ -199,7 +199,10 @@ def capabilities_result(snapshot: CapabilitySnapshot) -> ToolResult:
     lines += [
         "",
         "**Platform**",
-        f"- GNOME Shell: {plat['gnome_shell'] or 'not found'}",
+        "- desktop: " + (f"KDE Plasma {plat['plasma'] or '(version unknown)'}"
+                         if plat.get("environment") == "kde"
+                         else f"GNOME Shell {plat['gnome_shell']}" if plat["gnome_shell"]
+                         else "no supported desktop found"),
         f"- session: {plat['session_type'] or 'unknown'}"
         + (f" ({plat['desktop']})" if plat["desktop"] else ""),
         f"- Mutter ScreenCast: {yes[plat['screencast']]}"

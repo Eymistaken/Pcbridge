@@ -260,20 +260,62 @@ class MissingDependencyTests(unittest.TestCase):
 
 
 class UnsupportedSessionTests(unittest.TestCase):
-    """X11 or a non-GNOME desktop: desktop tools refuse and say why."""
+    """X11 or an unsupported desktop: desktop tools refuse and say why."""
 
-    def test_the_note_names_the_session_and_stays_quiet_on_gnome_wayland(self) -> None:
+    def test_the_note_names_the_session_and_stays_quiet_on_gnome_and_plasma(self) -> None:
         from pcbridge.desktop.session import support_note
 
         self.assertEqual(support_note({"XDG_SESSION_TYPE": "wayland",
                                        "XDG_CURRENT_DESKTOP": "zorin:GNOME"}), "")
+        self.assertEqual(support_note({"XDG_SESSION_TYPE": "wayland",
+                                       "XDG_CURRENT_DESKTOP": "KDE"}), "")
         # Empty is not a verdict: stdio clients and systemd often pass none.
         self.assertEqual(support_note({}), "")
         note = support_note({"XDG_SESSION_TYPE": "x11", "XDG_CURRENT_DESKTOP": "KDE"})
-        self.assertIn("an X11 session on the KDE desktop", note)
-        self.assertIn("GNOME on Wayland", note)
+        self.assertIn("an X11 session", note)
+        self.assertNotIn("KDE desktop", note)
+        self.assertIn("GNOME or KDE Plasma on Wayland", note)
         self.assertIn("the sway desktop",
                       support_note({"XDG_SESSION_TYPE": "wayland", "XDG_CURRENT_DESKTOP": "sway"}))
+
+    def test_the_desktop_kind_comes_from_the_env_then_from_the_bus(self) -> None:
+        from unittest import mock
+
+        from pcbridge.desktop import session
+
+        self.assertEqual(session.desktop_kind({"XDG_CURRENT_DESKTOP": "ubuntu:GNOME"}),
+                         session.GNOME)
+        self.assertEqual(session.desktop_kind({"XDG_CURRENT_DESKTOP": "KDE"}), session.KDE)
+        self.assertEqual(session.desktop_kind({"XDG_CURRENT_DESKTOP": "sway"}), "")
+
+        def names(*owned):
+            return lambda *args: '{"data":[%s]}' % str(list(owned)).replace("'", '"')
+
+        with mock.patch.object(session, "_busctl", names("org.kde.KWin")):
+            self.assertEqual(session.desktop_kind({}), session.KDE)
+        with mock.patch.object(session, "_busctl", names("org.gnome.Shell")):
+            self.assertEqual(session.desktop_kind({}), session.GNOME)
+        with mock.patch.object(session, "_busctl", names()):
+            self.assertEqual(session.desktop_kind({}), "")
+
+    def test_the_platform_report_names_plasma_and_its_version(self) -> None:
+        from unittest import mock
+
+        from pcbridge.desktop import session
+
+        env = {"XDG_SESSION_TYPE": "wayland", "XDG_CURRENT_DESKTOP": "KDE"}
+        with mock.patch.object(session, "_busctl", lambda *a: '{"data":[["org.kde.KWin"]]}'), \
+                mock.patch.object(session, "_plasma_version", lambda: "6.4.5"), \
+                mock.patch.object(session, "TESTED_PLASMA_MAJORS", frozenset({"6"})):
+            plat = session.platform_summary(env)
+        self.assertEqual(plat["environment"], session.KDE)
+        self.assertEqual(plat["plasma"], "6.4.5")
+        self.assertIsNone(plat["gnome_shell"])
+        self.assertEqual(plat["notes"], [])
+        with mock.patch.object(session, "_busctl", lambda *a: ""), \
+                mock.patch.object(session, "_plasma_version", lambda: ""):
+            gone = session.platform_summary(env)
+        self.assertIn("KDE Plasma did not report its version", gone["notes"][0])
 
     def test_the_platform_report_names_untested_versions_instead_of_failing(self) -> None:
         from unittest import mock
