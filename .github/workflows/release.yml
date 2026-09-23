@@ -42,6 +42,11 @@ jobs:
           path: dist/
           merge-multiple: true
 
+      - uses: actions/download-artifact@v8
+        with:
+          name: arch-package
+          path: dist/
+
       - name: Checksums
         working-directory: dist
         run: |

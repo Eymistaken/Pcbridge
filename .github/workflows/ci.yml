@@ -149,3 +149,23 @@ jobs:
           assert size == mons[0].source_pixel_size, size
           "
           ' || { grep -i -e pcbridge -e error shell.log | tail -40; exit 1; }
+
+  kde-headless-smoke:
+    name: headless KWin smoke (experimental)
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    continue-on-error: true
+    timeout-minutes: 20
+    steps:
+      - name: KWin, KScreen, python-gobject
+        run: |
+          pacman -Syu --noconfirm --needed git python python-gobject kwin libkscreen \
+            kservice dbus mesa fuse3
+      - uses: actions/checkout@v7
+      - name: pcbridge
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e ".[desktop]"
+      - name: Detection, monitors, KWin script, ScreenShot2
+        run: tests/live/kde/headless_smoke.sh
+

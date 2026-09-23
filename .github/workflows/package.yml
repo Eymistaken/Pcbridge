@@ -1,8 +1,10 @@
-# Build the .deb per distribution release and install it in a clean container.
+# Build the .deb per distribution release and the Arch package, and install
+# each in a clean container.
 #
-# The venv inside the package is bound to the release's python3, so every
-# release builds its own package. The native helper is built once (it needs
-# glibc >= 2.39, which all of these have) and shared.
+# The venv inside a package is bound to the release's python3, so every
+# release builds its own package. For the .deb the native helper is built
+# once (it needs glibc >= 2.39, which all of these have) and shared; the Arch
+# package builds its own from source, as makepkg does anywhere.
 name: package
 
 on:
@@ -111,4 +113,53 @@ jobs:
         with:
           name: deb-${{ matrix.name }}
           path: dist/pcbridge_*.deb
+          if-no-files-found: error
+
+  arch:
+    name: arch
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    steps:
+      - name: Build tools and runtime dependencies
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git python rust clang pkgconf \
+            libpipewire glib2 glib2-devel tmux wl-clipboard libnotify util-linux \
+            python-gobject at-spi2-core gst-plugin-pipewire gst-plugins-base gst-plugins-good
+      - uses: actions/checkout@v7
+      # makepkg refuses to run as root.
+      - name: Build the package
+        run: |
+          useradd -m builder
+          chown -R builder "$GITHUB_WORKSPACE"
+          su builder -c "cd '$GITHUB_WORKSPACE/packaging/arch' && makepkg -f --noconfirm"
+      - name: Install it
+        run: |
+          pacman -U --noconfirm packaging/arch/pcbridge-*.pkg.tar.zst
+          pcbridge --version
+          test -x /usr/lib/pcbridge/venv/lib/python3*/site-packages/pcbridge/_native/*/pcbridge-native
+          test -f /usr/lib/systemd/user/pcbridge.socket
+          test -f /usr/share/applications/pcbridge-native.desktop
+          test -f /usr/share/gnome-shell/extensions/pcbridge-gorunur@eymistaken.local/schemas/gschemas.compiled
+      - name: Suites against the installed package
+        run: |
+          useradd -m tester
+          mkdir /tmp/pkgtest
+          cp -r tests config.example.toml skills gnome-extension systemd packaging bin README.md /tmp/pkgtest/
+          chown -R tester /tmp/pkgtest
+          su tester -c '
+            set -e
+            cd /tmp/pkgtest
+            P=/usr/lib/pcbridge/venv/bin/python
+            $P -c "import pcbridge; assert pcbridge.__file__.startswith(\"/usr/lib/pcbridge/\"), pcbridge.__file__"
+            $P -c "from pcbridge.cli import install; assert install.install_kind() == \"pacman\", install.install_kind()"
+            pcbridge doctor --json > doctor.json || true
+            $P -c "import json; print(json.load(open(\"doctor.json\"))[\"summary\"])"
+            $P tests/test_models.py
+            $P tests/test_desktop.py
+            $P -m unittest $(ls tests/contracts/test_*.py | grep -v -e test_english_only -e test_doc_links | tr / . | sed "s/\.py$//")
+          '
+      - uses: actions/upload-artifact@v7
+        with:
+          name: arch-package
+          path: packaging/arch/pcbridge-*.pkg.tar.zst
           if-no-files-found: error
