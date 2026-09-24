@@ -89,6 +89,8 @@ Desktop, and checks that a fresh client works. Details:
 ## Quick start
 
 ```bash
+pcbridge                 # the terminal UI: settings, the desktop grant, the tools
+pcbridge list            # every command, for work without the UI
 pcbridge status          # daemon, grant, jobs, remote tunnel
 pcbridge doctor          # every check, with the fix next to each problem
 ```

@@ -31,6 +31,9 @@ the real password or static token appear in the diff.
 ## Commands
 
 ```bash
+pcbridge                                # terminal UI (settings, grant, tools); `pcbridge list` for the rest
+pcbridge settings | get KEY | set KEY VALUE | reset KEY   # any setting, checked and backed up
+pcbridge tools [QUERY]                  # the tools the profile offers
 pcbridge status                         # daemon, grant, jobs, tunnel
 pcbridge doctor [--json] [--fix]        # every check, with the fix
 pcbridge logs -f                        # the daemon's journal

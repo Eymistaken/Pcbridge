@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **A terminal UI.** `pcbridge` alone in a terminal (or `pcbridge ui`)
+  opens it, in the terminal's own colors and with mouse support. A bar on
+  every tab shows the daemon and the desktop grant with its countdown, and
+  one button (or `l`) locks or unlocks it. Settings edits every setting
+  with the widget its type needs; Tools lists all 37 tools, marks what the
+  profile offers and searches them by name or description as you type.
+  Piped or scripted, `pcbridge` alone still prints the help.
+- **Every setting from the command line**: `pcbridge settings`, `get`,
+  `set`, `reset`. A save is checked with the daemon's own loader, backs up
+  the old file and writes atomically; comments and untouched lines stay.
+  The password and the static token are never printed and never taken
+  from argv (`set` prompts, reads `--stdin` or `--generate`s them).
+- **`pcbridge tools`** lists and searches the MCP tools, and shows one
+  tool's parameters. **`pcbridge restart`** restarts the daemon to apply
+  settings, only when no job is running and the grant is closed.
+  **`pcbridge list`** prints every command by group.
+
+### Changed
+
+- New dependencies, both pure Python and inside the shipped venv: Textual
+  (the UI) and tomlkit (editing TOML without losing comments).
+
 ## 2.2.0 - 2026-09-23
 
 ### Added

@@ -17,6 +17,35 @@ stops pcbridge with one line saying what to fix and exit code 78; the
 service does not retry it in a loop. `pcbridge serve --check` validates
 without starting.
 
+## Changing settings
+
+The terminal UI's Settings tab (`pcbridge` alone in a terminal) and these
+commands change any setting without opening the file:
+
+```bash
+pcbridge settings desktop           # every setting whose key or description mentions it
+pcbridge get desktop.unlock_idle_seconds
+pcbridge set desktop.pointer_speed 3000
+pcbridge set desktop.gui_launch_blocklist "Text Editor, Firefox"
+pcbridge set agents.claude.model_effort '{ opus = "high", sonnet = "medium" }'
+pcbridge reset desktop.pointer_speed
+pcbridge set auth.password          # asks for it; or --stdin
+pcbridge set auth.static_token --generate
+pcbridge restart                    # most settings are read when the daemon starts
+```
+
+A save never loses anything: the new file is checked with the same loader
+the daemon uses (a value it would refuse is not written), the old file is
+copied to `config.toml.backup-<timestamp>` next to it, and the new one is
+written atomically with mode 0600. Only the changed lines change; comments
+and every other block stay as they were. A file edited by hand while the UI
+had it open is not overwritten. Secrets are never printed and never taken
+from the command line, where they would stay in the shell history.
+
+`config_version` is not offered (the migration owns it), nor is the unused
+`[desktop] keyboard_layout`. A new `[agents.<name>]` block is still added
+by editing the file; its fields can then be changed like any other.
+
 ## Versions and migration
 
 `config_version = 2` marks a 2.0 file. `pcbridge setup` migrates a 1.x file

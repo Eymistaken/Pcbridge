@@ -47,25 +47,6 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   one sequence; an agent looping over separate `ui_click` calls is not
   caught (see [docs/dev/desktop-rules.md](docs/dev/desktop-rules.md)).
 - **lintian in CI** for the `.deb`.
-- **One CLI for all of the settings.** In progress; the plan is
-  [PLAN.md](PLAN.md). `pcbridge` with no arguments opens a terminal UI
-  (settings, the desktop grant, a searchable tool list), and direct commands
-  do the same without it. Done when every setting can be changed through it,
-  with contract tests. The steps:
-  1. Plan.
-  2. Dependencies: Textual and tomlkit, pinned in `packaging/constraints.txt`.
-  3. Settings core: a registry of every setting and an editor that saves
-     with a backup, validation and no lost comments.
-  4. Grant helpers shared by `lock`, `unlock`, `status` and the UI.
-  5. Tool catalog from the server's own registration.
-  6. Direct commands: `list`, `settings`, `get`, `set`, `reset`, `tools`,
-     `restart`, `ui`.
-  7. Terminal UI frame: the grant bar with Lock / Unlock, tabs, mouse.
-  8. Terminal UI Settings screen.
-  9. Terminal UI Tools screen: search by name or description.
-  10. Live check in a real terminal, driven with the mouse.
-  11. Documentation.
-  12. Full test suite, push, install.
 - **GNOME 47, 48 and 49.** The extension declares 46 and 50, the versions
   verified; the ones between are expected to work. Done when each passes the
   headless extension smoke and joins `shell-version`.

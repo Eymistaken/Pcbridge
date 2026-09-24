@@ -1,6 +1,7 @@
 # Plan: a settings CLI and a terminal UI
 
-Status: in progress (started 2026-09-24). Each step ends with a local commit;
+Status: in progress (started 2026-09-24). The roadmap item moved to
+CHANGELOG.md (Unreleased) once the work was done. Each step ends with a local commit;
 the branch is pushed to `origin/main` when every step is done.
 
 ## Context
@@ -137,5 +138,5 @@ Decisions taken with the maintainer (2026-09-24):
 - [x] 8. Terminal UI, Settings
 - [x] 9. Terminal UI, Tools
 - [x] 10. Live check in a real terminal
-- [ ] 11. Documentation
+- [x] 11. Documentation
 - [ ] 12. Finish

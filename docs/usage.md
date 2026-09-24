@@ -104,8 +104,18 @@ restart pcbridge and the client after changing it.
 
 ## From a terminal
 
+`pcbridge` alone in a terminal opens the terminal UI (below); every command
+also works without it. `pcbridge list` prints them all by group.
+
 | Command | Does |
 |---|---|
+| `pcbridge` (or `pcbridge ui`) | The terminal UI: settings, the desktop grant, the tool list |
+| `pcbridge list` | Every command, by group |
+| `pcbridge settings [FILTER] [--changed]` | Every setting with its value; FILTER searches keys and descriptions |
+| `pcbridge get KEY` | One setting: value, default, what it does |
+| `pcbridge set KEY VALUE` / `pcbridge reset KEY` | Change a setting or put it back to its default (checked, backed up) |
+| `pcbridge tools [QUERY] [--active]` | The MCP tools and which ones the profile offers; search, or one tool's parameters |
+| `pcbridge restart [--wait S]` | Restart the daemon to apply settings, only when no job is running and the grant is closed |
 | `pcbridge status` | Daemon, grant, jobs, remote tunnel |
 | `pcbridge doctor [--json] [--fix]` | Checks everything, with the fix for each problem |
 | `pcbridge lock` (`bridgekilit`) | The kill switch: close the grant and stop screen sharing, whichever process opened it |
@@ -114,6 +124,37 @@ restart pcbridge and the client after changing it.
 | `pcbridge logs [-f]` | The daemon's journal |
 | `pcbridge stop [--keep-jobs]` | Stop the daemon (and, unless told otherwise, running jobs) |
 | `pcb-shot`, `pcb-do` | Screenshot and action shells for a local agent's Bash (see `skills/computer-use/SKILL.md`) |
+
+### The terminal UI
+
+The UI uses the terminal's own colors and takes mouse clicks in terminals
+that report them: measured in GNOME Terminal; Konsole, kitty and tmux (with
+`mouse on`) use the same xterm mouse protocol. To select text while it runs,
+hold Shift. Piped or run from a script,
+`pcbridge` alone prints the help as before.
+
+- **The bar at the top**, on every tab: the daemon, the desktop grant
+  (`locked`, or `OPEN` with the time left and, while it slides, its
+  ceiling) and one button that locks or unlocks it. `l` does the same;
+  it locks at once but asks before it unlocks.
+- **Overview**: daemon, grant, running jobs, remote tunnel, the tool
+  profile, the config file and its warnings.
+- **Settings**: sections on the left, their settings on the right, a
+  filter box, and an editor with the right widget for each type (a switch,
+  a list of choices, text; lists and tables as TOML). Changes are staged
+  and written together by **Save**, after the same checks as `pcbridge
+  set`. Changing `desktop.enabled`, `[auth]`, `host`, `port` or
+  `public_url` asks first. **Restart daemon** appears when a saved change
+  needs it. The password and the static token are never shown; they can
+  be replaced, and the token generated.
+- **Tools**: all 37 tools with their state (`active`, `not in profile`,
+  `needs desktop`), a search box that filters by name and description as
+  you type, a toggle for the offered ones only, and the selected tool's
+  description, hints and parameters.
+- **Commands**: the table `pcbridge list` prints.
+
+Keys: `1`-`4` switch tabs, `l` lock/unlock, `r` restart the daemon, `q`
+quits (and asks if settings are unsaved).
 
 The GNOME extension's panel icon shows the same state and has "Lock desktop
 control now" in its menu. Ask an agent to hide it (`panel_icon`), or set it
