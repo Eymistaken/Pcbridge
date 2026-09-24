@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.3.0 - 2026-09-24
 
 ### Added
 
@@ -25,6 +25,15 @@
 
 - New dependencies, both pure Python and inside the shipped venv: Textual
   (the UI) and tomlkit (editing TOML without losing comments).
+
+### API
+
+- **Tools**: unchanged, 37 (`core` offers 21, `desktop` 23).
+- **Command line**: `list`, `settings`, `get`, `set`, `reset`, `tools`,
+  `restart` and `ui` are new; `pcbridge` alone in a terminal opens the UI,
+  and without a terminal it prints the help as before.
+- **Config file**: no new setting; the format and `config_version = 2`
+  are unchanged.
 
 ## 2.2.0 - 2026-09-23
 

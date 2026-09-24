@@ -1,7 +1,7 @@
 # Plan: a settings CLI and a terminal UI
 
 Status: done (2026-09-24). The roadmap item moved to CHANGELOG.md
-(Unreleased); the measurements are in docs/dev/measured-facts.md. Each step ends with a local commit;
+(2.3.0); the measurements are in docs/dev/measured-facts.md. Each step ends with a local commit;
 the branch is pushed to `origin/main` when every step is done.
 
 ## Context
