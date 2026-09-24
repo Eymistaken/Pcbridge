@@ -45,6 +45,42 @@ class Backend:
 
         return ConfigEditor()
 
+    def panel_icon_status(self) -> tuple[str | None, str]:
+        """The GNOME icon mode and any reason it cannot take effect yet."""
+        from ..desktop import panelicon, session
+
+        unsupported = session.support_note()
+        if unsupported:
+            return None, unsupported
+        kind = session.desktop_kind()
+        if kind == session.KDE:
+            return None, "KDE Plasma has no pcbridge panel icon."
+        if kind != session.GNOME:
+            return None, "No GNOME session was detected."
+        try:
+            mode = panelicon.get_mode()
+        except panelicon.PanelIconError as exc:
+            return None, str(exc)
+        version = panelicon.running_version()
+        if version is None:
+            note = "The extension is not running in this session; the setting applies when it runs."
+        elif not panelicon.running_supports_mode(version):
+            note = f"The running extension is version {version}; the setting applies after the next login."
+        else:
+            note = "Changes apply immediately and persist across logins."
+        return mode, note
+
+    def set_panel_icon_mode(self, mode: str) -> tuple[str | None, str]:
+        from ..desktop import panelicon, session
+
+        unsupported = session.support_note()
+        if unsupported:
+            raise panelicon.PanelIconError(unsupported)
+        if session.desktop_kind() != session.GNOME:
+            raise panelicon.PanelIconError("This session has no pcbridge GNOME panel icon.")
+        panelicon.set_mode(mode)
+        return self.panel_icon_status()
+
     def tools(self, cfg: Any) -> list:
         from ..toolcatalog import build
 

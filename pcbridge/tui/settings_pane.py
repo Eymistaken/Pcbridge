@@ -13,7 +13,7 @@ import secrets
 from typing import Any
 
 from rich.text import Text
-from textual import on
+from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import (Button, DataTable, Input, OptionList, Select, Static,
@@ -21,6 +21,7 @@ from textual.widgets import (Button, DataTable, Input, OptionList, Select, Stati
 from textual.widgets.option_list import Option
 
 from .. import settings as S
+from .app import while_mounted
 
 CSS = """
 SettingsPane #settings-sections {
@@ -30,6 +31,21 @@ SettingsPane #settings-sections {
 }
 SettingsPane #settings-right {
     width: 1fr;
+}
+SettingsPane #panel-icon-right {
+    display: none;
+    width: 1fr;
+    padding: 1 2;
+}
+SettingsPane #panel-icon-title {
+    text-style: bold;
+}
+SettingsPane #panel-icon-actions {
+    height: auto;
+    margin: 1 0;
+}
+SettingsPane #panel-icon-actions Button {
+    margin-right: 1;
 }
 SettingsPane #settings-filter {
     margin-bottom: 1;
@@ -94,6 +110,8 @@ class SettingsPane(Vertical):
         self.section = ""
         self.current: S.Setting | None = None
         self.restart_level: str | None = None
+        self._panel_mode: str | None = None
+        self._panel_request = 0
 
     def compose(self) -> ComposeResult:
         yield Static("", id="settings-message", classes="hint")
@@ -109,6 +127,13 @@ class SettingsPane(Vertical):
                     yield Horizontal(id="editor-field")
                     yield Static("", id="editor-error")
                     yield Static("", id="editor-help")
+            with Vertical(id="panel-icon-right"):
+                yield Static("Panel icon", id="panel-icon-title")
+                yield Static("", id="panel-icon-state")
+                with Horizontal(id="panel-icon-actions"):
+                    yield Button("Show all the time", id="panel-icon-show", compact=True)
+                    yield Button("Hide while control is closed", id="panel-icon-hide", compact=True)
+                yield Static("", id="panel-icon-note", classes="hint")
         with Horizontal(id="settings-actions"):
             yield Static("", id="settings-pending")
             yield Button("Restart daemon", id="settings-restart", compact=True)
@@ -130,20 +155,95 @@ class SettingsPane(Vertical):
             self.ed = None
             self.query_one("#settings-message", Static).update(
                 Text(f"The settings cannot be read: {getattr(exc, 'message', exc)}", style="bold"))
-            return
-        self.query_one("#settings-message", Static).update(f"{self.ed.path}")
+        else:
+            self.query_one("#settings-message", Static).update(f"{self.ed.path}")
         sections = self.query_one("#settings-sections", OptionList)
         sections.clear_options()
         seen: list[str] = []
-        for s in self.ed.settings:
+        for s in self.ed.settings if self.ed else []:
             if s.section not in seen:
                 seen.append(s.section)
                 sections.add_option(Option(s.section_title, id=s.section or "general"))
+                if s.section == "desktop":
+                    seen.append("panel-icon")
+                    sections.add_option(Option("Panel icon", id="panel-icon"))
+        if "panel-icon" not in seen:
+            seen.append("panel-icon")
+            sections.add_option(Option("Panel icon", id="panel-icon"))
         if self.section not in seen:
-            self.section = seen[0] if seen else ""
-        sections.highlighted = seen.index(self.section) if seen else None
-        self.fill_table()
+            self.section = seen[0]
+        sections.highlighted = seen.index(self.section)
+        self._show_section()
         self.update_pending()
+
+    def _show_section(self) -> None:
+        panel = self.section == "panel-icon"
+        self.query_one("#settings-right").display = not panel
+        self.query_one("#panel-icon-right").display = panel
+        if panel:
+            self.reload_panel_icon()
+        else:
+            self.fill_table()
+
+    def reload_panel_icon(self) -> None:
+        self._panel_request += 1
+        request = self._panel_request
+        self.query_one("#panel-icon-state", Static).update("Reading the panel icon setting...")
+        self.query_one("#panel-icon-note", Static).update("")
+        self.query_one("#panel-icon-show", Button).disabled = True
+        self.query_one("#panel-icon-hide", Button).disabled = True
+        self._read_panel_icon(request)
+
+    @work(thread=True, exclusive=True, group="panel-icon")
+    def _read_panel_icon(self, request: int) -> None:
+        try:
+            mode, note = self.app.backend.panel_icon_status()
+        except Exception as exc:  # noqa: BLE001 - shown in Settings
+            mode, note = None, str(exc)
+        self.app.post(self._panel_loaded, request, mode, note)
+
+    @while_mounted
+    def _panel_loaded(self, request: int, mode: str | None, note: str) -> None:
+        if request != self._panel_request:
+            return
+        self._panel_mode = mode
+        state = {
+            "always": "The panel icon is shown all the time.",
+            "when-granted": "The panel icon is hidden while desktop control is closed.",
+        }.get(mode, "The panel icon setting is unavailable.")
+        self.query_one("#panel-icon-state", Static).update(state)
+        if mode is not None:
+            note += " The icon still appears whenever desktop control is granted."
+        self.query_one("#panel-icon-note", Static).update(note)
+        self.query_one("#panel-icon-show", Button).disabled = mode != "when-granted"
+        self.query_one("#panel-icon-hide", Button).disabled = mode != "always"
+
+    def _change_panel_icon(self, mode: str) -> None:
+        if self._panel_mode is None or self._panel_mode == mode:
+            return
+        self._panel_request += 1
+        request = self._panel_request
+        previous = self._panel_mode
+        self.query_one("#panel-icon-show", Button).disabled = True
+        self.query_one("#panel-icon-hide", Button).disabled = True
+        self.query_one("#panel-icon-note", Static).update("Changing the panel icon setting...")
+        self._write_panel_icon(request, mode, previous)
+
+    @work(thread=True, exclusive=True, group="panel-icon")
+    def _write_panel_icon(self, request: int, mode: str, previous: str) -> None:
+        try:
+            actual, note = self.app.backend.set_panel_icon_mode(mode)
+        except Exception as exc:  # noqa: BLE001 - shown in Settings
+            actual, note = previous, f"The panel icon could not be changed: {exc}"
+        self.app.post(self._panel_loaded, request, actual, note)
+
+    @on(Button.Pressed, "#panel-icon-show")
+    def _show_panel_icon(self) -> None:
+        self._change_panel_icon("always")
+
+    @on(Button.Pressed, "#panel-icon-hide")
+    def _hide_panel_icon(self) -> None:
+        self._change_panel_icon("when-granted")
 
     def visible(self) -> list[S.Setting]:
         if self.ed is None:
@@ -214,10 +314,12 @@ class SettingsPane(Vertical):
             self.section = section
             self.current = None
             self.query_one("#settings-filter", Input).value = ""
-            self.fill_table()
+            self._show_section()
 
     @on(Input.Changed, "#settings-filter")
     def _filter(self) -> None:
+        if self.section == "panel-icon":
+            return
         self.current = None
         self.fill_table()
 

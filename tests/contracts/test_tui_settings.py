@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from pcbridge import settings as S  # noqa: E402
+from pcbridge.desktop.panelicon import PanelIconError  # noqa: E402
 from pcbridge.tui.app import Confirm, PcbridgeApp  # noqa: E402
 from tests.contracts.test_settings import PASSWORD, TOKEN, example_config  # noqa: E402
 from tests.contracts.test_tui import SIZE, FakeBackend, settle  # noqa: E402
@@ -29,9 +30,23 @@ class EditorBackend(FakeBackend):
     def __init__(self, path: Path) -> None:
         super().__init__()
         self.path = path
+        self.panel_mode = "always"
+        self.panel_note = "Changes apply immediately."
+        self.panel_error = ""
+        self.panel_calls: list[str] = []
 
     def editor(self):
         return S.ConfigEditor(self.path)
+
+    def panel_icon_status(self):
+        return self.panel_mode, self.panel_note
+
+    def set_panel_icon_mode(self, mode: str):
+        self.panel_calls.append(mode)
+        if self.panel_error:
+            raise PanelIconError(self.panel_error)
+        self.panel_mode = mode
+        return self.panel_icon_status()
 
 
 class SettingsTabTests(unittest.TestCase):
@@ -50,9 +65,9 @@ class SettingsTabTests(unittest.TestCase):
         self._env.stop()
         self._tmp.cleanup()
 
-    def run_app(self, body) -> None:
+    def run_app(self, body, backend: EditorBackend | None = None) -> None:
         async def go():
-            app = PcbridgeApp(EditorBackend(self.path))
+            app = PcbridgeApp(backend or EditorBackend(self.path))
             async with app.run_test(size=SIZE) as pilot:
                 await settle(app, pilot)
                 app.query_one(TabbedContent).active = "settings"
@@ -60,6 +75,13 @@ class SettingsTabTests(unittest.TestCase):
                 await body(app, pilot)
 
         asyncio.run(go())
+
+    async def panel_section(self, app, pilot) -> None:
+        sections = app.query_one("#settings-sections", OptionList)
+        titles = [str(sections.get_option_at_index(i).prompt)
+                  for i in range(sections.option_count)]
+        sections.highlighted = titles.index("Panel icon")
+        await settle(app, pilot)
 
     async def select(self, app, pilot, key: str) -> None:
         """Filter down to one setting, as a person typing in the filter box would."""
@@ -90,6 +112,52 @@ class SettingsTabTests(unittest.TestCase):
             self.assertNotIn(PASSWORD, screen)
 
         self.run_app(body)
+
+    def test_panel_icon_changes_immediately_without_editing_config(self) -> None:
+        backend = EditorBackend(self.path)
+
+        async def body(app, pilot):
+            await self.panel_section(app, pilot)
+            self.assertIn("shown all the time", str(app.query_one("#panel-icon-state").render()))
+            await pilot.click("#panel-icon-hide")
+            await settle(app, pilot)
+            self.assertEqual(backend.panel_calls, ["when-granted"])
+            self.assertIn("hidden while desktop control is closed",
+                          str(app.query_one("#panel-icon-state").render()))
+            self.assertEqual(self.path.read_text(), self.original)
+            self.assertIn("differs from the default", str(app.query_one("#settings-pending").render()))
+            await pilot.click("#panel-icon-show")
+            await settle(app, pilot)
+            self.assertEqual(backend.panel_calls, ["when-granted", "always"])
+            self.assertIn("shown all the time", str(app.query_one("#panel-icon-state").render()))
+
+        self.run_app(body, backend)
+
+    def test_panel_icon_unavailable_and_write_failure(self) -> None:
+        backend = EditorBackend(self.path)
+        backend.panel_mode = None
+        backend.panel_note = "KDE Plasma has no pcbridge panel icon."
+
+        async def unavailable(app, pilot):
+            await self.panel_section(app, pilot)
+            self.assertIn("KDE Plasma", str(app.query_one("#panel-icon-note").render()))
+            self.assertTrue(app.query_one("#panel-icon-show").disabled)
+            self.assertTrue(app.query_one("#panel-icon-hide").disabled)
+
+        self.run_app(unavailable, backend)
+
+        backend.panel_mode = "always"
+        backend.panel_error = "gsettings failed"
+
+        async def failed(app, pilot):
+            await self.panel_section(app, pilot)
+            await pilot.click("#panel-icon-hide")
+            await settle(app, pilot)
+            self.assertEqual(backend.panel_mode, "always")
+            self.assertIn("gsettings failed", str(app.query_one("#panel-icon-note").render()))
+            self.assertEqual(self.path.read_text(), self.original)
+
+        self.run_app(failed, backend)
 
     def test_a_switch_click_then_save_asks_for_a_sensitive_setting(self) -> None:
         async def body(app, pilot):

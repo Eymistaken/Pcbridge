@@ -15,7 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from pcbridge import app as applib  # noqa: E402
 from pcbridge.config import load_config  # noqa: E402
-from pcbridge.desktop import compositor, panelicon  # noqa: E402
+from pcbridge.desktop import compositor, panelicon, session  # noqa: E402
+from pcbridge.tui.backend import Backend  # noqa: E402
 
 CONFIG = """config_version = 2
 public_url = "http://localhost:8765"
@@ -89,6 +90,61 @@ class SettingTests(unittest.TestCase):
         for version, ok in (("2.2.0", True), ("2.10.1", True), ("3.0.0", True),
                             ("2.1.0", False), ("2.0.0", False), ("", False), (None, False)):
             self.assertIs(panelicon.running_supports_mode(version), ok, version)
+
+
+class SettingsBackendTests(unittest.TestCase):
+    def test_gnome_reads_and_writes_the_same_extension_setting_as_the_tool(self) -> None:
+        backend = Backend()
+        with mock.patch.object(session, "support_note", return_value=""), \
+                mock.patch.object(session, "desktop_kind", return_value=session.GNOME), \
+                mock.patch.object(panelicon, "get_mode", return_value="when-granted"), \
+                mock.patch.object(panelicon, "set_mode") as set_mode, \
+                mock.patch.object(panelicon, "running_version", return_value="2.4.0"):
+            mode, note = backend.set_panel_icon_mode("when-granted")
+        set_mode.assert_called_once_with("when-granted")
+        self.assertEqual(mode, "when-granted")
+        self.assertIn("immediately", note)
+
+    def test_plasma_and_unsupported_sessions_never_write_gsettings(self) -> None:
+        backend = Backend()
+        with mock.patch.object(session, "support_note", return_value=""), \
+                mock.patch.object(session, "desktop_kind", return_value=session.KDE), \
+                mock.patch.object(panelicon, "get_mode") as get_mode, \
+                mock.patch.object(panelicon, "set_mode") as set_mode:
+            mode, note = backend.panel_icon_status()
+            self.assertIsNone(mode)
+            self.assertIn("KDE Plasma", note)
+            with self.assertRaises(panelicon.PanelIconError):
+                backend.set_panel_icon_mode("always")
+        get_mode.assert_not_called()
+        set_mode.assert_not_called()
+
+        with mock.patch.object(session, "support_note", return_value="Unsupported session: X11"), \
+                mock.patch.object(panelicon, "set_mode") as set_mode:
+            mode, note = backend.panel_icon_status()
+            self.assertIsNone(mode)
+            self.assertIn("X11", note)
+            with self.assertRaises(panelicon.PanelIconError):
+                backend.set_panel_icon_mode("always")
+        set_mode.assert_not_called()
+
+    def test_old_or_missing_extension_is_explained(self) -> None:
+        backend = Backend()
+        with mock.patch.object(session, "support_note", return_value=""), \
+                mock.patch.object(session, "desktop_kind", return_value=session.GNOME), \
+                mock.patch.object(panelicon, "get_mode", return_value="always"), \
+                mock.patch.object(panelicon, "running_version", return_value="2.0.0"):
+            mode, note = backend.panel_icon_status()
+        self.assertEqual(mode, "always")
+        self.assertIn("next login", note)
+
+        with mock.patch.object(session, "support_note", return_value=""), \
+                mock.patch.object(session, "desktop_kind", return_value=session.GNOME), \
+                mock.patch.object(panelicon, "get_mode",
+                                  side_effect=panelicon.PanelIconError("no extension")):
+            mode, note = backend.panel_icon_status()
+        self.assertIsNone(mode)
+        self.assertIn("no extension", note)
 
 
 class ToolTests(unittest.TestCase):
