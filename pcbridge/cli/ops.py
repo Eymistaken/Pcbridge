@@ -69,12 +69,11 @@ def status(argv: list[str]) -> int:
         cfg = None
         out["config"] = str(exc)
     if cfg is not None:
-        try:
-            state = json.loads((Path(cfg.state_dir) / "desktop_unlock.json").read_text())
-        except (OSError, ValueError):
-            state = {}
-        left = max(0, int(float(state.get("until", 0) or 0) - time.time()))
-        out["desktop_grant"] = {"open": left > 0, "seconds_left": left, "enabled_in_config": cfg.desktop.enabled}
+        from .grant import read_state
+
+        grant = read_state(cfg)
+        out["desktop_grant"] = {"open": grant.open, "seconds_left": grant.seconds_left,
+                                "enabled_in_config": grant.enabled_in_config}
         from ..jobs import JobManager
 
         running = JobManager(cfg.jobs_dir).list_jobs(limit=50, only_running=True)
@@ -120,17 +119,14 @@ def unlock(argv: list[str]) -> int:
     p.add_argument("--minutes", type=int, default=15)
     p.add_argument("--reason", default="opened with pcbridge unlock")
     args = p.parse_args(argv)
-    from . import load, runtime_of
+    from . import load
+    from .grant import GrantError, unlock as open_grant
 
-    cfg = load()
-    if not cfg.desktop.enabled:
-        inst.fail(f"desktop control is disabled in {cfg.source_path} ([desktop] enabled = false)")
-        return 1
-    runtime = runtime_of(cfg)
     try:
-        inst.say(runtime.gate.unlock(args.minutes, args.reason, granted_by="pcbridge unlock"))
-    finally:
-        runtime.close()
+        inst.say(open_grant(load(), args.minutes, args.reason, granted_by="pcbridge unlock"))
+    except GrantError as exc:
+        inst.fail(str(exc))
+        return 1
     return 0
 
 

@@ -130,7 +130,7 @@ Decisions taken with the maintainer (2026-09-24):
 - [x] 1. Plan
 - [x] 2. Dependencies
 - [x] 3. Settings core
-- [ ] 4. Grant helpers
+- [x] 4. Grant helpers
 - [ ] 5. Tool catalog
 - [ ] 6. Direct commands
 - [ ] 7. Terminal UI, frame

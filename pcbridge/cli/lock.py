@@ -27,25 +27,13 @@ from __future__ import annotations
 
 import sys
 
-from . import EXIT_OK, load, runtime_of
+from . import EXIT_OK, load
+from .grant import lock
 
 
 def main(argv: list[str] | None = None) -> int:
-    cfg = load()
-    runtime = runtime_of(cfg)
-    try:
-        out = runtime.gate.lock()
-
-        # Yayin, izinden AYRI bir kaynak: hangi surec acmis olursa olsun
-        # provider kendi helper taramasiyla onu da durdurur.
-        killed = runtime.capture_provider.kill_helpers()
-        if killed:
-            out += (f"\n· {killed} screen share(s) stopped "
-                    "(the sharing indicator is gone)")
-        print(out)
-        return EXIT_OK
-    finally:
-        runtime.close()
+    print(lock(load()))
+    return EXIT_OK
 
 
 if __name__ == "__main__":  # pragma: no cover
