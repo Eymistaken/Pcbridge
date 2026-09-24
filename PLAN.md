@@ -136,6 +136,6 @@ Decisions taken with the maintainer (2026-09-24):
 - [x] 7. Terminal UI, frame
 - [x] 8. Terminal UI, Settings
 - [x] 9. Terminal UI, Tools
-- [ ] 10. Live check in a real terminal
+- [x] 10. Live check in a real terminal
 - [ ] 11. Documentation
 - [ ] 12. Finish

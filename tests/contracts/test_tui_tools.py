@@ -78,9 +78,9 @@ class ToolsTabTests(unittest.TestCase):
             await pilot.pause()
             self.assertEqual(table.cursor_row, target)
             self.assertIn("agent_run", str(app.query_one("#tool-title").render()))
-            body_text = str(app.query_one("#tool-body").render())
-            self.assertIn("Parameters", body_text)
-            self.assertIn("prompt", body_text)
+            screen = app.export_screenshot()
+            self.assertIn("Parameters", screen)
+            self.assertIn("required", screen)
             # A tool the profile leaves out says why.
             table.move_cursor(row=rows(app).index("mouse"))
             await pilot.pause()

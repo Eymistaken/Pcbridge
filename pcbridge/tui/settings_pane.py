@@ -179,8 +179,7 @@ class SettingsPane(Vertical):
             table.add_row(self._mark(s), label, self._shown(s), key=s.key)
         target = keep or (self.current.key if self.current else None)
         keys = [s.key for s in rows]
-        if target in keys:
-            table.move_cursor(row=keys.index(target))
+        table.move_cursor(row=keys.index(target) if target in keys else 0)
         if rows:
             self.show(self.ed.setting(keys[table.cursor_row]) if table.cursor_row < len(keys) else rows[0])
         else:

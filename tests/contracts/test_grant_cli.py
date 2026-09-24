@@ -61,6 +61,16 @@ class GrantTests(unittest.TestCase):
         self.assertEqual(st.describe(), "open, 2:05 left")
         self.assertFalse(grant.read_state(cfg(self.state), now=now + 130).open)
 
+    def test_a_sliding_grant_shows_its_ceiling(self) -> None:
+        now = time.time()
+        store = LeaseStore(self.state)
+        store.grant(until=now + 900, reason="t", granted=now, granted_by="x")
+        store.touch(store.snapshot().token(now), idle_seconds=90, now=now)
+        st = grant.read_state(cfg(self.state), now=now)
+        self.assertEqual((st.seconds_left, st.hard_seconds_left), (90, 900))
+        self.assertTrue(st.sliding)
+        self.assertEqual(st.describe(), "open, 1:30 left unless an agent acts again (at most 15:00)")
+
     def test_a_revoked_grant_is_locked(self) -> None:
         now = time.time()
         store = LeaseStore(self.state)

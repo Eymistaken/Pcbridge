@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from rich.console import Group
+from rich.table import Table
 from rich.text import Text
 from textual import on, work
 from textual.app import ComposeResult
@@ -44,21 +46,22 @@ ToolsPane #tool-title {
 """
 
 
-def describe(tool: Any) -> Text:
-    out = Text()
+def describe(tool: Any) -> Group:
+    text = Text()
     for para in tool.description.split("\n\n"):
-        out.append(" ".join(para.split()) + "\n\n")
-    if tool.params:
-        out.append("Parameters\n", style="bold")
-        width = max(len(p.name) for p in tool.params) + 2
-        for p in tool.params:
-            out.append(f"  {p.name.ljust(width)}", style="bold")
-            out.append(f"{p.type}, {'required' if p.required else 'optional'}\n")
-            if p.description:
-                out.append(f"  {' ' * width}{p.description}\n", style="dim")
-    else:
-        out.append("No parameters.\n", style="dim")
-    return out
+        text.append(" ".join(para.split()) + "\n\n")
+    if not tool.params:
+        text.append("No parameters.", style="dim")
+        return Group(text)
+    text.append("Parameters", style="bold")
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(no_wrap=True, style="bold")
+    grid.add_column(no_wrap=True)
+    grid.add_column(ratio=1)
+    for p in tool.params:
+        grid.add_row(p.name, f"{p.type}, {'required' if p.required else 'optional'}",
+                     Text(p.description, style="dim"))
+    return Group(text, grid)
 
 
 class ToolsPane(Vertical):
@@ -139,8 +142,7 @@ class ToolsPane(Vertical):
             count += f" · {len(found)} shown"
         self.query_one("#tools-count", Static).update(count)
         names = [t.name for t in found]
-        if keep in names:
-            table.move_cursor(row=names.index(keep))
+        table.move_cursor(row=names.index(keep) if keep in names else 0)
         self.show(found[table.cursor_row] if found and table.cursor_row < len(found) else None)
 
     def show(self, tool: Any) -> None:

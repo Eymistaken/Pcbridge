@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import re
 import tempfile
 import tomllib
 from dataclasses import dataclass
@@ -211,8 +212,8 @@ def _clean_comment(lines: list[str]) -> str:
             text = text[1:]
             if text.startswith(" "):
                 text = text[1:]
-        if set(text.strip()) <= {"-"} and text.strip():
-            continue  # a banner rule
+        if re.fullmatch(r"-{3,}(\s.*?\s-{3,})?", text.strip()):
+            continue  # a banner rule, or a sub-heading such as "--- screenshots ---"
         out.append(text.rstrip())
     # Collapse to paragraphs: lines joined by spaces, "#" alone breaks them.
     paras: list[str] = []

@@ -362,6 +362,42 @@ probes in `tests/live/kde/`.
   also carries the file capability `cap_sys_nice=ep`, so a container needs
   `--cap-add=SYS_NICE` or exec fails with EPERM.
 
+## Terminal UI (settings CLI)
+
+Measured 2026-09-24 on the reference machine, gnome-terminal 130x40, the UI
+started from the checkout, driven with pcbridge's own pointer and keyboard.
+
+- **Mouse clicks work in gnome-terminal.** Tabs, the section list, table
+  rows, buttons and the search box all took virtual-pointer clicks; Textual
+  reads the terminal's mouse reports, nothing else is needed. Tooltips show
+  on hover.
+- **The first screen is ready in 0.27 s; the status and the tool list fill
+  in by 1.0 s.** `import pcbridge.tools` alone costs 0.55 s (it pulls in
+  FastMCP), so the tool count and the catalog are built in worker threads,
+  never on the screen's thread. `pcbridge --version` stays at 27 ms: nothing
+  of the UI is imported unless the UI runs.
+- **Building the tool catalog takes 0.65 s** (0.58 s imports, 0.07 s for the
+  registration), so it is not cached.
+- **Idle cost: 6.2 s of CPU over an 8 min 23 s session** (about 1.2 %), with
+  the grant refreshed every second and the status every 10 s.
+- **Quitting restores the terminal**: after `q` the shell prompt came back
+  clean, with no leftover mouse reporting.
+- **A one-key unlock is a hazard.** Typing `click` after clicking a tab sent
+  `l` to the tab bar, not to the search box, and the `l` binding locked the
+  grant. Locking by accident is the safe direction; unlocking by accident is
+  not, so `l` asks before it unlocks (the button, a deliberate click, does
+  not).
+- **Raw typing on the `tr` layout turns `i` into `ı`**, so a raw-typed
+  search for "click" matched nothing. Not a UI bug; the clipboard path
+  (unavailable during this check) or words without `i` avoid it.
+- **In the ANSI theme a disabled button gets `border: tall ... !important`**,
+  which cuts a one-line compact button to its top border; the app's CSS
+  resets it. A checkbox shows the same glyph either way and differs only by
+  color, so the Tools filter is a button that names its state.
+- **A sliding grant has two ends.** The bar showed `1:29 left` while the
+  overview said `19:46`: `until` slides to the last action plus
+  `unlock_idle_seconds`, `hard_until` is the ceiling. Both are shown now.
+
 ## Build and test
 
 - **`cargo test` stops after the first failing target**; later test

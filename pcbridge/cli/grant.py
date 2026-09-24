@@ -22,13 +22,25 @@ class GrantState:
     seconds_left: int            # until the grant closes if nothing else happens
     enabled_in_config: bool      # [desktop] enabled
     granted_by: str = ""
+    # The hard ceiling. The grant slides: every desktop action moves its end
+    # to "now + unlock_idle_seconds", but never past this.
+    hard_seconds_left: int = 0
+
+    @property
+    def sliding(self) -> bool:
+        """True when the grant ends before its ceiling because it is idle."""
+        return self.open and self.hard_seconds_left > self.seconds_left + 5
 
     def describe(self) -> str:
         if not self.enabled_in_config:
             return "disabled in config"
         if not self.open:
             return "locked"
-        return f"open, {format_duration(self.seconds_left)} left"
+        out = f"open, {format_duration(self.seconds_left)} left"
+        if self.sliding:
+            out += (f" unless an agent acts again (at most "
+                    f"{format_duration(self.hard_seconds_left)})")
+        return out
 
 
 def format_duration(seconds: int) -> str:
@@ -49,8 +61,10 @@ def read_state(cfg: Any, now: float | None = None) -> GrantState:
         return GrantState(False, 0, bool(cfg.desktop.enabled))
     active = snap.is_active(moment)
     left = int(snap.until - moment) if active else 0
+    hard = int((snap.hard_until or snap.until) - moment) if active else 0
     by = snap.raw.get("granted_by", "") if active else ""
-    return GrantState(active, max(0, left), bool(cfg.desktop.enabled), str(by or ""))
+    return GrantState(active, max(0, left), bool(cfg.desktop.enabled), str(by or ""),
+                      max(0, hard))
 
 
 def lock(cfg: Any) -> str:

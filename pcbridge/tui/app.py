@@ -245,6 +245,7 @@ class PcbridgeApp(App):
             button.label, button.variant, button.disabled = "Config error", "default", True
             return
         self.grant = self.backend.grant_state(self.cfg)
+        self._render_overview()
         if self.grant_busy:
             return
         g = self.grant
@@ -256,7 +257,10 @@ class PcbridgeApp(App):
         elif g.open:
             from ..cli.grant import format_duration
 
-            grant_text.update(f"Desktop: OPEN, {format_duration(g.seconds_left)} left")
+            text = f"Desktop: OPEN, {format_duration(g.seconds_left)} left"
+            if g.sliding:
+                text += f" (at most {format_duration(g.hard_seconds_left)})"
+            grant_text.update(text)
             grant_text.add_class("open")
             button.label, button.variant, button.disabled = "Lock now", "error", False
             button.tooltip = "Close desktop control and stop screen sharing (l)."
@@ -269,20 +273,44 @@ class PcbridgeApp(App):
 
     @on(Button.Pressed, "#grant-button")
     def _grant_button(self) -> None:
-        self.action_toggle_grant()
+        # A click is deliberate: it locks or unlocks at once.
+        self.toggle_grant(ask_to_unlock=False)
 
     def action_toggle_grant(self) -> None:
+        # A key can be hit by accident (typing while the focus is elsewhere
+        # did exactly that in the live check), so the key locks at once, the
+        # safe direction, but asks before it unlocks.
+        self.toggle_grant(ask_to_unlock=True)
+
+    def toggle_grant(self, ask_to_unlock: bool) -> None:
         if self.grant_busy or self.cfg is None or self.grant is None:
             return
         if self.grant.open:
             self._set_busy("Locking...")
             self._grant_worker(lock=True)
         elif self.grant.enabled_in_config:
-            self._set_busy("Unlocking...")
-            self._grant_worker(lock=False)
+            if not ask_to_unlock:
+                self._unlock_now()
+                return
+            minutes = self.cfg.desktop.unlock_default_minutes
+
+            def answer(yes: bool | None) -> None:
+                if yes:
+                    self._unlock_now()
+
+            self.push_screen(Confirm(
+                f"Unlock desktop control for {minutes} minutes?\n\nAgents can then use the "
+                "keyboard, the pointer and the screen. l or Lock now closes it again.",
+                yes="Unlock"), answer)
         else:
             self.notify("Desktop control is off in the config. Turn on desktop.enabled in Settings first.",
                         severity="warning")
+
+    def _unlock_now(self) -> None:
+        if self.grant_busy or self.grant is None or self.grant.open:
+            return
+        self._set_busy("Unlocking...")
+        self._grant_worker(lock=False)
 
     def _set_busy(self, label: str) -> None:
         self.grant_busy = True
@@ -312,10 +340,27 @@ class PcbridgeApp(App):
             info = self.backend.status()
         except Exception as exc:  # noqa: BLE001
             info = {"error": str(exc)}
+        cfg = self.cfg
+        if cfg is not None:
+            try:
+                # Importing the tool table pulls in FastMCP (about 0.5 s), so
+                # it happens here in the worker, never on the screen's thread.
+                from ..tools import TOOL_HINTS, tools_in_profile
+
+                info["tools_offered"] = (cfg.tools_profile, len(tools_in_profile(cfg.tools_profile)),
+                                         len(TOOL_HINTS))
+            except Exception:  # noqa: BLE001 - the overview must not fail on this
+                pass
         self.call_from_thread(self._show_status, info)
 
     def _show_status(self, info: dict) -> None:
         self.status_info = info
+        self._render_overview()
+
+    def _render_overview(self) -> None:
+        info = self.status_info
+        if not info:
+            return
         daemon = info.get("daemon") or {}
         running = bool(daemon) and daemon.get("reachable") is not False
         self.query_one("#bar-daemon", Static).update("daemon: running" if running else "daemon: not running")
@@ -328,7 +373,7 @@ class PcbridgeApp(App):
         else:
             lines.append(_row("Daemon", f"not running ({daemon.get('why', 'no answer')})"))
         if self.cfg is not None:
-            g = self.backend.grant_state(self.cfg)
+            g = self.grant or self.backend.grant_state(self.cfg)
             lines.append(_row("Desktop control", "enabled in config" if g.enabled_in_config
                               else "disabled in config (desktop.enabled = false)"))
             lines.append(_row("Desktop grant", g.describe()))
@@ -337,14 +382,9 @@ class PcbridgeApp(App):
             for j in jobs[:10]:
                 lines.append(_row("", f"{j['id']}  {j['kind']}  {j['label']}"))
             lines.append(_row("Remote tunnel", str(info.get("remote_tunnel", "unknown"))))
-            try:
-                from ..tools import TOOL_HINTS, tools_in_profile
-
-                offered = len(tools_in_profile(self.cfg.tools_profile))
-                lines.append(_row("Tools profile", f"{self.cfg.tools_profile}: {offered} of "
-                                                   f"{len(TOOL_HINTS)} tools offered"))
-            except Exception:  # noqa: BLE001 - the overview must not fail on this
-                pass
+            if "tools_offered" in info:
+                profile, offered, total = info["tools_offered"]
+                lines.append(_row("Tools profile", f"{profile}: {offered} of {total} tools offered"))
             lines.append(_row("Config file", str(self.cfg.source_path)))
             for w in getattr(self.cfg, "warnings", []) or []:
                 lines.append(_row("Warning", w))

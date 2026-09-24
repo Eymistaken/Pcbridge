@@ -39,7 +39,8 @@ class FakeBackend(Backend):
         return self.cfg
 
     def grant_state(self, cfg):
-        return GrantState(self.open, 754 if self.open else 0, self.enabled, "")
+        return GrantState(self.open, 754 if self.open else 0, self.enabled, "",
+                          754 if self.open else 0)
 
     def lock(self, cfg):
         self.calls.append("lock")
@@ -106,6 +107,31 @@ class FrameTests(unittest.TestCase):
                 await settle(app, pilot)
                 self.assertEqual(backend.calls, ["unlock None", "lock"])
                 self.assertIn("locked", text_of(app, "#bar-grant"))
+
+        run(go())
+
+    def test_the_key_asks_before_it_unlocks_but_locks_at_once(self) -> None:
+        backend = FakeBackend()
+
+        async def go():
+            app = PcbridgeApp(backend)
+            async with app.run_test(size=SIZE) as pilot:
+                await settle(app, pilot)
+                await pilot.press("l")
+                await pilot.pause()
+                self.assertIsInstance(app.screen, Confirm)
+                await pilot.click("#confirm-no")
+                await settle(app, pilot)
+                self.assertEqual(backend.calls, [])
+                await pilot.press("l")
+                await pilot.pause()
+                await pilot.click("#confirm-yes")
+                await settle(app, pilot)
+                self.assertEqual(backend.calls, ["unlock None"])
+                await pilot.press("l")
+                await settle(app, pilot)
+                self.assertNotIsInstance(app.screen, Confirm)
+                self.assertEqual(backend.calls, ["unlock None", "lock"])
 
         run(go())
 
