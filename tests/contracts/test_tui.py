@@ -195,6 +195,29 @@ class FrameTests(unittest.TestCase):
 
         run(go())
 
+    def test_callbacks_after_teardown_do_nothing(self) -> None:
+        """The 1 s timer and worker callbacks can land while the app is shutting
+        down and its widgets are gone (seen on a slow CI runner); they must
+        return quietly instead of raising NoMatches."""
+        from pcbridge.tui.tools_pane import ToolsPane
+
+        async def go():
+            app = PcbridgeApp(FakeBackend())
+            async with app.run_test(size=SIZE) as pilot:
+                await settle(app, pilot)
+                tools = app.query_one(ToolsPane)
+                await app.query_one("#bar").remove()
+                await app.query_one("#overview-body").remove()
+                await tools.query_one("#tools-table").remove()
+                await pilot.pause()
+                app.refresh_grant()
+                app._show_status(FakeBackend().status())
+                app._grant_done()
+                tools._loaded([], "", "full")
+                await pilot.pause()
+
+        run(go())
+
     def test_restart_asks_first(self) -> None:
         backend = FakeBackend()
 

@@ -22,6 +22,27 @@ from textual.widgets import Button, DataTable, Footer, Static, TabbedContent, Ta
 from .. import __version__
 from .backend import Backend
 
+
+def while_mounted(method):
+    """Run a timer or worker callback only while its widgets exist.
+
+    The 1 s timer and the workers' callbacks can land while the app is
+    shutting down and its widgets are already gone (measured on a slow CI
+    runner: NoMatches from `refresh_grant`); then there is nothing to update.
+    """
+    import functools
+
+    from textual.css.query import NoMatches
+
+    @functools.wraps(method)
+    def run(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except NoMatches:
+            return None
+
+    return run
+
 CSS = """
 Screen {
     background: ansi_default;
@@ -235,6 +256,7 @@ class PcbridgeApp(App):
 
     # -- the grant bar --------------------------------------------------------------
 
+    @while_mounted
     def refresh_grant(self) -> None:
         grant_text = self.query_one("#bar-grant", Static)
         button = self.query_one("#grant-button", Button)
@@ -306,6 +328,13 @@ class PcbridgeApp(App):
             self.notify("Desktop control is off in the config. Turn on desktop.enabled in Settings first.",
                         severity="warning")
 
+    def post(self, callback, *args, **kwargs) -> None:
+        """call_from_thread that does nothing once the app has stopped."""
+        try:
+            self.call_from_thread(callback, *args, **kwargs)
+        except RuntimeError:  # the app is no longer running
+            pass
+
     def _unlock_now(self) -> None:
         if self.grant_busy or self.grant is None or self.grant.open:
             return
@@ -321,12 +350,13 @@ class PcbridgeApp(App):
     def _grant_worker(self, lock: bool) -> None:
         try:
             msg = self.backend.lock(self.cfg) if lock else self.backend.unlock(self.cfg, None)
-            self.call_from_thread(self.notify, msg.splitlines()[0] if msg else "Done.")
+            self.post(self.notify, msg.splitlines()[0] if msg else "Done.")
         except Exception as exc:  # noqa: BLE001 - shown to the user, never raised in the UI
-            self.call_from_thread(self.notify, str(exc), severity="error", timeout=10)
+            self.post(self.notify, str(exc), severity="error", timeout=10)
         finally:
-            self.call_from_thread(self._grant_done)
+            self.post(self._grant_done)
 
+    @while_mounted
     def _grant_done(self) -> None:
         self.grant_busy = False
         self.refresh_grant()
@@ -351,12 +381,14 @@ class PcbridgeApp(App):
                                          len(TOOL_HINTS))
             except Exception:  # noqa: BLE001 - the overview must not fail on this
                 pass
-        self.call_from_thread(self._show_status, info)
+        self.post(self._show_status, info)
 
+    @while_mounted
     def _show_status(self, info: dict) -> None:
         self.status_info = info
         self._render_overview()
 
+    @while_mounted
     def _render_overview(self) -> None:
         info = self.status_info
         if not info:
@@ -418,7 +450,7 @@ class PcbridgeApp(App):
         try:
             msg = self.backend.restart(self.cfg)
             ok = msg.startswith("daemon")
-            self.call_from_thread(self.notify, msg, severity="information" if ok else "warning", timeout=10)
+            self.post(self.notify, msg, severity="information" if ok else "warning", timeout=10)
         except Exception as exc:  # noqa: BLE001
-            self.call_from_thread(self.notify, str(exc), severity="error", timeout=10)
-        self.call_from_thread(self.load_status)
+            self.post(self.notify, str(exc), severity="error", timeout=10)
+        self.post(self.load_status)

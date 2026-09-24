@@ -17,6 +17,8 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, DataTable, Input, Static
 
+from .app import while_mounted
+
 CSS = """
 ToolsPane #tools-top {
     height: auto;
@@ -107,8 +109,9 @@ class ToolsPane(Vertical):
             error = ""
         except Exception as exc:  # noqa: BLE001 - shown in the tab
             tools, error = [], str(exc)
-        self.app.call_from_thread(self._loaded, tools, error, getattr(cfg, "tools_profile", ""))
+        self.app.post(self._loaded, tools, error, getattr(cfg, "tools_profile", ""))
 
+    @while_mounted
     def _loaded(self, tools: list, error: str, profile: str) -> None:
         self.catalog = tools
         self.profile = profile
