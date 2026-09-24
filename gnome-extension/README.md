@@ -77,7 +77,8 @@ When the icon shows (2.2): `indicator-mode` is `always` (the default) or
 grant shows it in either mode (`status.js: indicatorVisible`), so an agent
 that hid it through pcbridge's `panel_icon` tool cannot hide its own access.
 The change applies at once; the kill-switch shortcut keeps working while the
-icon is hidden.
+icon is hidden. The terminal UI offers the same choice under **Settings >
+Panel icon**.
 
 ```bash
 gsettings --schemadir ~/.local/share/gnome-shell/extensions/pcbridge-gorunur@eymistaken.local/schemas \

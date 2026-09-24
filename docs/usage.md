@@ -181,7 +181,10 @@ hold Shift. Piped or run from a script,
   set`. Changing `desktop.enabled`, `[auth]`, `host`, `port` or
   `public_url` asks first. **Restart daemon** appears when a saved change
   needs it. The password and the static token are never shown; they can
-  be replaced, and the token generated.
+  be replaced, and the token generated. The separate **Panel icon** section
+  shows or hides the GNOME icon immediately and does not use **Save** or
+  require a daemon restart. On KDE Plasma it explains that there is no
+  pcbridge panel icon.
 - **Tools**: all 37 tools with their state (`active`, `not in profile`,
   `needs desktop`), a search box that filters by name and description as
   you type, a toggle for the offered ones only, and the selected tool's
@@ -194,8 +197,8 @@ Keys: `1`-`5` switch tabs, `l` lock/unlock, `r` restart the daemon, `q`
 quits (and asks if settings are unsaved).
 
 The GNOME extension's panel icon shows the same state and has "Lock desktop
-control now" in its menu. Ask an agent to hide it (`panel_icon`), or set it
-yourself:
+control now" in its menu. Use **Settings > Panel icon**, ask an agent to hide
+it (`panel_icon`), or set it yourself:
 
 ```bash
 gsettings --schemadir ~/.local/share/gnome-shell/extensions/pcbridge-gorunur@eymistaken.local/schemas \

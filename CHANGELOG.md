@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 2.4.1 - 2026-09-24
+
+### Added
+
+- **Control the GNOME panel icon from the terminal UI.** Settings now has a
+  Panel icon section with choices to show it all the time or hide it while
+  desktop control is closed. The choice takes effect immediately and persists
+  across logins; it uses the extension's existing setting, so it stays in sync
+  with the MCP tool and adds nothing to `config.toml`. An open grant still shows the
+  icon in either mode. On KDE Plasma, Settings explains that there is no
+  pcbridge panel icon to change.
+
 ### Fixed
 
 - **oh-my-pi, tried on a real installation (18.3.0).** Connecting,
@@ -14,6 +26,11 @@
   Its `enabledServers` list, which overrides `enabled: false`, is read and
   cleared on disconnect, and `PI_CODING_AGENT_DIR` / `PI_CONFIG_DIR` move
   the file as they move oh-my-pi's own directory.
+
+### API
+
+- **Tools**: unchanged, 37.
+- **Config file**: unchanged; the icon choice belongs to the GNOME extension.
 
 ## 2.4.0 - 2026-09-24
 

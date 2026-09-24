@@ -119,7 +119,8 @@ grant notification's "Lock now" on Plasma.
 - **Settings** edits every setting with the right control for its type.
   Save checks the file with the daemon's own loader, backs up the old one
   and writes only the changed lines; the password and the token are never
-  shown.
+  shown. Its **Panel icon** section changes the GNOME icon immediately,
+  without a daemon restart; KDE Plasma explains that it has no pcbridge icon.
 - **Tools** lists all 37 tools, marks what the `[tools] profile` offers
   and searches names and descriptions as you type.
 
