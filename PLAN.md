@@ -133,7 +133,7 @@ Decisions taken with the maintainer (2026-09-24):
 - [x] 4. Grant helpers
 - [x] 5. Tool catalog
 - [x] 6. Direct commands
-- [ ] 7. Terminal UI, frame
+- [x] 7. Terminal UI, frame
 - [ ] 8. Terminal UI, Settings
 - [ ] 9. Terminal UI, Tools
 - [ ] 10. Live check in a real terminal

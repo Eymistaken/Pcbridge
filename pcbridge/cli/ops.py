@@ -48,12 +48,10 @@ def _load_cfg():
 # ---------------------------------------------------------------------------
 
 
-def status(argv: list[str]) -> int:
+def status_data() -> dict:
+    """What `pcbridge status` reports, as data (the terminal UI shows it too)."""
     from .doctor import handshake
 
-    p = argparse.ArgumentParser(prog="pcbridge status", description="Show whether pcbridge is running and what it is doing.")
-    p.add_argument("--json", action="store_true")
-    args = p.parse_args(argv)
     out: dict = {"version": __version__, "install": inst.install_kind()}
     try:
         sock = pathslib.socket_path()
@@ -80,6 +78,14 @@ def status(argv: list[str]) -> int:
         out["jobs_running"] = [{"id": j["job_id"], "kind": j["kind"], "label": j["label"][:60]} for j in running]
         st = inst.run(["tailscale", "funnel", "status"], timeout=10).stdout if shutil.which("tailscale") else ""
         out["remote_tunnel"] = "open" if f":{cfg.port}" in st else "closed"
+    return out
+
+
+def status(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="pcbridge status", description="Show whether pcbridge is running and what it is doing.")
+    p.add_argument("--json", action="store_true")
+    args = p.parse_args(argv)
+    out = status_data()
     if args.json:
         print(json.dumps(out, indent=2))
         return 0

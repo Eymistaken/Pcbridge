@@ -64,6 +64,7 @@ _PASSTHROUGH = {
     "reset": _lazy(".configure", "reset_cmd"),
     "tools": _lazy(".configure", "tools_cmd"),
     "restart": _lazy(".configure", "restart_cmd"),
+    "ui": _lazy("..tui", "run"),
 }
 
 # Every command: (group, name, usage, what it does). `pcbridge list` and
@@ -94,6 +95,7 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("Setup", "setup", "setup", "Install or update pcbridge for this user: config, service, extension, clients, aliases."),
     ("Setup", "connect", "connect [--client C]", "Register pcbridge with Claude Code, Codex and Claude Desktop (--dry-run)."),
     ("Setup", "uninstall", "uninstall [--purge]", "Remove pcbridge for this user (--purge also trashes config and state)."),
+    ("Interface", "ui", "ui", "Open the terminal UI; `pcbridge` alone in a terminal does the same."),
     ("Interface", "list", "list", "Show every command."),
     ("MCP clients", "serve", "serve", "Run the resident server (the daemon: socket + HTTP)."),
     ("MCP clients", "stdio", "stdio", "Connect one MCP client (stdin/stdout) to the daemon."),
@@ -114,6 +116,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    # Alone in a terminal: the terminal UI. Piped or scripted: the help, as
+    # before, so nothing that runs `pcbridge` without arguments changes.
+    if not argv and sys.stdin.isatty() and sys.stdout.isatty():
+        from ..tui import run
+
+        return run([])
     if argv and argv[0] in _PASSTHROUGH:
         return _PASSTHROUGH[argv[0]](argv[1:])
     parser = build_parser()
