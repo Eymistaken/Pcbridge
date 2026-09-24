@@ -1,5 +1,49 @@
 # Changelog
 
+## 2.4.0 - 2026-09-24
+
+### Added
+
+- **Connect and disconnect every local MCP client.** pcbridge can register
+  itself with eight agents and apps on the machine, and take itself out
+  again: Claude Code, Codex and Claude Desktop as before, and now
+  Antigravity CLI, Hermes Agent, OpenCode, Pi (through the
+  `pi-mcp-adapter` extension) and oh-my-pi. `pcbridge clients` lists each
+  with its state (connected, outdated, switched off, not connected, not
+  installed); `pcbridge connect NAME...` and `pcbridge disconnect NAME...`
+  switch them; the terminal UI has a **Connections** tab with a switch per
+  client and **Update** for an entry that runs an older command.
+- Where a client has its own command for this (`claude mcp`, `agy mcp`,
+  `hermes mcp`), it is used; otherwise only pcbridge's entry in the
+  client's config file is edited. Every file a change touches is backed up
+  first, with a `ROLLBACK.md`.
+- Disconnecting switches the entry off where the client supports that
+  (Codex, Antigravity, OpenCode, Pi, oh-my-pi), so settings kept with it,
+  such as Codex's per-tool approvals, survive; Claude Code, Claude Desktop
+  and Hermes have no such switch, and there the entry is removed.
+
+### Changed
+
+- `pcbridge setup` and a bare `pcbridge connect` still register only
+  Claude Code, Codex and Claude Desktop; the other clients are connected
+  on request. `pcbridge doctor` now reports them too, and warns about an
+  enabled entry that runs an old command. `pcbridge uninstall` removes
+  pcbridge from all eight.
+- PyYAML is a declared dependency (it was a transitive one), to read
+  Hermes Agent's `config.yaml`.
+
+### Fixed
+
+- `pcbridge ... | head` no longer prints a BrokenPipeError traceback; the
+  command ends quietly with exit 141.
+
+### API
+
+- **Tools**: unchanged, 37.
+- **Command line**: `clients` and `disconnect` are new; `connect` takes
+  client names (`--client` still works) and knows the five new clients.
+- **Config file**: unchanged.
+
 ## 2.3.0 - 2026-09-24
 
 ### Added

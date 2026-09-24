@@ -13,7 +13,7 @@
 # and upgrade both together.
 
 pkgname=pcbridge
-pkgver=2.3.0
+pkgver=2.4.0
 pkgrel=1
 pkgdesc="MCP server that lets coding agents drive a GNOME or KDE Plasma desktop"
 arch=(x86_64)
