@@ -124,6 +124,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        code = _main(argv)
+        sys.stdout.flush()  # a closed pipe shows here, inside the try, not at exit
+        return code
+    except BrokenPipeError:
+        # The reader went away (`pcbridge list | head`): stop quietly, as
+        # other command-line tools do, instead of printing a traceback.
+        import os
+
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        return 141
+
+
+def _main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     # Alone in a terminal: the terminal UI. Piped or scripted: the help, as
     # before, so nothing that runs `pcbridge` without arguments changes.

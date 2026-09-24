@@ -396,9 +396,11 @@ def _disconnect_agy(backup: inst.Backup) -> str:
 
 def _connect_hermes(cmd: list[str], backup: inst.Backup) -> str:
     backup.save(hermes_config())
-    # `hermes mcp add` connects to the server, lists its tools and asks
-    # whether to enable them all; the answer is given here.
-    why = _run("hermes", ["mcp", "add", SERVER, "--command", cmd[0], "--args", *cmd[1:]], stdin="y\n")
+    # `hermes mcp add` asks "Overwrite? [y/N]" when the entry exists, then
+    # connects, lists the tools and asks whether to enable them all. An
+    # unanswered question cancels with exit 0 (measured with Hermes 0.20.6),
+    # so both answers are given and the result is checked afterwards.
+    why = _run("hermes", ["mcp", "add", SERVER, "--command", cmd[0], "--args", *cmd[1:]], stdin="y\ny\n")
     return why or "registered with all tools enabled"
 
 

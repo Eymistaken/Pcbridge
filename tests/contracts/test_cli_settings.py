@@ -82,6 +82,15 @@ class CliSettingsTests(unittest.TestCase):
         dispatched = set(mainlib._PASSTHROUGH) | set(getattr(mainlib, "_BUILTIN", {}))
         self.assertEqual(listed, dispatched)
 
+    def test_a_closed_pipe_ends_quietly(self) -> None:
+        # stdout is a pipe whose reader is already gone, as after `| head`.
+        code = ("import os, sys; r, w = os.pipe(); os.close(r); os.dup2(w, 1); "
+                "from pcbridge.cli.main import main; sys.exit(main(['list']))")
+        res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                             env=self.env, cwd=str(ROOT), timeout=60)
+        self.assertNotIn("Traceback", res.stderr)
+        self.assertEqual(res.returncode, 141)
+
     def test_help_lists_the_commands_too(self) -> None:
         res = self.cli("--help")
         for name in ("settings", "tools", "restart", "list"):

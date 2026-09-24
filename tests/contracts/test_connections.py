@@ -85,10 +85,14 @@ json.dump(d, open(p, "w"))
 '''
 
 # hermes: `config path`, `mcp add NAME --command C --args A...` and
-# `mcp remove NAME`, both asking for a y on stdin, on ~/.hermes/config.yaml.
+# `mcp remove NAME` on ~/.hermes/config.yaml. Like the real one (0.20.6),
+# `add` asks "Overwrite? [y/N]" first when the entry exists, then "Enable all
+# tools? [Y/n/select]"; an unanswered question cancels, still with exit 0.
 HERMES = r'''#!{py}
 import os, sys, yaml
-log = open({log!r}, "a"); log.write("hermes " + " ".join(sys.argv[1:]) + " stdin=" + repr(sys.stdin.read()) + "\n")
+answers = sys.stdin.read()
+log = open({log!r}, "a"); log.write("hermes " + " ".join(sys.argv[1:]) + " stdin=" + repr(answers) + "\n")
+lines = answers.splitlines()
 p = os.path.expanduser("~/.hermes/config.yaml")
 a = sys.argv[1:]
 if a[:2] == ["config", "path"]:
@@ -97,6 +101,11 @@ d = yaml.safe_load(open(p)) if os.path.exists(p) else {{}}
 d = d or {{}}
 servers = d.setdefault("mcp_servers", {{}})
 if a[:2] == ["mcp", "add"]:
+    if a[2] in servers:
+        if not lines or lines.pop(0).strip().lower() != "y":
+            print("Cancelled."); sys.exit(0)
+    if not lines:
+        print("Cancelled."); sys.exit(0)
     c = a.index("--command"); r = a.index("--args")
     servers[a[2]] = {{"command": a[c + 1], "args": a[r + 1:], "enabled": True}}
 elif a[:2] == ["mcp", "remove"]:
@@ -137,6 +146,10 @@ class ConnectionsTests(unittest.TestCase):
         (self.home / ".pi" / "agent" / "mcp.json").write_text(json.dumps(
             {"mcpServers": {"pcbridge": {"command": "/old/python", "args": ["-m", "pcbridge.server", "--stdio"],
                                          "lifecycle": "lazy"}}}))
+        (self.home / ".hermes").mkdir()
+        (self.home / ".hermes" / "config.yaml").write_text(
+            "model: m\nmcp_servers:\n  pcbridge:\n    command: /old/python\n    args: [-m, pcbridge.server, --stdio]\n"
+            "    enabled: true\n")
         (self.home / ".omp" / "agent").mkdir(parents=True)
         cfg = self.home / "config.toml"
         cfg.write_text(CONFIG.format(state=self.home / "state"))
@@ -256,12 +269,13 @@ class ConnectionsTests(unittest.TestCase):
         self.assertIn("agy mcp enable pcbridge", self.log.read_text())
         self.assertEqual(self.states()["antigravity"]["state"], "connected")
 
-    def test_hermes_through_its_own_cli_answering_its_question(self) -> None:
-        res = self.cli("connect", "hermes")
+    def test_hermes_through_its_own_cli_answering_its_questions(self) -> None:
+        self.assertEqual(self.states()["hermes"]["state"], "outdated")
+        res = self.cli("connect", "hermes")  # over an existing entry: two questions
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertEqual(self.states()["hermes"]["state"], "connected")
         log = self.log.read_text()
-        self.assertRegex(log, r"hermes mcp add pcbridge --command \S+pcbridge --args stdio stdin='y\\n'")
+        self.assertRegex(log, r"hermes mcp add pcbridge --command \S+pcbridge --args stdio stdin='y\\ny\\n'")
         self.cli("disconnect", "hermes")
         self.assertIn("hermes mcp remove pcbridge stdin='y\\n'", self.log.read_text())
         self.assertEqual(self.states()["hermes"]["state"], "not connected")
