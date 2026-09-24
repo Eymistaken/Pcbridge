@@ -132,7 +132,7 @@ Decisions taken with the maintainer (2026-09-24):
 - [x] 3. Settings core
 - [x] 4. Grant helpers
 - [x] 5. Tool catalog
-- [ ] 6. Direct commands
+- [x] 6. Direct commands
 - [ ] 7. Terminal UI, frame
 - [ ] 8. Terminal UI, Settings
 - [ ] 9. Terminal UI, Tools

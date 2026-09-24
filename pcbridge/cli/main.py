@@ -1,10 +1,7 @@
 """The ``pcbridge`` command.
 
-One entry point for running and operating pcbridge. Subcommands:
-
-    pcbridge serve      run the resident server (the daemon: socket + HTTP)
-    pcbridge stdio      connect one MCP client to the daemon (the relay)
-    pcbridge --version  print the version
+One entry point for running and operating pcbridge. `COMMANDS` below lists
+every subcommand; `pcbridge list` prints it.
 
 Heavy modules (FastMCP, the desktop layer) are imported only inside the
 subcommand that needs them, so ``pcbridge --version`` and the stdio relay stay
@@ -60,43 +57,57 @@ _PASSTHROUGH = {
     "report": _lazy(".ops", "report"),
     "update": _lazy(".ops", "update"),
     "uninstall": _lazy(".ops", "uninstall"),
+    "list": _lazy(".configure", "list_commands"),
+    "settings": _lazy(".configure", "settings_cmd"),
+    "get": _lazy(".configure", "get_cmd"),
+    "set": _lazy(".configure", "set_cmd"),
+    "reset": _lazy(".configure", "reset_cmd"),
+    "tools": _lazy(".configure", "tools_cmd"),
+    "restart": _lazy(".configure", "restart_cmd"),
 }
 
-_HELP = {
-    "setup": "Install or update pcbridge for this user: config, service, extension, clients, aliases.",
-    "connect": "Register pcbridge with Claude Code, Codex and Claude Desktop (--client, --dry-run).",
-    "doctor": "Check everything and say what to fix (--fix, --json).",
-    "status": "Daemon, desktop grant, running jobs, remote tunnel (--json).",
-    "lock": "Emergency stop for desktop control: close the grant, stop screen sharing.",
-    "unlock": "Open desktop control for agents (--minutes N).",
-    "stop": "Stop the daemon and every running job (the socket stays ready).",
-    "remote": "start | stop | status of remote access through Tailscale Funnel.",
-    "logs": "Show the daemon log (-f to follow).",
-    "report": "Write a sanitized bug-report bundle.",
-    "update": "Load the installed version into the daemon once no job is running.",
-    "uninstall": "Remove pcbridge for this user (--purge also trashes config and state).",
-}
-
+# Every command: (group, name, usage, what it does). `pcbridge list` and
+# `--help` are both generated from this table, so a command cannot be missing
+# from either.
+COMMANDS: list[tuple[str, str, str, str]] = [
+    ("Desktop control", "lock", "lock",
+     "Emergency stop for desktop control: close the grant, stop screen sharing."),
+    ("Desktop control", "unlock", "unlock [--minutes N]", "Open desktop control for agents."),
+    ("Settings", "settings", "settings [FILTER] [--changed]",
+     "List every setting with its value; FILTER searches keys and descriptions."),
+    ("Settings", "get", "get KEY", "Show one setting, its default and what it does."),
+    ("Settings", "set", "set KEY VALUE",
+     "Change a setting (checked, backed up). Secrets are prompted for, never given on the command line."),
+    ("Settings", "reset", "reset KEY", "Put a setting back to its default."),
+    ("Tools", "tools", "tools [QUERY] [--active]",
+     "List the MCP tools and which ones the profile offers; search by name or description; "
+     "a tool name shows its details."),
+    ("Service", "status", "status", "Daemon, desktop grant, running jobs, remote tunnel (--json)."),
+    ("Service", "restart", "restart [--wait S]",
+     "Restart the daemon to apply settings, only when no job is running."),
+    ("Service", "stop", "stop [--keep-jobs]", "Stop the daemon and every running job (the socket stays ready)."),
+    ("Service", "update", "update", "Load the installed version into the daemon once no job is running."),
+    ("Service", "logs", "logs [-f]", "Show the daemon log (-f to follow)."),
+    ("Service", "doctor", "doctor [--fix]", "Check everything and say what to fix (--json)."),
+    ("Service", "report", "report", "Write a sanitized bug-report bundle."),
+    ("Remote access", "remote", "remote start|stop|status", "Remote access through Tailscale Funnel."),
+    ("Setup", "setup", "setup", "Install or update pcbridge for this user: config, service, extension, clients, aliases."),
+    ("Setup", "connect", "connect [--client C]", "Register pcbridge with Claude Code, Codex and Claude Desktop (--dry-run)."),
+    ("Setup", "uninstall", "uninstall [--purge]", "Remove pcbridge for this user (--purge also trashes config and state)."),
+    ("Interface", "list", "list", "Show every command."),
+    ("MCP clients", "serve", "serve", "Run the resident server (the daemon: socket + HTTP)."),
+    ("MCP clients", "stdio", "stdio", "Connect one MCP client (stdin/stdout) to the daemon."),
+]
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pcbridge",
         description="Run and operate pcbridge, an MCP server for a GNOME or KDE Plasma desktop on Wayland.",
+        epilog="`pcbridge list` groups the commands; every command takes --help.",
     )
     parser.add_argument("--version", action="version", version=f"pcbridge {__version__}")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
-
-    sub.add_parser(
-        "serve",
-        help="Run the resident server (daemon). Options: -c, --socket, --port, --no-http, --no-socket, --check.",
-        add_help=False,
-    )
-    sub.add_parser(
-        "stdio",
-        help="Connect one MCP client (stdin/stdout) to the daemon; falls back to an in-process server.",
-        add_help=False,
-    )
-    for name, text in _HELP.items():
+    for _group, name, _usage, text in COMMANDS:
         sub.add_parser(name, help=text, add_help=False)
     return parser
 
