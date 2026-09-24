@@ -25,6 +25,7 @@ pointer and screen reader.
 | **Read the screen** | The accessibility tree as text (cheap, cannot miss), silent screenshots (screen sharing: no flash, no sound), or OCR as plain text. |
 | **Use the desktop** | Virtual keyboard and pointer through uinput, absolute and relative motion, windows raised in ~5 ms through its GNOME extension, or through a KWin script on Plasma. |
 | **Click what you see** | Every screenshot has an id; send the pixel you see plus the id, and pcbridge applies the monitor offset and scale. Any monitor layout, scale and rotation. |
+| **Run it from a terminal** | `pcbridge` opens a terminal UI: every setting, the desktop grant with one Lock / Unlock button, and all 37 tools with a search box; mouse and keyboard. Every part of it is also a plain command. |
 | **Stay safe enough to leave on** | Desktop control is off by default; a time-limited grant that closes 90 s after the last action; nothing is sent behind a locked screen; a panel indicator (a lasting notification on Plasma) and a one-click kill switch. |
 
 ## Always ready
@@ -100,17 +101,55 @@ with Claude Code", "what is on my screen", "open Text Editor and type
 hello". Desktop control needs `[desktop] enabled = true` once; the agent
 then opens a time-limited grant by itself with `desktop_unlock`.
 
-Kill switch: `pcbridge lock` (alias `bridgekilit`), the panel icon's
-"Lock desktop control now" on GNOME, or the grant notification's "Lock now"
-on Plasma.
+Kill switch: `pcbridge lock` (alias `bridgekilit`), "Lock now" in the
+terminal UI, the panel icon's "Lock desktop control now" on GNOME, or the
+grant notification's "Lock now" on Plasma.
+
+## The terminal UI
+
+`pcbridge` alone in a terminal opens it, in the terminal's own colors. The
+Settings tab, roughly (the real screen draws the switch and the boxes):
+
+```
+ pcbridge 2.3.0  daemon: running  Desktop: OPEN, 1:14 left (at most 9:14)      Lock now
+ Overview  Settings  Tools  Commands
+ ─────────────────────────────────────────────────────────────────────────────────────
+ General             Setting                     Value
+ Server            * enabled                     true
+ Authentication      unlock_default_minutes      15
+ Paths               unlock_max_minutes          120
+ Limits            * unlock_notification         false
+ Native helper       unlock_idle_seconds         90
+ Desktop control     pointer_speed               5000
+ Tools
+ Agent: claude       desktop.enabled
+                     default false · applies after a daemon restart
+                     [ on ] true
+                     OFF BY DEFAULT, so that enabling it is a deliberate act.
+ + unsaved   * differs from the default                          Discard     Save
+ l Lock/Unlock  r Restart daemon  q Quit
+```
+
+- **The bar at the top** shows the daemon and the desktop grant on every
+  tab. Its button locks or unlocks the grant; `l` locks at once and asks
+  before it unlocks.
+- **Settings** edits every setting with the right control for its type.
+  Save checks the file with the daemon's own loader, backs up the old one
+  and writes only the changed lines; the password and the token are never
+  shown.
+- **Tools** lists all 37 tools, marks what the `[tools] profile` offers
+  and searches names and descriptions as you type.
+- **Without the UI**: `pcbridge settings`, `get`, `set`, `reset`, `tools`,
+  `restart`; `pcbridge list` shows them all. Piped or scripted, `pcbridge`
+  alone prints the help, so nothing that calls it changes.
 
 ## Documentation
 
 | | |
 |---|---|
 | [docs/install.md](docs/install.md) | Install, update, remote access |
-| [docs/usage.md](docs/usage.md) | The 37 tools, which need the grant, how to drive the screen |
-| [docs/configuration.md](docs/configuration.md) | The config file; the reference is [config.example.toml](config.example.toml) |
+| [docs/usage.md](docs/usage.md) | The 37 tools, which need the grant, how to drive the screen; the terminal UI and every command |
+| [docs/configuration.md](docs/configuration.md) | The config file and `pcbridge set`; the reference is [config.example.toml](config.example.toml) |
 | [docs/security.md](docs/security.md) | What protects the machine, and what does not |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Symptoms and fixes |
 | [docs/architecture.md](docs/architecture.md) | Daemon, relay, layers, the native helper |
