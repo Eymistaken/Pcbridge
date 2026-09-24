@@ -26,6 +26,10 @@ dependencies = [
     "fastmcp==3.4.5",
     "uvicorn>=0.30.0",
     "starlette>=0.37.0",
+    # The terminal UI (`pcbridge` with no arguments) and the settings editor,
+    # which changes config.toml without losing its comments.
+    "textual>=8.0.0",
+    "tomlkit>=0.13.0",
 ]
 
 [project.optional-dependencies]

@@ -128,7 +128,7 @@ Decisions taken with the maintainer (2026-09-24):
 ## Progress
 
 - [x] 1. Plan
-- [ ] 2. Dependencies
+- [x] 2. Dependencies
 - [ ] 3. Settings core
 - [ ] 4. Grant helpers
 - [ ] 5. Tool catalog
