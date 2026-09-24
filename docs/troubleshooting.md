@@ -7,7 +7,7 @@ fix next to each problem. `pcbridge doctor --json` is the same for scripts;
 
 | Symptom | Look at |
 |---|---|
-| A client does not list pcbridge | `pcbridge connect --dry-run` shows what is registered; Claude Code must use the user scope. Restart the client after `pcbridge connect`. |
+| A client does not list pcbridge | `pcbridge clients` shows what each client has registered; `pcbridge connect NAME` fixes it (Claude Code must use the user scope). Restart the client afterwards. Pi also needs the `pi-mcp-adapter` extension. |
 | A client still behaves like 1.x | It was started before the install and keeps its old server process; restart it. |
 | "the pcbridge server restarted while this request was running" | The daemon was restarted or crashed mid-call. The error is retryable; the relay reconnects on its own. |
 | The daemon does not start | `pcbridge logs`. Exit code 78 means the config: the first log line says what to fix. |

@@ -8,13 +8,41 @@ description (what a client sees) says when to use it; this is the overview.
 
 | Client | How it connects | Authentication |
 |---|---|---|
-| Claude Code, Codex, Claude Desktop | `pcbridge stdio`: a small relay to the resident daemon over a user-only Unix socket | none; the process boundary is the authorization |
+| Claude Code, Codex, Claude Desktop, Antigravity CLI, Hermes Agent, OpenCode, Pi, oh-my-pi | `pcbridge stdio`: a small relay to the resident daemon over a user-only Unix socket | none; the process boundary is the authorization |
 | A phone, another machine, a web client | HTTPS on the daemon's HTTP port through Tailscale Funnel (`pcbridge remote start`) | OAuth 2.1 (password consent page) or the static token |
 
-`pcbridge connect` registers the local clients; nothing needs to be started
-by hand. If the daemon is not running, the first client starts it through
-systemd socket activation (~0.7 s); after that a new client is connected in
-tens of milliseconds.
+`pcbridge setup` registers Claude Code, Codex and Claude Desktop; nothing
+needs to be started by hand. If the daemon is not running, the first client
+starts it through systemd socket activation (~0.7 s); after that a new client
+is connected in tens of milliseconds.
+
+### Connecting and disconnecting clients
+
+`pcbridge clients` lists every client pcbridge can connect and its state:
+`connected`, `outdated` (it runs an older command, often a pre-2.0 one; it
+still works, and connecting it again updates it), `switched off`, `not
+connected` or `not installed`. `pcbridge connect NAME...` and `pcbridge
+disconnect NAME...` switch them, and so do the switches on the terminal UI's
+Connections tab. Every file a change touches is backed up first under
+`~/.local/state/pcbridge/backup-<time>/`, with a `ROLLBACK.md`. A client that
+is running picks the change up when it restarts.
+
+| Client | Name | Where pcbridge is registered | Disconnecting |
+|---|---|---|---|
+| Claude Code | `claude-code` | `~/.claude.json`, user scope, through `claude mcp` | removes the entry |
+| Codex | `codex` | `$CODEX_HOME/config.toml` (`~/.codex`) | `enabled = false`; per-tool settings stay |
+| Claude Desktop | `claude-desktop` | `~/.config/Claude/claude_desktop_config.json` | removes the entry |
+| Antigravity CLI | `antigravity` | `~/.gemini/config/mcp_config.json`, through `agy mcp` | `agy mcp disable` |
+| Hermes Agent | `hermes` | the active profile's `config.yaml`, through `hermes mcp` | removes the entry |
+| OpenCode | `opencode` | `~/.config/opencode/opencode.json` (`type: "local"`) | `enabled: false` |
+| Pi | `pi` | `~/.pi/agent/mcp.json`, read by the `pi-mcp-adapter` extension | `disabled: true` |
+| oh-my-pi | `oh-my-pi` | `~/.omp/agent/mcp.json` (the default profile) | `enabled: false` |
+
+Pi has no MCP of its own; install the extension with `pi install
+npm:pi-mcp-adapter`, and `pcbridge clients` says so when it is missing. An
+OpenCode config that exists only as `opencode.jsonc` with comments is not
+rewritten; add the entry by hand there. oh-my-pi's entry follows its
+published documentation and was not tried on a real installation.
 
 ## Tool catalog
 
@@ -115,6 +143,8 @@ also works without it. `pcbridge list` prints them all by group.
 | `pcbridge get KEY` | One setting: value, default, what it does |
 | `pcbridge set KEY VALUE` / `pcbridge reset KEY` | Change a setting or put it back to its default (checked, backed up) |
 | `pcbridge tools [QUERY] [--active]` | The MCP tools and which ones the profile offers; search, or one tool's parameters |
+| `pcbridge clients` | Every MCP client and whether it is connected |
+| `pcbridge connect NAME...` / `pcbridge disconnect NAME...` | Let a client use pcbridge, or stop it (backed up; `--dry-run`) |
 | `pcbridge restart [--wait S]` | Restart the daemon to apply settings, only when no job is running and the grant is closed |
 | `pcbridge status` | Daemon, grant, jobs, remote tunnel |
 | `pcbridge doctor [--json] [--fix]` | Checks everything, with the fix for each problem |
@@ -151,9 +181,11 @@ hold Shift. Piped or run from a script,
   `needs desktop`), a search box that filters by name and description as
   you type, a toggle for the offered ones only, and the selected tool's
   description, hints and parameters.
+- **Connections**: a switch per client (see above), with **Update** for an
+  entry that runs an older command.
 - **Commands**: the table `pcbridge list` prints.
 
-Keys: `1`-`4` switch tabs, `l` lock/unlock, `r` restart the daemon, `q`
+Keys: `1`-`5` switch tabs, `l` lock/unlock, `r` restart the daemon, `q`
 quits (and asks if settings are unsaved).
 
 The GNOME extension's panel icon shows the same state and has "Lock desktop

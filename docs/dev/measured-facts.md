@@ -398,6 +398,45 @@ started from the checkout, driven with pcbridge's own pointer and keyboard.
   overview said `19:46`: `until` slides to the last action plus
   `unlock_idle_seconds`, `hard_until` is the ceiling. Both are shown now.
 
+## MCP clients (connections)
+
+Measured 2026-09-24 on the reference machine, first in a throwaway HOME,
+then on the real clients (each switched off and on again, and checked with
+the client's own listing).
+
+- **Claude Code 2.1.276**: `claude mcp add/remove -s user`; `claude mcp get
+  pcbridge` reports "Connected" after a reconnect.
+- **Codex 0.155.1** honors `enabled = false` in `[mcp_servers.pcbridge]`:
+  `codex mcp get pcbridge` prints "pcbridge (disabled)". Switching it off and
+  on again left `config.toml` byte-identical, per-tool approval tables
+  included.
+- **Antigravity CLI (agy) 1.2.7** writes `~/.gemini/config/mcp_config.json`
+  (not `~/.gemini/antigravity/mcp_config.json`, which is older) with a
+  `disabled` flag; `agy mcp add NAME -- CMD ARGS` updates an entry in place,
+  `agy mcp disable/enable` flip the flag.
+- **Hermes Agent 0.20.6**: `hermes mcp add` connects to the server, lists its
+  tools and asks "Enable all 37 tools? [Y/n/select]"; over an existing entry
+  it first asks "Overwrite? [y/N]". An unanswered question prints
+  "Cancelled." **with exit 0** and changes nothing, which is how a first
+  version kept the old command; pcbridge now answers both and re-reads the
+  file. Hermes rewrites `config.yaml` itself and appends its commented
+  default blocks; nothing else changed. `hermes config path` names the
+  active profile's file in 0.23 s.
+- **OpenCode 1.18.29** reads `mcp.pcbridge = {type: "local", command: [...],
+  enabled}` from `~/.config/opencode/opencode.json` (the shape of the SDK's
+  `McpLocalConfig`): `opencode mcp list` showed "✓ pcbridge connected", and
+  "○ pcbridge disabled" after `enabled: false`. `opencode mcp add` is
+  interactive and there is no `remove`, so the file is edited.
+- **Pi 0.85.0** has no MCP; the `pi-mcp-adapter` 2.32.1 extension reads
+  `~/.pi/agent/mcp.json` (or `$PI_CODING_AGENT_DIR`) and skips an entry with
+  `disabled: true`.
+- **oh-my-pi** was not installed; its entry (`~/.omp/agent/mcp.json`, stdio,
+  `enabled: false`) follows `docs/mcp-config.md` of oh-my-pi 18.3.0.
+- **Three clients still ran the pre-2.0 command** (`.venv/bin/python -m
+  pcbridge.server --stdio` from the checkout): agy, Hermes and Pi. `pcbridge
+  clients` marks such an entry `outdated`; it still works through the
+  relay's fallback, and `connect` updates it.
+
 ## Build and test
 
 - **`cargo test` stops after the first failing target**; later test

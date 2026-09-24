@@ -13,7 +13,8 @@ this desktop.
 
 Since 2.0 **one resident daemon** (`pcbridge serve`, `pcbridge.service`,
 started by `pcbridge.socket`) serves every client. Local clients (Claude
-Code, Codex, Claude Desktop) run `pcbridge stdio`, a relay to the daemon's
+Code, Codex, Claude Desktop, and since 2.4 on request Antigravity, Hermes,
+OpenCode, Pi and oh-my-pi) run `pcbridge stdio`, a relay to the daemon's
 Unix socket: no network, no OAuth. Remote clients use HTTPS + OAuth 2.1
 through Tailscale Funnel (optional). Architecture:
 [docs/architecture.md](docs/architecture.md).
@@ -34,6 +35,7 @@ the real password or static token appear in the diff.
 pcbridge                                # terminal UI (settings, grant, tools); `pcbridge list` for the rest
 pcbridge settings | get KEY | set KEY VALUE | reset KEY   # any setting, checked and backed up
 pcbridge tools [QUERY]                  # the tools the profile offers
+pcbridge clients | connect NAME | disconnect NAME   # which MCP clients use pcbridge
 pcbridge status                         # daemon, grant, jobs, tunnel
 pcbridge doctor [--json] [--fix]        # every check, with the fix
 pcbridge logs -f                        # the daemon's journal

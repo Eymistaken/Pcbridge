@@ -25,13 +25,14 @@ pointer and screen reader.
 | **Read the screen** | The accessibility tree as text (cheap, cannot miss), silent screenshots (screen sharing: no flash, no sound), or OCR as plain text. |
 | **Use the desktop** | Virtual keyboard and pointer through uinput, absolute and relative motion, windows raised in ~5 ms through its GNOME extension, or through a KWin script on Plasma. |
 | **Click what you see** | Every screenshot has an id; send the pixel you see plus the id, and pcbridge applies the monitor offset and scale. Any monitor layout, scale and rotation. |
-| **Run it from a terminal** | `pcbridge` opens a terminal UI: every setting, the desktop grant with one Lock / Unlock button, and all 37 tools with a search box; mouse and keyboard. Every part of it is also a plain command. |
+| **Run it from a terminal** | `pcbridge` opens a terminal UI: every setting, the desktop grant with one Lock / Unlock button, all 37 tools with a search box, and a switch per MCP client; mouse and keyboard. Every part of it is also a plain command. |
 | **Stay safe enough to leave on** | Desktop control is off by default; a time-limited grant that closes 90 s after the last action; nothing is sent behind a locked screen; a panel indicator (a lasting notification on Plasma) and a one-click kill switch. |
 
 ## Always ready
 
 One resident daemon serves every client. Local clients (Claude Code,
-Codex, Claude Desktop) run `pcbridge stdio`, a tiny relay to the daemon's
+Codex, Claude Desktop, Antigravity CLI, Hermes Agent, OpenCode, Pi,
+oh-my-pi) run `pcbridge stdio`, a tiny relay to the daemon's
 user-only Unix socket; systemd starts the daemon on the first connection.
 Remote clients use HTTPS through Tailscale Funnel with OAuth 2.1.
 
@@ -92,6 +93,7 @@ Desktop, and checks that a fresh client works. Details:
 ```bash
 pcbridge                 # the terminal UI: settings, the desktop grant, the tools
 pcbridge list            # every command, for work without the UI
+pcbridge clients         # which agents and apps can use pcbridge; connect / disconnect NAME
 pcbridge status          # daemon, grant, jobs, remote tunnel
 pcbridge doctor          # every check, with the fix next to each problem
 ```
@@ -121,8 +123,12 @@ grant notification's "Lock now" on Plasma.
 - **Tools** lists all 37 tools, marks what the `[tools] profile` offers
   and searches names and descriptions as you type.
 
+- **Connections** has a switch for each MCP client pcbridge knows: Claude
+  Code, Codex, Claude Desktop, Antigravity CLI, Hermes Agent, OpenCode, Pi
+  and oh-my-pi. Where a client can switch an entry off, disconnecting keeps
+  its settings; every changed file is backed up.
 - **Without the UI**: `pcbridge settings`, `get`, `set`, `reset`, `tools`,
-  `restart`; `pcbridge list` shows them all. Piped or scripted, `pcbridge`
+  `clients`, `connect`, `disconnect`, `restart`; `pcbridge list` shows them all. Piped or scripted, `pcbridge`
   alone prints the help, so nothing that calls it changes.
 
 ![The Tools tab: a search for "mouse" narrows the list to 7 tools and shows the selected tool's description](docs/images/tui-tools.png)

@@ -55,6 +55,7 @@
 | Server | `app.py` | Builds the FastMCP app, the two ASGI shims (`MetadataNormalizer`, `BasicAuthFormShim`, required by Google's OAuth client), routes `/consent`, `/healthz`, `/shot/<token>` |
 | Configuration | `config.py`, `paths.py` | TOML -> dataclasses; XDG locations; migration of 1.x files; typed `ConfigError` (exit 78) |
 | Settings | `settings.py`, `toolcatalog.py` | A registry of every setting and an editor that keeps comments (tomlkit), checks with the loader, backs up and writes atomically; the tool catalog from the server's own registration |
+| MCP clients | `cli/connect.py` | Registers `pcbridge stdio` with eight local clients, switches it off or removes it, backs up every file it changes |
 | Terminal UI | `tui/` | `pcbridge` alone in a terminal (Textual): the grant bar, Overview, Settings, Tools, Commands; everything through `tui/backend.py` |
 | Authentication | `auth.py` | A small OAuth 2.1 server (DCR, PKCE, refresh) and consent page, SQLite |
 | Tools | `tools.py` | All 37 MCP tools and their hints (`TOOL_HINTS`); `[tools] profile` |
