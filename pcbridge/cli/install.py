@@ -74,8 +74,13 @@ def fail(msg: str) -> None:
     say(f"  {_mark('fail', '31')}  {msg}")
 
 
-def run(cmd: list[str], timeout: float = 30, check: bool = False) -> subprocess.CompletedProcess:
+def run(cmd: list[str], timeout: float = 30, check: bool = False,
+        input: str | None = None) -> subprocess.CompletedProcess:
+    """Run a command with no terminal; `input`, when given, is its stdin."""
     try:
+        if input is not None:
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=check,
+                                  input=input)
         return subprocess.run(
             cmd, capture_output=True, text=True, timeout=timeout, check=check, stdin=subprocess.DEVNULL
         )

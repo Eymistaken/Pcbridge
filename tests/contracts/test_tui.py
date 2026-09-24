@@ -68,6 +68,9 @@ class FakeBackend(Backend):
     def tools(self, cfg):
         return []
 
+    def clients(self):
+        return []
+
 
 def run(coro):
     return asyncio.run(coro)

@@ -30,6 +30,8 @@ dependencies = [
     # which changes config.toml without losing its comments.
     "textual>=8.0.0",
     "tomlkit>=0.13.0",
+    # Reads Hermes Agent's config.yaml for `pcbridge clients`.
+    "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]

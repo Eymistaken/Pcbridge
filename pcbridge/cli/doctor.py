@@ -188,6 +188,22 @@ class Doctor:
             if self.fix:
                 res = connectlib.connect([client], self.backup)
                 c.fixed = res[0][1] == "ok"
+        # The optional clients: connected only on request, so "not connected"
+        # is information, but an enabled entry running an old command is not.
+        for client in connectlib.ALL_CLIENTS:
+            if client in connectlib.CLIENTS:
+                continue
+            st, reg = connectlib.state(client, want)
+            if st == connectlib.CONNECTED:
+                self.add(g, client, "ok", shlex.join(reg.command) + (f" ({reg.note})" if reg.note else ""))
+            elif st == connectlib.OUTDATED:
+                c = self.add(g, client, "warn", f"runs {shlex.join(reg.command)}", f"pcbridge connect {client}")
+                if self.fix:
+                    c.fixed = connectlib.connect([client], self.backup)[0][1] == "ok"
+            elif st == connectlib.SWITCHED_OFF:
+                self.add(g, client, "info", "switched off; `pcbridge connect " + client + "` turns it on")
+            elif st == connectlib.NOT_CONNECTED:
+                self.add(g, client, "info", f"not connected (optional): pcbridge connect {client}")
 
     def readiness(self) -> None:
         g = "readiness"

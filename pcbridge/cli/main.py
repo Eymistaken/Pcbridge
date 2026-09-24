@@ -47,6 +47,8 @@ _PASSTHROUGH = {
     "stdio": _stdio,
     "setup": _lazy(".ops", "setup"),
     "connect": _lazy(".connect", "main"),
+    "disconnect": _lazy(".connect", "disconnect_main"),
+    "clients": _lazy(".connect", "clients_main"),
     "doctor": _lazy(".doctor", "main"),
     "status": _lazy(".ops", "status"),
     "lock": _lazy(".ops", "lock"),
@@ -83,6 +85,13 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("Tools", "tools", "tools [QUERY] [--active]",
      "List the MCP tools and which ones the profile offers; search by name or description; "
      "a tool name shows its details."),
+    ("Connections", "clients", "clients",
+     "Which local agents and apps can use pcbridge: Claude Code, Codex, Claude Desktop, Antigravity, "
+     "Hermes, OpenCode, Pi, oh-my-pi."),
+    ("Connections", "connect", "connect [CLIENT...]",
+     "Let a client use pcbridge's tools (backed up; --dry-run). Alone: the three `setup` connects."),
+    ("Connections", "disconnect", "disconnect CLIENT...",
+     "Stop a client from using pcbridge; the entry is switched off where the client allows it, removed otherwise."),
     ("Service", "status", "status", "Daemon, desktop grant, running jobs, remote tunnel (--json)."),
     ("Service", "restart", "restart [--wait S]",
      "Restart the daemon to apply settings, only when no job is running."),
@@ -93,7 +102,7 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("Service", "report", "report", "Write a sanitized bug-report bundle."),
     ("Remote access", "remote", "remote start|stop|status", "Remote access through Tailscale Funnel."),
     ("Setup", "setup", "setup", "Install or update pcbridge for this user: config, service, extension, clients, aliases."),
-    ("Setup", "connect", "connect [--client C]", "Register pcbridge with Claude Code, Codex and Claude Desktop (--dry-run)."),
+
     ("Setup", "uninstall", "uninstall [--purge]", "Remove pcbridge for this user (--purge also trashes config and state)."),
     ("Interface", "ui", "ui", "Open the terminal UI; `pcbridge` alone in a terminal does the same."),
     ("Interface", "list", "list", "Show every command."),

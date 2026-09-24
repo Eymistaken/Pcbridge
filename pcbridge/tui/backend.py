@@ -49,3 +49,30 @@ class Backend:
         from ..toolcatalog import build
 
         return build(cfg)
+
+    def clients(self) -> list[dict]:
+        """Every MCP client pcbridge can connect, with its state."""
+        from ..cli import connect as c
+        from ..cli import install as inst
+
+        cmd = inst.client_command()
+        out = []
+        for client in c.ALL_CLIENTS:
+            st, reg = c.state(client, cmd)
+            out.append({"client": client, "name": c.NAMES[client], "state": st,
+                        "command": reg.command if reg.present else None, "config": reg.source,
+                        "note": reg.note, "setup_default": client in c.CLIENTS})
+        return out
+
+    def set_connection(self, client: str, connect: bool) -> tuple[str, str]:
+        """Connect or disconnect one client; (ok|warn|skip, what happened)."""
+        from ..cli import connect as c
+        from ..cli import install as inst
+
+        backup = inst.Backup()
+        results = c.connect([client], backup) if connect else c.disconnect([client], backup)
+        _, status, detail = results[0]
+        if backup.entries:
+            backup.write_rollback()
+            detail += f" (backup in {backup.root})"
+        return status, detail

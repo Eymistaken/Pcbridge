@@ -4,6 +4,8 @@ starlette>=0.37.0
 # Terminal UI and the comment-keeping settings editor.
 textual>=8.0.0
 tomlkit>=0.13.0
+# Hermes Agent's config.yaml, for `pcbridge clients`.
+PyYAML>=6.0
 # Masaustu kontrolu ([desktop]): /dev/uinput uzerinden sanal klavye/fare.
 # Kurulu olmasa da pcbridge calisir; yalnizca GUI araclari devre disi kalir.
 evdev>=1.7.0

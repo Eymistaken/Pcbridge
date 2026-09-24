@@ -566,21 +566,13 @@ def uninstall(argv: list[str]) -> int:
         backup.move(ext)
     inst.remove_kde_entries(backup)
     inst.remove_aliases(backup)
-    for client in connectlib.CLIENTS:
-        reg = connectlib.current(client)
-        if not reg.present:
+    for client in connectlib.ALL_CLIENTS:
+        if not connectlib.current(client).present:
             continue
-        if client == "claude-code":
-            backup.save(connectlib.CLAUDE_JSON)
-            inst.run(["claude", "mcp", "remove", "pcbridge", "-s", "user"], timeout=30)
-        elif client == "codex":
-            text = connectlib.CODEX_TOML.read_text()
-            new = re.sub(r"(?ms)^\[mcp_servers\.pcbridge(\.[^\]]+)?\]\n.*?(?=^\[(?!mcp_servers\.pcbridge)|\Z)", "", text)
-            inst.write_if_changed(connectlib.CODEX_TOML, new, backup)
-        else:
-            data = json.loads(connectlib.DESKTOP_JSON.read_text())
-            data.get("mcpServers", {}).pop("pcbridge", None)
-            inst.write_if_changed(connectlib.DESKTOP_JSON, json.dumps(data, indent=2) + "\n", backup)
+        try:
+            connectlib.remove_entry(client, backup)
+        except Exception as exc:  # noqa: BLE001 - uninstall goes on; the rest is still removed
+            inst.warn(f"{client}: pcbridge's entry was not removed: {exc}")
     rb = backup.write_rollback()
     inst.ok(f"pcbridge removed. Everything removed is saved in {backup.root}" + (f" ({rb.name})" if rb else ""))
     if args.purge:

@@ -183,7 +183,8 @@ class PcbridgeApp(App):
         Binding("1", "show_tab('overview')", "Overview", show=False),
         Binding("2", "show_tab('settings')", "Settings", show=False),
         Binding("3", "show_tab('tools')", "Tools", show=False),
-        Binding("4", "show_tab('commands')", "Commands", show=False),
+        Binding("4", "show_tab('connections')", "Connections", show=False),
+        Binding("5", "show_tab('commands')", "Commands", show=False),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -199,6 +200,7 @@ class PcbridgeApp(App):
     # -- layout -----------------------------------------------------------------
 
     def compose(self) -> ComposeResult:
+        from .connections_pane import ConnectionsPane
         from .settings_pane import SettingsPane
         from .tools_pane import ToolsPane
 
@@ -210,6 +212,8 @@ class PcbridgeApp(App):
                 yield SettingsPane(classes="pane")
             with TabPane("Tools", id="tools"):
                 yield ToolsPane(classes="pane")
+            with TabPane("Connections", id="connections"):
+                yield ConnectionsPane(classes="pane")
             with TabPane("Commands", id="commands"):
                 yield CommandsPane(classes="pane")
         yield Footer()
