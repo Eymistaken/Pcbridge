@@ -228,6 +228,10 @@ class PcbridgeApp(App):
             self.cfg = None
             self.cfg_error = str(getattr(exc, "message", exc))
             self.notify(self.cfg_error, title="The config does not load", severity="error", timeout=15)
+        from .tools_pane import ToolsPane
+
+        for pane in self.query(ToolsPane):
+            pane.reload()
 
     # -- the grant bar --------------------------------------------------------------
 
