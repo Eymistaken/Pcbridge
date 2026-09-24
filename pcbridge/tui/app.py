@@ -50,6 +50,12 @@ Screen {
 #grant-button {
     min-width: 18;
 }
+/* The ANSI theme gives a disabled button a border (!important), which
+   breaks a one-line compact button; keep compact buttons one line. */
+Button.-textual-compact:disabled {
+    border: none !important;
+    height: 1;
+}
 TabbedContent {
     height: 1fr;
 }
@@ -196,6 +202,21 @@ class PcbridgeApp(App):
 
     def action_show_tab(self, tab: str) -> None:
         self.query_one(TabbedContent).active = tab
+
+    async def action_quit(self) -> None:
+        from .settings_pane import SettingsPane
+
+        pending = self.query_one(SettingsPane).pending()
+        if not pending:
+            self.exit()
+            return
+
+        def answer(yes: bool | None) -> None:
+            if yes:
+                self.exit()
+
+        self.push_screen(Confirm(f"Quit and discard {pending} unsaved setting change(s)?",
+                                 yes="Discard and quit"), answer)
 
     # -- config -----------------------------------------------------------------
 
