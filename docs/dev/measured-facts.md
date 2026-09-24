@@ -286,6 +286,15 @@ folded into this file for 2.0 and removed; git history keeps them.
   at once when pcbridge wrote `always`. The icon's visibility is reapplied on
   every update, because the panel shows an indicator's container when it
   adds it.
+- **The terminal UI's Panel icon control** (2.4.1, 2026-09-24) was checked
+  with a headless Textual screenshot and on the reference GNOME 46 session.
+  The UI buttons changed `when-granted` to `always` and restored it; GSettings
+  readback matched both clicks, and GNOME Shell logged the indicator shown
+  and hidden while desktop control was closed. In the Arch Plasma 6 VM the
+  backend reported that there is no pcbridge panel icon and refused a write.
+  The focused UI and tool tests passed in the VM under Python 3.14; the
+  extension's GJS logic tests also passed there with GNOME Shell 50.5
+  installed. No keyboard or pointer input was sent on the reference desktop.
 - **GNOME 50 dropped `addTopChrome`'s `affectsInputRegion` parameter**
   ("Unrecognized parameter", and the extension disabled itself at enable;
   measured in a headless GNOME Shell 50.5 in the Arch VM). Without it the
