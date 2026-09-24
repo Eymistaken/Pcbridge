@@ -129,7 +129,7 @@ Decisions taken with the maintainer (2026-09-24):
 
 - [x] 1. Plan
 - [x] 2. Dependencies
-- [ ] 3. Settings core
+- [x] 3. Settings core
 - [ ] 4. Grant helpers
 - [ ] 5. Tool catalog
 - [ ] 6. Direct commands

@@ -714,10 +714,15 @@ class ConfigError(SystemExit):
         self.message = message
 
 
-def load_config(explicit: str | None = None) -> Config:
-    """Load and check the config, or raise `ConfigError` with the fix."""
+def load_config(explicit: str | None = None, *, check_state: bool = True) -> Config:
+    """Load and check the config, or raise `ConfigError` with the fix.
+
+    `check_state=False` skips creating and write-testing the state directory:
+    the settings editor validates a candidate file with it, and checking a
+    file must not create a directory the user only typed.
+    """
     try:
-        return _load_config(explicit)
+        return _load_config(explicit, check_state=check_state)
     except ConfigError:
         raise
     except SystemExit as exc:
@@ -771,7 +776,7 @@ def exit_on_config_error(exc: ConfigError) -> int:
     return EX_CONFIG
 
 
-def _load_config(explicit: str | None = None) -> Config:
+def _load_config(explicit: str | None = None, *, check_state: bool = True) -> Config:
     path, source_kind = locate_config(explicit)
     try:
         with path.open("rb") as fh:
@@ -1056,7 +1061,8 @@ def _load_config(explicit: str | None = None) -> Config:
     state_dir = (
         _expand(paths["state_dir"]) if paths.get("state_dir") else pathslib.state_home()
     )
-    _ensure_writable_state(state_dir)
+    if check_state:
+        _ensure_writable_state(state_dir)
 
     return Config(
         public_url=public_url,
