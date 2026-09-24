@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **oh-my-pi, tried on a real installation (18.3.0).** Connecting,
+  switching off and switching on work as released. What did not: oh-my-pi
+  can also start the pcbridge entry of Claude Code's, Codex's or OpenCode's
+  config once that source is switched on in its settings, and then
+  `pcbridge clients` said "not connected" and `pcbridge disconnect
+  oh-my-pi` changed nothing. It now shows oh-my-pi as connected through
+  that client and switches it off with oh-my-pi's `disabledServers` list.
+  Its `enabledServers` list, which overrides `enabled: false`, is read and
+  cleared on disconnect, and `PI_CODING_AGENT_DIR` / `PI_CONFIG_DIR` move
+  the file as they move oh-my-pi's own directory.
+
 ## 2.4.0 - 2026-09-24
 
 ### Added

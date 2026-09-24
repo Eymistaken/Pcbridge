@@ -430,8 +430,19 @@ the client's own listing).
 - **Pi 0.85.0** has no MCP; the `pi-mcp-adapter` 2.32.1 extension reads
   `~/.pi/agent/mcp.json` (or `$PI_CODING_AGENT_DIR`) and skips an entry with
   `disabled: true`.
-- **oh-my-pi** was not installed; its entry (`~/.omp/agent/mcp.json`, stdio,
-  `enabled: false`) follows `docs/mcp-config.md` of oh-my-pi 18.3.0.
+- **oh-my-pi 18.3.0** (`bun install -g @oh-my-pi/pi-coding-agent`, no model
+  signed in) reads `~/.omp/agent/mcp.json`: `/mcp list` showed "pcbridge ●
+  connected", `/mcp test pcbridge` "Tools: 37", and "◌ inactive" after
+  `enabled: false`. Its own `/mcp enable`/`disable` write `enabled`
+  true/false on that entry (and add `$schema`), which `pcbridge clients`
+  reads back. The directory follows `PI_CODING_AGENT_DIR` (the variable Pi
+  uses too) and `PI_CONFIG_DIR`. With the Claude Code source switched on
+  (`enabledProviders: [claude]` in `config.yml`; the claude, codex and
+  opencode sources are off by default), omp also starts the pcbridge entry
+  of `~/.claude.json`: an entry of its own with `enabled: false` wins over
+  it, and without one only `disabledServers` keeps it off ("Disabled
+  (discovered servers)"). `disabledServers` always wins; `enabledServers`
+  overrides `enabled: false`.
 - **Three clients still ran the pre-2.0 command** (`.venv/bin/python -m
   pcbridge.server --stdio` from the checkout): agy, Hermes and Pi. `pcbridge
   clients` marks such an entry `outdated`; it still works through the

@@ -36,13 +36,18 @@ is running picks the change up when it restarts.
 | Hermes Agent | `hermes` | the active profile's `config.yaml`, through `hermes mcp` | removes the entry |
 | OpenCode | `opencode` | `~/.config/opencode/opencode.json` (`type: "local"`) | `enabled: false` |
 | Pi | `pi` | `~/.pi/agent/mcp.json`, read by the `pi-mcp-adapter` extension | `disabled: true` |
-| oh-my-pi | `oh-my-pi` | `~/.omp/agent/mcp.json` (the default profile) | `enabled: false` |
+| oh-my-pi | `oh-my-pi` | `~/.omp/agent/mcp.json` (the default profile; `$PI_CODING_AGENT_DIR` when set) | `enabled: false`, or its `disabledServers` list |
 
 Pi has no MCP of its own; install the extension with `pi install
 npm:pi-mcp-adapter`, and `pcbridge clients` says so when it is missing. An
 OpenCode config that exists only as `opencode.jsonc` with comments is not
-rewritten; add the entry by hand there. oh-my-pi's entry follows its
-published documentation and was not tried on a real installation.
+rewritten; add the entry by hand there.
+
+oh-my-pi can also start servers from other clients' configs once their
+source is switched on in its settings (`enabledProviders`: `claude`,
+`codex`, `opencode`). `pcbridge clients` then shows oh-my-pi as connected
+through that client, and `pcbridge disconnect oh-my-pi` puts pcbridge on
+oh-my-pi's `disabledServers` list, which leaves the other client connected.
 
 ## Tool catalog
 

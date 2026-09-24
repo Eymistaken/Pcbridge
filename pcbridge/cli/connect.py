@@ -25,9 +25,11 @@ touched. Where a client has its own command for this, that command is used:
                     McpLocalConfig, OpenCode 1.18)
     pi              $PI_CODING_AGENT_DIR/mcp.json (~/.pi/agent), read by the
                     pi-mcp-adapter extension (2.32); Pi itself has no MCP
-    oh-my-pi        ~/.omp/agent/mcp.json, the default profile's user file
-                    (from oh-my-pi's docs/mcp-config.md; not tried on a real
-                    install)
+    oh-my-pi        $PI_CODING_AGENT_DIR/mcp.json (~/.omp/agent), the
+                    default profile's user file; switched off with
+                    `enabled: false`, or through its `disabledServers` list
+                    when the entry is not there (measured 2026-09-24 with
+                    omp 18.3.0)
 
 Disconnecting keeps the entry, switched off, where the client can switch an
 entry off (codex, antigravity, opencode, pi, oh-my-pi), so its per-client
@@ -56,7 +58,6 @@ CLAUDE_JSON = HOME / ".claude.json"
 CODEX_TOML = Path(os.environ.get("CODEX_HOME") or HOME / ".codex") / "config.toml"
 DESKTOP_JSON = HOME / ".config" / "Claude" / "claude_desktop_config.json"
 AGY_JSON = HOME / ".gemini" / "config" / "mcp_config.json"
-OMP_JSON = HOME / ".omp" / "agent" / "mcp.json"
 
 # What `pcbridge setup` and a bare `pcbridge connect` register.
 CLIENTS = ("claude-code", "codex", "claude-desktop")
@@ -113,6 +114,15 @@ def pi_dir() -> Path:
     return Path(os.path.expanduser(os.environ.get("PI_CODING_AGENT_DIR") or HOME / ".pi" / "agent"))
 
 
+def omp_json() -> Path:
+    """oh-my-pi's user mcp.json. omp reads PI_CODING_AGENT_DIR, the variable
+    Pi uses, and PI_CONFIG_DIR renames its ~/.omp."""
+    agent = os.environ.get("PI_CODING_AGENT_DIR")
+    if agent:
+        return Path(os.path.expanduser(agent)) / "mcp.json"
+    return HOME / (os.environ.get("PI_CONFIG_DIR") or ".omp") / "agent" / "mcp.json"
+
+
 def hermes_config() -> Path:
     """The active profile's config.yaml, as `hermes config path` reports it."""
     exe = find_executable("hermes")
@@ -133,7 +143,7 @@ def config_path(client: str) -> Path:
         "hermes": hermes_config,
         "opencode": opencode_json,
         "pi": lambda: pi_dir() / "mcp.json",
-        "oh-my-pi": lambda: OMP_JSON,
+        "oh-my-pi": omp_json,
     }[client]()
 
 
@@ -216,10 +226,52 @@ def current(client: str) -> Registration:
         note = "" if pi_adapter_installed() else "needs the pi-mcp-adapter extension: pi install npm:pi-mcp-adapter"
         return _from_servers(client, path, data.get("mcpServers"), lambda e: e.get("disabled") is not True, note)
     if client == "oh-my-pi":
+        # omp: the disabledServers list always wins; enabledServers overrides
+        # an entry's `enabled: false`.
         denied = SERVER in (data.get("disabledServers") or [])
-        return _from_servers(client, path, data.get("mcpServers"),
-                             lambda e: e.get("enabled", True) is not False and not denied)
+        forced = SERVER in (data.get("enabledServers") or [])
+        reg = _from_servers(client, path, data.get("mcpServers"),
+                            lambda e: not denied and (forced or e.get("enabled", True) is not False))
+        if not reg.present and not denied and (lender := omp_lender()):
+            other = current(lender)
+            return Registration(client, True, other.command, str(path),
+                                f"no entry of its own; omp uses {NAMES[lender]}'s, which it is set to read",
+                                True)
+        return reg
     raise ValueError(client)
+
+
+# omp's providers that can bring a pcbridge entry from another client's
+# config, with that client. They are off until switched on in omp's settings
+# (`enabledProviders` in config.yml; "*" or "all" switches on every one).
+OMP_PROVIDERS = {"claude": "claude-code", "codex": "codex", "opencode": "opencode"}
+
+
+def omp_lender() -> str | None:
+    """The client whose pcbridge entry omp uses when it has none of its own."""
+    import yaml
+
+    for name in ("config.yml", "config.yaml"):
+        try:
+            settings = yaml.safe_load((omp_json().parent / name).read_text(encoding="utf-8")) or {}
+            break
+        except FileNotFoundError:
+            continue
+        except (OSError, yaml.YAMLError):
+            return None
+    else:
+        return None
+    if not isinstance(settings, dict):
+        return None
+    on = {str(x) for x in settings.get("enabledProviders") or []}
+    off = {str(x) for x in settings.get("disabledProviders") or []}
+    for provider, client in OMP_PROVIDERS.items():
+        if provider in off or not on & {provider, "*", "all"}:
+            continue
+        reg = current(client)
+        if reg.present and reg.enabled:
+            return client
+    return None
 
 
 def pi_adapter_installed() -> bool:
@@ -453,25 +505,47 @@ def _disconnect_pi(backup: inst.Backup) -> str:
     return "switched off (disabled: true); run /reload in a running Pi"
 
 
+def _omp_unlist(data: dict, key: str) -> None:
+    names = data.get(key)
+    if isinstance(names, list) and SERVER in names:
+        names = [n for n in names if n != SERVER]
+        if names:
+            data[key] = names
+        else:
+            del data[key]
+
+
 def _connect_omp(cmd: list[str], backup: inst.Backup) -> str:
-    data = _json(OMP_JSON)
+    path = omp_json()
+    data = _json(path)
     servers = data.setdefault("mcpServers", {})
     entry = dict(servers.get(SERVER) or {})
     entry.update(type="stdio", command=cmd[0], args=cmd[1:])
     entry.pop("enabled", None)
     servers[SERVER] = entry
-    if SERVER in (data.get("disabledServers") or []):
-        data["disabledServers"] = [s for s in data["disabledServers"] if s != SERVER]
-    return "registered" if _write_json(OMP_JSON, data, backup) else "already registered"
+    _omp_unlist(data, "disabledServers")
+    return "registered" if _write_json(path, data, backup) else "already registered"
 
 
 def _disconnect_omp(backup: inst.Backup) -> str:
-    data = _json(OMP_JSON)
+    # omp can also pick pcbridge up from another client's config (Claude
+    # Code's, OpenCode's...) when that source is switched on in omp. Without
+    # an entry of its own, only its disabledServers list keeps it off.
+    path = omp_json()
+    data = _json(path)
+    _omp_unlist(data, "enabledServers")
     entry = (data.get("mcpServers") or {}).get(SERVER)
     if isinstance(entry, dict):
         entry["enabled"] = False
-        _write_json(OMP_JSON, data, backup)
-    return "switched off (enabled: false)"
+        detail = "switched off (enabled: false)"
+    else:
+        names = data.get("disabledServers")
+        names = names if isinstance(names, list) else []
+        if SERVER not in names:
+            data["disabledServers"] = [*names, SERVER]
+        detail = "switched off (disabledServers)"
+    _write_json(path, data, backup)
+    return detail
 
 
 def _codex_remove(backup: inst.Backup) -> str:
@@ -507,7 +581,13 @@ def remove_entry(client: str, backup: inst.Backup) -> str:
     if client == "pi":
         return _json_remove(pi_dir() / "mcp.json", "mcpServers", backup)
     if client == "oh-my-pi":
-        return _json_remove(OMP_JSON, "mcpServers", backup)
+        path = omp_json()
+        data = _json(path)
+        (data.get("mcpServers") or {}).pop(SERVER, None)
+        _omp_unlist(data, "disabledServers")
+        _omp_unlist(data, "enabledServers")
+        _write_json(path, data, backup)
+        return "removed"
     return DISCONNECTORS[client](backup)  # claude-code, claude-desktop, hermes remove anyway
 
 

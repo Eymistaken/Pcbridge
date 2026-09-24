@@ -242,6 +242,58 @@ class ConnectionsTests(unittest.TestCase):
         self.assertNotIn("enabled", tomllib.loads((self.home / ".codex" / "config.toml").read_text())
                          ["mcp_servers"]["pcbridge"])
 
+    def test_oh_my_pi_switched_off_without_an_entry_of_its_own(self) -> None:
+        # Measured with omp 18.3.0: with its Claude Code source switched on,
+        # omp starts the pcbridge entry of ~/.claude.json; only its
+        # disabledServers list keeps that one off.
+        agent = self.home / ".omp" / "agent"
+        (agent / "config.yml").write_text("enabledProviders:\n  - claude\n")
+        self.assertEqual(self.states()["oh-my-pi"]["state"], "not connected")  # Claude Code has none yet
+        self.cli("connect", "claude-code")
+        row = self.states()["oh-my-pi"]
+        self.assertEqual(row["state"], "connected")
+        self.assertIn("Claude Code", row["note"])
+
+        res = self.cli("disconnect", "oh-my-pi")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("disabledServers", res.stdout)
+        self.assertEqual(json.loads((agent / "mcp.json").read_text()), {"disabledServers": ["pcbridge"]})
+        self.assertEqual(self.states()["oh-my-pi"]["state"], "not connected")
+        self.assertEqual(self.states()["claude-code"]["state"], "connected")  # Claude Code keeps it
+
+        self.cli("connect", "oh-my-pi")
+        data = json.loads((agent / "mcp.json").read_text())
+        self.assertNotIn("disabledServers", data)
+        self.assertEqual(data["mcpServers"]["pcbridge"]["type"], "stdio")
+        self.assertEqual(self.states()["oh-my-pi"]["state"], "connected")
+
+        # A source switched off again, or not named, lends nothing.
+        (agent / "mcp.json").unlink()
+        (agent / "config.yml").write_text("enabledProviders: [claude]\ndisabledProviders: [claude]\n")
+        self.assertEqual(self.states()["oh-my-pi"]["state"], "not connected")
+
+    def test_oh_my_pi_follows_its_allow_and_deny_lists(self) -> None:
+        agent = self.home / ".omp" / "agent"
+        self.cli("connect", "oh-my-pi")
+        data = json.loads((agent / "mcp.json").read_text())
+        data["mcpServers"]["pcbridge"]["enabled"] = False
+        data["enabledServers"] = ["pcbridge", "other"]  # omp: overrides `enabled: false`
+        (agent / "mcp.json").write_text(json.dumps(data))
+        self.assertEqual(self.states()["oh-my-pi"]["state"], "connected")
+        self.cli("disconnect", "oh-my-pi")
+        data = json.loads((agent / "mcp.json").read_text())
+        self.assertEqual(data["enabledServers"], ["other"])
+        self.assertIs(data["mcpServers"]["pcbridge"]["enabled"], False)
+        self.assertEqual(self.states()["oh-my-pi"]["state"], "switched off")
+
+    def test_oh_my_pi_reads_its_agent_directory_from_the_environment(self) -> None:
+        other = self.home / "omp-agent"
+        self.env["PI_CODING_AGENT_DIR"] = str(other)
+        self.assertEqual(self.states()["oh-my-pi"]["config"], str(other / "mcp.json"))
+        del self.env["PI_CODING_AGENT_DIR"]
+        self.env["PI_CONFIG_DIR"] = ".omp-work"
+        self.assertEqual(self.states()["oh-my-pi"]["config"], str(self.home / ".omp-work" / "agent" / "mcp.json"))
+
     def test_claude_code_through_its_own_cli(self) -> None:
         self.cli("connect", "claude-code")
         self.assertEqual(self.states()["claude-code"]["state"], "connected")
