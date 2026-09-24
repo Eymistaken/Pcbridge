@@ -107,28 +107,9 @@ grant notification's "Lock now" on Plasma.
 
 ## The terminal UI
 
-`pcbridge` alone in a terminal opens it, in the terminal's own colors. The
-Settings tab, roughly (the real screen draws the switch and the boxes):
+`pcbridge` alone in a terminal opens it, in the terminal's own colors:
 
-```
- pcbridge 2.3.0  daemon: running  Desktop: OPEN, 1:14 left (at most 9:14)      Lock now
- Overview  Settings  Tools  Commands
- ─────────────────────────────────────────────────────────────────────────────────────
- General             Setting                     Value
- Server            * enabled                     true
- Authentication      unlock_default_minutes      15
- Paths               unlock_max_minutes          120
- Limits            * unlock_notification         false
- Native helper       unlock_idle_seconds         90
- Desktop control     pointer_speed               5000
- Tools
- Agent: claude       desktop.enabled
-                     default false · applies after a daemon restart
-                     [ on ] true
-                     OFF BY DEFAULT, so that enabling it is a deliberate act.
- + unsaved   * differs from the default                          Discard     Save
- l Lock/Unlock  r Restart daemon  q Quit
-```
+![The Settings tab of the terminal UI: sections on the left, the Desktop control settings on the right, and the editor for desktop.enabled with a switch and its description](docs/images/tui-settings.png)
 
 - **The bar at the top** shows the daemon and the desktop grant on every
   tab. Its button locks or unlocks the grant; `l` locks at once and asks
@@ -139,9 +120,12 @@ Settings tab, roughly (the real screen draws the switch and the boxes):
   shown.
 - **Tools** lists all 37 tools, marks what the `[tools] profile` offers
   and searches names and descriptions as you type.
+
 - **Without the UI**: `pcbridge settings`, `get`, `set`, `reset`, `tools`,
   `restart`; `pcbridge list` shows them all. Piped or scripted, `pcbridge`
   alone prints the help, so nothing that calls it changes.
+
+![The Tools tab: a search for "mouse" narrows the list to 7 tools and shows the selected tool's description](docs/images/tui-tools.png)
 
 ## Documentation
 
