@@ -9,6 +9,6 @@
   "session-modes": [
     "user"
   ],
-  "version-name": "2.4.1",
+  "version-name": "2.4.2",
   "settings-schema": "org.gnome.shell.extensions.pcbridge-gorunur"
 }
