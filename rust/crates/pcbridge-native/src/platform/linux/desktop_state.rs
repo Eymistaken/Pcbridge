@@ -59,10 +59,11 @@ pub const KDE_ENDPOINTS: StateEndpoints = StateEndpoints {
 
 impl StateEndpoints {
     #[must_use]
-    pub const fn for_desktop(kind: DesktopKind) -> Self {
+    pub const fn for_desktop(kind: DesktopKind) -> Option<Self> {
         match kind {
-            DesktopKind::Gnome => GNOME_ENDPOINTS,
-            DesktopKind::Kde => KDE_ENDPOINTS,
+            DesktopKind::Gnome => Some(GNOME_ENDPOINTS),
+            DesktopKind::Kde => Some(KDE_ENDPOINTS),
+            DesktopKind::Hyprland | DesktopKind::Unknown => None,
         }
     }
 }
@@ -172,7 +173,9 @@ pub struct SessionDesktopState {
 impl SessionDesktopState {
     /// The provider for this session's desktop.
     pub fn connect() -> Result<Self, zbus::Error> {
-        Self::connect_to(StateEndpoints::for_desktop(DesktopKind::detect()))
+        let endpoints = StateEndpoints::for_desktop(DesktopKind::detect())
+            .ok_or_else(|| zbus::Error::Failure("desktop lock backend unavailable".into()))?;
+        Self::connect_to(endpoints)
     }
 
     pub fn connect_to(endpoints: StateEndpoints) -> Result<Self, zbus::Error> {

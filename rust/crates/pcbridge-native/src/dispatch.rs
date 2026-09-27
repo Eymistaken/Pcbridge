@@ -119,16 +119,25 @@ impl BackendMode {
             Self::Production { .. } => {
                 let [read, windows, act] =
                     readiness::accessibility(&readiness::accessibility_bus_owned());
-                let (backend, capture) = if DesktopKind::detect() == DesktopKind::Kde {
-                    (
+                let (backend, capture) = match DesktopKind::detect() {
+                    DesktopKind::Kde => (
                         KWIN_BACKEND,
                         readiness::capture_monitor_kwin(&readiness::probe_kwin()),
-                    )
-                } else {
-                    (
+                    ),
+                    DesktopKind::Gnome => (
                         MUTTER_BACKEND,
                         readiness::capture_monitor(&readiness::probe()),
-                    )
+                    ),
+                    DesktopKind::Hyprland | DesktopKind::Unknown => (
+                        "unavailable",
+                        json!({
+                            "name": "capture.monitor",
+                            "status": "unavailable",
+                            "permission_scope": "os.capture",
+                            "reason_code": "BACKEND_UNAVAILABLE",
+                            "reason": "the desktop capture backend is not ready",
+                        }),
+                    ),
                 };
                 json!({
                     "backend": backend,

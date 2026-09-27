@@ -99,3 +99,55 @@ GNOME and warned that GNOME Shell, its extension, and Mutter were missing.
 traceback must not be represented as that user's root cause. Native capture
 permission behavior, black QEMU screendump, lock authority, idle watcher
 transitions, and portal activation require later live measurements.
+
+**Local commit:** `1b5c80d`.
+
+## Stage 2: Explicit compositor selection and safe baseline
+
+**Objective:** Separate GNOME, KDE Plasma, Hyprland, and UNKNOWN in the Python
+and native helper paths before any Hyprland acting operation is enabled.
+
+**Design decisions:** Use the desktop environment name when present, including
+`XDG_SESSION_DESKTOP`, and pair a Hyprland instance signature with same-user
+IPC and Wayland sockets when recovering missing session context. Ambiguous
+instances and stale or contradictory signatures do not select another
+session. The Python compositor descriptor and Rust `DesktopKind` have explicit
+UNKNOWN variants. Until authoritative lock and visible-frame support are in
+place, Hyprland and UNKNOWN cannot open a grant or pass the shared Python
+gate. The native helper uses unknown lock observations and refuses display and
+capture rather than selecting Mutter. Capture capability probes and window
+focus helpers do not claim a GNOME backend on either desktop.
+
+**Files changed:** `pcbridge/desktop/session.py`, `compositor.py`, `safety.py`,
+`monitors.py`, `apps.py`, `backends/python.py`, `backends/rust.py`,
+`pcbridge/cli/grant.py`, the Rust desktop/state/display/capture/dispatch
+modules, `tests/contracts/test_hardening.py`,
+`tests/contracts/test_hyprland_session.py`, and this journal.
+
+**Measurements and evidence:** A VM session with the updated source returned
+`desktop_kind() == hyprland`, selected `wayland-1` from the matching instance,
+and reported Hyprland `0.56.2` with no GNOME Shell version. The existing
+doctor still needs a separate adaptation and continues to print GNOME checks;
+that is a later stage, not a support claim. The test with two same-user
+instances demonstrates that a missing signature/display remains ambiguous;
+a stale signature paired with a different display remains UNKNOWN.
+
+**Tests run:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_session tests.contracts.test_hardening`
+  — pass, 16 tests. The first run exposed a wrong test expectation for a
+  contradictory signature/display pair; correcting the expectation produced
+  the pass above.
+- `./.venv/bin/python tests/test_desktop.py` — pass, 615 checks; no live input.
+- `(cd rust && cargo test --workspace --locked --no-fail-fast)` — pass.
+- `(cd rust && cargo fmt --check)` — pass.
+- `scripts/dev/hyprland-vm.sh sync` — pass.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python -c "from pcbridge.desktop.session import desktop_kind, platform_summary, hyprland_instance; ..."'`
+  — pass; printed `hyprland`, `wayland-1`, `hyprland 0.56.2 None`.
+- `git diff --check` — pass.
+
+**Open questions:** Rust and Python currently differ in the amount of runtime
+validation they perform when only a Hyprland signature is present. Both
+remain fail closed in this stage. Later native adapters must bind their IPC to
+the same selected session before acting. Doctor, runtime binds, monitor and
+window adapters, lock/idle, frame, and capture remain unfinished.

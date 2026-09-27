@@ -155,6 +155,8 @@ def extension_focus_available() -> bool:
             "s",
             "org.kde.KWin",
         )
+    if compositorlib.current().kind != "gnome":
+        return False
     return _busctl_bool(
         "org.freedesktop.DBus",
         "/org/freedesktop/DBus",
@@ -189,6 +191,8 @@ def extension_focused_window() -> tuple[str, str] | None:
         if not reply or reply.get("found") is not True:
             return None
         return str(reply.get("app") or "").strip() or "?", str(reply.get("title") or "")
+    if compositorlib.current().kind != "gnome":
+        return None
     try:
         proc = subprocess.run(
             [
@@ -226,6 +230,8 @@ def _extension_activate(window: str) -> bool:
     if compositorlib.is_kde():
         reply = _kwin({"cmd": "activate", "target": window})
         return bool(reply and reply.get("activated") is True)
+    if compositorlib.current().kind != "gnome":
+        return False
     return _busctl_bool(
         _FOCUS_BUS_NAME,
         _FOCUS_OBJECT_PATH,

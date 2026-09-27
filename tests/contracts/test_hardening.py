@@ -274,7 +274,7 @@ class UnsupportedSessionTests(unittest.TestCase):
         note = support_note({"XDG_SESSION_TYPE": "x11", "XDG_CURRENT_DESKTOP": "KDE"})
         self.assertIn("an X11 session", note)
         self.assertNotIn("KDE desktop", note)
-        self.assertIn("GNOME or KDE Plasma on Wayland", note)
+        self.assertIn("GNOME, KDE Plasma, or Hyprland on Wayland", note)
         self.assertIn("the sway desktop",
                       support_note({"XDG_SESSION_TYPE": "wayland", "XDG_CURRENT_DESKTOP": "sway"}))
 
@@ -286,7 +286,12 @@ class UnsupportedSessionTests(unittest.TestCase):
         self.assertEqual(session.desktop_kind({"XDG_CURRENT_DESKTOP": "ubuntu:GNOME"}),
                          session.GNOME)
         self.assertEqual(session.desktop_kind({"XDG_CURRENT_DESKTOP": "KDE"}), session.KDE)
-        self.assertEqual(session.desktop_kind({"XDG_CURRENT_DESKTOP": "sway"}), "")
+        self.assertEqual(session.desktop_kind({"XDG_CURRENT_DESKTOP": "Hyprland"}),
+                         session.HYPRLAND)
+        self.assertEqual(session.desktop_kind({"XDG_SESSION_DESKTOP": "hyprland"}),
+                         session.HYPRLAND)
+        self.assertEqual(session.desktop_kind({"XDG_CURRENT_DESKTOP": "sway"}),
+                         session.UNKNOWN)
 
         def names(*owned):
             return lambda *args: '{"data":[%s]}' % str(list(owned)).replace("'", '"')
@@ -295,8 +300,9 @@ class UnsupportedSessionTests(unittest.TestCase):
             self.assertEqual(session.desktop_kind({}), session.KDE)
         with mock.patch.object(session, "_busctl", names("org.gnome.Shell")):
             self.assertEqual(session.desktop_kind({}), session.GNOME)
-        with mock.patch.object(session, "_busctl", names()):
-            self.assertEqual(session.desktop_kind({}), "")
+        with mock.patch.object(session, "_busctl", names()), \
+                mock.patch.object(session, "hyprland_instance", return_value=None):
+            self.assertEqual(session.desktop_kind({}), session.UNKNOWN)
 
     def test_the_capability_report_names_the_compositor_that_answered(self) -> None:
         from unittest import mock
@@ -309,9 +315,14 @@ class UnsupportedSessionTests(unittest.TestCase):
             self.assertEqual(safety.observe_screen_lock().backend, compositor.KWIN.lock_backend)
             self.assertEqual(safety.observe_user_activity().backend,
                              compositor.KWIN.idle_backend)
-        with mock.patch.object(session, "desktop_kind", return_value=""):
-            # Unknown is GNOME: its calls fail and the tools refuse, as before.
-            self.assertIs(compositor.current(), compositor.GNOME_SHELL)
+        with mock.patch.object(session, "desktop_kind", return_value=session.UNKNOWN):
+            self.assertIs(compositor.current(), compositor.UNKNOWN)
+            self.assertIsNone(safety.screen_locked())
+            self.assertIsNone(safety.idle_ms())
+        with mock.patch.object(session, "desktop_kind", return_value=session.HYPRLAND):
+            self.assertIs(compositor.current(), compositor.HYPRLAND)
+            self.assertIsNone(safety.screen_locked())
+            self.assertIsNone(safety.idle_ms())
 
     def test_the_platform_report_names_plasma_and_its_version(self) -> None:
         from unittest import mock

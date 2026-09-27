@@ -96,6 +96,9 @@ def unlock(cfg: Any, minutes: int | None = None, reason: str = "",
 
     runtime = runtime_of(cfg)
     try:
-        return runtime.gate.unlock(minutes, reason, granted_by=granted_by)
+        try:
+            return runtime.gate.unlock(minutes, reason, granted_by=granted_by)
+        except ValueError as exc:
+            raise GrantError(str(exc)) from exc
     finally:
         runtime.close()

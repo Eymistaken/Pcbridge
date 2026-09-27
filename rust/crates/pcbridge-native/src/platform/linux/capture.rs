@@ -222,10 +222,19 @@ enum CaptureBackend {
 
 impl NativeCapture {
     pub fn connect(lifecycle: &Lifecycle) -> Result<Self, NativeCaptureError> {
-        if DesktopKind::detect() == DesktopKind::Kde {
-            return Ok(Self {
-                backend: CaptureBackend::KWin(KWinScreenShot::connect()?),
-            });
+        match DesktopKind::detect() {
+            DesktopKind::Kde => {
+                return Ok(Self {
+                    backend: CaptureBackend::KWin(KWinScreenShot::connect()?),
+                });
+            }
+            DesktopKind::Hyprland | DesktopKind::Unknown => {
+                return Err(CaptureError::Unavailable(
+                    "desktop capture backend unavailable".into(),
+                )
+                .into());
+            }
+            DesktopKind::Gnome => {}
         }
         let session = Arc::new(SessionHandle::new(CaptureSession::new(
             MutterScreenCast::connect().map_err(|error| {

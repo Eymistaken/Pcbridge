@@ -1,7 +1,7 @@
 """Which compositor pcbridge is talking to, and what differs between them.
 
-pcbridge's desktop tools run on two compositors: GNOME (Mutter and GNOME
-Shell) and KDE Plasma (KWin), both on Wayland. Most of the stack does not
+pcbridge's desktop tools run on GNOME (Mutter and GNOME Shell), KDE Plasma
+(KWin), and Hyprland, all on Wayland. Most of the stack does not
 care which: uinput input, AT-SPI, wl-clipboard and the PipeWire consumer are
 the same on both. What differs is a handful of transports, each one
 function in the module that owns it (the lock and idle readers in
@@ -10,9 +10,7 @@ functions branch on `current()`. This module holds the names that go with
 each compositor, so the capability report and the error texts say what
 actually answered.
 
-An unknown desktop (nothing set, nothing on the bus) is treated as GNOME:
-the GNOME calls then fail and every desktop tool refuses, which is the same
-fail-closed behavior as before KDE support existed.
+An unknown desktop has its own descriptor and must fail closed.
 """
 
 from __future__ import annotations
@@ -61,13 +59,41 @@ KWIN = Compositor(
     search_path="KRunner",
 )
 
+HYPRLAND = Compositor(
+    kind=session.HYPRLAND,
+    name="Hyprland",
+    lock_backend="linux.hyprland-lock-notifier",
+    idle_backend="linux.ext-idle-notifier",
+    display_backend="linux.hyprland-ipc",
+    focus_backend="linux.hyprland-ipc",
+    search_backend="linux.hyprland-ipc",
+    focus_path="Hyprland IPC",
+    search_path="Hyprland IPC",
+)
+
+UNKNOWN = Compositor(
+    kind=session.UNKNOWN,
+    name="Unknown desktop",
+    lock_backend="unavailable",
+    idle_backend="unavailable",
+    display_backend="unavailable",
+    focus_backend="unavailable",
+    search_backend="unavailable",
+    focus_path="an unsupported compositor",
+    search_path="an unsupported compositor",
+)
+
 
 def for_kind(kind: str) -> Compositor:
-    return KWIN if kind == session.KDE else GNOME_SHELL
+    return {
+        session.GNOME: GNOME_SHELL,
+        session.KDE: KWIN,
+        session.HYPRLAND: HYPRLAND,
+    }.get(kind, UNKNOWN)
 
 
 def current() -> Compositor:
-    """The compositor of this session (GNOME when it cannot be told)."""
+    """The detected compositor, or an explicit unsupported descriptor."""
     return for_kind(session.desktop_kind())
 
 

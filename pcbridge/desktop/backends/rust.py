@@ -89,11 +89,13 @@ KWIN_BACKEND_NAME = "linux.kwin.screenshot2"
 
 
 def _display_scheme() -> str:
-    return KWIN_DISPLAY_SCHEME if compositorlib.is_kde() else DISPLAY_SCHEME
+    kind = compositorlib.current().kind
+    return {"kde": KWIN_DISPLAY_SCHEME, "gnome": DISPLAY_SCHEME}.get(kind, kind)
 
 
 def _backend_name() -> str:
-    return KWIN_BACKEND_NAME if compositorlib.is_kde() else BACKEND_NAME
+    kind = compositorlib.current().kind
+    return {"kde": KWIN_BACKEND_NAME, "gnome": BACKEND_NAME}.get(kind, "unavailable")
 
 logger = logging.getLogger(__name__)
 
@@ -596,6 +598,15 @@ class RustCaptureProvider(PythonCaptureProvider):
 
     def probe_capabilities(self) -> dict[str, Capability]:
         """Report monitor capture from the native path without opening a session."""
+        if compositorlib.current().kind not in ("gnome", "kde"):
+            return {
+                name: _capability(
+                    name, CapabilityState.UNAVAILABLE, backend="unavailable",
+                    scope="os.capture", reason_code=ErrorCode.BACKEND_UNAVAILABLE,
+                    limitations=("No native capture backend is ready for this compositor.",),
+                )
+                for name in ("capture.monitor", "capture.window")
+            }
         pillow_ok = capturelib.PIL_AVAILABLE
         ready, reason = native_binary_ready(self.cfg)
         if not pillow_ok:

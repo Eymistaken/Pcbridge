@@ -370,7 +370,16 @@ class PythonCaptureProvider:
         )
 
     def probe_capabilities(self) -> dict[str, Capability]:
-        """Report monitor and window capture separately without opening a session."""
+        """Report monitor and window capture without opening a session."""
+        if compositorlib.current().kind not in ("gnome", "kde"):
+            return {
+                name: _capability(
+                    name, CapabilityState.UNAVAILABLE, backend="unavailable",
+                    scope="os.capture", reason_code=ErrorCode.BACKEND_UNAVAILABLE,
+                    limitations=("No Python capture backend serves this compositor.",),
+                )
+                for name in ("capture.monitor", "capture.window")
+            }
         pillow_ok = capturelib.PIL_AVAILABLE
         screenshot_ok = bool(shutil.which(capturelib.GNOME_SCREENSHOT))
         screencast_ok, _screencast_reason = screencastlib.available()

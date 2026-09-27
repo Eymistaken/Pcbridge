@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Any
 
 from .. import sessionctx
 from . import compositor as compositorlib
+from . import session
 from .errors import ErrorCategory, ErrorCode
 from .lease import LEASE_STATE_FILE, LeaseStore, LeaseToken
 
@@ -122,29 +123,35 @@ _FREEDESKTOP_SCREEN_SAVER = ("org.freedesktop.ScreenSaver", "/ScreenSaver",
 
 def screen_locked() -> bool | None:
     """Ekran kilitli mi? Ogrenilemezse None."""
-    if compositorlib.is_kde():
+    kind = compositorlib.current().kind
+    if kind == session.KDE:
         val = _busctl_json(*_FREEDESKTOP_SCREEN_SAVER, "GetActive")
-    else:
+    elif kind == session.GNOME:
         val = _busctl_json(
             "org.gnome.ScreenSaver", "/org/gnome/ScreenSaver", "org.gnome.ScreenSaver",
             "GetActive",
         )
+    else:
+        return None
     return bool(val) if isinstance(val, bool) else None
 
 
 def idle_ms() -> int | None:
     """Kullanicinin son girdisinden bu yana gecen ms. Ogrenilemezse None."""
-    if compositorlib.is_kde():
+    kind = compositorlib.current().kind
+    if kind == session.KDE:
         from . import idlewatch
 
         val = idlewatch.read_idle_ms()
-    else:
+    elif kind == session.GNOME:
         val = _busctl_json(
             "org.gnome.Mutter.IdleMonitor",
             "/org/gnome/Mutter/IdleMonitor/Core",
             "org.gnome.Mutter.IdleMonitor",
             "GetIdletime",
         )
+    else:
+        return None
     return int(val) if isinstance(val, int) and not isinstance(val, bool) else None
 
 
@@ -281,6 +288,11 @@ class SafetyGate:
         reason: str = "",
         granted_by: str = "desktop_unlock",
     ) -> str:
+        if compositorlib.current().kind in (session.HYPRLAND, session.UNKNOWN):
+            raise ValueError(
+                "Desktop control cannot open until this compositor's lock state "
+                "and visible grant frame are verified."
+            )
         # Yalnizca None "varsayilani kullan" demektir. Verilen 0 ya da negatif
         # bir deger sessizce 15 dakikaya donmemeli -- istenenden UZUN izin
         # vermek, kisa vermekten kotu.
@@ -402,11 +414,27 @@ class SafetyGate:
             suggested_action="Call desktop_unlock before using desktop tools.",
         )
 
+    def _compositor_unavailable_decision(self) -> Decision | None:
+        kind = compositorlib.current().kind
+        if kind not in (session.HYPRLAND, session.UNKNOWN):
+            return None
+        return Decision(
+            False,
+            f"Desktop control is unavailable for {kind} until its lock state and "
+            "visible grant frame are verified.",
+            code=ErrorCode.BACKEND_UNAVAILABLE,
+            permission_scope="pcbridge.desktop",
+            suggested_action="Run pcbridge doctor to inspect the desktop session.",
+        )
+
     def check(self, tool: str, write: bool = True, force: bool = False) -> Decision:
         """GUI araci calisabilir mi? Reddin gerekcesi kullaniciya aynen doner."""
         self._call_token.set(None)
         if not self.spec.enabled:
             return self._disabled_decision()
+        unavailable = self._compositor_unavailable_decision()
+        if unavailable is not None:
+            return unavailable
 
         lock_decision = screen_lock_decision(self._state_provider.screen_lock())
         if not lock_decision.allowed:
@@ -495,6 +523,9 @@ class SafetyGate:
         """
         if not self.spec.enabled:
             return self._disabled_decision()
+        unavailable = self._compositor_unavailable_decision()
+        if unavailable is not None:
+            return unavailable
         lock_decision = screen_lock_decision(self._state_provider.screen_lock())
         if not lock_decision.allowed:
             return lock_decision

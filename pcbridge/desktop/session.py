@@ -30,8 +30,11 @@ NASIL
 
 from __future__ import annotations
 
+import json
 import os
 import re
+import stat
+import subprocess
 from pathlib import Path
 
 # Onarilan degisken adlari -- tanida ve loglarda gosterilir.
@@ -85,11 +88,37 @@ def ensure_session_env(env: dict[str, str] | None = None) -> list[str]:
             e["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={runtime / 'bus'}"
             fixed.append("DBUS_SESSION_BUS_ADDRESS")
 
+    # Hyprland has an instance-specific IPC socket and a matching Wayland
+    # socket. Never repair either one by choosing the first wayland-N socket
+    # when more than one compositor is running under this user.
+    tokens = _desktop_tokens(e)
+    named = _kind_from_tokens(tokens) if tokens else UNKNOWN
+    if named == HYPRLAND or (named == UNKNOWN and not tokens and
+                             (e.get("HYPRLAND_INSTANCE_SIGNATURE") or
+                              e.get("WAYLAND_DISPLAY") or
+                              not _kind_from_names(_bus_names()))):
+        probe_env = dict(e)
+        wl_value = e.get("WAYLAND_DISPLAY", "")
+        if (runtime is not None and
+                (not re.fullmatch(r"wayland-[0-9]+", wl_value) or
+                 not _owned_socket(runtime / wl_value))):
+            probe_env.pop("WAYLAND_DISPLAY", None)
+        instance = hyprland_instance(probe_env)
+        if instance is not None:
+            if e.get("HYPRLAND_INSTANCE_SIGNATURE") != instance["instance"]:
+                e["HYPRLAND_INSTANCE_SIGNATURE"] = instance["instance"]
+                fixed.append("HYPRLAND_INSTANCE_SIGNATURE")
+            if e.get("WAYLAND_DISPLAY") != instance["wl_socket"]:
+                e["WAYLAND_DISPLAY"] = instance["wl_socket"]
+                fixed.append("WAYLAND_DISPLAY")
+
     # WAYLAND_DISPLAY: gnome-screenshot ve wl-copy buna bakiyor. Soket adi
     # oturumdan oturuma degisebiliyor (wayland-0, wayland-1), o yuzden
     # dizindeki ilk `wayland-N` soketi seciliyor.
     wl = e.get("WAYLAND_DISPLAY", "")
-    if (not wl or wl.startswith("$")) and runtime is not None:
+    if ((not wl or wl.startswith("$")) and runtime is not None
+            and named != HYPRLAND
+            and not (named == UNKNOWN and _hyprctl_instances(e))):
         for cand in sorted(runtime.glob("wayland-[0-9]")):
             e["WAYLAND_DISPLAY"] = cand.name
             fixed.append("WAYLAND_DISPLAY")
@@ -175,12 +204,15 @@ def describe(env: dict[str, str] | None = None) -> str:
 
 GNOME = "gnome"
 KDE = "kde"
+HYPRLAND = "hyprland"
+UNKNOWN = "unknown"
 # The desktops pcbridge's desktop tools are built for, as users know them.
-DESKTOP_NAMES = {GNOME: "GNOME", KDE: "KDE Plasma"}
+DESKTOP_NAMES = {GNOME: "GNOME", KDE: "KDE Plasma", HYPRLAND: "Hyprland"}
 
 
 def _desktop_tokens(env) -> list[str]:
-    return [t.strip() for t in (env.get("XDG_CURRENT_DESKTOP") or "").split(":") if t.strip()]
+    desktop = env.get("XDG_CURRENT_DESKTOP") or env.get("XDG_SESSION_DESKTOP") or ""
+    return [t.strip() for t in desktop.split(":") if t.strip()]
 
 
 def _kind_from_tokens(tokens: list[str]) -> str:
@@ -189,7 +221,65 @@ def _kind_from_tokens(tokens: list[str]) -> str:
         return GNOME
     if any(t.lower() == "kde" for t in tokens):
         return KDE
-    return ""
+    if any(t.lower() == "hyprland" for t in tokens):
+        return HYPRLAND
+    return UNKNOWN
+
+
+def _hyprctl_instances(env: dict[str, str]) -> list[dict]:
+    """Ask Hyprland for this user's live instances, without dispatching actions."""
+    try:
+        proc = subprocess.run(
+            ["hyprctl", "-j", "instances"], capture_output=True, text=True,
+            timeout=2, env={**os.environ, **env},
+        )
+        data = json.loads(proc.stdout) if proc.returncode == 0 else []
+        return data if isinstance(data, list) else []
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return []
+
+
+def _owned_socket(path: Path) -> bool:
+    try:
+        info = path.stat()
+        return info.st_uid == os.getuid() and stat.S_ISSOCK(info.st_mode)
+    except OSError:
+        return False
+
+
+def hyprland_instance(env: dict[str, str] | None = None) -> dict | None:
+    """The one IPC instance matching this session, or None when ambiguous."""
+    e = os.environ if env is None else env
+    runtime = _runtime_dir(e)  # type: ignore[arg-type]
+    if runtime is None:
+        return None
+    try:
+        if runtime.stat().st_uid != os.getuid():
+            return None
+    except OSError:
+        return None
+    signature = e.get("HYPRLAND_INSTANCE_SIGNATURE") or ""
+    display = e.get("WAYLAND_DISPLAY") or ""
+    candidates = []
+    for item in _hyprctl_instances(e):
+        if not isinstance(item, dict):
+            continue
+        found = item.get("instance")
+        wl_socket = item.get("wl_socket")
+        if not isinstance(found, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", found):
+            continue
+        if not isinstance(wl_socket, str) or not re.fullmatch(r"wayland-[0-9]+", wl_socket):
+            continue
+        if signature and found != signature:
+            continue
+        if display and wl_socket != display:
+            continue
+        if not _owned_socket(runtime / "hypr" / found / ".socket.sock"):
+            continue
+        if not _owned_socket(runtime / wl_socket):
+            continue
+        candidates.append(item)
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def support_note(env: dict[str, str] | None = None) -> str:
@@ -209,13 +299,13 @@ def support_note(env: dict[str, str] | None = None) -> str:
     if kind and kind != "wayland":
         name = "X11" if kind == "x11" else kind
         problems.append(f"{'an' if name[0].lower() in 'aeiox' else 'a'} {name} session")
-    if tokens and not _kind_from_tokens(tokens):
+    if tokens and _kind_from_tokens(tokens) == UNKNOWN:
         problems.append(f"the {e.get('XDG_CURRENT_DESKTOP', '').strip()} desktop")
     if not problems:
         return ""
     return (
         f"Unsupported session: {' on '.join(problems)}. pcbridge's desktop tools "
-        "need GNOME or KDE Plasma on Wayland and refuse here; the shell, file, "
+        "need GNOME, KDE Plasma, or Hyprland on Wayland and refuse here; the shell, file, "
         "tmux and agent tools work anywhere."
     )
 
@@ -224,9 +314,10 @@ def support_note(env: dict[str, str] | None = None) -> str:
 # are reported as untested rather than refused (Step 9 of 2.0).
 TESTED_SHELL_MAJORS = frozenset({"46", "50"})
 TESTED_PLASMA_MAJORS = frozenset({"6"})
+TESTED_HYPRLAND_VERSIONS: frozenset[str] = frozenset()
 _PLATFORM_TTL = 60.0
 _platform_cache: tuple[float, dict] | None = None
-_kind_cache: tuple[float, str] | None = None
+_kind_cache: tuple[float, tuple[str, str, str], str] | None = None
 
 
 def _busctl(*args: str) -> str:
@@ -259,7 +350,7 @@ def _kind_from_names(names: list[str]) -> str:
 
 
 def desktop_kind(env: dict[str, str] | None = None) -> str:
-    """Which supported desktop this is: `GNOME`, `KDE`, or "" (neither/unknown).
+    """Return GNOME, KDE, HYPRLAND, or UNKNOWN for this session.
 
     `XDG_CURRENT_DESKTOP` decides when it is set. When it is empty (stdio
     clients and systemd often pass none), the compositor's name on the session
@@ -271,15 +362,44 @@ def desktop_kind(env: dict[str, str] | None = None) -> str:
     global _kind_cache
     e = os.environ if env is None else env
     tokens = _desktop_tokens(e)
-    if tokens:
+    if tokens and not e.get("HYPRLAND_INSTANCE_SIGNATURE"):
         return _kind_from_tokens(tokens)
     now = time.monotonic()
-    if env is None and _kind_cache and now - _kind_cache[0] < _PLATFORM_TTL:
-        return _kind_cache[1]
-    kind = _kind_from_names(_bus_names())
+    cache_key = (e.get("XDG_RUNTIME_DIR", ""), e.get("WAYLAND_DISPLAY", ""),
+                 e.get("HYPRLAND_INSTANCE_SIGNATURE", ""))
+    if (env is None and _kind_cache and _kind_cache[1] == cache_key
+            and now - _kind_cache[0] < _PLATFORM_TTL):
+        return _kind_cache[2]
+    instance = hyprland_instance(e)
+    if instance is not None:
+        kind = HYPRLAND
+    elif e.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        # An invalid instance signature must not select the host GNOME bus.
+        kind = UNKNOWN
+    elif tokens:
+        kind = _kind_from_tokens(tokens)
+    else:
+        kind = _kind_from_names(_bus_names())
     if env is None:
-        _kind_cache = (now, kind)
-    return kind
+        _kind_cache = (now, cache_key, kind or UNKNOWN)
+    return kind or UNKNOWN
+
+
+def _hyprland_version(env: dict[str, str]) -> str:
+    instance = hyprland_instance(env)
+    if instance is None:
+        return ""
+    try:
+        proc = subprocess.run(
+            ["hyprctl", "-i", instance["instance"], "-j", "version"],
+            capture_output=True, text=True, timeout=2,
+            env={**os.environ, **env},
+        )
+        data = json.loads(proc.stdout) if proc.returncode == 0 else {}
+        version = data.get("version") if isinstance(data, dict) else None
+        return version if isinstance(version, str) else ""
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return ""
 
 
 def _plasma_version() -> str:
@@ -308,16 +428,17 @@ def platform_summary(env: dict[str, str] | None = None) -> dict:
         return _platform_cache[1]
     e = os.environ if env is None else env
     names = _bus_names()
-    tokens = _desktop_tokens(e)
-    kind = _kind_from_tokens(tokens) if tokens else _kind_from_names(names)
-    shell = plasma = ""
-    if kind != KDE:
+    kind = desktop_kind(e)
+    shell = plasma = hyprland = ""
+    if kind == GNOME:
         raw = _busctl("get-property", "org.gnome.Shell", "/org/gnome/Shell",
                       "org.gnome.Shell", "ShellVersion")
         m = re.search(r'"([^"]+)"', raw)
         shell = m.group(1) if m else ""
     if kind == KDE:
         plasma = _plasma_version()
+    if kind == HYPRLAND:
+        hyprland = _hyprland_version(e)
     notes = []
     note = support_note(e)
     if note:
@@ -328,16 +449,22 @@ def platform_summary(env: dict[str, str] | None = None) -> dict:
         elif plasma.split(".")[0] not in TESTED_PLASMA_MAJORS:
             notes.append(f"KDE Plasma {plasma} is untested; the capabilities above "
                          "are what was actually found.")
-    elif not shell:
+    elif kind == HYPRLAND:
+        if not hyprland:
+            notes.append("Hyprland IPC did not report its version in this session.")
+        elif hyprland not in TESTED_HYPRLAND_VERSIONS:
+            notes.append(f"Hyprland {hyprland} is untested; capabilities must be probed.")
+    elif kind == GNOME and not shell:
         notes.append("GNOME Shell did not answer on the session bus.")
-    elif shell.split(".")[0] not in TESTED_SHELL_MAJORS:
+    elif kind == GNOME and shell.split(".")[0] not in TESTED_SHELL_MAJORS:
         notes.append(f"GNOME Shell {shell} is untested (pcbridge was tested on "
                      f"{', '.join(sorted(TESTED_SHELL_MAJORS))}); the capabilities "
                      "above are what was actually found.")
     result = {
-        "environment": kind or None,
+        "environment": kind,
         "gnome_shell": shell or None,
         "plasma": plasma or None,
+        "hyprland": hyprland or None,
         "session_type": e.get("XDG_SESSION_TYPE") or None,
         "desktop": e.get("XDG_CURRENT_DESKTOP") or None,
         "screencast": "org.gnome.Mutter.ScreenCast" in names,

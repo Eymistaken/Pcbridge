@@ -34,6 +34,7 @@ import subprocess
 import time
 
 from . import compositor as compositorlib
+from . import session
 from dataclasses import dataclass
 
 _BUSCTL = [
@@ -472,6 +473,9 @@ def _ordered(mons: list[Monitor]) -> list[Monitor]:
 def list_monitors(use_cache: bool = True) -> list[Monitor]:
     """Mantiksal monitorler, soldan saga sirali ve 1'den numarali."""
     global _cache
+    kind = compositorlib.current().kind
+    if kind not in (session.GNOME, session.KDE):
+        raise MonitorError(f"Monitor discovery is unavailable for {kind}.")
     now = time.monotonic()
     if use_cache and _cache and now - _cache[0] < _CACHE_TTL:
         return _cache[1]

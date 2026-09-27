@@ -286,6 +286,9 @@ impl DisplayReader {
                 cached: Mutex::new(None),
             }),
             DesktopKind::Gnome => Self::connect_mutter(),
+            DesktopKind::Hyprland | DesktopKind::Unknown => Err(zbus::Error::Failure(
+                "desktop display backend unavailable".into(),
+            )),
         }
     }
 
