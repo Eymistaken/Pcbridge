@@ -371,6 +371,53 @@ probes in `tests/live/kde/`.
   also carries the file capability `cap_sys_nice=ep`, so a container needs
   `--cap-add=SYS_NICE` or exec fails with EPERM.
 
+## Hyprland baseline
+
+Measured 2026-09-27 in the separate Arch VM created by
+`scripts/dev/hyprland-vm.sh`. This is an implementation baseline, not a
+support claim. The VM has Hyprland 0.56.2, hyprlock 0.9.6, hypridle 0.1.8,
+and xdg-desktop-portal-hyprland 1.4.1.
+
+- **The session exists without an SSH desktop environment.** SDDM started
+  Hyprland on `wayland-1`; the systemd user environment has
+  `XDG_CURRENT_DESKTOP=Hyprland` and `HYPRLAND_INSTANCE_SIGNATURE`. Commands
+  run from SSH need that session environment imported explicitly.
+- **Runtime IPC is richer than a parsed config.** `hyprctl -j binds` returned
+  48 bindings. Reported fields include `modmask`, `key`, `keycode`,
+  `dispatcher`, `arg`, `submap`, `submap_universal`, `description`, `locked`,
+  `mouse`, `release`, `repeat`, `longPress`, `non_consuming`,
+  `auto_consuming`, `catch_all`, and `allow_input_capture`. Some default
+  bindings report dispatcher `__lua` and an opaque numeric `arg`; the IPC
+  result alone does not expose the body of that Lua action.
+- **Hyprland 0.56 uses Lua-form dispatcher arguments.** The legacy
+  `hyprctl dispatch exec foot` failed with a Lua syntax error; the measured
+  working form was `hyprctl dispatch 'hl.dsp.exec_cmd("foot")'`. This was a
+  diagnostic VM launch, not a proposed pcbridge input backend.
+- **The Wayland registry advertises** `ext_idle_notifier_v1` version 2,
+  `hyprland_lock_notifier_v1` version 1,
+  `ext_session_lock_manager_v1` version 1, `zwlr_layer_shell_v1` version 5,
+  `zwlr_screencopy_manager_v1` version 3, and
+  `ext_image_copy_capture_manager_v1` version 1. Advertisement does not
+  prove a grant-bound screenshot succeeds.
+- **Two virtio outputs were active** at logical `(0,0)` and `(1280,0)`, each
+  1280x800 at scale 1; `hyprctl locked` answered `false`. A diagnostic
+  `grim` call timed out after 8 seconds and produced no file. QEMU's
+  `screendump` was black even while `hyprctl clients` listed a running foot
+  window; neither is valid evidence of successful native capture.
+- **The first plain `pcbridge` invocation raised a traceback because no
+  config file existed.** The path was `PcbridgeApp.on_mount` ->
+  `SettingsPane.load` -> `ConfigEditor` -> `locate_config`, ending in
+  `SystemExit: No pcbridge config file found`. The VM was newly provisioned;
+  this does not establish the cause of the separate user's reported error.
+  After installing the example config at mode 0600, `pcbridge` remained open
+  in a PTY for the full eight-second observation and rendered Overview,
+  Settings, and Tools. The TUI itself is not inherently GNOME-bound.
+- **Pre-Hyprland doctor misidentifies this session as GNOME.** With
+  `XDG_SESSION_TYPE=wayland` and valid Hyprland IPC, it reported GNOME Shell
+  missing, GNOME extension missing, and a Mutter monitor-table failure.
+  `/dev/uinput` was present but not writable by the test user; that is a
+  separate VM setup issue, not evidence that the input path works.
+
 ## Terminal UI (settings CLI)
 
 Measured 2026-09-24 on the reference machine, gnome-terminal 130x40, the UI
