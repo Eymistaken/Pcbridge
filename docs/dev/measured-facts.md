@@ -389,6 +389,17 @@ and xdg-desktop-portal-hyprland 1.4.1.
   `auto_consuming`, `catch_all`, and `allow_input_capture`. Some default
   bindings report dispatcher `__lua` and an opaque numeric `arg`; the IPC
   result alone does not expose the body of that Lua action.
+- **Selected-instance bind queries work.** With `-i` set to the VM's
+  signature, `hyprctl -j binds` returned the same 48 entries and
+  `hyprctl submap` returned `default`. An attempted switch to an undefined
+  test submap was rejected by the compositor and left `default` active; a
+  non-default submap transition still needs a registered VM test binding.
+  The current [Hyprland IPC reference](https://wiki.hypr.land/configuring/core/advanced-configuration/using-hyprctl/)
+  documents `binds`, `submap`, and the `-i` selector. The
+  [current bind reference](https://wiki.hypr.land/Configuring/Basics/Binds/)
+  describes flags including universal submap and input capture. Raw IPC
+  values are retained because the VM reports `submap_universal` as a string,
+  and future fields may differ.
 - **Hyprland 0.56 uses Lua-form dispatcher arguments.** The legacy
   `hyprctl dispatch exec foot` failed with a Lua syntax error; the measured
   working form was `hyprctl dispatch 'hl.dsp.exec_cmd("foot")'`. This was a

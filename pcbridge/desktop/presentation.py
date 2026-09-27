@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import struct
 from collections.abc import Sequence
 from pathlib import Path
@@ -195,19 +196,42 @@ def capabilities_result(snapshot: CapabilitySnapshot) -> ToolResult:
     from .session import platform_summary
 
     plat = platform_summary()
+    desktop_name = (
+        f"KDE Plasma {plat['plasma'] or '(version unknown)'}"
+        if plat["environment"] == "kde"
+        else f"Hyprland {plat['hyprland'] or '(version unknown)'}"
+        if plat["environment"] == "hyprland"
+        else f"GNOME Shell {plat['gnome_shell'] or '(version unknown)'}"
+        if plat["environment"] == "gnome"
+        else "unknown or unsupported desktop"
+    )
     yes = {True: "available", False: "missing"}
     lines += [
         "",
         "**Platform**",
-        "- desktop: " + (f"KDE Plasma {plat['plasma'] or '(version unknown)'}"
-                         if plat.get("environment") == "kde"
-                         else f"GNOME Shell {plat['gnome_shell']}" if plat["gnome_shell"]
-                         else "no supported desktop found"),
+        "- desktop: " + desktop_name,
         f"- session: {plat['session_type'] or 'unknown'}"
         + (f" ({plat['desktop']})" if plat["desktop"] else ""),
         f"- Mutter ScreenCast: {yes[plat['screencast']]}"
         f" · RemoteDesktop: {yes[plat['remote_desktop']]}",
     ]
+    hyprland_bindings = None
+    if plat["environment"] == "hyprland":
+        from .hyprland import bindings_snapshot
+
+        hyprland_bindings = bindings_snapshot()
+        lines += ["", "**Hyprland runtime bindings**"]
+        if hyprland_bindings["available"]:
+            lines.append(
+                f"- active submap: {hyprland_bindings['active_submap'] or '(unavailable)'}; "
+                f"registered bindings: {hyprland_bindings['count']}"
+            )
+            for binding in hyprland_bindings["bindings"][:100]:
+                lines.append("- " + json.dumps(binding, ensure_ascii=False, sort_keys=True))
+            if hyprland_bindings["count"] > 100:
+                lines.append("- The complete binding table is in structured_content.hyprland_bindings.")
+        else:
+            lines.append("- unavailable: " + hyprland_bindings["reason"])
     lines += [f"⚠️ {n}" for n in plat["notes"]]
     authorization = snapshot.authorization
     lines += [
@@ -223,6 +247,8 @@ def capabilities_result(snapshot: CapabilitySnapshot) -> ToolResult:
             "type": "pcbridge.desktop.capabilities",
             **snapshot.as_dict(),
             "platform": plat,
+            **({"hyprland_bindings": hyprland_bindings}
+               if hyprland_bindings is not None else {}),
         },
     )
 

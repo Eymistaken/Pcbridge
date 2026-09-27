@@ -151,3 +151,56 @@ validation they perform when only a Hyprland signature is present. Both
 remain fail closed in this stage. Later native adapters must bind their IPC to
 the same selected session before acting. Doctor, runtime binds, monitor and
 window adapters, lock/idle, frame, and capture remain unfinished.
+
+**Local commit:** `fde10d5`.
+
+## Stage 3: Read-only runtime keybind context
+
+**Objective:** Let the agent inspect the registered keybinds and active
+submap of the actual Hyprland session without guessing from defaults or
+reading config files.
+
+**Design decisions:** Query the selected instance with `hyprctl -i ... -j
+binds` and `hyprctl -i ... submap`. The IPC wrapper allowlists only these two
+read-only requests. Preserve each binding's complete JSON object, including
+future fields and raw types. `system_capabilities` carries every binding in
+`structured_content.hyprland_bindings`; the text view includes the first 100
+raw records and points to the complete structured table for larger sets.
+IPC failure is an explicit unavailable result. Platform text now identifies
+Hyprland instead of printing an unsupported/GNOME label.
+
+**Files changed:** `pcbridge/desktop/hyprland.py`,
+`pcbridge/desktop/presentation.py`,
+`tests/contracts/test_hyprland_binds.py`, `docs/dev/measured-facts.md`,
+and this journal.
+
+**Measurements and evidence:** The Arch/Hyprland VM returned 48 registered
+bindings and active submap `default` through the selected instance. The
+reported fields are listed in the measured-facts document. A live
+`capabilities_result(runtime.capabilities())` in the VM returned platform
+`hyprland` and all 48 binds in structured content. Attempting to switch to
+an undefined test submap was rejected by Hyprland and did not change the
+active submap. No config parser or dispatcher was invoked by the product
+context path.
+
+**Tests run:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_binds tests.contracts.test_hyprland_session tests.contracts.test_mcp_errors`
+  — pass, 29 tests.
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_binds tests.contracts.test_mcp_errors tests.contracts.test_mcp_contract tests.contracts.test_hardening`
+  — pass, 40 tests after the capability presentation change.
+- `scripts/dev/hyprland-vm.sh sync` — pass.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python -c "from pcbridge.desktop.hyprland import bindings_snapshot; ..."'`
+  — pass; `True 48 default` and the 18 field names reported by runtime IPC.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && timeout 20s .venv/bin/python -c "from pcbridge.cli import load, runtime_of; ..."'`
+  — pass; `hyprland 48` from the full capability presentation.
+- `scripts/dev/hyprland-vm.sh session 'hyprctl dispatch ...; hyprctl submap; ...'`
+  — the undefined submap dispatch failed as expected; both submap reads
+  returned `default`, and the final reset succeeded.
+
+**Open questions:** A non-default submap transition still needs a registered
+VM binding and live verification. Opaque `__lua` numeric arguments cannot be
+expanded from the runtime bind response; their raw value is reported without
+inventing a command. The runtime table can contain user-configured command
+arguments, so it belongs in the requested capability result and is not
+written to audit logs.
