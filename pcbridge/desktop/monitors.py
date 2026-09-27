@@ -29,6 +29,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import math
+import os
 import re
 import subprocess
 import time
@@ -51,7 +52,7 @@ _BUSCTL = [
 # Monitor takilip cikarildiginda kendiliginden duzelsin diye her cagrida
 # yeniden okunur; ard arda gelen cagrilar icin kisa bir onbellek yeterli.
 _CACHE_TTL = 2.0
-_cache: tuple[float, list["Monitor"]] | None = None
+_cache: tuple[float, tuple[str, str, str], list["Monitor"]] | None = None
 
 
 class MonitorError(RuntimeError):
@@ -399,6 +400,56 @@ def _from_kscreen() -> list[Monitor]:
     return resolve_state(_kscreen_state(json.loads(proc.stdout)))
 
 
+def _hyprland_state(data: list[dict]) -> dict:
+    """Map Hyprland's raw mode pixels and logical positions to neutral state."""
+    physical, logical = [], []
+    names = set()
+    for out in data:
+        if out.get("disabled") is True:
+            continue
+        connector = out.get("name")
+        if not isinstance(connector, str) or not connector or connector in names:
+            raise MonitorError("Hyprland reported a missing or duplicate output name")
+        names.add(connector)
+        if out.get("mirrorOf", "none") not in ("none", ""):
+            raise MonitorError(f"Mirrored Hyprland output {connector} needs explicit mapping")
+        width, height = out.get("width"), out.get("height")
+        x, y = out.get("x"), out.get("y")
+        transform = out.get("transform")
+        scale = out.get("scale")
+        if (any(not isinstance(value, int) or isinstance(value, bool)
+                for value in (width, height, x, y, transform))
+                or width <= 0 or height <= 0 or transform not in range(8)
+                or not isinstance(scale, (int, float)) or isinstance(scale, bool)
+                or not math.isfinite(scale) or scale <= 0):
+            raise MonitorError(f"Hyprland reported invalid geometry for {connector}")
+        physical.append({
+            "connector": connector,
+            "vendor": str(out.get("make") or ""),
+            "product": str(out.get("model") or ""),
+            "serial": str(out.get("serial") or ""),
+            "display_name": str(out.get("description") or connector),
+            "modes": [{"width": width, "height": height, "is_current": True}],
+        })
+        logical.append({
+            "x": x, "y": y, "scale": scale, "transform": transform,
+            "primary": out.get("focused") is True,
+            "connectors": [connector],
+        })
+    if logical and not any(out["primary"] for out in logical):
+        logical[0]["primary"] = True
+    return {"layout_mode": "logical", "physical": physical, "logical": logical}
+
+
+def _from_hyprland() -> list[Monitor]:
+    from . import hyprland
+
+    try:
+        return resolve_state(_hyprland_state(hyprland.monitors()))
+    except hyprland.HyprlandIPCError as exc:
+        raise MonitorError(str(exc)) from exc
+
+
 def _from_mutter() -> list[Monitor]:
     """Mutter.DisplayConfig.GetCurrentState -> mantiksal monitorler."""
     proc = subprocess.run(_BUSCTL, capture_output=True, text=True, timeout=10)
@@ -474,11 +525,17 @@ def list_monitors(use_cache: bool = True) -> list[Monitor]:
     """Mantiksal monitorler, soldan saga sirali ve 1'den numarali."""
     global _cache
     kind = compositorlib.current().kind
-    if kind not in (session.GNOME, session.KDE):
+    if kind not in (session.GNOME, session.KDE, session.HYPRLAND):
         raise MonitorError(f"Monitor discovery is unavailable for {kind}.")
     now = time.monotonic()
-    if use_cache and _cache and now - _cache[0] < _CACHE_TTL:
-        return _cache[1]
+    cache_key = (kind, os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", ""),
+                 os.environ.get("WAYLAND_DISPLAY", ""))
+    if use_cache and _cache and _cache[1] == cache_key and now - _cache[0] < _CACHE_TTL:
+        return _cache[2]
+    if kind == session.HYPRLAND:
+        mons = _from_hyprland()
+        _cache = (now, cache_key, mons)
+        return mons
     kde = compositorlib.is_kde()
     try:
         mons = _from_kscreen() if kde else _from_mutter()
@@ -492,7 +549,7 @@ def list_monitors(use_cache: bool = True) -> list[Monitor]:
                 "The xrandr fallback failed too."
             ) from exc
     mons = _ordered(mons)
-    _cache = (now, mons)
+    _cache = (now, cache_key, mons)
     return mons
 
 

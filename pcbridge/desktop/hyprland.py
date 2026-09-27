@@ -15,7 +15,7 @@ class HyprlandIPCError(RuntimeError):
 
 
 def _query(command: str, *, json_output: bool, env: dict[str, str] | None = None) -> Any:
-    if command not in {"binds", "submap"}:
+    if command not in {"binds", "submap", "monitors"}:
         raise ValueError("Hyprland read-only query is not allowed")
     current = os.environ if env is None else env
     instance = session.hyprland_instance(current)
@@ -67,3 +67,11 @@ def bindings_snapshot(env: dict[str, str] | None = None) -> dict[str, Any]:
         "count": len(bindings),
         "source": "hyprctl runtime IPC",
     }
+
+
+def monitors(env: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    """The active output table from the selected compositor instance."""
+    data = _query("monitors", json_output=True, env=env)
+    if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
+        raise HyprlandIPCError("Hyprland monitors returned an unexpected shape")
+    return data

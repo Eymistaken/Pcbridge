@@ -142,7 +142,7 @@ a stale signature paired with a different display remains UNKNOWN.
 - `(cd rust && cargo test --workspace --locked --no-fail-fast)` — pass.
 - `(cd rust && cargo fmt --check)` — pass.
 - `scripts/dev/hyprland-vm.sh sync` — pass.
-- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python -c "from pcbridge.desktop.session import desktop_kind, platform_summary, hyprland_instance; ..."'`
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python -c "from pcbridge.desktop.session import desktop_kind, platform_summary, hyprland_instance; print(desktop_kind()); print((hyprland_instance() or {}).get(\"wl_socket\")); p=platform_summary(); print(p[\"environment\"], p[\"hyprland\"], p[\"gnome_shell\"])"'`
   — pass; printed `hyprland`, `wayland-1`, `hyprland 0.56.2 None`.
 - `git diff --check` — pass.
 
@@ -190,11 +190,11 @@ context path.
 - `./.venv/bin/python -m unittest tests.contracts.test_hyprland_binds tests.contracts.test_mcp_errors tests.contracts.test_mcp_contract tests.contracts.test_hardening`
   — pass, 40 tests after the capability presentation change.
 - `scripts/dev/hyprland-vm.sh sync` — pass.
-- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python -c "from pcbridge.desktop.hyprland import bindings_snapshot; ..."'`
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python -c "from pcbridge.desktop.hyprland import bindings_snapshot; s=bindings_snapshot(); print(s[\"available\"], s[\"count\"], s[\"active_submap\"], sorted(s[\"bindings\"][0]) if s[\"bindings\"] else s.get(\"reason\"))"'`
   — pass; `True 48 default` and the 18 field names reported by runtime IPC.
-- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && timeout 20s .venv/bin/python -c "from pcbridge.cli import load, runtime_of; ..."'`
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && timeout 20s .venv/bin/python -c "from pcbridge.cli import load, runtime_of; from pcbridge.desktop.presentation import capabilities_result; r=runtime_of(load()); p=capabilities_result(r.capabilities()); print(p.structured_content[\"platform\"][\"environment\"], p.structured_content[\"hyprland_bindings\"][\"count\"]); r.close()"'`
   — pass; `hyprland 48` from the full capability presentation.
-- `scripts/dev/hyprland-vm.sh session 'hyprctl dispatch ...; hyprctl submap; ...'`
+- `scripts/dev/hyprland-vm.sh session 'hyprctl dispatch '\''hl.dsp.submap("pcbridge_test")'\''; hyprctl submap; hyprctl dispatch '\''hl.dsp.submap("reset")'\''; hyprctl submap'`
   — the undefined submap dispatch failed as expected; both submap reads
   returned `default`, and the final reset succeeded.
 
@@ -204,3 +204,58 @@ expanded from the runtime bind response; their raw value is reported without
 inventing a command. The runtime table can contain user-configured command
 arguments, so it belongs in the requested capability result and is not
 written to audit logs.
+
+**Local commit:** `331f743`.
+
+## Stage 4a: Python Hyprland monitor transport
+
+**Objective:** Feed Hyprland's active output table into the existing neutral
+monitor resolver and single global canvas coordinate system.
+
+**Plan adjustment:** Live scale/rotation changes showed that Hyprland JSON
+keeps raw mode pixels while positions are logical and may be moved by the
+compositor. To make this cross-language mapping reviewable, the monitor stage
+is split: this Python transport commit, followed by a separate native Rust
+display transport and shared fixture commit. Window IPC remains a later
+independent stage. The overall security and acceptance contract is unchanged.
+
+**Design decisions:** `hyprctl -j monitors` is an allowlisted read-only query
+against the selected instance. Validate names, scale, transform, pixel size,
+position, and duplicate outputs before passing a neutral state to the shared
+resolver. Treat mirrors as an explicit unsupported mapping until their
+coordinate/capture semantics are measured. Cache the result for the existing
+two-second interval, keyed by compositor and session; fresh reads bypass the
+cache. An IPC error does not fall back to XRandR on Hyprland.
+
+**Files changed:** `pcbridge/desktop/hyprland.py`,
+`pcbridge/desktop/monitors.py`,
+`tests/contracts/test_hyprland_monitors.py`,
+`docs/dev/measured-facts.md`, and this journal.
+
+**Measurements and evidence:** On the VM's default two-output layout,
+`list_monitors(use_cache=False)` returned Virtual-1 `(0,0) 1280x800` and
+Virtual-2 `(1280,0) 1280x800`, with canvas 2560x800 and a stable topology ID.
+After changing Virtual-2 to scale 1.25 and transform 1 in the VM, the same
+reader returned a 640x1024 logical span with 800x1280 source pixels, at
+`(1280,0)`; the canvas was 1920x1024. The output rules were restored and
+`hyprctl -j monitors` confirmed both original positions, scales, and
+transforms. The Python result is not yet a capture-success claim.
+
+**Tests run:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_monitors tests.contracts.test_display_contract tests.contracts.test_hyprland_binds`
+  — pass, 22 tests.
+- `./.venv/bin/python tests/test_desktop.py | tail -2` — pass, 615 checks;
+  no live input.
+- `scripts/dev/hyprland-vm.sh sync` — pass.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python -c "from pcbridge.desktop.monitors import list_monitors, canvas_size, topology_id; m=list_monitors(use_cache=False); print([(x.connector,x.x,x.y,x.width,x.height,x.scale,x.primary) for x in m]); print(canvas_size(m), topology_id(m))"'`
+  — pass; two active monitors and canvas 2560x800.
+- `scripts/dev/hyprland-vm.sh session 'hyprctl eval '\''hl.monitor({ output = "Virtual-2", mode = "1280x800@74.99", position = "1280x0", scale = 1.25, transform = 1 })'\'' && cd ~/pcbridge && .venv/bin/python -c "from pcbridge.desktop.monitors import list_monitors, canvas_size; m=list_monitors(use_cache=False); print([(x.connector,x.platform,x.x,x.y,x.width,x.height,x.scale,x.transform,x.source_pixel_size) for x in m]); print(canvas_size(m))"'`
+  — pass; scale 1.25/transform 1 produced 640x1024 logical and 800x1280
+  source pixels. A separate reset command restored the initial layout.
+
+**Open questions:** A mirrored output intentionally fails mapping; acceptance
+needs a product decision or measured safe behavior if mirrors are in scope.
+The Rust helper still rejects Hyprland display snapshots until the next
+stage. Negative coordinates and above/below layouts have deterministic unit
+tests; live VM verification remains for acceptance.

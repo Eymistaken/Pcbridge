@@ -415,6 +415,19 @@ and xdg-desktop-portal-hyprland 1.4.1.
   `grim` call timed out after 8 seconds and produced no file. QEMU's
   `screendump` was black even while `hyprctl clients` listed a running foot
   window; neither is valid evidence of successful native capture.
+- **Hyprland monitor JSON keeps mode pixels in `width`/`height`.** A runtime
+  `hyprctl eval` change of Virtual-2 to scale 1.25 and transform 1 left its
+  JSON `width=1280,height=800`, while its logical span became 640x1024
+  starting at `(1280,0)`. The neutral resolver divided by scale and swapped
+  axes once; the resulting canvas was 1920x1024. Reverting Virtual-2 and
+  explicitly restoring Virtual-1 returned the two outputs to `(0,0)` and
+  `(1280,0)`, both scale 1 and transform 0. A first scale-only change caused
+  Hyprland to reposition Virtual-1 automatically to avoid overlap, so
+  topology tests must query fresh compositor positions instead of assuming
+  neighboring outputs stay fixed. `wlr-randr` listed both outputs but its
+  attempt to change scale hung; `hyprctl keyword monitor` was rejected under
+  the Lua parser. `hyprctl eval 'hl.monitor(...)'` was the measured working
+  runtime control in this disposable VM.
 - **The first plain `pcbridge` invocation raised a traceback because no
   config file existed.** The path was `PcbridgeApp.on_mount` ->
   `SettingsPane.load` -> `ConfigEditor` -> `locate_config`, ending in
