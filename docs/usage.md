@@ -35,13 +35,15 @@ is running picks the change up when it restarts.
 | Antigravity CLI | `antigravity` | `~/.gemini/config/mcp_config.json`, through `agy mcp` | `agy mcp disable` |
 | Hermes Agent | `hermes` | the active profile's `config.yaml`, through `hermes mcp` | removes the entry |
 | OpenCode | `opencode` | `~/.config/opencode/opencode.json` (`type: "local"`) | `enabled: false` |
-| Pi | `pi` | `~/.pi/agent/mcp.json`, read by the `pi-mcp-adapter` extension | `disabled: true` |
+| Pi | `pi` | `~/.pi/agent/mcp-adapter.json` with `pi-mcp-adapter` 3.x; `mcp.json` with 2.x | `disabled: true` |
 | oh-my-pi | `oh-my-pi` | `~/.omp/agent/mcp.json` (the default profile; `$PI_CODING_AGENT_DIR` when set) | `enabled: false`, or its `disabledServers` list |
 
-Pi has no MCP of its own; install the extension with `pi install
-npm:pi-mcp-adapter`, and `pcbridge clients` says so when it is missing. An
-OpenCode config that exists only as `opencode.jsonc` with comments is not
-rewritten; add the entry by hand there.
+Install Pi's MCP adapter with `pi install npm:pi-mcp-adapter`; `pcbridge
+clients` says so when it is missing. An existing pcbridge entry in Pi's
+older `mcp.json` is moved to `mcp-adapter.json` when connecting with adapter
+3.x; other entries in the old file are left alone. The Pi agent directory
+follows `$PI_CODING_AGENT_DIR`. An OpenCode config that exists only as
+`opencode.jsonc` with comments is not rewritten; add the entry by hand there.
 
 oh-my-pi can also start servers from other clients' configs once their
 source is switched on in its settings (`enabledProviders`: `claude`,

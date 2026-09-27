@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Pi connection with pi-mcp-adapter 3.x.** Pi's adapter now reads
+  `mcp-adapter.json`, while pcbridge still wrote `mcp.json`, leaving the
+  connection unavailable and causing Pi's legacy-config warning. Connections
+  now uses the installed adapter's config path, migrates only pcbridge's old
+  entry when needed, and keeps support for adapter 2.x.
+
 ## 2.4.1 - 2026-09-24
 
 ### Added

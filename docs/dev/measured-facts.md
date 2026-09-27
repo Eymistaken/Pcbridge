@@ -439,6 +439,16 @@ the client's own listing).
 - **Pi 0.85.0** has no MCP; the `pi-mcp-adapter` 2.32.1 extension reads
   `~/.pi/agent/mcp.json` (or `$PI_CODING_AGENT_DIR`) and skips an entry with
   `disabled: true`.
+- **Pi 0.87.1 and pi-mcp-adapter 3.0.0 (2026-09-27)**: the installed adapter
+  reads `~/.pi/agent/mcp-adapter.json` (or `$PI_CODING_AGENT_DIR`) and no longer
+  loads `~/.pi/agent/mcp.json`. Its 3.0.0 changelog dates this config cutover
+  to 2026-09-26. The real Pi config had a disabled pcbridge entry in
+  `mcp-adapter.json` and no `mcp.json`; the old pcbridge connect created
+  `mcp.json` while leaving the adapter entry disabled. The files were restored
+  byte for byte after that reproduction. With the fix, `pcbridge connect pi`
+  enabled the adapter entry, Pi opened in RPC mode without an extension error,
+  and `/mcp-adapter reconnect pcbridge` reported 37 tools and 0 resources.
+  The same files were restored byte for byte after the live test.
 - **oh-my-pi 18.3.0** (`bun install -g @oh-my-pi/pi-coding-agent`, no model
   signed in) reads `~/.omp/agent/mcp.json`: `/mcp list` showed "pcbridge ●
   connected", `/mcp test pcbridge` "Tools: 37", and "◌ inactive" after

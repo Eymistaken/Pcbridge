@@ -143,7 +143,10 @@ class ConnectionsTests(unittest.TestCase):
             json.dumps({"$schema": "https://opencode.ai/config.json", "model": "m"}))
         (self.home / ".pi" / "agent").mkdir(parents=True)
         (self.home / ".pi" / "agent" / "settings.json").write_text(json.dumps({"packages": ["npm:pi-mcp-adapter"]}))
-        (self.home / ".pi" / "agent" / "mcp.json").write_text(json.dumps(
+        adapter = self.home / ".pi" / "agent" / "npm" / "node_modules" / "pi-mcp-adapter"
+        adapter.mkdir(parents=True)
+        (adapter / "package.json").write_text(json.dumps({"name": "pi-mcp-adapter", "version": "3.0.0"}))
+        (self.home / ".pi" / "agent" / "mcp-adapter.json").write_text(json.dumps(
             {"mcpServers": {"pcbridge": {"command": "/old/python", "args": ["-m", "pcbridge.server", "--stdio"],
                                          "lifecycle": "lazy"}}}))
         (self.home / ".hermes").mkdir()
@@ -216,7 +219,7 @@ class ConnectionsTests(unittest.TestCase):
         oc = json.loads((self.home / ".config" / "opencode" / "opencode.json").read_text())
         self.assertEqual(oc["mcp"]["pcbridge"], {"type": "local", "command": cmd, "enabled": True})
         self.assertEqual(oc["model"], "m")
-        pi = json.loads((self.home / ".pi" / "agent" / "mcp.json").read_text())["mcpServers"]["pcbridge"]
+        pi = json.loads((self.home / ".pi" / "agent" / "mcp-adapter.json").read_text())["mcpServers"]["pcbridge"]
         self.assertEqual((pi["command"], pi["args"], pi["lifecycle"]), (cmd[0], cmd[1:], "lazy"))
         omp = json.loads((self.home / ".omp" / "agent" / "mcp.json").read_text())["mcpServers"]["pcbridge"]
         self.assertEqual(omp, {"type": "stdio", "command": cmd[0], "args": cmd[1:]})
@@ -232,7 +235,7 @@ class ConnectionsTests(unittest.TestCase):
         self.assertEqual(codex["mcp_servers"]["pcbridge"]["tools"]["desktop_unlock"]["approval_mode"], "approve")
         # `enabled` belongs to [mcp_servers.pcbridge], not to its tools sub-table.
         self.assertLess(codex_text.index("enabled = false"), codex_text.index("[mcp_servers.pcbridge.tools"))
-        self.assertIs(json.loads((self.home / ".pi" / "agent" / "mcp.json").read_text())
+        self.assertIs(json.loads((self.home / ".pi" / "agent" / "mcp-adapter.json").read_text())
                       ["mcpServers"]["pcbridge"]["disabled"], True)
 
         # On again: the switched-off entries come back on with their settings.
@@ -241,6 +244,68 @@ class ConnectionsTests(unittest.TestCase):
         self.assertEqual((rows["codex"]["state"], rows["pi"]["state"]), ("connected", "connected"))
         self.assertNotIn("enabled", tomllib.loads((self.home / ".codex" / "config.toml").read_text())
                          ["mcp_servers"]["pcbridge"])
+
+    def test_pi_2_keeps_its_legacy_config(self) -> None:
+        agent = self.home / ".pi" / "agent"
+        package = agent / "npm" / "node_modules" / "pi-mcp-adapter" / "package.json"
+        package.write_text(json.dumps({"name": "pi-mcp-adapter", "version": "2.32.1"}))
+        legacy = agent / "mcp.json"
+        legacy.write_text(json.dumps({"mcpServers": {"pcbridge": {"command": "/old/python", "args": []}}}))
+        self.assertEqual(self.states()["pi"]["config"], str(legacy))
+        self.cli("connect", "pi")
+        self.assertEqual(self.states()["pi"]["state"], "connected")
+        self.cli("disconnect", "pi")
+        self.assertIs(json.loads(legacy.read_text())["mcpServers"]["pcbridge"]["disabled"], True)
+
+    def test_pi_3_uses_the_configured_agent_directory(self) -> None:
+        agent = self.home / "other-pi-agent"
+        package = agent / "npm" / "node_modules" / "pi-mcp-adapter"
+        package.mkdir(parents=True)
+        (package / "package.json").write_text(json.dumps({"version": "3.0.0"}))
+        (agent / "settings.json").write_text(json.dumps({"packages": ["npm:pi-mcp-adapter"]}))
+        self.env["PI_CODING_AGENT_DIR"] = str(agent)
+        self.assertEqual(self.states()["pi"]["config"], str(agent / "mcp-adapter.json"))
+        self.cli("connect", "pi")
+        self.assertEqual(self.states()["pi"]["state"], "connected")
+        self.assertTrue((agent / "mcp-adapter.json").exists())
+
+    def test_pi_3_migrates_only_its_legacy_entry(self) -> None:
+        agent = self.home / ".pi" / "agent"
+        adapter = agent / "mcp-adapter.json"
+        adapter.unlink()
+        legacy = agent / "mcp.json"
+        legacy.write_text(json.dumps({"mcpServers": {
+            "pcbridge": {"command": "/old/python", "args": ["stdio"], "lifecycle": "keep-alive"},
+            "other": {"command": "other"}}, "settings": {"keep": True}}))
+        self.assertEqual(self.states()["pi"]["config"], str(adapter))
+        self.assertEqual(self.states()["pi"]["state"], "not connected")
+        self.cli("connect", "pi")
+        self.assertEqual(self.states()["pi"]["state"], "connected")
+        entry = json.loads(adapter.read_text())["mcpServers"]["pcbridge"]
+        self.assertEqual(entry["lifecycle"], "keep-alive")
+        self.assertEqual(json.loads(legacy.read_text()),
+                         {"mcpServers": {"other": {"command": "other"}}, "settings": {"keep": True}})
+        self.cli("disconnect", "pi")
+        self.assertIs(json.loads(adapter.read_text())["mcpServers"]["pcbridge"]["disabled"], True)
+        self.assertNotIn("pcbridge", json.loads(legacy.read_text())["mcpServers"])
+
+    def test_pi_3_cleans_up_legacy_entry_when_already_connected(self) -> None:
+        agent = self.home / ".pi" / "agent"
+        self.cli("connect", "pi")
+        legacy = agent / "mcp.json"
+        legacy.write_text(json.dumps({"mcpServers": {"pcbridge": {"command": "/old/python"}}}))
+        self.cli("connect", "pi")
+        self.assertNotIn("pcbridge", json.loads(legacy.read_text())["mcpServers"])
+        self.assertEqual(self.states()["pi"]["state"], "connected")
+
+    def test_pi_3_uninstall_removes_both_config_entries(self) -> None:
+        agent = self.home / ".pi" / "agent"
+        legacy = agent / "mcp.json"
+        legacy.write_text(json.dumps({"mcpServers": {"pcbridge": {"command": "/old/python"},
+                                                     "other": {"command": "other"}}}))
+        self.cli("uninstall", "--yes")
+        self.assertNotIn("pcbridge", json.loads((agent / "mcp-adapter.json").read_text())["mcpServers"])
+        self.assertEqual(json.loads(legacy.read_text()), {"mcpServers": {"other": {"command": "other"}}})
 
     def test_oh_my_pi_switched_off_without_an_entry_of_its_own(self) -> None:
         # Measured with omp 18.3.0: with its Claude Code source switched on,
@@ -341,7 +406,7 @@ class ConnectionsTests(unittest.TestCase):
         backups = list((self.home / ".local" / "state" / "pcbridge").glob("backup-*"))
         saved = [p.name for b in backups for p in b.iterdir()]
         self.assertTrue(any(n.endswith(".codex__config.toml") for n in saved), saved)
-        self.assertTrue(any(n.endswith("agent__mcp.json") for n in saved), saved)
+        self.assertTrue(any(n.endswith("agent__mcp-adapter.json") for n in saved), saved)
 
     def test_mistakes_are_refused(self) -> None:
         self.assertNotEqual(self.cli("connect", "nosuch").returncode, 0)

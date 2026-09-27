@@ -23,8 +23,8 @@ touched. Where a client has its own command for this, that command is used:
     opencode        ~/.config/opencode/opencode.json, mcp.pcbridge with
                     type "local" (the shape of @opencode-ai/sdk's
                     McpLocalConfig, OpenCode 1.18)
-    pi              $PI_CODING_AGENT_DIR/mcp.json (~/.pi/agent), read by the
-                    pi-mcp-adapter extension (2.32); Pi itself has no MCP
+    pi              $PI_CODING_AGENT_DIR/mcp-adapter.json (~/.pi/agent) for
+                    pi-mcp-adapter 3.x; mcp.json for older adapter versions
     oh-my-pi        $PI_CODING_AGENT_DIR/mcp.json (~/.omp/agent), the
                     default profile's user file; switched off with
                     `enabled: false`, or through its `disabledServers` list
@@ -114,6 +114,31 @@ def pi_dir() -> Path:
     return Path(os.path.expanduser(os.environ.get("PI_CODING_AGENT_DIR") or HOME / ".pi" / "agent"))
 
 
+def pi_json() -> Path:
+    """Use the adapter's config name; 3.0 stopped reading Pi's mcp.json."""
+    agent = pi_dir()
+    package = agent / "npm" / "node_modules" / "pi-mcp-adapter" / "package.json"
+    try:
+        version = _json(package).get("version", "")
+    except (OSError, ValueError):
+        version = ""
+    major = version.split(".", 1)[0] if isinstance(version, str) else ""
+    if major.isdigit():
+        return agent / ("mcp-adapter.json" if int(major) >= 3 else "mcp.json")
+    return agent / ("mcp-adapter.json" if (agent / "mcp-adapter.json").exists() else "mcp.json")
+
+
+def pi_legacy_entry() -> dict | None:
+    legacy = pi_dir() / "mcp.json"
+    if pi_json() == legacy:
+        return None
+    try:
+        entry = (_json(legacy).get("mcpServers") or {}).get(SERVER)
+    except (OSError, ValueError, AttributeError):
+        return None
+    return entry if isinstance(entry, dict) else None
+
+
 def omp_json() -> Path:
     """oh-my-pi's user mcp.json. omp reads PI_CODING_AGENT_DIR, the variable
     Pi uses, and PI_CONFIG_DIR renames its ~/.omp."""
@@ -142,7 +167,7 @@ def config_path(client: str) -> Path:
         "antigravity": lambda: AGY_JSON,
         "hermes": hermes_config,
         "opencode": opencode_json,
-        "pi": lambda: pi_dir() / "mcp.json",
+        "pi": pi_json,
         "oh-my-pi": omp_json,
     }[client]()
 
@@ -482,21 +507,26 @@ def _disconnect_opencode(backup: inst.Backup) -> str:
 
 
 def _connect_pi(cmd: list[str], backup: inst.Backup) -> str:
-    path = pi_dir() / "mcp.json"
+    path = pi_json()
     data = _json(path)
     servers = data.setdefault("mcpServers", {})
-    entry = dict(servers.get(SERVER) or {})
+    legacy = pi_legacy_entry()
+    entry = dict(legacy or {})
+    entry.update(servers.get(SERVER) or {})
     entry.update(command=cmd[0], args=cmd[1:])
     entry.pop("disabled", None)
     servers[SERVER] = entry
     detail = "registered" if _write_json(path, data, backup) else "already registered"
+    if legacy is not None:
+        _json_remove(pi_dir() / "mcp.json", "mcpServers", backup)
+        detail += "; migrated the old Pi entry"
     if not pi_adapter_installed():
         detail += "; Pi reads it only with the pi-mcp-adapter extension: pi install npm:pi-mcp-adapter"
     return detail
 
 
 def _disconnect_pi(backup: inst.Backup) -> str:
-    path = pi_dir() / "mcp.json"
+    path = pi_json()
     data = _json(path)
     entry = (data.get("mcpServers") or {}).get(SERVER)
     if isinstance(entry, dict):
@@ -579,7 +609,11 @@ def remove_entry(client: str, backup: inst.Backup) -> str:
     if client == "opencode":
         return _json_remove(opencode_json(), "mcp", backup)
     if client == "pi":
-        return _json_remove(pi_dir() / "mcp.json", "mcpServers", backup)
+        path = pi_json()
+        _json_remove(path, "mcpServers", backup)
+        if path != pi_dir() / "mcp.json":
+            _json_remove(pi_dir() / "mcp.json", "mcpServers", backup)
+        return "removed"
     if client == "oh-my-pi":
         path = omp_json()
         data = _json(path)
@@ -622,7 +656,8 @@ def connect(clients: list[str], backup: inst.Backup, dry_run: bool = False) -> l
         if not client_available(client) and not reg.present:
             out.append((client, "skip", "client not installed"))
             continue
-        if reg.present and reg.enabled and reg.command == cmd:
+        already_connected = reg.present and reg.enabled and reg.command == cmd
+        if already_connected and (client != "pi" or pi_legacy_entry() is None):
             out.append((client, "ok", f"already runs {shlex.join(cmd)}" + (f"; {reg.note}" if reg.note else "")))
             continue
         if dry_run:
