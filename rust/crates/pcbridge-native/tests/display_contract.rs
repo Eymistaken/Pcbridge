@@ -130,6 +130,43 @@ fn rejected_cases_are_refused_instead_of_guessed() {
 }
 
 #[test]
+fn hyprland_ipc_maps_to_the_same_neutral_state_as_python() {
+    use pcbridge_native::platform::linux::display::hyprland_state;
+
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../tests/fixtures/native/hyprland_monitor_cases.json");
+    let raw = fs::read_to_string(path).expect("Hyprland fixture is readable");
+    let fixture: serde_json::Value = serde_json::from_str(&raw).expect("valid fixture JSON");
+    for case in fixture["cases"].as_array().expect("cases array") {
+        let name = case["name"].as_str().unwrap();
+        let got =
+            hyprland_state(&case["hyprland"]).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let expected: DisplayState = serde_json::from_value(case["state"].clone()).unwrap();
+        assert_eq!(got, expected, "{name}: neutral state");
+        let monitors = resolve(&got).expect("case resolves");
+        let expected_canvas: (u32, u32) = serde_json::from_value(case["canvas"].clone()).unwrap();
+        assert_eq!(canvas_size(&monitors), expected_canvas, "{name}: canvas");
+    }
+}
+
+#[test]
+fn hyprland_ipc_refuses_ambiguous_monitor_geometry() {
+    use pcbridge_native::platform::linux::display::hyprland_state;
+
+    for raw in [
+        serde_json::json!([{"name":"A","width":1280,"height":800,"x":0,"y":0,"scale":0,"transform":0}]),
+        serde_json::json!([{"name":"A","width":1280,"height":800,"x":0,"y":0,"scale":1,"transform":8}]),
+        serde_json::json!([{"name":"A","width":1280,"height":800,"x":0,"y":0,"scale":1,"transform":0,"mirrorOf":"B"}]),
+        serde_json::json!([
+            {"name":"A","width":1280,"height":800,"x":0,"y":0,"scale":1,"transform":0,"focused":true},
+            {"name":"B","width":1280,"height":800,"x":1280,"y":0,"scale":1,"transform":0,"focused":true}
+        ]),
+    ] {
+        assert!(hyprland_state(&raw).is_err(), "{raw} must fail closed");
+    }
+}
+
+#[test]
 fn topology_id_ignores_connector_names() {
     // Measured 2026-09-12 on the target machine: connectors went from DP-1/DP-2
     // to DP-3/DP-4 with the geometry untouched. A name-derived identity would

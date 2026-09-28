@@ -436,6 +436,8 @@ def _hyprland_state(data: list[dict]) -> dict:
             "primary": out.get("focused") is True,
             "connectors": [connector],
         })
+    if sum(out["primary"] for out in logical) > 1:
+        raise MonitorError("Hyprland reported multiple focused outputs")
     if logical and not any(out["primary"] for out in logical):
         logical[0]["primary"] = True
     return {"layout_mode": "logical", "physical": physical, "logical": logical}

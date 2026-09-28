@@ -13,7 +13,10 @@
 //! no such signal on this path; its table is kept for `KSCREEN_CACHE`, the same
 //! two seconds the Python host keeps it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::io::{Read, Write};
+use std::os::unix::net::UnixStream;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -29,7 +32,7 @@ use zbus::proxy::SignalStream;
 use zbus::zvariant::OwnedValue;
 use zbus::{Connection, Proxy, connection::Builder};
 
-use super::desktop::DesktopKind;
+use super::desktop::{DesktopKind, hyprland_socket};
 
 const DESTINATION: &str = "org.gnome.Mutter.DisplayConfig";
 const PATH: &str = "/org/gnome/Mutter/DisplayConfig";
@@ -39,6 +42,8 @@ const INTERFACE: &str = "org.gnome.Mutter.DisplayConfig";
 const METHOD_TIMEOUT: Duration = Duration::from_millis(200);
 /// How long a KScreen table is reused (`kscreen-doctor -j` takes 18-32 ms).
 const KSCREEN_CACHE: Duration = Duration::from_secs(2);
+const HYPRLAND_IPC_TIMEOUT: Duration = Duration::from_secs(2);
+const HYPRLAND_REPLY_LIMIT: u64 = 4 * 1024 * 1024;
 
 type Props = HashMap<String, OwnedValue>;
 /// `(id, width, height, refresh, preferred_scale, supported_scales, props)`
@@ -65,6 +70,8 @@ pub enum SnapshotError {
     Transport(#[from] zbus::Error),
     #[error("KScreen unavailable: {0}")]
     KScreen(String),
+    #[error("Hyprland display IPC unavailable: {0}")]
+    Hyprland(String),
     #[error(transparent)]
     Mapping(#[from] DisplayError),
 }
@@ -249,12 +256,127 @@ fn read_kscreen() -> Result<DisplayState, SnapshotError> {
     kscreen_state(&data).map_err(SnapshotError::KScreen)
 }
 
+/// Hyprland `j/monitors` to the same neutral state as Python's adapter.
+/// `width` and `height` are raw mode pixels even at fractional scale and
+/// rotation; the shared resolver divides and swaps axes exactly once.
+pub fn hyprland_state(data: &Value) -> Result<DisplayState, String> {
+    let outputs = data.as_array().ok_or("monitors reply is not an array")?;
+    let mut names = HashSet::new();
+    let mut physical = Vec::new();
+    let mut logical = Vec::new();
+    for output in outputs {
+        if output["disabled"].as_bool() == Some(true) {
+            continue;
+        }
+        let name = output["name"]
+            .as_str()
+            .filter(|name| !name.is_empty())
+            .ok_or("monitor name is missing")?;
+        if !names.insert(name) {
+            return Err(format!("duplicate Hyprland output name {name}"));
+        }
+        if let Some(mirror_value) = output.get("mirrorOf") {
+            let mirror = mirror_value
+                .as_str()
+                .ok_or_else(|| format!("invalid mirror state for {name}"))?;
+            if mirror != "none" && !mirror.is_empty() {
+                return Err(format!(
+                    "mirrored Hyprland output {name} needs explicit mapping"
+                ));
+            }
+        }
+        let dimension = |field: &str| -> Result<u32, String> {
+            let value = output[field]
+                .as_u64()
+                .and_then(|value| u32::try_from(value).ok())
+                .filter(|value| *value > 0);
+            value.ok_or_else(|| format!("invalid {field} for {name}"))
+        };
+        let position = |field: &str| -> Result<i32, String> {
+            output[field]
+                .as_i64()
+                .and_then(|value| i32::try_from(value).ok())
+                .ok_or_else(|| format!("invalid {field} for {name}"))
+        };
+        let width = dimension("width")?;
+        let height = dimension("height")?;
+        let x = position("x")?;
+        let y = position("y")?;
+        let scale = output["scale"]
+            .as_f64()
+            .filter(|scale| scale.is_finite() && *scale > 0.0)
+            .ok_or_else(|| format!("invalid scale for {name}"))?;
+        let transform = output["transform"]
+            .as_u64()
+            .and_then(|value| u32::try_from(value).ok())
+            .filter(|value| *value <= 7)
+            .ok_or_else(|| format!("invalid transform for {name}"))?;
+        physical.push(PhysicalMonitor {
+            connector: name.to_owned(),
+            vendor: output["make"].as_str().unwrap_or_default().to_owned(),
+            product: output["model"].as_str().unwrap_or_default().to_owned(),
+            serial: output["serial"].as_str().unwrap_or_default().to_owned(),
+            display_name: output["description"].as_str().unwrap_or(name).to_owned(),
+            modes: vec![DisplayMode {
+                width,
+                height,
+                is_current: true,
+            }],
+        });
+        logical.push(LogicalMonitor {
+            x,
+            y,
+            scale,
+            transform,
+            primary: output["focused"].as_bool() == Some(true),
+            connectors: vec![name.to_owned()],
+        });
+    }
+    if logical.iter().filter(|monitor| monitor.primary).count() > 1 {
+        return Err("Hyprland reported multiple focused outputs".into());
+    }
+    if !logical.is_empty() && !logical.iter().any(|monitor| monitor.primary) {
+        logical[0].primary = true;
+    }
+    Ok(DisplayState {
+        layout_mode: LayoutMode::Logical,
+        physical,
+        logical,
+    })
+}
+
+fn read_hyprland(socket_path: &Path) -> Result<DisplayState, SnapshotError> {
+    let mut socket = UnixStream::connect(socket_path)
+        .map_err(|error| SnapshotError::Hyprland(error.to_string()))?;
+    socket
+        .set_read_timeout(Some(HYPRLAND_IPC_TIMEOUT))
+        .map_err(|error| SnapshotError::Hyprland(error.to_string()))?;
+    socket
+        .set_write_timeout(Some(HYPRLAND_IPC_TIMEOUT))
+        .map_err(|error| SnapshotError::Hyprland(error.to_string()))?;
+    socket
+        .write_all(b"j/monitors")
+        .map_err(|error| SnapshotError::Hyprland(error.to_string()))?;
+    let mut reply = Vec::new();
+    socket
+        .take(HYPRLAND_REPLY_LIMIT + 1)
+        .read_to_end(&mut reply)
+        .map_err(|error| SnapshotError::Hyprland(error.to_string()))?;
+    if reply.len() as u64 > HYPRLAND_REPLY_LIMIT {
+        return Err(SnapshotError::Hyprland("reply exceeds 4 MiB".into()));
+    }
+    let data: Value = serde_json::from_slice(&reply)
+        .map_err(|error| SnapshotError::Hyprland(format!("unreadable JSON: {error}")))?;
+    hyprland_state(&data).map_err(SnapshotError::Hyprland)
+}
+
 enum Source {
     Mutter {
         connection: Connection,
         changes: Box<Mutex<SignalStream<'static>>>,
     },
     KScreen,
+    Hyprland(PathBuf),
 }
 
 /// Reads the display table and keeps it fresh (GNOME: `MonitorsChanged`;
@@ -286,7 +408,13 @@ impl DisplayReader {
                 cached: Mutex::new(None),
             }),
             DesktopKind::Gnome => Self::connect_mutter(),
-            DesktopKind::Hyprland | DesktopKind::Unknown => Err(zbus::Error::Failure(
+            DesktopKind::Hyprland => Ok(Self {
+                source: Source::Hyprland(hyprland_socket().ok_or_else(|| {
+                    zbus::Error::Failure("Hyprland session socket unavailable".into())
+                })?),
+                cached: Mutex::new(None),
+            }),
+            DesktopKind::Unknown => Err(zbus::Error::Failure(
                 "desktop display backend unavailable".into(),
             )),
         }
@@ -311,7 +439,7 @@ impl DisplayReader {
     fn layout_changed(&self) -> bool {
         let changes = match &self.source {
             Source::Mutter { changes, .. } => changes,
-            Source::KScreen => {
+            Source::KScreen | Source::Hyprland(_) => {
                 return self
                     .cached
                     .lock()
@@ -361,6 +489,7 @@ impl DisplayReader {
                 to_state(wire)
             }
             Source::KScreen => read_kscreen()?,
+            Source::Hyprland(socket) => read_hyprland(socket)?,
         };
 
         let monitors = resolve(&state)?;

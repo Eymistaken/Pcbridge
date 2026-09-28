@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from pcbridge.desktop import hyprland, monitors, session
@@ -21,6 +23,16 @@ def output(name: str, x: int, y: int, *, scale: float = 1,
 class HyprlandMonitorTests(unittest.TestCase):
     def tearDown(self) -> None:
         monitors.invalidate_cache()
+
+    def test_shared_transport_cases_resolve_to_the_same_canvas(self) -> None:
+        path = Path(__file__).resolve().parents[1] / "fixtures/native/hyprland_monitor_cases.json"
+        cases = json.loads(path.read_text(encoding="utf-8"))["cases"]
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                state = monitors._hyprland_state(case["hyprland"])
+                self.assertEqual(state, case["state"])
+                self.assertEqual(monitors.canvas_size(monitors.resolve_state(state)),
+                                 tuple(case["canvas"]))
 
     def test_raw_pixels_scale_rotation_and_negative_origin_resolve_once(self) -> None:
         raw = [output("right", 0, 0, focused=True),
@@ -60,6 +72,9 @@ class HyprlandMonitorTests(unittest.TestCase):
                 monitors._hyprland_state([raw])
         with self.assertRaises(monitors.MonitorError):
             monitors._hyprland_state([output("A", 0, 0), output("A", 1280, 0)])
+        with self.assertRaises(monitors.MonitorError):
+            monitors._hyprland_state([output("A", 0, 0, focused=True),
+                                     output("B", 1280, 0, focused=True)])
 
     def test_ipc_failure_does_not_fall_back_to_xrandr(self) -> None:
         with mock.patch.object(session, "desktop_kind", return_value=session.HYPRLAND), \

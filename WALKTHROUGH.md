@@ -259,3 +259,56 @@ needs a product decision or measured safe behavior if mirrors are in scope.
 The Rust helper still rejects Hyprland display snapshots until the next
 stage. Negative coordinates and above/below layouts have deterministic unit
 tests; live VM verification remains for acceptance.
+
+**Local commit:** `7095945`.
+
+## Stage 4b: Native Hyprland monitor transport
+
+**Objective:** Give the grant-bound native helper the same monitor table and
+canvas mapping as the Python adapter.
+
+**Design decisions:** Connect directly to the selected same-user Hyprland
+IPC socket. Require the instance signature and Wayland socket to match one
+runtime instance, and verify socket ownership and type. Requests have two-second
+read/write timeouts and a 4 MiB response limit. Convert raw mode pixels to the
+existing neutral display state; the shared resolver applies scale and transform
+once. Both adapters reject multiple focused outputs. A shared JSON fixture
+checks cross-language parity for negative coordinates and fractional rotation.
+No input or capture permission is enabled by this stage.
+
+**Files changed:** `pcbridge/desktop/monitors.py`,
+`rust/crates/pcbridge-native/src/platform/linux/desktop.rs`,
+`rust/crates/pcbridge-native/src/platform/linux/display.rs`,
+`rust/crates/pcbridge-native/tests/display_contract.rs`,
+`rust/crates/pcbridge-native/tests/hyprland_live.rs`,
+`tests/contracts/test_hyprland_monitors.py`,
+`tests/fixtures/native/hyprland_monitor_cases.json`, and this journal.
+
+**Measurements and evidence:** Native and Python snapshots in the VM both
+reported canvas 2560x800 and topology
+`v1|0,0,1280,800,1.0000,0,1|1280,0,1280,800,1.0000,0,0`.
+With Virtual-2 at scale 1.25/transform 1, both reported canvas 1920x1024
+and identical topology. The output rules were restored. After reboot on
+September 28, the native live test passed again with the signature/Wayland
+pair validation in place. SSH took about two minutes to become available;
+the black QMP screenshot is still not capture evidence.
+
+**Tests run:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_monitors tests.contracts.test_display_contract`
+  — pass, 19 tests.
+- `(cd rust && cargo fmt --all -- --check)` — pass.
+- `(cd rust && cargo test --workspace --locked --no-fail-fast)` — pass.
+  Live tests without their opt-in environment flags do not exercise a compositor.
+- `scripts/dev/hyprland-vm.sh sync` — pass.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge/rust && PCBRIDGE_TEST_LIVE_HYPRLAND=1 cargo test -p pcbridge-native --locked --test hyprland_live -- --nocapture'`
+  — pass, one real Hyprland display test, including the final session validation.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python -c "from pcbridge.desktop.monitors import list_monitors,canvas_size,topology_id; m=list_monitors(use_cache=False); print(\"Python\",canvas_size(m),topology_id(m))" && cd rust && PCBRIDGE_TEST_LIVE_HYPRLAND=1 cargo test -p pcbridge-native --locked --test hyprland_live -- --nocapture'`
+  — pass on the fractional/rotated VM layout; Python/native canvas and topology matched.
+
+**Review:** Checked session ambiguity, bounded IPC, invalid geometry, shared
+fixture parity, and error propagation. No new dependency or permission was added.
+
+**Open questions:** Mirror mapping and live negative/vertical layouts remain
+for acceptance. Capture and cursor-coordinate mapping require later real
+pixel/input evidence; monitor IPC alone does not satisfy them.
