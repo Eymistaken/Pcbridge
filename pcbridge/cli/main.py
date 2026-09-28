@@ -113,7 +113,7 @@ COMMANDS: list[tuple[str, str, str, str]] = [
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pcbridge",
-        description="Run and operate pcbridge, an MCP server for a GNOME or KDE Plasma desktop on Wayland.",
+        description="Run and operate pcbridge, an MCP server with desktop control on Wayland.",
         epilog="`pcbridge list` groups the commands; every command takes --help.",
     )
     parser.add_argument("--version", action="version", version=f"pcbridge {__version__}")

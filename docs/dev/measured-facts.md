@@ -475,6 +475,35 @@ and xdg-desktop-portal-hyprland 1.4.1.
   missing, GNOME extension missing, and a Mutter monitor-table failure.
   `/dev/uinput` was present but not writable by the test user; that is a
   separate VM setup issue, not evidence that the input path works.
+- **Doctor now inspects Hyprland without opening control or capture.** On
+  September 28, the explicit desktop dispatch removed GNOME/KWin checks from
+  this VM. Default discovery selected the packaged release helper, whose
+  grantless handshake reported the image-copy/output-source protocols. The
+  release build has no test harness; its build ID is `unknown-dirty` because
+  the VM sync intentionally omits `.git`. Doctor observed authoritative
+  unlocked state, missing/fresh/dead native idle records, and inactive/active/
+  closed frame state. A dead idle watcher produced ACTIVITY_UNKNOWN even
+  with force. An active grant had trusted presentation on all eight strips;
+  cleanup removed them. Doctor itself created no grant, state lockfile, input
+  device, or capture. Version 0.56.2 is still reported as untested until full
+  acceptance. Overall CLI doctor exit 1 remains truthful for outstanding
+  installation/configuration checks; desktop diagnostics passing does not
+  imply the entire installation is ready.
+- **Portal services and native capture are separate observations.** The VM
+  had xdg-desktop-portal 1.22.1-2, the Hyprland backend 1.4.1-2, GTK backend
+  1.15.3-1, PipeWire 1.6.9-1, and WirePlumber 0.5.17-2. All five user services
+  were active/running. Portal units were static; PipeWire's service was
+  disabled while its socket activation was enabled. WirePlumber was enabled.
+  The user manager carried Hyprland, `wayland-1`, and the instance signature,
+  but no XDG_SESSION_TYPE or XDG_SESSION_DESKTOP; the VM session wrapper
+  supplies the measured Wayland type. Public packaged portal preferences were
+  `default=hyprland;gtk`, and the frontend and both implementations owned their
+  D-Bus names. These observations do not prove effective request routing or
+  browser screen sharing; private higher-precedence portal config was not read.
+  See the [Hyprland portal documentation](https://wiki.hypr.land/Hypr-Ecosystem/xdg-desktop-portal-hyprland/)
+  and [portal selection rules](https://flatpak.github.io/xdg-desktop-portal/docs/portals.conf.html).
+  Setup only prints independent package guidance and does not change services,
+  permissions, environment, or config. No tray or panel is required.
 - **Compositor window identity includes more than a title.** On September 28,
   `clients` and `activewindow` returned a real foot client with address,
   `stableId`, PID, class, and title. The separate runtime window provider

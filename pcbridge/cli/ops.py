@@ -475,16 +475,7 @@ def setup(argv: list[str]) -> int:
             inst.warn(msg)
             notes.append("pcbridge update   # finishes the service switch when no job is running")
 
-    if not args.no_extension:
-        from ..desktop.session import KDE, desktop_kind
-
-        if desktop_kind() == KDE:
-            inst.say("\n5. KDE Plasma")
-            for line in inst.install_kde_entries(cfg.native):
-                (inst.warn if line.startswith("native helper not found") else inst.ok)(line)
-        else:
-            inst.say("\n5. GNOME Shell extension")
-            inst.ok(inst.install_extension(backup))
+    setup_desktop(cfg.native, backup, no_extension=args.no_extension)
 
     if not args.no_connect:
         inst.say("\n6. MCP clients")
@@ -582,3 +573,26 @@ def uninstall(argv: list[str]) -> int:
             inst.trash(path)
         inst.ok("config, state (including that backup) and data moved to the trash")
     return 0
+
+
+def setup_desktop(native, backup, *, no_extension: bool = False) -> None:
+    """Install only the integration belonging to the selected desktop."""
+    if no_extension:
+        return
+    from ..desktop.session import GNOME, KDE, HYPRLAND, desktop_kind
+
+    kind = desktop_kind()
+    if kind == KDE:
+        inst.say("\n5. KDE Plasma")
+        for line in inst.install_kde_entries(native):
+            (inst.warn if line.startswith("native helper not found") else inst.ok)(line)
+    elif kind == GNOME:
+        inst.say("\n5. GNOME Shell extension")
+        inst.ok(inst.install_extension(backup))
+    elif kind == HYPRLAND:
+        from .hyprland import setup_notes
+
+        inst.say("\n5. Hyprland")
+        setup_notes()
+    else:
+        inst.warn("Unknown desktop: desktop integration is unavailable; general CLI tools remain available")

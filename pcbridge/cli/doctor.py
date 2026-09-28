@@ -240,21 +240,23 @@ class Doctor:
                      "" if have else distrolib.install_command(pkg))
 
     def desktop(self) -> None:
-        from ..desktop.session import KDE, desktop_kind
+        from ..desktop.session import GNOME, KDE, HYPRLAND, desktop_kind
 
         g = "desktop"
-        kde = desktop_kind() == KDE
+        kind = desktop_kind()
         session = os.environ.get("XDG_SESSION_TYPE", "")
         wayland = bool(os.environ.get("WAYLAND_DISPLAY")) or session == "wayland"
         self.add(g, "session", "ok" if wayland else "warn",
                  f"XDG_SESSION_TYPE={session or '(unset)'}, WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY', '(unset)')}",
-                 "" if wayland else "desktop tools need a GNOME or KDE Plasma on Wayland session")
-        if kde:
+                 "" if wayland else "desktop tools need GNOME, KDE Plasma, or Hyprland on Wayland")
+        if kind == KDE:
             plasma = inst.run(["plasmashell", "--version"]).stdout.strip()
             self.add(g, "KDE Plasma", "ok" if plasma else "warn", plasma or "plasmashell not found")
-        else:
+        elif kind == GNOME:
             shell = inst.run(["gnome-shell", "--version"]).stdout.strip()
             self.add(g, "GNOME Shell", "ok" if shell else "warn", shell or "gnome-shell not found")
+        elif kind not in (HYPRLAND,):
+            self.add(g, "desktop backend", "fail", "Unknown desktop: desktop tools refuse; general CLI tools remain available")
         dev = Path("/dev/uinput")
         if not dev.exists():
             self.add(g, "/dev/uinput", "fail", "missing (uinput module not loaded)", udev_hint())
@@ -276,10 +278,14 @@ class Doctor:
             have = shutil.which(tool)
             self.add(g, tool, "ok" if have else level, have or "missing",
                      "" if have else distrolib.install_command(pkg))
-        if kde:
+        if kind == KDE:
             self.plasma(g)
-        else:
+        elif kind == GNOME:
             self.gnome_extension(g)
+        elif kind == HYPRLAND:
+            from .hyprland import doctor
+
+            doctor(self, g)
         if self.cfg is not None:
             try:
                 from ..desktop import monitors

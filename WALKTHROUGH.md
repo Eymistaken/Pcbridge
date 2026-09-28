@@ -1503,3 +1503,114 @@ PY' > /tmp/pcbridge-hyprland-tui-vm-evidence.log 2>&1
 **Remaining work:** Hyprland doctor/setup accuracy, portal/environment
 diagnostics, remaining input/geometry/security acceptance, and GNOME/KDE
 regression remain required. This is a TUI fix, not a supported-platform claim.
+
+**Local commit:** `cfabe33`.
+
+## Stage 10b: Diagnose the selected Hyprland session accurately
+
+**Objective/design:** Keep the same doctor/setup commands while dispatching
+GNOME, KDE, Hyprland, and UNKNOWN explicitly. Hyprland setup prints native
+requirements and independent portal package guidance; it does not install a
+GNOME extension, KWin permission, tray, or panel. Doctor observes the selected
+IPC, tested-version set, default helper, grantless native protocol handshake,
+authoritative lock, fresh idle, and exact active-grant presentation. Inactive
+frame state is explicitly unverified. Static/socket-activated integration
+services are inspected with is-active; enablement is not a capture requirement.
+
+**Files:** CLI doctor/main/ops, new CLI Hyprland diagnostics, doctor/setup
+contracts, new real doctor probe, measured facts, and this journal.
+
+**Evidence:** Before sync, the VM doctor still reported missing GNOME Shell
+and extension. After sync it reported selected Hyprland IPC, 0.56.2 as
+untested pending full acceptance, the release packaged helper, supported
+image-copy/output-source without capture, authoritative unlocked state,
+missing idle as a failure, and inactive frame as unverified. The full CLI
+doctor still exited 1 for installation/configuration requirements; this is
+not a claim that the entire installation is ready.
+
+The VM release build installed the standard ignored packaged helper and
+reported release, test_harness=false, protocol 1.0. The build ID was
+unknown-dirty because sync omits .git; this is not a commit-stamped artifact.
+The real probe used default packaged discovery without a config/environment
+binary override, public example settings without default-state write probes,
+and temporary public lease state. Doctor created no grant or lockfile. A fresh
+native watcher changed its idle diagnosis to known; a shared-gate grant then
+provided trusted presentation on eight strips. Watcher death became unknown,
+and a forced write returned the exact ACTIVITY_UNKNOWN code. Lock removed
+the grant/frame; all probe cleanup completed. No input or capture was sent.
+
+The portal measurement recorded all five user services active/running,
+static portal units, socket-activated PipeWire, enabled WirePlumber, the
+allowlisted manager environment, packaged default=hyprland;gtk, and all three
+D-Bus owners. This does not establish effective routing or screen sharing.
+Private portal configuration was not read. The VM uses the Arch cloud image
+and stock packaged SDDM/Hyprland configuration rather than an archinstall
+installation; that remains a documented difference from the target machine.
+
+**Exact tests:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_doctor_setup tests.contracts.test_cli tests.contracts.test_distro tests.contracts.test_capabilities tests.contracts.test_hyprland_session tests.contracts.test_hyprland_gate tests.contracts.test_desktop_gates > /tmp/pcbridge-hyprland-doctor-focused.log 2>&1`
+  — pass, 70 tests. The new test was checked retrospectively against isolated
+  HEAD Doctor.desktop below: one test, two expected failures (Hyprland and
+  UNKNOWN wrongly invoking the GNOME extension). This was not chronological TDD.
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_doctor_setup tests.contracts.test_cli_settings tests.contracts.test_distro tests.contracts.test_capabilities tests.contracts.test_hyprland_session tests.contracts.test_hyprland_gate tests.contracts.test_english_only > /tmp/pcbridge-hyprland-doctor-rechecked.log 2>&1`
+  — pass, 58 tests, including English-only contracts.
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_doctor_setup.LeaseFileTests > /tmp/pcbridge-hyprland-doctor-lease-red.log 2>&1`
+  — expected two failures before the quality fix: a FIFO blocked until the
+  isolated subprocess's two-second timeout and a symlink was incorrectly read.
+  The third size/mapping/regular-file contract already passed.
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_doctor_setup tests.contracts.test_cli tests.contracts.test_distro tests.contracts.test_capabilities tests.contracts.test_hyprland_session tests.contracts.test_hyprland_gate tests.contracts.test_desktop_gates > /tmp/pcbridge-hyprland-doctor-lease-focused.log 2>&1`
+  — pass, 73 tests after nonblocking no-follow regular-file reads were added.
+- `./.venv/bin/python tests/test_desktop.py > /tmp/pcbridge-hyprland-doctor-desktop.log 2>&1`
+  — pass, 615 checks without live input.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && scripts/build-native.sh' > /tmp/pcbridge-hyprland-release-build.log 2>&1`
+  — pass, release build in 1m03s; installed packaged helper, no service restart.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/pcbridge doctor --json > /tmp/pcbridge-hyprland-doctor-before.json' > /tmp/pcbridge-hyprland-doctor-before.log 2>&1`
+  — expected exit 1 before sync; wrong GNOME diagnostics reproduced.
+- `scripts/dev/hyprland-vm.sh sync && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/pcbridge doctor --json > /tmp/pcbridge-hyprland-doctor-after.json' > /tmp/pcbridge-hyprland-doctor-after.log 2>&1`
+  — expected overall exit 1; distinct accurate desktop observations above.
+- `scripts/dev/hyprland-vm.sh sync && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_DOCTOR=1 .venv/bin/python tests/live/hyprland/check_doctor.py' > /tmp/pcbridge-hyprland-doctor-live-final.log 2>&1`
+  — pass, exit 0 with machine-observed missing/fresh/dead idle, trusted active
+  frame, exact force refusal, no capture, and final cleanup.
+- `scripts/dev/hyprland-vm.sh session 'pacman -Q hyprland hypridle hyprlock xdg-desktop-portal xdg-desktop-portal-hyprland xdg-desktop-portal-gtk pipewire wireplumber && systemctl --user show xdg-desktop-portal.service xdg-desktop-portal-hyprland.service xdg-desktop-portal-gtk.service pipewire.service wireplumber.service -p Id -p ActiveState -p SubState -p UnitFileState -p MainPID && systemctl --user show-environment | sed -n -E "/^(XDG_CURRENT_DESKTOP|XDG_SESSION_TYPE|XDG_SESSION_DESKTOP|WAYLAND_DISPLAY|HYPRLAND_INSTANCE_SIGNATURE)=/p" && cat /usr/share/xdg-desktop-portal/hyprland-portals.conf && busctl --user --no-pager list | sed -n -E "/^org.freedesktop.(portal.Desktop|impl.portal.desktop.(hyprland|gtk))[[:space:]]/p"' > /tmp/pcbridge-hyprland-portal-services.log 2>&1`
+  — pass, independent public integration evidence above.
+- `scripts/dev/hyprland-vm.sh session 'systemctl --user show pipewire.socket -p Id -p ActiveState -p UnitFileState' > /tmp/pcbridge-hyprland-pipewire-socket.log 2>&1`
+  — pass; pipewire.socket was active and enabled, independently of the
+  disabled service's enablement state.
+- `./.venv/bin/python -m py_compile pcbridge/cli/doctor.py pcbridge/cli/hyprland.py pcbridge/cli/main.py pcbridge/cli/ops.py tests/contracts/test_hyprland_doctor_setup.py tests/live/hyprland/check_doctor.py && git diff --check && git diff --cached --check`
+  — pass.
+- `./.venv/bin/python -O tests/live/hyprland/check_doctor.py > /tmp/pcbridge-hyprland-doctor-optimized.log 2>&1`
+  — expected exit 1, unconditional refusal before config/state/grant/watcher
+  creation; optimized Python cannot disable the live containment assertions.
+
+The exact retrospective regression command, deliberately returning zero when
+the old implementation fails, was:
+
+```bash
+./.venv/bin/python - <<'PY' > /tmp/pcbridge-hyprland-doctor-baseline-red.log 2>&1
+import subprocess, unittest
+from pcbridge.cli.doctor import Doctor
+from tests.contracts.test_hyprland_doctor_setup import DesktopDispatchTests
+source = subprocess.run(['git','show','HEAD:pcbridge/cli/doctor.py'],capture_output=True,text=True,check=True).stdout
+namespace = {'__name__':'pcbridge.cli.doctor', '__package__':'pcbridge.cli'}
+exec(compile(source, '<HEAD doctor.py>', 'exec'), namespace)
+Doctor.desktop = namespace['Doctor'].desktop
+suite = unittest.TestSuite([DesktopDispatchTests('test_doctor_dispatch')])
+result = unittest.TextTestRunner(verbosity=2).run(suite)
+raise SystemExit(0 if not result.wasSuccessful() else 1)
+PY
+```
+
+**Review:** Independent spec review required the exact ACTIVITY_UNKNOWN code
+in the live refusal assertion; the source was fixed and the real VM rerun
+passed. Config loading also avoids default-state writes. Spec approval was
+received before the separate quality review. Quality review reproduced an
+unbounded FIFO open and symlink following in the public lease diagnostic.
+The read now uses a nonblocking no-follow descriptor, verifies a regular file
+with fstat, and retains the 64 KiB cap. New regression tests failed before the
+fix and passed afterward; the real VM probe was rerun at the fixed source.
+
+**Remaining work:** Additional input/clipboard/geometry/accessibility evidence,
+non-default runtime submap, nested smoke, complete security acceptance, existing
+platform regression, and final support documentation remain required. No
+supported-platform claim or push is made at this stage.
