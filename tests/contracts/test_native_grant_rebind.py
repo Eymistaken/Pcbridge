@@ -31,6 +31,7 @@ from pcbridge.desktop.backends.rust import (  # noqa: E402
     GrantBoundHelper,
     NativeScreenCast,
     RustInputProvider,
+    RustAccessibilityProvider,
 )
 from pcbridge.desktop.errors import DesktopError, ErrorCategory, ErrorCode  # noqa: E402
 from pcbridge.desktop.lease import LeaseToken  # noqa: E402
@@ -132,6 +133,19 @@ class Grants:
 
 
 class GrantBoundHelperTests(unittest.TestCase):
+    def test_admitted_request_metadata_cannot_adopt_a_new_parallel_grant(self) -> None:
+        cfg = load_config(str(ROOT / "config.example.toml"))
+        grants = Grants()
+        admitted = grants.current_token()
+        grants.unlock()
+        with mock.patch.object(grants, "last_token", return_value=admitted):
+            capture = NativeScreenCast(cfg, gate=grants, client_factory=Helpers())
+            input_provider = RustInputProvider(cfg, gate=grants, client_factory=Helpers())
+            accessibility = RustAccessibilityProvider(cfg, gate=grants, client_factory=Helpers())
+            self.assertEqual(capture._grant(), (admitted.grant_id, admitted.revoke_epoch))
+            self.assertEqual(input_provider._grant_params()["grant_id"], admitted.grant_id)
+            self.assertEqual(accessibility._dump_grant(), (admitted.grant_id, admitted.revoke_epoch))
+
     def test_the_same_grant_keeps_one_helper(self) -> None:
         helpers = Helpers()
         bound = GrantBoundHelper(helpers)

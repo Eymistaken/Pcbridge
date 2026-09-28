@@ -318,13 +318,13 @@ class NativeScreenCast:
         """The grant snapshot this capture belongs to.
 
         The native helper binds one grant at `initialize` and refuses any
-        request naming a different one. Passing the gate's current token is what
-        makes a revoke that happened between two calls come back as `REVOKED`
-        instead of a picture.
+        request naming a different one. The admitted call's captured identity
+        wins over a parallel replacement. Outside an admitted call, use the
+        current lease; native validation still decides whether it is valid.
         """
         token = None
         if self.gate is not None:
-            token = self.gate.current_token() or self.gate.last_token()
+            token = self.gate.last_token() or self.gate.current_token()
         if token is None:
             # A missing grant is a safety refusal, not a broken backend. Left
             # untyped it surfaced as BACKEND_UNAVAILABLE/capability (measured
@@ -800,7 +800,7 @@ class RustInputProvider(PythonInputProvider):
     def _grant_params(self) -> dict[str, Any]:
         token = None
         if self.gate is not None:
-            token = self.gate.current_token() or self.gate.last_token()
+            token = self.gate.last_token() or self.gate.current_token()
         if token is None:
             raise DesktopError(
                 code=ErrorCode.GRANT_REQUIRED,
@@ -1317,7 +1317,7 @@ class RustAccessibilityProvider(PythonAccessibilityProvider):
         # (expired, revoked) instead of this side guessing.
         token = None
         if self.gate is not None:
-            token = self.gate.current_token() or self.gate.last_token()
+            token = self.gate.last_token() or self.gate.current_token()
         if token is None:
             raise DesktopError(
                 code=ErrorCode.GRANT_REQUIRED,

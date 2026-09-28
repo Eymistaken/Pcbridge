@@ -960,3 +960,32 @@ Hyprland frame.
 known-idle enforcement under explicit force, provider emergency release, and
 real daemon/CLI grant lifecycle evidence. Production Hyprland unlock remains
 blocked by the gate in this intermediate commit.
+
+**Local commit:** `d287bb3`.
+
+## Stage 7b3c1: Preserve the admitted native request identity
+
+**Measured finding and plan adjustment:** Review found a replacement race
+between shared-gate verification and native request metadata. Capture, input,
+and accessibility adapters preferred `current_token()` over the already
+admitted call's token. A parallel unlock could therefore make an old call
+select the new grant's helper instead of preserving the identity it was
+verified under. Correct this independently before enabling the shared gate.
+
+**Design and files:** Prefer the captured call token for native request
+metadata, with current lease fallback only outside admission. Native helpers
+still validate their own bound lease before protected operations. Change the
+three adapters in `pcbridge/desktop/backends/rust.py`, add the replacement
+contract in `tests/contracts/test_native_grant_rebind.py`, and update this
+journal. New admitted calls still obtain a new helper as before.
+
+**Tests run:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_native_grant_rebind.GrantBoundHelperTests.test_admitted_request_metadata_cannot_adopt_a_new_parallel_grant`
+  — failed before the fix: actual `grant-2`, required captured `grant-1`.
+- `./.venv/bin/python -m unittest tests.contracts.test_native_grant_rebind`
+  — pass after the fix, 16 tests, including existing new-call helper rebinds.
+
+**Review:** No native helper can rebind an old initialized lease. The correction
+preserves that invariant in Python metadata and applies to GNOME/KDE as well
+as Hyprland. Shared gate/frame integration remains the next commit.
