@@ -568,6 +568,17 @@ outputs rebuilt it again. The guard uses ordered output identities as well
 as geometric topology, so renamed/swapped outputs cannot reuse old proof.
 No input or capture was opened by this test resource probe.
 
+### Grant-bound native Hyprland capture transport
+
+The production helper captured both 1280x800 VM outputs with exact magenta/cyan
+test-pattern markers and changing 631/632 counters. Output 2 at scale 1.25 and
+transform 1 yielded correctly oriented 800x1280 pixels with counter 633, also
+visually inspected. Frame-ready waits measured 18–28 ms; shared admission,
+request, metadata verification, decoding, and test image saving totaled
+218–247 ms. Explicit `desktop_lock` then refused capture with `REVOKED`.
+No input was sent. Python/tool/shot integration remains pending; these are
+native transport measurements, not complete platform acceptance.
+
 ## Terminal UI (settings CLI)
 
 Measured 2026-09-24 on the reference machine, gnome-terminal 130x40, the UI

@@ -706,11 +706,16 @@ impl Dispatcher {
                     .map_err(|error| format!("display config unavailable: {error}"))?,
             );
         }
-        self.display
+        let reader = self
+            .display
             .as_ref()
-            .expect("display reader was just constructed")
-            .snapshot()
-            .map_err(|error| error.to_string())
+            .expect("display reader was just constructed");
+        if DesktopKind::detect() == DesktopKind::Hyprland {
+            // Request metadata and pointer mapping must use the same fresh
+            // topology as the grant's presentation coverage validation.
+            reader.invalidate();
+        }
+        reader.snapshot().map_err(|error| error.to_string())
     }
 
     fn success(

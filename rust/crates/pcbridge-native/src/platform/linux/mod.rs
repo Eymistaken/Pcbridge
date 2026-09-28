@@ -9,6 +9,7 @@ pub mod glow_state;
 pub mod glow_watch;
 mod hyprland;
 pub mod idle;
+pub mod image_copy;
 pub mod input;
 pub mod kwin_screenshot;
 pub mod pipewire_source;

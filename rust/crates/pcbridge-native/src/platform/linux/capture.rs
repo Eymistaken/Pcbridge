@@ -39,6 +39,7 @@ use crate::lifecycle::Lifecycle;
 use crate::lifecycle::LifecycleFailure;
 use crate::platform::linux::desktop::DesktopKind;
 use crate::platform::linux::display::DisplaySnapshot;
+use crate::platform::linux::image_copy::ImageCopy;
 use crate::platform::linux::kwin_screenshot::KWinScreenShot;
 use crate::platform::linux::pipewire_source::PipeWireFrameSource;
 use crate::platform::linux::session::{
@@ -218,6 +219,7 @@ enum CaptureBackend {
         source: PipeWireFrameSource,
     },
     KWin(KWinScreenShot),
+    Hyprland(Arc<ImageCopy>),
 }
 
 impl NativeCapture {
@@ -228,7 +230,14 @@ impl NativeCapture {
                     backend: CaptureBackend::KWin(KWinScreenShot::connect()?),
                 });
             }
-            DesktopKind::Hyprland | DesktopKind::Unknown => {
+            DesktopKind::Hyprland => {
+                let capture = Arc::new(ImageCopy::default());
+                lifecycle.register_fail_closed(capture.clone());
+                return Ok(Self {
+                    backend: CaptureBackend::Hyprland(capture),
+                });
+            }
+            DesktopKind::Unknown => {
                 return Err(CaptureError::Unavailable(
                     "desktop capture backend unavailable".into(),
                 )
@@ -254,6 +263,7 @@ impl NativeCapture {
         match self.backend {
             CaptureBackend::Mutter { .. } => MUTTER_BACKEND,
             CaptureBackend::KWin(_) => KWIN_BACKEND,
+            CaptureBackend::Hyprland(_) => HYPRLAND_BACKEND,
         }
     }
 
@@ -263,6 +273,7 @@ impl NativeCapture {
         match self.backend {
             CaptureBackend::Mutter { .. } => "mutter",
             CaptureBackend::KWin(_) => "kwin",
+            CaptureBackend::Hyprland(_) => "hyprland",
         }
     }
 
@@ -281,6 +292,7 @@ impl NativeCapture {
         include_pointer: bool,
         lifecycle: &Lifecycle,
     ) -> Result<OpenOutcome, NativeCaptureError> {
+        lifecycle.check().map_err(CaptureError::Guard)?;
         if snapshot.topology_id != topology_id {
             return Err(NativeCaptureError::DisplayChanged);
         }
@@ -313,6 +325,7 @@ impl NativeCapture {
         timeout: Duration,
         lifecycle: &Lifecycle,
     ) -> Result<CapturedMonitor, NativeCaptureError> {
+        lifecycle.check().map_err(CaptureError::Guard)?;
         if snapshot.topology_id != topology_id {
             return Err(NativeCaptureError::DisplayChanged);
         }
@@ -344,6 +357,25 @@ impl NativeCapture {
             CaptureBackend::KWin(kwin) => {
                 capture_kwin(kwin, connector, include_pointer, lifecycle)?
             }
+            CaptureBackend::Hyprland(capture) => {
+                let started = Instant::now();
+                let source = capture.capture(connector, include_pointer, timeout, lifecycle)?;
+                let encoding = Instant::now();
+                let png = source.frame.to_png().map_err(CaptureError::Frame)?;
+                // Encoding can race expiry/replacement too. Never publish
+                // pixels after the initialized grant stops validating.
+                lifecycle.check().map_err(CaptureError::Guard)?;
+                CapturedPng {
+                    png,
+                    width: source.frame.width,
+                    height: source.frame.height,
+                    id: source.frame.id,
+                    identity_source: source.identity_source,
+                    stale_frames: 0,
+                    waited: source.received_at.saturating_duration_since(started),
+                    encoded_in: encoding.elapsed(),
+                }
+            }
         };
         Ok(CapturedMonitor {
             image,
@@ -357,6 +389,7 @@ impl NativeCapture {
 
 pub const MUTTER_BACKEND: &str = "linux.mutter.pipewire";
 pub const KWIN_BACKEND: &str = "linux.kwin.screenshot2";
+pub const HYPRLAND_BACKEND: &str = "linux.hyprland.image-copy";
 
 /// One `ScreenShot2` frame under the grant: checked before the call and
 /// again before it becomes a PNG, like the PipeWire worker.

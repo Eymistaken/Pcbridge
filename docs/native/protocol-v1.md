@@ -336,6 +336,16 @@ string is unchanged. The native monitor query has a 200 ms absolute deadline.
 The independent visibility cleanup timer remains free of compositor IPC;
 geometry rebuilds invalidate proof before committing new surfaces.
 
+The Hyprland capture transport uses `ext_image_copy_capture_v1` and
+`ext_output_image_capture_source_manager_v1`. Each request owns a fresh first
+frame/session, bounded packed SHM buffers (the existing 32-million-pixel core
+limit), and private unlinked files. Wayland waits honor deadlines and watchdog
+cancellation. The helper normalizes advertised transforms, releases the
+session before encoding, and validates its initialized grant before capture
+and after PNG encoding. The scheme is `hyprland:<connector>` and backend is
+`linux.hyprland.image-copy`. Native VM pixel/freshness evidence passes; the
+Python/tool/shot integration and full platform acceptance remain pending.
+
 Hyprland also requires a known, session-bound idle observation, including
 with explicit force. The independent guard closes resources on idle observer
 loss; unknown activity returns `ACTIVITY_UNKNOWN`. Force bypasses only the

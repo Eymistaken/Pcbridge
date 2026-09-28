@@ -1142,3 +1142,64 @@ lock, idle, and exact native owner; output proof adds no bypass or permission.
 Current native capture is still unavailable. Actual input transparency,
 capture/focus/uinput/clipboard acceptance, setup/TUI, and full GNOME/KDE
 regression remain required before platform support or push.
+
+**Local commit:** `d70ce51`.
+
+## Stage 8a: Native image-copy transport and verified output pixels
+
+**Objective/design:** Capture inside the exact grant-bound helper using the
+installed compositor's ext-image-copy and output-source protocols. Every
+request owns a new session and its first frame, avoiding old-frame reuse and
+indefinite later-frame damage waits. Registry/sync/constraint/frame waits share
+an absolute deadline and watchdog cancellation generation. Private create-new
+0600 SHM files are immediately unlinked; dimensions/formats are validated
+before allocation against the existing core limit. Normalize advertised
+transforms, release the session before encoding, then recheck authorization.
+Temporary observer recovery permits a new verified call, never the old call.
+No dependency or permission changes.
+
+Primary sources checked against installed XML and the compositor tag:
+[image-copy protocol](https://raw.githubusercontent.com/wayland-mirror/wayland-protocols/main/staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml),
+[output source](https://raw.githubusercontent.com/wayland-mirror/wayland-protocols/main/staging/ext-image-capture-source/ext-image-capture-source-v1.xml),
+[Hyprland 0.56.2 implementation](https://raw.githubusercontent.com/hyprwm/Hyprland/v0.56.2/src/protocols/ImageCopyCapture.cpp),
+[frame implementation](https://raw.githubusercontent.com/hyprwm/Hyprland/v0.56.2/src/managers/screenshare/ScreenshareFrame.cpp).
+
+**Files:** New Rust image-copy transport/pixel contracts, capture backend,
+dispatch/current snapshot handling, dedicated VM pixel probe, native/security/
+measured-facts documentation, and this journal.
+
+**Measurements/corrections:** Initial compile caught a missing explicit
+FrameError conversion. Initial VM capture verified five images, but post-lock
+returned DISPLAY_CHANGED because topology comparison preceded lease checking;
+capture/session now validate the lease first. Review found native cached
+geometry could label a new frame incorrectly; Hyprland requests now invalidate
+that cache, and the probe verifies returned desktop rectangles/topology.
+Both outputs passed exact magenta/cyan markers and counters 631/632 at
+1280x800. Scale 1.25/transform 1 passed correctly oriented 800x1280 and counter
+633. Ready waits were 18–28 ms, total calls 218–247 ms. Inspected the rotated
+PNG visually. Images remain at `~/pcbridge-evidence/native-capture/` in the VM.
+Post-lock capture returned REVOKED. No input or private config was used.
+
+**Exact tests:**
+
+- `cargo check --manifest-path rust/Cargo.toml -p pcbridge-native --locked > /tmp/pcbridge-hyprland-image-copy-check.log 2>&1`
+  — initial conversion error above; subsequent workspace build passed.
+- `cargo test --manifest-path rust/Cargo.toml -p pcbridge-native --locked --lib platform::linux::image_copy --test image_copy > /tmp/pcbridge-hyprland-image-copy-tests.log 2>&1`
+  — 2 deadline/cancellation library tests passed; the filter selected zero
+  external pixel tests, so ran them separately below.
+- `cargo test --manifest-path rust/Cargo.toml -p pcbridge-native --locked --test image_copy > /tmp/pcbridge-hyprland-image-copy-pixels.log 2>&1`
+  — 3 contracts passed: formats/dimensions, asymmetric pixels under all eight
+  transforms, malformed owned frames.
+- `cargo test --manifest-path rust/Cargo.toml --workspace --locked --no-fail-fast > /tmp/pcbridge-hyprland-native-capture-workspace.log 2>&1`
+  — pass, default workspace, exit 0.
+- `git add rust/crates/pcbridge-native/src/platform/linux/image_copy.rs rust/crates/pcbridge-native/tests/image_copy.rs tests/live/hyprland/check_native_capture.py && scripts/dev/hyprland-vm.sh sync && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge/rust && cargo build -p pcbridge-native --locked && cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_NATIVE_CAPTURE=1 .venv/bin/python tests/live/hyprland/check_native_capture.py --out-dir ~/pcbridge-evidence/native-capture' > /tmp/pcbridge-hyprland-native-capture-vm.log 2>&1`
+  — initial post-lock error above; pass afterward, five verified images.
+- `cargo fmt --all --check --manifest-path rust/Cargo.toml` — pass.
+- `./.venv/bin/python -m py_compile tests/live/hyprland/check_native_capture.py` — pass.
+- `git diff --check && git diff --cached --check` — pass.
+
+**Review/remaining work:** Checked allocation/metadata bounds, private files,
+selected session, cancellation, producer release, pre/post authorization.
+No external process or broad interpreter permission. Python capabilities,
+shot/window integration, revoke during capture, and actual input transparency
+remain the next stages; complete platform acceptance/regression remains pending.

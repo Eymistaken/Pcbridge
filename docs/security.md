@@ -124,6 +124,12 @@ can bypass the known user's conflict threshold, but cannot bypass unknown idle,
 lock, missing visibility, or lease checks. Capture/input VM acceptance and
 existing-platform regression are still required before a support claim.
 
+Native Hyprland screenshots own bounded SHM buffers and a fresh Wayland
+image-copy session per request. Watchdog generation changes cancel in-flight
+waits. Lease, frame, lock, and idle validation occurs before protected capture
+and again after PNG encoding. External `grim` processes and interpreter
+permissions do not belong to the production capture boundary.
+
 ### What `enabled = false` does NOT turn off
 
 Only the desktop tools. `shell_run`, `agent_run`, `fs_*` and `tmux_*` work
