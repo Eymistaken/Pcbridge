@@ -93,12 +93,15 @@ class DeviceOps:
         cfg: Any,
         capture_provider: CaptureProvider,
         window_provider=None,
+        *,
+        compositor_checkpoint=None,
     ) -> None:
         self.backend = backend
         self.tree = tree
         self.windows = window_provider if window_provider is not None else tree
         self.cfg = cfg
         self.capture_provider = capture_provider
+        self.compositor_checkpoint = compositor_checkpoint
         # `shot=` kimliginin aranacagi dizinler. cfg'den BIR KEZ okunuyor;
         # her eylemde yeniden hesaplamak bir listeyi kirk kez kurmak olurdu.
         self.shot_dirs = list(cfg.shot_search_dirs)
@@ -245,6 +248,7 @@ class DeviceOps:
                 self.windows.focused_window,
                 self.windows.windows,
                 deadline=_deadline(budget_left),
+                checkpoint=self.compositor_checkpoint,
             ).note
         except appslib.NoTimeLeft as exc:
             raise BudgetExceeded(str(exc)) from exc

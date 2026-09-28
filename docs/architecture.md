@@ -76,10 +76,12 @@ input.py       uinput keyboard + absolute/relative pointer; text via clipboard
 clipboard.py   wl-paste / wl-copy
 uitree.py      the accessibility tree as text, stable ids
 apps.py        launching and raising windows
-compositor.py  which compositor answers each question (GNOME Shell or KWin)
+compositor.py  explicit GNOME, KWin, Hyprland, and UNKNOWN transports
+hyprland.py    selected-session runtime context and guarded exact focus
+hyprland_windows.py compositor window identities, focus, and window capture regions
 kwin.py        the KWin screenshot authorization entry
 kwin_helper.py a one-shot KWin script (system python): raise / read windows
-idlewatch.py   Plasma's idle time, from the native helper's idle-watch
+idlewatch.py   Plasma/Hyprland idle time, from the session-bound native idle-watch
 a11y.py        Qt accessibility, switched on for a Plasma grant
 grantnotice.py the grant notification (Plasma: the grant's signal)
 batch.py       the action-list engine; knows nothing about devices (Ops protocol)

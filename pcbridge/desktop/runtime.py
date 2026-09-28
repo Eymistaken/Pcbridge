@@ -7,6 +7,7 @@ import threading
 import time
 from pathlib import Path
 from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Callable, Hashable, Iterator
 
 from ..config import Config
@@ -101,6 +102,8 @@ class DesktopRuntime:
         self._rate_limit = int(rate_limit or 0)
         self._execution_wait_seconds = float(execution_wait_seconds)
         self._resource_watch = None
+        self._active_sequence: ContextVar[tuple[executionlib.SequenceGuard, threading.Event] | None] = ContextVar(
+            "pcbridge_desktop_sequence", default=None)
 
     def _track_resources(self) -> None:
         if not getattr(self.gate, "requires_frame", False):
@@ -172,6 +175,7 @@ class DesktopRuntime:
             extension_focus = bool(self._extension_focus_probe())
         except Exception:
             extension_focus = False
+        comp = compositorlib.current()
         focus_usable = bool(
             extension_focus
             or (
@@ -186,6 +190,12 @@ class DesktopRuntime:
             if extension_focus
             else (keyboard, accessibility)
         )
+        if comp.kind == "hyprland":
+            listing = values.get("window.list")
+            focus_usable = bool(extension_focus and listing and listing.usable_now)
+            focus_dependencies = (listing,)
+        elif comp.kind == "unknown":
+            focus_usable = False
         focus_blocker = next(
             (
                 capability
@@ -210,7 +220,6 @@ class DesktopRuntime:
         else:
             focus_state = CapabilityState.UNAVAILABLE
             focus_reason = ErrorCode.BACKEND_UNAVAILABLE
-        comp = compositorlib.current()
         values["window.focus"] = self._observed_capability(
             "window.focus",
             focus_state,
@@ -219,6 +228,10 @@ class DesktopRuntime:
             reason_code=focus_reason,
             limitations=(
                 (
+                    "Open windows are activated by exact compositor identity and "
+                    "verified against fresh focus. Closed applications launch directly. "
+                    "Ambiguous targets are refused; no desktop-search keys are guessed."
+                    if comp.kind == "hyprland" else
                     f"Already-open windows use {comp.focus_path}; closed "
                     f"applications are launched directly; {comp.search_path} is the "
                     "fallback for a window it cannot activate. Results "
@@ -404,7 +417,8 @@ class DesktopRuntime:
             guard = executionlib.SequenceGuard(verify, None)
             self._admit(guard)
             self._track_resources()
-            yield guard
+            with self._sequence_context(guard):
+                yield guard
             return
         with self._execution_lock.hold(
             tool, timeout=self._execution_wait_seconds
@@ -414,7 +428,30 @@ class DesktopRuntime:
             )
             self._admit(guard)
             self._track_resources()
-            yield guard
+            with self._sequence_context(guard):
+                yield guard
+
+    @contextmanager
+    def _sequence_context(self, guard: executionlib.SequenceGuard) -> Iterator[None]:
+        closed = threading.Event()
+        marker = self._active_sequence.set((guard, closed))
+        try:
+            yield
+        finally:
+            closed.set()  # Copied task contexts cannot outlive the execution slot.
+            self._active_sequence.reset(marker)
+
+    def compositor_checkpoint(self) -> None:
+        """Recheck the exact admitted sequence before a compositor action."""
+        active = self._active_sequence.get()
+        if active is None or active[1].is_set():
+            from .errors import ErrorCategory
+
+            raise executionlib.SequenceRefused(code=ErrorCode.GRANT_REQUIRED,
+                category=ErrorCategory.SAFETY, message="No desktop write sequence is active",
+                retryable=False, suggested_action="Open a grant and use a desktop tool.",
+                permission_scope="pcbridge.desktop", backend="desktop.execution", execution_state="not_started")
+        active[0].admit()
 
     def _admit(self, guard: executionlib.SequenceGuard) -> None:
         try:

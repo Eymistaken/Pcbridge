@@ -39,7 +39,7 @@ PACKAGES=(
     python python-gobject python-cairo at-spi2-core qt6-wayland
     tmux wl-clipboard libnotify tesseract tesseract-data-eng
     base-devel git rust clang pkgconf namcap binutils
-    jq grim wayland-utils
+    jq grim wayland-utils xterm
 )
 
 die() { printf 'arch-vm: %s\n' "$*" >&2; exit 1; }

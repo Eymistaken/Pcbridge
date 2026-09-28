@@ -1,11 +1,12 @@
-"""Read-only Hyprland IPC observations for the selected user session."""
+"""Selected-session observations and narrowly scoped guarded window focus."""
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
-from typing import Any
+from typing import Any, Callable
 
 from . import session
 
@@ -15,7 +16,7 @@ class HyprlandIPCError(RuntimeError):
 
 
 def _query(command: str, *, json_output: bool, env: dict[str, str] | None = None) -> Any:
-    if command not in {"binds", "submap", "monitors", "clients", "activewindow", "locked", "layers"}:
+    if command not in {"binds", "submap", "monitors", "clients", "activewindow", "locked", "layers", "status"}:
         raise ValueError("Hyprland read-only query is not allowed")
     current = os.environ if env is None else env
     instance = session.hyprland_instance(current)
@@ -85,3 +86,39 @@ def screen_locked() -> bool | None:
         return None
     value = data.get("locked") if isinstance(data, dict) else None
     return value if type(value) is bool else None
+
+
+def focus_context() -> tuple[str, str]:
+    """Observe the actual active config provider; version alone is insufficient."""
+    env = dict(os.environ)
+    instance = session.hyprland_instance(env)
+    if instance is None:
+        raise HyprlandIPCError("No unambiguous Hyprland focus instance matches this session")
+    env["HYPRLAND_INSTANCE_SIGNATURE"] = instance["instance"]
+    env["WAYLAND_DISPLAY"] = instance["wl_socket"]
+    status = _query("status", json_output=True, env=env)
+    mode = status.get("configProvider") if isinstance(status, dict) else None
+    if mode not in ("lua", "hyprlang"):
+        raise HyprlandIPCError("Hyprland did not report a supported runtime config provider")
+    return instance["instance"], mode
+
+
+def focus_exact(address: str, stable_id: str, *, checkpoint: Callable[[], None]) -> None:
+    """Only one validated identity can enter this dispatcher; no arbitrary code."""
+    if (not re.fullmatch(r"0x[0-9a-fA-F]{1,16}", address) or int(address, 16) == 0
+            or (stable_id and not re.fullmatch(r"[0-9a-fA-F]{1,16}", stable_id))):
+        raise HyprlandIPCError("Invalid exact Hyprland focus identity")
+    instance, mode = focus_context()
+    selector = f"stableid:{stable_id}" if stable_id else f"address:{address}"
+    args = ["hyprctl", "-i", instance, "dispatch"]
+    if mode == "lua":
+        args.append(f'hl.dsp.focus({{window="{selector}"}})')
+    else:
+        args.extend(["focuswindow", f"address:{address}"])
+    checkpoint()  # Recheck the captured admission after every read-only lookup.
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise HyprlandIPCError("Hyprland focus dispatch did not return an acknowledgment") from error
+    if proc.returncode != 0 or proc.stdout.strip() != "ok":
+        raise HyprlandIPCError("Hyprland focus dispatch was not acknowledged")

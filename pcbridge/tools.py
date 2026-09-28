@@ -2783,8 +2783,9 @@ def register(
                 description="Application or window name as a human would say it, "
                 "e.g. 'Text Editor', 'Google Chrome', 'Vesktop'. The application "
                 "does NOT have to be running: a closed application is launched. "
-                "A window title only works while the GNOME Shell extension is "
-                "available; without it, give the installed application's name."
+                "On Hyprland, use an exact hyprland:0x... identity from window_list "
+                "or an unambiguous application/title. GNOME titles require its "
+                "Shell extension; without it, give the installed application's name."
             ),
         ],
         force: Annotated[
@@ -2829,7 +2830,8 @@ def register(
         started = time.monotonic()
         try:
             outcome = appslib.bring_to_front(
-                str(window), backend, windows.focused_window, windows.windows
+                str(window), backend, windows.focused_window, windows.windows,
+                checkpoint=runtime.compositor_checkpoint,
             )
         except (appslib.AppError, DesktopError) as exc:
             gate.audit("window_focus_error", target=str(window)[:60],
@@ -2853,7 +2855,8 @@ def register(
     # `DeviceOps` artik `desktop/ops.py`'de: ayni uygulamayi `bin/pcb-do`
     # kabugu da kullaniyor (F bolumu, yerel gorsel ajan). Burada bir kopya
     # dursaydi iki davranis zamanla ayrisirdi.
-    batch_ops = opslib.DeviceOps(backend, tree, cfg, capture_provider, windows)
+    batch_ops = opslib.DeviceOps(backend, tree, cfg, capture_provider, windows,
+                               compositor_checkpoint=runtime.compositor_checkpoint)
 
     @mcp.tool(
         output_schema=None,

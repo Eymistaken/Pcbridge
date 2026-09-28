@@ -599,6 +599,24 @@ tests now cover the actual IDs, retain bounded identity validation, and
 reject malformed IDs. Full input/platform acceptance and existing-platform
 regression remain required.
 
+### Hyprland activation by compositor identity
+
+`hyprctl -j status` on the installed 0.56.2 session reported
+`configProvider: lua`. The tagged implementation dispatches differently for
+Lua and hyprlang providers, so version alone cannot choose the syntax.
+The adapter queries that runtime field and sends only a generated exact
+identity selector. Actual resident MCP `window_focus` changed focus between
+the two test outputs/workspaces in 149–177 ms in the first combined run.
+Equal test-window titles returned `ELEMENT_AMBIGUOUS` with unchanged focus.
+The ordinary `computer_batch` focus path also passed without opening input
+devices. A test foot client moved to `special:pcbridge-focus` was focused
+from another window, and a real xterm client had `xwayland: true` and gained
+the exact requested focus. Existing provider contracts cover the hyprlang
+argument vector; that config provider has not yet been exercised in this VM.
+One probe initially assumed a focused baseline window and failed because a
+previous test had closed it; the probe now selects a known mapped VM window.
+Full input/platform acceptance remains pending.
+
 ## Terminal UI (settings CLI)
 
 Measured 2026-09-24 on the reference machine, gnome-terminal 130x40, the UI

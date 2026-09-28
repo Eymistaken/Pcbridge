@@ -146,6 +146,14 @@ def extension_focus_available() -> bool:
     GNOME: pcbridge's shell extension. KDE Plasma: KWin itself, which runs
     the one-shot scripts `kwin_helper.py` loads.
     """
+    if compositorlib.current().kind == "hyprland":
+        from . import hyprland
+
+        try:
+            hyprland.focus_context()
+        except hyprland.HyprlandIPCError:
+            return False
+        return True
     if compositorlib.is_kde():
         return _busctl_bool(
             "org.freedesktop.DBus",
@@ -972,6 +980,7 @@ def bring_to_front(
     settle: float = SEARCH_SETTLE,
     deadline: float | None = None,
     pool: list[Entry] | None = None,
+    checkpoint: Callable[[], None] | None = None,
 ) -> Outcome:
     """Pencereyi one al; uygulama kapaliysa ac. Sira modul basinda.
 
@@ -981,6 +990,38 @@ def bring_to_front(
     """
     if not _norm(window):
         raise AppError("`focus` needs a window or application name.")
+
+    if compositorlib.current().kind == "hyprland":
+        from .hyprland_windows import HyprlandWindowProvider
+
+        if checkpoint is None:
+            raise _refused(ErrorCode.GRANT_REQUIRED,
+                "Hyprland activation requires an admitted desktop write sequence",
+                "Open a grant and use window_focus or computer_batch.")
+        target = resolve_application(window, pool)
+        selected = HyprlandWindowProvider().activate(window, checkpoint=checkpoint,
+            deadline=deadline, application=target)
+        if selected:
+            return Outcome("compositor", f"{json.dumps(selected.app)} | {json.dumps(selected.title)} raised by Hyprland IPC",
+                           selected.app, selected.title)
+        if target.entry is None:
+            if target.rivals:
+                raise _refused(ErrorCode.ELEMENT_AMBIGUOUS, "More than one installed application matches",
+                               "Give the full installed application name.")
+            raise _refused(ErrorCode.TARGET_MISMATCH,
+                "No Hyprland window or installed application matches this target",
+                "Read window_list or give an installed application's name.")
+        if windows is None:
+            raise _refused(ErrorCode.BACKEND_UNAVAILABLE, "Window observations are required before launching",
+                           "Restore the selected Hyprland session.")
+        checkpoint()
+        launched = launch_application(target, focused, windows, deadline=deadline)
+        selected = HyprlandWindowProvider().activate(window, checkpoint=checkpoint,
+            deadline=deadline, application=target)
+        if selected is None:
+            raise _unknown("The application was launched but its Hyprland window could not be selected",
+                           "Inspect window_list before launching again.")
+        return Outcome("launch", launched.note + "; focus verified by Hyprland IPC", selected.app, selected.title)
 
     if activate_window(window):
         return Outcome("extension",

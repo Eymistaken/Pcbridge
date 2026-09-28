@@ -1270,3 +1270,70 @@ No new trust boundary, external screenshot process, or dependency. Acting
 focus, actual uinput/clipboard/pointer-lock, glow input transparency, portal
 environment, TUI/doctor/setup, full geometry/performance acceptance, and
 GNOME/KDE regression remain pending. Hyprland support and push are not claimed.
+
+**Local commit:** `47d550d`.
+
+## Stage 9a: Guarded compositor window activation
+
+**Objective/design:** Use exact runtime identities for normal MCP and batch
+focus without requiring uinput or AT-SPI. Rank human names safely; ties refuse
+before dispatch. Installed application identity matching handles localized
+names without launching a duplicate. Recheck selected identity and the shared
+admission before dispatch, then verify fresh compositor focus. A shared runtime
+checkpoint refers to the original sequence guard and expires with the execution
+slot, even in copied task contexts. It never captures a replacement token.
+Closed applications retain direct installed-entry launching; Hyprland never
+types guessed search keys. Only generated, bounded identity selectors enter
+the dispatcher, with no shell or arbitrary caller-provided Lua.
+
+**Measured design adjustment:** Hyprland 0.55/0.56 source supports both Lua
+and legacy config managers. The actual session's read-only `status` reports
+`configProvider: lua`; use this field rather than inferring dispatcher syntax
+from version or parsing config. Pin status discovery to the already selected
+instance/Wayland pair. Unknown providers fail closed, and an unsuccessful
+dispatch does not trigger another mutating fallback.
+
+**Files:** Hyprland IPC/window provider, shared apps/runtime/DeviceOps, MCP
+and pcb-do adapters, focused contracts, resident VM probe, VM xterm test
+dependency, architecture/security/measured-facts documentation, and journal.
+
+**Corrections/evidence:** New focus contracts initially failed because the
+adapter/checkpoint did not exist. Review added bounded selector checks,
+deadline verification after runtime discovery, expired-context refusal, and
+localized installed-app matching. The first actual MCP run verified monitor
+0/workspace 1 and monitor 1/workspace 2 in 151/176 ms. The expanded probe
+initially failed with a KeyError: it assumed an active baseline window after
+the previous pattern closed. It now uses a known mapped VM client instead.
+The expanded rerun passed both outputs, ambiguous-title refusal with unchanged
+focus, normal batch focus, a special-workspace foot client, and real XWayland
+xterm focus. The combined capture/focus run also decoded two counter-871 MCP
+images and retained every prior grant lifecycle assertion. No key, pointer,
+or clipboard input was requested. Test clients/grants/resources were closed.
+
+**Exact tests:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_focus > /tmp/pcbridge-hyprland-focus-red.log 2>&1`
+  — expected failure before implementation.
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_focus tests.contracts.test_window_focus tests.contracts.test_window_operations tests.contracts.test_kde_windows tests.contracts.test_runtime_contract tests.contracts.test_batch_safety tests.contracts.test_hyprland_gate tests.contracts.test_hyprland_windows tests.contracts.test_execution_paths > /tmp/pcbridge-hyprland-focus-contracts-final.log 2>&1`
+  — pass, 157 tests.
+- `./.venv/bin/python tests/test_desktop.py > /tmp/pcbridge-hyprland-focus-desktop.log 2>&1`
+  — pass, 615 checks without live input flags.
+- `scripts/dev/hyprland-vm.sh ssh 'sudo pacman -S --noconfirm --needed xterm' > /tmp/pcbridge-hyprland-xterm-install.log 2>&1`
+  — pass; only the isolated VM was changed. Added xterm to VM provisioning.
+- `scripts/dev/hyprland-vm.sh sync && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_GRANT_LIFECYCLE=1 PCBRIDGE_TEST_HYPRLAND_RESIDENT_CAPTURE=1 PCBRIDGE_TEST_HYPRLAND_RESIDENT_FOCUS=1 .venv/bin/python tests/live/hyprland/check_grant_lifecycle.py' > /tmp/pcbridge-hyprland-focus-vm-verified.log 2>&1`
+  — combined resident capture/focus/lifecycle evidence above; final exit and
+  measurements confirmed: exit 0, output focus 170/178 ms, special and
+  XWayland exact focus, dead-frame lease retirement 102 ms.
+- `./.venv/bin/python -m py_compile pcbridge/desktop/apps.py pcbridge/desktop/hyprland.py pcbridge/desktop/hyprland_windows.py pcbridge/desktop/runtime.py pcbridge/desktop/ops.py pcbridge/tools.py pcbridge/cli/do.py tests/live/hyprland/check_grant_lifecycle.py` — pass.
+- `bash -n scripts/dev/hyprland-vm.sh` — pass.
+- `git diff --check && git diff --cached --check` — pass.
+
+**Review/remaining work:** Exact admission belongs to the active execution
+slot; read-only context cannot grant control. IPC focus does not replace the
+uinput model, weaken idle/lock/frame checks, or bypass content policy. Lua
+focus has real VM evidence; hyprlang syntax has contract/source evidence and
+still needs a live compatible session before a parity claim. VM uinput remains
+root-only until the existing package rule is installed in the next stage.
+Actual input/clipboard/lock-pointer and glow transparency, TUI/doctor/setup,
+portal environment, full geometry/performance acceptance, and GNOME/KDE
+regression remain required. No platform support claim or push yet.

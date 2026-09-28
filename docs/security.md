@@ -134,6 +134,16 @@ checks it before each artifact and at completion. Revoke, output changes, or
 focused-window identity/geometry changes withdraw the newly published PNGs
 and metadata instead of returning an obsolete shot.
 
+Window activation receives a checkpoint belonging to the current shared
+write sequence. It rechecks that sequence's captured token after read-only
+target/session lookups and before dispatch. The checkpoint expires with the
+execution slot, including in copied task contexts. Human names never enter
+the dispatcher: only bounded, validated compositor identities do. Ambiguous
+matches and reused identities fail safely; a dispatcher acknowledgment must
+be followed by matching fresh compositor focus. Runtime config provider
+selection controls Lua versus hyprlang syntax; no guessed desktop shortcut
+or retry with another mutating dispatcher is used.
+
 ### What `enabled = false` does NOT turn off
 
 Only the desktop tools. `shell_run`, `agent_run`, `fs_*` and `tmux_*` work

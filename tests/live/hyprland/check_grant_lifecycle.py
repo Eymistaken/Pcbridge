@@ -58,6 +58,8 @@ def main():
     assert hyprland.screen_locked() is False
     assert not layers(), "Refuse to overlap a resident frame"
     assert idlewatch.read_idle_ms() is None, "Refuse to replace a resident idle watcher"
+    original_window = next((item for item in hyprland._query("clients", json_output=True)
+                            if item["mapped"]), None)
     binary = (ROOT / "rust/target/debug/pcbridge-native").resolve()
     with tempfile.TemporaryDirectory(prefix="pcbridge-resident-grant-") as temporary:
         directory = Path(temporary).resolve()
@@ -77,9 +79,12 @@ def main():
         idle_identity = None
         pattern = None
         capture_evidence = []
+        focus_evidence = []
+        focus_clients = []
         with (directory / "daemon.log").open("wb") as log:
             try:
-                if os.environ.get("PCBRIDGE_TEST_HYPRLAND_RESIDENT_CAPTURE") == "1":
+                if (os.environ.get("PCBRIDGE_TEST_HYPRLAND_RESIDENT_CAPTURE") == "1"
+                        or os.environ.get("PCBRIDGE_TEST_HYPRLAND_RESIDENT_FOCUS") == "1"):
                     pattern = subprocess.Popen(["/usr/bin/python3", str(ROOT / "tests/live/pattern_window.py"), "--timeout", "120"],
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
                     reader = LineReader(pattern.stdout)
@@ -139,7 +144,7 @@ def main():
                 assert not tool("system_capabilities").get("isError")
                 # The CLI has already exited; the daemon still owns the same frame.
                 assert health(first)["pid"] == record["pid"]
-                if pattern:
+                if os.environ.get("PCBRIDGE_TEST_HYPRLAND_RESIDENT_CAPTURE") == "1":
                     from PIL import Image
 
                     result = rpc("tools/call", {"name": "screen_capture", "arguments": {
@@ -153,6 +158,65 @@ def main():
                             assert read_counter(image) == 871
                             assert close_to(marker_color(image), MARKERS[index])
                             capture_evidence.append({"output": index + 1, "counter": 871, "pixels": image.size})
+
+                if os.environ.get("PCBRIDGE_TEST_HYPRLAND_RESIDENT_FOCUS") == "1":
+                    assert original_window, "The focus probe needs one pre-existing VM test window"
+                    listed = hyprland._query("clients", json_output=True)
+                    candidates = [item for item in listed if item["pid"] == pattern.pid and item["mapped"]]
+                    assert len(candidates) == 2
+                    initial = hyprland._query("activewindow", json_output=True)["stableId"]
+                    ambiguous = rpc("tools/call", {"name": "window_focus", "arguments": {
+                        "window": candidates[0]["title"], "force": True}})
+                    assert ambiguous.get("isError"), ambiguous
+                    assert ambiguous["structuredContent"]["error"]["code"] == "ELEMENT_AMBIGUOUS", ambiguous
+                    assert hyprland._query("activewindow", json_output=True)["stableId"] == initial
+                    for item in candidates:
+                        started = time.monotonic()
+                        focused = rpc("tools/call", {"name": "window_focus", "arguments": {
+                            "window": "hyprland:" + item["address"], "force": True}})
+                        assert not focused.get("isError"), focused
+                        current = hyprland._query("activewindow", json_output=True)
+                        assert current["stableId"] == item["stableId"] and current["pid"] == pattern.pid
+                        focus_evidence.append({"stable_id": item["stableId"], "monitor": current["monitor"],
+                            "workspace": current["workspace"]["name"], "verified_ms": round((time.monotonic() - started) * 1000)})
+                    batched = rpc("tools/call", {"name": "computer_batch", "arguments": {
+                        "actions": json.dumps([{"a": "focus", "window": "hyprland:" + item["address"]}
+                                               for item in reversed(candidates)]), "final": "none", "force": True}})
+                    assert not batched.get("isError"), batched
+                    assert hyprland._query("activewindow", json_output=True)["stableId"] == candidates[0]["stableId"]
+                    pattern.stdin.write("quit\n")
+                    pattern.stdin.flush()
+                    pattern.wait(timeout=5)
+
+                    for label, argv in (("special", ["foot", "--app-id=PcBridgeFocusSpecial", "--title=PcBridge-Special-Focus"]),
+                                        ("xwayland", ["xterm", "-class", "PcBridgeFocusXWayland", "-T", "PcBridge-XWayland-Focus"])):
+                        process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log)
+                        focus_clients.append(process)
+                        def find_client():
+                            return next((item for item in hyprland._query("clients", json_output=True)
+                                         if item["pid"] == process.pid and item["mapped"]), None)
+                        item = wait_for(find_client, description=f"mapped {label} test client")
+                        if label == "special":
+                            diagnostic = f'hl.dsp.window.move({{window="stableid:{item["stableId"]}",workspace="special:pcbridge-focus"}})'
+                            moved = subprocess.run(["hyprctl", "dispatch", diagnostic], capture_output=True, text=True, timeout=3)
+                            assert moved.returncode == 0 and moved.stdout.strip() == "ok"
+                            wait_for(lambda: find_client()["workspace"]["name"] == "special:pcbridge-focus",
+                                     description="test client on special workspace")
+                        else:
+                            assert item["xwayland"] is True
+                        # Focus an unrelated existing window before the tested activation.
+                        prior = next(row for row in hyprland._query("clients", json_output=True)
+                                     if row["stableId"] == original_window["stableId"])
+                        unrelated = rpc("tools/call", {"name": "window_focus", "arguments": {
+                            "window": "hyprland:" + prior["address"], "force": True}})
+                        assert not unrelated.get("isError"), unrelated
+                        focused = rpc("tools/call", {"name": "window_focus", "arguments": {
+                            "window": "hyprland:" + item["address"], "force": True}})
+                        assert not focused.get("isError"), focused
+                        current = hyprland._query("activewindow", json_output=True)
+                        assert current["stableId"] == item["stableId"]
+                        focus_evidence.append({"kind": label, "stable_id": current["stableId"],
+                            "workspace": current["workspace"]["name"], "xwayland": current["xwayland"]})
 
                 cli(["unlock", "--minutes", "1", "--reason", "Replacement resident lifecycle probe"])
                 replacement = store.snapshot().token()
@@ -208,7 +272,7 @@ def main():
                     "stale_presentation": "paused", "dead_frame_retirement_ms": dead_ms,
                     "sliding_expiry": "passed", "cli_and_mcp_lock": "passed",
                     "parent_death": "closed", "input_requested": False,
-                    "resident_capture": capture_evidence}}, sort_keys=True))
+                    "resident_capture": capture_evidence, "resident_focus": focus_evidence}}, sort_keys=True))
             finally:
                 store.revoke()
                 if client:
@@ -230,6 +294,10 @@ def main():
                     pattern.stdin.write("quit\n")
                     pattern.stdin.flush()
                     pattern.wait(timeout=5)
+                for process in focus_clients:
+                    if process.poll() is None:
+                        process.terminate()
+                        process.wait(timeout=5)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 from dataclasses import dataclass
+from typing import Callable
 
 from . import hyprland
 from .errors import DesktopError, ErrorCategory, ErrorCode
@@ -163,6 +165,61 @@ class HyprlandWindowProvider:
     def capability_token(self) -> tuple[bool, str]:
         return self.available()
 
+    def activate(self, target: str, *, checkpoint: Callable[[], None],
+                 deadline: float | None = None, application=None) -> Window | None:
+        """Resolve unambiguously, dispatch one exact identity, verify actual focus."""
+        from .apps import _is_app, _norm, NoTimeLeft
+
+        query = _norm(target)
+        if not query or len(target) > 200:
+            raise _focus_error(ErrorCode.TARGET_MISMATCH, "A window target must contain 1–200 characters")
+        ranked = []
+        for window in self.windows():
+            exact = target.lower() in (window.ref, f"address:{window.address}",
+                                       f"stableid:{window.stable_id}" if window.stable_id else "")
+            scores = [4 if exact else 0]
+            if not target.lower().startswith(("hyprland:", "address:", "stableid:")):
+                for field in (window.app, window.title):
+                    value = _norm(field)
+                    scores.append(3 if value == query else
+                                  2 if value.startswith(query) or value.endswith(query) else
+                                  1 if query in value else 0)
+                if application and application.entry and _is_app(application.entry, window.app):
+                    scores.append(3)
+            if max(scores):
+                ranked.append((max(scores), window))
+        if not ranked:
+            return None
+        best = max(score for score, _ in ranked)
+        matches = [window for score, window in ranked if score == best]
+        if len(matches) != 1:
+            raise _focus_error(ErrorCode.ELEMENT_AMBIGUOUS,
+                "More than one Hyprland window matches; use the exact identity from window_list")
+        window = matches[0]
+        checkpoint()
+        if window.identity not in {current.identity for current in self.windows()}:
+            raise _focus_error(ErrorCode.ELEMENT_STALE, "The selected Hyprland window identity changed")
+        def before_dispatch():
+            checkpoint()
+            if deadline is not None and time.monotonic() >= deadline:
+                raise NoTimeLeft("No time remains to activate the selected Hyprland window")
+        try:
+            hyprland.focus_exact(window.address, window.stable_id, checkpoint=before_dispatch)
+            until = min(time.monotonic() + 1, deadline) if deadline is not None else time.monotonic() + 1
+            while True:
+                checkpoint()
+                focused = self._focused()
+                if focused and focused.identity == window.identity:
+                    return focused
+                if time.monotonic() >= until:
+                    break
+                time.sleep(0.05)
+        except hyprland.HyprlandIPCError as error:
+            raise _focus_error(ErrorCode.EXECUTION_UNKNOWN,
+                "Hyprland activation could not be verified; inspect focus before retrying", sent=True) from error
+        raise _focus_error(ErrorCode.EXECUTION_UNKNOWN,
+            "Hyprland acknowledged activation but the selected window did not gain focus", sent=True)
+
     def describe_windows(self, windows: list[Window]) -> str:
         if not windows:
             return "No mapped Hyprland windows."
@@ -171,3 +228,9 @@ class HyprlandWindowProvider:
             f"{json.dumps(w.app)} · {json.dumps(w.title)} · pid {w.app_pid}"
             for w in windows
         )
+
+
+def _focus_error(code: ErrorCode, message: str, *, sent: bool = False) -> DesktopError:
+    return DesktopError(code=code, category=ErrorCategory.EXECUTION, message=message,
+        retryable=False, suggested_action="Inspect window_list and use an exact window identity.",
+        permission_scope="os.window", backend=BACKEND, execution_state="unknown" if sent else "not_started")
