@@ -522,6 +522,8 @@ class RustCaptureProvider(PythonCaptureProvider):
     would otherwise answer for the wrong backend.
     """
 
+    _grant_bound_native = True
+
     def __init__(
         self,
         cfg: Config,
@@ -692,6 +694,10 @@ class RustCaptureProvider(PythonCaptureProvider):
         reserved_dirs: Sequence[Path] = (),
         region: Any = None,
     ) -> list[capturelib.Shot]:
+        if compositorlib.current().kind in ("hyprland", "unknown"):
+            # No gnome-screenshot fallback at this native trust boundary.
+            # Startup refuses until the selected native backend is ready.
+            self.start(cursor=include_pointer)
         try:
             return super().capture(
                 spec,

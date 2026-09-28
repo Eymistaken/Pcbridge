@@ -288,7 +288,7 @@ class NativeHandle(unittest.TestCase):
 
         handle = native_handle(self.cfg, self.client)
         with tempfile.TemporaryDirectory() as tmp, \
-                mock.patch.object(compositor, "is_kde", return_value=True), \
+                mock.patch.object(compositor, "current", return_value=compositor.KWIN), \
                 mock.patch.object(monitorslib, "list_monitors", return_value=MONITORS):
             handle.capture("DP-4", Path(tmp) / "frame.png")
         params = next(
@@ -379,7 +379,7 @@ class NativeHandle(unittest.TestCase):
                                   (Path("/x/pcbridge-native.desktop"), CapabilityState.SUPPORTED)):
             with self.subTest(authorized=authorized), \
                     mock.patch(ready[0], return_value=ready[1]), \
-                    mock.patch.object(compositor, "is_kde", return_value=True), \
+                    mock.patch.object(compositor, "current", return_value=compositor.KWIN), \
                     mock.patch("pcbridge.desktop.backends.rust.discover_native_binary",
                                return_value=Path("/x/pcbridge-native")), \
                     mock.patch.object(kwin, "helper_authorized", return_value=authorized), \

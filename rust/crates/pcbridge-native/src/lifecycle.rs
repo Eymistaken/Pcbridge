@@ -118,6 +118,7 @@ pub struct Lifecycle {
     desktop_state: Arc<dyn DesktopStateProvider>,
     visibility: Option<Arc<dyn FrameVisibilityProvider>>,
     visibility_lost: Arc<AtomicBool>,
+    activity_lost: Arc<AtomicBool>,
     resources: Arc<FailClosedRegistry>,
     stop: Arc<AtomicBool>,
     lease_watchdog: Option<JoinHandle<()>>,
@@ -189,6 +190,7 @@ impl Lifecycle {
         let resources = Arc::new(FailClosedRegistry::default());
         let stop = Arc::new(AtomicBool::new(false));
         let visibility_lost = Arc::new(AtomicBool::new(false));
+        let activity_lost = Arc::new(AtomicBool::new(false));
 
         let lease_path = state_path.clone();
         let lease_token = expected.clone();
@@ -267,6 +269,8 @@ impl Lifecycle {
             let lost = Arc::clone(&visibility_lost);
             let resource = Arc::clone(&resource_open);
             let registry = Arc::clone(&resources);
+            let activity_state = Arc::clone(&desktop_state);
+            let unknown_activity = Arc::clone(&activity_lost);
             match thread::Builder::new()
                 .name(format!("pcbridge-native-frame-{}", std::process::id()))
                 .spawn(move || {
@@ -282,6 +286,16 @@ impl Lifecycle {
                             resource.store(false, Ordering::Release);
                             if !lost.swap(true, Ordering::AcqRel) {
                                 registry.close_all(LifecycleFailure::VisibleFrameUnavailable);
+                            }
+                        }
+                        // Hyprland force never bypasses an unreadable idle
+                        // observer. This record read does not wait on lock IPC.
+                        if activity_state.user_activity().state == ActivityState::Known {
+                            unknown_activity.store(false, Ordering::Release);
+                        } else {
+                            resource.store(false, Ordering::Release);
+                            if !unknown_activity.swap(true, Ordering::AcqRel) {
+                                registry.close_all(LifecycleFailure::ActivityUnknown);
                             }
                         }
                     }
@@ -306,6 +320,7 @@ impl Lifecycle {
             desktop_state,
             visibility,
             visibility_lost,
+            activity_lost,
             resources,
             stop,
             lease_watchdog: Some(lease_watchdog),
@@ -398,6 +413,14 @@ impl Lifecycle {
                 return Err(LifecycleFailure::VisibleFrameUnavailable);
             }
             self.visibility_lost.store(false, Ordering::Release);
+            if self.desktop_state.user_activity().state != ActivityState::Known {
+                self.resource_open.store(false, Ordering::Release);
+                if !self.activity_lost.swap(true, Ordering::AcqRel) {
+                    self.resources.close_all(LifecycleFailure::ActivityUnknown);
+                }
+                return Err(LifecycleFailure::ActivityUnknown);
+            }
+            self.activity_lost.store(false, Ordering::Release);
         }
         Ok(())
     }

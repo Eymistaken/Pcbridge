@@ -989,3 +989,94 @@ journal. New admitted calls still obtain a new helper as before.
 **Review:** No native helper can rebind an old initialized lease. The correction
 preserves that invariant in Python metadata and applies to GNOME/KDE as well
 as Hyprland. Shared gate/frame integration remains the next commit.
+
+**Local commit:** `8db6883`.
+
+## Stage 7b3c2: Shared-gate visibility, idle, and resource lifecycle
+
+**Objective:** Open a Hyprland grant only after actual native presentation,
+then preserve all shared admission/per-action checks and emergency cleanup.
+
+**Design:** The shared SafetyGate owns a lazy FrameOwner only when opening a
+Hyprland grant. Preflight requires desktop enabled, known-unlocked lock, known
+idle, and the configured native helper. Opening is serialized; explicit lock
+still revokes the shared lease before waiting for ownership cleanup. Success
+requires fresh trusted health and final safety validation; startup failure
+conditionally retires only that token. Pending/success/denial/owner-exit events
+are audited. Nonowner gate closure never retires a resident grant.
+
+Every admission checks frame health; every admitted action checks the same
+grant and known idle. Explicit force bypasses the known user's conflict
+threshold, not UNKNOWN idle. Per-action verification does not repeat the
+threshold/rate counter. Native lifecycle enforces known idle and releases
+resources on observer loss independently of lock IPC. Python ResourceWatch
+tracks the captured resource token, closes providers on failed non-sliding
+health, and serializes cleanup with tracking a new call. Runtime shutdown
+closes every provider even if owner cleanup fails. GNOME/KDE retain their
+existing force/admission semantics.
+
+CLI status pauses on missing trusted presentation. The resident CLI client
+confirms exact returned lease identity and actual native frame health after
+the MCP response; missing proof retires only that lease. Tools return typed
+unlock refusals and snapshot one captured grant's metadata, never a mixture
+of parallel grants. No new executable, command, TUI, or panel requirement.
+Hyprland/UNKNOWN Python capture refuses before any legacy external screenshot
+route. The Rust adapter requires native session startup before capture; this
+currently reports the unimplemented native backend truthfully. Hyprland grant
+responses no longer advertise the GNOME screenshot fallback.
+
+**Files changed:** Shared safety/runtime/frame owner/resource watcher; CLI
+grant state/confirmation; MCP grant result; native lifecycle/state contracts;
+Python gate/runtime/confirmation/session contracts; native guard and resident
+VM probes; capture route adapters and selection contracts;
+security/protocol/measured-facts documentation; this journal.
+
+**Measurements and corrections:** Actual VM CLI exit preserved eight strips
+owned by the daemon PID. Replacement preserved exact identity; closing a
+consumer left the resident frame untouched. Stopped presentation paused status
+and refused window reads; killed helper retirement took 102 ms. The real
+minimum 10-second sliding expiry, CLI lock, MCP lock, and parent SIGKILL all
+closed control and removed layers. An initial 3-second test config was rejected
+by existing validation before daemon startup; adjusted the probe to the real
+minimum. A contract probing pending admission cleared its ContextVar during
+startup; success now explicitly restores its captured token. Earlier session
+tests expected the temporary ValueError prohibition; they now check UNKNOWN's
+typed refusal and dedicated Hyprland safety cases.
+The expanded capture suite failed two KDE fixtures, also in isolation: they
+mocked `is_kde()` while the explicit compositor selection now uses `current()`.
+Updated those fixtures to the KWin descriptor. The final resident probe at the
+current source revision measured killed-helper retirement at 101 ms.
+
+**Tests run:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_gate tests.contracts.test_daemon_grant tests.contracts.test_glow_owner tests.contracts.test_runtime_contract tests.contracts.test_batch_safety tests.contracts.test_grant_cli tests.contracts.test_hyprland_session tests.contracts.test_mcp_errors tests.contracts.test_native_grant_rebind tests.contracts.test_capture_contract tests.contracts.test_capture_backend_selection > /tmp/pcbridge-hyprland-gate-final-contracts.log 2>&1`
+  — failed two stale KDE fixtures before correction; pass afterward, 151 tests.
+- `./.venv/bin/python -m unittest tests.contracts.test_capture_backend_selection > /tmp/pcbridge-hyprland-capture-selection-isolated.log 2>&1`
+  — reproduced the same two failures among 27 tests before fixture correction.
+- `(cd rust && cargo fmt --all && cargo test -p pcbridge-native --locked --features test-harness --test desktop_state --test native_revoke)`
+  — pass, 8 state and 7 revoke contracts. Recording keyboard released Shift
+  on unknown idle within 250 ms; late registration was closed immediately.
+- `(cd rust && cargo test --workspace --locked --no-fail-fast > /tmp/pcbridge-hyprland-gate-default-rust.log 2>&1 && cargo test --workspace --locked --features pcbridge-native/test-harness --no-fail-fast > /tmp/pcbridge-hyprland-gate-harness-rust.log 2>&1)`
+  — pass, both builds, exit 0.
+- `./.venv/bin/python tests/test_desktop.py > /tmp/pcbridge-hyprland-gate-desktop.log 2>&1`
+  — pass, 615 checks without live input flags.
+- `scripts/dev/hyprland-vm.sh sync` — pass.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge/rust && cargo build -p pcbridge-native --locked && cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_GRANT_LIFECYCLE=1 .venv/bin/python tests/live/hyprland/check_grant_lifecycle.py'`
+  — first run stopped at the invalid 3-second config; final rerun of the
+  probe at 10 seconds passed every actual CLI/daemon lifecycle case.
+- `scripts/dev/hyprland-vm.sh sync && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_GRANT_LIFECYCLE=1 .venv/bin/python tests/live/hyprland/check_grant_lifecycle.py' > /tmp/pcbridge-hyprland-gate-vm-final.log 2>&1`
+  — pass at the final source revision; eight strips, every lifecycle case above.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge/rust && cargo build -p pcbridge-native --locked --features test-harness && cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_FRAME_GUARD=1 .venv/bin/python tests/live/hyprland/check_glow_guard.py && cd rust && cargo build -p pcbridge-native --locked'`
+  — pass, real lock/idle/frame providers and only the test resource flag;
+  stale frame closed at 1029 ms, killed frame at 103 ms. Default build restored.
+- `cargo fmt --all --check --manifest-path rust/Cargo.toml` — pass.
+- `./.venv/bin/python -m py_compile pcbridge/desktop/safety.py pcbridge/desktop/resourcewatch.py pcbridge/desktop/runtime.py pcbridge/desktop/backends/python.py pcbridge/desktop/backends/rust.py pcbridge/cli/daemon_grant.py pcbridge/cli/grant.py pcbridge/tools.py tests/live/hyprland/check_grant_lifecycle.py tests/live/hyprland/check_glow_guard.py` — pass.
+- `git diff --check` — pass.
+
+**Review and remaining work:** Checked exact-token ownership/conditional revoke,
+lease-before-cleanup ordering, no sliding in watchdogs, no unknown-idle force
+bypass, native/Python held-resource cleanup, typed startup errors, and metadata
+confirmation. Platform support is still not claimed. Fresh physical topology
+validation, actual all-edge input transparency, native capture, acting focus,
+uinput/clipboard acceptance, doctor/setup/TUI fixes, and full platform
+regression remain required.

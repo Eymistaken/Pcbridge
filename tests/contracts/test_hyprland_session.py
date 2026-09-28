@@ -65,8 +65,9 @@ class HyprlandSessionTests(unittest.TestCase):
         self.assertIsNone(report["plasma"])
         self.assertTrue(any("untested" in note for note in report["notes"]))
 
-    def test_unready_hyprland_and_unknown_cannot_open_or_use_a_grant(self) -> None:
+    def test_unknown_cannot_open_or_use_a_grant(self) -> None:
         from pcbridge.desktop import safety
+        from pcbridge.desktop.errors import DesktopError
 
         with tempfile.TemporaryDirectory() as temporary:
             cfg = SimpleNamespace(
@@ -75,11 +76,12 @@ class HyprlandSessionTests(unittest.TestCase):
                                         unlock_max_minutes=60),
             )
             gate = safety.SafetyGate(cfg)
-            for kind in (session.HYPRLAND, session.UNKNOWN):
+            for kind in (session.UNKNOWN,):
                 with self.subTest(kind=kind), \
                         mock.patch.object(session, "desktop_kind", return_value=kind):
-                    with self.assertRaisesRegex(ValueError, "visible grant frame"):
+                    with self.assertRaises(DesktopError) as caught:
                         gate.unlock(1)
+                    self.assertEqual(caught.exception.code, safety.ErrorCode.BACKEND_UNAVAILABLE)
                     self.assertFalse(gate.is_unlocked())
                     self.assertEqual(gate.check("screen_capture").code,
                                      safety.ErrorCode.BACKEND_UNAVAILABLE)

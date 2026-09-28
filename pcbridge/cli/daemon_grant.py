@@ -13,6 +13,31 @@ MAX_REPLY_BYTES = 256 * 1024
 REQUEST_TIMEOUT_SECONDS = 30.0
 
 
+def _confirm(cfg, structured: dict) -> None:
+    from .grant import GrantError
+    from ..desktop import glowstate
+    from ..desktop.errors import DesktopError
+    from ..desktop.lease import LeaseStore, LeaseToken
+    from ..native.discovery import discover_native_binary
+
+    value = structured.get("grant")
+    if (not isinstance(value, dict) or not isinstance(value.get("grant_id"), str) or not value["grant_id"]
+            or type(value.get("revoke_epoch")) is not int or value["revoke_epoch"] < 0):
+        raise GrantError("The resident desktop owner did not confirm an exact grant identity.")
+    token = LeaseToken(value["grant_id"], value["revoke_epoch"])
+    store = LeaseStore(cfg.state_dir)
+    snapshot = store.snapshot()
+    if not snapshot.is_native_eligible() or snapshot.token() != token:
+        raise GrantError("The grant changed before the resident request completed.")
+    try:
+        visible = glowstate.read(cfg.state_dir, token, binary=discover_native_binary(cfg.native))
+    except DesktopError:
+        visible = None
+    if visible is None:
+        store.revoke_if(token)
+        raise GrantError("The grant has no trustworthy visible frame. Desktop control remains closed.")
+
+
 def unlock(cfg, minutes: int | None, reason: str, granted_by: str) -> str:
     from .grant import GrantError
 
@@ -74,6 +99,7 @@ def unlock(cfg, minutes: int | None, reason: str, granted_by: str) -> str:
         structured = response.get("structuredContent")
         if not text or not isinstance(structured, dict) or structured.get("type") != "pcbridge.desktop.grant":
             raise GrantError("The resident desktop owner did not confirm the grant.")
+        _confirm(cfg, structured)
         return text
     except (OSError, HandshakeError, ValueError, TypeError) as error:
         raise GrantError("The resident desktop owner connection failed. Run pcbridge doctor.") from error

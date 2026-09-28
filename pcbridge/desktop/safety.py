@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any
 from .. import sessionctx
 from . import compositor as compositorlib
 from . import session
-from .errors import ErrorCategory, ErrorCode
+from .errors import DesktopError, ErrorCategory, ErrorCode, error_from_decision
 from .lease import LEASE_STATE_FILE, LeaseStore, LeaseToken
 
 if TYPE_CHECKING:
@@ -246,6 +246,78 @@ class SafetyGate:
         # The rate window is per MCP session, as it was per process when
         # every client had its own server process.
         self._events: sessionctx.PerSession[deque[float]] = sessionctx.PerSession()
+        self._frame_owner = None
+        self._frame_lock = threading.RLock()
+        self._closed = False
+
+    @property
+    def requires_frame(self) -> bool:
+        return compositorlib.current().kind == session.HYPRLAND
+
+    def visible_frame(self, token: LeaseToken | None) -> bool:
+        if not self.requires_frame:
+            return True
+        if token is None:
+            return False
+        from ..native.discovery import discover_native_binary
+        from . import glowstate
+
+        try:
+            binary = discover_native_binary(self.cfg.native)
+            return glowstate.read(Path(self.cfg.state_dir), token, binary=binary) is not None
+        except (DesktopError, OSError, AttributeError):
+            return False
+
+    def _frame_decision(self, token: LeaseToken) -> Decision | None:
+        if self.visible_frame(token):
+            return None
+        return Decision(False,
+            "The native grant frame has no fresh presentation evidence. Desktop control is paused.",
+            code=ErrorCode.BACKEND_UNAVAILABLE, permission_scope="pcbridge.desktop", retryable=True,
+            suggested_action="Restore the visible grant frame and run pcbridge doctor.")
+
+    def _known_activity_decision(self) -> Decision | None:
+        if self._state_provider.user_activity().state == ActivityState.KNOWN:
+            return None
+        return self._activity_unknown_decision()
+
+    def _activity_unknown_decision(self) -> Decision:
+        return Decision(False,
+            "User activity could not be read. Hyprland actions require a reliable idle observer, including with force=true.",
+            code=ErrorCode.ACTIVITY_UNKNOWN, permission_scope="pcbridge.desktop", retryable=True,
+            suggested_action="Restore the native idle watcher and run pcbridge doctor.")
+
+    def resource_guard(self, token: LeaseToken) -> Decision:
+        """Non-sliding health for resources already opened by this runtime.
+
+        Native presentation is withdrawn on lock/unknown lock. Reading that
+        proof here avoids a stalled lock IPC delaying Python emergency cleanup.
+        This timer never authorizes an action or refreshes a lease.
+        """
+        if not self.spec.enabled:
+            return self._disabled_decision()
+        unavailable = self._compositor_unavailable_decision()
+        if unavailable is not None:
+            return unavailable
+        snapshot = self._lease.snapshot()
+        if not snapshot.is_native_eligible() or snapshot.token() != token:
+            return Decision(False, "The resource's desktop grant ended.", code=ErrorCode.REVOKED)
+        frame = self._frame_decision(token)
+        if frame is not None:
+            return frame
+        if self.requires_frame:
+            activity = self._known_activity_decision()
+            if activity is not None:
+                return activity
+        return Decision(True)
+
+    def close(self) -> None:
+        """Retire only the native frame grant this resident gate owns."""
+        with self._frame_lock:
+            self._closed = True
+            if self._frame_owner is not None:
+                self._frame_owner.close()
+                self._frame_owner = None
 
     # ------------------------------------------------------------- izin durumu
     def _read_state(self) -> dict:
@@ -267,10 +339,26 @@ class SafetyGate:
     def last_token(self) -> LeaseToken | None:
         return self._call_token.get()
 
+    def grant_info(self, token: LeaseToken) -> dict:
+        snapshot = self._lease.snapshot()
+        if not snapshot.is_active() or snapshot.token() != token:
+            raise DesktopError(code=ErrorCode.REVOKED, message="The grant changed before desktop_unlock completed.",
+                category=ErrorCategory.SAFETY, retryable=True,
+                suggested_action="Inspect the current grant before requesting desktop control again.")
+        if self.requires_frame:
+            decision = self.resource_guard(token)
+            if not decision.allowed:
+                self._lease.revoke_if(token)
+                raise error_from_decision(decision)
+        return {"grant_id": token.grant_id, "revoke_epoch": token.revoke_epoch,
+                "until": snapshot.until, "hard_until": snapshot.hard_until}
+
     def unlocked_until(self) -> float:
         return self._lease.snapshot().until
 
     def remaining_seconds(self) -> int:
+        if self.requires_frame and not self.visible_frame(self.current_token()):
+            return 0
         return max(0, int(self.unlocked_until() - time.time()))
 
     def is_unlocked(self) -> bool:
@@ -292,11 +380,54 @@ class SafetyGate:
         reason: str = "",
         granted_by: str = "desktop_unlock",
     ) -> str:
-        if compositorlib.current().kind in (session.HYPRLAND, session.UNKNOWN):
-            raise ValueError(
-                "Desktop control cannot open until this compositor's lock state "
-                "and visible grant frame are verified."
-            )
+        if self._closed:
+            raise DesktopError(code=ErrorCode.BACKEND_UNAVAILABLE, message="This desktop owner is closed.",
+                category=ErrorCategory.SAFETY, retryable=False, suggested_action="Use the resident desktop owner.")
+        unavailable = self._compositor_unavailable_decision()
+        if unavailable is not None:
+            raise error_from_decision(unavailable)
+        if self.requires_frame:
+            if not self.spec.enabled:
+                raise error_from_decision(self._disabled_decision())
+            lock = screen_lock_decision(self._state_provider.screen_lock())
+            if not lock.allowed:
+                raise error_from_decision(lock)
+            activity = self._known_activity_decision()
+            if activity is not None:
+                raise error_from_decision(activity)
+            # Serialize ownership changes, while lock() still revokes the
+            # shared lease before waiting for this lock or process cleanup.
+            with self._frame_lock:
+                from ..native.discovery import discover_native_binary
+                from .glowowner import FrameOwner
+
+                if self._closed:
+                    raise error_from_decision(self._grant_required_decision())
+                if self._frame_owner is None:
+                    self._frame_owner = FrameOwner(Path(self.cfg.state_dir), discover_native_binary(self.cfg.native),
+                        on_exit=lambda token: self.audit("desktop_frame_owner_exit", grant_id=token.grant_id,
+                                                       revoke_epoch=token.revoke_epoch))
+                message = self._grant(minutes, reason, granted_by)
+                token = self.last_token()
+                try:
+                    self._frame_owner.open(token)
+                    decision = screen_lock_decision(self._state_provider.screen_lock())
+                    if decision.allowed:
+                        decision = self.resource_guard(token)
+                    if not decision.allowed:
+                        raise error_from_decision(decision)
+                except BaseException:
+                    self._lease.revoke_if(token)
+                    self._call_token.set(None)
+                    self.audit("desktop_unlock_denied", reason="Native frame startup or safety validation failed")
+                    raise
+                self.audit("desktop_unlock", grant_id=token.grant_id, revoke_epoch=token.revoke_epoch,
+                           visible_frame=True, granted_by=granted_by)
+                self._call_token.set(token)
+                return message
+        return self._grant(minutes, reason, granted_by)
+
+    def _grant(self, minutes: int | None, reason: str, granted_by: str) -> str:
         # Yalnizca None "varsayilani kullan" demektir. Verilen 0 ya da negatif
         # bir deger sessizce 15 dakikaya donmemeli -- istenenden UZUN izin
         # vermek, kisa vermekten kotu.
@@ -321,7 +452,7 @@ class SafetyGate:
             granted_by=granted_by,
         )
         self._call_token.set(snapshot.token(granted))
-        self.audit("desktop_unlock", minutes=mins, reason=reason or None,
+        self.audit("desktop_unlock_pending" if self.requires_frame else "desktop_unlock", minutes=mins, reason=reason or None,
                    granted_by=granted_by)
         msg = (
             f"Desktop control granted for {mins} minutes "
@@ -338,6 +469,10 @@ class SafetyGate:
     def lock(self) -> str:
         snapshot, was_remaining = self._lease.revoke()
         self._call_token.set(None)
+        with self._frame_lock:
+            if self._frame_owner is not None:
+                self._frame_owner.close()
+                self._frame_owner = None
         # Plasma: Qt accessibility goes back off if the grant turned it on,
         # and the grant's notification closes.
         from . import a11y, grantnotice
@@ -420,7 +555,7 @@ class SafetyGate:
 
     def _compositor_unavailable_decision(self) -> Decision | None:
         kind = compositorlib.current().kind
-        if kind not in (session.HYPRLAND, session.UNKNOWN):
+        if kind != session.UNKNOWN:
             return None
         return Decision(
             False,
@@ -448,9 +583,14 @@ class SafetyGate:
         if token is None:
             return self._grant_required_decision()
 
-        if write and not force:
+        frame = self._frame_decision(token)
+        if frame is not None:
+            return frame
+        if write and (not force or self.requires_frame):
             activity = self._state_provider.user_activity()
             if activity.state == ActivityState.UNKNOWN:
+                if self.requires_frame:
+                    return self._activity_unknown_decision()
                 return Decision(
                     False,
                     "User activity could not be read. A write action only starts when "
@@ -465,7 +605,7 @@ class SafetyGate:
             idle = activity.idle_ms
             assert idle is not None
             guard = self.spec.idle_guard_seconds * 1000
-            if idle < guard:
+            if not force and idle < guard:
                 return Decision(
                     False,
                     f"Someone is at the machine (keyboard/pointer used {idle // 1000} "
@@ -535,6 +675,17 @@ class SafetyGate:
             return lock_decision
         if token is None:
             return self._grant_required_decision()
+        # Identity is checked before visibility so a replacement still gives
+        # the admitted old sequence REVOKED, not a misleading backend error.
+        current = self._lease.snapshot()
+        if current.is_active() and current.token() == token:
+            frame = self._frame_decision(token)
+            if frame is not None:
+                return frame
+            if self.requires_frame:
+                activity = self._known_activity_decision()
+                if activity is not None:
+                    return activity
         if self.touch(token):
             return Decision(True)
 
@@ -627,6 +778,8 @@ class SafetyGate:
             return "desktop control: disabled (config.toml → [desktop] enabled)"
         rem = self.remaining_seconds()
         if rem <= 0:
+            if self.requires_frame and self.current_token() is not None:
+                return "desktop control: paused (visible grant frame unavailable)"
             return "desktop control: enabled but locked (waiting for desktop_unlock)"
         lock = self._state_provider.screen_lock().state
         extra = (

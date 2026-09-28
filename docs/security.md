@@ -101,6 +101,25 @@ The agent opens the grant itself (`desktop_unlock`); no person is asked. The
 person's controls are the config switch, the lock screen, the kill switch and
 the audit log.
 
+### Hyprland grant implementation (acceptance still in progress)
+
+Hyprland uses the same shared gate, execution lock, lease identity, rate
+counter, and content policy. It additionally requires a native frame with
+fresh presentation proof for the exact grant/epoch and selected session.
+The frame takes no input or reserved space. CLI/TUI unlock routes the existing
+MCP action to a resident daemon after matching its state directory and
+compositor identity; a short-lived caller never owns the frame. No tray or
+panel integration is required.
+
+Missing/stale visibility pauses protected operations. Helper death retires
+only its own lease; explicit lock revokes before cleanup; old owner shutdown
+cannot revoke a replacement. Native and Python resource guards release open
+resources on failed visibility, unknown idle, expiry, and replacement without
+waiting for another action. Their timers never slide a grant. Hyprland force
+can bypass the known user's conflict threshold, but cannot bypass unknown idle,
+lock, missing visibility, or lease checks. Capture/input VM acceptance and
+existing-platform regression are still required before a support claim.
+
 ### What `enabled = false` does NOT turn off
 
 Only the desktop tools. `shell_run`, `agent_run`, `fs_*` and `tmux_*` work

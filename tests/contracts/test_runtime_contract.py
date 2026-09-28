@@ -126,6 +126,34 @@ class DesktopRuntimeContractTests(unittest.TestCase):
     def setUp(self) -> None:
         FakeTimer.created.clear()
 
+    def test_owner_cleanup_failure_still_closes_every_provider(self) -> None:
+        capture, input_provider, accessibility = mock.Mock(), mock.Mock(), mock.Mock()
+        gate = FakeGate()
+        gate.close = mock.Mock(side_effect=OSError("owner disappeared"))
+        runtime = DesktopRuntime(capture_provider=capture, input_provider=input_provider,
+            accessibility_provider=accessibility, gate=gate)
+        with self.assertLogs("pcbridge.desktop.runtime", level="WARNING"):
+            runtime.close()
+        capture.close.assert_called_once()
+        input_provider.close.assert_called_once()
+        accessibility.close.assert_called_once()
+
+    def test_capture_tracks_exact_grant_before_starting_and_watch_stops_on_close(self) -> None:
+        gate = FakeGate()
+        gate.requires_frame = True
+        gate.last_token = lambda: "captured"
+        gate.current_token = lambda: "replacement"
+        capture = FakeCaptureProvider()
+        runtime = DesktopRuntime(capture_provider=capture, input_provider=FakeInputProvider(),
+            accessibility_provider=FakeAccessibilityProvider(), gate=gate)
+        watch = mock.Mock()
+        with mock.patch("pcbridge.desktop.resourcewatch.ResourceWatch", return_value=watch), \
+                mock.patch("pcbridge.desktop.runtime.threading.Timer", FakeTimer):
+            runtime.start_capture()
+            watch.track.assert_called_once_with("captured")
+            runtime.close()
+        watch.stop.assert_called_once()
+
     def test_factory_is_lazy_and_creates_isolated_provider_instances(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             cfg = make_config(Path(raw))

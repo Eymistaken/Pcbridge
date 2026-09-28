@@ -7,12 +7,14 @@ from pathlib import Path
 import socket
 import tempfile
 import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest import mock
 
 from pcbridge.cli import daemon_grant, grant
 from pcbridge.desktop import session
+from pcbridge.desktop.lease import LeaseStore
 from pcbridge.relay import SocketBackend
 
 
@@ -25,6 +27,9 @@ class ResidentGrantTests(unittest.TestCase):
         self.context = {"version": 1, "compositor": "hyprland", "state_dir": temporary.name,
                         "wayland_display": "wayland-1", "hyprland_instance": "selected"}
         self.received = []
+        now = time.time()
+        self.token = LeaseStore(self.cfg.state_dir).grant(until=now + 60, reason="contract",
+            granted=now, granted_by="contract").token()
 
     def connect(self, *, context=None, result=None, oversized=False):
         local, remote = socket.socketpair()
@@ -50,7 +55,8 @@ class ResidentGrantTests(unittest.TestCase):
                             continue
                         answer = {} if request["method"] == "initialize" else result or {
                             "content": [{"type": "text", "text": "Visible grant confirmed."}],
-                            "structuredContent": {"type": "pcbridge.desktop.grant"}}
+                            "structuredContent": {"type": "pcbridge.desktop.grant", "grant": {
+                                "grant_id": self.token.grant_id, "revoke_epoch": self.token.revoke_epoch}}}
                         remote.sendall(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": answer}).encode() + b"\n")
             except (OSError, ValueError) as error:
                 self.server_error = error
@@ -63,8 +69,20 @@ class ResidentGrantTests(unittest.TestCase):
     def run_unlock(self, backend, minutes=5):
         with mock.patch.object(session, "grant_context", return_value=self.context), \
                 mock.patch.object(daemon_grant, "connect_daemon", return_value=backend), \
-                mock.patch.object(daemon_grant.paths, "socket_path", return_value=Path("/fixture.sock")):
+                mock.patch.object(daemon_grant.paths, "socket_path", return_value=Path("/fixture.sock")), \
+                mock.patch("pcbridge.native.discovery.discover_native_binary", return_value=Path("/fixture/native")), \
+                mock.patch("pcbridge.desktop.glowstate.read", return_value={"ready": True}):
+            self.cfg.native = object()
             return daemon_grant.unlock(self.cfg, minutes, "VM control", "pcbridge ui")
+
+    def test_confirmation_without_visibility_retires_only_the_named_grant(self):
+        value = {"grant": {"grant_id": self.token.grant_id, "revoke_epoch": self.token.revoke_epoch}}
+        self.cfg.native = object()
+        with mock.patch("pcbridge.native.discovery.discover_native_binary", return_value=Path("/fixture/native")), \
+                mock.patch("pcbridge.desktop.glowstate.read", return_value=None):
+            with self.assertRaisesRegex(grant.GrantError, "visible frame"):
+                daemon_grant._confirm(self.cfg, value)
+            self.assertIsNone(LeaseStore(self.cfg.state_dir).snapshot().token())
 
     def test_same_context_routes_existing_tool_and_closes_only_the_connection(self):
         backend = self.connect()

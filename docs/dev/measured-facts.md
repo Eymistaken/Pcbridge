@@ -528,7 +528,7 @@ and xdg-desktop-portal-hyprland 1.4.1.
   the old native session. A recording-keyboard contract also measured Shift
   down followed by Shift up on frame loss while the lock observer slept for
   500 ms. The VM opened only the harness test flag, no input or capture.
-  Python grant opening remains prohibited pending shared gate integration.
+  Python grant opening remained prohibited at this measurement stage.
   This probe also exposed a renderer/reader age mismatch (1200 vs. 1000 ms);
   both now use the common 1000 ms limit. `NativeClient` must pass the selected
   instance signature alongside Wayland display; its earlier allowlist dropped
@@ -537,8 +537,25 @@ and xdg-desktop-portal-hyprland 1.4.1.
   VM manager probe reopened the same child PID, preserved a replacement's
   lease and presentation when closing the old parent owner, and retired a
   killed child's own lease in 101 ms. An unavailable executable returned no
-  grant success and left no layers. The production shared gate is still closed
-  until resident CLI/TUI ownership and per-action visibility are integrated.
+  grant success and left no layers. The production shared gate was still closed
+  at this measurement stage, before resident CLI/TUI integration.
+- **Resident shared-gate lifecycle now works in the disposable VM.** The
+  actual `pcbridge unlock` process exited while the daemon kept eight strips
+  presented. Replacement changed both grant and frame PID; closing a read-only
+  consumer did not retire daemon ownership. SIGSTOP made CLI status paused and
+  `window_list` returned typed `BACKEND_UNAVAILABLE`. SIGKILL retired that
+  frame's lease in 102 ms. A real 10-second sliding expiry, both CLI and MCP
+  lock, and daemon parent death all removed layers and closed control. No input
+  or screenshot was requested by this probe. The configured minimum sliding
+  timeout is 10 seconds; an initial 3-second test config was refused before
+  starting a daemon. This is lifecycle evidence, not complete platform acceptance.
+- **Unknown Hyprland idle cannot be forced.** Shared-gate contracts refuse
+  UNKNOWN idle even with force and before each admitted action. Native recording
+  keyboard evidence releases Shift on idle observer loss within 250 ms, without
+  another call; late resources are immediately closed. The native VM visibility
+  probe now runs its own real idle watcher and measured stale-frame closure at
+  1029 ms and helper-death closure at 103 ms. Existing GNOME/KDE force semantics
+  and the 615-check non-live desktop suite still pass.
 
 ## Terminal UI (settings CLI)
 

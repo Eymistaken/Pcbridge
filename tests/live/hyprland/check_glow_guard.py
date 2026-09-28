@@ -17,10 +17,11 @@ import time
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
-from pcbridge.desktop import glowstate, hyprland  # noqa: E402
+from pcbridge.desktop import glowstate, hyprland, idlewatch  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCode  # noqa: E402
 from pcbridge.desktop.lease import LeaseStore  # noqa: E402
 from pcbridge.native import NativeClient  # noqa: E402
+from pcbridge.native.client import helper_environment  # noqa: E402
 from tests.live.hyprland.check_glow_owner import layers, wait_for  # noqa: E402
 
 
@@ -29,6 +30,7 @@ def main():
     assert os.uname().nodename == "pcbridge-hyprland"
     assert hyprland.screen_locked() is False
     assert not layers(), "Refuse to overlap a resident frame"
+    assert idlewatch.read_idle_ms() is None, "Refuse to overlap a resident idle watcher"
     binary = (ROOT / "rust/target/debug/pcbridge-native").resolve()
     owners = []
     with tempfile.TemporaryDirectory(prefix="pcbridge-native-visibility-") as temporary, \
@@ -38,7 +40,11 @@ def main():
         runtime.mkdir(mode=0o700)
         store = LeaseStore(directory)
         client = None
+        idle = None
         try:
+            idle = subprocess.Popen([str(binary), "idle-watch"], stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=errors, env=helper_environment())
+            wait_for(lambda: idlewatch.read_idle_ms() is not None, description="fresh native idle observation")
             now = time.time()
             token = store.grant(until=now + 90, reason="Native visibility test resource only",
                                 granted=now, granted_by="vm-test").token()
@@ -106,6 +112,9 @@ def main():
             store.revoke()
             if client:
                 client.close()
+            if idle and idle.poll() is None:
+                idle.terminate()
+                idle.wait(timeout=3)
             for owner in owners:
                 if owner.poll() is None:
                     owner.send_signal(signal.SIGCONT)

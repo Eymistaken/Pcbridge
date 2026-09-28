@@ -325,6 +325,14 @@ when that context is unavailable. The new visibility-injection factory is
 available only in explicit `test-harness` builds; the production IPC dispatcher
 always uses the selected-session factory.
 
+Hyprland also requires a known, session-bound idle observation, including
+with explicit force. The independent guard closes resources on idle observer
+loss; unknown activity returns `ACTIVITY_UNKNOWN`. Force bypasses only the
+known user's conflict threshold. GNOME/KDE retain their existing force
+contract. Python's shared gate validates the same exact frame and rechecks
+known idle before each admitted action without repeating the conflict
+threshold or rate counter (injected input itself resets idle time).
+
 If the layout cannot be resolved the answer is `DISPLAY_MAPPING_UNKNOWN`
 and **nothing is guessed**: a monitor without a current mode, an unknown
 connector, an empty connector list and a non-positive scale are refused.
@@ -537,10 +545,11 @@ The screen lock is a three-state observation (`known_locked`,
 - Activity unknown: writes fail with `ACTIVITY_UNKNOWN`.
 - The user more active than the idle guard allows: writes fail with
   `USER_ACTIVE`.
-- `force=true` skips only the activity check, never the lock, grant, revoke
-  or expiry checks.
-- Batches and tasks check activity once at the start; it is not reread inside
-  a running batch (uinput events reset the idle timer).
+- `force=true` skips the activity conflict check, never lock, grant, revoke,
+  expiry, or Hyprland's required known idle/visible frame evidence.
+- Batches and tasks apply the activity conflict threshold once at the start
+  (uinput events reset idle time). Hyprland still checks that the idle
+  observation is known before each action.
 
 The native lock watcher listens to `org.gnome.ScreenSaver.ActiveChanged`
 (on KDE Plasma `org.freedesktop.ScreenSaver.ActiveChanged`, which KWin owns)

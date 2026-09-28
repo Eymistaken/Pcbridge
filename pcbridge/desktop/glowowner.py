@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import threading
 import time
+from typing import Callable
 
 from ..native.client import helper_environment
 from . import glowstate
@@ -31,7 +32,7 @@ class FrameOwner:
     They never take ownership of, or restart, an existing grant's frame.
     """
 
-    def __init__(self, state_dir: Path, binary: Path) -> None:
+    def __init__(self, state_dir: Path, binary: Path, *, on_exit: Callable[[LeaseToken], None] | None = None) -> None:
         self.directory = state_dir.resolve()
         self.binary = binary.resolve()
         self._lease = LeaseStore(self.directory)
@@ -41,6 +42,7 @@ class FrameOwner:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._closed = False
+        self._on_exit = on_exit
 
     def _valid(self, token: LeaseToken) -> bool:
         snapshot = self._lease.snapshot()
@@ -49,16 +51,18 @@ class FrameOwner:
     def health(self, token: LeaseToken) -> dict | None:
         return glowstate.read(self.directory, token, binary=self.binary)
 
-    def _retire(self, token: LeaseToken) -> None:
+    def _retire(self, token: LeaseToken) -> bool:
         try:
-            self._lease.revoke_if(token)
+            return self._lease.revoke_if(token)
         except OSError:
             log.warning("The frame owner's lease state could not be retired")
+            return False
 
     def _supervise(self, process: subprocess.Popen, token: LeaseToken, stopped: threading.Event) -> None:
         while not stopped.wait(0.1):
             if process.poll() is not None:
-                self._retire(token)
+                if self._retire(token) and self._on_exit is not None:
+                    self._on_exit(token)
                 return
 
     def _stop_process(self) -> None:

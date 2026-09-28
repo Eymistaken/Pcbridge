@@ -1048,6 +1048,12 @@ def register(
         Yayin acilamazsa izin YINE DE verilir -- `gnome-screenshot` yedegi
         duruyor, yalnizca flas patlatiyor. Sebebi kullaniciya soyleniyor.
         """
+        if compositorlib.current().kind == "hyprland":
+            try:
+                runtime.start_capture(cursor=cfg.desktop.include_pointer)
+            except (DesktopError, monitorslib.MonitorError) as exc:
+                return f"⚠️ Screen capture is not ready: {exc}"
+            return "📷 Screen capture is ready."
         if compositorlib.is_kde():
             # KWin gives one frame per call; there is no share to open and no
             # panel indicator, only the grant and the layout to confirm.
@@ -1324,7 +1330,10 @@ def register(
                 text=f"⛔ {lock_decision.reason}",
                 permission_scope="pcbridge.desktop",
             )
-        msg = gate.unlock(minutes, reason or "")
+        try:
+            msg = gate.unlock(minutes, reason or "")
+        except DesktopError as error:
+            return presentationlib.desktop_error_result(error, permission_scope="pcbridge.desktop")
         # Izin acildiginin KULLANICIYA gorunmesi onemli, ama tek yolu bu
         # bildirim degil: `gnome-extension/` altindaki kabuk eklentisi ayni
         # durumu ekran kenarlarindaki cerceveyle gosteriyor ve o surekli
@@ -1359,7 +1368,7 @@ def register(
                 detail = value["reason_code"] or value["state"]
                 out.append(f"- `{name}`: {detail}")
         out.append("To close it early: desktop_lock")
-        token = getattr(gate, "current_token", lambda: None)()
+        token = getattr(gate, "last_token", lambda: None)()
         grant = {
             "grant_id": getattr(token, "grant_id", ""),
             "revoke_epoch": max(
@@ -1369,6 +1378,11 @@ def register(
             "until": float(getattr(gate, "unlocked_until", lambda: 0.0)()),
             "hard_until": float(getattr(gate, "hard_until", lambda: 0.0)()),
         }
+        if token is not None and callable(getattr(gate, "grant_info", None)):
+            try:
+                grant = gate.grant_info(token)
+            except DesktopError as error:
+                return presentationlib.desktop_error_result(error)
         return ToolResult(
             content=[TextContent(type="text", text="\n".join(x for x in out if x))],
             structured_content={

@@ -25,6 +25,7 @@ class GrantState:
     # The hard ceiling. The grant slides: every desktop action moves its end
     # to "now + unlock_idle_seconds", but never past this.
     hard_seconds_left: int = 0
+    blocked_reason: str = ""
 
     @property
     def sliding(self) -> bool:
@@ -35,6 +36,8 @@ class GrantState:
         if not self.enabled_in_config:
             return "disabled in config"
         if not self.open:
+            if self.blocked_reason:
+                return f"paused: {self.blocked_reason}"
             return "locked"
         out = f"open, {format_duration(self.seconds_left)} left"
         if self.sliding:
@@ -60,11 +63,27 @@ def read_state(cfg: Any, now: float | None = None) -> GrantState:
     except OSError:
         return GrantState(False, 0, bool(cfg.desktop.enabled))
     active = snap.is_active(moment)
+    blocked = ""
+    if active:
+        from ..desktop import compositor, session
+
+        if compositor.current().kind == session.HYPRLAND:
+            from ..desktop import glowstate
+            from ..desktop.errors import DesktopError
+            from ..native.discovery import discover_native_binary
+
+            try:
+                active = glowstate.read(cfg.state_dir, snap.token(moment),
+                    binary=discover_native_binary(cfg.native)) is not None
+            except (DesktopError, OSError, AttributeError):
+                active = False
+            if not active:
+                blocked = "visible grant frame unavailable"
     left = int(snap.until - moment) if active else 0
     hard = int((snap.hard_until or snap.until) - moment) if active else 0
     by = snap.raw.get("granted_by", "") if active else ""
     return GrantState(active, max(0, left), bool(cfg.desktop.enabled), str(by or ""),
-                      max(0, hard))
+                      max(0, hard), blocked)
 
 
 def lock(cfg: Any) -> str:
@@ -104,7 +123,7 @@ def unlock(cfg: Any, minutes: int | None = None, reason: str = "",
     try:
         try:
             return runtime.gate.unlock(minutes, reason, granted_by=granted_by)
-        except ValueError as exc:
+        except (ValueError, RuntimeError) as exc:
             raise GrantError(str(exc)) from exc
     finally:
         runtime.close()

@@ -100,6 +100,20 @@ class DesktopRuntime:
         self._execution_lock = execution_lock
         self._rate_limit = int(rate_limit or 0)
         self._execution_wait_seconds = float(execution_wait_seconds)
+        self._resource_watch = None
+
+    def _track_resources(self) -> None:
+        if not getattr(self.gate, "requires_frame", False):
+            return
+        from .resourcewatch import ResourceWatch
+
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("desktop runtime is closed")
+            if self._resource_watch is None:
+                self._resource_watch = ResourceWatch(self.gate, self.release_resources)
+            watch = self._resource_watch
+        watch.track(self.gate.last_token() or self.gate.current_token())
 
     def _capability_token(self) -> tuple[Hashable, ...]:
         providers = (
@@ -302,6 +316,7 @@ class DesktopRuntime:
         with self._lock:
             if self._closed:
                 raise RuntimeError("desktop runtime is closed")
+        self._track_resources()
         result = self.capture_provider.start(cursor=cursor)
         self.invalidate_capabilities()
         self.refresh_capture_deadline()
@@ -388,6 +403,7 @@ class DesktopRuntime:
         if self._execution_lock is None:
             guard = executionlib.SequenceGuard(verify, None)
             self._admit(guard)
+            self._track_resources()
             yield guard
             return
         with self._execution_lock.hold(
@@ -397,6 +413,7 @@ class DesktopRuntime:
                 verify, slot, rate_limit=self._rate_limit
             )
             self._admit(guard)
+            self._track_resources()
             yield guard
 
     def _admit(self, guard: executionlib.SequenceGuard) -> None:
@@ -440,7 +457,16 @@ class DesktopRuntime:
             if self._closed:
                 return
             self._closed = True
-        self.release_resources()
+        close_gate = getattr(self.gate, "close", None)
+        try:
+            if callable(close_gate):
+                close_gate()
+        except Exception:  # noqa: BLE001 - every provider still needs cleanup
+            logger.warning("Desktop frame owner cleanup failed")
+        finally:
+            if self._resource_watch is not None:
+                self._resource_watch.stop()
+            self.release_resources()
 
 
 def select_capture_provider(cfg: Config, gate: GrantProvider) -> CaptureProvider:

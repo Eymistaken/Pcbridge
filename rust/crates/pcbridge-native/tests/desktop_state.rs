@@ -254,6 +254,61 @@ fn frame_visibility_is_required_for_reads_writes_and_explicit_force() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn guarded_unknown_idle_refuses_force_and_releases_held_input_without_another_call() {
+    use pcbridge_native::platform::linux::input::{Keyboard, SystemClock};
+    let root = fixture_root();
+    write_grant(&root);
+    let state = Arc::new(MutableDesktopState::new(
+        ScreenLockState::KnownUnlocked,
+        ActivityState::Known,
+        0,
+    ));
+    let lifecycle = Lifecycle::start_with_visibility_provider(
+        &root,
+        state.clone(),
+        Arc::new(MutableVisibility(AtomicBool::new(true))),
+    )
+    .unwrap();
+    assert_eq!(
+        lifecycle.validate_write_now(false, 60_000),
+        Err(LifecycleFailure::UserActive)
+    );
+    assert_eq!(lifecycle.validate_write_now(true, 60_000), Ok(()));
+    let device = RecordingKeyboard::default();
+    let keyboard = Arc::new(Keyboard::new(
+        device.clone(),
+        SystemClock::default(),
+        Duration::from_secs(120),
+    ));
+    lifecycle.register_fail_closed(keyboard.clone());
+    keyboard.key_down("shift").unwrap();
+    state.set_activity(ActivityState::Unknown, 0);
+    let started = Instant::now();
+    while !keyboard.is_closed() {
+        assert!(started.elapsed() < Duration::from_millis(250));
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(
+        *device.0.lock().unwrap(),
+        [("KEY_LEFTSHIFT".into(), 1), ("KEY_LEFTSHIFT".into(), 0)]
+    );
+    assert_eq!(
+        lifecycle.validate_write_now(true, 60_000),
+        Err(LifecycleFailure::ActivityUnknown)
+    );
+    let late = Arc::new(Keyboard::new(
+        RecordingKeyboard::default(),
+        SystemClock::default(),
+        Duration::from_secs(120),
+    ));
+    lifecycle.register_fail_closed(late.clone());
+    assert!(late.is_closed());
+    state.set_activity(ActivityState::Known, 0);
+    assert_eq!(lifecycle.validate_write_now(true, 60_000), Ok(()));
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[derive(Clone, Default)]
 struct RecordingKeyboard(Arc<Mutex<Vec<(String, i32)>>>);
 

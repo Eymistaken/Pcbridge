@@ -332,6 +332,16 @@ def _clipboard_capabilities(backend: str) -> dict[str, Capability]:
 class PythonCaptureProvider:
     """Own the legacy ScreenCast handle and expose capture as one provider."""
 
+    _grant_bound_native = False
+
+    def _validate_capture_route(self) -> None:
+        if compositorlib.current().kind in ("hyprland", "unknown") and not self._grant_bound_native:
+            raise DesktopError(code=ErrorCode.BACKEND_UNAVAILABLE,
+                message="This compositor requires a grant-bound native capture backend.",
+                category=ErrorCategory.CAPABILITY, retryable=False,
+                suggested_action="Install the native helper and select native capture in pcbridge settings.",
+                backend="linux.python.capture")
+
     def __init__(
         self,
         cfg: Config,
@@ -483,6 +493,7 @@ class PythonCaptureProvider:
         )
 
     def start(self, *, cursor: bool | None = None) -> dict:
+        self._validate_capture_route()
         try:
             monitors = [monitor.connector for monitor in self.list_monitors()]
             return self.screencast.start(
@@ -508,6 +519,10 @@ class PythonCaptureProvider:
         return self.screencast.is_open()
 
     def available(self) -> tuple[bool, str]:
+        try:
+            self._validate_capture_route()
+        except DesktopError as error:
+            return False, error.message
         return capturelib.available(self.screencast)
 
     def backend_name(self) -> str:
@@ -524,6 +539,7 @@ class PythonCaptureProvider:
         reserved_dirs: Sequence[Path] = (),
         region: Any = None,
     ) -> list[capturelib.Shot]:
+        self._validate_capture_route()
         try:
             return capturelib.capture(
                 spec,
