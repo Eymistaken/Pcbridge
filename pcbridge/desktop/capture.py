@@ -67,7 +67,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -1122,6 +1122,7 @@ def _publish(
     staging: Path,
     meta_dirs: Sequence[Path],
     lookup_dirs: Sequence[Path],
+    validate: Callable[[], None] | None = None,
 ) -> list[Shot]:
     """Hazir goruntuleri ve kayitlarini yayimla: once PNG'ler, en son kayitlar.
 
@@ -1143,10 +1144,14 @@ def _publish(
         published: list[Path] = []
         try:
             for item, shot in zip(pending, shots):
+                if validate:
+                    validate()
                 _publish_file(item.staged, shot.path)
                 published.append(shot.path)
             for shot in shots:
                 for number, directory in enumerate(meta_dirs):
+                    if validate:
+                        validate()
                     # Her hedef dizine AYRI bir kopya: ayni inode'u paylasan
                     # iki kayit, birinin yerinde yazilmasiyla ikisini birden
                     # degistirirdi.
@@ -1155,6 +1160,8 @@ def _publish(
                     dest = directory / f"{shot.id}{META_SUFFIX}"
                     _publish_file(record, dest)
                     published.append(dest)
+            if validate:
+                validate()
         except FileExistsError:
             # Kontrol ile yayim arasinda baska bir surec ayni adi aldi.
             _withdraw(published)
@@ -1162,6 +1169,9 @@ def _publish(
         except OSError as exc:
             _withdraw(published)
             raise CaptureError(f"The screenshot could not be published: {exc}") from exc
+        except BaseException:
+            _withdraw(published)
+            raise
         return shots
     raise CaptureError(
         f"No unused shot id found in {PUBLISH_ATTEMPTS} attempts; "
@@ -1241,6 +1251,13 @@ def _render(
     raw_dir.mkdir()
 
     want_window = isinstance(monitor, str) and monitor.strip().lower() == "window"
+    verify_window = None
+    if want_window and region is None and compositorlib.current().kind == "hyprland":
+        from .hyprland_windows import capture_region
+
+        region, verify_window = capture_region(monitorslib.list_monitors(use_cache=False))
+        want_window = False
+        monitor = None
     if want_window and region is None and compositorlib.is_kde():
         # Plasma has no gnome-screenshot: the focused window is a region of
         # its monitor's frame, which also gives the shot a global offset.
@@ -1253,6 +1270,8 @@ def _render(
             "the screen is unknown. Give the region as monitor or global coordinates."
         )
     if want_window:
+        if compositorlib.current().kind != "gnome":
+            raise CaptureError("Window capture requires the selected native compositor backend")
         raw = _grab_window(raw_dir, include_pointer)
         staged = staging / "window.png"
         with Image.open(raw) as canvas:
@@ -1321,6 +1340,8 @@ def _render(
                         origin,
                     )
                 )
+            if verify_window:
+                verify_window()
             return pending
         except (CaptureError, DesktopError):
             raise
@@ -1340,6 +1361,8 @@ def _render(
             ) from exc
 
     # --- yol 2: gnome-screenshot (yedek) --------------------------------
+    if compositorlib.current().kind in ("hyprland", "unknown"):
+        raise CaptureError("This compositor requires an open grant-bound native capture session")
     raw = _grab_canvas(raw_dir, include_pointer)
     pending = []
     with Image.open(raw) as canvas:
@@ -1407,6 +1430,10 @@ def capture(
     ok, why = available(screencast)
     if not ok:
         raise CaptureError(why)
+    guard_factory = getattr(screencast, "publication_guard", None)
+    validate = guard_factory(monitor) if callable(guard_factory) else None
+    if validate:
+        validate()
 
     # MUTLAK yol: kayit PNG'nin yerini mutlak yaziyor ve kopya kayit baska
     # bir dizinde durabiliyor.
@@ -1438,6 +1465,7 @@ def capture(
             staging=staging,
             meta_dirs=meta_dirs,
             lookup_dirs=lookup_dirs,
+            validate=validate,
         )
     finally:
         shutil.rmtree(staging, ignore_errors=True)

@@ -23,7 +23,7 @@ use crate::platform::linux::accessibility::{
     self, AccessibilityError, DumpRecord, DumpRequest, NodeRecord, Tree,
 };
 use crate::platform::linux::capture::{
-    CaptureError, KWIN_BACKEND, MUTTER_BACKEND, NativeCapture, NativeCaptureError,
+    CaptureError, HYPRLAND_BACKEND, KWIN_BACKEND, MUTTER_BACKEND, NativeCapture, NativeCaptureError,
 };
 use crate::platform::linux::clipboard::{self, Clipboard, ClipboardError, SystemPrograms};
 use crate::platform::linux::desktop::DesktopKind;
@@ -128,7 +128,14 @@ impl BackendMode {
                         MUTTER_BACKEND,
                         readiness::capture_monitor(&readiness::probe()),
                     ),
-                    DesktopKind::Hyprland | DesktopKind::Unknown => (
+                    DesktopKind::Hyprland => (
+                        HYPRLAND_BACKEND,
+                        readiness::capture_monitor_hyprland(
+                            &super::platform::linux::image_copy::ImageCopy::probe()
+                                .map_err(|error| error.to_string()),
+                        ),
+                    ),
+                    DesktopKind::Unknown => (
                         "unavailable",
                         json!({
                             "name": "capture.monitor",

@@ -235,6 +235,48 @@ impl FailClosed for ImageCopy {
 }
 
 impl ImageCopy {
+    /// Read-only registry discovery. No image source/session or buffer is
+    /// created, so capability queries never capture pixels or need a grant.
+    pub fn probe() -> Result<(), CaptureError> {
+        struct Discovery;
+        impl SessionGuard for Discovery {
+            fn check(&self) -> Result<(), LifecycleFailure> {
+                Ok(())
+            }
+        }
+        let timeout = Duration::from_millis(500);
+        let connection = Connection::connect_to_env()
+            .map_err(|error| CaptureError::Unavailable(error.to_string()))?;
+        let queue = connection.new_event_queue::<State>();
+        let fd = connection
+            .as_fd()
+            .try_clone_to_owned()
+            .map_err(stream_error)?;
+        let mut request = Request {
+            connection,
+            queue,
+            readiness: Async::new(fd).map_err(stream_error)?,
+            state: State::default(),
+            deadline: Instant::now() + timeout,
+            timeout,
+        };
+        let _registry = request
+            .connection
+            .display()
+            .get_registry(&request.queue.handle(), ());
+        request.sync(&Self::default(), 0, &Discovery)?;
+        if request.state.shm.is_none()
+            || request.state.manager.is_none()
+            || request.state.sources.is_none()
+        {
+            return Err(CaptureError::Unavailable(
+                "The selected Wayland compositor lacks the image-copy/output-source/SHM protocols"
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+
     pub fn capture(
         &self,
         connector: &str,

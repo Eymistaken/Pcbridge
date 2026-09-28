@@ -18,6 +18,19 @@ use zbus::fdo::DBusProxy;
 use zbus::names::BusName;
 
 pub const SCREENCAST_SERVICE: &str = "org.gnome.Mutter.ScreenCast";
+
+#[must_use]
+pub fn capture_monitor_hyprland(probe: &Result<(), String>) -> Value {
+    match probe {
+        Ok(()) => {
+            json!({"name":"capture.monitor", "status":"supported", "permission_scope":"os.capture"})
+        }
+        Err(error) => {
+            json!({"name":"capture.monitor", "status":"unavailable", "permission_scope":"os.capture",
+            "reason_code":"BACKEND_UNAVAILABLE", "reason":error})
+        }
+    }
+}
 const BUS_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// What the probe saw, kept apart from the verdict so every combination can

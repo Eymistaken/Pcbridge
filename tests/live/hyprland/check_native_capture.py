@@ -12,13 +12,16 @@ import sys
 import tempfile
 import time
 from types import SimpleNamespace
+from unittest import mock
 
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 from pcbridge.config import DesktopSpec, NativeSpec  # noqa: E402
-from pcbridge.desktop import glowstate, hyprland, idlewatch, monitors  # noqa: E402
+from pcbridge.desktop import capture as capturelib, glowstate, hyprland, idlewatch, monitors  # noqa: E402
+from pcbridge.desktop.backends.rust import RustCaptureProvider  # noqa: E402
+from pcbridge.desktop.capabilities import CapabilityState  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCode  # noqa: E402
 from pcbridge.desktop.safety import SafetyGate  # noqa: E402
 from pcbridge.native import NativeClient  # noqa: E402
@@ -38,7 +41,7 @@ def main():
     original = hyprland.monitors()
     binary = (ROOT / "rust/target/debug/pcbridge-native").resolve()
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    pattern = idle = client = gate = None
+    pattern = idle = client = gate = provider = None
     with tempfile.TemporaryDirectory(prefix="pcbridge-native-capture-") as temporary, tempfile.TemporaryFile() as errors:
         directory = Path(temporary).resolve()
         cfg = SimpleNamespace(state_dir=directory, audit_log=directory / "audit.log",
@@ -105,6 +108,46 @@ def main():
             reader.expect("shown 633", 10)
             time.sleep(0.7)
             capture(original[1]["name"], 633, "rotated-fractional")
+            # The actual Python provider uses the same cropping/scaling/shot
+            # metadata as the normal product, with a separate real helper.
+            provider = RustCaptureProvider(cfg, gate=gate)
+            capabilities = provider.probe_capabilities()
+            assert capabilities["capture.monitor"].state == CapabilityState.SUPPORTED
+            assert capabilities["capture.window"].state == CapabilityState.SUPPORTED
+            shots_dir = directory / "shots"
+            assert gate.check("screen_capture", write=False).allowed
+            shots = provider.capture("all", out_dir=shots_dir, scale_long_edge=640, include_pointer=False)
+            assert len(shots) == 2
+            shot_evidence = []
+            for shot in shots:
+                with Image.open(shot.path) as image:
+                    assert read_counter(image) == 633
+                    point = (shot.scaled[0] // 2, shot.scaled[1] // 2)
+                observed = capturelib.to_global(*point, shot=shot.id, dirs=[shots_dir])
+                expected = (shot.offset[0] + shot.desktop_units[0] // 2,
+                            shot.offset[1] + shot.desktop_units[1] // 2)
+                assert observed == expected, (observed, expected)
+                shot_evidence.append({"connector": shot.monitor.connector, "source": shot.size,
+                    "scaled": shot.scaled, "offset": shot.offset, "mapped_center": observed})
+            assert gate.check("screen_capture", write=False).allowed
+            window = provider.capture("window", out_dir=shots_dir, scale_long_edge=640, include_pointer=False)[0]
+            assert window.region and window.offset is not None
+            with Image.open(window.path) as image:
+                assert read_counter(image) == 633
+            revoked_dir = directory / "revoked-shots"
+            publish = capturelib._publish_file
+            def lock_after_link(source, target):
+                publish(source, target)
+                gate.lock()
+            assert gate.check("screen_capture", write=False).allowed
+            with mock.patch.object(capturelib, "_publish_file", side_effect=lock_after_link):
+                try:
+                    provider.capture("all", out_dir=revoked_dir, scale_long_edge=640, include_pointer=False)
+                except DesktopError as error:
+                    assert error.code == ErrorCode.REVOKED, error.to_dict()
+                else:
+                    raise AssertionError("A revoked shot was published")
+            assert not list(revoked_dir.iterdir()), "Revocation left a PNG or metadata record"
             gate.lock()
             try:
                 client.request("capture.frame", params={"grant_id": token.grant_id,
@@ -115,13 +158,17 @@ def main():
                 assert error.code == ErrorCode.REVOKED, error.to_dict()
             else:
                 raise AssertionError("Native pixels escaped after explicit desktop_lock")
-            print(json.dumps({"native_image_copy": evidence, "after_revoke": "refused", "input_sent": False}, sort_keys=True))
+            print(json.dumps({"native_image_copy": evidence, "after_revoke": "refused", "input_sent": False,
+                "python_shots": shot_evidence, "window_region": "passed",
+                "publication_revoke": "all_files_withdrawn"}, sort_keys=True))
         finally:
             if gate:
                 gate.lock()
                 gate.close()
             if client:
                 client.close()
+            if provider:
+                provider.close()
             if pattern and pattern.poll() is None:
                 pattern.stdin.write("quit\n")
                 pattern.stdin.flush()

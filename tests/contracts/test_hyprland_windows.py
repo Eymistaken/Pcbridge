@@ -40,6 +40,13 @@ class HyprlandWindowTests(unittest.TestCase):
             identities = [provider.focused_identity() for _ in range(4)]
         self.assertEqual(len(set(identities)), 4)
 
+    def test_runtime_hexadecimal_stable_ids_are_preserved(self):
+        # Actual 0.56.2 IDs include letters once the window counter reaches 10.
+        raw = [client(stable_id="1800001e"), client("0x124", "1800001f")]
+        provider = HyprlandWindowProvider()
+        with mock.patch.object(hyprland, "_query", side_effect=[raw, raw[0]]):
+            self.assertEqual([w.stable_id for w in provider.windows()], ["1800001e", "1800001f"])
+
     def test_empty_focus_can_be_observed_but_cannot_pass_a_batch_focus_guard(self):
         provider = HyprlandWindowProvider()
         with mock.patch.object(hyprland, "_query", return_value={}):
@@ -58,6 +65,7 @@ class HyprlandWindowTests(unittest.TestCase):
             ([client(mapped=None)], {}), ([client(pid=True)], {}),
             ([client(address="0x123;exec bad")], {}),
             ([client(stableId="1\"bad")], {}),
+            ([client(stableId="1" * 17)], {}),
             ([client()], client("0x999", "9")),
         ]:
             with self.subTest(table=table), mock.patch.object(

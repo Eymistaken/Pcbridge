@@ -1,12 +1,14 @@
 """Actual resident/CLI grant lifecycle in the disposable Arch Hyprland VM.
 
-No input or screenshot is requested. Native capture startup may truthfully
-report unavailable while its separate implementation stage is pending.
+No input is requested. The optional resident capture probe verifies images
+returned by the ordinary MCP tool through the shared safety gate.
 """
 
 from __future__ import annotations
 
 import json
+import base64
+import io
 import os
 from pathlib import Path
 import signal
@@ -26,6 +28,7 @@ from pcbridge.desktop.lease import LeaseStore  # noqa: E402
 from pcbridge.desktop.safety import SafetyGate  # noqa: E402
 from pcbridge.relay import SocketBackend  # noqa: E402
 from tests.live.hyprland.check_glow_owner import layers, wait_for  # noqa: E402
+from tests.live.test_capture_parity import LineReader, MARKERS, close_to, marker_color, read_counter  # noqa: E402
 
 CONFIG = '''config_version = 2
 public_url = "http://localhost:8765"
@@ -72,8 +75,18 @@ def main():
         client = None
         counter = 0
         idle_identity = None
+        pattern = None
+        capture_evidence = []
         with (directory / "daemon.log").open("wb") as log:
             try:
+                if os.environ.get("PCBRIDGE_TEST_HYPRLAND_RESIDENT_CAPTURE") == "1":
+                    pattern = subprocess.Popen(["/usr/bin/python3", str(ROOT / "tests/live/pattern_window.py"), "--timeout", "120"],
+                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+                    reader = LineReader(pattern.stdout)
+                    reader.expect("ready ", 30)
+                    pattern.stdin.write("show 871\n")
+                    pattern.stdin.flush()
+                    reader.expect("shown 871", 10)
                 daemon = subprocess.Popen([sys.executable, "-m", "pcbridge", "serve", "--no-http",
                     "--config", str(path), "--socket", str(sock_path)], env=environment,
                     stdin=subprocess.DEVNULL, stdout=log, stderr=log)
@@ -126,6 +139,20 @@ def main():
                 assert not tool("system_capabilities").get("isError")
                 # The CLI has already exited; the daemon still owns the same frame.
                 assert health(first)["pid"] == record["pid"]
+                if pattern:
+                    from PIL import Image
+
+                    result = rpc("tools/call", {"name": "screen_capture", "arguments": {
+                        "monitor": "all", "scale": 640, "include_pointer": False}})
+                    assert not result.get("isError"), "Resident screen_capture failed"
+                    images = [item for item in result["content"] if item.get("type") == "image"]
+                    assert len(images) == 2, "Resident MCP did not deliver both images"
+                    for index, item in enumerate(images):
+                        with Image.open(io.BytesIO(base64.b64decode(item["data"]))) as image:
+                            assert image.size == (640, 400)
+                            assert read_counter(image) == 871
+                            assert close_to(marker_color(image), MARKERS[index])
+                            capture_evidence.append({"output": index + 1, "counter": 871, "pixels": image.size})
 
                 cli(["unlock", "--minutes", "1", "--reason", "Replacement resident lifecycle probe"])
                 replacement = store.snapshot().token()
@@ -151,7 +178,12 @@ def main():
 
                 cli(["unlock", "--minutes", "1"])
                 assert health(store.snapshot().token())
-                assert not tool("window_list").get("isError")
+                observed = tool("window_list")
+                assert not observed.get("isError"), {
+                    "response": observed,
+                    "clients": hyprland._query("clients", json_output=True),
+                    "activewindow": hyprland._query("activewindow", json_output=True),
+                }
                 wait_for(lambda: store.snapshot().token() is None, timeout=13, description="actual sliding grant expiry")
                 wait_for(lambda: not layers(), description="expired grant layers removed")
 
@@ -175,7 +207,8 @@ def main():
                     "strip_count": 8, "replacement": "passed", "nonowner_close": "passed",
                     "stale_presentation": "paused", "dead_frame_retirement_ms": dead_ms,
                     "sliding_expiry": "passed", "cli_and_mcp_lock": "passed",
-                    "parent_death": "closed", "input_and_screenshot_requested": False}}, sort_keys=True))
+                    "parent_death": "closed", "input_requested": False,
+                    "resident_capture": capture_evidence}}, sort_keys=True))
             finally:
                 store.revoke()
                 if client:
@@ -193,6 +226,10 @@ def main():
                         except ProcessLookupError:
                             pass
                 wait_for(lambda: not layers(), description="final frame cleanup")
+                if pattern and pattern.poll() is None:
+                    pattern.stdin.write("quit\n")
+                    pattern.stdin.flush()
+                    pattern.wait(timeout=5)
 
 
 if __name__ == "__main__":

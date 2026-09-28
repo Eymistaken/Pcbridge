@@ -1203,3 +1203,70 @@ selected session, cancellation, producer release, pre/post authorization.
 No external process or broad interpreter permission. Python capabilities,
 shot/window integration, revoke during capture, and actual input transparency
 remain the next stages; complete platform acceptance/regression remains pending.
+
+**Local commit:** `6a89396`.
+
+## Stage 8b: Native readiness, shared shots, and resident MCP delivery
+
+**Objective/design:** Integrate the image-copy backend with ordinary Python
+capture and the unchanged MCP tool. Read-only registry discovery reports
+actual protocol availability without allocating capture buffers or opening
+a grant. Use a separate capability helper so it cannot bind the later
+grant-bound capture helper to an absent grant. Protocol absence and old
+helpers fail closed. Hyprland uses the shared shot crop/scale/metadata and
+coordinate contract. Window shots use fresh compositor geometry and exact
+identity checks. Rendering/publication retains one admitted token, validates
+current outputs and window state, and withdraws new artifacts on failure.
+GNOME/KDE keep their existing publication behavior.
+
+**Files:** Python native adapter/shared capture/window geometry, Rust native
+readiness/protocol discovery/session startup/dispatch, capture and window
+contracts, native/resident VM probes, native capture/security/measured-facts
+documentation, and this journal. No dependencies or permissions changed.
+
+**Measurements/corrections:** The initial focused suite command named a
+nonexistent `tests.contracts.test_coordinates`; corrected it to the actual
+coordinate modules. The final combined VM probe passed native and Python
+shots but failed a later resident `window_list`. Reproduced twice with
+structured response and actual compositor records. IDs `1800001e`/`1800001f`
+were rejected by the earlier decimal-only regex. The tagged Hyprland
+implementation formats this field with `{:x}`. A regression with these IDs
+failed before the fix, then passed with bounded hexadecimal validation.
+Window geometry also rejects nonfinite, Boolean, and oversized coordinates
+with a typed refusal. The final focused suite has 122 passing tests.
+
+Final VM evidence: five native frames retained counters 631/632/633 and
+different magenta/cyan markers, ready waits 18.5–20.0 ms and total calls
+219–248 ms. Python shots were 640x400 and 400x640; their centers mapped to
+(640,400) and (1600,512). Window-region capture retained counter 633.
+Revoke after the first publication link withdrew all new PNG/metadata.
+The actual resident MCP tool delivered two decoded 640x400 images with
+counter 871 and different output markers. Replacement, stale proof,
+nonowner close, sliding expiry, CLI/MCP lock, and parent death passed.
+Killed-frame lease retirement measured 101 ms. Default native binary used;
+no input or real private config read. Probe cleanup closed grants/resources.
+
+**Exact verification commands:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_windows.HyprlandWindowTests.test_runtime_hexadecimal_stable_ids_are_preserved > /tmp/pcbridge-hyprland-stable-id-red.log 2>&1`
+  — expected failure before the hexadecimal correction.
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_capture tests.contracts.test_capture_contract tests.contracts.test_capture_backend_selection tests.contracts.test_hyprland_gate tests.contracts.test_hyprland_windows tests.contracts.test_kwin tests.contracts.test_coordinate_contract tests.contracts.test_coordinate_v2 tests.contracts.test_capture_region tests.contracts.test_display_contract tests.contracts.test_runtime_contract > /tmp/pcbridge-hyprland-shot-final-contracts.log 2>&1`
+  — pass, 122 tests at the final Python revision.
+- `./.venv/bin/python tests/test_desktop.py > /tmp/pcbridge-hyprland-shot-desktop.log 2>&1`
+  — pass, 615 checks, no live input flags.
+- `cargo test --manifest-path rust/Cargo.toml --workspace --locked --no-fail-fast > /tmp/pcbridge-hyprland-shot-workspace.log 2>&1`
+  — pass, all default workspace targets, exit 0.
+- `scripts/dev/hyprland-vm.sh sync && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_NATIVE_CAPTURE=1 .venv/bin/python tests/live/hyprland/check_native_capture.py --out-dir ~/pcbridge-evidence/native-capture && PCBRIDGE_TEST_HYPRLAND_GRANT_LIFECYCLE=1 PCBRIDGE_TEST_HYPRLAND_RESIDENT_CAPTURE=1 .venv/bin/python tests/live/hyprland/check_grant_lifecycle.py' > /tmp/pcbridge-hyprland-shot-vm-verified.log 2>&1`
+  — pass at the final source revision, all evidence above. The earlier same
+  probe in `/tmp/pcbridge-hyprland-shot-vm-final.log` failed at window identity.
+- `cargo fmt --all --check --manifest-path rust/Cargo.toml` — pass.
+- `./.venv/bin/python -m py_compile pcbridge/desktop/capture.py pcbridge/desktop/backends/rust.py pcbridge/desktop/hyprland_windows.py tests/contracts/test_hyprland_capture.py tests/contracts/test_hyprland_windows.py tests/live/hyprland/check_native_capture.py tests/live/hyprland/check_grant_lifecycle.py` — pass.
+- `git diff --check && git diff --cached --check` — pass.
+
+**Review/remaining work:** Checked that discovery creates no image source,
+capture retains native authorization, publication uses the original token,
+failure withdraws only new artifacts, and missing focus/layout is typed.
+No new trust boundary, external screenshot process, or dependency. Acting
+focus, actual uinput/clipboard/pointer-lock, glow input transparency, portal
+environment, TUI/doctor/setup, full geometry/performance acceptance, and
+GNOME/KDE regression remain pending. Hyprland support and push are not claimed.

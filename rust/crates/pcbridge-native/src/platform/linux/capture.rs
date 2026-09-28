@@ -296,6 +296,10 @@ impl NativeCapture {
         if snapshot.topology_id != topology_id {
             return Err(NativeCaptureError::DisplayChanged);
         }
+        if matches!(self.backend, CaptureBackend::Hyprland(_)) {
+            ImageCopy::probe()?;
+            lifecycle.check().map_err(CaptureError::Guard)?;
+        }
         let CaptureBackend::Mutter { session, .. } = &self.backend else {
             lifecycle
                 .check()

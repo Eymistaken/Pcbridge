@@ -576,8 +576,28 @@ transform 1 yielded correctly oriented 800x1280 pixels with counter 633, also
 visually inspected. Frame-ready waits measured 18–28 ms; shared admission,
 request, metadata verification, decoding, and test image saving totaled
 218–247 ms. Explicit `desktop_lock` then refused capture with `REVOKED`.
-No input was sent. Python/tool/shot integration remains pending; these are
-native transport measurements, not complete platform acceptance.
+No input was sent. These are native transport measurements, not complete
+platform acceptance.
+
+### Hyprland Python shots and MCP delivery
+
+The actual Python/native provider captured both outputs at long edge 640:
+normal output 1 was 640x400, rotated/fractional output 2 was 400x640.
+Shot centers mapped to canvas (640,400) and (1600,512). Focused-window
+region capture retained counter 633. Calling `desktop_lock` after the first
+publication link withdrew every new PNG and metadata file. A resident daemon
+returned two decoded 640x400 MCP images with exact counter 871 and the
+different output markers. The same probe passed replacement, expiry,
+stale/dead presentation, CLI/MCP lock, and parent death; dead-frame lease
+retirement measured 101 ms. No input was requested.
+
+The combined probe initially failed at `window_list`: actual stable IDs
+`1800001e`/`1800001f` contain hexadecimal letters. The tagged compositor
+[formats stableId as hexadecimal](https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/debug/HyprCtl.cpp).
+Decimal-only validation had passed earlier IDs accidentally. Regression
+tests now cover the actual IDs, retain bounded identity validation, and
+reject malformed IDs. Full input/platform acceptance and existing-platform
+regression remain required.
 
 ## Terminal UI (settings CLI)
 

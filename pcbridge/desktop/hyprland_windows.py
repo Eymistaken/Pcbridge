@@ -3,15 +3,53 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 
 from . import hyprland
 from .errors import DesktopError, ErrorCategory, ErrorCode
 
+
+def capture_region(table):
+    """Visible focused-window portion on its center output, with an identity check."""
+    from . import monitors
+
+    def focused():
+        try:
+            raw = hyprland._query("activewindow", json_output=True)
+            return raw, _window(raw, active=True)
+        except hyprland.HyprlandIPCError as error:
+            raise _unavailable("Hyprland focused-window capture is unavailable") from error
+
+    raw, window = focused()
+    at, size = raw.get("at"), raw.get("size")
+    if (not isinstance(at, list) or not isinstance(size, list) or len(at) != 2 or len(size) != 2
+            or any(type(value) not in (int, float) or abs(value) > 2**31 - 1
+                   or not math.isfinite(value) for value in [*at, *size])
+            or any(value <= 0 for value in size)):
+        raise _unavailable("Hyprland focused-window geometry is unavailable")
+    left, top = monitors.platform_origin(table)
+    x, y = at[0] - left, at[1] - top
+    home = monitors.find_monitor(int(x + size[0] / 2), int(y + size[1] / 2), table)
+    if home is None:
+        raise _unavailable("The focused window is outside the current outputs")
+    x1, y1 = max(home.x, math.floor(x)), max(home.y, math.floor(y))
+    x2, y2 = min(home.x + home.width, math.ceil(x + size[0])), min(home.y + home.height, math.ceil(y + size[1]))
+    if x2 - x1 < 8 or y2 - y1 < 8:
+        raise _unavailable("The focused window is too small to capture")
+    def verify():
+        current, identity = focused()
+        if (identity.identity != window.identity
+                or current.get("at") != at or current.get("size") != size):
+            raise DesktopError(code=ErrorCode.TARGET_MISMATCH, category=ErrorCategory.SAFETY,
+                message="The focused window changed during capture", retryable=True,
+                suggested_action="Inspect the focused window and capture again.", backend=BACKEND)
+    return ((x1, y1, x2 - x1, y2 - y1), home), verify
+
 BACKEND = "linux.hyprland-ipc"
 _ADDRESS = re.compile(r"0x[0-9a-fA-F]{1,16}\Z")
-_STABLE_ID = re.compile(r"[0-9]{1,20}\Z")
+_STABLE_ID = re.compile(r"[0-9a-fA-F]{1,16}\Z")
 
 
 def _unavailable(message: str) -> DesktopError:
@@ -61,7 +99,7 @@ def _window(raw: object, *, active: bool = False) -> Window:
             or not isinstance(raw.get("class"), str)
             or not isinstance(raw.get("title"), str)):
         raise hyprland.HyprlandIPCError("Hyprland window identity is incomplete")
-    return Window(address.lower(), stable_id, raw["class"], raw["title"], pid, active)
+    return Window(address.lower(), stable_id.lower(), raw["class"], raw["title"], pid, active)
 
 
 class HyprlandWindowProvider:

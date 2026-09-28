@@ -52,7 +52,8 @@ from pathlib import Path
 from typing import Any
 
 from ..capabilities import Capability, CapabilityState
-from ..errors import DesktopError, ErrorCategory, ErrorCode
+from ..errors import DesktopError, ErrorCategory, ErrorCode, error_from_decision
+from ..lease import LeaseToken
 from .. import capture as capturelib
 from .. import compositor as compositorlib
 from .. import clipboard as clipboardlib
@@ -86,6 +87,7 @@ CLIPBOARD_TIMEOUT_SECONDS = 25.0
 
 BACKEND_NAME = "linux.mutter.pipewire"
 KWIN_BACKEND_NAME = "linux.kwin.screenshot2"
+HYPRLAND_BACKEND_NAME = "linux.hyprland.image-copy"
 
 
 def _display_scheme() -> str:
@@ -95,7 +97,8 @@ def _display_scheme() -> str:
 
 def _backend_name() -> str:
     kind = compositorlib.current().kind
-    return {"kde": KWIN_BACKEND_NAME, "gnome": BACKEND_NAME}.get(kind, "unavailable")
+    return {"kde": KWIN_BACKEND_NAME, "gnome": BACKEND_NAME,
+            "hyprland": HYPRLAND_BACKEND_NAME}.get(kind, "unavailable")
 
 logger = logging.getLogger(__name__)
 
@@ -345,6 +348,34 @@ class NativeScreenCast:
     def is_open(self) -> bool:
         return self._open
 
+    def publication_guard(self, spec=None):
+        """Capture one exact Hyprland token before rendering any shot."""
+        if compositorlib.current().kind != "hyprland":
+            return None
+        grant_id, epoch = self._grant()
+        token = LeaseToken(grant_id, epoch)
+        table = monitorslib.list_monitors(use_cache=False)
+        topology = monitorslib.topology_id(table)
+        outputs = [monitor.connector for monitor in table]
+        verify_window = None
+        if isinstance(spec, str) and spec.strip().lower() == "window":
+            from ..hyprland_windows import capture_region
+
+            _, verify_window = capture_region(table)
+        def verify():
+            decision = self.gate.verify(token)
+            if not decision.allowed:
+                raise error_from_decision(decision)
+            current = monitorslib.list_monitors()
+            if (monitorslib.topology_id(current) != topology
+                    or [monitor.connector for monitor in current] != outputs):
+                raise DesktopError(code=ErrorCode.DISPLAY_CHANGED, category=ErrorCategory.CAPTURE,
+                    message="The output layout changed while the screenshot was being prepared",
+                    retryable=True, suggested_action="Capture the current layout again.", backend=HYPRLAND_BACKEND_NAME)
+            if verify_window:
+                verify_window()
+        return verify
+
     def start(self, monitors: list[str], cursor: bool = True) -> dict:
         """Open the Mutter session now, so the share starts with the grant.
 
@@ -377,7 +408,8 @@ class NativeScreenCast:
         outcome = ""
         on_demand = False
         if response.error:
-            if response.error.get("code") != "UNKNOWN_METHOD":
+            if (response.error.get("code") != "UNKNOWN_METHOD"
+                    or compositorlib.current().kind == "hyprland"):
                 raise NativeCaptureError(
                     str(response.error.get("message") or response.error.get("code")),
                     cause=_error_from_response(response.error),
@@ -467,6 +499,10 @@ class NativeScreenCast:
             raise NativeCaptureError(f"empty frame returned for {connector}")
 
         destination = Path(path)
+        if compositorlib.current().kind == "hyprland":
+            decision = self.gate.verify(LeaseToken(grant_id, revoke_epoch))
+            if not decision.allowed:
+                raise NativeCaptureError(decision.reason, cause=error_from_decision(decision))
         destination.write_bytes(response.binary)
         wait_ms = float(result.get("wait_ms") or 0.0)
         return {
@@ -600,7 +636,8 @@ class RustCaptureProvider(PythonCaptureProvider):
 
     def probe_capabilities(self) -> dict[str, Capability]:
         """Report monitor capture from the native path without opening a session."""
-        if compositorlib.current().kind not in ("gnome", "kde"):
+        kind = compositorlib.current().kind
+        if kind not in ("gnome", "kde", "hyprland"):
             return {
                 name: _capability(
                     name, CapabilityState.UNAVAILABLE, backend="unavailable",
@@ -611,6 +648,9 @@ class RustCaptureProvider(PythonCaptureProvider):
             }
         pillow_ok = capturelib.PIL_AVAILABLE
         ready, reason = native_binary_ready(self.cfg)
+        helper_ready = ready
+        if ready and kind == "hyprland":
+            ready, reason = self._hyprland_protocols_ready()
         if not pillow_ok:
             monitor = _capability(
                 "capture.monitor",
@@ -648,8 +688,8 @@ class RustCaptureProvider(PythonCaptureProvider):
                 CapabilityState.UNAVAILABLE,
                 backend=_backend_name(),
                 scope="os.capture",
-                reason_code=ErrorCode.DEPENDENCY_MISSING,
                 limitations=(reason,) if reason else (),
+                reason_code=ErrorCode.DEPENDENCY_MISSING if not helper_ready else ErrorCode.BACKEND_UNAVAILABLE,
             )
 
         try:
@@ -667,11 +707,11 @@ class RustCaptureProvider(PythonCaptureProvider):
         # the legacy screenshot path still owns it on GNOME. On Plasma it is a
         # region of the monitor frame (KWin names the focused window), so it
         # stands or falls with monitor capture.
-        if compositorlib.is_kde():
+        if kind in ("kde", "hyprland"):
             window = _capability(
                 "capture.window",
                 monitor.state,
-                backend="linux.kwin-script",
+                backend=compositorlib.current().focus_backend,
                 scope="os.capture",
                 reason_code=monitor.reason_code,
                 limitations=monitor.limitations,
@@ -682,6 +722,25 @@ class RustCaptureProvider(PythonCaptureProvider):
                 pillow_ok and bool(shutil.which(capturelib.GNOME_SCREENSHOT)),
             )
         return {"capture.monitor": monitor, "capture.window": window}
+
+    def _hyprland_protocols_ready(self) -> tuple[bool, str]:
+        client = None
+        try:
+            binary = discover_native_binary(self.cfg.native)
+            client = NativeClient(binary, state_dir=self.cfg.state_dir, runtime_dir=runtime_dir())
+            response = client.request("capabilities")
+            result = response.result if isinstance(response.result, dict) else {}
+            entries = result.get("capabilities", [])
+            if not isinstance(entries, list) or result.get("backend") != HYPRLAND_BACKEND_NAME:
+                return False, "The native helper did not confirm the Hyprland image-copy backend"
+            entry = next((item for item in entries
+                          if isinstance(item, dict) and item.get("name") == "capture.monitor"), {})
+            return entry.get("status") == "supported", str(entry.get("reason") or "Native image-copy protocols are unavailable")
+        except DesktopError as error:
+            return False, error.message
+        finally:
+            if client is not None:
+                client.close()
 
     def capture(
         self,

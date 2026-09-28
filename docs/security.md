@@ -129,6 +129,10 @@ image-copy session per request. Watchdog generation changes cancel in-flight
 waits. Lease, frame, lock, and idle validation occurs before protected capture
 and again after PNG encoding. External `grim` processes and interpreter
 permissions do not belong to the production capture boundary.
+The Python shot publisher retains the admitted token through rendering and
+checks it before each artifact and at completion. Revoke, output changes, or
+focused-window identity/geometry changes withdraw the newly published PNGs
+and metadata instead of returning an obsolete shot.
 
 ### What `enabled = false` does NOT turn off
 

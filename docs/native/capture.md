@@ -23,6 +23,30 @@ formats 4-6 (RGB32, ARGB32, ARGB32 premultiplied) are all read as BGRx.
 Measured: 7-12 ms a frame from KWin, 49-80 ms through the helper with the
 PNG (debug build).
 
+## Hyprland image-copy capture
+
+The native helper uses `ext_image_copy_capture_v1` with
+`ext_output_image_capture_source_manager_v1` in the selected Wayland session
+(`image_copy.rs`). Each request creates a fresh source/session and captures
+its first frame, with bounded private SHM storage and an absolute deadline.
+The exact grant, lock, idle, current output coverage, and cancellation
+generation are checked before and after protected work. Output transforms
+are normalized before PNG encoding. No external screenshot process is used.
+
+`capture.session_open` checks the protocols and returns `not_needed`.
+Read-only capabilities discover registry globals without creating a capture
+session, allocating an image buffer, or opening a desktop grant. Missing
+protocols report `BACKEND_UNAVAILABLE`; old helpers cannot fall back to a
+legacy on-demand path. The backend is `linux.hyprland.image-copy`.
+
+Python uses the shared cropping, scaling, metadata, and coordinate mapping.
+Focused-window shots crop the visible region on its center output and
+revalidate exact identity and geometry. Publication captures one lease token,
+checks it and current outputs before each PNG/metadata link and at completion,
+and withdraws newly published artifacts if validation fails. A separate
+read-only capability helper cannot bind the later capture helper to a missing
+grant. Platform acceptance and GNOME/KDE regression remain in progress.
+
 ## Why a session
 
 On GNOME 46 the only silent way to take a screenshot is **screen sharing**:
