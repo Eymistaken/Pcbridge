@@ -369,3 +369,61 @@ and control-character escaping. No acting IPC request was added.
 
 **Open questions:** Focus dispatch/version selection, live same-title window
 transitions, and list/focus tool acceptance under a visible grant remain.
+
+**Local commit:** `32a6a94`.
+
+## Stage 6a: Session-bound native idle observations
+
+**Objective:** Verify Hyprland input-idle notifications and refuse stale
+observer state before enabling desktop control.
+
+**Design decisions:** Reuse `ext_idle_notifier_v1` v2 input notifications.
+Use the existing async I/O dependencies to dispatch input events immediately
+and request a Wayland sync heartbeat every 500 ms. Only a compositor reply
+refreshes a heartbeat; an independent timer must not bless stale state.
+Version-2 records carry display, Hyprland instance, PID start ticks, and a
+3000 ms freshness limit. Both Python and Rust readers reject old records,
+dead writers, PID reuse, inconsistent timestamps, and foreign sessions.
+Enable daemon supervision on Hyprland as well as Plasma. The new live probe
+owns only its observer process and refuses to replace a resident observer.
+
+**Measurements and evidence:** The original version-1 observer was frozen
+with SIGSTOP in the VM; the Python reader still reported 17066 ms idle. This
+reproduced the stale-state bug before changing it. The new observer advanced
+2021 -> 3022 ms in one second. QMP Shift press/release reset it to 0. Frozen
+observer and frozen compositor tests returned UNKNOWN after four seconds;
+resuming restored a known value. The repeatable live probe measured 0 ->
+2090 ms and verified stopped observer, mismatched session, and dead observer
+all became UNKNOWN. All signals were sent inside the disposable VM.
+
+**Files changed:** `pcbridge/daemon.py`, `pcbridge/desktop/idlewatch.py`,
+`pcbridge/desktop/safety.py`, `rust/crates/pcbridge-native/src/main.rs`,
+`rust/crates/pcbridge-native/src/platform/linux/idle.rs`,
+`tests/contracts/test_idlewatch.py`, `tests/contracts/test_desktop_state.py`,
+`tests/live/hyprland/check_idle.py`, `docs/dev/measured-facts.md`, and this journal.
+
+**Tests run:**
+
+- `(cd rust && cargo test -p pcbridge-native --locked --lib)` — pass, 12 tests.
+- `(cd rust && cargo test --workspace --locked --no-fail-fast > /tmp/pcbridge-hyprland-stage6a-rust.log 2>&1)`
+  — pass, exit 0; compositor tests remain opt-in.
+- `./.venv/bin/python -m unittest tests.contracts.test_idlewatch tests.contracts.test_hyprland_session tests.contracts.test_desktop_state tests.contracts.test_batch_safety`
+  — pass, 56 tests. The first run exposed the old compositor test mocking
+  `is_kde` after explicit selection had moved to `current`; it now selects
+  GNOME/KWin explicitly and checks the actual transport calls.
+- `scripts/dev/hyprland-vm.sh sync` — pass.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge/rust && cargo build -p pcbridge-native --locked'`
+  — pass.
+- `scripts/dev/hyprland-vm.sh session 'systemctl --user stop pcbridge-idle-probe; cd ~/pcbridge; PCBRIDGE_TEST_LIVE_HYPRLAND=1 .venv/bin/python tests/live/hyprland/check_idle.py --binary rust/target/debug/pcbridge-native'`
+  — pass; JSON evidence reported advancing idle and all three UNKNOWN cases.
+- `scripts/dev/hyprland-vm.sh session 'systemd-run --user --collect --unit=pcbridge-idle-probe /home/tester/pcbridge/rust/target/debug/pcbridge-native idle-watch >/dev/null; sleep 2; pid=$(pgrep -x Hyprland | head -1); trap '\''kill -CONT "$pid"; systemctl --user stop pcbridge-idle-probe'\'' EXIT; kill -STOP "$pid"; sleep 4; cd ~/pcbridge; .venv/bin/python -c "from pcbridge.desktop.idlewatch import read_idle_ms; value=read_idle_ms(); print(\"stalled compositor idle_ms\",value); assert value is None"; kill -CONT "$pid"; sleep 1; .venv/bin/python -c "from pcbridge.desktop.idlewatch import read_idle_ms; value=read_idle_ms(); print(\"resumed compositor idle_ms\",value); assert value is not None"'`
+  — pass; `None` while stalled, 7096 ms after resume; cleanup stopped the observer.
+
+**Review:** Confirmed no timer-only heartbeat, immediate input-event dispatch,
+matching Python/Rust validation, and startup active state as the conservative
+default. No dependency was added. Version-1 native watchers now produce UNKNOWN
+until replaced by the matching new helper; this is a deliberate fail-closed upgrade.
+
+**Open questions:** Real PcBridge uinput resets and sequence behavior need a
+visible grant. Hyprlock authority is the next stage. Plasma live regression
+of the changed observer remains required before claiming overall acceptance.

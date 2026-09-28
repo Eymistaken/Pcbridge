@@ -40,7 +40,7 @@ fn main() -> ExitCode {
     }
 }
 
-/// KDE Plasma's idle time (see `platform::linux::idle`); runs until the
+/// Wayland input idle time (see `platform::linux::idle`); runs until the
 /// compositor goes away, and exits non-zero so the daemon restarts it.
 fn idle_watch() -> ExitCode {
     let Some(path) = pcbridge_native::platform::linux::idle::state_path() else {

@@ -246,7 +246,7 @@ class DesktopStateContractTests(unittest.TestCase):
 
         from pcbridge.desktop import idlewatch
 
-        with mock.patch.object(compositor, "is_kde", return_value=False), \
+        with mock.patch.object(compositor, "current", return_value=compositor.GNOME_SHELL), \
                 mock.patch.object(safetylib, "_busctl_json") as call:
             call.side_effect = [False, 1234]
             self.assertIs(safetylib.screen_locked(), False)
@@ -256,7 +256,7 @@ class DesktopStateContractTests(unittest.TestCase):
 
         # Plasma: the lock from KWin's freedesktop interface, the idle time
         # from the native watcher's record (KWin has no D-Bus idle time).
-        with mock.patch.object(compositor, "is_kde", return_value=True), \
+        with mock.patch.object(compositor, "current", return_value=compositor.KWIN), \
                 mock.patch.object(safetylib, "_busctl_json", return_value=True) as call, \
                 mock.patch.object(idlewatch, "read_idle_ms", return_value=4321):
             self.assertIs(safetylib.screen_locked(), True)

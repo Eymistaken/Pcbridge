@@ -530,15 +530,15 @@ async def _serve(args: argparse.Namespace, bind_socket: bool) -> int:
 def idle_watch_binary(cfg: Any) -> Path | None:
     """The native helper that watches idle time, when this session needs one.
 
-    Only Plasma does (KWin gives the idle time to Wayland clients only), and
-    only with desktop control enabled. Without the helper, the idle time is
-    unknown there and write actions need force.
+    Plasma and Hyprland expose input idle notifications to Wayland clients.
+    Start the observer only with desktop control enabled.
     """
     if not cfg.desktop.enabled:
         return None
-    from .desktop.session import KDE, desktop_kind
+    from .desktop.session import HYPRLAND, KDE, desktop_kind
 
-    if desktop_kind() != KDE:
+    kind = desktop_kind()
+    if kind not in (KDE, HYPRLAND):
         return None
     from .desktop.errors import DesktopError
     from .native import discover_native_binary
@@ -546,8 +546,7 @@ def idle_watch_binary(cfg: Any) -> Path | None:
     try:
         return discover_native_binary(cfg.native)
     except DesktopError:
-        log.warning("KDE Plasma: the native helper is not installed, so the idle "
-                    "time is unknown and desktop write actions need force=true")
+        log.warning("%s: the native idle observer is not installed; user activity is unknown", kind)
         return None
 
 

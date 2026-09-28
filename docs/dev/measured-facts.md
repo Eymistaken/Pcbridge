@@ -441,6 +441,23 @@ and xdg-desktop-portal-hyprland 1.4.1.
   missing, GNOME extension missing, and a Mutter monitor-table failure.
   `/dev/uinput` was present but not writable by the test user; that is a
   separate VM setup issue, not evidence that the input path works.
+- **Compositor window identity includes more than a title.** On September 28,
+  `clients` and `activewindow` returned a real foot client with address,
+  `stableId`, PID, class, and title. The separate runtime window provider
+  listed that client as active even without relying on AT-SPI. The current
+  [naming reference](https://wiki.hypr.land/configuring/naming-conventions/)
+  documents exact address/stable-ID selectors; dispatch still requires a
+  separate acting test through PcBridge's shared gate.
+- **The input idle protocol works on Hyprland 0.56.2.** The native watcher
+  bound `ext_idle_notifier_v1` v2. A no-input observation advanced from
+  2021 to 3022 ms in one second; QMP Shift press/release reset it to 0.
+  The original PID-only record remained trusted after `SIGSTOP` (17066 ms),
+  so version 2 now binds display, instance, process start ticks, and a
+  compositor-confirmed heartbeat. Heartbeats use Wayland sync callbacks every
+  500 ms, not timer writes. Stopping the watcher or compositor for four seconds
+  returned UNKNOWN; resuming restored a fresh observation. Watcher death and
+  a mismatched instance also returned UNKNOWN. The record age limit is 3000 ms.
+  This validates observation transport; grant/mid-batch input acceptance remains.
 
 ## Terminal UI (settings CLI)
 

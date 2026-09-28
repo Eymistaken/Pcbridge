@@ -139,7 +139,7 @@ def screen_locked() -> bool | None:
 def idle_ms() -> int | None:
     """Kullanicinin son girdisinden bu yana gecen ms. Ogrenilemezse None."""
     kind = compositorlib.current().kind
-    if kind == session.KDE:
+    if kind in (session.KDE, session.HYPRLAND):
         from . import idlewatch
 
         val = idlewatch.read_idle_ms()
