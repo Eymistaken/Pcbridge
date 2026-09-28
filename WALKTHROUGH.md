@@ -1614,3 +1614,61 @@ fix and passed afterward; the real VM probe was rerun at the fixed source.
 non-default runtime submap, nested smoke, complete security acceptance, existing
 platform regression, and final support documentation remain required. No
 supported-platform claim or push is made at this stage.
+
+**Local commit:** `f410779`. Separate quality approval followed the FIFO fix;
+the final real VM rerun completed successfully before this commit.
+
+## Stage 11a: Complete registered runtime submap evidence
+
+**Objective/design:** Close the Stage 3 live-test gap with disposable runtime
+fixtures, leaving the production read-only context unchanged. Register four
+safe no-op callbacks on collision-checked uncommon keys under the selected
+instance, retain their handles, and define a unique submap. Context lookup
+never invokes a binding. Cleanup removes only fixture keys and restores the
+exact original binding table; partial registration is covered by finally.
+The early opt-in/VM/optimized-Python refusal runs before production imports.
+
+**Files:** New check_runtime_context.py, measured facts, and this journal.
+
+**Measurements:** The real table changed 48 -> 52 -> 48, with default ->
+registered custom -> default submap. Both bindings_snapshot and the actual
+capabilities_result context matched all raw JSON fields and types. The
+production-query spy recorded twenty requests, exclusively binds and submap.
+Fixture repeat, locked, non-consuming, input-capture, release, descriptions,
+and universal values were preserved; universal is a string in this release.
+The accepted device restriction option has no corresponding IPC JSON fields.
+Lua actions remain opaque __lua references and were never executed.
+
+**Measured limitation:** A mouse:275 key reports mouse=false. The tagged
+0.56.2 parseKeyString/hlBind code never sets kb.mouse; changing its callback
+to a dispatcher cannot supply that missing flag. This probe explicitly does
+not claim mouse=true coverage. It preserves the actual returned value. The
+tagged Lua handle :unbind removes matching key/modifier entries broadly, so
+conservative preexisting-key collision refusal and distinct fixture keys are
+required even when cleanup uses saved handles. No user config, grant, native
+capture, or input device was involved.
+
+**Exact tests:**
+
+- `scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/check_runtime_context.py' < tests/live/hyprland/check_runtime_context.py && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_CONTEXT=1 .venv/bin/python tests/live/hyprland/check_runtime_context.py' > /tmp/pcbridge-hyprland-context-live.log 2>&1`
+  — pass, exit 0; final JSON includes exact table restoration, observed
+  flags, all twenty read-only requests, and honest omitted-field limitations.
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_binds tests.contracts.test_hyprland_session tests.contracts.test_mcp_errors > /tmp/pcbridge-hyprland-context-contracts.log 2>&1`
+  — pass, 29 tests, including unknown future fields and large binding tables.
+- `./.venv/bin/python tests/live/hyprland/check_runtime_context.py > /tmp/pcbridge-hyprland-context-no-optin.log 2>&1`
+  — expected refusal, exit 1, before imports/IPC without opt-in.
+- `PCBRIDGE_TEST_HYPRLAND_CONTEXT=1 ./.venv/bin/python tests/live/hyprland/check_runtime_context.py > /tmp/pcbridge-hyprland-context-host-refusal.log 2>&1`
+  — expected refusal, exit 1, before imports/IPC on the real host.
+- `PCBRIDGE_TEST_HYPRLAND_CONTEXT=1 ./.venv/bin/python -O tests/live/hyprland/check_runtime_context.py > /tmp/pcbridge-hyprland-context-optimized.log 2>&1`
+  — expected refusal, exit 1, before imports/IPC when assertions are disabled.
+- `./.venv/bin/python -m py_compile tests/live/hyprland/check_runtime_context.py && git diff --check`
+  — pass.
+
+**Review:** Independent spec and quality reviews approved the actual source,
+logs, and tagged cleanup behavior. The inaccurate handle-removal comment was
+corrected before commit. Quality review independently repeated the 29
+contracts and three host containment refusals.
+
+**Remaining work:** The remaining input, clipboard, accessibility, monitor,
+security, and nested acceptance evidence; full GNOME/KDE regression; and final
+support documentation remain required. This stage makes no support claim.

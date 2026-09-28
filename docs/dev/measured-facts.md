@@ -425,6 +425,22 @@ and xdg-desktop-portal-hyprland 1.4.1.
   describes flags including universal submap and input capture. Raw IPC
   values are retained because the VM reports `submap_universal` as a string,
   and future fields may differ.
+- **A registered non-default submap is exposed without running its binds.**
+  The later isolated fixture added four collision-checked runtime bindings:
+  48 became 52, default changed to the registered custom submap and back,
+  and cleanup restored the exact original table. Both production context
+  functions preserved every raw IPC field and type; the spy recorded twenty
+  queries, exclusively binds/submap. Repeat, locked, non-consuming, release,
+  descriptions, and input-capture flags were observed. Universal was the
+  string `true`. Device restrictions were accepted by Lua but omitted from
+  binds JSON; no restriction meaning was invented. A `mouse:275` key reported
+  mouse=false: the tagged [Lua binding implementation](https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/bindings/LuaBindingsToplevel.cpp)
+  never sets that field. This fixture does not cover mouse=true. Callbacks
+  remain opaque `__lua` references and were never executed. The tagged
+  [handle removal implementation](https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/lua/objects/LuaKeybind.cpp)
+  removes matching key/modifier entries broadly even for :unbind on a handle;
+  distinct fixture keys and conservative baseline collision checks protect
+  existing bindings. The product context remains read-only.
 - **Hyprland 0.56 uses Lua-form dispatcher arguments.** The legacy
   `hyprctl dispatch exec foot` failed with a Lua syntax error; the measured
   working form was `hyprctl dispatch 'hl.dsp.exec_cmd("foot")'`. This was a
