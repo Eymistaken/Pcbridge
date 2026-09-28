@@ -55,8 +55,9 @@ def emit(**event) -> None:
 
 
 class Windows:
-    def __init__(self, app: Gtk.Application) -> None:
+    def __init__(self, app: Gtk.Application, details: bool = False) -> None:
         self.app = app
+        self.details = details
         self.painted: set[int] = set()
         self.count = 0
         self.geometry: list[Gdk.Rectangle] = []
@@ -116,6 +117,18 @@ class Windows:
         emit(event="release", button=gesture.get_current_button(),
              x=round(origin.x + x + offset_x), y=round(origin.y + y + offset_y))
 
+    def on_click(self, gesture, n_press, x, y, index):
+        origin = self.geometry[index]
+        emit(event="click_count", n_press=n_press, button=gesture.get_current_button(),
+             x=round(origin.x + x), y=round(origin.y + y))
+
+    def on_drag_update(self, gesture, offset_x, offset_y, index):
+        origin = self.geometry[index]
+        _ok, x, y = gesture.get_start_point()
+        emit(event="drag_update", button=gesture.get_current_button(),
+             buttons=sorted(self.down), x=round(origin.x + x + offset_x),
+             y=round(origin.y + y + offset_y))
+
     def on_key(self, _controller, keyval, keycode, state, kind):
         emit(
             event=kind,
@@ -169,6 +182,13 @@ class Windows:
             drag.set_button(0)
             drag.connect("drag-begin", self.on_press, index)
             drag.connect("drag-end", self.on_release, index)
+            if self.details:
+                drag.connect("drag-update", self.on_drag_update, index)
+                click = Gtk.GestureClick()
+                click.set_button(0)
+                click.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+                click.connect("pressed", self.on_click, index)
+                window.add_controller(click)
             keys = Gtk.EventControllerKey()
             keys.connect("key-pressed", self.on_key, "key_press")
             keys.connect("key-released", self.on_key, "key_release")
@@ -179,6 +199,8 @@ class Windows:
             for controller in (motion, drag, keys, scroll):
                 controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
                 window.add_controller(controller)
+            if self.details:
+                click.group(drag)
             window.connect(
                 "notify::is-active",
                 lambda w, _p, i=index: emit(event="active", monitor=i, active=w.is_active()),
@@ -202,10 +224,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--timeout", type=int, default=240)
     parser.add_argument("--tick-ms", type=int, default=0)
+    parser.add_argument("--details", action="store_true")
     args = parser.parse_args()
 
     app = Gtk.Application(flags=Gio.ApplicationFlags.NON_UNIQUE)
-    windows = Windows(app)
+    windows = Windows(app, details=args.details)
     app.connect("activate", windows.activate)
     if args.tick_ms > 0:
         GLib.timeout_add(args.tick_ms, windows.tick)

@@ -505,6 +505,27 @@ and xdg-desktop-portal-hyprland 1.4.1.
   acceptance. Overall CLI doctor exit 1 remains truthful for outstanding
   installation/configuration checks; desktop diagnostics passing does not
   imply the entire installation is ready.
+- **Detailed real input was verified with the default packaged release helper.**
+  On September 29, GTK received right/middle buttons 3/2, recognized double/
+  triple click counts 2/3, horizontal scroll dx +2/-2 with dy 0, and nine
+  intermediate drag updates with button 1 held. Manual releases emptied held
+  state. Without another native request, the five-second watchdog released
+  Shift after 5.0013 seconds and left after 5.0002 seconds; notifications were
+  retrieved once. The eight-edge/typing/shot/relative probe also passed with
+  default release discovery; explicit revoke released Shift in 31 ms. The
+  helper reported test_harness=false and build unknown-dirty (VM sync has no
+  .git). Independent cleanup found no native helper, input observer, glow, or
+  idle record left behind.
+- **Cursor dispatch is a diagnostic observation, not equivalent input proof.**
+  Actual selected Lua hl.dsp.cursor.move acknowledgments positioned the cursor
+  at (640,600) and (1920,600), as reported by IPC. GTK reported no corresponding
+  motion within one second; the first probe also saw none within three seconds
+  on output 1. Distinct native recovery and target moves then delivered GTK
+  motion on both outputs. Tagged source calls simulateMouseMovement without
+  an explicit pointer-frame call there; framing explains a possible difference,
+  but no protocol trace establishes the cause. The production uinput path is
+  unchanged. See [the tagged action](https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/config/shared/actions/ConfigActions.cpp#L1181)
+  and [input handling](https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/managers/input/InputManager.cpp#L186).
 - **Remaining GNOME reporting assumptions were reproduced through real MCP.**
   On September 29, the VM panel_icon status returned a missing GNOME-extension
   error, and the monitor description mentioned GNOME panel menus and Super.

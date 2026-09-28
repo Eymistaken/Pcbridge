@@ -1830,3 +1830,118 @@ panel actions and the focused default description after the release rebuild.
 **Remaining work:** Additional input/clipboard/accessibility/geometry and
 nested evidence, complete security acceptance, existing-platform regression,
 and final documentation still remain. No supported-platform claim is made.
+
+**Local commit:** `7e14a2e`.
+
+## Stage 9c: Measure detailed input with the packaged release helper
+
+**Objective/design:** Extend the isolated input acceptance with application
+events for buttons, recognized click counts, horizontal scroll, intermediate
+drag positions, manual holds, and the existing hold timeout. An optional
+observer flag adds click-count and drag-update signals; the default observer
+used by GNOME/KDE remains unchanged. Require normal SafetyGate admission,
+fresh native idle, visible grant, cross-process sequence guards, current
+observer PID/fullscreen geometry, and default packaged helper discovery.
+Public example configuration and temporary state are used; the native helper
+reports release/test_harness=false and its actual handshake build ID. The
+release build ID is unknown-dirty because the VM copy has no .git directory.
+
+**Files:** New tests/live/hyprland/check_input_details.py; the optional observer
+and wrapper in tests/live/input_window.py and tests/live/test_input_parity.py;
+default packaged helper discovery in tests/live/hyprland/check_input.py; this
+journal and measured facts. No production input backend or permission changed.
+
+**VM evidence:** Right/middle presses and releases reached GTK as buttons
+3/2. GTK recognized double/triple clicks as n_press 2/3. Horizontal scroll
+sent +2/-2 and received dx +2/-2, dy 0. Nine intermediate drag updates held
+button 1 between (426,533) and (853,533); endpoints matched. Manual Shift and
+left-button releases emptied held state. With no intervening native request,
+the watchdog released Shift after 5.0013 seconds and the button after 5.0002
+seconds; both release notifications were retrieved once. The original eight
+edge/typing/shot/relative acceptance also passed with the packaged release
+helper: two shot centers matched within one pixel, geometry/reserved space
+were unchanged, and explicit revoke released held Shift in 31 ms.
+
+**Measurement-driven diagnostic adjustment:** The first detailed run failed
+because a current Lua cursor dispatcher acknowledgment did not produce GTK
+motion within three seconds. A read-only query after cleanup showed the
+requested (640,600) cursor position. The revised diagnostic asserts selected
+IPC acknowledgment and authoritative cursor position first, then records GTK
+motion as a bounded observation. In the final run both (640,600) and
+(1920,600) were correct in IPC, with no GTK motion received within one second.
+Fresh native moves to a different recovery point and then the target produced
+actual GTK motion on both outputs. Review also corrected an initial test
+assumption that repeating the kernel's cached pre-warp ABS point could recover
+an external warp; the recovery point is now distinct. These observations do
+not establish dispatcher equivalence to real-device input or a production
+fallback. Tagged Hyprland source calls simulateMouseMovement after warp, with
+no explicit pointer frame in that function; frame batching is an inference,
+not a measured protocol trace. The production uinput path remains primary.
+
+**Exact tests:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_input_contract tests.contracts.test_rust_pointer_provider tests.contracts.test_rust_keyboard_provider tests.contracts.test_native_grant_rebind`
+  — implementer pass, 50 tests before and after diagnostic changes.
+- `./.venv/bin/python -m unittest tests.contracts.test_input_contract tests.contracts.test_rust_pointer_provider tests.contracts.test_rust_keyboard_provider tests.contracts.test_native_grant_rebind tests.contracts.test_batch_safety tests.contracts.test_runtime_contract > /tmp/pcbridge-stage9c-input-contracts.log 2>&1`
+  — pass, 97 tests.
+- `./.venv/bin/python -m unittest tests.contracts.test_input_contract tests.contracts.test_rust_pointer_provider tests.contracts.test_rust_keyboard_provider tests.contracts.test_native_grant_rebind tests.contracts.test_batch_safety tests.contracts.test_runtime_contract > /tmp/pcbridge-stage9c-final-contracts.log 2>&1`
+  — pass, 97 tests after the final diagnostic edit.
+- `./.venv/bin/python tests/test_desktop.py > /tmp/pcbridge-stage9c-desktop.log 2>&1`
+  — pass, 615 checks without host input.
+- `./.venv/bin/python -m py_compile tests/live/hyprland/check_input_details.py tests/live/hyprland/check_input.py tests/live/input_window.py tests/live/test_input_parity.py && git diff --check`
+  — pass.
+- `env -u PCBRIDGE_TEST_HYPRLAND_INPUT_DETAILS ./.venv/bin/python tests/live/hyprland/check_input_details.py > /tmp/pcbridge-stage9c-no-optin.log 2>&1; test "$?" -eq 1 && rg -q 'Set PCBRIDGE_TEST_HYPRLAND_INPUT_DETAILS' /tmp/pcbridge-stage9c-no-optin.log`
+  — pass, expected early refusal before PcBridge imports.
+- `PCBRIDGE_TEST_HYPRLAND_INPUT_DETAILS=1 ./.venv/bin/python tests/live/hyprland/check_input_details.py > /tmp/pcbridge-stage9c-host-refused.log 2>&1; test "$?" -eq 1 && rg -q 'only on the disposable pcbridge-hyprland VM' /tmp/pcbridge-stage9c-host-refused.log`
+  — pass, expected host refusal before PcBridge imports.
+- `PCBRIDGE_TEST_HYPRLAND_INPUT_DETAILS=1 ./.venv/bin/python -O tests/live/hyprland/check_input_details.py > /tmp/pcbridge-stage9c-optimized-refused.log 2>&1; test "$?" -eq 1 && rg -q 'Python -O is forbidden' /tmp/pcbridge-stage9c-optimized-refused.log`
+  — pass, expected optimized-Python refusal before PcBridge imports.
+- `scripts/dev/hyprland-vm.sh sync && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_INPUT=1 .venv/bin/python tests/live/hyprland/check_input.py --out-dir /tmp/pcbridge-input-stage9c-edges' > /tmp/pcbridge-stage9c-edges-live.log 2>&1`
+  — pass, actual release-helper eight-edge/typing/capture acceptance.
+- `scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/check_input_details.py' < tests/live/hyprland/check_input_details.py && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_INPUT_DETAILS=1 .venv/bin/python tests/live/hyprland/check_input_details.py' > /tmp/pcbridge-stage9c-details-live.log 2>&1`
+  — initial failure at the diagnostic GTK motion expectation; traceback
+  preserved, cleanup completed.
+- `scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/check_input_details.py' < tests/live/hyprland/check_input_details.py && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_INPUT_DETAILS=1 .venv/bin/python tests/live/hyprland/check_input_details.py' > /tmp/pcbridge-stage9c-details-live-final.log 2>&1`
+  — pass, exit 0 with application
+  event and watchdog JSON. Failure paths preserve partial evidence and the
+  bounded observer stderr before temporary files are removed.
+
+Final cleanup was independently verified, exit 0:
+
+```bash
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python - <<'\''PY'\''
+import json, os
+from pathlib import Path
+from pcbridge.desktop import hyprland, idlewatch
+from tests.live.hyprland.check_glow_owner import layers
+counts={"native_helpers":0,"input_observers":0}
+for process in Path("/proc").iterdir():
+    if not process.name.isdecimal():
+        continue
+    try:
+        if process.stat().st_uid != os.getuid():
+            continue
+        args=process.joinpath("cmdline").read_bytes().split(b"\0")
+    except (OSError, PermissionError):
+        continue
+    if args and Path(os.fsdecode(args[0])).name == "pcbridge-native":
+        counts["native_helpers"]+=1
+    if any(Path(os.fsdecode(arg)).name == "input_window.py" for arg in args if arg):
+        counts["input_observers"]+=1
+state={"locked":hyprland.screen_locked(),"idle":idlewatch.read_idle_ms(),"glow_layers":len(layers()),**counts}
+assert state == {"locked":False,"idle":None,"glow_layers":0,"native_helpers":0,"input_observers":0}, state
+print(json.dumps(state))
+PY' > /tmp/pcbridge-stage9c-cleanup-live.log 2>&1
+```
+
+**Remaining work:** Expiry/replacement/cancellation and policy acceptance,
+pointer lock, touch, clipboard ownership, accessibility, geometry/visual/
+performance evidence, nested smoke, and final regression still remain. A
+read-only audit found that MCP cancellation currently permits synchronous
+worker actions to continue; the next security stage must reproduce and resolve
+this rather than treating the client's cancellation exception as safety proof.
+
+**Review:** Separate spec and quality reviews approved the scoped stage after
+the measured diagnostic adjustment. Final VM exit status and independent
+cleanup were verified after the evidence JSON, rather than assuming that
+printing evidence established cleanup success.

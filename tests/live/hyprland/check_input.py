@@ -20,6 +20,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
+from pcbridge.native import discover_native_binary  # noqa: E402
 from pcbridge.config import load_config  # noqa: E402
 from pcbridge.desktop import glowstate, hyprland, idlewatch, monitors  # noqa: E402
 from pcbridge.desktop.backends.rust import RustCaptureProvider, RustInputProvider  # noqa: E402
@@ -42,16 +43,20 @@ def main():
     assert hyprland.screen_locked() is False
     assert not layers() and idlewatch.read_idle_ms() is None, "Do not overlap another resident grant"
     assert os.access("/dev/uinput", os.R_OK | os.W_OK), "Install the existing pcbridge udev rule in the VM"
-    binary = (ROOT / "rust/target/debug/pcbridge-native").resolve()
+    if os.environ.get("PCBRIDGE_NATIVE_BIN"):
+        raise RuntimeError("Native helper overrides are forbidden")
     args.out_dir.mkdir(parents=True, exist_ok=True)
     idle = window = gate = runtime = None
     with tempfile.TemporaryDirectory(prefix="pcbridge-hyprland-input-") as temporary:
         directory = Path(temporary)
-        base = load_config(ROOT / "config.example.toml")
+        base = load_config(ROOT / "config.example.toml", check_state=False)
+        assert base.native.binary_path is None
+        binary = discover_native_binary(base.native)
+        assert binary.is_relative_to(ROOT / "pcbridge/_native")
         cfg = dataclasses.replace(base, state_dir=directory,
             desktop=dataclasses.replace(base.desktop, enabled=True, unlock_idle_seconds=0,
                                         unlock_notification=False, hold_max_seconds=5),
-            native=dataclasses.replace(base.native, input="rust", capture="rust", binary_path=binary))
+            native=dataclasses.replace(base.native, input="rust", capture="rust"))
         try:
             window = InputWindow(directory / "window.stderr", timeout=180)
             ready = window.wait(lambda event: event.get("event") == "ready", 20)
