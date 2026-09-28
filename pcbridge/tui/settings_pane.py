@@ -151,7 +151,7 @@ class SettingsPane(Vertical):
     def load(self) -> None:
         try:
             self.ed = self.app.backend.editor()
-        except Exception as exc:  # noqa: BLE001 - SettingsError, SystemExit, a missing file
+        except (Exception, SystemExit) as exc:  # noqa: BLE001 - config errors are shown in Settings
             self.ed = None
             self.query_one("#settings-message", Static).update(
                 Text(f"The settings cannot be read: {getattr(exc, 'message', exc)}", style="bold"))

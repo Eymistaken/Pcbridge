@@ -18,12 +18,16 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from pcbridge import paths as pathslib  # noqa: E402
+from pcbridge.config import ConfigError  # noqa: E402
 from pcbridge import settings as S  # noqa: E402
+from pcbridge.desktop import session  # noqa: E402
 from pcbridge.desktop.panelicon import PanelIconError  # noqa: E402
 from pcbridge.tui.app import Confirm, PcbridgeApp  # noqa: E402
+from pcbridge.tui.backend import Backend  # noqa: E402
 from tests.contracts.test_settings import PASSWORD, TOKEN, example_config  # noqa: E402
 from tests.contracts.test_tui import SIZE, FakeBackend, settle  # noqa: E402
-from textual.widgets import DataTable, Input, OptionList, Switch, TabbedContent  # noqa: E402
+from textual.widgets import DataTable, Input, OptionList, Switch, TabbedContent, TabPane  # noqa: E402
 
 
 class EditorBackend(FakeBackend):
@@ -47,6 +51,77 @@ class EditorBackend(FakeBackend):
             raise PanelIconError(self.panel_error)
         self.panel_mode = mode
         return self.panel_icon_status()
+
+
+class UnreadableConfigTests(unittest.TestCase):
+    def test_invalid_config_is_shown_without_enabling_control(self) -> None:
+        class InvalidConfigBackend(FakeBackend):
+            def editor(self):
+                raise ConfigError("Fix the invalid desktop setting.")
+
+            def panel_icon_status(self):
+                return None, "No panel icon is available."
+
+        async def go():
+            backend = InvalidConfigBackend(config_error="Fix the invalid desktop setting.")
+            app = PcbridgeApp(backend)
+            async with app.run_test(size=SIZE) as pilot:
+                await settle(app, pilot)
+                self.assertIn("Fix the invalid desktop setting",
+                              str(app.query_one("#settings-message").render()))
+                self.assertIsNone(app.cfg)
+                self.assertTrue(app.query_one("#grant-button").disabled)
+                self.assertTrue(app.query_one("#settings-save").disabled)
+                self.assertEqual(backend.calls, [])
+
+        asyncio.run(go())
+
+    def test_missing_config_preserves_every_tab_without_grant_or_file_writes(self) -> None:
+        class MissingConfigBackend(FakeBackend):
+            load_config = Backend.load_config
+            editor = Backend.editor
+            panel_icon_status = Backend.panel_icon_status
+
+        async def go(root):
+            backend = MissingConfigBackend()
+            app = PcbridgeApp(backend)
+            async with app.run_test(size=SIZE) as pilot:
+                await settle(app, pilot)
+                self.assertEqual({pane.id for pane in app.query(TabPane)},
+                                 {"overview", "settings", "tools", "connections", "commands"})
+                self.assertIsNone(app.cfg)
+                self.assertTrue(app.query_one("#grant-button").disabled)
+                self.assertIn("No pcbridge config file found", app.cfg_error)
+                self.assertIn("pcbridge setup", str(app.query_one("#settings-message").render()))
+                for tab in ("overview", "settings", "tools", "connections", "commands"):
+                    app.query_one(TabbedContent).active = tab
+                    await settle(app, pilot)
+                    self.assertEqual(app.query_one(TabbedContent).active, tab)
+                app.query_one(TabbedContent).active = "settings"
+                await settle(app, pilot)
+                self.assertTrue(app.query_one("#settings-save").disabled)
+                self.assertTrue(app.query_one("#settings-discard").disabled)
+                app.query_one(TabbedContent).active = "overview"
+                await pilot.pause()
+                await pilot.click("#grant-button")
+                await pilot.press("l", "r")
+                await settle(app, pilot)
+                self.assertEqual(backend.calls, [])
+                self.assertFalse(backend.open)
+                self.assertEqual(list(root.iterdir()), [])
+
+        for kind in (session.GNOME, session.KDE, session.HYPRLAND, session.UNKNOWN):
+            with self.subTest(desktop=kind), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                env = {k: v for k, v in os.environ.items() if not k.startswith("PCBRIDGE_")}
+                with mock.patch.dict(os.environ, env, clear=True), \
+                        mock.patch.object(pathslib, "config_file", return_value=root / "config.toml"), \
+                        mock.patch.object(pathslib, "LEGACY_REPO_CONFIG", root / "legacy.toml"), \
+                        mock.patch.object(session, "desktop_kind", return_value=kind), \
+                        mock.patch.object(session, "support_note", return_value=""), \
+                        mock.patch("pcbridge.desktop.panelicon.get_mode",
+                                   side_effect=PanelIconError("not installed")):
+                    asyncio.run(go(root))
 
 
 class SettingsTabTests(unittest.TestCase):

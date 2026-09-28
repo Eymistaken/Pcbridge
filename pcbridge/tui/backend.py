@@ -55,6 +55,9 @@ class Backend:
         kind = session.desktop_kind()
         if kind == session.KDE:
             return None, "KDE Plasma has no pcbridge panel icon."
+        if kind == session.HYPRLAND:
+            return None, ("Hyprland has no pcbridge GNOME panel icon. No panel or tray is required; "
+                          "the native glow signals granted desktop control.")
         if kind != session.GNOME:
             return None, "No GNOME session was detected."
         try:

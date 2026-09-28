@@ -1417,3 +1417,89 @@ additional buttons/counts/horizontal scroll and held-input causes, cursor
 dispatcher diagnostics, full acceptance, portal/TUI/doctor/setup, and existing
 platform regression remain required. This stage does not claim complete input
 or Hyprland support.
+
+**Local commit:** `1e319aa`.
+
+## Stage 10a: Preserve the normal TUI with unreadable configuration
+
+**Objective/design:** Fix the measured plain `pcbridge` missing-config crash
+at the existing Settings pane boundary. Config lookup intentionally raises
+SystemExit for CLI callers; Exception does not catch it. Handle both there,
+keep the existing setup guidance and full UI, and leave invalid/missing config
+actions disabled. No new config is created automatically. Hyprland gets an
+explicit optional-panel note; it never reads or writes GNOME gsettings.
+
+**Files:** TUI settings/backend, TUI settings/panel-icon contracts, measured
+facts, and this journal. The implementation was delegated under the
+subagent-driven-development workflow; spec and quality reviews were separate.
+
+**Evidence:** The real Textual regression failed at the exact locator
+SystemExit before the handler fix. It then passed in all four desktop kinds,
+with Overview, Settings, Tools, Connections, and Commands accessible,
+grant/restart attempts inert, Save/Discard disabled, and no files created.
+An additional ConfigError case stayed visible without enabling control.
+The old generic GNOME panel note failed the new Hyprland contract, then the
+explicit optional-panel/glow note passed without gsettings access.
+
+On the existing VM checkout, the empty-XDG plain executable reproduced the
+SettingsPane -> Backend.editor -> ConfigEditor -> locate_config traceback and
+exit 1. After sync, the identical command stayed open for the eight-second
+observation (timeout exit 124), rendered all five normal tabs, setup guidance,
+and the disabled Config error grant button; it emitted no traceback and left
+the XDG directory absent. The configured literal `pcbridge` command, with the
+checkout venv on PATH, also stayed open and rendered all five tabs without a
+traceback. A missing path supplied through PCBRIDGE_CONFIG is a different
+SettingsError path that was already handled; the first control observation
+correctly stayed open before the fix. The original user's exact field error
+is still unavailable, so the measured missing-config root cause is not claimed
+as that user's diagnosis. No desktop input or host config/service was touched.
+
+**Exact tests:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_tui_settings.UnreadableConfigTests`
+  — initial expected locator SystemExit failure in
+  `/tmp/pcbridge-hyprland-tui-red.log`; green missing-config case passed across
+  four desktops, `/tmp/pcbridge-hyprland-tui-green.log`.
+- `./.venv/bin/python -m unittest tests.contracts.test_panel_icon.SettingsBackendTests.test_hyprland_explains_the_optional_icon_without_reading_or_writing_gsettings`
+  — expected failure before the explicit note, then included in passing suites.
+- `./.venv/bin/python -m unittest tests.contracts.test_tui tests.contracts.test_tui_settings tests.contracts.test_tui_tools tests.contracts.test_tui_connections tests.contracts.test_panel_icon`
+  — pass, 39 tests; `/tmp/pcbridge-hyprland-tui-targeted.log`.
+- `./.venv/bin/python -m unittest tests.contracts.test_tui_settings.UnreadableConfigTests tests.contracts.test_panel_icon.SettingsBackendTests`
+  — pass, 6 tests including ConfigError; `/tmp/pcbridge-hyprland-tui-errors-panel.log`.
+- `./.venv/bin/python -m unittest tests.contracts.test_settings tests.contracts.test_cli_settings tests.contracts.test_english_only`
+  — pass, 44 tests; `/tmp/pcbridge-hyprland-tui-contracts.log`.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && timeout 8s script -q -e -c "env -u PCBRIDGE_CONFIG XDG_CONFIG_HOME=/tmp/pcbridge-tui-unconfigured .venv/bin/pcbridge" /tmp/pcbridge-tui-missing-before.typescript >/dev/null' > /tmp/pcbridge-hyprland-tui-before-no-config.log 2>&1`
+  — expected exit 1 before fix; exact trace preserved in the VM transcript.
+- `scripts/dev/hyprland-vm.sh sync && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && timeout 8s script -q -e -c "env -u PCBRIDGE_CONFIG XDG_CONFIG_HOME=/tmp/pcbridge-tui-unconfigured .venv/bin/pcbridge" /tmp/pcbridge-tui-missing-after.typescript >/dev/null' > /tmp/pcbridge-hyprland-tui-after-no-config.log 2>&1`
+  — expected timeout 124 with UI open; transcript content and absent config
+  directory verified separately as described above.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && timeout 8s script -q -e -c "env PATH=\$PWD/.venv/bin:\$PATH pcbridge" /tmp/pcbridge-tui-configured-after.typescript >/dev/null' > /tmp/pcbridge-hyprland-tui-after-configured.log 2>&1`
+  — expected timeout 124 with the configured normal UI open; all five tabs and
+  no traceback verified in the transcript.
+- `./.venv/bin/python tests/test_desktop.py > /tmp/pcbridge-hyprland-tui-desktop.log 2>&1`
+  — pass, 615 checks without live-input flags.
+- `./.venv/bin/python -m py_compile pcbridge/tui/backend.py pcbridge/tui/settings_pane.py tests/contracts/test_tui_settings.py tests/contracts/test_panel_icon.py`
+  and `git diff --check` — pass.
+
+The exact VM transcript assertions ran successfully (exit 0; JSON saved to
+`/tmp/pcbridge-hyprland-tui-vm-evidence.log`):
+
+```bash
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python - <<'\''PY'\''
+import json, re
+from pathlib import Path
+from pcbridge.tui.backend import Backend
+for kind in ("missing", "configured"):
+    screen = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", Path(f"/tmp/pcbridge-tui-{kind}-after.typescript").read_text(errors="replace"))
+    assert "Traceback (most recent call last)" not in screen and "exception=SystemExit" not in screen
+    assert all(label in screen for label in ("Overview", "Settings", "Tools", "Connections", "Commands"))
+    if kind == "missing":
+        assert "pcbridge setup" in screen and "Config error" in screen
+assert not Path("/tmp/pcbridge-tui-unconfigured").exists()
+print(json.dumps({"tui": "both_transcripts_validated", "config_created": False, "panel": Backend().panel_icon_status()}))
+PY' > /tmp/pcbridge-hyprland-tui-vm-evidence.log 2>&1
+```
+
+**Remaining work:** Hyprland doctor/setup accuracy, portal/environment
+diagnostics, remaining input/geometry/security acceptance, and GNOME/KDE
+regression remain required. This is a TUI fix, not a supported-platform claim.

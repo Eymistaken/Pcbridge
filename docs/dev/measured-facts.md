@@ -460,7 +460,16 @@ and xdg-desktop-portal-hyprland 1.4.1.
   this does not establish the cause of the separate user's reported error.
   After installing the example config at mode 0600, `pcbridge` remained open
   in a PTY for the full eight-second observation and rendered Overview,
-  Settings, and Tools. The TUI itself is not inherently GNOME-bound.
+  Settings, and Tools. The TUI itself is not inherently GNOME-bound. The
+  later targeted fix catches SystemExit in SettingsPane.load, whose existing
+  Exception handler did not catch it. A fresh empty-XDG VM invocation then
+  remained open for eight seconds, rendered all five normal tabs and setup
+  guidance, disabled grants, and created no config file. A configured plain
+  `pcbridge` invocation also rendered all five tabs without a traceback.
+  Actual Textual tests reproduced the locator failure across GNOME, KDE,
+  Hyprland, and UNKNOWN, then verified unchanged tabs and inactive writes.
+  Hyprland's panel-icon note now explains that no panel/tray is required;
+  the native glow remains the visible grant signal.
 - **Pre-Hyprland doctor misidentifies this session as GNOME.** With
   `XDG_SESSION_TYPE=wayland` and valid Hyprland IPC, it reported GNOME Shell
   missing, GNOME extension missing, and a Mutter monitor-table failure.

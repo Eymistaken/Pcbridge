@@ -128,6 +128,22 @@ class SettingsBackendTests(unittest.TestCase):
                 backend.set_panel_icon_mode("always")
         set_mode.assert_not_called()
 
+    def test_hyprland_explains_the_optional_icon_without_reading_or_writing_gsettings(self) -> None:
+        backend = Backend()
+        with mock.patch.object(session, "support_note", return_value=""), \
+                mock.patch.object(session, "desktop_kind", return_value=session.HYPRLAND), \
+                mock.patch.object(panelicon, "get_mode") as get_mode, \
+                mock.patch.object(panelicon, "set_mode") as set_mode:
+            mode, note = backend.panel_icon_status()
+            self.assertIsNone(mode)
+            self.assertIn("Hyprland", note)
+            self.assertIn("No panel or tray is required", note)
+            self.assertIn("native glow", note)
+            with self.assertRaises(panelicon.PanelIconError):
+                backend.set_panel_icon_mode("always")
+        get_mode.assert_not_called()
+        set_mode.assert_not_called()
+
     def test_old_or_missing_extension_is_explained(self) -> None:
         backend = Backend()
         with mock.patch.object(session, "support_note", return_value=""), \
