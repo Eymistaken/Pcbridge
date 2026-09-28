@@ -7,6 +7,7 @@ use thiserror::Error;
 
 pub const LEASE_SCHEMA_VERSION: u32 = 1;
 pub const LEASE_STATE_FILE: &str = "desktop_unlock.json";
+pub const LEASE_LOCK_FILE: &str = "desktop_unlock.lock";
 const MAX_LEASE_BYTES: u64 = 64 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -88,6 +89,16 @@ impl DesktopLease {
     #[must_use]
     pub fn validates_at(&self, token: &LeaseToken, now: f64) -> bool {
         self.native_token_at(now).as_ref() == Some(token)
+    }
+
+    /// Identity only, including expired leases. This does not authorize an
+    /// operation; it prevents an old observer from overwriting a new grant's
+    /// visibility record while holding the common lease storage lock.
+    #[must_use]
+    pub fn has_identity(&self, token: &LeaseToken) -> bool {
+        self.schema_version == Some(LEASE_SCHEMA_VERSION)
+            && self.grant_id.as_deref() == Some(token.grant_id())
+            && self.revoke_epoch == token.revoke_epoch()
     }
 }
 

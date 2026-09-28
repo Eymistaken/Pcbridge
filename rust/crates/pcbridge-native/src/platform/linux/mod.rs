@@ -5,6 +5,8 @@ pub mod desktop;
 pub mod desktop_state;
 pub mod display;
 pub mod glow;
+pub mod glow_state;
+pub mod glow_watch;
 mod hyprland;
 pub mod idle;
 pub mod input;

@@ -67,12 +67,15 @@ struct Strip {
     scale: u32,
     configured: bool,
     last_presented: Option<(Instant, f64)>,
+    generation: u64,
 }
 
 #[derive(Clone, Copy)]
 struct Feedback {
     strip: usize,
     opacity: f64,
+    generation: u64,
+    submitted: Instant,
 }
 
 #[derive(Default)]
@@ -81,6 +84,7 @@ struct State {
     strips: Vec<Strip>,
     initialized: bool,
     failure: Option<String>,
+    presentation_serial: u64,
 }
 
 pub struct Overlay {
@@ -237,6 +241,7 @@ impl Overlay {
                     scale,
                     configured: false,
                     last_presented: None,
+                    generation: 0,
                 });
             }
         }
@@ -284,12 +289,18 @@ impl Overlay {
                 .write_all_at(&bytes, (slot * bytes.len()) as u64)
                 .map_err(|e| e.to_string())?;
             strip.available[slot] = false;
+            strip.generation = strip.generation.saturating_add(1);
+            if opacity < 0.99 {
+                strip.last_presented = None;
+            }
             self.presentation.feedback(
                 &strip.surface,
                 &handle,
                 Feedback {
                     strip: index,
                     opacity,
+                    generation: strip.generation,
+                    submitted: Instant::now(),
                 },
             );
             strip.surface.attach(Some(&strip.buffers[slot]), 0, 0);
@@ -343,6 +354,28 @@ impl Overlay {
     #[must_use]
     pub fn strip_count(&self) -> usize {
         self.state.strips.len()
+    }
+
+    /// Age of the oldest fully visible strip's real presentation event.
+    /// Publishing a health record must preserve this age rather than refresh
+    /// it merely because the observer's timer is running.
+    #[must_use]
+    pub fn presentation_age(&self) -> Option<Duration> {
+        if !self.presented() {
+            return None;
+        }
+        self.state
+            .strips
+            .iter()
+            .map(|strip| strip.last_presented.map(|(at, _)| at.elapsed()))
+            .collect::<Option<Vec<_>>>()?
+            .into_iter()
+            .max()
+    }
+
+    #[must_use]
+    pub fn presentation_serial(&self) -> u64 {
+        self.state.presentation_serial
     }
 }
 
@@ -453,7 +486,13 @@ impl Dispatch<wp_presentation_feedback::WpPresentationFeedback, Feedback> for St
         _: &QueueHandle<Self>,
     ) {
         if matches!(event, wp_presentation_feedback::Event::Presented { .. }) {
-            state.strips[data.strip].last_presented = Some((Instant::now(), data.opacity));
+            let strip = &mut state.strips[data.strip];
+            if data.generation == strip.generation {
+                state.presentation_serial = state.presentation_serial.saturating_add(1);
+                // An old event drained after a stalled observer/compositor is
+                // not a fresh presentation. Its request time bounds the age.
+                strip.last_presented = Some((data.submitted, data.opacity));
+            }
         }
     }
 }

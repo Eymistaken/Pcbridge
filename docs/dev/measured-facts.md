@@ -499,6 +499,23 @@ and xdg-desktop-portal-hyprland 1.4.1.
   after the native probe's breathing cycle/fade-out. This is renderer evidence,
   not grant, input-transparency, or crash-recovery acceptance. Production control
   remains closed until lease-bound frame health is implemented.
+- **Lease-bound drawing health survives only fresh real presentation.** On
+  September 28, the drawing-only native owner published eight-strip evidence
+  bound to exact grant/epoch, session, writer and parent process identities,
+  executable, and command arguments. The final first record was 76 ms old.
+  Stopping the writer for 1300 ms made health unavailable. Python's LeaseStore
+  flock blocked Rust health publication; after a 1300 ms hold, native validation
+  refused the stale write and exited. Replacement/revoke/expiry and helper or
+  owner death removed all layers. Fractional-scale rotation rebuilt surfaces
+  under the same observer identity. The scratch leases used by this probe
+  authorize no production input or capture; shared gate integration is pending.
+- **Monitor focus is transient, not a configured primary output.** A measured
+  `hyprctl dispatch 'hl.dsp.focus({ monitor = "Virtual-1" })'` changed focused
+  output Virtual-2 -> Virtual-1 while both positions, sizes, scales, and
+  transforms stayed unchanged. Treating `focused` as a permanent primary bit
+  in topology causes needless shot invalidation and frame reconstruction.
+  Focus/default selection and physical topology must be separated before
+  production control is enabled.
 
 ## Terminal UI (settings CLI)
 

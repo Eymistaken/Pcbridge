@@ -98,7 +98,7 @@ fn writer_alive(pid: u32) -> bool {
     })
 }
 
-fn writer_start_ticks(pid: u32) -> Option<u64> {
+pub(crate) fn writer_start_ticks(pid: u32) -> Option<u64> {
     let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     stat.rsplit_once(')')?
         .1

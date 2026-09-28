@@ -1,0 +1,201 @@
+{
+  "base": {
+    "version": 1,
+    "ready": true,
+    "pid": 100,
+    "writer_start_ticks": 123,
+    "owner_pid": 42,
+    "owner_start_ticks": 99,
+    "grant_id": "fixture-grant",
+    "revoke_epoch": 2,
+    "wayland_display": "wayland-1",
+    "hyprland_instance": "fixture-session",
+    "topology_id": "v1|0,0,1280,800,1.0000,0,1",
+    "strip_count": 4,
+    "presented_unix_ms": 10000
+  },
+  "token": {
+    "grant_id": "fixture-grant",
+    "revoke_epoch": 2
+  },
+  "display": "wayland-1",
+  "signature": "fixture-session",
+  "cases": [
+    {
+      "name": "fresh",
+      "patch": {},
+      "now_ms": 10500,
+      "expected": true
+    },
+    {
+      "name": "boundary",
+      "patch": {},
+      "now_ms": 11000,
+      "expected": true
+    },
+    {
+      "name": "stale",
+      "patch": {},
+      "now_ms": 11001,
+      "expected": false
+    },
+    {
+      "name": "future",
+      "patch": {},
+      "now_ms": 9999,
+      "expected": false
+    },
+    {
+      "name": "not_ready",
+      "patch": {
+        "ready": false
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "ready_string",
+      "patch": {
+        "ready": "true"
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "old_version",
+      "patch": {
+        "version": 0
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "version_bool",
+      "patch": {
+        "version": true
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "foreign_grant",
+      "patch": {
+        "grant_id": "other-grant"
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "foreign_epoch",
+      "patch": {
+        "revoke_epoch": 3
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "foreign_display",
+      "patch": {
+        "wayland_display": "wayland-2"
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "foreign_session",
+      "patch": {
+        "hyprland_instance": "other-session"
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "no_writer",
+      "patch": {
+        "pid": 0
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "pid_bool",
+      "patch": {
+        "pid": true
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "no_start",
+      "patch": {
+        "writer_start_ticks": 0
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "no_owner",
+      "patch": {
+        "owner_pid": 0
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "no_owner_start",
+      "patch": {
+        "owner_start_ticks": 0
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "incomplete_edges",
+      "patch": {
+        "strip_count": 3
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "too_many_edges",
+      "patch": {
+        "strip_count": 68
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "missing_topology",
+      "patch": {
+        "topology_id": ""
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "unknown_topology",
+      "patch": {
+        "topology_id": "v2|1"
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "timestamp_string",
+      "patch": {
+        "presented_unix_ms": "10000"
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "negative_timestamp",
+      "patch": {
+        "presented_unix_ms": -1
+      },
+      "now_ms": 10500,
+      "expected": false
+    }
+  ]
+}

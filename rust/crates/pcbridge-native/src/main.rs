@@ -12,6 +12,7 @@ enum Command {
     Version,
     BuildInfo,
     IdleWatch,
+    GlowWatch(std::path::PathBuf, pcbridge_core::LeaseToken),
 }
 
 fn main() -> ExitCode {
@@ -37,6 +38,15 @@ fn main() -> ExitCode {
         }
         Command::Serve(mode) => serve(mode),
         Command::IdleWatch => idle_watch(),
+        Command::GlowWatch(directory, token) => {
+            match pcbridge_native::platform::linux::glow_watch::watch(&directory, token) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("pcbridge-native glow-watch: {error}");
+                    ExitCode::from(1)
+                }
+            }
+        }
     }
 }
 
@@ -71,6 +81,15 @@ fn command_from_args(arguments: Vec<OsString>) -> Result<Command, &'static str> 
         [Some("--version")] => Ok(Command::Version),
         [Some("--build-info")] => Ok(Command::BuildInfo),
         [Some("idle-watch")] => Ok(Command::IdleWatch),
+        [Some("glow-watch"), Some(_), Some(grant_id), Some(epoch)] if !grant_id.is_empty() => {
+            Ok(Command::GlowWatch(
+                std::path::PathBuf::from(&arguments[1]),
+                pcbridge_core::LeaseToken::new(
+                    *grant_id,
+                    epoch.parse().map_err(|_| "invalid revoke epoch")?,
+                ),
+            ))
+        }
         #[cfg(feature = "test-harness")]
         [Some("--test-mode")] => Ok(Command::Serve(BackendMode::deterministic_test())),
         _ => Err("unsupported command-line arguments"),

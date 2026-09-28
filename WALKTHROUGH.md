@@ -637,3 +637,92 @@ presentation health to exact grant ID/epoch/session. Check that health in the
 shared Python gate and native lifecycle before enabling control. Exercise
 expiry, explicit revoke, replacement, helper/daemon failure, monitor rebuild,
 and invisible-grant prevention; then test input transparency with real counters.
+
+**Local commit:** `13d1de9`.
+
+## Stage 7b1: Grant-bound native frame ownership and health
+
+**Objective:** Own the drawing-only frame for an exact lease and make missing,
+stale, foreign, stopped, or dead presentation evidence unavailable to both
+Python and native consumers. Production Hyprland control remains prohibited
+until the following shared-gate integration stage.
+
+**Design decisions:** A private native `glow-watch STATE_DIR GRANT_ID EPOCH`
+mode owns the surfaces. It checks the current lease, authoritative unlocked
+state, direct parent identity, and monitor table. Its bounded private health
+record binds version, grant/epoch, selected display/instance, PID/start ticks,
+parent PID/start ticks, topology, strip count, and presentation time. Readers
+also check the actual executable inode/owner, command-line grant/epoch/path,
+selected environment, private regular file, and process relationship. Health
+is visibility evidence, never lease authorization. Records older than 1000 ms
+are unavailable. A timer cannot refresh unchanged presentation evidence.
+Track buffer generation and submission time, so delayed presentation callbacks
+cannot bless a newer transparent buffer or acquire a new timestamp.
+
+Serialize publication with the same lease lock used by Python's `flock` and
+check exact identity under that lock. This prevents an old observer's delayed
+shutdown from overwriting a replacement grant. The core identity-only method
+explicitly does not authorize expired grants. Monitor changes invalidate health
+before reconnecting and fading in the new surfaces. Lock/UNKNOWN state clears
+health and draws transparent; lease loss or owner death closes the frame.
+
+**Files changed:** Python `desktop/glowstate.py`; native Linux `glow_state.rs`,
+`glow_watch.rs`, renderer presentation handling, module exports, and private
+command dispatch; core lease lock/identity API; shared health fixture and
+Python/Rust contracts; VM `check_glow_owner.py`; measured facts and this journal.
+The idle helper's existing process-start function is only made crate-visible.
+
+**Measurements:** Eight strips became healthy with first record age 76 ms in
+the final VM run (41 and 52 ms in earlier passing runs). Wrong grant, epoch,
+and selected instance were unavailable. SIGSTOP for 1300 ms made health
+unavailable; resumed real presentation restored it. Holding Python's lease
+flock for 1300 ms prevented native publication; the stale publication failed
+native self-validation and the helper exited, proving Linux lock interoperability
+and conservative freshness. A new observer under the still-active scratch
+identity worked. Fractional scale 1.25/rotation 1 rebuilt eight strips in the
+same process, then restored fresh presentation against the actual monitor
+table. Replacement, explicit revoke, three-second expiry, SIGKILL of the helper,
+and death of its independent owner all removed their layers. Expected diagnostic
+exits were `Native frame presentation record could not be validated` for the
+deliberately blocked writer and `Frame owner process ended` for parent death.
+These are synthetic drawing leases in a scratch directory, not production
+desktop-unlock or input/capture acceptance.
+
+**Tests run:**
+
+- `(cd rust && cargo fmt --all && cargo build -p pcbridge-native --locked && cargo test -p pcbridge-native --locked --test glow_health)`
+  — pass before adding the contention regression (one shared-fixture test).
+- `(cd rust && cargo fmt --all && cargo test -p pcbridge-native --locked --test glow_health)`
+  — pass, two tests including delayed-old-writer/replacement contention.
+- `./.venv/bin/python -m unittest tests.contracts.test_glow_health tests.contracts.test_idlewatch tests.contracts.test_hyprland_state`
+  — pass, 11 tests, including 23 shared health fixture cases.
+- `./.venv/bin/python -m py_compile tests/live/hyprland/check_glow_owner.py`
+  — pass.
+- `(cd rust && cargo test --workspace --locked --no-fail-fast > /tmp/pcbridge-hyprland-stage7b1-rust.log 2>&1)`
+  — pass, exit 0; unselected live paths remain opt-in.
+- `scripts/dev/hyprland-vm.sh sync` — pass.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge/rust && cargo build -p pcbridge-native --locked'`
+  — pass.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_LIVE_HYPRLAND=1 .venv/bin/python tests/live/hyprland/check_glow_owner.py'`
+  — final runs pass, observable cases above. The first run failed an assumed
+  equality with the original topology after restoring geometry.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_LIVE_HYPRLAND=1 .venv/bin/python tests/live/hyprland/check_glow_owner.py && PCBRIDGE_TEST_LIVE_HYPRLAND=1 .venv/bin/python tests/live/hyprland/check_glow_renderer.py --out-dir /tmp/pcbridge-glow-stage7b1-evidence'`
+  — pass. Reference edge/falloff pixels on both outputs, unchanged application
+  focus/geometry, breathing/fade, and complete teardown remained correct.
+- `git diff --cached --check` — pass. American English spelling scan of the new
+  Python/Rust owner/health code found no British spellings.
+
+**Review and plan adjustment:** The restore test now verifies actual restored
+geometry and Python/native topology parity; it cannot assume focus stayed on
+the original output. An independent VM `hl.dsp.focus({ monitor = "Virtual-1" })`
+measurement changed only the canonical primary bits, from
+`v1|0,0,1280,800,1.0000,0,0|1280,0,1280,800,1.0000,0,1` to
+`v1|0,0,1280,800,1.0000,0,1|1280,0,1280,800,1.0000,0,0`.
+This exposes a real integration risk: focused-monitor state is transient,
+unlike GNOME/KDE primary-output configuration. Add a small separately tested
+coordinate-contract correction before gate integration, preserving truthful
+focused/default selection while keeping physical topology stable under focus.
+
+**Open questions:** Shared-gate/native-watchdog health enforcement, actual
+desktop-unlock lifecycle, all-edge input transparency, compositor stall,
+presentation/performance limits, and complete capture/input acceptance remain.
