@@ -90,6 +90,9 @@ class Monitor:
     # framebuffer pixels and the scale only enlarges the UI. A 4K monitor at
     # scale 2 then spans 3840x2160 canvas units, not 1920x1080.
     physical_layout: bool = False
+    # Hyprland's default selection follows focus; it is not a configured
+    # primary output and must not invalidate physical topology on every move.
+    primary_is_focus: bool = False
 
     @property
     def pixel_ratio(self) -> float:
@@ -183,6 +186,9 @@ def resolve_state(state: dict) -> list[Monitor]:
     if layout_mode not in ("logical", "physical"):
         raise MonitorError(f"unknown Mutter layout mode {layout_mode!r}")
     physical_layout = layout_mode == "physical"
+    primary_is_focus = state.get("primary_is_focus", False)
+    if type(primary_is_focus) is not bool:
+        raise MonitorError("invalid primary-selection semantics")
 
     modes: dict[str, tuple[int, int]] = {}
     names: dict[str, str] = {}
@@ -239,6 +245,7 @@ def resolve_state(state: dict) -> list[Monitor]:
                 transform=transform,
                 serial=serials.get(connector, ""),
                 physical_layout=physical_layout,
+                primary_is_focus=primary_is_focus,
             )
         )
     if not out:
@@ -279,11 +286,15 @@ def topology_id(mons: list[Monitor] | None = None) -> str:
     (physical layout mode at a scale other than 1). Only then: at scale 1 the
     two modes map identically, so the id of such a layout -- this machine's --
     stays what 1.x computed and a 1.x reader still accepts its shots.
+
+    The primary bit represents configured topology only. A default output
+    that follows focus (`primary_is_focus`) stays selectable but contributes
+    zero here: pointer movement cannot change physical shot coordinates.
     """
     mons = list_monitors() if mons is None else mons
     parts = [
         f"{m.x},{m.y},{m.width},{m.height},{m.scale:.4f},{m.transform},"
-        f"{1 if m.primary else 0}"
+        f"{1 if m.primary and not m.primary_is_focus else 0}"
         + (",p" if m.pixel_ratio != m.scale else "")
         for m in mons
     ]
@@ -440,7 +451,8 @@ def _hyprland_state(data: list[dict]) -> dict:
         raise MonitorError("Hyprland reported multiple focused outputs")
     if logical and not any(out["primary"] for out in logical):
         logical[0]["primary"] = True
-    return {"layout_mode": "logical", "physical": physical, "logical": logical}
+    return {"layout_mode": "logical", "physical": physical, "logical": logical,
+            "primary_is_focus": True}
 
 
 def _from_hyprland() -> list[Monitor]:

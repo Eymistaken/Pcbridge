@@ -76,6 +76,19 @@ class HyprlandMonitorTests(unittest.TestCase):
             monitors._hyprland_state([output("A", 0, 0, focused=True),
                                      output("B", 1280, 0, focused=True)])
 
+    def test_focus_changes_default_selection_without_invalidating_geometry(self) -> None:
+        before = monitors.resolve_state(monitors._hyprland_state([
+            output("A", 0, 0, focused=True), output("B", 1280, 0)]))
+        after = monitors.resolve_state(monitors._hyprland_state([
+            output("A", 0, 0), output("B", 1280, 0, focused=True)]))
+        self.assertEqual(monitors.resolve(None, before).connector, "A")
+        self.assertEqual(monitors.resolve(None, after).connector, "B")
+        self.assertEqual(monitors.topology_id(before), monitors.topology_id(after))
+        # A configured primary output still changes topology on GNOME/KDE.
+        from dataclasses import replace
+        self.assertNotEqual(monitors.topology_id([replace(m, primary_is_focus=False) for m in before]),
+                            monitors.topology_id([replace(m, primary_is_focus=False) for m in after]))
+
     def test_ipc_failure_does_not_fall_back_to_xrandr(self) -> None:
         with mock.patch.object(session, "desktop_kind", return_value=session.HYPRLAND), \
                 mock.patch.object(hyprland, "monitors",

@@ -514,8 +514,12 @@ and xdg-desktop-portal-hyprland 1.4.1.
   output Virtual-2 -> Virtual-1 while both positions, sizes, scales, and
   transforms stayed unchanged. Treating `focused` as a permanent primary bit
   in topology causes needless shot invalidation and frame reconstruction.
-  Focus/default selection and physical topology must be separated before
-  production control is enabled.
+  The neutral table now marks `primary_is_focus`; default selection still
+  follows the actual focused output, while its canonical configured-primary
+  topology bit is zero. A VM owner probe switched focus to both outputs and
+  checked fresh health every 50 ms for 1.2 seconds each: topology stayed
+  `v1|0,0,1280,800,1.0000,0,0|1280,0,1280,800,1.0000,0,0` and visibility
+  remained healthy throughout. Physical rotation/scale changes still rebuild.
 
 ## Terminal UI (settings CLI)
 

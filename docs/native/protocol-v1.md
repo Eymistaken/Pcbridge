@@ -306,6 +306,14 @@ physical layout mode, the scale in the logical mode. A monitor whose ratio
 differs from its scale adds `,p` to its part of `topology_id`; older hosts
 ignore the field.
 
+`primary_is_focus` is optional metadata (default false). On Hyprland it is
+true: `primary` identifies the current focused/default output, rather than
+a configured primary output. That selection remains available to callers,
+but contributes zero to the canonical topology's primary bit. Moving focus
+between unchanged outputs must not invalidate shot coordinates or rebuild
+the visible grant frame. GNOME/KDE configured-primary behavior and existing
+topology strings remain unchanged.
+
 If the layout cannot be resolved the answer is `DISPLAY_MAPPING_UNKNOWN`
 and **nothing is guessed**: a monitor without a current mode, an unknown
 connector, an empty connector list and a non-positive scale are refused.

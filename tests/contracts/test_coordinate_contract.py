@@ -87,7 +87,9 @@ class CoordinateContractTests(unittest.TestCase):
 
     def test_shot_lookup_and_server_side_coordinate_conversion(self) -> None:
         shot = self.data["shot"]
-        with tempfile.TemporaryDirectory() as raw:
+        with tempfile.TemporaryDirectory() as raw, mock.patch.object(
+            monitorslib, "list_monitors", return_value=self.monitors
+        ):
             directory = Path(raw)
             self._save_shot(directory, age=0)
             actual = capturelib.to_global(

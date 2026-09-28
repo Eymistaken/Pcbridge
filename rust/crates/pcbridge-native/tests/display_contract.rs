@@ -150,6 +150,21 @@ fn hyprland_ipc_maps_to_the_same_neutral_state_as_python() {
 }
 
 #[test]
+fn hyprland_focus_changes_default_selection_without_invalidating_geometry() {
+    use pcbridge_native::platform::linux::display::hyprland_state;
+    let mut raw = serde_json::json!([
+        {"name":"A","width":1280,"height":800,"x":0,"y":0,"scale":1,"transform":0,"focused":true},
+        {"name":"B","width":1280,"height":800,"x":1280,"y":0,"scale":1,"transform":0,"focused":false}
+    ]);
+    let before = resolve(&hyprland_state(&raw).unwrap()).unwrap();
+    raw[0]["focused"] = false.into();
+    raw[1]["focused"] = true.into();
+    let after = resolve(&hyprland_state(&raw).unwrap()).unwrap();
+    assert!(before[0].primary && after[1].primary);
+    assert_eq!(topology_id(&before), topology_id(&after));
+}
+
+#[test]
 fn hyprland_ipc_refuses_ambiguous_monitor_geometry() {
     use pcbridge_native::platform::linux::display::hyprland_state;
 

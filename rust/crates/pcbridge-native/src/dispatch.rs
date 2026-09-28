@@ -678,6 +678,7 @@ impl Dispatcher {
                             "scale": monitor.scale,
                             "pixel_ratio": monitor.pixel_ratio(),
                             "primary": monitor.primary,
+                            "primary_is_focus": monitor.primary_is_focus,
                             "name": monitor.name,
                             "transform": monitor.transform,
                             "serial": monitor.serial,

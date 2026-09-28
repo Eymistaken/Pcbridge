@@ -121,6 +121,20 @@ def main():
             ready(process, token)
             evidence["python_native_flock_interoperability"] = "passed"
 
+            stable_topology = health(token)["topology_id"]
+            for row in monitors:
+                command = "hl.dsp.focus({ monitor = " + json.dumps(row["name"]) + " })"
+                subprocess.run(["hyprctl", "dispatch", command], check=True, capture_output=True, timeout=3)
+                focused = monitorlib.list_monitors(use_cache=False)
+                assert monitorlib.resolve(None, focused).connector == row["name"]
+                assert monitorlib.topology_id(focused) == stable_topology
+                until = time.monotonic() + 1.2
+                while time.monotonic() < until:
+                    record = health(token)
+                    assert record and record["topology_id"] == stable_topology, "Focus rebuilt visible geometry"
+                    time.sleep(0.05)
+            evidence["focus_preserves_physical_topology_and_visibility"] = "passed"
+
             original_topology = health(token)["topology_id"]
             monitor_rule(monitors[1], scale=1.25, transform=1)
             def changed_topology():

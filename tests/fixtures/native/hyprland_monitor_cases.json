@@ -9,7 +9,7 @@
         {"name": "Virtual-2", "width": 1280, "height": 800, "x": 1280, "y": 0, "scale": 1, "transform": 0, "focused": false, "disabled": false, "mirrorOf": "none", "description": "QEMU Monitor 2", "make": "QEMU", "model": "Monitor", "serial": "2"}
       ],
       "state": {
-        "layout_mode": "logical",
+        "layout_mode": "logical", "primary_is_focus": true,
         "physical": [
           {"connector": "Virtual-1", "vendor": "QEMU", "product": "Monitor", "serial": "1", "display_name": "QEMU Monitor 1", "modes": [{"width": 1280, "height": 800, "is_current": true}]},
           {"connector": "Virtual-2", "vendor": "QEMU", "product": "Monitor", "serial": "2", "display_name": "QEMU Monitor 2", "modes": [{"width": 1280, "height": 800, "is_current": true}]}
@@ -28,7 +28,7 @@
         {"name": "left", "width": 1280, "height": 800, "x": -640, "y": -1024, "scale": 1.25, "transform": 1, "focused": false, "disabled": false, "mirrorOf": "none", "description": "Left", "make": "QEMU", "model": "Monitor", "serial": "L"}
       ],
       "state": {
-        "layout_mode": "logical",
+        "layout_mode": "logical", "primary_is_focus": true,
         "physical": [
           {"connector": "right", "vendor": "QEMU", "product": "Monitor", "serial": "R", "display_name": "Right", "modes": [{"width": 1280, "height": 800, "is_current": true}]},
           {"connector": "left", "vendor": "QEMU", "product": "Monitor", "serial": "L", "display_name": "Left", "modes": [{"width": 1280, "height": 800, "is_current": true}]}

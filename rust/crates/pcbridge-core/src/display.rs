@@ -90,6 +90,9 @@ pub struct DisplayState {
     pub physical: Vec<PhysicalMonitor>,
     #[serde(default)]
     pub logical: Vec<LogicalMonitor>,
+    /// The default output follows transient focus, not configured topology.
+    #[serde(default)]
+    pub primary_is_focus: bool,
 }
 
 /// One logical monitor, already ordered and numbered for public use.
@@ -106,6 +109,7 @@ pub struct Monitor {
     pub height: u32,
     pub scale: f64,
     pub primary: bool,
+    pub primary_is_focus: bool,
     pub name: String,
     /// 0 = normal, 1 = 90, 2 = 180, 3 = 270, 4-7 mirrored. `width`/`height` are
     /// already swapped where that applies; the code is kept because a half turn
@@ -243,6 +247,7 @@ pub fn resolve(state: &DisplayState) -> Result<Vec<Monitor>, DisplayError> {
             height: height as u32,
             scale: logical.scale,
             primary: logical.primary,
+            primary_is_focus: state.primary_is_focus,
             name,
             transform: logical.transform,
             serial: physical.serial.clone(),
@@ -283,6 +288,8 @@ pub fn resolve(state: &DisplayState) -> Result<Vec<Monitor>, DisplayError> {
 /// A `,p` suffix marks a monitor whose pixel ratio differs from its scale
 /// (physical layout mode at a scale other than 1). Only then: at scale 1 both
 /// modes map identically, so such a layout keeps the id 1.x computed.
+// The primary bit describes configured topology. Hyprland's focused default
+// remains selectable but contributes zero; it does not change coordinates.
 pub fn topology_id(monitors: &[Monitor]) -> String {
     let mut out = String::from(TOPOLOGY_VERSION);
     for monitor in monitors {
@@ -295,7 +302,7 @@ pub fn topology_id(monitors: &[Monitor]) -> String {
             monitor.height,
             monitor.scale,
             monitor.transform,
-            u8::from(monitor.primary),
+            u8::from(monitor.primary && !monitor.primary_is_focus),
         ));
         if monitor.pixel_ratio() != monitor.scale {
             out.push_str(",p");

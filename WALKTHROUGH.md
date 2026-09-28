@@ -726,3 +726,61 @@ focused/default selection while keeping physical topology stable under focus.
 **Open questions:** Shared-gate/native-watchdog health enforcement, actual
 desktop-unlock lifecycle, all-edge input transparency, compositor stall,
 presentation/performance limits, and complete capture/input acceptance remain.
+
+**Local commit:** `a111ad0`.
+
+## Stage 7b1.5: Separate monitor focus from physical topology
+
+**Objective and plan adjustment:** Correct the measured transient-primary
+problem before connecting frame health to protected operations. A pointer
+crossing outputs must not look like a physical display change.
+
+**Design:** Add optional neutral `primary_is_focus` metadata, false by default
+and true only in the Hyprland monitor adapter. Preserve the existing `primary`
+selection as the actual focused/default output. It contributes zero to the
+canonical configured-primary bit when focus-derived; the string format stays
+the same. GNOME/KDE retain their existing configured-primary behavior and
+fixture topology strings. Native read-only monitor metadata exposes the flag;
+no second coordinate space or session lookup is added to the pure resolver.
+
+**Files changed:** Python monitor model/resolver/adapter/topology; Rust core
+display model/resolver/topology and native display adapter/metadata; existing
+geometry literal fixtures, shared Hyprland transport fixture, Python/Rust
+focus regression tests, VM owner probe, coordinate fixture test isolation,
+native protocol/measured facts, and this journal.
+
+**Measurements and review:** Before the fix, both new regression tests failed
+because focus alone changed the topology primary bits. After the fix, real VM
+default selection followed Virtual-1 and Virtual-2 while native frame health
+remained available, checked every 50 ms for 1.2 seconds on each output. Native
+and Python agreed on `v1|0,0,1280,800,1.0000,0,0|1280,0,1280,800,1.0000,0,0`.
+The same probe still rebuilt fractional/rotated geometry and passed every
+owner lifecycle case. Review confirmed configured-primary changes still
+invalidate GNOME/KDE topology and that loaded shots carry their saved topology.
+
+**Tests run:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_monitors`
+  — expected pre-fix failure, 1 of 6 tests.
+- `(cd rust && cargo test -p pcbridge-native --locked --test display_contract hyprland_focus_changes_default_selection_without_invalidating_geometry)`
+  — expected pre-fix failure, actual differing canonical strings.
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_monitors tests.contracts.test_glow_health`
+  — pass, 9 tests after the correction.
+- `(cd rust && cargo fmt --all && cargo test -p pcbridge-native --locked --test display_contract && cargo test -p pcbridge-core --locked --test geometry --test layout_matrix)`
+  — pass, 11 display, 6 geometry, and 4 layout tests.
+- `(cd rust && cargo fmt --all && cargo test --workspace --locked --no-fail-fast > /tmp/pcbridge-hyprland-focus-topology-rust.log 2>&1)`
+  — pass, exit 0.
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_monitors tests.contracts.test_display_contract tests.contracts.test_coordinate_contract tests.contracts.test_coordinate_v2 tests.contracts.test_shot_layout tests.contracts.test_shot_artifacts`
+  — final pass, 63 tests. The first combined run found an older coordinate
+  fixture test consulting a 2560x800 monitor cache left by the display suite,
+  while its own shot fixture expected 3840x1080. It now mocks its own monitor
+  table, matching the other coordinate fixture tests; no host query is needed.
+- `./.venv/bin/python tests/test_desktop.py > /tmp/pcbridge-hyprland-focus-topology-desktop.log 2>&1`
+  — pass, 615 checks, no live input flags.
+- `scripts/dev/hyprland-vm.sh sync` — pass.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge/rust && cargo build -p pcbridge-native --locked && PCBRIDGE_TEST_LIVE_HYPRLAND=1 PCBRIDGE_TEST_HYPRLAND_LOCKED=false cargo test -p pcbridge-native --locked --test hyprland_live -- --nocapture && cd ~/pcbridge && PCBRIDGE_TEST_LIVE_HYPRLAND=1 .venv/bin/python tests/live/hyprland/check_glow_owner.py'`
+  — pass, two native observations and all owner cases, including continuous
+  visibility across the two focused/default output transitions.
+
+**Remaining work:** Shared-gate/native-watchdog integration is next; production
+Hyprland input and capture still remain closed.

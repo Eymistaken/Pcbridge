@@ -104,6 +104,7 @@ fn to_state(wire: WireState) -> DisplayState {
     };
     DisplayState {
         layout_mode,
+        primary_is_focus: false,
         physical: monitors
             .into_iter()
             .map(|(identity, modes, props)| {
@@ -235,6 +236,7 @@ pub fn kscreen_state(data: &Value) -> Result<DisplayState, String> {
         layout_mode: LayoutMode::Logical,
         physical,
         logical,
+        primary_is_focus: false,
     })
 }
 
@@ -339,6 +341,7 @@ pub fn hyprland_state(data: &Value) -> Result<DisplayState, String> {
         layout_mode: LayoutMode::Logical,
         physical,
         logical,
+        primary_is_focus: true,
     })
 }
 
