@@ -4,6 +4,7 @@ pub mod clipboard;
 pub mod desktop;
 pub mod desktop_state;
 pub mod display;
+pub mod glow;
 mod hyprland;
 pub mod idle;
 pub mod input;

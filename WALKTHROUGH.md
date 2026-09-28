@@ -555,3 +555,85 @@ input, and closes its own pattern client even when an assertion fails.
 **Open questions:** PcBridge capture acceptance, layer-shell presentation,
 click-through behavior, and monitor changes remain. These now have a working
 independent screenshot oracle.
+
+**Local commit:** `4f78903`.
+
+## Stage 7a: Native reference glow renderer
+
+**Objective:** Render the GNOME reference frame on real Hyprland outputs and
+verify displayed pixels before connecting it to desktop authorization.
+
+**Design decisions:** Four layer-shell overlay strips per selected output,
+explicit empty input regions, keyboard interactivity NONE, and exclusive zone
+-1. This reserves no space and keeps the strips outside panel reservations;
+the protocol's zero setting would move them inward. Bind no seat/input object.
+Preserve white alpha 0.42, short-edge depth 8.5% clamped 48..150, quadratic
+700/500 ms fades, sine breathing 1.00..0.88 over an 11-second cycle, and the
+reference falloff. Pure appearance math is separate from Wayland ownership.
+Use two release-tracked, premultiplied ARGB SHM buffers per strip, unlinked
+0600 files, and 16 MiB per-pool/64 MiB total limits. No unsafe code was added.
+Require actual presentation feedback for every fully visible strip; configure
+or sync callbacks alone never make the renderer healthy. Output removal or
+unexpected layer geometry fails closed. This drawing-only probe opens no grant;
+the Python and native production prohibitions remain in place.
+
+**Dependency review:** Added only `wayland-protocols-wlr` 0.3.12, from the same
+Smithay Wayland stack already used by the helper, for generated layer-shell
+bindings (MIT). The lockfile adds one package; no existing dependency version
+changed. The existing stack supplies presentation-time, SHM, async readiness,
+and timers. Full dependency advisory scanning remains part of the release gate.
+
+**Files changed:** `pcbridge/desktop/hyprland.py` (read-only layers query),
+Rust workspace/native dependency manifests and lockfile, native Linux `mod.rs`,
+`glow.rs`, `glow/appearance.rs`, native `hyprland_glow_live.rs`,
+`tests/live/hyprland/check_glow_renderer.py`, `docs/dev/measured-facts.md`,
+and this journal.
+
+**Measurements and evidence:** Real `layers` IPC reported eight strips at
+the correct outer coordinates, including `(0,732) 1280x68`, `(1212,0) 68x800`,
+and the corresponding second-output coordinates. First full presentation was
+measured at 698 ms, and at 676 ms on a repeated probe (the 0.99 health threshold
+can precede the exact fade endpoint). On both outputs all four outer-edge
+samples changed RGB `(30,30,40)` to `(124,124,130)`. Left-edge inward samples
+at distances 0, 4, 12, 24, 37, 53, and 67 matched the reference within five
+8-bit channel values. Focus identity and the two fullscreen window geometries
+were unchanged. After one full breathing cycle and fade-out, the test process
+exited and all glow layers were absent. The independently viewed QMP artifact
+`/tmp/pcbridge-hyprland-glow-probe.png` showed the soft white edge character.
+The warm debug probe including Cargo consumed 0.506 s user + 0.222 s system
+CPU over 13.735 s wall time; release/steady-state cost remains for acceptance.
+
+**Tests run:**
+
+- `(cd rust && cargo test -p pcbridge-native --offline --lib)` — pass, 15 tests;
+  initial dependency resolution added the one cached binding crate.
+- `(cd rust && cargo fmt --all && cargo test -p pcbridge-native --locked --lib && cargo test -p pcbridge-native --locked --test hyprland_glow_live)`
+  — pass; 15 unit tests and one non-opted-in live test (no compositor exercised).
+- `cargo test -p pcbridge-native --locked --lib --manifest-path rust/Cargo.toml`
+  — pass, 15 tests after separating appearance math from renderer ownership.
+- `(cd rust && cargo test --workspace --locked --no-fail-fast > /tmp/pcbridge-hyprland-stage7a-rust.log 2>&1)`
+  — pass, exit 0; live tests remain opt-in.
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_binds tests.contracts.test_hyprland_state tests.contracts.test_hyprland_windows tests.contracts.test_hyprland_session`
+  — pass, 20 tests.
+- `scripts/dev/hyprland-vm.sh sync` — pass.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge/rust && PCBRIDGE_TEST_HYPRLAND_GLOW=1 cargo test -p pcbridge-native --locked --test hyprland_glow_live -- --nocapture'`
+  — pass, real presentation on eight strips and complete breathing/fade lifecycle.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_LIVE_HYPRLAND=1 .venv/bin/python tests/live/hyprland/check_glow_renderer.py --out-dir /tmp/pcbridge-glow-evidence'`
+  — final run pass; pixel falloff, focus, geometry, and teardown evidence above.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge/rust && time PCBRIDGE_TEST_HYPRLAND_GLOW=1 cargo test -p pcbridge-native --locked --test hyprland_glow_live -- --nocapture'`
+  — pass; 13.59 s native probe, CPU/wall measurements above.
+
+**Review and corrections:** The first quantitative run used GTK's drawing ACK
+as a displayed baseline, so it captured the fading wallpaper before the fixture
+had reached fullscreen. It correctly failed the expected pixel comparison.
+The probe now waits for the actual fixture background before starting native
+glow. Reviewed bounded SHM, release ownership, empty input regions, lack of
+input objects, presentation freshness, panel-reservation semantics, and cleanup.
+Actual click/drag/scroll delivery is deliberately still an acceptance test,
+not inferred from flags or from unchanged focus.
+
+**Open questions and next stage:** Bind the native frame owner and its fresh
+presentation health to exact grant ID/epoch/session. Check that health in the
+shared Python gate and native lifecycle before enabling control. Exercise
+expiry, explicit revoke, replacement, helper/daemon failure, monitor rebuild,
+and invisible-grant prevention; then test input transparency with real counters.

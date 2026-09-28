@@ -15,7 +15,7 @@ class HyprlandIPCError(RuntimeError):
 
 
 def _query(command: str, *, json_output: bool, env: dict[str, str] | None = None) -> Any:
-    if command not in {"binds", "submap", "monitors", "clients", "activewindow", "locked"}:
+    if command not in {"binds", "submap", "monitors", "clients", "activewindow", "locked", "layers"}:
         raise ValueError("Hyprland read-only query is not allowed")
     current = os.environ if env is None else env
     instance = session.hyprland_instance(current)

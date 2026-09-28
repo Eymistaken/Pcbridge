@@ -485,6 +485,20 @@ and xdg-desktop-portal-hyprland 1.4.1.
   521 -> 522 on both outputs. It waits for displayed pixels because GTK's
   draw acknowledgment precedes Hyprland's fullscreen fade. This is independent
   graphics evidence, not acceptance of PcBridge's grant-bound capture path.
+- **Native layer-shell strips match the reference pixels.** On September 28,
+  eight `pcbridge-glow` layers covered the four outer edges of the two outputs,
+  with depth 68 at 1280x800. All received `wp_presentation.presented` after
+  about 700 ms. Empty surface input regions and keyboard interactivity NONE
+  are explicit. The [layer-shell protocol](https://gitlab.freedesktop.org/wlroots/wlr-protocols/-/blob/master/unstable/wlr-layer-shell-unstable-v1.xml)
+  specifies that exclusive zone -1 reserves no space and ignores panel
+  reservations; zero would move the strip inward around a panel. With the
+  existing fullscreen input fixture, every outer-edge sample changed RGB
+  `(30,30,40)` -> `(124,124,130)`, matching white alpha 0.42 with 8-bit
+  rounding. Inward samples matched the reference falloff within five channel
+  values. Focus and fullscreen geometry stayed unchanged; all layers vanished
+  after the native probe's breathing cycle/fade-out. This is renderer evidence,
+  not grant, input-transparency, or crash-recovery acceptance. Production control
+  remains closed until lease-bound frame health is implemented.
 
 ## Terminal UI (settings CLI)
 
