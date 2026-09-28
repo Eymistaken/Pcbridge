@@ -505,6 +505,22 @@ and xdg-desktop-portal-hyprland 1.4.1.
   acceptance. Overall CLI doctor exit 1 remains truthful for outstanding
   installation/configuration checks; desktop diagnostics passing does not
   imply the entire installation is ready.
+- **Remaining GNOME reporting assumptions were reproduced through real MCP.**
+  On September 29, the VM panel_icon status returned a missing GNOME-extension
+  error, and the monitor description mentioned GNOME panel menus and Super.
+  The scoped fix dispatches all desktop kinds explicitly. Actual MCP status,
+  show, and hide now return the Hyprland non-applicability note, with no panel
+  or tray requirement and the native glow as the required grant signal.
+  Monitor rows identify focused outputs, and the summary names Hyprland's
+  focused default without assuming a bar or keybind. Unit spies also prove
+  Hyprland and UNKNOWN never read/write GNOME settings or query the extension
+  version. GNOME/KDE configured-primary labels and panel behavior are retained.
+  The VM proof used desktop-disabled public example settings and opened no
+  grant or capture. Review also reproduced an all-false focus table incorrectly
+  labeled focused: Python and Rust had inferred focus on the first runtime row.
+  A shared reversed-order fixture now preserves absent focus in both adapters;
+  Python selects the first output by position and explicitly labels it as a
+  fallback. This fixture case is not claimed as a real VM focus transition.
 - **Portal services and native capture are separate observations.** The VM
   had xdg-desktop-portal 1.22.1-2, the Hyprland backend 1.4.1-2, GTK backend
   1.15.3-1, PipeWire 1.6.9-1, and WirePlumber 0.5.17-2. All five user services

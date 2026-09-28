@@ -89,6 +89,59 @@ class HyprlandMonitorTests(unittest.TestCase):
         self.assertNotEqual(monitors.topology_id([replace(m, primary_is_focus=False) for m in before]),
                             monitors.topology_id([replace(m, primary_is_focus=False) for m in after]))
 
+    def test_description_labels_focused_second_output_without_assuming_shell_ui(self) -> None:
+        raw = [output("Virtual-1", 0, 0), output("Virtual-2", 1280, 0, focused=True)]
+        with mock.patch.object(session, "desktop_kind", return_value=session.HYPRLAND), \
+                mock.patch.object(hyprland, "monitors", return_value=raw):
+            text = monitors.describe()
+        self.assertIn("2: Virtual-2 (focused)", text)
+        self.assertNotIn("(primary)", text)
+        self.assertIn("default monitor (Hyprland focused output): 2/Virtual-2", text)
+        for assumed_ui in ("GNOME", "Super", "panel", "bar"):
+            self.assertNotIn(assumed_ui, text)
+
+    def test_no_observed_focus_reports_deterministic_fallback_without_claiming_focus(self) -> None:
+        raw = [output("B", 1280, 0), output("A", 0, 0)]
+        table = monitors.resolve_state(monitors._hyprland_state(raw))
+        self.assertFalse(any(m.primary for m in table))
+        self.assertEqual(monitors.resolve(None, table).connector, "A")
+        focused = monitors.resolve_state(monitors._hyprland_state([
+            output("A", 0, 0), output("B", 1280, 0, focused=True)]))
+        self.assertEqual(monitors.topology_id(table), monitors.topology_id(focused))
+        with mock.patch.object(session, "desktop_kind", return_value=session.HYPRLAND), \
+                mock.patch.object(hyprland, "monitors", return_value=raw):
+            text = monitors.describe()
+        self.assertIn("default monitor (Hyprland fallback; no focused output reported): 1/A", text)
+        self.assertNotIn("(focused)", text)
+        self.assertNotIn("Hyprland focused output", text)
+
+    def test_configured_primary_row_keeps_its_existing_label(self) -> None:
+        from dataclasses import replace
+        table = monitors.resolve_state(monitors._hyprland_state([
+            output("Virtual-1", 0, 0, focused=True)]))
+        monitor = replace(table[0], primary_is_focus=False)
+        self.assertIn("Virtual-1 (primary)", monitor.describe())
+        self.assertNotIn("(focused)", monitor.describe())
+
+    def test_description_preserves_known_primary_captions_and_unknown_is_neutral(self) -> None:
+        table = monitors.resolve_state(monitors._hyprland_state([
+            output("Virtual-1", 0, 0, focused=True)]))
+        captions = {
+            session.GNOME: "primary monitor (GNOME panel menus and the Super overview): 1/Virtual-1",
+            session.KDE: "primary monitor (where Plasma puts its panel by default): 1/Virtual-1",
+            session.UNKNOWN: "default monitor: 1/Virtual-1",
+        }
+        for kind, caption in captions.items():
+            with self.subTest(kind=kind), \
+                    mock.patch.object(session, "desktop_kind", return_value=kind), \
+                    mock.patch.object(monitors, "list_monitors", return_value=table):
+                text = monitors.describe()
+                self.assertIn(caption, text)
+                if kind == session.UNKNOWN:
+                    self.assertNotIn("GNOME", text)
+                    self.assertNotIn("panel", text)
+                    self.assertNotIn("Super", text)
+
     def test_ipc_failure_does_not_fall_back_to_xrandr(self) -> None:
         with mock.patch.object(session, "desktop_kind", return_value=session.HYPRLAND), \
                 mock.patch.object(hyprland, "monitors",

@@ -1672,3 +1672,161 @@ contracts and three host containment refusals.
 **Remaining work:** The remaining input, clipboard, accessibility, monitor,
 security, and nested acceptance evidence; full GNOME/KDE regression; and final
 support documentation remain required. This stage makes no support claim.
+
+**Local commit:** `8e8928f`.
+
+## Stage 10c: Remove the remaining GNOME reporting assumptions
+
+**Plan adjustment/objective:** A broad read-only audit after runtime-context
+acceptance found two remaining two-desktop assumptions in general reporting:
+the MCP panel tool and monitor description. Reproduce and fix this small
+reporting scope before further input acceptance. This closes the existing
+explicit-compositor/capability contract; it adds no command or setting.
+
+**Design/files:** Dispatch panel_icon locally by the canonical compositor
+kind. Keep GNOME actions and the existing KDE note; report Hyprland/UNKNOWN
+inapplicability before settings or extension-version access. Label Hyprland's
+focused default accurately, including row markers, and preserve configured
+primary labels elsewhere. Review found that both monitor adapters synthesized
+focus when every runtime focused flag was false. Remove that inference in
+Python and Rust; preserve the reported flags and use the first monitor by
+position as the explicitly labeled fallback. A shared fixture reverses runtime
+output order to verify neutral-state parity. Changed files are tools.py's panel
+dispatch, monitors.py, the Rust Linux display adapter, both Python contract
+modules, the shared Hyprland monitor fixture, measured facts, and this journal.
+Coordinate geometry, metadata field names, permissions, and configuration are
+unchanged; absent focus is now represented truthfully.
+
+**Evidence:** Real VM MCP status initially returned a missing GNOME schema
+error, and the monitor summary incorrectly mentioned GNOME panels/Super.
+After sync, all three actual MCP actions returned the Hyprland note without
+errors. The real 2560x800 table marked Virtual-1 focused and identified it as
+the Hyprland default. The probe used public example settings with desktop
+disabled and temporary state; no grant/input/capture was opened. Contract
+spies prove no GNOME get/set/version call occurs for any Hyprland/UNKNOWN
+action. GNOME/KDE behavior and configured-primary descriptions still pass.
+The no-focus reproduction failed in both languages before the adapter fix;
+afterward all observed focus flags remain false, the Python default resolves
+to the first position-sorted output, and focused-to-no-focus transitions leave
+physical topology identity unchanged. This case uses a fixture rather than
+claiming the real VM spontaneously reported absent focus.
+
+**Exact tests:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_panel_icon tests.contracts.test_hyprland_monitors > /tmp/pcbridge-stage10c-reporting-red.log 2>&1`
+  — expected 8 failures in 23 tests before fix: six unwanted settings reads
+  and two incorrect captions. The focused-row regression was added afterward:
+  `./.venv/bin/python -m unittest tests.contracts.test_hyprland_monitors > /tmp/pcbridge-stage10c-focused-row-red.log 2>&1`
+  produced one expected failure in nine tests before its marker fix.
+- `./.venv/bin/python -m unittest tests.contracts.test_panel_icon tests.contracts.test_hyprland_monitors tests.contracts.test_hyprland_doctor_setup tests.contracts.test_english_only > /tmp/pcbridge-stage10c-reporting-green.log 2>&1`
+  — pass, 39 tests.
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_monitors > /tmp/pcbridge-stage10c-no-focus-red.log 2>&1`
+  — expected one failure in 10 tests before removing inferred focus.
+- `(cd rust && cargo test -p pcbridge-native --test display_contract hyprland_ipc_maps_to_the_same_neutral_state_as_python --locked > /tmp/pcbridge-stage10c-no-focus-rust-red.log 2>&1)`
+  — expected one fixture failure before the same Rust adapter fix.
+- `./.venv/bin/python -m unittest tests.contracts.test_panel_icon tests.contracts.test_hyprland_monitors tests.contracts.test_hyprland_doctor_setup tests.contracts.test_english_only > /tmp/pcbridge-stage10c-no-focus-green.log 2>&1`
+  — pass, 40 tests after the no-focus fix.
+- `(cd rust && cargo test -p pcbridge-native --test display_contract --locked > /tmp/pcbridge-stage10c-no-focus-rust-green.log 2>&1)`
+  — pass, 11 tests, including exact Python/Rust fixture parity.
+- `(cd rust && cargo test --workspace --locked --no-fail-fast > /tmp/pcbridge-stage10c-rust-workspace.log 2>&1)`
+  — pass after the Rust adapter change.
+- `./.venv/bin/python tests/test_desktop.py > /tmp/pcbridge-stage10c-final-desktop.log 2>&1`
+  — pass, 615 checks after the no-focus fix.
+- `scripts/dev/hyprland-vm.sh sync && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && scripts/build-native.sh' > /tmp/pcbridge-stage10c-release-build.log 2>&1`
+  — pass, refreshed the standard packaged release helper; no daemon restart.
+- `./.venv/bin/python tests/test_desktop.py > /tmp/pcbridge-hyprland-reporting-desktop.log 2>&1`
+  — pass, 615 checks without live input.
+- `scripts/dev/hyprland-vm.sh sync` — pass.
+- `./.venv/bin/python -m py_compile pcbridge/tools.py pcbridge/desktop/monitors.py tests/contracts/test_panel_icon.py tests/contracts/test_hyprland_monitors.py && git diff --check`
+  — pass.
+
+The exact pre-fix VM reproduction returned exit 0 with wrong output preserved
+in its log (successful invocation alone was not treated as success):
+
+```bash
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python - <<'\''PY'\''
+import asyncio, dataclasses, tempfile
+from pathlib import Path
+from pcbridge.app import build_app
+from pcbridge.config import load_config
+from pcbridge.desktop import monitors, session
+assert session.desktop_kind() == session.HYPRLAND
+with tempfile.TemporaryDirectory(prefix="pcbridge-reporting-before-") as temporary:
+    cfg=dataclasses.replace(load_config("config.example.toml", check_state=False), state_dir=Path(temporary))
+    mcp,_=build_app(cfg, transport="stdio")
+    result=asyncio.run(mcp.call_tool("panel_icon", {"action":"status"}))
+    print("MCP panel status:", "\n".join(getattr(item,"text","") for item in result.content))
+    print(monitors.describe())
+PY' > /tmp/pcbridge-hyprland-reporting-before.log 2>&1
+```
+
+The exact post-fix VM verification returned exit 0 and JSON application and
+monitor evidence:
+
+```bash
+scripts/dev/hyprland-vm.sh sync && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python - <<'\''PY'\''
+import asyncio, dataclasses, json, tempfile
+from pathlib import Path
+from pcbridge.app import build_app
+from pcbridge.config import load_config
+from pcbridge.desktop import monitors, session
+assert session.desktop_kind() == session.HYPRLAND
+with tempfile.TemporaryDirectory(prefix="pcbridge-reporting-after-") as temporary:
+    cfg=dataclasses.replace(load_config("config.example.toml", check_state=False), state_dir=Path(temporary))
+    assert not cfg.desktop.enabled
+    mcp,_=build_app(cfg, transport="stdio")
+    results={}
+    for action in ("status", "show", "hide"):
+        result=asyncio.run(mcp.call_tool("panel_icon", {"action":action}))
+        text="\n".join(getattr(item,"text","") for item in result.content)
+        assert "Hyprland" in text and "No panel or tray is required" in text and "native glow" in text, text
+        assert not result.is_error
+        results[action]=text
+    table=monitors.list_monitors(use_cache=False)
+    default=monitors.resolve(None, table)
+    text=monitors.describe()
+    assert "GNOME" not in text and "Super overview" not in text
+    assert "default monitor (Hyprland focused output)" in text and "(focused)" in text
+    assert f"{default.index}/{default.connector}" in text
+    print(json.dumps({"mcp_panel_actions":results,"monitor_description":text,"default_connector":default.connector,"desktop_enabled":False}))
+PY' > /tmp/pcbridge-hyprland-reporting-after.log 2>&1
+```
+
+After the no-focus fix and release rebuild, this final VM rerun also passed:
+
+```bash
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python - <<'\''PY'\''
+import asyncio, dataclasses, json, tempfile
+from pathlib import Path
+from pcbridge.app import build_app
+from pcbridge.config import load_config
+from pcbridge.desktop import monitors, session
+assert session.desktop_kind() == session.HYPRLAND
+with tempfile.TemporaryDirectory(prefix="pcbridge-reporting-final-") as temporary:
+    cfg=dataclasses.replace(load_config("config.example.toml", check_state=False), state_dir=Path(temporary))
+    assert not cfg.desktop.enabled
+    mcp,_=build_app(cfg, transport="stdio")
+    results={}
+    for action in ("status", "show", "hide"):
+        result=asyncio.run(mcp.call_tool("panel_icon", {"action":action}))
+        text="\n".join(getattr(item,"text","") for item in result.content)
+        assert "Hyprland" in text and "No panel or tray is required" in text and "native glow" in text, text
+        assert not result.is_error
+        results[action]=text
+    table=monitors.list_monitors(use_cache=False)
+    default=monitors.resolve(None, table)
+    text=monitors.describe()
+    assert "GNOME" not in text and "Super overview" not in text
+    assert "default monitor (Hyprland focused output)" in text and "(focused)" in text
+    assert f"{default.index}/{default.connector}" in text
+    print(json.dumps({"mcp_panel_actions":results,"monitor_description":text,"default_connector":default.connector,"desktop_enabled":False}))
+PY' > /tmp/pcbridge-stage10c-reporting-live-final.log 2>&1
+```
+
+**Review:** Separate spec and quality reviewers approved the expanded scope
+after the no-focus correction. The final VM JSON confirms all three real MCP
+panel actions and the focused default description after the release rebuild.
+
+**Remaining work:** Additional input/clipboard/accessibility/geometry and
+nested evidence, complete security acceptance, existing-platform regression,
+and final documentation still remain. No supported-platform claim is made.

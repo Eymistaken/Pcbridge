@@ -334,9 +334,6 @@ pub fn hyprland_state(data: &Value) -> Result<DisplayState, String> {
     if logical.iter().filter(|monitor| monitor.primary).count() > 1 {
         return Err("Hyprland reported multiple focused outputs".into());
     }
-    if !logical.is_empty() && !logical.iter().any(|monitor| monitor.primary) {
-        logical[0].primary = true;
-    }
     Ok(DisplayState {
         layout_mode: LayoutMode::Logical,
         physical,

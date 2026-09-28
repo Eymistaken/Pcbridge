@@ -3464,10 +3464,20 @@ def register(
         desktop control is granted the icon appears anyway, and nothing can hide it
         then. The setting persists across logins. The kill switch stays available
         as `pcbridge lock` either way."""
-        if compositorlib.is_kde():
+        from .desktop import session as sessionlib
+
+        kind = compositorlib.current().kind
+        if kind == sessionlib.KDE:
             return ("KDE Plasma has no pcbridge panel icon: there the grant shows as a "
                     "notification only while desktop control is open, so there is "
                     "nothing to hide.")
+        if kind == sessionlib.HYPRLAND:
+            return ("The GNOME panel icon setting is not applicable on Hyprland. "
+                    "No panel or tray is required; the native glow is the required "
+                    "visible signal while desktop control is granted.")
+        if kind != sessionlib.GNOME:
+            return ("The GNOME panel icon setting is not applicable on this unsupported "
+                    "desktop. General CLI tools remain available.")
         try:
             if action != "status":
                 paneliconlib.set_mode("when-granted" if action == "hide" else "always")

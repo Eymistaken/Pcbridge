@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from pcbridge import app as applib  # noqa: E402
 from pcbridge.config import load_config  # noqa: E402
-from pcbridge.desktop import compositor, panelicon, session  # noqa: E402
+from pcbridge.desktop import panelicon, session  # noqa: E402
 from pcbridge.tui.backend import Backend  # noqa: E402
 
 CONFIG = """config_version = 2
@@ -179,7 +179,7 @@ class ToolTests(unittest.TestCase):
         return "\n".join(getattr(block, "text", "") for block in result.content)
 
     def test_hide_sets_when_granted_and_says_the_grant_still_shows_it(self) -> None:
-        with mock.patch.object(compositor, "is_kde", return_value=False), \
+        with mock.patch.object(session, "desktop_kind", return_value=session.GNOME), \
                 mock.patch.object(panelicon, "set_mode") as set_mode, \
                 mock.patch.object(panelicon, "get_mode", return_value="when-granted"), \
                 mock.patch.object(panelicon, "running_version", return_value="2.2.0"):
@@ -189,7 +189,7 @@ class ToolTests(unittest.TestCase):
         self.assertNotIn("next login", text)
 
     def test_show_and_status(self) -> None:
-        with mock.patch.object(compositor, "is_kde", return_value=False), \
+        with mock.patch.object(session, "desktop_kind", return_value=session.GNOME), \
                 mock.patch.object(panelicon, "set_mode") as set_mode, \
                 mock.patch.object(panelicon, "get_mode", return_value="always"), \
                 mock.patch.object(panelicon, "running_version", return_value="2.0.0"):
@@ -201,14 +201,34 @@ class ToolTests(unittest.TestCase):
         self.assertIn("after the next login", shown)
 
     def test_plasma_has_nothing_to_hide(self) -> None:
-        with mock.patch.object(compositor, "is_kde", return_value=True), \
+        with mock.patch.object(session, "desktop_kind", return_value=session.KDE), \
                 mock.patch.object(panelicon, "set_mode") as set_mode:
             text = self.call(action="hide")
         set_mode.assert_not_called()
         self.assertIn("KDE Plasma has no pcbridge panel icon", text)
 
+    def test_non_gnome_actions_never_use_gnome_settings_or_version_probe(self) -> None:
+        for kind in (session.HYPRLAND, session.UNKNOWN):
+            for action in ("status", "hide", "show"):
+                with self.subTest(kind=kind, action=action), \
+                        mock.patch.object(session, "desktop_kind", return_value=kind), \
+                        mock.patch.object(panelicon, "get_mode", return_value="always") as get_mode, \
+                        mock.patch.object(panelicon, "set_mode") as set_mode, \
+                        mock.patch.object(panelicon, "running_version", return_value="2.2.0") as version:
+                    text = self.call(action=action)
+                    get_mode.assert_not_called()
+                    set_mode.assert_not_called()
+                    version.assert_not_called()
+                    self.assertIn("not applicable", text)
+                    if kind == session.HYPRLAND:
+                        self.assertIn("Hyprland", text)
+                        self.assertIn("No panel or tray is required", text)
+                        self.assertIn("native glow", text)
+                    else:
+                        self.assertIn("General CLI tools remain available", text)
+
     def test_a_failure_is_said_in_the_answer(self) -> None:
-        with mock.patch.object(compositor, "is_kde", return_value=False), \
+        with mock.patch.object(session, "desktop_kind", return_value=session.GNOME), \
                 mock.patch.object(panelicon, "set_mode",
                                   side_effect=panelicon.PanelIconError("no extension")):
             text = self.call(action="hide")

@@ -133,7 +133,7 @@ class Monitor:
         return self.x <= x < self.x + self.width and self.y <= y < self.y + self.height
 
     def describe(self) -> str:
-        star = " (primary)" if self.primary else ""
+        star = (" (focused)" if self.primary_is_focus else " (primary)") if self.primary else ""
         # In Mutter's physical layout mode the scale only enlarges the UI; the
         # size above is then in real pixels, which is worth saying once.
         unit = " (UI only; sizes are pixels)" if self.pixel_ratio != self.scale else ""
@@ -449,8 +449,6 @@ def _hyprland_state(data: list[dict]) -> dict:
         })
     if sum(out["primary"] for out in logical) > 1:
         raise MonitorError("Hyprland reported multiple focused outputs")
-    if logical and not any(out["primary"] for out in logical):
-        logical[0]["primary"] = True
     return {"layout_mode": "logical", "physical": physical, "logical": logical,
             "primary_is_focus": True}
 
@@ -668,7 +666,15 @@ def describe() -> str:
     lines = [f"canvas: {w}x{h} · {len(mons)} monitor(s), numbered by position (left to right, then top to bottom)"]
     lines += [f"  {m.describe()}" for m in mons]
     p = primary(mons)
-    where = ("where Plasma puts its panel by default" if compositorlib.is_kde()
-             else "GNOME panel menus and the Super overview")
-    lines.append(f"  primary monitor ({where}): {p.index}/{p.connector}")
+    kind = compositorlib.current().kind
+    if kind == session.KDE:
+        caption = "primary monitor (where Plasma puts its panel by default)"
+    elif kind == session.GNOME:
+        caption = "primary monitor (GNOME panel menus and the Super overview)"
+    elif kind == session.HYPRLAND:
+        caption = ("default monitor (Hyprland focused output)" if p.primary
+                   else "default monitor (Hyprland fallback; no focused output reported)")
+    else:
+        caption = "default monitor"
+    lines.append(f"  {caption}: {p.index}/{p.connector}")
     return "\n".join(lines)
