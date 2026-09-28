@@ -1,6 +1,6 @@
 {
   "base": {
-    "version": 1,
+    "version": 2,
     "ready": true,
     "pid": 100,
     "writer_start_ticks": 123,
@@ -12,7 +12,10 @@
     "hyprland_instance": "fixture-session",
     "topology_id": "v1|0,0,1280,800,1.0000,0,1",
     "strip_count": 4,
-    "presented_unix_ms": 10000
+    "presented_unix_ms": 10000,
+    "outputs": [
+      "Virtual-1"
+    ]
   },
   "token": {
     "grant_id": "fixture-grant",
@@ -193,6 +196,60 @@
       "name": "negative_timestamp",
       "patch": {
         "presented_unix_ms": -1
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "v1_has_no_output_identity",
+      "patch": {
+        "version": 1
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "empty_outputs",
+      "patch": {
+        "outputs": []
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "duplicate_outputs",
+      "patch": {
+        "outputs": [
+          "Virtual-1",
+          "Virtual-1"
+        ],
+        "strip_count": 8
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "null_outputs",
+      "patch": {
+        "outputs": null
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "invalid_output_name",
+      "patch": {
+        "outputs": [
+          ""
+        ]
+      },
+      "now_ms": 10500,
+      "expected": false
+    },
+    {
+      "name": "wrong_output_count",
+      "patch": {
+        "strip_count": 8
       },
       "now_ms": 10500,
       "expected": false

@@ -58,15 +58,30 @@ pub type LeaseFailure = LifecycleFailure;
 /// bound lease and authoritative screen-lock state.
 pub trait FrameVisibilityProvider: Send + Sync {
     fn visible(&self, token: &LeaseToken) -> bool;
+
+    /// Protected operations require a fresh output query; the independent
+    /// cleanup timer reads presentation proof without waiting on compositor IPC.
+    fn visible_on_current_outputs(&self, token: &LeaseToken) -> bool {
+        self.visible(token)
+    }
 }
 
 struct NativeFrameVisibility {
     directory: PathBuf,
+    socket: Option<PathBuf>,
 }
 
 impl FrameVisibilityProvider for NativeFrameVisibility {
     fn visible(&self, token: &LeaseToken) -> bool {
         crate::platform::linux::glow_state::read(&self.directory, token).is_some()
+    }
+
+    fn visible_on_current_outputs(&self, token: &LeaseToken) -> bool {
+        let Some(socket) = &self.socket else {
+            return false;
+        };
+        crate::platform::linux::glow_state::read_on_current_outputs(&self.directory, token, socket)
+            .is_some()
     }
 }
 
@@ -146,6 +161,7 @@ impl Lifecycle {
         {
             Some(Arc::new(NativeFrameVisibility {
                 directory: state_dir.canonicalize()?,
+                socket: crate::platform::linux::desktop::hyprland_socket(),
             }) as Arc<dyn FrameVisibilityProvider>)
         } else {
             None
@@ -403,7 +419,7 @@ impl Lifecycle {
             let visible = self
                 .expected
                 .as_ref()
-                .is_some_and(|token| provider.visible(token));
+                .is_some_and(|token| provider.visible_on_current_outputs(token));
             if !visible {
                 self.resource_open.store(false, Ordering::Release);
                 if !self.visibility_lost.swap(true, Ordering::AcqRel) {

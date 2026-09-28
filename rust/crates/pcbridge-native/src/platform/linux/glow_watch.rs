@@ -46,6 +46,11 @@ fn rebuild(
     record.write(directory).map_err(|e| e.to_string())?;
     *overlay = Overlay::connect(&snapshot.monitors)?;
     record.topology_id = snapshot.topology_id.clone();
+    record.outputs = snapshot
+        .monitors
+        .iter()
+        .map(|monitor| monitor.connector.clone())
+        .collect();
     record.strip_count = overlay.strip_count() as u32;
     Ok(())
 }
@@ -66,12 +71,12 @@ pub fn watch(directory: &Path, token: LeaseToken) -> Result<(), String> {
         return Err("The selected session is not known unlocked".into());
     }
     let reader = DisplayReader::connect().map_err(|e| e.to_string())?;
-    let mut snapshot = reader.snapshot().map_err(|e| e.to_string())?;
+    let snapshot = reader.snapshot().map_err(|e| e.to_string())?;
     let mut overlay = Overlay::connect(&snapshot.monitors)?;
     let pid = std::process::id();
     let owner_pid = parent_pid(pid).ok_or("No frame owner process")?;
     let mut record = FrameRecord {
-        version: 1,
+        version: 2,
         ready: false,
         pid,
         writer_start_ticks: writer_start_ticks(pid).ok_or("No frame process identity")?,
@@ -83,6 +88,11 @@ pub fn watch(directory: &Path, token: LeaseToken) -> Result<(), String> {
         hyprland_instance: std::env::var("HYPRLAND_INSTANCE_SIGNATURE")
             .map_err(|_| "No Hyprland instance")?,
         topology_id: snapshot.topology_id.clone(),
+        outputs: snapshot
+            .monitors
+            .iter()
+            .map(|monitor| monitor.connector.clone())
+            .collect(),
         strip_count: overlay.strip_count() as u32,
         presented_unix_ms: 0,
     };
@@ -112,11 +122,10 @@ pub fn watch(directory: &Path, token: LeaseToken) -> Result<(), String> {
                 Ok(current) => current,
                 Err(error) => break Err(error.to_string()),
             };
-            if current.topology_id != snapshot.topology_id {
+            if !record.covers_outputs(&current.monitors) {
                 if let Err(error) = rebuild(&mut overlay, &current, &mut record, &directory) {
                     break Err(error);
                 }
-                snapshot = current;
                 appeared = Instant::now();
                 last_publication = (false, 0);
             }
@@ -148,11 +157,10 @@ pub fn watch(directory: &Path, token: LeaseToken) -> Result<(), String> {
                 Ok(current) => current,
                 Err(error) => break Err(error.to_string()),
             };
-            if current.topology_id != snapshot.topology_id {
+            if !record.covers_outputs(&current.monitors) {
                 if let Err(error) = rebuild(&mut overlay, &current, &mut record, &directory) {
                     break Err(error);
                 }
-                snapshot = current;
                 appeared = Instant::now();
                 next_draw = Instant::now();
                 next_topology = Instant::now() + Duration::from_millis(500);

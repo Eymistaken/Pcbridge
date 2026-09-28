@@ -212,6 +212,43 @@ fn stalled_desktop_observation_does_not_delay_revoke() {
 
 struct MutableVisibility(AtomicBool);
 
+struct CurrentOutputVisibility(AtomicBool);
+
+impl FrameVisibilityProvider for CurrentOutputVisibility {
+    fn visible(&self, _: &pcbridge_core::LeaseToken) -> bool {
+        true
+    }
+    fn visible_on_current_outputs(&self, _: &pcbridge_core::LeaseToken) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
+
+#[test]
+fn protected_operations_recheck_outputs_before_recent_presentation_expires() {
+    let root = fixture_root();
+    write_grant(&root);
+    let state = Arc::new(MutableDesktopState::new(
+        ScreenLockState::KnownUnlocked,
+        ActivityState::Known,
+        120_000,
+    ));
+    let visibility = Arc::new(CurrentOutputVisibility(AtomicBool::new(true)));
+    let lifecycle =
+        Lifecycle::start_with_visibility_provider(&root, state, visibility.clone()).unwrap();
+    lifecycle.open_test_resource().unwrap();
+    visibility.0.store(false, Ordering::Release);
+    assert_eq!(
+        lifecycle.validate_now(),
+        Err(LifecycleFailure::VisibleFrameUnavailable)
+    );
+    assert!(!lifecycle.test_resource_is_open());
+    assert_eq!(
+        lifecycle.validate_write_now(true, 60_000),
+        Err(LifecycleFailure::VisibleFrameUnavailable)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 impl FrameVisibilityProvider for MutableVisibility {
     fn visible(&self, token: &pcbridge_core::LeaseToken) -> bool {
         token.grant_id() == "desktop-state-contract"

@@ -111,6 +111,10 @@ MCP action to a resident daemon after matching its state directory and
 compositor identity; a short-lived caller never owns the frame. No tray or
 panel integration is required.
 
+Protected admission and each action require presentation on the current
+output identities and geometry, queried without the monitor cache. A recent
+record for old outputs cannot keep control open while the frame is rebuilding.
+
 Missing/stale visibility pauses protected operations. Helper death retires
 only its own lease; explicit lock revokes before cleanup; old owner shutdown
 cannot revoke a replacement. Native and Python resource guards release open

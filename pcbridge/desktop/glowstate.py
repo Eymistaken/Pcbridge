@@ -21,7 +21,12 @@ def matches(record: dict, token: LeaseToken, *, display: str, signature: str, no
                "revoke_epoch", "strip_count", "presented_unix_ms")
     if any(type(record.get(name)) is not int or record[name] < 0 for name in numbers):
         return False
-    return (record["version"] == 1 and record.get("ready") is True
+    outputs = record.get("outputs")
+    if (not isinstance(outputs, list) or not 1 <= len(outputs) <= 16
+            or any(not isinstance(name, str) or not name or len(name) > 256 for name in outputs)
+            or len(set(outputs)) != len(outputs)):
+        return False
+    return (record["version"] == 2 and record.get("ready") is True
             and all(record[name] > 0 for name in ("pid", "writer_start_ticks", "owner_pid", "owner_start_ticks"))
             and record.get("grant_id") == token.grant_id and record["revoke_epoch"] == token.revoke_epoch
             and bool(display) and record.get("wayland_display") == display
@@ -29,7 +34,29 @@ def matches(record: dict, token: LeaseToken, *, display: str, signature: str, no
             and isinstance(record.get("topology_id"), str) and record["topology_id"].startswith("v1|")
             and len(record["topology_id"]) <= 2048
             and 4 <= record["strip_count"] <= 64 and record["strip_count"] % 4 == 0
+            and record["strip_count"] == 4 * len(outputs)
             and 0 <= now_ms - record["presented_unix_ms"] <= MAX_AGE_MS)
+
+
+def covers_outputs(record: dict, table) -> bool:
+    from .monitors import topology_id
+
+    return (record.get("topology_id") == topology_id(table)
+            and record.get("outputs") == [m.connector for m in table]
+            and record.get("strip_count") == 4 * len(table))
+
+
+def read_on_current_outputs(directory: Path, token: LeaseToken, *, binary: Path) -> dict | None:
+    from . import monitors
+
+    try:
+        table = monitors.list_monitors(use_cache=False)
+    except monitors.MonitorError:
+        return None
+    # Read proof after the bounded query: a slow compositor cannot make an
+    # earlier timestamp count as fresh at protected-operation admission.
+    record = read(directory, token, binary=binary)
+    return record if record is not None and covers_outputs(record, table) else None
 
 
 def _writer_matches_binary(pid: int, directory: Path, binary: Path, token: LeaseToken) -> bool:

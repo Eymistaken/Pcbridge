@@ -254,7 +254,7 @@ class SafetyGate:
     def requires_frame(self) -> bool:
         return compositorlib.current().kind == session.HYPRLAND
 
-    def visible_frame(self, token: LeaseToken | None) -> bool:
+    def visible_frame(self, token: LeaseToken | None, *, current_outputs: bool = False) -> bool:
         if not self.requires_frame:
             return True
         if token is None:
@@ -264,12 +264,13 @@ class SafetyGate:
 
         try:
             binary = discover_native_binary(self.cfg.native)
-            return glowstate.read(Path(self.cfg.state_dir), token, binary=binary) is not None
+            reader = glowstate.read_on_current_outputs if current_outputs else glowstate.read
+            return reader(Path(self.cfg.state_dir), token, binary=binary) is not None
         except (DesktopError, OSError, AttributeError):
             return False
 
-    def _frame_decision(self, token: LeaseToken) -> Decision | None:
-        if self.visible_frame(token):
+    def _frame_decision(self, token: LeaseToken, *, current_outputs: bool = True) -> Decision | None:
+        if self.visible_frame(token, current_outputs=current_outputs):
             return None
         return Decision(False,
             "The native grant frame has no fresh presentation evidence. Desktop control is paused.",
@@ -302,7 +303,7 @@ class SafetyGate:
         snapshot = self._lease.snapshot()
         if not snapshot.is_native_eligible() or snapshot.token() != token:
             return Decision(False, "The resource's desktop grant ended.", code=ErrorCode.REVOKED)
-        frame = self._frame_decision(token)
+        frame = self._frame_decision(token, current_outputs=False)
         if frame is not None:
             return frame
         if self.requires_frame:
@@ -347,6 +348,10 @@ class SafetyGate:
                 suggested_action="Inspect the current grant before requesting desktop control again.")
         if self.requires_frame:
             decision = self.resource_guard(token)
+            if decision.allowed:
+                frame = self._frame_decision(token)
+                if frame is not None:
+                    decision = frame
             if not decision.allowed:
                 self._lease.revoke_if(token)
                 raise error_from_decision(decision)
@@ -414,6 +419,10 @@ class SafetyGate:
                     decision = screen_lock_decision(self._state_provider.screen_lock())
                     if decision.allowed:
                         decision = self.resource_guard(token)
+                    if decision.allowed:
+                        frame = self._frame_decision(token)
+                        if frame is not None:
+                            decision = frame
                     if not decision.allowed:
                         raise error_from_decision(decision)
                 except BaseException:

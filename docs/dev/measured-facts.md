@@ -557,6 +557,17 @@ and xdg-desktop-portal-hyprland 1.4.1.
   1029 ms and helper-death closure at 103 ms. Existing GNOME/KDE force semantics
   and the 615-check non-live desktop suite still pass.
 
+### Hyprland output coverage during grant presentation
+
+The dedicated VM frame was stopped while its presentation record was still
+fresh; monitor 2 was changed to scale 1.25 and transform 1. Native and shared
+gate operations both refused the old output proof before its 1000 ms age
+limit, measured at 53 ms for the change and two checks. Resuming the frame
+rebuilt valid presentation on the changed geometry; restoring both original
+outputs rebuilt it again. The guard uses ordered output identities as well
+as geometric topology, so renamed/swapped outputs cannot reuse old proof.
+No input or capture was opened by this test resource probe.
+
 ## Terminal UI (settings CLI)
 
 Measured 2026-09-24 on the reference machine, gnome-terminal 130x40, the UI

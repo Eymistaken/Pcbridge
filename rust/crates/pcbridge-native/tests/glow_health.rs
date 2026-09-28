@@ -5,6 +5,42 @@ use pcbridge_native::platform::linux::glow_state::FrameRecord;
 use serde_json::Value;
 
 #[test]
+fn presentation_must_cover_current_output_identity_and_geometry() {
+    use pcbridge_core::display::{resolve, topology_id};
+    use pcbridge_native::platform::linux::display::hyprland_state;
+    let data: Value = serde_json::from_str(include_str!(
+        "../../../../tests/fixtures/native/glow_health_cases.json"
+    ))
+    .unwrap();
+    let mut record: FrameRecord = serde_json::from_value(data["base"].clone()).unwrap();
+    let mut raw = serde_json::json!([{"name":"Virtual-1", "width":1280, "height":800,
+        "x":0, "y":0, "scale":1.0, "transform":0, "focused":true}]);
+    let monitors = resolve(&hyprland_state(&raw).unwrap()).unwrap();
+    record.topology_id = topology_id(&monitors);
+    assert!(record.covers_outputs(&monitors));
+    raw[0]["name"] = "Virtual-2".into();
+    let renamed = resolve(&hyprland_state(&raw).unwrap()).unwrap();
+    assert_eq!(record.topology_id, topology_id(&renamed));
+    assert!(!record.covers_outputs(&renamed));
+    raw[0]["name"] = "Virtual-1".into();
+    raw[0]["scale"] = 1.25.into();
+    let changed = resolve(&hyprland_state(&raw).unwrap()).unwrap();
+    assert!(!record.covers_outputs(&changed));
+    let mut swapped = monitors.clone();
+    swapped.push(monitors[0].clone());
+    swapped[1].x = 1280;
+    swapped[1].connector = "Virtual-2".into();
+    record.topology_id = topology_id(&swapped);
+    record.outputs = vec!["Virtual-1".into(), "Virtual-2".into()];
+    record.strip_count = 8;
+    assert!(record.covers_outputs(&swapped));
+    swapped[0].connector = "Virtual-2".into();
+    swapped[1].connector = "Virtual-1".into();
+    assert_eq!(record.topology_id, topology_id(&swapped));
+    assert!(!record.covers_outputs(&swapped));
+}
+
+#[test]
 fn frame_records_match_the_shared_refusal_fixture() {
     let data: Value = serde_json::from_str(include_str!(
         "../../../../tests/fixtures/native/glow_health_cases.json"

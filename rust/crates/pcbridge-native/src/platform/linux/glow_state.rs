@@ -6,6 +6,7 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
 use std::time::SystemTime;
 
+use pcbridge_core::display::{Monitor, topology_id};
 use pcbridge_core::{DesktopLease, LEASE_LOCK_FILE, LEASE_STATE_FILE, LeaseToken};
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +29,7 @@ pub struct FrameRecord {
     pub wayland_display: String,
     pub hyprland_instance: String,
     pub topology_id: String,
+    pub outputs: Vec<String>,
     pub strip_count: u32,
     pub presented_unix_ms: u64,
 }
@@ -35,7 +37,7 @@ pub struct FrameRecord {
 impl FrameRecord {
     #[must_use]
     pub fn matches(&self, token: &LeaseToken, display: &str, signature: &str, now: u64) -> bool {
-        self.version == 1
+        self.version == 2
             && self.ready
             && self.pid > 0
             && self.writer_start_ticks > 0
@@ -52,8 +54,22 @@ impl FrameRecord {
             && self.strip_count >= 4
             && self.strip_count <= 64
             && self.strip_count % 4 == 0
+            && self.outputs.len() * 4 == self.strip_count as usize
+            && self.outputs.iter().enumerate().all(|(index, name)| {
+                !name.is_empty() && name.len() <= 256 && !self.outputs[..index].contains(name)
+            })
             && self.presented_unix_ms <= now
             && now - self.presented_unix_ms <= MAX_AGE_MS
+    }
+
+    #[must_use]
+    pub fn covers_outputs(&self, monitors: &[Monitor]) -> bool {
+        self.topology_id == topology_id(monitors)
+            && self
+                .outputs
+                .iter()
+                .eq(monitors.iter().map(|monitor| &monitor.connector))
+            && self.strip_count as usize == monitors.len() * 4
     }
 
     pub fn write(&self, directory: &Path) -> std::io::Result<()> {
@@ -165,6 +181,22 @@ pub(crate) fn parent_pid(pid: u32) -> Option<u32> {
         .nth(1)?
         .parse()
         .ok()
+}
+
+/// A current monitor query must agree with the outputs actually presented.
+/// The trusted record is read afterward so an IPC delay cannot age its proof
+/// past the freshness limit while a protected operation is being admitted.
+#[must_use]
+pub fn read_on_current_outputs(
+    directory: &Path,
+    token: &LeaseToken,
+    socket: &Path,
+) -> Option<FrameRecord> {
+    let data = super::hyprland::query(socket, super::hyprland::ReadQuery::Monitors).ok()?;
+    let state = super::display::hyprland_state(&data).ok()?;
+    let monitors = pcbridge_core::display::resolve(&state).ok()?;
+    let record = read(directory, token)?;
+    record.covers_outputs(&monitors).then_some(record)
 }
 
 /// Metadata is also checked on the opened file. An absent, foreign, stale,

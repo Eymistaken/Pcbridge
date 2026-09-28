@@ -325,6 +325,17 @@ when that context is unavailable. The new visibility-injection factory is
 available only in explicit `test-harness` builds; the production IPC dispatcher
 always uses the selected-session factory.
 
+The private glow health record is version 2 and includes output connector
+names in canonical monitor order, with exactly four presented strips per
+output. Version 1 records cannot establish output coverage and are refused.
+Before protected admission and every operation, Python/native readers query
+current outputs without the monitor cache, then compare geometry and the
+ordered connector identities with fresh presentation proof. This catches
+replacement or swapped outputs even when the canonical geometric topology
+string is unchanged. The native monitor query has a 200 ms absolute deadline.
+The independent visibility cleanup timer remains free of compositor IPC;
+geometry rebuilds invalidate proof before committing new surfaces.
+
 Hyprland also requires a known, session-bound idle observation, including
 with explicit force. The independent guard closes resources on idle observer
 loss; unknown activity returns `ACTIVITY_UNKNOWN`. Force bypasses only the

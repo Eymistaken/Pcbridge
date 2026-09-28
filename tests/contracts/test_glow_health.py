@@ -11,11 +11,31 @@ from unittest import mock
 
 from pcbridge.desktop import glowstate
 from pcbridge.desktop.lease import LeaseToken
+from pcbridge.desktop import monitors
+from tests.contracts.test_hyprland_monitors import output
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures/native/glow_health_cases.json"
 
 
 class GlowHealthTests(unittest.TestCase):
+    def test_output_identity_and_geometry_must_cover_the_current_table(self):
+        table = monitors.resolve_state(monitors._hyprland_state([output("Virtual-1", 0, 0)]))
+        record = {"topology_id": monitors.topology_id(table), "outputs": ["Virtual-1"], "strip_count": 4}
+        self.assertTrue(glowstate.covers_outputs(record, table))
+        renamed = monitors.resolve_state(monitors._hyprland_state([output("Virtual-2", 0, 0)]))
+        self.assertEqual(monitors.topology_id(table), monitors.topology_id(renamed))
+        self.assertFalse(glowstate.covers_outputs(record, renamed))
+        changed = monitors.resolve_state(monitors._hyprland_state([output("Virtual-1", 0, 0, scale=1.25)]))
+        self.assertFalse(glowstate.covers_outputs(record, changed))
+        table = monitors.resolve_state(monitors._hyprland_state([
+            output("Virtual-1", 0, 0), output("Virtual-2", 1280, 0)]))
+        swapped = monitors.resolve_state(monitors._hyprland_state([
+            output("Virtual-2", 0, 0), output("Virtual-1", 1280, 0)]))
+        record = {"topology_id": monitors.topology_id(table),
+                  "outputs": [m.connector for m in table], "strip_count": 8}
+        self.assertEqual(monitors.topology_id(table), monitors.topology_id(swapped))
+        self.assertFalse(glowstate.covers_outputs(record, swapped))
+
     def test_shared_native_refusal_fixture(self):
         data = json.loads(FIXTURE.read_text())
         token = LeaseToken(**data["token"])

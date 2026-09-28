@@ -1080,3 +1080,65 @@ confirmation. Platform support is still not claimed. Fresh physical topology
 validation, actual all-edge input transparency, native capture, acting focus,
 uinput/clipboard acceptance, doctor/setup/TUI fixes, and full platform
 regression remain required.
+
+**Local commit:** `6eb69c0`.
+
+## Stage 7b4: Current output coverage before protected operations
+
+**Objective and measured risk:** A trusted record can still be fresh for up to
+1000 ms after geometry changes. Its geometric topology also omits connector
+names intentionally. Admission must reject old output coverage immediately,
+including output replacement/swaps with the same geometric string.
+
+**Design:** Version 2 private frame health includes connectors in canonical
+monitor order and requires exactly four strips per output. Old records fail
+closed. The owner rebuilds on geometry or ordered output changes. Shared
+admission, per-action verification, final unlock validation, and returned grant
+metadata compare current uncached geometry/identities with fresh trusted proof.
+Native protected operations perform the same comparison against the selected
+socket with a 200 ms absolute query deadline. Independent cleanup watchers
+retain their IPC-free proof reads, so a stalled compositor cannot delay revoke
+or held-resource cleanup. Focus remains excluded from physical topology.
+
+**Files changed:** Python glow health/shared gate and contracts; shared health
+fixture; Rust health/owner/lifecycle/IPC deadline and contracts; VM native guard;
+security/protocol/measured-facts documentation; this journal.
+
+**Measurements and corrections:** The new coverage test first failed because
+the comparison did not exist. The VM stopped only the probe frame writer and
+changed output 2 to scale 1.25/transform 1 while its old proof was still fresh.
+Native and Python admission refused in 53 ms initially, 58 ms in the final run.
+Resumption rebuilt current proof; both original outputs were restored. Final
+stale/dead-frame resource closure measured 1027/52 ms. No input/capture opened.
+Review changed unordered connector comparison to canonical-order comparison
+to catch swapped outputs with identical geometric topology. It also removed
+unused snapshot assignments after the owner's new comparison. A newly inserted
+test initially inherited an old paused-status assertion after conditional
+retirement; moved that assertion back to its original frame-loss case.
+
+**Exact verification commands:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_glow_health.GlowHealthTests.test_output_identity_and_geometry_must_cover_the_current_table`
+  — initial expected failure, missing coverage function.
+- `./.venv/bin/python -m unittest tests.contracts.test_glow_health tests.contracts.test_hyprland_gate tests.contracts.test_hyprland_monitors tests.contracts.test_glow_owner tests.contracts.test_daemon_grant tests.contracts.test_batch_safety tests.contracts.test_runtime_contract > /tmp/pcbridge-hyprland-topology-python.log 2>&1`
+  — pass after the assertion correction, 85 tests.
+- `cargo test --manifest-path rust/Cargo.toml -p pcbridge-native --locked --features test-harness --test desktop_state --test glow_health > /tmp/pcbridge-hyprland-topology-rust.log 2>&1`
+  — pass, 9 state and 3 health contracts.
+- `cargo test --manifest-path rust/Cargo.toml -p pcbridge-native --locked --lib platform::linux::hyprland > /tmp/pcbridge-hyprland-topology-deadline.log 2>&1`
+  — pass, 2 deadline/size contracts.
+- `cargo test --manifest-path rust/Cargo.toml --workspace --locked --no-fail-fast > /tmp/pcbridge-hyprland-topology-workspace.log 2>&1`
+  — pass, default workspace, exit 0.
+- `cargo test --manifest-path rust/Cargo.toml --workspace --locked --features pcbridge-native/test-harness --no-fail-fast > /tmp/pcbridge-hyprland-topology-harness-workspace.log 2>&1`
+  — pass, harness workspace, exit 0.
+- `cargo fmt --all --check --manifest-path rust/Cargo.toml && cargo test --manifest-path rust/Cargo.toml -p pcbridge-native --locked --test glow_health --lib > /tmp/pcbridge-hyprland-topology-default-final.log 2>&1`
+  — pass at the final Rust revision, 16 library and 3 health tests.
+- `scripts/dev/hyprland-vm.sh sync && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge/rust && cargo build -p pcbridge-native --locked --features test-harness && cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_FRAME_GUARD=1 .venv/bin/python tests/live/hyprland/check_glow_guard.py && cd rust && cargo build -p pcbridge-native --locked' > /tmp/pcbridge-hyprland-topology-vm-final.log 2>&1`
+  — pass, current coverage/stale/death/replacement/revoke, default binary restored.
+- `./.venv/bin/python -m py_compile pcbridge/desktop/glowstate.py pcbridge/desktop/safety.py tests/live/hyprland/check_glow_guard.py` — pass.
+- `git diff --check` — pass.
+
+**Review and remaining work:** Protected authorization still validates lease,
+lock, idle, and exact native owner; output proof adds no bypass or permission.
+Current native capture is still unavailable. Actual input transparency,
+capture/focus/uinput/clipboard acceptance, setup/TUI, and full GNOME/KDE
+regression remain required before platform support or push.

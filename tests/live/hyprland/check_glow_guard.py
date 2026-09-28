@@ -14,15 +14,18 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
-from pcbridge.desktop import glowstate, hyprland, idlewatch  # noqa: E402
+from pcbridge.desktop import glowstate, hyprland, idlewatch, monitors  # noqa: E402
+from pcbridge.config import DesktopSpec, NativeSpec  # noqa: E402
+from pcbridge.desktop.safety import SafetyGate  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCode  # noqa: E402
 from pcbridge.desktop.lease import LeaseStore  # noqa: E402
 from pcbridge.native import NativeClient  # noqa: E402
 from pcbridge.native.client import helper_environment  # noqa: E402
-from tests.live.hyprland.check_glow_owner import layers, wait_for  # noqa: E402
+from tests.live.hyprland.check_glow_owner import layers, monitor_rule, wait_for  # noqa: E402
 
 
 def main():
@@ -33,6 +36,7 @@ def main():
     assert idlewatch.read_idle_ms() is None, "Refuse to overlap a resident idle watcher"
     binary = (ROOT / "rust/target/debug/pcbridge-native").resolve()
     owners = []
+    original_outputs = hyprland.monitors()
     with tempfile.TemporaryDirectory(prefix="pcbridge-native-visibility-") as temporary, \
             tempfile.TemporaryFile() as errors:
         directory = Path(temporary).resolve()
@@ -66,6 +70,31 @@ def main():
                                       str(token.revoke_epoch)], stdout=subprocess.DEVNULL, stderr=errors)
             owners.append(owner)
             wait_for(lambda: glowstate.read(directory, token, binary=binary), description="visible native owner")
+            assert client.request("test.hold_resource").result["open"] is True
+            # A recent proof for the old geometry must not admit another action.
+            # Stop only our frame writer, change the VM compositor, and measure
+            # refusal before the 1000 ms presentation age limit is reached.
+            owner.send_signal(signal.SIGSTOP)
+            started = time.monotonic()
+            monitor_rule(original_outputs[1], scale=1.25, transform=1)
+            assert glowstate.read(directory, token, binary=binary), "The probe missed its fresh-proof interval"
+            refused(ErrorCode.BACKEND_UNAVAILABLE)
+            gate = SafetyGate(SimpleNamespace(state_dir=directory, audit_log=directory / "audit.log",
+                desktop=DesktopSpec(enabled=True), native=NativeSpec(binary_path=str(binary))))
+            try:
+                assert gate.check("mouse", force=True).code == ErrorCode.BACKEND_UNAVAILABLE
+            finally:
+                gate.close()
+            changed_ms = round((time.monotonic() - started) * 1000)
+            assert changed_ms < 1000, changed_ms
+            owner.send_signal(signal.SIGCONT)
+            wait_for(lambda: glowstate.read_on_current_outputs(directory, token, binary=binary),
+                     description="presentation on changed outputs")
+            for row in original_outputs:
+                monitor_rule(row)
+            monitors.invalidate_cache()
+            wait_for(lambda: glowstate.read_on_current_outputs(directory, token, binary=binary),
+                     description="presentation on restored outputs")
             assert client.request("test.hold_resource").result["open"] is True
             owner.send_signal(signal.SIGSTOP)
             started = time.monotonic()
@@ -107,6 +136,7 @@ def main():
             print(json.dumps({"native_visibility_guard": {"missing_frame": "refused",
                 "stale_frame_close_ms": stale_ms, "dead_frame_close_ms": dead_ms,
                 "fresh_resumption": "passed", "replacement_does_not_rebind": "passed",
+                "changed_outputs_refused_ms": changed_ms,
                 "revoked_resource_closed": "passed", "input_and_capture_opened": False}}, sort_keys=True))
         finally:
             store.revoke()
@@ -124,6 +154,8 @@ def main():
                     except subprocess.TimeoutExpired:
                         owner.kill()
                         owner.wait()
+            for row in original_outputs:
+                monitor_rule(row)
             errors.seek(0)
             diagnostic = errors.read(8192).decode(errors="replace")
             if diagnostic:

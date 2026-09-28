@@ -18,7 +18,7 @@ pub(crate) fn query(socket: &Path, command: ReadQuery) -> Result<Value, String> 
     let (request, timeout, limit) = match command {
         ReadQuery::Monitors => (
             b"j/monitors".as_slice(),
-            Duration::from_secs(2),
+            Duration::from_millis(200),
             4 * 1024 * 1024,
         ),
         ReadQuery::Locked => (b"j/locked".as_slice(), Duration::from_millis(200), 4096),
@@ -83,6 +83,32 @@ mod tests {
             );
             server.join().unwrap();
         }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_stalled_monitor_query_has_an_absolute_deadline() {
+        let directory =
+            std::env::temp_dir().join(format!("pcbridge-monitor-deadline-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("ipc.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 10];
+            stream.read_exact(&mut request).unwrap();
+            assert_eq!(&request, b"j/monitors");
+            stream.write_all(b"[").unwrap();
+            std::thread::sleep(Duration::from_millis(400));
+        });
+        let started = Instant::now();
+        assert!(
+            query(&path, ReadQuery::Monitors)
+                .unwrap_err()
+                .contains("deadline")
+        );
+        assert!(started.elapsed() < Duration::from_millis(350));
+        server.join().unwrap();
         std::fs::remove_dir_all(directory).unwrap();
     }
 }

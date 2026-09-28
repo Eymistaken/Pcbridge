@@ -49,6 +49,8 @@ class HyprlandGateTests(unittest.TestCase):
             mock.patch("pcbridge.desktop.glowowner.FrameOwner", return_value=self.owner),
             mock.patch("pcbridge.desktop.glowstate.read", side_effect=lambda directory, token, **kwargs:
                 {"ready": True} if token in self.presented else None),
+            mock.patch("pcbridge.desktop.glowstate.read_on_current_outputs", side_effect=lambda directory, token, **kwargs:
+                {"ready": True} if token in self.presented else None),
         ):
             patch.start()
             self.addCleanup(patch.stop)
@@ -119,6 +121,28 @@ class HyprlandGateTests(unittest.TestCase):
         self.assertEqual(LeaseStore(self.root).read(), before)
         self.assertFalse(self.gate.is_unlocked())
         self.assertIn("paused", self.gate.status_line())
+
+    def test_unlock_and_result_metadata_require_presentation_on_current_outputs(self):
+        with mock.patch("pcbridge.desktop.glowstate.read_on_current_outputs", return_value=None):
+            with self.assertRaises(DesktopError):
+                self.unlock()
+        self.assertIsNone(self.gate.current_token())
+        token = self.unlock()
+        with mock.patch("pcbridge.desktop.glowstate.read_on_current_outputs", return_value=None):
+            with self.assertRaises(DesktopError):
+                self.gate.grant_info(token)
+        self.assertIsNone(self.gate.current_token())
+        self.assertFalse(self.gate.is_unlocked())
+
+    def test_changed_outputs_refuse_admission_and_each_action_before_presentation_expires(self):
+        token = self.unlock()
+        before = LeaseStore(self.root).read()
+        with mock.patch("pcbridge.desktop.glowstate.read_on_current_outputs", return_value=None):
+            self.assertTrue(self.gate.visible_frame(token))
+            self.assertTrue(self.gate.resource_guard(token))
+            self.assertEqual(self.gate.check("mouse", force=True).code, ErrorCode.BACKEND_UNAVAILABLE)
+            self.assertEqual(self.gate.verify(token).code, ErrorCode.BACKEND_UNAVAILABLE)
+        self.assertEqual(LeaseStore(self.root).read(), before)
 
     def test_force_requires_known_idle_and_per_action_does_not_repeat_the_conflict_threshold(self):
         token = self.unlock()
