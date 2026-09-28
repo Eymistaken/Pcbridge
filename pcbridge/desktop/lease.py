@@ -211,20 +211,33 @@ class LeaseStore:
         moment = time.time() if now is None else now
         with self._locked(exclusive=True):
             current = LeaseSnapshot.from_mapping(self._read_unlocked())
-            data = dict(current.raw)
-            data.setdefault("grant_id", current.grant_id)
-            data.setdefault("reason", "")
-            data.setdefault("granted", 0.0)
-            data.setdefault("granted_by", "")
-            data.update(
-                schema_version=SCHEMA_VERSION,
-                revoke_epoch=current.revoke_epoch + 1,
-                until=0.0,
-                hard_until=0.0,
-            )
-            self._write_unlocked(data)
-            remaining = max(0, int(current.until - moment)) if current.is_active(moment) else 0
-            return LeaseSnapshot.from_mapping(data), remaining
+            return self._revoke_unlocked(current, moment)
+
+    def _revoke_unlocked(self, current: LeaseSnapshot, moment: float) -> tuple[LeaseSnapshot, int]:
+        data = dict(current.raw)
+        data.setdefault("grant_id", current.grant_id)
+        data.setdefault("reason", "")
+        data.setdefault("granted", 0.0)
+        data.setdefault("granted_by", "")
+        data.update(schema_version=SCHEMA_VERSION, revoke_epoch=current.revoke_epoch + 1,
+                    until=0.0, hard_until=0.0)
+        self._write_unlocked(data)
+        remaining = max(0, int(current.until - moment)) if current.is_active(moment) else 0
+        return LeaseSnapshot.from_mapping(data), remaining
+
+    def revoke_if(self, token: LeaseToken) -> bool:
+        """Retire this owner without revoking a replacement grant.
+
+        Identity comparison and revoke share one exclusive storage lock. An
+        expired matching identity may be retired; this never authorizes it.
+        """
+        with self._locked(exclusive=True):
+            current = LeaseSnapshot.from_mapping(self._read_unlocked())
+            if (current.schema_version != SCHEMA_VERSION or not token.grant_id
+                    or (current.grant_id, current.revoke_epoch) != (token.grant_id, token.revoke_epoch)):
+                return False
+            self._revoke_unlocked(current, time.time())
+            return True
 
     def touch(
         self,

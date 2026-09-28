@@ -55,6 +55,14 @@ def _is_sensitive_environment(name: str) -> bool:
     return any(marker in upper for marker in ("API_KEY", "PASSWORD", "SECRET", "TOKEN"))
 
 
+def helper_environment(overrides: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Selected desktop context without inherited credentials for native children."""
+    environment = {key: value for key, value in os.environ.items()
+                   if key in _ALLOWED_ENVIRONMENT or key.startswith("LC_")}
+    environment.update(overrides or {})
+    return {key: value for key, value in environment.items() if not _is_sensitive_environment(key)}
+
+
 @dataclass
 class _PendingRequest:
     event: threading.Event = field(default_factory=threading.Event)
@@ -277,17 +285,7 @@ class NativeClient:
             self._start_locked()
 
     def _start_locked(self) -> None:
-        environment = {
-            key: value
-            for key, value in os.environ.items()
-            if key in _ALLOWED_ENVIRONMENT or key.startswith("LC_")
-        }
-        environment.update(self._environment)
-        environment = {
-            key: value
-            for key, value in environment.items()
-            if not _is_sensitive_environment(key)
-        }
+        environment = helper_environment(self._environment)
         try:
             process = subprocess.Popen(
                 [str(self.binary)],

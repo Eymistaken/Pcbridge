@@ -533,6 +533,12 @@ and xdg-desktop-portal-hyprland 1.4.1.
   both now use the common 1000 ms limit. `NativeClient` must pass the selected
   instance signature alongside Wayland display; its earlier allowlist dropped
   it and could not connect the helper to authoritative Hyprland state.
+- **Python native frame ownership is exact and observable.** The drawing-only
+  VM manager probe reopened the same child PID, preserved a replacement's
+  lease and presentation when closing the old parent owner, and retired a
+  killed child's own lease in 101 ms. An unavailable executable returned no
+  grant success and left no layers. The production shared gate is still closed
+  until resident CLI/TUI ownership and per-action visibility are integrated.
 
 ## Terminal UI (settings CLI)
 

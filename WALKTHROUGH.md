@@ -860,3 +860,56 @@ closes a short-lived runtime. A frame owned by that caller would die as soon as
 ownership and route the same CLI/TUI grant action through that shared gate,
 with exact state-directory/session matching and safe refusal if ownership is
 unavailable. No new user executable, public command, or reduced TUI is needed.
+
+**Local commit:** `a376032`.
+
+## Stage 7b3a: Resident Python ownership of one native frame
+
+**Objective:** Build and independently verify the frame process owner before
+opening the shared Hyprland gate. This stage still uses drawing-only leases.
+
+**Design:** `FrameOwner` starts only the configured native executable, with
+the same small environment allowlist as NativeClient, closed inherited file
+descriptors, and exact canonical state directory/grant identity. It returns
+only after trusted presentation health and a second lease validation. The
+resident parent supervises child death every 100 ms without automatic restart.
+Startup failure, cancellation, explicit close, and child death retire only the
+captured lease using `LeaseStore.revoke_if` under the common lease lock. An
+obsolete request is rejected before stopping a newer owner; an old parent's
+close cannot revoke a replacement. Repeated opening of a living owner without
+fresh proof closes that grant rather than restarting it. Shutdown permits the
+native 500 ms fade and then bounds terminate/kill cleanup.
+
+**Files changed:** New Python frame owner; conditional lease retirement;
+extracted shared native environment filter; owner contracts; real VM owner
+probe; measured facts; this journal.
+
+**Measurements and review:** Two independent owners in the VM created eight
+strips each. Reopening the current owner preserved its PID. Closing the old
+owner preserved the replacement lease and its fresh presentation. Killing the
+current child retired its lease in 101 ms in the final run (102 ms in the first
+run). `/bin/false` could not report grant success and left no active lease or
+layers. Contracts also cover startup replacement, timeout, cancellation, and
+lost-proof reopening. The review checked cleanup on `BaseException`, bounded
+process waits, exact conditional retirement, environment isolation, and absence
+of input/capture authorization in this module.
+
+**Tests run:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_native_client tests.contracts.test_grant_cli`
+  — pass, 29 tests.
+- `./.venv/bin/python -m unittest tests.contracts.test_glow_owner tests.contracts.test_glow_health tests.contracts.test_native_client tests.contracts.test_batch_safety tests.contracts.test_grant_cli`
+  — final pass, 79 tests; earlier incremental runs passed 77 and 78 tests.
+- `./.venv/bin/python tests/test_desktop.py > /tmp/pcbridge-hyprland-stage7b3a-desktop.log 2>&1`
+  — pass, 615 checks without live input flags.
+- `./.venv/bin/python -m py_compile pcbridge/desktop/glowowner.py tests/live/hyprland/check_glow_manager.py`
+  — pass.
+- `git diff --check && git diff --cached --check` — pass.
+- `scripts/dev/hyprland-vm.sh sync` — pass.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge/rust && cargo build -p pcbridge-native --locked && cd ~/pcbridge && PCBRIDGE_TEST_LIVE_HYPRLAND=1 .venv/bin/python tests/live/hyprland/check_glow_manager.py'`
+  — final pass with the default native build, all observable owner cases.
+
+**Remaining work:** Connect this owner to shared safety enforcement and the
+resident CLI/TUI grant path. Production Hyprland control remains closed in
+this commit. Actual edge input transparency, native capture, and input
+acceptance remain required.
