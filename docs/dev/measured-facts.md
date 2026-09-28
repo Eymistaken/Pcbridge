@@ -458,6 +458,20 @@ and xdg-desktop-portal-hyprland 1.4.1.
   returned UNKNOWN; resuming restored a fresh observation. Watcher death and
   a mismatched instance also returned UNKNOWN. The record age limit is 3000 ms.
   This validates observation transport; grant/mid-batch input acceptance remains.
+- **Lock state comes from the compositor, not the locker process.** On
+  September 28, Hyprland 0.56.2's `hyprctl -j locked` returned an actual
+  boolean. The [tagged IPC implementation](https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/debug/HyprCtl.cpp)
+  reads `SessionLockManager::isSessionLocked`. Python and native readers
+  measured unlocked -> locked -> unlocked with real hyprlock, then remained
+  locked after SIGKILL of the locker. The VM's stock
+  `misc.allow_session_lock_restore` was false; a replacement locker could not
+  reclaim that dead lock. The test preserves the setting and requires a VM
+  session reset afterward. Tests wait for hyprlock's `onLockLocked` callback
+  before sending its documented test cleanup signal; an earlier signal
+  was ignored while surfaces were still being presented. Native lock IPC
+  has a 200 ms absolute operation deadline and a 4096-byte reply limit.
+  Missing, malformed, oversized, or timed-out replies are UNKNOWN.
+  Production Hyprland control remains closed pending a healthy visible frame.
 
 ## Terminal UI (settings CLI)
 

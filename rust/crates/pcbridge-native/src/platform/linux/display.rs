@@ -14,8 +14,6 @@
 //! two seconds the Python host keeps it.
 
 use std::collections::{HashMap, HashSet};
-use std::io::{Read, Write};
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
@@ -33,6 +31,7 @@ use zbus::zvariant::OwnedValue;
 use zbus::{Connection, Proxy, connection::Builder};
 
 use super::desktop::{DesktopKind, hyprland_socket};
+use super::hyprland::{ReadQuery, query};
 
 const DESTINATION: &str = "org.gnome.Mutter.DisplayConfig";
 const PATH: &str = "/org/gnome/Mutter/DisplayConfig";
@@ -42,8 +41,6 @@ const INTERFACE: &str = "org.gnome.Mutter.DisplayConfig";
 const METHOD_TIMEOUT: Duration = Duration::from_millis(200);
 /// How long a KScreen table is reused (`kscreen-doctor -j` takes 18-32 ms).
 const KSCREEN_CACHE: Duration = Duration::from_secs(2);
-const HYPRLAND_IPC_TIMEOUT: Duration = Duration::from_secs(2);
-const HYPRLAND_REPLY_LIMIT: u64 = 4 * 1024 * 1024;
 
 type Props = HashMap<String, OwnedValue>;
 /// `(id, width, height, refresh, preferred_scale, supported_scales, props)`
@@ -346,27 +343,7 @@ pub fn hyprland_state(data: &Value) -> Result<DisplayState, String> {
 }
 
 fn read_hyprland(socket_path: &Path) -> Result<DisplayState, SnapshotError> {
-    let mut socket = UnixStream::connect(socket_path)
-        .map_err(|error| SnapshotError::Hyprland(error.to_string()))?;
-    socket
-        .set_read_timeout(Some(HYPRLAND_IPC_TIMEOUT))
-        .map_err(|error| SnapshotError::Hyprland(error.to_string()))?;
-    socket
-        .set_write_timeout(Some(HYPRLAND_IPC_TIMEOUT))
-        .map_err(|error| SnapshotError::Hyprland(error.to_string()))?;
-    socket
-        .write_all(b"j/monitors")
-        .map_err(|error| SnapshotError::Hyprland(error.to_string()))?;
-    let mut reply = Vec::new();
-    socket
-        .take(HYPRLAND_REPLY_LIMIT + 1)
-        .read_to_end(&mut reply)
-        .map_err(|error| SnapshotError::Hyprland(error.to_string()))?;
-    if reply.len() as u64 > HYPRLAND_REPLY_LIMIT {
-        return Err(SnapshotError::Hyprland("reply exceeds 4 MiB".into()));
-    }
-    let data: Value = serde_json::from_slice(&reply)
-        .map_err(|error| SnapshotError::Hyprland(format!("unreadable JSON: {error}")))?;
+    let data = query(socket_path, ReadQuery::Monitors).map_err(SnapshotError::Hyprland)?;
     hyprland_state(&data).map_err(SnapshotError::Hyprland)
 }
 

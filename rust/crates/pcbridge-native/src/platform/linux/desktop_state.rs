@@ -1,9 +1,11 @@
-//! Typed screen-lock and user-activity observations, from GNOME or KDE Plasma.
+//! Typed screen-lock and user-activity observations from the selected compositor.
 //!
 //! GNOME answers on `org.gnome.ScreenSaver` (lock) and Mutter's IdleMonitor
 //! (idle time in ms). On Plasma, KWin answers the lock on the freedesktop
 //! `org.freedesktop.ScreenSaver`, but not the idle time: that comes from the
 //! `idle-watch` record (see `idle.rs` and docs/dev/measured-facts.md).
+//! Hyprland answers lock state on its selected IPC socket; idle observations
+//! use the same session-bound Wayland record as Plasma.
 
 use std::sync::Mutex;
 use std::thread;
@@ -13,7 +15,8 @@ use async_io::Timer;
 use futures_lite::{StreamExt, future};
 use zbus::{Connection, Message, Proxy, connection::Builder, proxy::SignalStream};
 
-use super::desktop::DesktopKind;
+use super::desktop::{DesktopKind, hyprland_socket};
+use super::hyprland::{ReadQuery, query};
 use super::idle;
 
 /// Where one desktop answers the lock and idle questions.
@@ -164,7 +167,16 @@ pub trait DesktopStateProvider: Send + Sync {
     }
 }
 
+enum StateSource {
+    Dbus(DbusDesktopState),
+    Hyprland(std::path::PathBuf),
+}
+
 pub struct SessionDesktopState {
+    source: StateSource,
+}
+
+struct DbusDesktopState {
     connection: Connection,
     endpoints: StateEndpoints,
     lock_signals: Mutex<SignalStream<'static>>,
@@ -173,12 +185,29 @@ pub struct SessionDesktopState {
 impl SessionDesktopState {
     /// The provider for this session's desktop.
     pub fn connect() -> Result<Self, zbus::Error> {
-        let endpoints = StateEndpoints::for_desktop(DesktopKind::detect())
+        let kind = DesktopKind::detect();
+        if kind == DesktopKind::Hyprland {
+            let socket = hyprland_socket().ok_or_else(|| {
+                zbus::Error::Failure("Hyprland session socket unavailable".into())
+            })?;
+            return Ok(Self {
+                source: StateSource::Hyprland(socket),
+            });
+        }
+        let endpoints = StateEndpoints::for_desktop(kind)
             .ok_or_else(|| zbus::Error::Failure("desktop lock backend unavailable".into()))?;
         Self::connect_to(endpoints)
     }
 
     pub fn connect_to(endpoints: StateEndpoints) -> Result<Self, zbus::Error> {
+        Ok(Self {
+            source: StateSource::Dbus(DbusDesktopState::connect_to(endpoints)?),
+        })
+    }
+}
+
+impl DbusDesktopState {
+    fn connect_to(endpoints: StateEndpoints) -> Result<Self, zbus::Error> {
         let connection = zbus::block_on(
             Builder::session()?
                 .method_timeout(DBUS_METHOD_TIMEOUT)
@@ -257,7 +286,7 @@ impl SessionDesktopState {
     }
 }
 
-impl DesktopStateProvider for SessionDesktopState {
+impl DesktopStateProvider for DbusDesktopState {
     fn screen_lock(&self) -> ScreenLockObservation {
         self.read_screen_lock()
     }
@@ -286,6 +315,50 @@ impl DesktopStateProvider for SessionDesktopState {
             Wake::Signal(Some(message)) => Self::lock_from_signal(message),
             Wake::Signal(None) => ScreenLockObservation::unknown(),
             Wake::Timeout => self.read_screen_lock(),
+        }
+    }
+}
+
+/// Only a boolean in the authoritative compositor reply is a lock observation.
+pub fn lock_from_hyprland_reply(reply: &serde_json::Value) -> ScreenLockObservation {
+    ScreenLockObservation::new(
+        match reply.get("locked").and_then(serde_json::Value::as_bool) {
+            Some(true) => ScreenLockState::KnownLocked,
+            Some(false) => ScreenLockState::KnownUnlocked,
+            None => ScreenLockState::Unknown,
+        },
+    )
+}
+
+impl DesktopStateProvider for SessionDesktopState {
+    fn screen_lock(&self) -> ScreenLockObservation {
+        match &self.source {
+            StateSource::Dbus(provider) => provider.screen_lock(),
+            StateSource::Hyprland(socket) => query(socket, ReadQuery::Locked).map_or_else(
+                |_| ScreenLockObservation::unknown(),
+                |data| lock_from_hyprland_reply(&data),
+            ),
+        }
+    }
+
+    fn user_activity(&self) -> ActivityObservation {
+        match &self.source {
+            StateSource::Dbus(provider) => provider.user_activity(),
+            StateSource::Hyprland(_) => idle::state_path()
+                .and_then(|path| idle::read_idle_ms(&path, idle::unix_ms(SystemTime::now())))
+                .map_or_else(ActivityObservation::unknown, |ms| {
+                    ActivityObservation::new(ActivityState::Known, Some(ms))
+                }),
+        }
+    }
+
+    fn wait_for_lock_change(&self, timeout: Duration) -> ScreenLockObservation {
+        match &self.source {
+            StateSource::Dbus(provider) => provider.wait_for_lock_change(timeout),
+            StateSource::Hyprland(_) => {
+                thread::sleep(timeout.min(Duration::from_millis(100)));
+                self.screen_lock()
+            }
         }
     }
 }

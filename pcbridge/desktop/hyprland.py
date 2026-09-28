@@ -15,7 +15,7 @@ class HyprlandIPCError(RuntimeError):
 
 
 def _query(command: str, *, json_output: bool, env: dict[str, str] | None = None) -> Any:
-    if command not in {"binds", "submap", "monitors", "clients", "activewindow"}:
+    if command not in {"binds", "submap", "monitors", "clients", "activewindow", "locked"}:
         raise ValueError("Hyprland read-only query is not allowed")
     current = os.environ if env is None else env
     instance = session.hyprland_instance(current)
@@ -75,3 +75,13 @@ def monitors(env: dict[str, str] | None = None) -> list[dict[str, Any]]:
     if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
         raise HyprlandIPCError("Hyprland monitors returned an unexpected shape")
     return data
+
+
+def screen_locked() -> bool | None:
+    """Authoritative compositor lock state; no process-name or idle inference."""
+    try:
+        data = _query("locked", json_output=True)
+    except HyprlandIPCError:
+        return None
+    value = data.get("locked") if isinstance(data, dict) else None
+    return value if type(value) is bool else None

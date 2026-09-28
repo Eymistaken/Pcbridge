@@ -118,6 +118,14 @@ impl fmt::Debug for Lifecycle {
 
 impl Lifecycle {
     pub fn start(state_dir: &Path) -> Result<Self, io::Error> {
+        // Authoritative Hyprland observations are available, but production
+        // control stays closed until the grant-visible frame is implemented.
+        // An existing lease from another session must not enable invisible input.
+        if crate::platform::linux::desktop::DesktopKind::detect()
+            == crate::platform::linux::desktop::DesktopKind::Hyprland
+        {
+            return Self::start_with_provider(state_dir, Arc::new(UnknownDesktopState));
+        }
         let desktop_state: Arc<dyn DesktopStateProvider> = SessionDesktopState::connect()
             .map_or_else(
                 |_| Arc::new(UnknownDesktopState) as Arc<dyn DesktopStateProvider>,

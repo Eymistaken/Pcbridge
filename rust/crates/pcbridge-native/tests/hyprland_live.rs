@@ -27,3 +27,22 @@ fn selected_hyprland_session_has_a_real_display_snapshot() {
         snapshot.topology_id,
     );
 }
+
+#[test]
+fn selected_hyprland_session_has_authoritative_lock_state() {
+    if std::env::var_os("PCBRIDGE_TEST_LIVE_HYPRLAND").is_none() {
+        return;
+    }
+    use pcbridge_native::platform::linux::desktop_state::{
+        DesktopStateProvider, ScreenLockState, SessionDesktopState,
+    };
+    let provider = SessionDesktopState::connect().expect("selected Hyprland session");
+    let state = provider.screen_lock().state;
+    let expected = match std::env::var("PCBRIDGE_TEST_HYPRLAND_LOCKED").as_deref() {
+        Ok("true") => ScreenLockState::KnownLocked,
+        Ok("false") => ScreenLockState::KnownUnlocked,
+        _ => panic!("Set PCBRIDGE_TEST_HYPRLAND_LOCKED=true/false for live lock verification"),
+    };
+    assert_eq!(state, expected);
+    println!("Hyprland authoritative native lock: {state:?}");
+}

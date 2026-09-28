@@ -4,6 +4,7 @@ pub mod clipboard;
 pub mod desktop;
 pub mod desktop_state;
 pub mod display;
+mod hyprland;
 pub mod idle;
 pub mod input;
 pub mod kwin_screenshot;

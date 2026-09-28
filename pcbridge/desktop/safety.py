@@ -131,6 +131,10 @@ def screen_locked() -> bool | None:
             "org.gnome.ScreenSaver", "/org/gnome/ScreenSaver", "org.gnome.ScreenSaver",
             "GetActive",
         )
+    elif kind == session.HYPRLAND:
+        from . import hyprland
+
+        return hyprland.screen_locked()
     else:
         return None
     return bool(val) if isinstance(val, bool) else None

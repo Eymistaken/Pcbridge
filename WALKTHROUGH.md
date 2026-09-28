@@ -427,3 +427,69 @@ until replaced by the matching new helper; this is a deliberate fail-closed upgr
 **Open questions:** Real PcBridge uinput resets and sequence behavior need a
 visible grant. Hyprlock authority is the next stage. Plasma live regression
 of the changed observer remains required before claiming overall acceptance.
+
+**Local commit:** `c9ad902`.
+
+## Stage 6b: Authoritative Hyprland lock observations
+
+**Objective:** Read actual compositor session-lock state, including locker
+failure, before implementing grant-visible control.
+
+**Design decisions:** Use the installed version's `locked` IPC request,
+which reads the compositor's session-lock manager. Accept only a JSON boolean;
+never infer unlock from absence of a hyprlock process. Native lock requests
+have a 200 ms absolute deadline covering connect, write, and read, and a 4096
+byte limit. Monitor requests share the bounded transport with their existing
+two-second/4 MiB limits. The existing GNOME/KDE D-Bus provider is preserved
+behind a selected state-source boundary. Python shared safety observes the
+same authoritative IPC. Production native lifecycle still refuses Hyprland
+control pending the visible-frame stage, including a lease left by another
+session. No desktop grant was opened during these observation tests.
+
+**Files changed:** `pcbridge/desktop/compositor.py`, `hyprland.py`, `safety.py`,
+`rust/crates/pcbridge-native/src/lifecycle.rs`, native Linux `desktop_state.rs`,
+`display.rs`, `hyprland.rs`, `mod.rs`, native `hyprland_live.rs` and
+`hyprland_state.rs` tests, `tests/contracts/test_hyprland_state.py`,
+`tests/live/hyprland/check_lock.py`, `docs/dev/measured-facts.md`, and this journal.
+
+**Measurements and evidence:** Real hyprlock produced unlocked -> locked ->
+unlocked in Python and Rust. Killing the next locker left both readers locked.
+The final probe returned
+`{"cleanup":"requires_vm_session_reset","initial":"unlocked","lock_transition":"locked","locker_crash":"still_locked","normal_unlock":"unlocked"}`.
+Only the dedicated VM's SDDM session was reset afterward. A fresh native smoke
+test then reported KnownUnlocked and the unchanged 2560x800 monitor canvas.
+
+**Tests run:**
+
+- `(cd rust && cargo test -p pcbridge-native --locked --lib)` — pass, 13 tests,
+  including refusal of incomplete and oversized lock replies.
+- `(cd rust && cargo test -p pcbridge-native --locked --test hyprland_state)`
+  — pass, one strict lock-shape contract.
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_state tests.contracts.test_desktop_state tests.contracts.test_hyprland_session`
+  — pass, 16 tests.
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_state tests.contracts.test_desktop_state tests.contracts.test_hyprland_session tests.contracts.test_idlewatch tests.contracts.test_hyprland_windows tests.contracts.test_batch_safety`
+  — pass, 68 tests after the lifecycle safeguard.
+- `(cd rust && cargo fmt --all && cargo test --workspace --locked --no-fail-fast > /tmp/pcbridge-hyprland-stage6b-rust.log 2>&1)`
+  — pass, exit 0 after the lifecycle safeguard; non-opted-in live tests do not
+  exercise a compositor.
+- `scripts/dev/hyprland-vm.sh sync` — pass.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge; PCBRIDGE_TEST_LIVE_HYPRLAND=1 .venv/bin/python tests/live/hyprland/check_lock.py'`
+  — final run pass, four native lock probes and the crash evidence above.
+- `scripts/dev/hyprland-vm.sh ssh 'sudo systemctl restart sddm'` — pass;
+  reset only the disposable VM after the unrecoverable locker crash.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge/rust && PCBRIDGE_TEST_LIVE_HYPRLAND=1 PCBRIDGE_TEST_HYPRLAND_LOCKED=false cargo test -p pcbridge-native --locked --test hyprland_live -- --nocapture'`
+  — pass, two real compositor tests after reset and final sync.
+
+**Review and corrections:** The first live probe sent SIGUSR1 before hyprlock
+received `onLockLocked`; its log showed the signal was ignored. The probe now
+waits for the actual callback. A subsequent probe incorrectly expected a
+replacement locker to recover the crash; the measured stock restore setting
+was false. Removed that unsupported test assumption and preserved the setting.
+The successful crash test measures continued lock and resets the VM session.
+Reviewed malformed replies, absolute deadlines, socket selection, and the
+continued prohibition on invisible production grants.
+
+**Open questions and next stage:** Grant and mid-batch lock acceptance require
+the visible overlay. First fix the VM's independent screenshot path: QMP was
+selecting its implicit VGA console rather than the virtio outputs. Native
+capture timeouts remain a separate unproven issue until measured.
