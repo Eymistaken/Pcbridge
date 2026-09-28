@@ -993,6 +993,7 @@ def register(
     # enabled, ekran kilidi, sureli izin, kullanici cakismasi, hiz siniri.
     backend = runtime.input_provider
     tree = runtime.accessibility_provider
+    windows = runtime.window_provider
     capture_provider = runtime.capture_provider
     capturelib.set_max_pixels(cfg.desktop.screenshot_max_pixels)
 
@@ -1873,6 +1874,10 @@ def register(
         else:
             ui_line += f" — {ui_why}"
         lines.append(ui_line)
+        if windows is not tree:
+            win_ok, win_why = windows.available()
+            lines.append(f"**Compositor windows:** {'ready' if win_ok else 'UNAVAILABLE'}"
+                         + ("" if win_ok else f" — {win_why}"))
         lines.append(f"**Grant:** {gate.status_line()}")
         lines.append("")
         lines.append(
@@ -2729,7 +2734,7 @@ def register(
         denied = _guard("window_list", write=False, needs_input=False)
         if denied:
             return denied
-        ok, why = tree.available()
+        ok, why = windows.available()
         if not ok:
             gate.audit("window_list_unavailable", reason=why[:120])
             return _unavailable_result(
@@ -2740,7 +2745,7 @@ def register(
                 backend_name="desktop.accessibility",
             )
         try:
-            wins = tree.windows()
+            wins = windows.windows()
         except (uitreelib.UiTreeError, DesktopError) as exc:
             gate.audit("window_list_error", error=str(exc)[:160])
             return _exception_result(
@@ -2751,7 +2756,7 @@ def register(
                 backend_name="desktop.accessibility",
             )
         gate.audit("window_list", windows=len(wins))
-        return tree.describe_windows(wins)
+        return windows.describe_windows(wins)
 
     @mcp.tool(
         output_schema=None,
@@ -2810,7 +2815,7 @@ def register(
         started = time.monotonic()
         try:
             outcome = appslib.bring_to_front(
-                str(window), backend, tree.focused_window, tree.windows
+                str(window), backend, windows.focused_window, windows.windows
             )
         except (appslib.AppError, DesktopError) as exc:
             gate.audit("window_focus_error", target=str(window)[:60],
@@ -2834,7 +2839,7 @@ def register(
     # `DeviceOps` artik `desktop/ops.py`'de: ayni uygulamayi `bin/pcb-do`
     # kabugu da kullaniyor (F bolumu, yerel gorsel ajan). Burada bir kopya
     # dursaydi iki davranis zamanla ayrisirdi.
-    batch_ops = opslib.DeviceOps(backend, tree, cfg, capture_provider)
+    batch_ops = opslib.DeviceOps(backend, tree, cfg, capture_provider, windows)
 
     @mcp.tool(
         output_schema=None,
@@ -3265,7 +3270,7 @@ def register(
                 return write
             try:
                 opened = appslib.prepare(
-                    str(app), backend, tree.focused_window, tree.windows
+                    str(app), backend, windows.focused_window, windows.windows
                 )
             except (appslib.AppError, DesktopError) as exc:
                 gate.audit("computer_task_app_error", app=str(app)[:60],

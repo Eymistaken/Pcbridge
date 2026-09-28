@@ -140,6 +140,21 @@ class InputProvider(Protocol):
 
 
 @runtime_checkable
+class WindowProvider(Protocol):
+    """Compositor window observations, independent of the widget tree."""
+
+    def available(self) -> tuple[bool, str]: ...
+
+    def capability_token(self) -> Hashable: ...
+
+    def focused_window(self) -> tuple[str, str]: ...
+
+    def windows(self) -> list[Any]: ...
+
+    def describe_windows(self, windows: list[Any]) -> str: ...
+
+
+@runtime_checkable
 class AccessibilityProvider(Protocol):
     def capability_token(self) -> Hashable: ...
 

@@ -25,6 +25,7 @@ from .contracts import (
     DesktopStateProvider,
     GrantProvider,
     InputProvider,
+    WindowProvider,
 )
 from .capabilities import (
     AuthorizationStatus,
@@ -75,10 +76,12 @@ class DesktopRuntime:
         execution_lock: executionlib.ExecutionLock | None = None,
         rate_limit: int = 0,
         execution_wait_seconds: float = executionlib.EXECUTION_WAIT_SECONDS,
+        window_provider: WindowProvider | None = None,
     ) -> None:
         self.capture_provider = capture_provider
         self.input_provider = input_provider
         self.accessibility_provider = accessibility_provider
+        self.window_provider = window_provider if window_provider is not None else accessibility_provider
         self.gate = gate
         self.desktop_state_provider = desktop_state_provider or PythonDesktopStateProvider(
             screen_lock_probe=screen_lock_probe,
@@ -99,13 +102,14 @@ class DesktopRuntime:
         self._execution_wait_seconds = float(execution_wait_seconds)
 
     def _capability_token(self) -> tuple[Hashable, ...]:
+        providers = (
+            self.capture_provider, self.input_provider, self.accessibility_provider,
+        )
+        if self.window_provider is not self.accessibility_provider:
+            providers += (self.window_provider,)
         return tuple(
             provider.capability_token()
-            for provider in (
-                self.capture_provider,
-                self.input_provider,
-                self.accessibility_provider,
-            )
+            for provider in providers
         )
 
     @staticmethod
@@ -138,6 +142,15 @@ class DesktopRuntime:
             self.accessibility_provider,
         ):
             values.update(provider.probe_capabilities())
+
+        if self.window_provider is not self.accessibility_provider:
+            ready, reason = self.window_provider.available()
+            values["window.list"] = self._observed_capability(
+                "window.list", CapabilityState.SUPPORTED if ready else CapabilityState.UNAVAILABLE,
+                backend=compositorlib.current().focus_backend, scope="os.window",
+                reason_code=None if ready else ErrorCode.BACKEND_UNAVAILABLE,
+                limitations=(reason,) if reason else (),
+            )
 
         keyboard = values.get("input.keyboard")
         accessibility = values.get("accessibility.read")
@@ -521,12 +534,17 @@ def create_runtime(
     input_provider: InputProvider | None = None,
     accessibility_provider: AccessibilityProvider | None = None,
     desktop_state_provider: DesktopStateProvider | None = None,
+    window_provider: WindowProvider | None = None,
 ) -> DesktopRuntime:
     """Build an isolated, lazy runtime for one MCP or CLI process."""
     state_provider = desktop_state_provider or PythonDesktopStateProvider()
     resolved_gate = (
         gate if gate is not None else SafetyGate(cfg, state_provider=state_provider)
     )
+    if window_provider is None and compositorlib.current().kind == "hyprland":
+        from .hyprland_windows import HyprlandWindowProvider
+
+        window_provider = HyprlandWindowProvider()
     return DesktopRuntime(
         capture_provider=(
             capture_provider
@@ -547,6 +565,7 @@ def create_runtime(
         desktop_state_provider=state_provider,
         execution_lock=executionlib.ExecutionLock(cfg.state_dir),
         rate_limit=int(cfg.desktop.max_actions_per_second),
+        window_provider=window_provider,
     )
 
 

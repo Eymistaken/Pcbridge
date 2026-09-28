@@ -312,3 +312,60 @@ fixture parity, and error propagation. No new dependency or permission was added
 **Open questions:** Mirror mapping and live negative/vertical layouts remain
 for acceptance. Capture and cursor-coordinate mapping require later real
 pixel/input evidence; monitor IPC alone does not satisfy them.
+
+**Local commit:** `f3ba71c`.
+
+## Stage 5a: Read-only compositor window observations
+
+**Objective:** List Hyprland windows and observe focus even when an application
+does not participate in AT-SPI.
+
+**Design decisions:** Add a window-provider boundary to the shared runtime.
+GNOME/KDE keep their existing accessibility provider; Hyprland selects a
+read-only `clients`/`activewindow` provider independently of widget accessibility.
+Validate mapped state, unique addresses/stable IDs, PID, class, and title.
+Expose an exact `hyprland:0x...` reference and escape control characters in
+labels. Batch focus identity includes address, stable ID when available,
+PID, class, and title, so identical titles do not hide a focus change.
+Unknown or inconsistent IPC cannot become an unchanged focus observation.
+Desktop search explicitly refuses Hyprland/UNKNOWN before sending a key.
+
+**Plan adjustment:** Separate window observations from focus dispatch. Complete
+authoritative lock/idle and visible-frame prerequisites before measuring an
+acting focus operation through PcBridge. This avoids testing an acting path
+by bypassing the shared gate. No Hyprland grant can be opened yet.
+
+**Files changed:** `pcbridge/desktop/contracts.py`, `hyprland.py`,
+`hyprland_windows.py`, `runtime.py`, `ops.py`, `apps.py`,
+`pcbridge/tools.py`, `pcbridge/cli/do.py`,
+`tests/contracts/test_hyprland_windows.py`, and this journal.
+
+**Measurements and evidence:** A real VM foot client reported address
+`0x5586e1144f70`, stable ID `18000003`, PID 1057, class `foot`, and title
+`tester@pcbridge-hyprland:~`. The provider listed it as active and returned
+the same identity. The runtime factory selected `HyprlandWindowProvider`;
+its capability was `supported linux.hyprland-ipc`, independently of AT-SPI.
+This is read-only evidence, not focus/capture acceptance.
+
+**Tests run:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_windows tests.contracts.test_window_focus tests.contracts.test_window_operations tests.contracts.test_runtime_contract tests.contracts.test_mcp_errors tests.contracts.test_capabilities tests.contracts.test_kde_windows tests.contracts.test_batch_safety`
+  — pass, 154 tests before the final capability-isolation case.
+- `./.venv/bin/python -m unittest tests.contracts.test_hyprland_windows`
+  — pass, 9 tests with the final case.
+- `./.venv/bin/python tests/test_desktop.py | tail -2` — pass, 615 checks.
+- `scripts/dev/hyprland-vm.sh sync` — pass.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python -c "from pcbridge.desktop.hyprland_windows import HyprlandWindowProvider; p=HyprlandWindowProvider(); print(p.describe_windows(p.windows())); print(p.focused_identity())"'`
+  — pass; real client identity and active marker matched compositor IPC.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && timeout 20s .venv/bin/python -c "from pcbridge.cli import load,runtime_of; r=runtime_of(load()); p=r.window_provider; print(type(p).__name__,p.focused_window()); c=r.capabilities(refresh=True).capabilities[\"window.list\"]; print(c.state.value,c.backend); r.close()"'`
+  — pass; runtime selection and window capability matched Hyprland.
+- `git diff --check` — pass.
+
+**Review and corrections:** Initial GNOME tests exposed an overly broad optional
+identity lookup on an AT-SPI test double. Restricting it to a distinct window
+provider preserved the existing GNOME focus fallback. Repeated tests passed.
+Reviewed malformed identities, duplicate IDs, empty focus, inconsistent snapshots,
+and control-character escaping. No acting IPC request was added.
+
+**Open questions:** Focus dispatch/version selection, live same-title window
+transitions, and list/focus tool acceptance under a visible grant remain.

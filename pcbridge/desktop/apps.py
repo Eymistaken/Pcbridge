@@ -1058,8 +1058,13 @@ def _search(
     `EXECUTION_UNKNOWN`, tekrarlanmaz.
     """
     comp = compositorlib.current()
-    # GNOME: Super opens the overview's search. Plasma: Alt+Space opens
-    # KRunner (Super would open the Kickoff menu instead).
+    if comp.kind not in {"gnome", "kde"}:
+        raise _refused(
+            ErrorCode.UNSUPPORTED,
+            f"{comp.name} has no configured desktop-search fallback. No key was sent.",
+            "Read window_list and select an unambiguous compositor window identity.",
+        )
+    # GNOME: Super opens overview search. Plasma: Alt+Space opens KRunner.
     backend.key("alt+space" if comp.kind == "kde" else "super")
     time.sleep(settle)
     # Overview'da pano bloklu -> ham yol. Olculdu 2026-08-02.

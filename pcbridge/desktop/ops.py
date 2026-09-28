@@ -92,9 +92,11 @@ class DeviceOps:
         tree: Any,
         cfg: Any,
         capture_provider: CaptureProvider,
+        window_provider=None,
     ) -> None:
         self.backend = backend
         self.tree = tree
+        self.windows = window_provider if window_provider is not None else tree
         self.cfg = cfg
         self.capture_provider = capture_provider
         # `shot=` kimliginin aranacagi dizinler. cfg'den BIR KEZ okunuyor;
@@ -228,8 +230,8 @@ class DeviceOps:
         try:
             return appslib.launch_application(
                 appslib.resolve_application(app),
-                self.tree.focused_window,
-                self.tree.windows,
+                self.windows.focused_window,
+                self.windows.windows,
                 deadline=_deadline(budget_left),
             ).note
         except appslib.NoTimeLeft as exc:
@@ -240,8 +242,8 @@ class DeviceOps:
             return appslib.bring_to_front(
                 window,
                 self.backend,
-                self.tree.focused_window,
-                self.tree.windows,
+                self.windows.focused_window,
+                self.windows.windows,
                 deadline=_deadline(budget_left),
             ).note
         except appslib.NoTimeLeft as exc:
@@ -255,8 +257,15 @@ class DeviceOps:
         (oyun, bazi Java/Electron pencereleri) odak artik kompozitorden
         okunabiliyor. Ikisi de okuyamazsa istisna aynen yukari cikar.
         """
+        identity = (getattr(self.windows, "focused_identity", None)
+                    if self.windows is not self.tree else None)
+        if callable(identity):
+            try:
+                return identity()
+            except Exception as exc:
+                raise FocusUnreadable(str(exc)) from exc
         try:
-            app, win = self.tree.focused_window()
+            app, win = self.windows.focused_window()
         except Exception as exc:
             shell = appslib.extension_focused_window()
             if shell is None:

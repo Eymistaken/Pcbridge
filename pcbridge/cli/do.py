@@ -293,7 +293,7 @@ def _run_plan(cfg, args, plan, runtime) -> int:
         with runtime.write_sequence("pcb_do") as guard:
             result = batchlib.run(
                 plan,
-                opslib.DeviceOps(backend, tree, cfg, capture_provider),
+                opslib.DeviceOps(backend, tree, cfg, capture_provider, runtime.window_provider),
                 budget=max(0.0, float(cfg.desktop.batch_budget_seconds) - guard.waited),
                 min_gap=gap,
                 check_focus=check_focus,
