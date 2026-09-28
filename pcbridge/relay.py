@@ -156,7 +156,7 @@ class SocketBackend(Backend):
             except OSError:
                 pass
 
-    def handshake(self, timeout: float) -> dict:
+    def handshake(self, timeout: float, *, desktop_context: bool = False) -> dict:
         info = {
             "version": __version__,
             "protocol": PROTOCOL,
@@ -165,10 +165,14 @@ class SocketBackend(Backend):
             "cwd": os.getcwd() if os.path.isdir(os.getcwd()) else "",
             "env": _client_env(),
         }
+        if desktop_context:
+            info["desktop_context"] = True
         self.sock.settimeout(timeout)
         try:
             self.send(json.dumps({"pcbridge_relay": info}).encode() + b"\n")
-            line = self.readline()
+            line = self.rfile.readline(65537)
+            if len(line) > 65536 or not line.endswith(b"\n"):
+                raise HandshakeError("the daemon handshake exceeded its framing limit")
         except (OSError, socket.timeout) as exc:
             raise HandshakeError(f"no answer from the daemon: {exc}") from exc
         finally:

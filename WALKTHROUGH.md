@@ -913,3 +913,50 @@ of input/capture authorization in this module.
 resident CLI/TUI grant path. Production Hyprland control remains closed in
 this commit. Actual edge input transparency, native capture, and input
 acceptance remain required.
+
+**Local commit:** `f13f9d0`.
+
+## Stage 7b3b: Route the existing CLI/TUI grant to the resident daemon
+
+**Objective and stage split:** Establish the resident communication path before
+opening the shared Hyprland gate. Keep the existing `pcbridge`, CLI commands,
+terminal UI, and MCP `desktop_unlock` action.
+
+**Design:** Hyprland CLI/TUI unlock connects only to the resident Unix socket,
+optionally activates the installed socket unit, and refuses an unavailable
+owner. An opt-in relay handshake reports canonical state directory and the
+authoritatively selected compositor/Wayland/Hyprland pair. Exact matching is
+required before MCP initialization or unlock. The existing standard MCP tool
+performs the grant; no second authorization endpoint is introduced. Bound
+handshake/reply sizes, notification count, and request deadline. Connection
+cleanup closes only the caller's socket, leaving daemon ownership intact.
+GNOME/KDE retain their existing local CLI path.
+
+**Files changed:** Session grant identity helper; relay handshake and daemon
+metadata; new bounded resident CLI client; CLI routing; socket contracts and
+real-daemon integration case; this journal.
+
+**Tests run:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_daemon_grant tests.contracts.test_grant_cli tests.contracts.test_relay tests.contracts.test_hyprland_session`
+  — pass, 21 tests. Existing relay subprocess tests emit ResourceWarning for
+  reader pipes; no test failure.
+- `./.venv/bin/python -m unittest tests.integration.test_daemon.DaemonIntegrationTests.test_opt_in_grant_context_reports_the_resident_state_directory tests.integration.test_daemon.DaemonIntegrationTests.test_relay_session_is_served_by_the_daemon`
+  — pass, 2 tests with throwaway desktop-disabled config/socket; the existing
+  Client subprocess also emits a reader-pipe ResourceWarning.
+- `./.venv/bin/python -m py_compile pcbridge/cli/daemon_grant.py pcbridge/daemon.py pcbridge/relay.py && git diff --check`
+  — pass.
+
+**Evidence and review:** Actual socket framing confirmed existing tool name,
+duration, reason, UI client identity, and socket closure. Every identity-field
+mismatch, old daemon metadata, oversized handshake/reply, unavailable daemon,
+and typed tool refusal was rejected. A real resident daemon reported its own
+canonical state directory; desktop control remained disabled in that test.
+Review confirmed metadata contains no credentials, desktop environment is
+never imported from relay clients, and no local fallback owns a short-lived
+Hyprland frame.
+
+**Remaining work:** Enable exact visible-frame enforcement in the shared gate,
+known-idle enforcement under explicit force, provider emergency release, and
+real daemon/CLI grant lifecycle evidence. Production Hyprland unlock remains
+blocked by the gate in this intermediate commit.

@@ -210,6 +210,18 @@ UNKNOWN = "unknown"
 DESKTOP_NAMES = {GNOME: "GNOME", KDE: "KDE Plasma", HYPRLAND: "Hyprland"}
 
 
+def grant_context(state_dir: Path) -> dict:
+    """Public session identity for resident grant routing, without credentials."""
+    kind = desktop_kind()
+    instance = hyprland_instance() if kind == HYPRLAND else None
+    return {
+        "version": 1, "state_dir": str(Path(state_dir).resolve()),
+        "compositor": kind,
+        "wayland_display": instance["wl_socket"] if instance else "",
+        "hyprland_instance": instance["instance"] if instance else "",
+    }
+
+
 def _desktop_tokens(env) -> list[str]:
     desktop = env.get("XDG_CURRENT_DESKTOP") or env.get("XDG_SESSION_DESKTOP") or ""
     return [t.strip() for t in desktop.split(":") if t.strip()]

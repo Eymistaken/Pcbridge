@@ -169,6 +169,22 @@ class DaemonIntegrationTests(unittest.TestCase):
         self.assertIn("daemon pid", status)
         self.assertIn(f"pid {self.daemon.pid}", status)
 
+    def test_opt_in_grant_context_reports_the_resident_state_directory(self) -> None:
+        from pcbridge.relay import SocketBackend
+
+        self.env["XDG_CURRENT_DESKTOP"] = "GNOME"
+        self._start_daemon()
+        sock = socket.socket(socket.AF_UNIX)
+        sock.connect(str(self.sock))
+        backend = SocketBackend(sock)
+        try:
+            reply = backend.handshake(5, desktop_context=True)
+            self.assertEqual(reply["desktop_context"], {
+                "version": 1, "state_dir": str((self.tmp / "state").resolve()),
+                "compositor": "gnome", "wayland_display": "", "hyprland_instance": ""})
+        finally:
+            backend.close()
+
     def test_three_sessions_at_once(self) -> None:
         self._start_daemon()
         clients = [self._client() for _ in range(3)]

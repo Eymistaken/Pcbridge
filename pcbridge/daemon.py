@@ -204,6 +204,11 @@ class Daemon:
             await stream.aclose()
             return
         reply = {"pcbridge_daemon": {"version": __version__, "protocol": RELAY_PROTOCOL, "pid": os.getpid()}}
+        if pre.get("desktop_context") is True:
+            from .desktop.session import grant_context
+
+            reply["pcbridge_daemon"]["desktop_context"] = await anyio.to_thread.run_sync(
+                grant_context, self.cfg.state_dir)
         await stream.send(json.dumps(reply).encode() + b"\n")
         if int(pre.get("protocol", 0)) != RELAY_PROTOCOL:
             await stream.aclose()

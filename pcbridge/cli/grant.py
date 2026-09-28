@@ -92,6 +92,12 @@ def unlock(cfg: Any, minutes: int | None = None, reason: str = "",
         raise GrantError(
             f"desktop control is disabled in {cfg.source_path} ([desktop] enabled = false)"
         )
+    from ..desktop import compositor, session
+
+    if compositor.current().kind == session.HYPRLAND:
+        from . import daemon_grant
+
+        return daemon_grant.unlock(cfg, minutes, reason, granted_by)
     from . import runtime_of
 
     runtime = runtime_of(cfg)
