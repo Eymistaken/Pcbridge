@@ -34,6 +34,7 @@ pub enum LifecycleFailure {
     LockStateUnknown,
     UserActive,
     ActivityUnknown,
+    VisibleFrameUnavailable,
 }
 
 impl LifecycleFailure {
@@ -46,11 +47,28 @@ impl LifecycleFailure {
             Self::LockStateUnknown => "LOCK_STATE_UNKNOWN",
             Self::UserActive => "USER_ACTIVE",
             Self::ActivityUnknown => "ACTIVITY_UNKNOWN",
+            Self::VisibleFrameUnavailable => "BACKEND_UNAVAILABLE",
         }
     }
 }
 
 pub type LeaseFailure = LifecycleFailure;
+
+/// Visibility is separate from authorization: every use also validates the
+/// bound lease and authoritative screen-lock state.
+pub trait FrameVisibilityProvider: Send + Sync {
+    fn visible(&self, token: &LeaseToken) -> bool;
+}
+
+struct NativeFrameVisibility {
+    directory: PathBuf,
+}
+
+impl FrameVisibilityProvider for NativeFrameVisibility {
+    fn visible(&self, token: &LeaseToken) -> bool {
+        crate::platform::linux::glow_state::read(&self.directory, token).is_some()
+    }
+}
 
 /// A native resource that must be released the moment the grant stops holding.
 ///
@@ -98,10 +116,13 @@ pub struct Lifecycle {
     revoked: Arc<AtomicBool>,
     resource_open: Arc<AtomicBool>,
     desktop_state: Arc<dyn DesktopStateProvider>,
+    visibility: Option<Arc<dyn FrameVisibilityProvider>>,
+    visibility_lost: Arc<AtomicBool>,
     resources: Arc<FailClosedRegistry>,
     stop: Arc<AtomicBool>,
     lease_watchdog: Option<JoinHandle<()>>,
     desktop_watchdog: Option<JoinHandle<()>>,
+    visibility_watchdog: Option<JoinHandle<()>>,
 }
 
 impl fmt::Debug for Lifecycle {
@@ -118,25 +139,46 @@ impl fmt::Debug for Lifecycle {
 
 impl Lifecycle {
     pub fn start(state_dir: &Path) -> Result<Self, io::Error> {
-        // Authoritative Hyprland observations are available, but production
-        // control stays closed until the grant-visible frame is implemented.
-        // An existing lease from another session must not enable invisible input.
-        if crate::platform::linux::desktop::DesktopKind::detect()
+        // A persisted lease alone cannot open invisible Hyprland control.
+        let visibility = if crate::platform::linux::desktop::DesktopKind::detect()
             == crate::platform::linux::desktop::DesktopKind::Hyprland
         {
-            return Self::start_with_provider(state_dir, Arc::new(UnknownDesktopState));
-        }
+            Some(Arc::new(NativeFrameVisibility {
+                directory: state_dir.canonicalize()?,
+            }) as Arc<dyn FrameVisibilityProvider>)
+        } else {
+            None
+        };
         let desktop_state: Arc<dyn DesktopStateProvider> = SessionDesktopState::connect()
             .map_or_else(
                 |_| Arc::new(UnknownDesktopState) as Arc<dyn DesktopStateProvider>,
                 |provider| Arc::new(provider) as Arc<dyn DesktopStateProvider>,
             );
-        Self::start_with_provider(state_dir, desktop_state)
+        Self::start_guarded(state_dir, desktop_state, visibility)
     }
 
+    /// Injectable state for hermetic library contracts. The production IPC
+    /// dispatcher always uses `start` with its selected session and visibility.
     pub fn start_with_provider(
         state_dir: &Path,
         desktop_state: Arc<dyn DesktopStateProvider>,
+    ) -> Result<Self, io::Error> {
+        Self::start_guarded(state_dir, desktop_state, None)
+    }
+
+    #[cfg(feature = "test-harness")]
+    pub fn start_with_visibility_provider(
+        state_dir: &Path,
+        desktop_state: Arc<dyn DesktopStateProvider>,
+        visibility: Arc<dyn FrameVisibilityProvider>,
+    ) -> Result<Self, io::Error> {
+        Self::start_guarded(state_dir, desktop_state, Some(visibility))
+    }
+
+    fn start_guarded(
+        state_dir: &Path,
+        desktop_state: Arc<dyn DesktopStateProvider>,
+        visibility: Option<Arc<dyn FrameVisibilityProvider>>,
     ) -> Result<Self, io::Error> {
         let state_path = state_dir.join(LEASE_STATE_FILE);
         let expected = DesktopLease::read(&state_path)
@@ -146,6 +188,7 @@ impl Lifecycle {
         let resource_open = Arc::new(AtomicBool::new(false));
         let resources = Arc::new(FailClosedRegistry::default());
         let stop = Arc::new(AtomicBool::new(false));
+        let visibility_lost = Arc::new(AtomicBool::new(false));
 
         let lease_path = state_path.clone();
         let lease_token = expected.clone();
@@ -215,23 +258,75 @@ impl Lifecycle {
             }
         };
 
+        // Independent from IPC lock observation: a stalled compositor query
+        // must not postpone helper-death/stale-frame emergency release.
+        let visibility_watchdog = if let Some(provider) = visibility.as_ref() {
+            let provider = Arc::clone(provider);
+            let token = expected.clone();
+            let stopped = Arc::clone(&stop);
+            let lost = Arc::clone(&visibility_lost);
+            let resource = Arc::clone(&resource_open);
+            let registry = Arc::clone(&resources);
+            match thread::Builder::new()
+                .name(format!("pcbridge-native-frame-{}", std::process::id()))
+                .spawn(move || {
+                    while !stopped.load(Ordering::Acquire) {
+                        thread::sleep(WATCHDOG_INTERVAL);
+                        if stopped.load(Ordering::Acquire) {
+                            break;
+                        }
+                        let visible = token.as_ref().is_some_and(|token| provider.visible(token));
+                        if visible {
+                            lost.store(false, Ordering::Release);
+                        } else {
+                            resource.store(false, Ordering::Release);
+                            if !lost.swap(true, Ordering::AcqRel) {
+                                registry.close_all(LifecycleFailure::VisibleFrameUnavailable);
+                            }
+                        }
+                    }
+                }) {
+                Ok(watchdog) => Some(watchdog),
+                Err(error) => {
+                    stop.store(true, Ordering::Release);
+                    let _ = lease_watchdog.join();
+                    let _ = desktop_watchdog.join();
+                    return Err(error);
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             state_path,
             expected,
             revoked,
             resource_open,
             desktop_state,
+            visibility,
+            visibility_lost,
             resources,
             stop,
             lease_watchdog: Some(lease_watchdog),
             desktop_watchdog: Some(desktop_watchdog),
+            visibility_watchdog,
         })
     }
 
     /// Bind a resource to this grant. It is closed, from the watchdog thread,
-    /// as soon as the grant is revoked or the screen stops being known-unlocked.
+    /// as soon as the grant is revoked, the screen stops being known-unlocked,
+    /// or the required frame loses presentation health.
     pub fn register_fail_closed(&self, resource: Arc<dyn FailClosed>) {
-        self.resources.register(resource);
+        self.resources.register(Arc::clone(&resource));
+        // A frame-loss edge can precede registration while a resource is
+        // being constructed. Do not leave that late resource beyond the
+        // already-delivered edge; callbacks are deliberately idempotent.
+        if self.visibility.is_some()
+            && let Err(reason) = self.validate_now()
+        {
+            resource.close_fail_closed(reason);
+        }
     }
 
     #[must_use]
@@ -279,16 +374,32 @@ impl Lifecycle {
     pub fn validate_now(&self) -> Result<(), LifecycleFailure> {
         self.validate_lease_now()?;
         match self.desktop_state.screen_lock().state {
-            ScreenLockState::KnownUnlocked => Ok(()),
+            ScreenLockState::KnownUnlocked => {}
             ScreenLockState::KnownLocked => {
                 self.resource_open.store(false, Ordering::Release);
-                Err(LifecycleFailure::ScreenLocked)
+                return Err(LifecycleFailure::ScreenLocked);
             }
             ScreenLockState::Unknown => {
                 self.resource_open.store(false, Ordering::Release);
-                Err(LifecycleFailure::LockStateUnknown)
+                return Err(LifecycleFailure::LockStateUnknown);
             }
         }
+        if let Some(provider) = &self.visibility {
+            let visible = self
+                .expected
+                .as_ref()
+                .is_some_and(|token| provider.visible(token));
+            if !visible {
+                self.resource_open.store(false, Ordering::Release);
+                if !self.visibility_lost.swap(true, Ordering::AcqRel) {
+                    self.resources
+                        .close_all(LifecycleFailure::VisibleFrameUnavailable);
+                }
+                return Err(LifecycleFailure::VisibleFrameUnavailable);
+            }
+            self.visibility_lost.store(false, Ordering::Release);
+        }
+        Ok(())
     }
 
     pub fn validate_write_now(
@@ -330,6 +441,9 @@ impl Drop for Lifecycle {
             let _ = watchdog.join();
         }
         if let Some(watchdog) = self.desktop_watchdog.take() {
+            let _ = watchdog.join();
+        }
+        if let Some(watchdog) = self.visibility_watchdog.take() {
             let _ = watchdog.join();
         }
     }

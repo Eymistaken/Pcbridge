@@ -784,3 +784,79 @@ invalidate GNOME/KDE topology and that loaded shots carry their saved topology.
 
 **Remaining work:** Shared-gate/native-watchdog integration is next; production
 Hyprland input and capture still remain closed.
+
+**Local commit:** `2544ff4`.
+
+## Stage 7b2: Native lifecycle enforces visible frame health
+
+**Objective:** Enforce exact fresh visibility before every native protected
+operation and close native resources without waiting for another input call.
+The Python Hyprland opening prohibition remains until the next stage.
+
+**Design:** Production Hyprland lifecycle selects authoritative session state
+and native frame health; a persisted lease alone is insufficient. Add an
+independent 100 ms visibility watchdog so lock IPC stalls cannot delay held
+input release. Reads and writes validate lease, lock, and visibility. Frame
+loss returns existing typed `BACKEND_UNAVAILABLE`; replacement/revoke still
+uses `REVOKED`. Resources registered after an already-delivered frame-loss edge
+are closed immediately. The new visibility-injection factory is compiled only
+with the explicit harness feature. Production IPC always selects the real
+provider; other compositors retain their existing lifecycle.
+
+**Files changed:** Native lifecycle, common presentation age constant,
+NativeClient selected-instance allowlist, native desktop-state contracts,
+Python native-client contract, VM guard probe, protocol/measured facts, journal.
+
+**Measured corrections:** The selected instance signature was dropped by
+NativeClient's environment allowlist. A fresh Python fake-helper contract failed
+with `None` before adding that one allowlisted value; it now observes the exact
+selected instance while the existing secret/FD isolation tests pass. The first
+VM guard run closed the resumed owner because renderer proof was accepted for
+1200 ms while the reader accepted 1000 ms. Unify them at the stricter 1000 ms:
+on resumption old callbacks stay stale and new real presentation restores
+readiness. A blocked health write still fails closed. A unit test initially
+expected a kernel key name from `held()`, which correctly returns the public
+alias `shift`; corrected the assertion and independently checked kernel events.
+
+**Evidence:** The VM used a helper built with `test-harness`, running its real
+production session/visibility providers and opening only `test.hold_resource`.
+No capture or input was opened. Missing frame was refused. SIGSTOP closed that
+resource at 1079 ms; SIGKILL closed it at 51 ms. Both refused subsequent opens.
+Fresh resumed presentation allowed the same valid lease again. A replacement
+frame could not rebind the old helper; a new helper bound it, and explicit
+revoke closed the resource and frame. Native unit evidence recorded exactly
+Shift down/up on frame loss while the lock watcher stalled 500 ms; release
+completed within 250 ms. Late registration after loss was immediately closed.
+
+**Tests run:**
+
+- `(cd rust && cargo fmt --all && cargo test -p pcbridge-native --locked --features test-harness --test desktop_state --test native_revoke)`
+  — pass, final targeted run 7 lifecycle and 7 revoke tests (the first lifecycle
+  run exposed only the alias assertion described above).
+- `./.venv/bin/python -m unittest tests.contracts.test_native_client`
+  — pre-fix failure on selected instance, then pass, 22 tests. An earlier
+  single-test invocation used the wrong unittest class name and reported a
+  loader error before running a test; the full suite supplied the actual failure.
+- `(cd rust && cargo fmt --all && cargo test -p pcbridge-native --locked --features test-harness --test desktop_state --test glow_health && cargo test -p pcbridge-native --locked --lib)`
+  — pass, 7 lifecycle, 2 health, and 15 native unit tests.
+- `./.venv/bin/python -m unittest tests.contracts.test_native_client tests.contracts.test_hyprland_session tests.contracts.test_glow_health`
+  — pass, 29 tests.
+- `./.venv/bin/python -m py_compile tests/live/hyprland/check_glow_guard.py`
+  — pass.
+- `scripts/dev/hyprland-vm.sh sync` — pass.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge/rust && cargo build -p pcbridge-native --locked --features test-harness && cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_FRAME_GUARD=1 .venv/bin/python tests/live/hyprland/check_glow_guard.py'`
+  — first run failed resumed-presentation readiness; final run passed all
+  observable guard cases after the common-age correction.
+- `(cd rust && cargo fmt --all && cargo test --workspace --locked --no-fail-fast > /tmp/pcbridge-hyprland-stage7b2-default.log 2>&1 && cargo test --workspace --locked --features pcbridge-native/test-harness --no-fail-fast > /tmp/pcbridge-hyprland-stage7b2-harness.log 2>&1)`
+  — final pass for default and harness builds, exit 0. An earlier attempt to
+  restrict the preexisting state-injection factory broke two default-build
+  capture-session contracts at compile time. Retain that existing library
+  contract hook; only the newly added visibility-injection factory needs the
+  harness feature. Production IPC uses `Lifecycle::start` in both builds.
+
+**Review and next design requirement:** CLI/TUI unlock currently creates and
+closes a short-lived runtime. A frame owned by that caller would die as soon as
+`pcbridge unlock` returned. The next integration must give the resident daemon
+ownership and route the same CLI/TUI grant action through that shared gate,
+with exact state-directory/session matching and safe refusal if ownership is
+unavailable. No new user executable, public command, or reduced TUI is needed.

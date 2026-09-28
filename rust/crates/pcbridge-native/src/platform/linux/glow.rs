@@ -31,7 +31,7 @@ use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_l
 
 const MAX_POOL_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
-const PRESENTATION_MAX_AGE: Duration = Duration::from_millis(1200);
+const PRESENTATION_MAX_AGE: Duration = Duration::from_millis(super::glow_state::MAX_AGE_MS);
 
 impl Edge {
     fn anchor(self) -> zwlr_layer_surface_v1::Anchor {

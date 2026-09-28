@@ -2,12 +2,12 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use pcbridge_native::lifecycle::{Lifecycle, LifecycleFailure};
+use pcbridge_native::lifecycle::{FrameVisibilityProvider, Lifecycle, LifecycleFailure};
 use pcbridge_native::platform::linux::desktop_state::{
     ActivityObservation, ActivityState, DesktopStateProvider, ScreenLockObservation,
     ScreenLockState,
@@ -207,5 +207,133 @@ fn stalled_desktop_observation_does_not_delay_revoke() {
         thread::sleep(Duration::from_millis(10));
     }
 
+    fs::remove_dir_all(root).unwrap();
+}
+
+struct MutableVisibility(AtomicBool);
+
+impl FrameVisibilityProvider for MutableVisibility {
+    fn visible(&self, token: &pcbridge_core::LeaseToken) -> bool {
+        token.grant_id() == "desktop-state-contract"
+            && token.revoke_epoch() == 0
+            && self.0.load(Ordering::Acquire)
+    }
+}
+
+#[test]
+fn frame_visibility_is_required_for_reads_writes_and_explicit_force() {
+    let root = fixture_root();
+    write_grant(&root);
+    let state = Arc::new(MutableDesktopState::new(
+        ScreenLockState::KnownUnlocked,
+        ActivityState::Known,
+        120_000,
+    ));
+    let visibility = Arc::new(MutableVisibility(AtomicBool::new(false)));
+    let lifecycle =
+        Lifecycle::start_with_visibility_provider(&root, state.clone(), visibility.clone())
+            .unwrap();
+    assert_eq!(
+        lifecycle.validate_now(),
+        Err(LifecycleFailure::VisibleFrameUnavailable)
+    );
+    assert_eq!(
+        lifecycle.validate_write_now(true, 60_000),
+        Err(LifecycleFailure::VisibleFrameUnavailable)
+    );
+    visibility.0.store(true, Ordering::Release);
+    assert_eq!(lifecycle.validate_now(), Ok(()));
+    state.set_lock(ScreenLockState::Unknown);
+    assert_eq!(
+        lifecycle.validate_now(),
+        Err(LifecycleFailure::LockStateUnknown)
+    );
+    state.set_lock(ScreenLockState::KnownUnlocked);
+    fs::remove_file(root.join("desktop_unlock.json")).unwrap();
+    assert_eq!(lifecycle.validate_now(), Err(LifecycleFailure::Revoked));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[derive(Clone, Default)]
+struct RecordingKeyboard(Arc<Mutex<Vec<(String, i32)>>>);
+
+impl pcbridge_native::platform::linux::input::KeyboardDevice for RecordingKeyboard {
+    fn emit(
+        &mut self,
+        events: &[pcbridge_native::platform::linux::input::KeyboardEvent],
+    ) -> std::io::Result<()> {
+        self.0.lock().unwrap().extend(
+            events
+                .iter()
+                .map(|event| (event.code_name(), event.value())),
+        );
+        Ok(())
+    }
+}
+
+#[test]
+fn frame_loss_releases_a_real_keyboard_resource_independently_of_stalled_lock_queries() {
+    use pcbridge_native::platform::linux::input::{Keyboard, SystemClock};
+    let root = fixture_root();
+    write_grant(&root);
+    let visibility = Arc::new(MutableVisibility(AtomicBool::new(true)));
+    let lifecycle = Lifecycle::start_with_visibility_provider(
+        &root,
+        Arc::new(SlowDesktopState),
+        visibility.clone(),
+    )
+    .unwrap();
+    lifecycle.open_test_resource().unwrap();
+    let device = RecordingKeyboard::default();
+    let keyboard = Arc::new(Keyboard::new(
+        device.clone(),
+        SystemClock::default(),
+        Duration::from_secs(120),
+    ));
+    lifecycle.register_fail_closed(keyboard.clone());
+    keyboard.key_down("shift").unwrap();
+    assert_eq!(keyboard.held(), ["shift"]);
+    let started = Instant::now();
+    visibility.0.store(false, Ordering::Release);
+    while !keyboard.is_closed() {
+        assert!(started.elapsed() < Duration::from_millis(250));
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(keyboard.held().is_empty());
+    assert_eq!(
+        *device.0.lock().unwrap(),
+        [("KEY_LEFTSHIFT".into(), 1), ("KEY_LEFTSHIFT".into(), 0)]
+    );
+    assert!(!lifecycle.test_resource_is_open());
+    assert_eq!(
+        lifecycle.validate_now(),
+        Err(LifecycleFailure::VisibleFrameUnavailable)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_resource_registered_after_frame_loss_is_closed_immediately() {
+    use pcbridge_native::platform::linux::input::{Keyboard, SystemClock};
+    let root = fixture_root();
+    write_grant(&root);
+    let lifecycle = Lifecycle::start_with_visibility_provider(
+        &root,
+        Arc::new(SlowDesktopState),
+        Arc::new(MutableVisibility(AtomicBool::new(false))),
+    )
+    .unwrap();
+    assert_eq!(
+        lifecycle.validate_now(),
+        Err(LifecycleFailure::VisibleFrameUnavailable)
+    );
+    let keyboard = Arc::new(Keyboard::new(
+        RecordingKeyboard::default(),
+        SystemClock::default(),
+        Duration::from_secs(120),
+    ));
+    lifecycle.register_fail_closed(keyboard.clone());
+    assert!(keyboard.is_closed());
+    assert!(keyboard.key_down("shift").is_err());
     fs::remove_dir_all(root).unwrap();
 }

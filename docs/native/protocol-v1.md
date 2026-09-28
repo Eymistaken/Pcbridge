@@ -314,6 +314,17 @@ between unchanged outputs must not invalidate shot coordinates or rebuild
 the visible grant frame. GNOME/KDE configured-primary behavior and existing
 topology strings remain unchanged.
 
+Hyprland protected operations additionally require fresh native glow
+presentation evidence for their initialized grant/epoch and selected session.
+Missing, stale, stopped, or dead frame ownership returns `BACKEND_UNAVAILABLE`;
+an independent 100 ms visibility watchdog closes registered capture/input
+resources. A replacement grant still returns `REVOKED` to the old native
+session. The helper receives the selected `HYPRLAND_INSTANCE_SIGNATURE` with
+the existing Wayland environment allowlist. It never picks another instance
+when that context is unavailable. The new visibility-injection factory is
+available only in explicit `test-harness` builds; the production IPC dispatcher
+always uses the selected-session factory.
+
 If the layout cannot be resolved the answer is `DISPLAY_MAPPING_UNKNOWN`
 and **nothing is guessed**: a monitor without a current mode, an unknown
 connector, an empty connector list and a non-positive scale are refused.

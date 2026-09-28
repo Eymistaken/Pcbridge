@@ -520,6 +520,19 @@ and xdg-desktop-portal-hyprland 1.4.1.
   checked fresh health every 50 ms for 1.2 seconds each: topology stayed
   `v1|0,0,1280,800,1.0000,0,0|1280,0,1280,800,1.0000,0,0` and visibility
   remained healthy throughout. Physical rotation/scale changes still rebuild.
+- **Native visibility loss closes grant-bound resources independently of lock
+  IPC.** The real selected-session provider refused a test resource without
+  frame health, opened it after presentation, closed it 1079 ms after SIGSTOP
+  of the writer and 51 ms after helper death, then refused another opening.
+  Fresh presentation allowed resumption; a replacement grant never rebound
+  the old native session. A recording-keyboard contract also measured Shift
+  down followed by Shift up on frame loss while the lock observer slept for
+  500 ms. The VM opened only the harness test flag, no input or capture.
+  Python grant opening remains prohibited pending shared gate integration.
+  This probe also exposed a renderer/reader age mismatch (1200 vs. 1000 ms);
+  both now use the common 1000 ms limit. `NativeClient` must pass the selected
+  instance signature alongside Wayland display; its earlier allowlist dropped
+  it and could not connect the helper to authoritative Hyprland state.
 
 ## Terminal UI (settings CLI)
 

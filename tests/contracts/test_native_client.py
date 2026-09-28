@@ -459,6 +459,14 @@ class NativeClientContractTests(unittest.TestCase):
             self.assertIsNone(secret.result["value"])
             self.assertTrue(helper_pipes.isdisjoint(inherited))
 
+    def test_selected_hyprland_instance_reaches_the_private_helper(self) -> None:
+        with tempfile.TemporaryDirectory() as raw, mock.patch.dict(
+            os.environ, HYPRLAND_INSTANCE_SIGNATURE="contract-selected-instance"
+        ):
+            client = self.make_client(Path(raw))
+            observed = client.request("environment", {"name": "HYPRLAND_INSTANCE_SIGNATURE"})
+            self.assertEqual(observed.result["value"], "contract-selected-instance")
+
     def test_missing_helper_is_typed_and_does_not_break_the_parent(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
