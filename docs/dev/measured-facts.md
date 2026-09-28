@@ -472,6 +472,19 @@ and xdg-desktop-portal-hyprland 1.4.1.
   has a 200 ms absolute operation deadline and a 4096-byte reply limit.
   Missing, malformed, oversized, or timed-out replies are UNKNOWN.
   Production Hyprland control remains closed pending a healthy visible frame.
+- **The VM needs two actual virtio GPUs, with implicit VGA disabled.** On
+  September 28, `/sys/class/drm` showed the original first output belonged
+  to QEMU's implicit standard VGA, while only the second belonged to virtio.
+  Mapped foot clients still produced all-black QMP frames; diagnostic grim
+  timed out after sending its image-copy request. Adding `-vga none` resolved
+  both symptoms. `max_outputs=2` alone left the second virtio connector
+  disconnected under VNC. Two `virtio-gpu-pci,max_outputs=1` devices restored
+  two real 1280x800 outputs with successful capture on each. The GTK pattern
+  needed `python-cairo`, now included in VM provisioning. The repeatable
+  diagnostic probe verified distinct magenta/cyan output markers and counters
+  521 -> 522 on both outputs. It waits for displayed pixels because GTK's
+  draw acknowledgment precedes Hyprland's fullscreen fade. This is independent
+  graphics evidence, not acceptance of PcBridge's grant-bound capture path.
 
 ## Terminal UI (settings CLI)
 

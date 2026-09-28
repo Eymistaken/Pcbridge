@@ -493,3 +493,65 @@ continued prohibition on invisible production grants.
 the visible overlay. First fix the VM's independent screenshot path: QMP was
 selecting its implicit VGA console rather than the virtio outputs. Native
 capture timeouts remain a separate unproven issue until measured.
+
+**Local commit:** `cc0daaa`.
+
+## Stage 6c: Reliable VM graphics evidence
+
+**Objective:** Resolve the black VM display before relying on screenshots
+for capture, input, or visible-frame acceptance.
+
+**Plan adjustment and design decisions:** The original VM had an implicit
+standard VGA output and one connected virtio output, despite the two-output
+monitor table. Remove implicit VGA. VNC leaves additional heads disconnected
+on the installed QEMU, so provide two separate virtio GPU devices with one
+output each. Add the measured missing GTK Cairo dependency to provisioning.
+Use the existing fullscreen pattern client and diagnostic grim only as an
+independent VM probe; production capture still must use the grant-bound helper.
+
+**Files changed:** `scripts/dev/hyprland-vm.sh`,
+`tests/live/hyprland/check_graphics.py`, `docs/dev/measured-facts.md`, and this
+journal.
+
+**Measurements and evidence:** Before the change, mapped foot at `(22,22)`
+with size 1236x756 still produced a 1280x800 QMP image with exactly one color:
+black. Diagnostic grim exited 124 after ten seconds. Wayland tracing showed
+image-copy buffer negotiation and damage/transform events but no completed
+frame. `/sys/class/drm` identified card0 as the standard VGA PCI device.
+Removing only implicit VGA immediately produced nonblack QMP pixels and
+grim exit 0, with one connected virtio output. The second virtio head remained
+disconnected; a second GPU restored two real outputs. Both diagnostic captures
+then exited 0. Native monitor/lock smoke tests still passed with a 2560x800
+canvas and KnownUnlocked. The final repeatable pattern probe returned exact
+magenta/cyan markers and counter 521 then 522 on both 1280x800 outputs. QMP
+also visibly showed the mapped foot window; raw screenshots are local artifacts
+under `/tmp/pcbridge-hyprland-*.png`, not committed.
+
+**Tests and diagnostic commands:**
+
+- `scripts/dev/hyprland-vm.sh screenshot /tmp/pcbridge-hyprland-foot-before.png`
+  — reproduced all-black output, measured with Pillow extrema/color count.
+- `scripts/dev/hyprland-vm.sh session 'timeout 10s grim -o Virtual-1 /tmp/pcbridge-grim-before.png; status=$?; printf "grim_exit=%s\\n" "$status"; hyprctl -j clients | jq "map({class,title,mapped})"; ls -l /sys/class/drm'`
+  — reproduced exit 124 with a mapped foot client.
+- `scripts/dev/hyprland-vm.sh stop && scripts/dev/hyprland-vm.sh start`
+  — pass after the one-GPU experiment, then pass after the final two-GPU change;
+  only the disposable VM was restarted.
+- `scripts/dev/hyprland-vm.sh ssh 'sudo pacman -S --noconfirm --needed python-cairo'`
+  — pass after the pattern exposed the missing Cairo converter.
+- `scripts/dev/hyprland-vm.sh sync` — pass.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_LIVE_HYPRLAND=1 .venv/bin/python tests/live/hyprland/check_graphics.py --out-dir /tmp/pcbridge-graphics-evidence'`
+  — final run pass; four correct output/counter pairs. The first run failed
+  for missing Cairo; the next captured a fullscreen fade before presentation.
+  The probe now waits for the actual marker and counter within five seconds.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge/rust && PCBRIDGE_TEST_LIVE_HYPRLAND=1 PCBRIDGE_TEST_HYPRLAND_LOCKED=false cargo test -p pcbridge-native --locked --test hyprland_live -- --nocapture'`
+  — pass, two real compositor tests on the final GPU layout.
+- `bash -n scripts/dev/hyprland-vm.sh` and `git diff --check` — pass.
+
+**Review:** The change is confined to the new Hyprland VM path. No production
+capture process or host graphics configuration changed. The diagnostic test
+requires the dedicated VM hostname and known unlocked session, draws without
+input, and closes its own pattern client even when an assertion fails.
+
+**Open questions:** PcBridge capture acceptance, layer-shell presentation,
+click-through behavior, and monitor changes remain. These now have a working
+independent screenshot oracle.

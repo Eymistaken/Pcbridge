@@ -36,7 +36,7 @@ PACKAGES=(
     xdg-desktop-portal xdg-desktop-portal-hyprland
     xdg-desktop-portal-gtk sddm foot gnome-text-editor xorg-xwayland
     pipewire wireplumber gst-plugin-pipewire gst-plugins-base gst-plugins-good
-    python python-gobject at-spi2-core qt6-wayland
+    python python-gobject python-cairo at-spi2-core qt6-wayland
     tmux wl-clipboard libnotify tesseract tesseract-data-eng
     base-devel git rust clang pkgconf namcap binutils
     jq grim wayland-utils
@@ -109,12 +109,15 @@ EOF
 cmd_start() {
     [ -f "$DISK" ] || die "no disk; run: $0 create"
     running && { echo "already running"; return; }
+    # No implicit standard VGA: Hyprland mapped clients there but rendered
+    # black frames. VNC enables only head 0 per device, so use two virtio GPUs.
     qemu-system-x86_64 \
         -name pcbridge-hyprland -enable-kvm -cpu host -smp 4 -m 8G \
         -drive file="$DISK",if=virtio,discard=unmap \
         -drive file="$SEED",media=cdrom,readonly=on \
         -nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:"$SSH_PORT"-:22 \
-        -device virtio-gpu-pci,max_outputs=2 \
+        -vga none -device virtio-gpu-pci,max_outputs=1 \
+        -device virtio-gpu-pci,max_outputs=1 \
         -device qemu-xhci -device usb-tablet \
         -vnc 127.0.0.1:"$VNC_DISPLAY" \
         -qmp unix:"$QMP",server=on,wait=off \
