@@ -941,3 +941,36 @@ guard in the code (the guards limit damage, they do not make it impossible):
 - Independent final VM state was known unlocked, zero native helpers/glow,
   and no idle writer. This reporting measurement does not establish the
   remaining platform acceptance or existing-desktop regression.
+
+### Real MCP screen-lock and activity transitions on Hyprland
+
+- On September 29, normal MCP held Shift during a three-second wait while
+  actual hyprlock presented both output lock surfaces. A separate read-only
+  kernel event observer saw KEY_LEFTSHIFT up 94.90 ms after locker launch
+  and the device disappear at 107.99 ms. The configured held-input timeout
+  was 20 seconds. No A sentinel reached the kernel or fullscreen GTK app.
+  Locked keyboard and desktop_unlock returned SCREEN_LOCKED; the batch
+  finished 2/3, stopped=safety, SCREEN_LOCKED.
+- OS screen lock pauses the existing grant, rather than automatically
+  revoking it. Its exact identity stayed active; eight layer surfaces
+  remained, but native frame ready was false, presentation time zero, and
+  trusted current-output frame health unavailable. Native input and capture
+  resources were closed. After normal VM-only SIGUSR1 locker cleanup, a
+  presentation timestamp newer than the authoritative unlock observation
+  restored health for the same frame owner and grant. A new input helper
+  delivered b press/release with Shift false; a subsequent normal replacement
+  grant delivered c with Shift false. Old sequence actions never resumed.
+- With a two-second test idle guard, injected b reset actual native idle to
+  0 ms. A subsequent unforced c returned USER_ACTIVE without any event;
+  force=true delivered c. After actual idle reached 2045 ms, an unforced
+  d/wait/e batch was admitted. During its one-second wait the native observer
+  reported 0 ms while the batch was pending; d and e both reached GTK without
+  reapplying the user-activity admission guard to its own input.
+- Terminating only the probe's native idle writer made idle UNKNOWN. Both
+  forced keyboard f and desktop_unlock returned ACTIVITY_UNKNOWN and sent
+  no f. A freshly started watcher published known state; a distinct normal
+  grant then delivered f with Shift false. Both cases used default packaged
+  release discovery, test_harness=false, and public MCP/SafetyGate paths.
+  Normal desktop_lock plus independent process/layer checks left the VM
+  known unlocked with no frame, native helper, idle writer, or observer.
+  These scoped measurements do not complete platform acceptance.

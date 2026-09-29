@@ -2413,3 +2413,177 @@ by the session quota; it resumed after the maintainer renewed the quota.
 **Remaining work:** Actual screen-lock mid-batch, pointer lock/touch,
 additional policy/clipboard/accessibility/topology/visual/performance/nested
 proof, final acceptance and GNOME/KDE regression. No support claim or push.
+
+**Local commit:** `f58a965`.
+
+## Stage 9f: Measure real screen-lock and activity transitions through MCP
+
+**Objective:** Prove that actual hyprlock blocks a running batch and new
+acting calls, withdraws frame health and closes input/capture resources, and
+cannot leave a held modifier after unlocking or in a later grant. Prove known recent activity refusal, explicit
+force takeover, admitted sequence behavior after its own idle reset, and
+fail-closed behavior when the actual native idle observer dies.
+
+**Planned scope/design:** One dedicated VM-only live probe, with early opt-in,
+hostname, assertion, and native-override checks. Use default packaged release,
+normal MCP tools, fresh native idle, exact fullscreen observer identity,
+and independent kernel keyboard observation during the real lock. A GTK
+release caused by lost focus is not physical release evidence. If device
+removal prevents observing a kernel key-up, record that limitation and use
+device disappearance plus a later measured unshifted key, without inventing
+a release timestamp. Lock surfaces must be presented before SIGUSR1 cleanup.
+Production changes require an observed defect and a separate scoped fix.
+Root owns GUI execution, evidence, journal, reviews, and commit.
+
+**Measured plan correction:** The first real lock run exited 1 at a test
+assertion that expected automatic lease revocation. The existing shared
+contract does not revoke a grant on OS screen lock. Native `glow_watch`
+intentionally keeps its exact owner alive, publishes `ready=false` and zero
+presentation time while locked/unknown, and fades in again after unlocking.
+`ResourceWatch` closes input/capture; protected calls still check authoritative
+lock state. The first run physically released Shift in 118.53 ms after the
+locker launch, then removed its kernel device; both new input and unlock
+returned SCREEN_LOCKED, and the batch stopped at 2/3 without its sentinel.
+These successes do not make the failed assertion a pass. Correct the fixture
+to measure paused control, unchanged lease identity, closed resources, fresh
+presentation after unlocking, and a measured unshifted key before normal
+replacement. Production policy remains unchanged. The cleanup diagnostic's
+first invocation omitted `_query(..., json_output=True)` and exited 1 before
+querying layers; the corrected invocation separately verifies clean state.
+
+Initial exact commands:
+
+```bash
+scripts/dev/hyprland-vm.sh sync && scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/check_safety_transitions.py' < tests/live/hyprland/check_safety_transitions.py && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_SAFETY=1 .venv/bin/python tests/live/hyprland/check_safety_transitions.py --case lock' > /tmp/pcbridge-stage9f-lock-vm.log 2>&1
+```
+
+Exit 1 at the incorrect inactive-lease assertion; no automatic revoke claim.
+
+The corrected lock run passed (84.62 ms physical key-up, 98.32 ms device
+removal, no sentinel). The first activity run reached real USER_ACTIVE
+refusal and admitted its own-input sequence: idle was 2044 ms before admission
+and 0 ms during its wait, while the request was pending. It then exited 1 at
+another fixture assumption: successful `computer_batch` returns plain text
+with `output_schema=None`, so structured_content was None. Actual result was
+`3 of 3 actions done` with d/wait/e. Match the existing successful wire
+contract and independently verify both key press/release events; do not alter
+the production result schema. The fixture wait may cover the native observer's
+500 ms heartbeat so publication can be measured before the sequence finishes.
+
+```bash
+scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/check_safety_transitions.py' < tests/live/hyprland/check_safety_transitions.py && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_SAFETY=1 .venv/bin/python tests/live/hyprland/check_safety_transitions.py --case lock' > /tmp/pcbridge-stage9f-lock-corrected-vm.log 2>&1
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_SAFETY=1 .venv/bin/python tests/live/hyprland/check_safety_transitions.py --case activity' > /tmp/pcbridge-stage9f-activity-vm.log 2>&1
+```
+
+Corrected lock exit 0; initial activity exit 1 at the success-schema assumption.
+
+**Final measurements:** Corrected activity exit 0: idle reset to 0 ms; unforced
+c refused USER_ACTIVE/no event; forced c observed. Idle advanced to 2045 ms
+before d/wait/e admission, then 0 ms during the pending one-second wait.
+The plain-text result reported 3/3; independently observed d and e press and
+release were unshifted. Killing only this probe's watcher made idle UNKNOWN;
+forced f and desktop_unlock both returned ACTIVITY_UNKNOWN/no f. A fresh
+watcher and distinct normal grant delivered unshifted f. The corrected lock
+case retained its exact lease/frame owner, withdrew trusted health while
+locked, closed capture/input, recovered only with post-unlock presentation,
+and delivered unshifted b under the same grant then c under replacement.
+The real kernel release/removal times were 84.62/98.32 ms after lock trigger.
+All GUI interaction was confined to the disposable VM.
+
+**Changed files:** tests/live/hyprland/check_safety_transitions.py (VM-only
+normal MCP fixture), docs/dev/measured-facts.md, WALKTHROUGH.md. Production
+policy and successful/error MCP wire schemas remain unchanged. The fixture's
+1s wait/800ms observation permits the native 500ms heartbeat, without changing
+idle policy or touching the lease during waits.
+
+**Final exact commands/results:**
+
+```bash
+scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/check_safety_transitions.py' < tests/live/hyprland/check_safety_transitions.py && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_SAFETY=1 .venv/bin/python tests/live/hyprland/check_safety_transitions.py --case activity' > /tmp/pcbridge-stage9f-activity-corrected-vm.log 2>&1
+./.venv/bin/python -m unittest tests.contracts.test_desktop_cancellation tests.contracts.test_batch_safety tests.contracts.test_runtime_contract tests.contracts.test_native_grant_rebind tests.contracts.test_hyprland_gate tests.contracts.test_hyprland_state tests.contracts.test_idlewatch tests.contracts.test_english_only > /tmp/pcbridge-stage9f-contracts.log 2>&1
+env -u PCBRIDGE_TEST_CAPTURE -u PCBRIDGE_TEST_INPUT -u PCBRIDGE_TEST_ATSPI -u PCBRIDGE_TEST_BATCH ./.venv/bin/python tests/test_desktop.py > /tmp/pcbridge-stage9f-desktop.log 2>&1
+./.venv/bin/python -m py_compile tests/live/hyprland/check_safety_transitions.py && git diff --check
+python3 - <<'PY' > /tmp/pcbridge-stage9f-host-guards-final.log
+import os,subprocess
+script='tests/live/hyprland/check_safety_transitions.py'
+base=dict(os.environ)
+base.pop('PCBRIDGE_TEST_HYPRLAND_SAFETY',None)
+checks=[('no-optin',base,[], 'Set PCBRIDGE_TEST_HYPRLAND_SAFETY'),('host',dict(base,PCBRIDGE_TEST_HYPRLAND_SAFETY='1'),[], 'requires the disposable pcbridge-hyprland VM'),('optimized',dict(base,PCBRIDGE_TEST_HYPRLAND_SAFETY='1'),['-O'], 'Python -O is forbidden')]
+for name,environment,options,message in checks:
+    result=subprocess.run(['./.venv/bin/python',*options,script,'--case','lock'],env=environment,capture_output=True,text=True,timeout=5)
+    assert result.returncode==1 and message in result.stderr,(name,result.returncode,result.stderr)
+    print(name+': expected early refusal, pass')
+PY
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python - <<'"'"'PY'"'"'
+from pcbridge.desktop import hyprland,idlewatch
+import subprocess,json,os
+state={"locked":hyprland.screen_locked(),"idle":idlewatch.read_idle_ms()}
+raw=hyprland._query("layers",json_output=True)
+state["glow_layers"]=[v for m in raw.values() for rows in m.get("levels",{}).values() for v in rows if v.get("namespace")=="pcbridge-glow"]
+processes=subprocess.check_output(["ps","-eo","args"],text=True).splitlines()
+state["owned_processes"]=[p for p in processes if p.startswith(("/home/tester/pcbridge/pcbridge/_native/",".venv/bin/python tests/live/hyprland/input_window.py","hyprlock --config"))]
+print(json.dumps(state))
+assert state["locked"] is False and state["idle"] is None and not state["glow_layers"] and not state["owned_processes"]
+environment=dict(os.environ,PCBRIDGE_TEST_HYPRLAND_SAFETY="1",PCBRIDGE_NATIVE_BIN="/unavailable")
+result=subprocess.run([".venv/bin/python","tests/live/hyprland/check_safety_transitions.py","--case","lock"],env=environment,capture_output=True,text=True,timeout=5)
+assert result.returncode==1 and "Native helper overrides are forbidden" in result.stderr
+print("guest native override: expected early refusal, pass")
+PY' > /tmp/pcbridge-stage9f-cleanup-vm.log 2>&1
+```
+
+Corrected lock/activity exit 0; 103 contracts and 615 desktop checks pass.
+Compile/diff clean; three host guard cases and guest override guard refused
+early as expected. Independent VM state: known unlocked, idle unknown after
+intentional cleanup, zero glow/native helpers/observer/locker. No skip.
+
+**Remaining work:** Pointer lock/touch, policy/clipboard/accessibility/topology,
+visual/performance and nested proof, consolidated acceptance, GNOME/KDE
+regression, final documentation and release gates. No support claim or push.
+
+**Review follow-up:** Spec review approved. Quality review required explicit
+comparison of frame pid/writer start/owner pid/owner start at locked and
+resumed observations, and assertion that capture was actually open before
+locking. Recorded VM evidence already met these facts; the fixture now
+requires them. Rerun the real lock case to verify the final assertions.
+
+The initial independent cleanup command used an observer prefix that did
+not match InputWindow's actual system-Python command. A separate corrected
+check parses argv and matches the exact resolved tests/live/input_window.py
+argument. It returned no observer, native helper, or locker. This correction
+does not change the fixture's own bounded window.close/process.wait cleanup.
+
+```bash
+scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/check_safety_transitions.py' < tests/live/hyprland/check_safety_transitions.py && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_SAFETY=1 .venv/bin/python tests/live/hyprland/check_safety_transitions.py --case lock' > /tmp/pcbridge-stage9f-lock-final-vm.log 2>&1
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python - <<'"'"'PY'"'"'
+from pcbridge.desktop import hyprland,idlewatch
+from pathlib import Path
+import subprocess,json,os
+state={"locked":hyprland.screen_locked(),"idle":idlewatch.read_idle_ms()}
+raw=hyprland._query("layers",json_output=True)
+state["glow_layers"]=[v for m in raw.values() for rows in m.get("levels",{}).values() for v in rows if v.get("namespace")=="pcbridge-glow"]
+observer=str(Path("tests/live/input_window.py").resolve())
+owned=[]
+for line in subprocess.check_output(["ps","-eo","pid,args"],text=True).splitlines()[1:]:
+ args=line.split()[1:]
+ if not args:
+  continue
+ if args[0].startswith("/home/tester/pcbridge/pcbridge/_native/") or (len(args)>1 and args[1]==observer) or (args[0]=="hyprlock" and "--config" in args):
+  owned.append(line.strip())
+state["owned_processes"]=owned
+print(json.dumps(state))
+assert state["locked"] is False and state["idle"] is None and not state["glow_layers"] and not owned
+PY' > /tmp/pcbridge-stage9f-cleanup-exact-observer-vm.log 2>&1
+```
+
+Final lock rerun exit 0: physical Shift up at 94.90 ms, device removal at
+107.99 ms. Initial capture open=true, then closed; input PID 37958 closed
+and fresh same-grant input PID 38086 delivered unshifted b. The exact frame
+identity tuple remained (37856,10364406,37814,10364258) before/while/after
+lock. No errors or cleanup failures; final known unlocked/idle None/no frame.
+The final measured-facts entry uses this most recent strengthened run.
+
+**Review result:** Independent spec review approved. Independent quality
+review approved after both assertion gaps were fixed and the real lock case
+was rerun. Reviewer independently checked final owner identity, actual
+capture closure, kernel release/removal, final session state, corrected
+observer cleanup, compilation, and diff hygiene. No remaining scoped findings.
