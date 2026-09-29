@@ -1142,3 +1142,15 @@ guard in the code (the guards limit damage, they do not make it impossible):
   swap. Both runs restored monitor rules and closed the grant and test
   processes. The rotated and negative-origin layouts passed again with the
   new shot check. Vertical, hotplug, and mirror layouts remain unmeasured.
+
+### Vertically stacked Hyprland outputs through normal MCP
+
+- On September 30, two guarded VM runs moved Virtual-2 below Virtual-1.
+  Normal MCP capture returned the correct 1280x800 images at canvas `(0,0)`
+  and `(0,800)`, with the magenta/cyan output markers and counter 742 after
+  counter 741 before the change. The old Virtual-2 shot was refused without
+  compositor cursor movement.
+- A normal MCP move from pixel `(300,300)` in the fresh Virtual-2 shot put
+  the pointer at `(300,1100)` according to `hyprctl cursorpos`. Both runs
+  restored output rules and closed the grant and test processes. The swapped
+  output case passed again. Hotplug and mirror behavior remain open.

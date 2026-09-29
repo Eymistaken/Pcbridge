@@ -131,6 +131,13 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
                         (original[0]["name"], -1280, 0),
                         (original[1]["name"], 0, 0)],
                         description="negative platform origin")
+                elif layout == "vertical":
+                    monitor_rule(original[1], position=(0, 800))
+                    wait_for(lambda: [(row["name"], row["x"], row["y"])
+                        for row in hyprland.monitors()] == [
+                        (original[0]["name"], 0, 0),
+                        (original[1]["name"], 0, 800)],
+                        description="vertically stacked outputs")
                 else:
                     monitor_rule(original[0], position=(2560, 0))
                     monitor_rule(original[1], position=(0, 0))
@@ -144,7 +151,7 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
                     token, binary=binary), description="new topology glow")
                 time.sleep(2.1)  # Let the product's normal monitor cache expire.
 
-                if layout in ("rotated", "swapped"):
+                if layout in ("rotated", "swapped", "vertical"):
                     cursor_before = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"],
                         check=True, capture_output=True, text=True, timeout=5).stdout)
                     stale = await call("mouse", {"action": "move", "x": 300, "y": 300,
@@ -186,6 +193,26 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
 
                     evidence["pointer"] = wait_for(cursor_at_negative_target,
                         description="shot coordinate mapped to negative platform position")
+                elif layout == "vertical":
+                    assert [(item.connector, item.x, item.y) for item in changed_table] == [
+                        (original[0]["name"], 0, 0),
+                        (original[1]["name"], 0, 800)]
+                    assert all(row["pixels"] == [1280, 800] for row in evidence["changed"])
+                    shot = next(row["shot"] for row in evidence["changed"]
+                                if row["connector"] == original[1]["name"])
+                    moved = await call("mouse", {"action": "move", "x": 300, "y": 300,
+                        "shot": shot, "force": True, "smooth": False})
+                    assert not moved.is_error, moved.content
+
+                    def cursor_at_lower_target():
+                        position = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"],
+                            check=True, capture_output=True, text=True, timeout=5).stdout)
+                        if abs(position["x"] - 300) <= 2 and abs(position["y"] - 1100) <= 2:
+                            return position
+                        return None
+
+                    evidence["pointer"] = wait_for(cursor_at_lower_target,
+                        description="shot coordinate mapped to lower output")
                 else:
                     assert monitors.topology_id(initial_table) == monitors.topology_id(changed_table)
                     assert [(item.connector, item.x, item.y) for item in changed_table] == [
@@ -218,7 +245,7 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out-dir", type=Path, required=True)
-    parser.add_argument("--layout", choices=("rotated", "negative", "swapped"),
+    parser.add_argument("--layout", choices=("rotated", "negative", "swapped", "vertical"),
                         default="rotated")
     args = parser.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)

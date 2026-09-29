@@ -3036,3 +3036,42 @@ the American English spelling scan passed.
 ./.venv/bin/python tests/test_desktop.py
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout swapped --out-dir /tmp/pcbridge-stage9o-swapped-final'
 ```
+
+## Stage 9p: Capture and input on vertically stacked Hyprland outputs
+
+**Objective:** Verify normal MCP capture and screenshot-relative pointer
+placement when the second VM output moves below the first.
+
+**Design:** The guarded topology fixture gained a `vertical` layout. It moves
+Virtual-2 from `(1280,0)` to `(0,800)` while two pattern windows and the
+visible grant remain active. An old Virtual-2 shot must be refused without
+cursor movement. Fresh `screen_capture` images must match the new monitor
+table, expected output markers, and updated counter. A normal MCP `mouse`
+move from a fresh lower-output shot must land at the compositor coordinate
+derived from that image. The fixture restores the original monitor rule and
+closes its grant, pattern windows, and idle watcher.
+
+**Fresh VM measurements (September 30, 2026):** Two runs passed with the
+packaged release helper. Both outputs delivered 1280x800 images; Virtual-1
+remained at canvas `(0,0)` with a magenta marker and Virtual-2 moved to
+`(0,800)` with a cyan marker. Both counters advanced from 741 to 742. The
+old Virtual-2 shot returned a screen-layout-changed error with unchanged
+`hyprctl cursorpos`. A move from pixel `(300,300)` in the fresh Virtual-2
+shot placed the pointer at exactly `(300,1100)`. The swapped-output layout
+passed again after this fixture change. Both vertical runs restored the
+original monitor rules, locked the grant, and exited 0. Independent VM
+inspection found no frame, idle proof, native helper, or pattern window and
+a known unlocked screen.
+
+This covers one two-output vertical placement. Hotplug and mirror behavior,
+visual/performance acceptance, nested smoke, consolidated acceptance, and
+GNOME/KDE live regression remain open. Production code was not changed.
+
+**Verification:** Python compilation, `git diff --check`, two vertical VM
+passes, the swapped-output regression, and independent VM cleanup passed.
+
+```bash
+./.venv/bin/python -m py_compile tests/live/hyprland/check_topology_capture.py
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout vertical --out-dir /tmp/pcbridge-stage9p-vertical-final'
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout swapped --out-dir /tmp/pcbridge-stage9p-swap-regression'
+```
