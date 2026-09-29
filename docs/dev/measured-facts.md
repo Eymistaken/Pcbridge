@@ -1239,5 +1239,24 @@ guard in the code (the guards limit damage, they do not make it impossible):
   two-output capture recovered after mirroring ended. The hotplug regression
   and independent cleanup check passed.
 - The source canvas accepts screenshot-relative pointer movement in this
-  configuration. Visibility on the follower's separate virtual display
-  and a physical mirrored connector remain unmeasured.
+  configuration. At this stage, visibility on the follower's separate
+  virtual display and a physical mirrored connector were unmeasured; the
+  subsequent QMP check below covers the virtual display.
+
+### Grant frame pixels on both mirrored VM displays
+
+- On September 30, two paired QMP runs captured the two distinct 1280x800
+  virtual GPU heads while Virtual-2 mirrored Virtual-1. The bottom-center
+  pixel on each head was `(245,130,48)` after `desktop_lock` and
+  `(249,182,135)` while the grant was active. At 4 and 19 pixels inward,
+  the active values were `(248,167,109)` and `(246,143,70)`; at 99 pixels
+  inward, the pixel was unchanged. At the left edge 70% down, the closed
+  `(230,25,75)` became `(240,122,151)`; the falloff continued to
+  `(230,26,76)` at 53 pixels inward. Both devices had identical samples.
+  The granted images were visually inspected and showed the border on both.
+- A long first diagnostic exposed a test restore assumption: the monitor
+  table briefly reported the returned outputs at reversed positions. The
+  fixture now reapplies both original rules and waits for exact geometry.
+  The strengthened paired run, default mirror and hotplug regressions, and
+  independent cleanup check passed. This is direct virtual GPU display
+  evidence, not a physical connector measurement.

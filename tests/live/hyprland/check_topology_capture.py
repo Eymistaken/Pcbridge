@@ -84,7 +84,8 @@ def capture_evidence(result, table, connectors, counter, label, out_dir,
     return evidence
 
 
-async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evidence, layout):
+async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evidence,
+              layout, hold_mirror_seconds, hold_mirror_closed_seconds):
     mcp, _ = build_app(cfg, transport="stdio")
     grant_open = False
     changed = False
@@ -181,10 +182,38 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
 
                         evidence["source_pointer"] = wait_for(cursor_at_source_target,
                             description="fresh source shot pointer motion while mirrored")
+                        if hold_mirror_seconds:
+                            assert glowstate.read_on_current_outputs(cfg.state_dir,
+                                token, binary=binary), "Mirror frame proof disappeared"
+                            (out_dir / "mirror-ready").write_text("ready\n", encoding="utf-8")
+                            await asyncio.sleep(hold_mirror_seconds)
+                        if hold_mirror_closed_seconds:
+                            closed = await call("desktop_lock", {})
+                            assert not closed.is_error, closed.content
+                            grant_open = False
+                            wait_for(lambda: not layers(), description="mirrored frame teardown")
+                            (out_dir / "mirror-closed-ready").write_text("ready\n", encoding="utf-8")
+                            await asyncio.sleep(hold_mirror_closed_seconds)
+                            reopened = await call("desktop_unlock", {"minutes": 1,
+                                "reason": "Disposable VM mirror frame restoration"})
+                            assert not reopened.is_error, reopened.content
+                            grant_open = True
+                            token = runtime.gate.current_token()
+                            assert token is not None
+                            wait_for(lambda: glowstate.read_on_current_outputs(cfg.state_dir,
+                                token, binary=binary), description="mirrored frame restored")
 
-                    monitor_rule(original[1])
-                    wait_for(lambda: [row["name"] for row in hyprland.monitors()] ==
-                        [item["name"] for item in original], description="second output restored")
+                    for row in original:
+                        monitor_rule(row)
+                    def original_outputs_restored():
+                        rows = hyprland.monitors()
+                        return {row["name"]: (row["x"], row["y"], row["scale"],
+                            row["transform"], row["mirrorOf"], row["disabled"])
+                            for row in rows} == {row["name"]: (row["x"], row["y"],
+                            row["scale"], row["transform"], "none", False)
+                            for row in original}
+                    wait_for(original_outputs_restored,
+                             description="original output geometry restored")
                     wait_for(lambda: glowstate.read_on_current_outputs(cfg.state_dir,
                         token, binary=binary), description="two-output frame restored")
                     time.sleep(2.1)
@@ -328,7 +357,15 @@ def main():
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--layout", choices=("rotated", "negative", "swapped", "vertical", "hotplug", "mirror"),
                         default="rotated")
+    parser.add_argument("--hold-mirror-seconds", type=int, default=0)
+    parser.add_argument("--hold-mirror-closed-seconds", type=int, default=0)
     args = parser.parse_args()
+    assert 0 <= args.hold_mirror_seconds <= 30
+    assert 0 <= args.hold_mirror_closed_seconds <= 30
+    assert args.hold_mirror_seconds + args.hold_mirror_closed_seconds <= 40
+    assert args.layout == "mirror" or (args.hold_mirror_seconds == 0 and
+                                       args.hold_mirror_closed_seconds == 0)
+    assert args.hold_mirror_seconds or args.hold_mirror_closed_seconds == 0
     args.out_dir.mkdir(parents=True, exist_ok=True)
     evidence = {"passed": False, "layout": args.layout, "cleanup": {}}
     failure = None
@@ -372,7 +409,9 @@ def main():
                 connectors = reader.expect("ready ", 30).split(" ", 1)[1].split(",")
                 assert connectors == ["Virtual-1", "Virtual-2"], connectors
                 asyncio.run(asyncio.wait_for(run(cfg, pattern, reader, connectors,
-                    original, binary, args.out_dir, evidence, args.layout), timeout=75))
+                    original, binary, args.out_dir, evidence, args.layout,
+                    args.hold_mirror_seconds, args.hold_mirror_closed_seconds),
+                    timeout=75 + args.hold_mirror_seconds + args.hold_mirror_closed_seconds))
             finally:
                 if pattern:
                     if pattern.poll() is None:

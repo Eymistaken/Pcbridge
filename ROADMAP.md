@@ -34,18 +34,18 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   swapped identical outputs, vertical placement, and simulated output removal
   and return have scoped VM evidence in
   [WALKTHROUGH.md](WALKTHROUGH.md). Finish remaining
-  policy and mirror layouts, physical hotplug, performance under load (static
-  two-output MCP latency and native renderer pixels are measured), and nested
-  checks, consolidate real VM acceptance, and run GNOME/KDE live regressions
-  before claiming general support.
+  batch policy cases, physical mirror and hotplug, performance under load
+  (static two-output MCP latency and native renderer pixels are measured),
+  and nested checks. Consolidate real VM acceptance and run GNOME/KDE live
+  regressions before claiming general support.
 - **Hyprland mirror semantics.** The real active-monitor query hides a
   mirrored output even though `hyprctl monitors all` reports it. Normal MCP
   capture returns the source output, old follower shots are refused, and a
   fresh source shot moves the pointer to the expected compositor position.
   The existing mirror-row refusal contract is not reached in that
-  configuration. Verify grant-frame visibility on the follower's separate
-  display and on a physical mirrored connector before choosing support or
-  explicit refusal.
+  configuration. QMP captures show the grant frame on both separate VM GPU
+  displays. Verify it on a physical mirrored connector before choosing
+  support or explicit refusal.
 - **Atomic clipboard ownership during paste.** The restore path now keeps a
   different clipboard value observed after paste, but `wl-copy` exposes no
   atomic owner identity to this path. An identical replacement or a change

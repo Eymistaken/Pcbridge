@@ -7,7 +7,7 @@
 #   scripts/dev/hyprland-vm.sh sync        copy tracked worktree files to ~/pcbridge
 #   scripts/dev/hyprland-vm.sh ssh [cmd]   run a shell command as the test user
 #   scripts/dev/hyprland-vm.sh session CMD run CMD in the graphical session
-#   scripts/dev/hyprland-vm.sh screenshot  write the VM screen to a PNG
+#   scripts/dev/hyprland-vm.sh screenshot [PNG] [1|2]  capture a GPU head
 #   scripts/dev/hyprland-vm.sh stop        power off
 #
 # Why a VM: pcbridge sends real keys and clicks. Inside the VM they go to the
@@ -116,8 +116,8 @@ cmd_start() {
         -drive file="$DISK",if=virtio,discard=unmap \
         -drive file="$SEED",media=cdrom,readonly=on \
         -nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:"$SSH_PORT"-:22 \
-        -vga none -device virtio-gpu-pci,max_outputs=1 \
-        -device virtio-gpu-pci,max_outputs=1 \
+        -vga none -device virtio-gpu-pci,id=pcbridge-gpu-1,max_outputs=1 \
+        -device virtio-gpu-pci,id=pcbridge-gpu-2,max_outputs=1 \
         -device qemu-xhci -device usb-tablet \
         -vnc 127.0.0.1:"$VNC_DISPLAY" \
         -qmp unix:"$QMP",server=on,wait=off \
@@ -167,7 +167,12 @@ SESSION_ENV='export XDG_RUNTIME_DIR=/run/user/$(id -u) DBUS_SESSION_BUS_ADDRESS=
 cmd_screenshot() {
     running || die "not running"
     local out="${1:-$DIR/screen.png}"
-    qmp "{\"execute\": \"screendump\", \"arguments\": {\"filename\": \"$out\", \"format\": \"png\"}}"
+    local head="${2:-}"
+    case "$head" in
+        "") qmp "{\"execute\": \"screendump\", \"arguments\": {\"filename\": \"$out\", \"format\": \"png\"}}" ;;
+        1|2) qmp "{\"execute\": \"screendump\", \"arguments\": {\"filename\": \"$out\", \"device\": \"pcbridge-gpu-$head\", \"head\": 0, \"format\": \"png\"}}" ;;
+        *) die "GPU head must be 1 or 2" ;;
+    esac
     echo "$out"
 }
 

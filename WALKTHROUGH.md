@@ -3298,3 +3298,62 @@ compilation, `git diff --check`, and independent VM cleanup passed.
 ./.venv/bin/python -m py_compile tests/live/hyprland/check_topology_capture.py
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout mirror --out-dir /tmp/pcbridge-stage9v-mirror-input-repeat'
 ```
+
+## Stage 9w: Grant frame on both mirrored VM displays
+
+**Objective:** Check the actual pixels sent to the two separate virtual GPU
+displays when one output mirrors the other, with and without a visible
+desktop grant.
+
+**Design:** The VM launcher now gives its two virtio GPUs stable QEMU device
+IDs so QMP `screendump` can read each display separately through the VM
+helper's optional GPU head argument. The guarded mirror
+fixture has optional bounded holds after source-shot input and after
+`desktop_lock`, before clearing the mirror. During those holds, the host
+captures both GPU heads through QMP. The fixture reopens the grant before
+restoring both original monitor rules, verifies their exact compositor
+positions, and completes its normal two-output capture check.
+
+**Fresh VM measurements (September 30, 2026):** Two paired QMP capture runs
+showed 1280x800 images from each GPU while Virtual-2 mirrored Virtual-1.
+At the bottom center of **both** displays, the pixel was `(245,130,48)`
+with the grant closed and `(249,182,135)` with the grant active. Four pixels
+inward, it changed from `(245,130,48)` to `(248,167,109)`; 19 pixels inward,
+to `(246,143,70)`; 99 pixels inward, it remained `(245,130,48)`. At the left
+edge 70% down, `(230,25,75)` became `(240,122,151)`, and the falloff at 4,
+12, and 53 pixels was `(237,93,128)`, `(234,62,104)`, and `(230,26,76)`.
+Both GPUs had the same sampled values. The granted QMP images were visually
+inspected and showed the border on both displays. A fresh source-shot move
+and stale follower-shot refusal also passed during mirroring. The final
+paired fixture run restored both exact original output positions, captured
+two images, locked the grant, and exited 0. The hotplug regression and
+independent cleanup check passed.
+
+The first held diagnostic run captured the mirrored frame but failed its
+post-mirror connector-order assertion: the monitor table briefly reported the
+returned outputs in reversed positions. The fixture now reapplies both
+original monitor rules and waits for their exact geometry before checking
+recovery. A subsequent paired run and the strengthened final paired run
+passed. This proves presentation to both **virtual GPU heads**, not the
+appearance of the frame on a physical mirrored connector. No production
+capture, input, or frame code changed.
+
+**Verification:** `bash -n`, Python compilation, two paired QMP capture
+runs, a held grant/lock/reopen regression, the default mirror and hotplug
+regressions, both GPU screenshot commands, invalid-head refusal,
+`git diff --check`, and independent VM cleanup passed.
+
+Run the guest fixture in one terminal. From another host terminal, capture
+both heads when the VM creates `mirror-ready`, then again when it creates
+`mirror-closed-ready` in the output directory.
+
+```bash
+bash -n scripts/dev/hyprland-vm.sh
+./.venv/bin/python -m py_compile tests/live/hyprland/check_topology_capture.py
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout mirror --hold-mirror-seconds 12 --hold-mirror-closed-seconds 12 --out-dir /tmp/pcbridge-stage9w-qmp-paired-final'
+scripts/dev/hyprland-vm.sh screenshot /tmp/pcbridge-gpu1-granted.png 1
+scripts/dev/hyprland-vm.sh screenshot /tmp/pcbridge-gpu2-granted.png 2
+# Capture both heads again after mirror-closed-ready for pixel comparison.
+scripts/dev/hyprland-vm.sh screenshot /tmp/pcbridge-gpu1-closed.png 1
+scripts/dev/hyprland-vm.sh screenshot /tmp/pcbridge-gpu2-closed.png 2
+```
