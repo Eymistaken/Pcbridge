@@ -415,9 +415,9 @@ class DesktopRuntime:
 
         if self._execution_lock is None:
             guard = executionlib.SequenceGuard(verify, None)
-            self._admit(guard)
-            self._track_resources()
             with self._sequence_context(guard):
+                self._admit(guard)
+                self._track_resources()
                 yield guard
             return
         with self._execution_lock.hold(
@@ -426,9 +426,9 @@ class DesktopRuntime:
             guard = executionlib.SequenceGuard(
                 verify, slot, rate_limit=self._rate_limit
             )
-            self._admit(guard)
-            self._track_resources()
             with self._sequence_context(guard):
+                self._admit(guard)
+                self._track_resources()
                 yield guard
 
     @contextmanager
@@ -437,6 +437,16 @@ class DesktopRuntime:
         marker = self._active_sequence.set((guard, closed))
         try:
             yield
+            guard.finish()
+        except BaseException:
+            # The execution slot still belongs to this sequence. Release only
+            # this provider's existing input, without revoking/rebinding a grant.
+            # A following writer cannot acquire the slot until cleanup finishes.
+            try:
+                self.input_provider.release_all()
+            except Exception as exc:
+                logger.warning("held input release after sequence unwind failed: %s", exc)
+            raise
         finally:
             closed.set()  # Copied task contexts cannot outlive the execution slot.
             self._active_sequence.reset(marker)
@@ -454,17 +464,9 @@ class DesktopRuntime:
         active[0].admit()
 
     def _admit(self, guard: executionlib.SequenceGuard) -> None:
-        try:
-            guard.admit()
-        except executionlib.SequenceRefused:
-            # Keys or buttons this process still holds from an earlier call
-            # belong to a grant that no longer admits anything: let them go now
-            # instead of when the hold timer fires.
-            try:
-                self.input_provider.release_all()
-            except Exception as exc:  # noqa: BLE001 - the refusal is still raised
-                logger.warning("held input release after refusal failed: %s", exc)
-            raise
+        # Admission runs inside the owned sequence context, so its refusal or
+        # cancellation uses the same release-before-unlock cleanup as an action.
+        guard.admit()
 
     def release_resources(self) -> None:
         """Release reusable desktop resources without retiring the runtime."""

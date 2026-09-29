@@ -36,6 +36,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from anyio import NoEventLoopError
+from anyio.from_thread import check_cancelled as _worker_check_canceled
+
 from .errors import DesktopError, ErrorCategory, ErrorCode, error_from_decision
 
 logger = logging.getLogger("pcbridge.desktop.execution")
@@ -51,6 +54,30 @@ EXECUTION_WAIT_SECONDS = 10.0
 _POLL_SECONDS = 0.05
 _RATE_WINDOW_SECONDS = 1.0
 _MAX_STATE_BYTES = 16 * 1024
+
+
+def check_canceled() -> None:
+    """Observe the MCP worker's host cancellation; ordinary CLI threads proceed."""
+    try:
+        _worker_check_canceled()
+    except NoEventLoopError:
+        # Only AnyIO workers have a host cancel scope. Other failures propagate.
+        pass
+
+
+def cancellation_sleep(seconds: float) -> None:
+    """Wait without sliding the grant or counting actions, checking every 50 ms.
+
+    Native actions remain bounded by their own timeouts; they are not forcibly
+    interrupted. A canceled request stops at its next shared checkpoint.
+    """
+    deadline = time.monotonic() + seconds
+    while True:
+        check_canceled()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(_POLL_SECONDS, remaining))
 
 
 class SequenceRefused(DesktopError):
@@ -141,6 +168,7 @@ class ExecutionLock:
         self, tool: str, *, timeout: float = EXECUTION_WAIT_SECONDS
     ) -> Iterator[ExecutionSlot]:
         """Hold the lock for one sequence, or raise `SequenceRefused` (BUSY)."""
+        check_canceled()
         self.state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         # O_CLOEXEC matters: a job started while the lock is held must not
         # inherit the descriptor and keep the desktop locked after we exit.
@@ -150,6 +178,7 @@ class ExecutionLock:
         try:
             started = self._monotonic()
             while True:
+                check_canceled()
                 try:
                     fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
@@ -159,6 +188,7 @@ class ExecutionLock:
                         holder = self._read_state().get("holder")
                         raise _busy(holder, waited, self._clock()) from None
                     self._sleep(min(_POLL_SECONDS, max(0.0, timeout - waited)))
+            check_canceled()
             slot = ExecutionSlot(self, waited=self._monotonic() - started)
             slot._set_holder({"tool": tool, "pid": os.getpid(), "since": self._clock()})
             try:
@@ -211,7 +241,7 @@ class ExecutionSlot:
         self._lock = lock
         self.waited = waited
 
-    def pace(self, limit: int) -> float:
+    def pace(self, limit: int, *, sleep: Callable[[float], None] | None = None) -> float:
         """Count one action against the shared per-second window.
 
         Waits first when `limit` actions already started within the last
@@ -227,7 +257,7 @@ class ExecutionSlot:
         if len(recent) >= limit:
             waited = max(0.0, recent[-limit] + _RATE_WINDOW_SECONDS - now)
             if waited > 0:
-                self._lock._sleep(waited)
+                (sleep or self._lock._sleep)(waited)
                 now = self._lock._clock()
                 recent = _window(recent, now)
         recent.append(now)
@@ -280,15 +310,26 @@ class SequenceGuard:
         self._check()
 
     def __call__(self, action: Any) -> None:
+        check_canceled()
         # A wait sends nothing, so it neither needs the check nor counts
         # against the rate window.
         if getattr(action, "a", action) == "wait":
             return
         self._check()
         if self._slot is not None:
-            self._slot.pace(self._rate_limit)
+            self._slot.pace(self._rate_limit, sleep=self.sleep)
+        check_canceled()
+
+    def sleep(self, seconds: float) -> None:
+        """A cancellation-only wait; it must never refresh or verify the lease."""
+        cancellation_sleep(seconds)
+
+    def finish(self) -> None:
+        """Do not retain held input if cancellation arrived during the last action."""
+        check_canceled()
 
     def _check(self) -> None:
+        check_canceled()
         self.checks += 1
         decision = self._verify()
         if not getattr(decision, "allowed", False):

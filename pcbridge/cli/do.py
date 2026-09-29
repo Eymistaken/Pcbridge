@@ -276,10 +276,6 @@ def _run_plan(cfg, args, plan, runtime) -> int:
     want_k, want_p, want_r = opslib.devices_needed(
         plan, focus_uses_keyboard=focus_uses_keyboard
     )
-    warmup = (
-        backend.ensure(keyboard=want_k, pointer=want_p, relative=want_r)
-        if (want_k or want_p or want_r) else 0.0
-    )
 
     gap = 1.0 / cfg.desktop.max_actions_per_second if cfg.desktop.max_actions_per_second > 0 else 0.0
     check_focus = cfg.desktop.batch_check_focus and not args.no_check_focus
@@ -291,6 +287,10 @@ def _run_plan(cfg, args, plan, runtime) -> int:
     # `desktop_lock` KALAN eylemleri de durdurur.
     try:
         with runtime.write_sequence("pcb_do") as guard:
+            warmup = (
+                backend.ensure(keyboard=want_k, pointer=want_p, relative=want_r)
+                if (want_k or want_p or want_r) else 0.0
+            )
             result = batchlib.run(
                 plan,
                 opslib.DeviceOps(backend, tree, cfg, capture_provider, runtime.window_provider,
@@ -301,6 +301,7 @@ def _run_plan(cfg, args, plan, runtime) -> int:
                 expect_focus=args.expect_focus,
                 repeat_limit=cfg.desktop.repeat_click_limit,
                 before_action=guard,
+                sleep=guard.sleep,
                 fast_focus=not focus_uses_keyboard,
             )
     except executionlib.SequenceRefused as exc:

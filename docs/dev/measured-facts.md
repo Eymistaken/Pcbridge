@@ -867,3 +867,29 @@ guard in the code (the guards limit damage, they do not make it impossible):
 - **2026-08-03**: a click based on a 69-second-old screenshot landed in
   another application. Now stale shots are refused
   (`agent_shot_max_age_seconds`, default 60 s).
+
+### Shared desktop request cancellation on Hyprland
+
+- The pinned FastMCP Client.call_tool wait can be canceled locally without
+  sending notifications/cancelled. A VM diagnostic doing only task.cancel()
+  left Shift held and delivered the later Shift+A sentinel. Source inspection
+  confirmed that Client.cancel(request_id) is the explicit notification API;
+  a canceled local wait is not a server cancellation signal.
+- A corrected probe observes the actual request ID through read-only public
+  FastMCP middleware, sends Client.cancel for that ID, and keeps client/server
+  alive through the original batch deadline. Before the shared execution fix,
+  the packaged release helper still held Shift throughout 4.501 seconds and
+  sent the later sentinel. After the fix, the same actual request ID 3 was
+  canceled, Shift released in 50 ms, no sentinel event appeared during 4.504
+  seconds, and system_capabilities still responded. Normal desktop_lock and
+  runtime cleanup left no helper, idle watcher, glow layer, or input observer.
+- Shared cancellation checkpoints cover admission, action boundaries,
+  successful sequence exit, batch/rate waits, and move-to-click settling.
+  They do not touch the grant during a wait. Cleanup occurs while the sequence
+  still owns its execution flock. Contracts verify that cancellation while
+  waiting for ownership preserves the current owner's held input, replacement
+  holds survive old cleanup, normal completed holds remain, and cancellation
+  of a general shell tool does not release desktop input. Native operations
+  are bounded atomic calls; this does not establish forced interruption or
+  rollback of already dispatched input. These measurements use the isolated
+  Arch/Hyprland VM, not the maintainer's GNOME session.

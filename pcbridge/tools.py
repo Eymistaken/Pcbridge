@@ -11,6 +11,7 @@ import logging
 import os
 import shlex
 import subprocess
+import sys
 import threading
 import time
 from contextlib import ExitStack, contextmanager
@@ -1639,7 +1640,7 @@ def register(
                     target = "where the pointer is"
                 else:
                     pos = backend.move(gx, gy, smooth=smooth)
-                    time.sleep(0.08)
+                    executionlib.cancellation_sleep(0.08)
                     backend.click(btn, clicks[act], **press)
                     target = f"at {pos}"
                 kind = {2: " (double)", 3: " (triple)"}.get(clicks[act], "")
@@ -1654,7 +1655,7 @@ def register(
             elif act == "scroll":
                 if x is not None and y is not None:
                     backend.move(*_to_global(x, y, monitor, shot), smooth=smooth)
-                    time.sleep(0.08)
+                    executionlib.cancellation_sleep(0.08)
                 backend.scroll(scroll_amount, horizontal=horizontal)
                 yon = "horizontally" if horizontal else "vertically"
                 done = f"scrolled {scroll_amount} step(s) {yon}"
@@ -1688,7 +1689,7 @@ def register(
                 backend_name="desktop.input",
             )
         finally:
-            write.close()
+            write.__exit__(*sys.exc_info())
 
         gate.audit(
             "mouse", action=act, x=x, y=y, monitor=monitor, shot=shot,
@@ -1830,7 +1831,7 @@ def register(
                 backend_name="desktop.input",
             )
         finally:
-            write.close()
+            write.__exit__(*sys.exc_info())
 
         gate.audit(
             "keyboard",
@@ -2672,7 +2673,7 @@ def register(
                 backend_name="desktop.accessibility",
             )
         finally:
-            write.close()
+            write.__exit__(*sys.exc_info())
         gate.audit("ui_click", node=str(id)[:40], name=res.get("name", "")[:60],
                    snapshot=res.get("snapshot") or None, forced=force or None)
         note = ""
@@ -2725,7 +2726,7 @@ def register(
                 backend_name="desktop.accessibility",
             )
         finally:
-            write.close()
+            write.__exit__(*sys.exc_info())
         # Metnin KENDISI denetim kaydina yazilmaz; parola girilmis olabilir.
         gate.audit("ui_set_text", node=str(id)[:40], chars=len(text),
                    snapshot=res.get("snapshot") or None, forced=force or None)
@@ -2845,7 +2846,7 @@ def register(
                 backend_name="desktop.window",
             )
         finally:
-            write.close()
+            write.__exit__(*sys.exc_info())
         gate.audit("window_focus", target=str(window)[:60], path=outcome.path,
                    ms=round((time.monotonic() - started) * 1000),
                    forced=force or None)
@@ -3013,26 +3014,26 @@ def register(
 
         gate.audit("computer_batch_start", count=len(plan),
                    kinds=",".join(sorted(kinds)), forced=force or None)
-        # Cihazlari bastan ac: birden fazlasi gerekiyorsa bekleme tek sefere
-        # iner (olculdu 2,61 s -> 1,41 s). Gerekmiyorsa hicbir cihaz acilmaz.
-        if needs_input:
-            try:
-                backend.ensure(keyboard=need_kbd, pointer=want_ptr,
-                               relative=want_rel)
-            except (inputlib.InputError, DesktopError) as exc:
-                gate.audit("computer_batch_error", error=str(exc)[:160])
-                return _exception_result(
-                    exc,
-                    text=f"Error: {exc}",
-                    category=ErrorCategory.EXECUTION,
-                    scope=input_scope,
-                    backend_name="desktop.input",
-                    extra={
-                        "batch": {"done": 0, "total": len(plan), "stopped": "error"}
-                    },
-                )
         try:
             with runtime.write_sequence("computer_batch") as guard:
+                # Cihazlari bastan ac: birden fazlasi gerekiyorsa bekleme tek sefere
+                # iner (olculdu 2,61 s -> 1,41 s). Gerekmiyorsa hicbir cihaz acilmaz.
+                if needs_input:
+                    try:
+                        backend.ensure(keyboard=need_kbd, pointer=want_ptr,
+                                       relative=want_rel)
+                    except (inputlib.InputError, DesktopError) as exc:
+                        gate.audit("computer_batch_error", error=str(exc)[:160])
+                        return _exception_result(
+                            exc,
+                            text=f"Error: {exc}",
+                            category=ErrorCategory.EXECUTION,
+                            scope=input_scope,
+                            backend_name="desktop.input",
+                            extra={
+                                "batch": {"done": 0, "total": len(plan), "stopped": "error"}
+                            },
+                        )
                 result = batchlib.run(
                     plan,
                     batch_ops,
@@ -3046,6 +3047,7 @@ def register(
                     expect_focus=expect_focus or "",
                     repeat_limit=cfg.desktop.repeat_click_limit,
                     before_action=guard,
+                    sleep=guard.sleep,
                     fast_focus=fast_focus,
                 )
         except executionlib.SequenceRefused as exc:
@@ -3300,7 +3302,7 @@ def register(
                     backend_name="desktop.window",
                 )
             finally:
-                write.close()
+                write.__exit__(*sys.exc_info())
 
         steps = int(max_steps or spec.computer_task_max_steps)
         prompt = _task_prompt(instructions, str(goal), opened, steps)

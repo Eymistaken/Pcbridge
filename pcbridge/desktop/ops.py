@@ -18,6 +18,7 @@ from typing import Any
 from . import apps as appslib
 from .batch import INPUT_ACTIONS, POINTER_ACTIONS, Action, BudgetExceeded
 from .contracts import CaptureProvider
+from .execution import cancellation_sleep
 
 # Fareyi tasidiktan sonra tiklamadan once verilen soluklanma. Kompozitorun
 # imleci yeni yere tasimasi anlik degil; 0 verilirse tiklama ESKI konumda
@@ -204,7 +205,7 @@ class DeviceOps:
             return ""
         gx, gy = self._global(x, y, monitor, shot)
         self.backend.move(gx, gy)
-        time.sleep(MOVE_SETTLE)
+        cancellation_sleep(MOVE_SETTLE)
         return f" ({gx}, {gy})"
 
     # ------------------------------------------------------- basili tutma

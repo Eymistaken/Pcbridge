@@ -87,6 +87,17 @@ lock and rechecks the grant **before every action**: a `desktop_lock` from
 anywhere stops the next action. The grant slides: it closes 90 s after the
 last desktop action, and never later than its hard ceiling.
 
+A genuine MCP cancellation notification stops a desktop worker at the next
+shared checkpoint. Batch waits, rate waits, and pointer settling check every
+50 ms without extending the lease. Escaping failures and canceled final
+actions release held input before the execution lock is relinquished; a
+canceled caller waiting for that lock cannot release the current owner's
+input. Completed intentional holds remain available to the next call.
+Individual native operations finish within their existing bounds; cancellation
+is not a rollback of input already sent. Canceling only a client-side Python
+task does not notify the server in the pinned SDK: clients must send the MCP
+cancellation notification, or use desktop_lock to revoke control.
+
 Content gates refuse typing into password fields, closing windows without
 `confirm_close`, and a third click in a row on the same element
 ([dev/desktop-rules.md](dev/desktop-rules.md)).

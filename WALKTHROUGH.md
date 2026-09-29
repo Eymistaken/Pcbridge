@@ -1937,11 +1937,150 @@ PY' > /tmp/pcbridge-stage9c-cleanup-live.log 2>&1
 **Remaining work:** Expiry/replacement/cancellation and policy acceptance,
 pointer lock, touch, clipboard ownership, accessibility, geometry/visual/
 performance evidence, nested smoke, and final regression still remain. A
-read-only audit found that MCP cancellation currently permits synchronous
-worker actions to continue; the next security stage must reproduce and resolve
-this rather than treating the client's cancellation exception as safety proof.
+read-only audit identified synchronous worker cancellation as a remaining
+safety question. The next stage must distinguish an actual MCP cancellation
+notification from local client task abandonment and measure input cleanup.
 
 **Review:** Separate spec and quality reviews approved the scoped stage after
 the measured diagnostic adjustment. Final VM exit status and independent
 cleanup were verified after the evidence JSON, rather than assuming that
 printing evidence established cleanup success.
+
+**Local commit:** `c5dfc94`.
+
+## Stage 9d: Stop canceled desktop sequences and release their held input
+
+**Plan adjustment/objective:** Investigate cancellation of synchronous desktop
+workers under the pinned MCP/FastMCP versions. Resolve any measured gap in the
+shared execution/runtime layers while preserving normal completed holds,
+exact grant ownership, and general-tool server survival.
+
+**Initial diagnostic and correction:** The first isolated VM probe canceled
+only the Python client task. Shift remained held during 4.501 seconds and a
+later Shift+A press/release reached the observer about 3.24 seconds after
+cancellation. system_capabilities still responded and normal cleanup completed.
+Source inspection and a separate worker experiment then established that
+Client.call_tool task.cancel() does not send notifications/cancelled in the
+pinned SDK. This is client abandonment without a server cancellation signal;
+it is not evidence that the server ignored an MCP cancellation notification.
+The failure and full traceback remain preserved in the original log below.
+
+**Exact initial diagnostic:**
+
+```bash
+scripts/dev/hyprland-vm.sh sync && scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/check_sequence_lifecycle.py' < tests/live/hyprland/check_sequence_lifecycle.py && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_SEQUENCE=1 .venv/bin/python tests/live/hyprland/check_sequence_lifecycle.py --case cancellation' > /tmp/pcbridge-stage9d-cancellation-red.log 2>&1
+```
+
+Exit 1: local task abandonment did not release Shift within one second.
+The corrected probe observes the actual request ID with read-only public
+FastMCP middleware and sends Client.cancel(request_id) before disposing of
+the local waiter. The genuine protocol measurements and correction are recorded below;
+independent reviews approved the scoped stage.
+
+**Genuine protocol red measurement:** The corrected probe was copied alone to
+the unchanged VM production source at c5dfc94. Client.cancel sent the actual
+request ID 3; evidence records mcp_cancel_notification_sent=true. Shift still
+had no release during 4.50137 seconds, and the later Shift+A sentinel reached
+GTK. Exit 1 and traceback are preserved in the protocol red log. Independent
+cleanup confirmed known unlocked state, no idle writer, and zero glow layers.
+
+**Design/files:** Add public AnyIO worker cancellation checkpoints in
+pcbridge/desktop/execution.py; ordinary CLI threads continue normally. Waits
+check every 50 ms without verifying or touching the lease. Admission/action/
+successful-exit checks stop the next protected operation, and runtime unwind
+releases existing input before relinquishing the execution flock. A waiting
+writer has no cleanup ownership. Move batch input warmup inside the owned
+sequence in pcbridge/tools.py and pcbridge/cli/do.py. Forward single-action
+ExitStack exception state rather than hiding unexpected body failures. Use
+the same cancellation wait in existing mouse settling and
+pcbridge/desktop/ops.py. Add tests/contracts/test_desktop_cancellation.py and
+tests/live/hyprland/check_sequence_lifecycle.py, update security and measured
+facts, and this journal. No general MCP late-response shim changed.
+
+**Green evidence:** The packaged release helper and normal MCP/gate path
+released Shift 0.05011 seconds after genuine notification, sent no sentinel
+during 4.50439 seconds, and still answered system_capabilities with input.keyboard, input.pointer,
+and input.pointer_relative reported as linux.uinput.native. Normal cleanup
+completed, followed by independent process/IPC checks: known unlocked, idle
+unknown because the test watcher exited, zero glow layers, native helpers,
+and input observers. No host GUI input was sent.
+
+**Exact tests and commands:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_desktop_cancellation tests.contracts.test_batch_safety tests.contracts.test_runtime_contract tests.contracts.test_native_grant_rebind tests.contracts.test_english_only > /tmp/pcbridge-stage9d-contracts.log 2>&1`
+  — pass, 80 tests including 11 new cancellation contracts. The implementer
+  also measured a move-to-click cancellation failure before the ops settling
+  change and an escaping keyboard exception leaving input held before
+  ExitStack exception forwarding; both corresponding contracts now pass.
+- `./.venv/bin/python tests/test_desktop.py > /tmp/pcbridge-stage9d-desktop.log 2>&1`
+  — pass, 615 checks without host input.
+- `git diff --check && ./.venv/bin/python -m py_compile pcbridge/desktop/execution.py pcbridge/desktop/runtime.py pcbridge/tools.py pcbridge/cli/do.py pcbridge/desktop/ops.py tests/contracts/test_desktop_cancellation.py tests/live/hyprland/check_sequence_lifecycle.py`
+  — pass.
+- `env -u PCBRIDGE_TEST_HYPRLAND_SEQUENCE ./.venv/bin/python tests/live/hyprland/check_sequence_lifecycle.py > /tmp/pcbridge-stage9d-no-optin.log 2>&1; test "$?" -eq 1 && rg -q 'Set PCBRIDGE_TEST_HYPRLAND_SEQUENCE' /tmp/pcbridge-stage9d-no-optin.log`
+  — pass, expected early refusal.
+- `PCBRIDGE_TEST_HYPRLAND_SEQUENCE=1 ./.venv/bin/python tests/live/hyprland/check_sequence_lifecycle.py > /tmp/pcbridge-stage9d-host-refused.log 2>&1; test "$?" -eq 1 && rg -q 'only on the disposable pcbridge-hyprland VM' /tmp/pcbridge-stage9d-host-refused.log`
+  — pass, expected early host refusal.
+- `PCBRIDGE_TEST_HYPRLAND_SEQUENCE=1 ./.venv/bin/python -O tests/live/hyprland/check_sequence_lifecycle.py > /tmp/pcbridge-stage9d-optimized-refused.log 2>&1; test "$?" -eq 1 && rg -q 'Python -O is forbidden' /tmp/pcbridge-stage9d-optimized-refused.log`
+  — pass, expected early optimized-Python refusal.
+- `scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/check_sequence_lifecycle.py' < tests/live/hyprland/check_sequence_lifecycle.py && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_SEQUENCE=1 .venv/bin/python tests/live/hyprland/check_sequence_lifecycle.py --case cancellation' > /tmp/pcbridge-stage9d-protocol-cancellation-red.log 2>&1`
+  — expected exit 1 against unchanged production source, actual notification.
+- `scripts/dev/hyprland-vm.sh sync && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_SEQUENCE=1 .venv/bin/python tests/live/hyprland/check_sequence_lifecycle.py --case cancellation' > /tmp/pcbridge-stage9d-protocol-cancellation-green.log 2>&1`
+  — harness exit 2: sync removed the still-untracked probe from the VM copy.
+  No GUI action ran. Recopying the probe corrected this command omission.
+- `scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/check_sequence_lifecycle.py' < tests/live/hyprland/check_sequence_lifecycle.py && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_SEQUENCE=1 .venv/bin/python tests/live/hyprland/check_sequence_lifecycle.py --case cancellation' > /tmp/pcbridge-stage9d-protocol-cancellation-green-final.log 2>&1`
+  — pass, exit 0 with actual GTK release and no-sentinel evidence.
+
+**Review-driven test correction:** Spec review demonstrated that the initial
+waiting-writer test could cancel before entering the blocked flock poll, and
+that a 120 ms deadline comparison could miss a lease touch suppressed by the
+existing one-second write threshold. The corrected test latches the actual
+blocked poll and observes the same worker's hold-wrapper unwind before the
+owner unlocks. The wait test spies public verify/touch methods and guard
+checks, as well as the deadline. Targeted in-memory mutations removing the
+poll checkpoint or adding verification/direct touch during wait now fail;
+production code was unchanged by these corrections.
+
+- `./.venv/bin/python -m unittest tests.contracts.test_desktop_cancellation tests.contracts.test_batch_safety tests.contracts.test_runtime_contract tests.contracts.test_native_grant_rebind tests.contracts.test_english_only > /tmp/pcbridge-stage9d-final-contracts.log 2>&1`
+  — pass, 80 tests after both review corrections.
+
+**Exact independent final cleanup:** The following command exited 0.
+
+```bash
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python - <<'\''PY'\''
+import json, os
+from pathlib import Path
+from pcbridge.desktop import hyprland, idlewatch
+from tests.live.hyprland.check_glow_owner import layers
+counts={"native_helpers":0,"input_observers":0}
+for process in Path("/proc").iterdir():
+    if not process.name.isdecimal():
+        continue
+    try:
+        if process.stat().st_uid != os.getuid():
+            continue
+        args=process.joinpath("cmdline").read_bytes().split(b"\0")
+    except (OSError, PermissionError):
+        continue
+    if args and Path(os.fsdecode(args[0])).name == "pcbridge-native":
+        counts["native_helpers"]+=1
+    if any(Path(os.fsdecode(arg)).name == "input_window.py" for arg in args if arg):
+        counts["input_observers"]+=1
+state={"locked":hyprland.screen_locked(),"idle":idlewatch.read_idle_ms(),"glow_layers":len(layers()),**counts}
+assert state == {"locked":False,"idle":None,"glow_layers":0,"native_helpers":0,"input_observers":0}, state
+print(json.dumps(state))
+PY' > /tmp/pcbridge-stage9d-cleanup-live.log 2>&1
+```
+
+**Limits/remaining work:** Cancellation requires a protocol notification;
+local client abandonment without one is not observable as cancellation by
+the server. Native operations keep their existing bounded completion behavior;
+there is no forced interruption or rollback. Expiry, replacement, mid-batch
+lock/revoke, additional policy/input/clipboard/accessibility/topology tests,
+nested smoke, full acceptance and existing-platform regression remain.
+
+**Review:** Separate spec and quality reviewers approved the final scoped
+changes. Both independently ran all 11 cancellation contracts; spec review
+also verified that the strengthened blocked-poll and lease-verification tests
+reject their targeted mutations. Quality review confirmed the actual VM green
+and cleanup evidence. Broader Hyprland acceptance and platform regression
+remain pending.
