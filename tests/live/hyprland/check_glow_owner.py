@@ -46,6 +46,7 @@ def monitor_rule(row, *, scale=None, transform=None, position=None):
     source = ('hl.monitor({ output = ' + json.dumps(row["name"])
               + ', mode = ' + json.dumps(mode)
               + ', position = ' + json.dumps(f'{x}x{y}')
+              + ', disabled = false'
               + f', scale = {row["scale"] if scale is None else scale}'
               + f', transform = {row["transform"] if transform is None else transform} }} )')
     subprocess.run(["hyprctl", "eval", source], check=True, capture_output=True, timeout=3)

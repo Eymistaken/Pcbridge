@@ -1154,3 +1154,21 @@ guard in the code (the guards limit damage, they do not make it impossible):
   the pointer at `(300,1100)` according to `hyprctl cursorpos`. Both runs
   restored output rules and closed the grant and test processes. The swapped
   output case passed again. Hotplug and mirror behavior remain open.
+
+### Simulated Hyprland output removal and return
+
+- On September 30, a guarded VM fixture disabled Virtual-2 with a temporary
+  compositor rule. The packaged release helper and normal MCP capture
+  returned one decoded 1280x800 Virtual-1 image while it was disabled and
+  two images after it was restored. An old Virtual-2 shot was refused with
+  no compositor cursor movement. The frame resource withdrew during each
+  layout change and recovered with current output proof.
+- The first diagnostic run exposed a VM fixture cleanup mistake: a monitor
+  rule with mode and position did not clear the disabled flag. Explicit
+  `disabled = false` restored the VM; the test helper now sends that field.
+  Three subsequent runs and an independent cleanup check found both outputs
+  enabled at their original positions and no frame, idle proof, native
+  helper, or pattern window. This is compositor-rule removal, not a physical
+  connector unplug. The image content during removal and return was decoded
+  and size-checked; pattern markers and counter were checked only before
+  the change because GTK can move fullscreen windows when an output leaves.

@@ -31,9 +31,10 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
 - **Hyprland acceptance.** Pointer lock, touch transparency on both VM outputs,
   a clipboard change during native typing, native accessibility and batch
   policy checks, fractional rotated capture, negative compositor origin,
-  swapped identical outputs, and vertical placement have scoped VM evidence in
+  swapped identical outputs, vertical placement, and simulated output removal
+  and return have scoped VM evidence in
   [WALKTHROUGH.md](WALKTHROUGH.md). Finish remaining
-  policy and hotplug/mirror layouts, visual/performance and nested
+  policy and mirror layouts, physical hotplug, visual/performance and nested
   checks, consolidate real VM acceptance, and run GNOME/KDE live regressions
   before claiming general support.
 - **Atomic clipboard ownership during paste.** The restore path now keeps a

@@ -46,14 +46,16 @@ SHOT_LINE = re.compile(
 )
 
 
-def capture_evidence(result, table, connectors, counter, label, out_dir):
+def capture_evidence(result, table, connectors, counter, label, out_dir,
+                     *, verify_pattern=True):
     assert not result.is_error, [item.text for item in result.content
                                  if getattr(item, "type", None) == "text"]
     body = "\n".join(item.text for item in result.content
                      if getattr(item, "type", None) == "text")
     rows = SHOT_LINE.findall(body)
     images = [item for item in result.content if getattr(item, "type", None) == "image"]
-    assert len(rows) == len(images) == len(table) == 2, {"rows": rows, "images": len(images), "body": body}
+    assert len(rows) == len(images) == len(table) and len(table) in (1, 2), {
+        "rows": rows, "images": len(images), "body": body}
     evidence = []
     for row, block in zip(rows, images):
         caption, width, height, x, y, scaled_width, scaled_height, scale, shot_id = row
@@ -68,10 +70,11 @@ def capture_evidence(result, table, connectors, counter, label, out_dir):
         with Image.open(io.BytesIO(base64.b64decode(block.data, validate=True))) as raw:
             image = raw.convert("RGB")
         assert image.size == expected, (connector, image.size, expected)
-        marker = marker_color(image)
-        observed = read_counter(image)
-        assert close_to(marker, MARKERS[connectors.index(connector)]), (connector, marker)
-        assert observed == counter, (connector, observed, counter)
+        marker = marker_color(image) if verify_pattern else None
+        observed = read_counter(image) if verify_pattern else None
+        if verify_pattern:
+            assert close_to(marker, MARKERS[connectors.index(connector)]), (connector, marker)
+            assert observed == counter, (connector, observed, counter)
         path = out_dir / f"{label}-{connector}.png"
         image.save(path)
         evidence.append({"connector": connector, "at": [monitor.x, monitor.y],
@@ -115,6 +118,50 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
                     741, "initial", out_dir)
                 old_shot = next(row["shot"] for row in evidence["initial"]
                                 if row["connector"] == original[1]["name"])
+
+                if layout == "hotplug":
+                    changed = True
+                    source = ('hl.monitor({ output = '
+                              + json.dumps(original[1]["name"]) + ', disabled = true })')
+                    subprocess.run(["hyprctl", "eval", source], check=True,
+                                   capture_output=True, timeout=3)
+                    wait_for(lambda: [row["name"] for row in hyprland.monitors()] ==
+                        [original[0]["name"]], description="second output removed")
+                    wait_for(lambda: glowstate.read_on_current_outputs(cfg.state_dir,
+                        token, binary=binary), description="one-output frame")
+                    time.sleep(2.1)
+
+                    cursor_before = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"],
+                        check=True, capture_output=True, text=True, timeout=5).stdout)
+                    stale = await call("mouse", {"action": "move", "x": 300, "y": 300,
+                        "shot": old_shot, "force": True, "smooth": False})
+                    assert stale.is_error and "screen layout changed" in str(stale.content).lower(), stale.content
+                    cursor_after = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"],
+                        check=True, capture_output=True, text=True, timeout=5).stdout)
+                    assert cursor_after == cursor_before, (cursor_before, cursor_after)
+                    evidence["stale_shot"] = "refused_without_motion"
+
+                    one = await call("screen_capture", {"monitor": "all", "scale": 0,
+                        "include_pointer": False})
+                    one_table = monitors.list_monitors(use_cache=False)
+                    evidence["removed"] = capture_evidence(one, one_table, connectors,
+                        None, "removed", out_dir, verify_pattern=False)
+                    assert [row["connector"] for row in evidence["removed"]] == [original[0]["name"]]
+
+                    monitor_rule(original[1])
+                    wait_for(lambda: [row["name"] for row in hyprland.monitors()] ==
+                        [item["name"] for item in original], description="second output restored")
+                    wait_for(lambda: glowstate.read_on_current_outputs(cfg.state_dir,
+                        token, binary=binary), description="two-output frame restored")
+                    time.sleep(2.1)
+                    restored = await call("screen_capture", {"monitor": "all", "scale": 0,
+                        "include_pointer": False})
+                    restored_table = monitors.list_monitors(use_cache=False)
+                    evidence["restored"] = capture_evidence(restored, restored_table, connectors,
+                        None, "restored", out_dir, verify_pattern=False)
+                    assert [row["connector"] for row in evidence["restored"]] == connectors
+                    evidence["passed"] = True
+                    return
 
                 changed = True
                 if layout == "rotated":
@@ -245,7 +292,7 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out-dir", type=Path, required=True)
-    parser.add_argument("--layout", choices=("rotated", "negative", "swapped", "vertical"),
+    parser.add_argument("--layout", choices=("rotated", "negative", "swapped", "vertical", "hotplug"),
                         default="rotated")
     args = parser.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)

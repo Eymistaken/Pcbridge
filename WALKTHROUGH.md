@@ -3075,3 +3075,48 @@ passes, the swapped-output regression, and independent VM cleanup passed.
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout vertical --out-dir /tmp/pcbridge-stage9p-vertical-final'
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout swapped --out-dir /tmp/pcbridge-stage9p-swap-regression'
 ```
+
+## Stage 9q: Output removal and return through normal MCP capture
+
+**Objective:** Measure stale-shot refusal and capture recovery when the
+second Hyprland VM output is removed from the active layout and restored.
+
+**Design:** The guarded topology fixture gained a `hotplug` option that
+disables Virtual-2 through a temporary compositor rule. It opens a visible
+grant and captures both pattern outputs first, then waits for one-output
+frame proof. An old Virtual-2 shot must be refused without cursor movement.
+The normal MCP capture must return one decoded 1280x800 Virtual-1 image.
+After the fixture explicitly reenables Virtual-2, new frame proof and normal
+MCP capture must return two correctly labeled 1280x800 images. The initial
+two-output images are checked against output markers and counter 741. The
+images during removal and return are checked for decoded size and output
+identity; the GTK pattern windows may be relocated by the compositor, so
+their marker and counter are not asserted in those phases.
+
+**Fresh VM measurements (September 30, 2026):** The first diagnostic run
+confirmed stale-shot refusal and one-output capture, then failed cleanup:
+the original monitor helper restored mode and position but left Virtual-2
+marked disabled. An explicit `disabled = false` compositor rule restored the
+VM to its exact original two-output state. The VM-only monitor rule helper
+now includes that field. Three subsequent hotplug runs passed with the
+packaged release helper: one image while Virtual-2 was disabled, two after
+it returned, and no cursor motion on the refused old shot. The grant frame
+briefly withdrew resource health at each layout change and recovered. All
+three runs restored the original monitor rules, locked the grant, and exited 0.
+The vertical layout passed again with the updated restore helper.
+Independent VM inspection found both outputs enabled at their initial
+positions, no frame, idle proof, native helper, or pattern window, and a
+known unlocked screen.
+
+This simulates removal through a compositor rule. It does not measure a
+physical connector unplug, mirror behavior, or every application window's
+placement after an output returns. Production code was not changed.
+
+**Verification:** Python compilation, `git diff --check`, three hotplug VM
+passes, the vertical regression, and independent VM cleanup passed.
+
+```bash
+./.venv/bin/python -m py_compile tests/live/hyprland/check_glow_owner.py tests/live/hyprland/check_topology_capture.py
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout hotplug --out-dir /tmp/pcbridge-stage9q-hotplug-final2'
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout vertical --out-dir /tmp/pcbridge-stage9q-vertical-regression'
+```
