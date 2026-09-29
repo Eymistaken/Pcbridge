@@ -1260,3 +1260,17 @@ guard in the code (the guards limit damage, they do not make it impossible):
   The strengthened paired run, default mirror and hotplug regressions, and
   independent cleanup check passed. This is direct virtual GPU display
   evidence, not a physical connector measurement.
+
+### Consolidated Hyprland VM cohort
+
+- On September 30, a VM-only runner passed 17 cases in one session: pointer
+  lock, two-output touch, accessibility policy, lock and activity, five
+  sequence lifecycle cases, six output layouts, and two-output capture
+  latency. A cleanup check after each case required the original layout,
+  unlocked screen, no frame or idle proof, and no native helper or test
+  window. A separate check after the cohort found the VM clean as well.
+- The cohort's capture case measured a 215.059 ms median, 255.831 ms
+  nearest-rank 95th percentile, and 195.252–267.354 ms range over 20
+  timed in-process MCP calls. It saw 44 distinct shot IDs across 22 calls.
+  This run did not exercise nested compositor isolation, physical hotplug
+  or mirrors, QMP frame pixels, performance under load, or GNOME/KDE.

@@ -3357,3 +3357,44 @@ scripts/dev/hyprland-vm.sh screenshot /tmp/pcbridge-gpu2-granted.png 2
 scripts/dev/hyprland-vm.sh screenshot /tmp/pcbridge-gpu1-closed.png 1
 scripts/dev/hyprland-vm.sh screenshot /tmp/pcbridge-gpu2-closed.png 2
 ```
+
+## Stage 9x: Consolidated scoped Hyprland VM cohort
+
+**Objective:** Run the previously measured input, safety, lifecycle, and
+topology cases in one VM session, checking that each returns the machine to
+a clean state before the next case begins.
+
+**Design:** A VM-only runner refuses the host, native helper overrides, and
+optimized Python before starting a case. It uses the existing guarded live
+fixtures and writes separate logs under a fresh `/tmp` directory. After
+each fixture it independently checks the original two-output compositor
+layout, unlocked screen, absent frame and idle proof, and no native helper
+or test window process. It stops at the first case or cleanup failure.
+
+**Fresh VM measurement (September 30, 2026):** All 17 sequential cases
+passed: pointer lock, two-output touch transparency, accessibility policy,
+real screen lock and activity transitions, five sequence lifecycle cases
+(cancellation, expiry, revoke, replacement, failure), six topology cases
+(rotated, negative origin, swapped, vertical, simulated output removal,
+mirror), and two-output MCP capture latency. Cleanup passed after every
+case. The cohort's 20 timed capture calls measured a 215.059 ms median,
+255.831 ms nearest-rank 95th percentile, and 195.252–267.354 ms range;
+44 shot IDs were distinct across 22 calls. An independent post-run VM check
+found the original output layout, unlocked screen, and no frame, idle proof,
+native helper, or test window.
+
+The first runner invocation stopped before any case because the minimal
+Arch VM lacks a `hostname` executable. Its guard now reads the kernel
+hostname directly. The successful run did not retest the separate QMP
+mirrored-display pixel measurement, nested compositor isolation, a physical
+connector, performance under load, or GNOME/KDE. It establishes one coherent
+VM cohort, not general Hyprland support. Production code was not changed.
+
+**Verification:** `bash -n`, two host containment refusals, all 17 live VM
+cases and per-case cleanups, the independent final cleanup check, and
+`git diff --check` passed.
+
+```bash
+bash -n tests/live/hyprland/run_acceptance.sh
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_MATRIX=1 tests/live/hyprland/run_acceptance.sh'
+```
