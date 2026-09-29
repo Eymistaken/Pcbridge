@@ -38,10 +38,12 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   checks, consolidate real VM acceptance, and run GNOME/KDE live regressions
   before claiming general support.
 - **Hyprland mirror semantics.** The real active-monitor query hides a
-  mirrored output even though `hyprctl monitors all` reports it. The existing
-  mirror-row refusal contract is not reached in that configuration. Measure
-  normal MCP capture, grant frame visibility, and input under a mirrored VM
-  layout before choosing support or explicit refusal.
+  mirrored output even though `hyprctl monitors all` reports it. Normal MCP
+  capture returns the source output, and old follower shots are refused. The
+  existing mirror-row refusal contract is not reached in that configuration.
+  Verify physical grant-frame visibility on the mirrored follower and a
+  successful source-shot input action before choosing support or explicit
+  refusal.
 - **Atomic clipboard ownership during paste.** The restore path now keeps a
   different clipboard value observed after paste, but `wl-copy` exposes no
   atomic owner identity to this path. An identical replacement or a change

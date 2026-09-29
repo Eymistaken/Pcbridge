@@ -1184,3 +1184,16 @@ guard in the code (the guards limit damage, they do not make it impossible):
 - Both probes restored the empty mirror rule and original monitor positions.
   Normal MCP capture, grant frame presentation, and input in mirror mode
   remain unmeasured, so this does not establish mirror support.
+
+### Normal MCP capture under a mirrored VM output
+
+- On September 30, three guarded VM runs opened the normal desktop grant
+  before mirroring Virtual-2 to Virtual-1. The active monitor table then
+  contained only Virtual-1; frame proof rebuilt for that output. An old
+  Virtual-2 shot was refused with no compositor cursor movement. Normal
+  MCP capture returned one decoded 1280x800 Virtual-1 image.
+- Clearing the mirror rule restored two active outputs, current frame proof,
+  and two decoded 1280x800 images with the expected connector labels. All
+  runs restored the original monitor rules and closed the grant and test
+  processes. The physical visibility of the grant frame on the mirrored
+  follower and a successful source-shot input effect remain unmeasured.

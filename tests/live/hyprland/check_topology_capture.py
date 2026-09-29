@@ -119,14 +119,26 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
                 old_shot = next(row["shot"] for row in evidence["initial"]
                                 if row["connector"] == original[1]["name"])
 
-                if layout == "hotplug":
+                if layout in ("hotplug", "mirror"):
                     changed = True
                     source = ('hl.monitor({ output = '
-                              + json.dumps(original[1]["name"]) + ', disabled = true })')
+                              + json.dumps(original[1]["name"])
+                              + (', disabled = true })' if layout == "hotplug"
+                                 else ', mirror = "Virtual-1" })'))
                     subprocess.run(["hyprctl", "eval", source], check=True,
                                    capture_output=True, timeout=3)
+                    if layout == "mirror":
+                        def mirrored_output():
+                            rows = json.loads(subprocess.run(
+                                ["hyprctl", "-j", "monitors", "all"], check=True,
+                                capture_output=True, text=True, timeout=5).stdout)
+                            return next((row["mirrorOf"] for row in rows
+                                if row["name"] == original[1]["name"] and
+                                row["mirrorOf"] not in ("none", "")), None)
+                        evidence["mirror_of"] = wait_for(mirrored_output,
+                            description="mirrored follower reported")
                     wait_for(lambda: [row["name"] for row in hyprland.monitors()] ==
-                        [original[0]["name"]], description="second output removed")
+                        [original[0]["name"]], description="one active output")
                     wait_for(lambda: glowstate.read_on_current_outputs(cfg.state_dir,
                         token, binary=binary), description="one-output frame")
                     time.sleep(2.1)
@@ -144,9 +156,10 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
                     one = await call("screen_capture", {"monitor": "all", "scale": 0,
                         "include_pointer": False})
                     one_table = monitors.list_monitors(use_cache=False)
-                    evidence["removed"] = capture_evidence(one, one_table, connectors,
-                        None, "removed", out_dir, verify_pattern=False)
-                    assert [row["connector"] for row in evidence["removed"]] == [original[0]["name"]]
+                    single_key = "removed" if layout == "hotplug" else "mirrored"
+                    evidence[single_key] = capture_evidence(one, one_table, connectors,
+                        None, single_key, out_dir, verify_pattern=False)
+                    assert [row["connector"] for row in evidence[single_key]] == [original[0]["name"]]
 
                     monitor_rule(original[1])
                     wait_for(lambda: [row["name"] for row in hyprland.monitors()] ==
@@ -292,7 +305,7 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out-dir", type=Path, required=True)
-    parser.add_argument("--layout", choices=("rotated", "negative", "swapped", "vertical", "hotplug"),
+    parser.add_argument("--layout", choices=("rotated", "negative", "swapped", "vertical", "hotplug", "mirror"),
                         default="rotated")
     args = parser.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)

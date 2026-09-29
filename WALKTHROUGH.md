@@ -3150,3 +3150,41 @@ host guards, `git diff --check`, and independent VM cleanup passed.
 ./.venv/bin/python -m py_compile tests/live/hyprland/check_mirror_visibility.py
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_MIRROR=1 .venv/bin/python tests/live/hyprland/check_mirror_visibility.py --out-dir /tmp/pcbridge-stage9s-mirror-final'
 ```
+
+## Stage 9s: Normal MCP capture while one output mirrors another
+
+**Objective:** Measure the normal MCP behavior under the live mirror state
+found in Stage 9r, including stale-shot safety and recovery.
+
+**Fresh VM measurements (September 30, 2026):** Three guarded runs used the
+packaged release helper, two fullscreen pattern windows, and a visible grant.
+After Virtual-2 mirrored Virtual-1, `hyprctl monitors all` reported
+`mirrorOf: "0"` for Virtual-2 while the active output table contained only
+Virtual-1. The grant frame withdrew and rebuilt proof for that one active
+output. A move using an old Virtual-2 shot returned a screen-layout-changed
+error; `hyprctl cursorpos` was unchanged. Normal MCP `screen_capture`
+returned one decoded 1280x800 image labeled Virtual-1. Clearing the mirror
+rule and waiting for fresh frame proof restored two decoded 1280x800 images
+with their correct output labels. Each run restored the exact original
+monitor rules, locked the grant, and closed test processes. The output
+removal regression passed with the shared restore helper; independent VM
+inspection found no frame, idle proof, native helper, or pattern window and
+a known unlocked screen.
+
+The initial two-output images were checked against output markers and a
+fresh counter. Images during and after mirroring were checked for decoded
+size and output identity; GTK may relocate fullscreen windows during these
+changes. These tests do not show whether the white grant frame is visibly
+duplicated on the mirrored physical output or whether a successful input
+action from the source image has the intended effect there. Mirror support
+and general Hyprland acceptance remain open. Production code was not
+changed.
+
+**Verification:** Three mirror VM passes, the hotplug regression, Python
+compilation, `git diff --check`, and independent VM cleanup passed.
+
+```bash
+./.venv/bin/python -m py_compile tests/live/hyprland/check_glow_owner.py tests/live/hyprland/check_topology_capture.py
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout mirror --out-dir /tmp/pcbridge-stage9s-mirror-mcp-final2'
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout hotplug --out-dir /tmp/pcbridge-stage9s-hotplug-regression'
+```
