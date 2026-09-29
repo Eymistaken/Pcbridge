@@ -1172,3 +1172,15 @@ guard in the code (the guards limit damage, they do not make it impossible):
   connector unplug. The image content during removal and return was decoded
   and size-checked; pattern markers and counter were checked only before
   the change because GTK can move fullscreen windows when an output leaves.
+
+### Hyprland mirror visibility differs between output queries
+
+- On September 30, two guarded VM probes temporarily mirrored Virtual-2 to
+  Virtual-1 without a grant or input. `hyprctl -j monitors all` included
+  Virtual-2 with `mirrorOf: "0"`, while the active-monitor query used by
+  PcBridge included only Virtual-1. The Python canvas likewise exposed only
+  Virtual-1. The isolated contract that rejects an explicit mirror row does
+  not describe this live transport path.
+- Both probes restored the empty mirror rule and original monitor positions.
+  Normal MCP capture, grant frame presentation, and input in mirror mode
+  remain unmeasured, so this does not establish mirror support.

@@ -3120,3 +3120,33 @@ passes, the vertical regression, and independent VM cleanup passed.
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout hotplug --out-dir /tmp/pcbridge-stage9q-hotplug-final2'
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout vertical --out-dir /tmp/pcbridge-stage9q-vertical-regression'
 ```
+
+## Stage 9r: Mirror visibility in Hyprland's active output query
+
+**Objective:** Check whether the adapter's explicit mirror refusal is reached
+when the real compositor mirrors the second VM output.
+
+**Fresh VM measurements (September 30, 2026):** A guarded VM-only probe
+temporarily mirrored Virtual-2 to Virtual-1 without opening a desktop grant
+or sending input. `hyprctl -j monitors all` reported Virtual-2 with
+`mirrorOf: "0"`, referring to the source output ID. The active-monitor query
+used by PcBridge returned only Virtual-1. The Python monitor table therefore
+also contained only Virtual-1 and did not reach the mirror-row refusal pinned
+by the existing isolated contract. Two passes observed the same result. Each
+restored an explicit empty mirror rule and the exact original positions;
+independent VM inspection found both outputs nonmirrored, a known unlocked
+screen, and no frame or idle watcher.
+
+This is a measured visibility gap between the synthetic mirror row and the
+real active-output transport. It does not establish whether normal MCP
+capture, frame visibility, or input are safe in mirror mode. Those behaviors
+must be measured before treating mirrored outputs as supported or claiming
+general Hyprland acceptance. Production code was not changed.
+
+**Verification:** The two guarded VM probes, Python compilation, three
+host guards, `git diff --check`, and independent VM cleanup passed.
+
+```bash
+./.venv/bin/python -m py_compile tests/live/hyprland/check_mirror_visibility.py
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_MIRROR=1 .venv/bin/python tests/live/hyprland/check_mirror_visibility.py --out-dir /tmp/pcbridge-stage9s-mirror-final'
+```
