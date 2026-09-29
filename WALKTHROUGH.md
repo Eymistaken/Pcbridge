@@ -2084,3 +2084,151 @@ also verified that the strengthened blocked-poll and lease-verification tests
 reject their targeted mutations. Quality review confirmed the actual VM green
 and cleanup evidence. Broader Hyprland acceptance and platform regression
 remain pending.
+
+**Local commit:** `498d9db`.
+
+## Stage 9e: Measure normal MCP sequence expiry, revoke, replacement, and failure
+
+**Objective:** Exercise the remaining sequence lifecycle through real MCP
+calls in the disposable Hyprland VM using the default packaged release helper.
+Observe real held-key release and the absence of a later sentinel, rather than
+assuming that a structured refusal implies no input. Expiry uses the existing
+public sliding deadline without fast-forwarding or replacing lease state.
+Replacement must invalidate the old sequence while preserving the new grant
+and its own intentional hold. A real provider validation failure must occur
+after a successful hold and release that hold safely.
+
+**Planned scope:** Extend tests/live/hyprland/check_sequence_lifecycle.py;
+keep normal SafetyGate, execution ownership, fresh native idle, exact observer
+identity, visible grant, and cleanup. Source changes are contingent on a
+measured defect. The completed measurements and verification are recorded below.
+
+**Design/files:** Extend the existing VM-only sequence probe with four cases;
+production code is unchanged. Read-only lease snapshots capture real identity
+and sliding deadlines. Every case uses normal MCP calls and asserts the native
+keyboard backend, eight initial glow strips, two actual fullscreen observers,
+current focus PID, and the real wire request ID. Cancellation notifications
+and pending waiter joins have explicit bounds; cleanup failures are recorded
+while normal lock and runtime cleanup continue. Failed validation must
+originate in the native provider after a successful hold/wait, rather than
+request parsing. Update measured facts and this journal.
+
+**Final VM evidence:** All five cases exited 0 without cleanup errors. The
+packaged release helper reported unknown-dirty/test_harness=false; native
+keyboard backend was linux.uinput.native. Every observed request ID was 4.
+
+| Case | Observable result |
+|---|---|
+| Expiry | Shift released 30.93 ms after the actual sliding deadline, 10.029 s after down; no sentinel; done=2/3, stopped=safety, REVOKED; inactive grant/frame. |
+| Revoke | Normal desktop_lock released Shift in 57.89 ms; no sentinel; done=2/3, stopped=safety, REVOKED. |
+| Replacement | Old Shift released in 50.79 ms; distinct new token; Ctrl hold request queued while the old request remained pending; old batch REVOKED; Ctrl started after old cleanup, remained held during observation, and released only by its own call; new grant active/visible. |
+| Failure | Native unknown-key failure after a 100 ms wait; Shift released 318.59 ms from down, MCP result received 327.38 ms from down; done=2/4, stopped=error, native INVALID_FRAME/unknown-key message; no sentinel; normal b press/release both Shift false. |
+| Cancellation | Genuine Client.cancel for request 4 released Shift in 51.39 ms; no sentinel during the original deadline observation; capabilities still responded. |
+
+**Review/measurement adjustments:** Initial cases passed before stronger
+assertions. Failure originally included a three-second wait and allowed five
+seconds from key down; shorten that wait to 100 ms and require release within
+one second. There is no claim about an unobserved internal exception timestamp.
+Spec review strengthened explicit Shift-false checks, initial layer/fullscreen
+proof, pending old-request assertion, native validation origin, real request
+ID evidence, and bounded notification/waiter cleanup. All five cases were
+rerun after consolidated changes. Code spec review approved those changes.
+Quality review clarified replacement evidence: the request was queued while
+the old batch remained pending, but the execution lock intentionally started
+the physical Ctrl hold after old cleanup. This does not prove a physical key
+was held across old completion.
+
+**Exact commands/results:**
+
+- `scripts/dev/hyprland-vm.sh sync && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_SEQUENCE=1 .venv/bin/python tests/live/hyprland/check_sequence_lifecycle.py --case expiry' > /tmp/pcbridge-stage9e-expiry-live.log 2>&1`
+  — initial pass, deadline release +3.15 ms before consolidated review changes.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_SEQUENCE=1 .venv/bin/python tests/live/hyprland/check_sequence_lifecycle.py --case revoke' > /tmp/pcbridge-stage9e-revoke-live.log 2>&1`
+  — initial pass, release 32.58 ms.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_SEQUENCE=1 .venv/bin/python tests/live/hyprland/check_sequence_lifecycle.py --case replacement' > /tmp/pcbridge-stage9e-replacement-live.log 2>&1`
+  — initial pass, release 56.07 ms, surviving replacement hold.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_SEQUENCE=1 .venv/bin/python tests/live/hyprland/check_sequence_lifecycle.py --case failure' > /tmp/pcbridge-stage9e-failure-live.log 2>&1`
+  — initial pass with three-second wait, followed by the timing improvement.
+- `scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_SEQUENCE=1 .venv/bin/python tests/live/hyprland/check_sequence_lifecycle.py --case cancellation' > /tmp/pcbridge-stage9e-cancellation-live.log 2>&1`
+  — pass after expanding the probe, request 4, release 52.86 ms.
+- `scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/check_sequence_lifecycle.py' < tests/live/hyprland/check_sequence_lifecycle.py && scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_SEQUENCE=1 .venv/bin/python tests/live/hyprland/check_sequence_lifecycle.py --case failure' > /tmp/pcbridge-stage9e-failure-live-final.log 2>&1`
+  — pass with shorter wait; release 343.32 ms from down, before final modifier
+  and cleanup assertions.
+- `./.venv/bin/python -m unittest tests.contracts.test_desktop_cancellation tests.contracts.test_batch_safety tests.contracts.test_runtime_contract tests.contracts.test_native_grant_rebind tests.contracts.test_english_only > /tmp/pcbridge-stage9e-contracts.log 2>&1`
+  — pass, 80 tests before consolidated review changes.
+- `./.venv/bin/python -m py_compile tests/live/hyprland/check_sequence_lifecycle.py && git diff --check && ./.venv/bin/python -m unittest tests.contracts.test_desktop_cancellation tests.contracts.test_batch_safety tests.contracts.test_runtime_contract tests.contracts.test_native_grant_rebind tests.contracts.test_english_only > /tmp/pcbridge-stage9e-final-contracts.log 2>&1`
+  — final verification after consolidated changes; 80 tests pass.
+
+Exact final consolidated VM run, all five pass:
+
+```bash
+scripts/dev/hyprland-vm.sh sync && python3 - <<'PY'
+import subprocess
+from pathlib import Path
+for case in ('expiry','revoke','replacement','failure','cancellation'):
+    command='cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_SEQUENCE=1 .venv/bin/python tests/live/hyprland/check_sequence_lifecycle.py --case '+case
+    with Path('/tmp/pcbridge-stage9e-'+case+'-acceptance-final.log').open('w') as log:
+        subprocess.run(['scripts/dev/hyprland-vm.sh','session',command],stdout=log,stderr=subprocess.STDOUT,timeout=60,check=True)
+    print(case+': VM acceptance passed',flush=True)
+PY
+```
+
+**Remaining work/plan adjustment:** Automatic expiry retires the lease and
+therefore returned REVOKED; the shared text incorrectly attributes revocation
+to desktop_lock. Correct that attribution in a separate reporting stage
+without changing safety semantics. Real screen-lock mid-batch, pointer lock/
+touch, additional policy/clipboard/accessibility/topology/visual/performance/
+nested evidence, full acceptance and existing-platform regression remain.
+No supported-platform claim or push is made.
+
+Exact early-refusal checks, all three pass before GUI imports:
+
+```bash
+python3 - <<'PY' > /tmp/pcbridge-stage9e-guard-checks.log
+import os, subprocess
+script='tests/live/hyprland/check_sequence_lifecycle.py'
+base=dict(os.environ)
+base.pop('PCBRIDGE_TEST_HYPRLAND_SEQUENCE',None)
+checks=[('no-optin',base,[], 'Set PCBRIDGE_TEST_HYPRLAND_SEQUENCE'),('host',dict(base,PCBRIDGE_TEST_HYPRLAND_SEQUENCE='1'),[], 'only on the disposable pcbridge-hyprland VM'),('optimized',dict(base,PCBRIDGE_TEST_HYPRLAND_SEQUENCE='1'),['-O'], 'Python -O is forbidden')]
+for name,env,options,expected in checks:
+    result=subprocess.run(['./.venv/bin/python',*options,script],env=env,capture_output=True,text=True,timeout=5)
+    assert result.returncode==1 and expected in result.stderr,(name,result.returncode,result.stderr)
+    print(name+': expected early refusal, pass')
+PY
+```
+
+Exact independent VM cleanup and native-override refusal, exit 0; authoritative
+lock false, no idle writer, no glow, no helper, no input observer:
+
+```bash
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python - <<'\''PY'\''
+import json, os, subprocess
+from pathlib import Path
+from pcbridge.desktop import hyprland, idlewatch
+from tests.live.hyprland.check_glow_owner import layers
+counts={"native_helpers":0,"input_observers":0}
+for process in Path("/proc").iterdir():
+    if not process.name.isdecimal():
+        continue
+    try:
+        if process.stat().st_uid != os.getuid():
+            continue
+        args=process.joinpath("cmdline").read_bytes().split(b"\0")
+    except (OSError, PermissionError):
+        continue
+    if args and Path(os.fsdecode(args[0])).name == "pcbridge-native":
+        counts["native_helpers"]+=1
+    if any(Path(os.fsdecode(arg)).name == "input_window.py" for arg in args if arg):
+        counts["input_observers"]+=1
+state={"locked":hyprland.screen_locked(),"idle":idlewatch.read_idle_ms(),"glow_layers":len(layers()),**counts}
+assert state == {"locked":False,"idle":None,"glow_layers":0,"native_helpers":0,"input_observers":0},state
+result=subprocess.run([".venv/bin/python","tests/live/hyprland/check_sequence_lifecycle.py"],env={**os.environ,"PCBRIDGE_TEST_HYPRLAND_SEQUENCE":"1","PCBRIDGE_NATIVE_BIN":"/unavailable-test-override"},capture_output=True,text=True,timeout=5)
+assert result.returncode==1 and "Native helper overrides are forbidden" in result.stderr,(result.returncode,result.stderr)
+print(json.dumps({**state,"native_override_refused":True}))
+PY' > /tmp/pcbridge-stage9e-acceptance-cleanup-final.log 2>&1
+```
+
+**Review:** Separate spec and quality reviewers approved the scoped stage.
+They checked the consolidated code, final five-case logs, independent cleanup,
+early refusals, 80-test result, and journal reconciliation. Quality review
+also corrected the physical replacement-hold chronology described above.
+No remaining scoped findings; full acceptance and regression remain pending.

@@ -893,3 +893,35 @@ guard in the code (the guards limit damage, they do not make it impossible):
   are bounded atomic calls; this does not establish forced interruption or
   rollback of already dispatched input. These measurements use the isolated
   Arch/Hyprland VM, not the maintainer's GNOME session.
+
+### Normal MCP sequence lifecycle on Hyprland
+
+- With public sliding timeout 10 seconds and hold timeout 20 seconds, the
+  normal MCP batch held Shift, waited 11.5 seconds, and attempted a sentinel.
+  The native key release occurred 30.93 ms after the read-only actual lease
+  deadline; the next action was refused, done=2/3, with no sentinel and no
+  active grant/frame. Automatic owner cleanup retires the expired identity,
+  so the observed structured code was REVOKED rather than GRANT_EXPIRED.
+- Explicit desktop_lock during the wait released Shift in 57.89 ms and
+  stopped the next action. Normal replacement desktop_unlock released the
+  old Shift in 50.79 ms, produced a distinct grant identity, and stopped the
+  old batch with REVOKED. A Ctrl hold request queued while the old batch
+  remained pending started after old cleanup, remained held for the bounded
+  observation, and released only on its own normal keyboard release call. The replacement
+  grant stayed active and visible; no old sentinel arrived.
+- A real native unknown-key validation failure after hold plus a short
+  100 ms wait released Shift in 319 ms from observed key down. The MCP error
+  result arrived at 327 ms; these observations do not identify the exact
+  internal exception timestamp. The batch completed 2/4 actions, sent no
+  sentinel, and the same grant then sent an observed lowercase b press and
+  release with Shift false. The current native error mapping reports
+  INVALID_FRAME with the actual unknown-key message.
+- The expanded probe reran genuine MCP cancellation (observed request ID 4):
+  release in 51.39 ms, no later sentinel, and a responsive server. All acting
+  tests used normal MCP calls, fresh native idle and a presented grant frame,
+  current fullscreen observer identity, and default packaged release helper
+  discovery. system_capabilities reported linux.uinput.native for keyboard.
+- A reporting follow-up remains: the shared revoked-sequence text includes
+  a desktop_lock attribution even when automatic expiry cleanup retired the
+  grant. The code and refusal are safe, but the cause is not always known and
+  must not be attributed to a specific manual action without evidence.
