@@ -160,6 +160,27 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
                     evidence[single_key] = capture_evidence(one, one_table, connectors,
                         None, single_key, out_dir, verify_pattern=False)
                     assert [row["connector"] for row in evidence[single_key]] == [original[0]["name"]]
+                    if layout == "mirror":
+                        source_shot = evidence["mirrored"][0]["shot"]
+                        source_cursor = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"],
+                            check=True, capture_output=True, text=True, timeout=5).stdout)
+                        target = (300, 300) if abs(source_cursor["x"] - 300) > 2 or abs(
+                            source_cursor["y"] - 300) > 2 else (600, 400)
+                        moved = await call("mouse", {"action": "move", "x": target[0],
+                            "y": target[1], "shot": source_shot, "force": True,
+                            "smooth": False})
+                        assert not moved.is_error, moved.content
+
+                        def cursor_at_source_target():
+                            position = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"],
+                                check=True, capture_output=True, text=True, timeout=5).stdout)
+                            if abs(position["x"] - target[0]) <= 2 and abs(
+                                position["y"] - target[1]) <= 2:
+                                return position
+                            return None
+
+                        evidence["source_pointer"] = wait_for(cursor_at_source_target,
+                            description="fresh source shot pointer motion while mirrored")
 
                     monitor_rule(original[1])
                     wait_for(lambda: [row["name"] for row in hyprland.monitors()] ==

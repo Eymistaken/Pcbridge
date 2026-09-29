@@ -1229,3 +1229,15 @@ guard in the code (the guards limit damage, they do not make it impossible):
   pattern window. Timing excludes client image decoding and any external
   stdio relay or network. It is a static VM baseline without concurrent
   load or an established product latency target.
+
+### Source-shot pointer input while a VM output mirrors it
+
+- On September 30, two guarded VM runs captured Virtual-1 while Virtual-2
+  mirrored it. Normal MCP `mouse` used the fresh Virtual-1 shot to move the
+  pointer to `(300,300)`; independent `hyprctl cursorpos` agreed in both
+  runs. An old Virtual-2 shot was refused without pointer movement, and
+  two-output capture recovered after mirroring ended. The hotplug regression
+  and independent cleanup check passed.
+- The source canvas accepts screenshot-relative pointer movement in this
+  configuration. Visibility on the follower's separate virtual display
+  and a physical mirrored connector remain unmeasured.

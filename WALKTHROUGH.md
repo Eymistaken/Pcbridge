@@ -3264,3 +3264,37 @@ runs, independent VM cleanup after each, and `git diff --check` passed.
 ./.venv/bin/python -m py_compile tests/live/hyprland/check_capture_performance.py
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_PERFORMANCE=1 .venv/bin/python tests/live/hyprland/check_capture_performance.py --out-dir /tmp/pcbridge-stage9u-performance-repeat'
 ```
+
+## Stage 9v: Fresh source-shot pointer input during mirroring
+
+**Objective:** Verify that a screenshot from the active source output remains
+usable for normal MCP pointer input while the other VM output mirrors it.
+
+**Design:** The guarded mirror topology fixture first refuses an old
+Virtual-2 shot without cursor movement. It captures the sole active
+Virtual-1 output and moves the pointer with that fresh shot ID. The target
+is chosen away from the starting cursor position, then independently
+checked through `hyprctl cursorpos`. The fixture restores two outputs and
+closes the grant and processes.
+
+**Fresh VM measurements (September 30, 2026):** Two runs passed with the
+packaged release helper. The compositor reported Virtual-2 mirroring output
+ID `0`, the old follower shot was refused without pointer motion, and a
+normal MCP `mouse` move using the new Virtual-1 shot succeeded. Both runs
+observed cursor position `(300,300)` at the requested target. Two-output
+capture recovered after the mirror rule was cleared. The hotplug regression
+passed. Independent VM inspection found the original nonmirrored layout,
+unlocked screen, and no frame, idle proof, native helper, or pattern window.
+
+This measures pointer placement on the active source canvas. It does not
+show the frame on the follower's separate virtual display or prove that a
+physical mirrored connector visibly presents the frame. The fixture does
+not click a mirrored application. Production code was not changed.
+
+**Verification:** Two mirror VM passes, the hotplug regression, Python
+compilation, `git diff --check`, and independent VM cleanup passed.
+
+```bash
+./.venv/bin/python -m py_compile tests/live/hyprland/check_topology_capture.py
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout mirror --out-dir /tmp/pcbridge-stage9v-mirror-input-repeat'
+```
