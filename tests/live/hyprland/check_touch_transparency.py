@@ -68,7 +68,20 @@ def tap(device, x, y, tracking_id):
     device.syn()
 
 
-async def run_case(cfg, observer, device, app_id, evidence, out_dir):
+def eval_hyprland(expression):
+    result = subprocess.run(["hyprctl", "eval", expression], capture_output=True,
+                            text=True, timeout=5)
+    assert result.returncode == 0 and result.stdout.strip() == "ok", {
+        "expression": expression, "returncode": result.returncode,
+        "stdout": result.stdout, "stderr": result.stderr,
+    }
+
+
+def map_touchscreen(name, output):
+    eval_hyprland(f"hl.device({{name={json.dumps(name)},output={json.dumps(output)}}})")
+
+
+async def run_case(cfg, observer, device, app_id, evidence, out_dir, expected_at, output):
     mcp = None
     grant_open = False
     try:
@@ -90,7 +103,7 @@ async def run_case(cfg, observer, device, app_id, evidence, out_dir):
                 target = clients[0]
                 assert target.get("mapped") and target.get("visible") and target.get("fullscreen") == 2
                 assert current.get("pid") == observer.process.pid and current.get("address") == target.get("address")
-                assert target["at"] == [0, 0] and target["size"] == [1280, 800], target
+                assert target["at"] == expected_at and target["size"] == [1280, 800], target
                 return target
 
             async def receive(kind, mark, predicate=lambda event: True):
@@ -105,6 +118,7 @@ async def run_case(cfg, observer, device, app_id, evidence, out_dir):
                 up = await receive("touch_up", mark, lambda event: event["id"] == down["id"])
                 events = observer.since(mark)
                 assert len([event for event in events if event["event"] == "touch_down"]) == 1, events
+                assert len([event for event in events if event["event"] == "touch_up"]) == 1, events
                 assert not any(event["event"] == "touch_cancel" for event in events), events
                 focus()
                 evidence["taps"].append({"name": name, "sent": [x, y], "down": down, "up": up})
@@ -112,6 +126,8 @@ async def run_case(cfg, observer, device, app_id, evidence, out_dir):
             try:
                 observer.wait("ready", timeout=8)
                 target = focus()
+                evidence["wayland_output"] = await receive("output_selected", 0,
+                    lambda event: event["name"] == output)
                 await receive("ready", 0, lambda event:
                     [event["width"], event["height"]] == target["size"])
                 evidence["touch_capability"] = await receive("touch_capability", 0)
@@ -164,15 +180,24 @@ def stop_child(process):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument("--output", choices=("Virtual-1", "Virtual-2"), default="Virtual-1")
     args = parser.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    evidence = {"calls": [], "taps": [], "cleanup": {}, "passed": False}
+    evidence = {"calls": [], "taps": [], "cleanup": {}, "output": args.output, "passed": False}
     failure = None
     observer = idle = device = None
+    mapping_requested = False
     try:
         assert hyprland.screen_locked() is False
         assert not layers() and idlewatch.read_idle_ms() is None
         assert os.access("/dev/uinput", os.R_OK | os.W_OK)
+        monitors = {item["name"]: item for item in hyprland._query("monitors", json_output=True)}
+        target_monitor = monitors[args.output]
+        assert target_monitor["width"] == 1280 and target_monitor["height"] == 800
+        assert target_monitor["scale"] == 1 and target_monitor["transform"] == 0
+        expected_at = [target_monitor["x"], target_monitor["y"]]
+        assert expected_at == ([0, 0] if args.output == "Virtual-1" else [1280, 0])
+        evidence["monitor"] = {"at": expected_at, "size": [1280, 800]}
         base = load_config(ROOT / "config.example.toml", check_state=False)
         assert base.native.binary_path is None
         binary = discover_native_binary(base.native)
@@ -197,16 +222,21 @@ def main():
                 device = make_touchscreen(1280, 800)
                 evidence["device"] = {"name": device.name, "path": device.device.path}
                 time.sleep(1.0)  # Let the compositor publish the temporary seat capability.
-                observer = Observer(executable, directory, app_id)
+                if args.output == "Virtual-2":
+                    mapping_requested = True
+                    map_touchscreen(device.name, args.output)
+                observer = Observer(executable, directory, app_id, args.output)
                 idle = subprocess.Popen([str(binary), "idle-watch"], stdout=subprocess.DEVNULL,
                                         stderr=subprocess.DEVNULL)
                 wait_for(lambda: idlewatch.read_idle_ms() is not None,
                          description="own fresh idle watcher")
                 asyncio.run(asyncio.wait_for(run_case(cfg, observer, device, app_id,
-                    evidence, args.out_dir), timeout=50))
+                    evidence, args.out_dir, expected_at, args.output), timeout=50))
             finally:
                 for name, cleanup in (
                     ("observer", observer.close if observer else None),
+                    ("touch_mapping", (lambda: map_touchscreen(device.name, "[[Auto]]"))
+                     if mapping_requested and device else None),
                     ("touch_device", device.close if device else None),
                     ("idle", (lambda: stop_child(idle)) if idle else None),
                 ):

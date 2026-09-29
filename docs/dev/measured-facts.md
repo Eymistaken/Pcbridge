@@ -1032,3 +1032,21 @@ guard in the code (the guards limit damage, they do not make it impossible):
 - This is a content check, not atomic ownership proof. An identical text
   replacement or a clipboard change after the re-read can still race the
   restore. The first-MIME-only restore limit also remains.
+
+### Touch mapped to Hyprland's second output
+
+- On September 29, two fresh VM runs bound a temporary direct touchscreen to
+  Virtual-2 with `hl.device`, selected the matching `wl_output` in the
+  Wayland fullscreen request, and observed client geometry `(1280,0)
+  1280x800`. Before the grant, during all four native glow edges, and after
+  the grant, six touches reached that client at the requested local
+  coordinates, each with a matching down/up ID and no cancellation. The
+  screenshot showed the client beneath the visible glow; the receiver
+  compiled without warnings, exited 0, and stopped its reader. The mapped
+  device was reset to `[[Auto]]` before it was closed.
+- The first-output touch fixture and pointer-lock fixture passed after the
+  Wayland receiver change. Independent cleanup found no temporary touchscreen
+  or idle proof; the global touch output option remained unset. The failed
+  early cursor-selection and seat-listener revisions were test-only. The
+  measurement is limited to two scale-1 1280x800 VM outputs and does not
+  establish arbitrary touchscreen mappings or general Hyprland support.

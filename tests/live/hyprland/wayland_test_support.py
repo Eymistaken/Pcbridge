@@ -38,12 +38,12 @@ def compile_observer(directory):
 class Observer:
     """Read protocol evidence independently of the MCP event loop."""
 
-    def __init__(self, binary, directory, app_id):
+    def __init__(self, binary, directory, app_id, output=None):
         self.events = []
         self.condition = threading.Condition()
         self.stderr_path = directory / "observer.stderr"
         self.stderr = self.stderr_path.open("w", encoding="utf-8")
-        self.process = subprocess.Popen([str(binary), app_id], stdin=subprocess.PIPE,
+        self.process = subprocess.Popen([str(binary), app_id, *([output] if output else [])], stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=self.stderr, text=True, bufsize=1)
         self.reader = threading.Thread(target=self.read, daemon=True)
         self.reader.start()

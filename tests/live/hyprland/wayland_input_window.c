@@ -23,6 +23,10 @@ static struct wl_shm *shm;
 static struct wl_seat *seat;
 static struct wl_pointer *pointer;
 static struct wl_touch *touch;
+static struct wl_output *outputs[8];
+static size_t output_count;
+static struct wl_output *selected_output;
+static const char *requested_output;
 static struct wl_surface *surface;
 static struct xdg_wm_base *wm;
 static struct xdg_surface *shell_surface;
@@ -109,6 +113,13 @@ static void capabilities(void *d, struct wl_seat *s, uint32_t caps) {
 }
 static void seat_label(void *d, struct wl_seat *s, const char *name) { (void)d; (void)s; (void)name; }
 static const struct wl_seat_listener seat_listener = { .capabilities=capabilities, .name=seat_label };
+static void output_geometry(void *d, struct wl_output *o, int32_t x, int32_t y, int32_t pw, int32_t ph, int32_t subpixel, const char *make, const char *model, int32_t transform) { (void)d; (void)o; (void)x; (void)y; (void)pw; (void)ph; (void)subpixel; (void)make; (void)model; (void)transform; }
+static void output_mode(void *d, struct wl_output *o, uint32_t flags, int32_t w, int32_t h, int32_t refresh) { (void)d; (void)o; (void)flags; (void)w; (void)h; (void)refresh; }
+static void output_done(void *d, struct wl_output *o) { (void)d; (void)o; }
+static void output_scale(void *d, struct wl_output *o, int32_t factor) { (void)d; (void)o; (void)factor; }
+static void output_name(void *d, struct wl_output *o, const char *name) { (void)d; if (requested_output && !strcmp(name, requested_output)) { selected_output=o; EVENT("output_selected", ",\"name\":\"%s\"", requested_output); } }
+static void output_description(void *d, struct wl_output *o, const char *description) { (void)d; (void)o; (void)description; }
+static const struct wl_output_listener output_listener = { .geometry=output_geometry, .mode=output_mode, .done=output_done, .scale=output_scale, .name=output_name, .description=output_description };
 static void global(void *d, struct wl_registry *r, uint32_t name, const char *interface, uint32_t version) {
     (void)d;
     EVENT("protocol", ",\"interface\":\"%s\",\"advertised_version\":%u", interface, version);
@@ -118,6 +129,7 @@ static void global(void *d, struct wl_registry *r, uint32_t name, const char *in
     else if (!strcmp(interface,"zwp_pointer_constraints_v1")) constraints=wl_registry_bind(r,name,&zwp_pointer_constraints_v1_interface,1);
     else if (!strcmp(interface,"zwp_relative_pointer_manager_v1")) relative_manager=wl_registry_bind(r,name,&zwp_relative_pointer_manager_v1_interface,1);
     else if (!strcmp(interface,"wl_seat") && !seat) { seat_name=name; seat=wl_registry_bind(r,name,&wl_seat_interface,version < 5 ? version : 5); }
+    else if (!strcmp(interface,"wl_output") && version >= 4 && output_count < 8) { struct wl_output *output=wl_registry_bind(r,name,&wl_output_interface,4); outputs[output_count++]=output; wl_output_add_listener(output,&output_listener,NULL); }
 }
 static void removed(void *d, struct wl_registry *r, uint32_t name) { (void)d; (void)r; if (name == seat_name) fail("Seat removed"); }
 static const struct wl_registry_listener registry_listener = { .global=global, .global_remove=removed };
@@ -131,7 +143,8 @@ static void command(const char *line) {
     else fail("Unknown command");
 }
 int main(int argc, char **argv) {
-    if (argc != 2 || strlen(argv[1]) > 120 || strspn(argv[1],"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.") != strlen(argv[1])) return 2;
+    if ((argc != 2 && argc != 3) || strlen(argv[1]) > 120 || strspn(argv[1],"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.") != strlen(argv[1])) return 2;
+    if (argc == 3) { if (strlen(argv[2]) > 120 || strspn(argv[2],"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.") != strlen(argv[2])) return 2; requested_output=argv[2]; }
     signal(SIGALRM, stop_signal); alarm(60); signal(SIGTERM, stop_signal); signal(SIGINT, stop_signal); signal(SIGPIPE, SIG_IGN);
     display=wl_display_connect(NULL); if (!display) return 2;
     struct wl_registry *registry=wl_display_get_registry(display);
@@ -139,8 +152,9 @@ int main(int argc, char **argv) {
     if (wl_display_roundtrip(display) < 0 || !compositor || !shm || !wm || !seat || !constraints || !relative_manager) { fail("Required Wayland globals unavailable"); goto cleanup; }
     EVENT("bound_protocols", ",\"wl_seat\":%u,\"xdg_wm_base\":1,\"pointer_constraints\":1,\"relative_pointer\":1", wl_seat_get_version(seat));
     wl_seat_add_listener(seat,&seat_listener,NULL); xdg_wm_base_add_listener(wm,&wm_listener,NULL);
+    if (requested_output && (wl_display_roundtrip(display) < 0 || !selected_output)) { fail("Requested Wayland output unavailable"); goto cleanup; }
     surface=wl_compositor_create_surface(compositor); shell_surface=xdg_wm_base_get_xdg_surface(wm,surface); xdg_surface_add_listener(shell_surface,&surface_listener,NULL);
-    top=xdg_surface_get_toplevel(shell_surface); xdg_toplevel_add_listener(top,&top_listener,NULL); xdg_toplevel_set_app_id(top,argv[1]); xdg_toplevel_set_title(top,argv[1]); xdg_toplevel_set_fullscreen(top,NULL); wl_surface_commit(surface);
+    top=xdg_surface_get_toplevel(shell_surface); xdg_toplevel_add_listener(top,&top_listener,NULL); xdg_toplevel_set_app_id(top,argv[1]); xdg_toplevel_set_title(top,argv[1]); xdg_toplevel_set_fullscreen(top,selected_output); wl_surface_commit(surface);
     int flags=fcntl(STDIN_FILENO,F_GETFL); if (flags < 0 || fcntl(STDIN_FILENO,F_SETFL,flags | O_NONBLOCK) < 0) { fail("Cannot set nonblocking stdin"); goto cleanup; }
     double deadline=stamp()+60; char input[128]; size_t used=0;
     while (!stopping && stamp() < deadline) {
@@ -169,6 +183,7 @@ cleanup:
     if (top) xdg_toplevel_destroy(top);
     if (shell_surface) xdg_surface_destroy(shell_surface);
     if (surface) wl_surface_destroy(surface);
+    for (size_t i=0;i<output_count;++i) wl_output_release(outputs[i]);
     if (buffer) wl_buffer_destroy(buffer);
     if (pixels) munmap(pixels,pixel_bytes);
     if (seat) { if (wl_seat_get_version(seat) >= 5) wl_seat_release(seat); else wl_seat_destroy(seat); }

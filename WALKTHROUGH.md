@@ -2756,3 +2756,51 @@ deprecation warning. The final VM input fixture exited 0 with
 `original_clipboard_bytes_restored=true`. GNOME and KDE live regression is
 still required because the typing orchestration is shared. No full Hyprland
 support or release claim follows from this stage.
+
+## Stage 9j: Measure touch transparency on the second output
+
+**Objective:** Verify a touchscreen mapped to Virtual-2 reaches the client
+under its native glow, including all four edges, and verify that the temporary
+mapping and device are removed afterward.
+
+**Design:** The VM-only touch fixture now selects Virtual-1 or Virtual-2.
+For Virtual-2, it creates the same direct uinput touchscreen, maps that device
+with Hyprland's runtime `hl.device` command, and asks the Wayland observer to
+fullscreen on the named `wl_output`. The observer reports the selected output
+and its client geometry. It checks a baseline touch, four glow-edge touches,
+and a post-grant touch against local client coordinates. Cleanup resets the
+device mapping to `[[Auto]]` before closing the device. Production input and
+glow behavior are unchanged.
+
+**Fresh VM measurements (September 29, 2026):** Two Virtual-2 runs passed.
+The final run reported `output_selected=Virtual-2`, fullscreen client geometry
+`(1280,0) 1280x800`, eight glow layers, and exactly one matching `wl_touch`
+down/up for each of `(640,400)` before and after the grant and `(640,5)`,
+`(640,794)`, `(5,400)`, `(1274,400)` during it. There was no touch cancel.
+The native screenshot showed the client and the white glow. The receiver
+compiled without warnings and exited 0; its reader stopped. The fixture
+closed the grant, observer, idle watcher, temporary device, and mapping.
+A separate Virtual-1 run after the first Virtual-2 run passed all six touches;
+the unchanged pointer-lock fixture passed with the updated Wayland receiver.
+An independent VM query found no touchscreen, idle proof, grant layer, or
+test helper process, and the global touch output option still unset
+(`[[Auto]]`).
+
+The first selection attempt used compositor cursor movement, which returned
+`ok` but did not move the cursor in this VM, so the final fixture selects the
+output through the Wayland fullscreen request. The initial receiver revision
+also consumed seat capability events during an extra Wayland roundtrip before
+installing the seat listener; moving listener registration before that
+roundtrip restored `wl_touch` delivery on both outputs. These failures did
+not enter production code. This measures two 1280x800 scale-1 VM outputs;
+other touch mappings, scale and transform combinations, and broader Hyprland
+acceptance remain open.
+
+**Verification:**
+
+```bash
+./.venv/bin/python -m py_compile tests/live/hyprland/check_touch_transparency.py tests/live/hyprland/wayland_test_support.py
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOUCH=1 .venv/bin/python tests/live/hyprland/check_touch_transparency.py --output Virtual-2 --out-dir /tmp/pcbridge-stage9j-touch-final'
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOUCH=1 .venv/bin/python tests/live/hyprland/check_touch_transparency.py --output Virtual-1 --out-dir /tmp/pcbridge-stage9j-touch-output1-final2'
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_POINTER_LOCK=1 .venv/bin/python tests/live/hyprland/check_pointer_lock.py --out-dir /tmp/pcbridge-stage9j-pointer-regression'
+```
