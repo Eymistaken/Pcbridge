@@ -2945,3 +2945,45 @@ error contracts, and an independent VM cleanup check passed.
 ./.venv/bin/python -m unittest tests.contracts.test_desktop_gates tests.contracts.test_mcp_errors
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_A11Y_POLICY=1 .venv/bin/python tests/live/hyprland/check_accessibility_policy.py --out-dir /tmp/pcbridge-stage9m-policy-final'
 ```
+
+## Stage 9n: Negative compositor origin through normal MCP capture and input
+
+**Objective:** Measure the conversion between PcBridge's nonnegative canvas
+and a Hyprland layout whose compositor coordinates start left of zero.
+
+**Design:** The guarded topology fixture gained a `negative` layout option.
+With two fullscreen pattern windows and a visible grant, it moves Virtual-1
+from `(0,0)` to `(-1280,0)` and Virtual-2 from `(1280,0)` to `(0,0)`.
+The output order and relative canvas geometry stay the same. It waits for
+new frame proof, captures both outputs through normal MCP, checks returned
+images and normalized offsets against the fresh monitor table, then sends a
+`mouse` move using a fresh Virtual-1 screenshot ID. A read-only compositor
+query verifies where the pointer actually landed. Cleanup restores the
+original output rules and closes the grant, pattern windows, and watcher.
+
+**Fresh VM measurements (September 30, 2026):** Two negative-layout runs
+passed with the packaged release helper. Hyprland reported Virtual-1 at
+`(-1280,0)` and Virtual-2 at `(0,0)`; the PcBridge table kept canvas offsets
+`(0,0)` and `(1280,0)` and retained both compositor positions separately.
+The delivered 1280x800 images kept their correct magenta/cyan markers and
+advanced from counter 741 to 742. A move from pixel `(300,300)` in the fresh
+Virtual-1 shot placed the pointer at exactly `(-980,300)` according to
+`hyprctl cursorpos`. The existing rotated layout also passed after the
+fixture change. Both negative runs restored the original output rules,
+locked the grant, and exited 0. Independent VM inspection found no frame,
+idle proof, native helper, or pattern window and a known unlocked screen.
+
+This covers a horizontal translation with unchanged output order. It does
+not cover swapped identical outputs, vertical placement, hotplug, or mirror
+behavior. Production code was not changed.
+
+**Verification:** Python compilation, `git diff --check`, 20 focused
+Hyprland monitor and capture-region contracts, two negative VM passes, the
+rotated regression, and independent VM cleanup passed.
+
+```bash
+./.venv/bin/python -m py_compile tests/live/hyprland/check_glow_owner.py tests/live/hyprland/check_topology_capture.py
+./.venv/bin/python -m unittest tests.contracts.test_hyprland_monitors tests.contracts.test_capture_region
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout negative --out-dir /tmp/pcbridge-stage9n-negative-final'
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout rotated --out-dir /tmp/pcbridge-stage9n-rotated-regression'
+```

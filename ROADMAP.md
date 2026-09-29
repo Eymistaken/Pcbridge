@@ -30,7 +30,8 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
 
 - **Hyprland acceptance.** Pointer lock, touch transparency on both VM outputs,
   a clipboard change during native typing, native accessibility and batch
-  policy checks, and fractional rotated capture have scoped VM evidence in
+  policy checks, fractional rotated capture, and negative compositor origin
+  have scoped VM evidence in
   [WALKTHROUGH.md](WALKTHROUGH.md). Finish remaining
   policy and topology layouts, visual/performance and nested checks, consolidate
   real VM acceptance, and run GNOME/KDE live regressions before claiming

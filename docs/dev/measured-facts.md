@@ -1108,3 +1108,18 @@ guard in the code (the guards limit damage, they do not make it impossible):
   grant teardown and an independent VM check found no frame, idle proof,
   native helper, or test window left behind. Other batch policies and full
   Hyprland acceptance remain open.
+
+### Negative Hyprland compositor origin through normal MCP
+
+- On September 30, two guarded VM runs moved Virtual-1 to `(-1280,0)` and
+  Virtual-2 to `(0,0)` while retaining their left-to-right order. The shared
+  monitor table mapped them to canvas offsets `(0,0)` and `(1280,0)` and
+  retained the negative compositor coordinate separately. The normal MCP
+  capture returned two 1280x800 images with the correct magenta/cyan output
+  markers and a fresh counter change from 741 to 742.
+- Normal MCP `mouse` moved to pixel `(300,300)` in the fresh Virtual-1 shot;
+  `hyprctl cursorpos` independently reported `(-980,300)`. Both runs restored
+  the exact original monitor rules and closed the grant and test processes.
+  The prior fractional rotated case passed again with the expanded fixture.
+  This measures a translated horizontal layout, not output swaps, vertical
+  placement, hotplug, or mirrors.

@@ -39,12 +39,13 @@ def layers():
             if layer["namespace"] == "pcbridge-glow"]
 
 
-def monitor_rule(row, *, scale=None, transform=None):
+def monitor_rule(row, *, scale=None, transform=None, position=None):
     # Diagnostic configuration changes are confined to the dedicated VM.
     mode = f'{row["width"]}x{row["height"]}@{row["refreshRate"]:.2f}'
+    x, y = (row["x"], row["y"]) if position is None else position
     source = ('hl.monitor({ output = ' + json.dumps(row["name"])
               + ', mode = ' + json.dumps(mode)
-              + ', position = ' + json.dumps(f'{row["x"]}x{row["y"]}')
+              + ', position = ' + json.dumps(f'{x}x{y}')
               + f', scale = {row["scale"] if scale is None else scale}'
               + f', transform = {row["transform"] if transform is None else transform} }} )')
     subprocess.run(["hyprctl", "eval", source], check=True, capture_output=True, timeout=3)

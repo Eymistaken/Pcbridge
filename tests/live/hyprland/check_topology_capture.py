@@ -1,4 +1,4 @@
-"""Measure normal MCP capture across a fractional rotated Hyprland output."""
+"""Measure normal MCP capture across changed Hyprland output layouts."""
 from __future__ import annotations
 
 import os
@@ -81,7 +81,7 @@ def capture_evidence(result, table, connectors, counter, label, out_dir):
     return evidence
 
 
-async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evidence):
+async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evidence, layout):
     mcp, _ = build_app(cfg, transport="stdio")
     grant_open = False
     changed = False
@@ -117,24 +117,34 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
                                 if row["connector"] == original[1]["name"])
 
                 changed = True
-                monitor_rule(original[1], scale=1.25, transform=1)
-                wait_for(lambda: any(item.connector == original[1]["name"] and
-                    item.scale == 1.25 and item.transform == 1
-                    for item in monitors.list_monitors(use_cache=False)),
-                    description="fractional rotated monitor")
+                if layout == "rotated":
+                    monitor_rule(original[1], scale=1.25, transform=1)
+                    wait_for(lambda: any(item.connector == original[1]["name"] and
+                        item.scale == 1.25 and item.transform == 1
+                        for item in monitors.list_monitors(use_cache=False)),
+                        description="fractional rotated monitor")
+                else:
+                    monitor_rule(original[0], position=(-1280, 0))
+                    monitor_rule(original[1], position=(0, 0))
+                    wait_for(lambda: [(row["name"], row["x"], row["y"])
+                        for row in hyprland.monitors()] == [
+                        (original[0]["name"], -1280, 0),
+                        (original[1]["name"], 0, 0)],
+                        description="negative platform origin")
                 wait_for(lambda: glowstate.read_on_current_outputs(cfg.state_dir,
                     token, binary=binary), description="new topology glow")
                 time.sleep(2.1)  # Let the product's normal monitor cache expire.
 
-                cursor_before = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"],
-                    check=True, capture_output=True, text=True, timeout=5).stdout)
-                stale = await call("mouse", {"action": "move", "x": 300, "y": 300,
-                    "shot": old_shot, "force": True, "smooth": False})
-                assert stale.is_error and "screen layout changed" in str(stale.content).lower(), stale.content
-                cursor_after = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"],
-                    check=True, capture_output=True, text=True, timeout=5).stdout)
-                assert cursor_after == cursor_before, (cursor_before, cursor_after)
-                evidence["stale_shot"] = "refused_without_motion"
+                if layout == "rotated":
+                    cursor_before = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"],
+                        check=True, capture_output=True, text=True, timeout=5).stdout)
+                    stale = await call("mouse", {"action": "move", "x": 300, "y": 300,
+                        "shot": old_shot, "force": True, "smooth": False})
+                    assert stale.is_error and "screen layout changed" in str(stale.content).lower(), stale.content
+                    cursor_after = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"],
+                        check=True, capture_output=True, text=True, timeout=5).stdout)
+                    assert cursor_after == cursor_before, (cursor_before, cursor_after)
+                    evidence["stale_shot"] = "refused_without_motion"
 
                 show(742)
                 second = await call("screen_capture", {"monitor": "all", "scale": 0,
@@ -142,10 +152,31 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
                 changed_table = monitors.list_monitors(use_cache=False)
                 evidence["changed"] = capture_evidence(second, changed_table, connectors,
                     742, "changed", out_dir)
-                rotated = next(row for row in evidence["changed"]
-                               if row["connector"] == original[1]["name"])
-                assert rotated["pixels"] == [800, 1280]
-                assert rotated["desktop_size"] == [640, 1024]
+                if layout == "rotated":
+                    rotated = next(row for row in evidence["changed"]
+                                   if row["connector"] == original[1]["name"])
+                    assert rotated["pixels"] == [800, 1280]
+                    assert rotated["desktop_size"] == [640, 1024]
+                else:
+                    assert [(item.connector, item.x, item.y, item.platform) for item in changed_table] == [
+                        (original[0]["name"], 0, 0, (-1280, 0)),
+                        (original[1]["name"], 1280, 0, (0, 0))]
+                    assert all(row["pixels"] == [1280, 800] for row in evidence["changed"])
+                    shot = next(row["shot"] for row in evidence["changed"]
+                                if row["connector"] == original[0]["name"])
+                    moved = await call("mouse", {"action": "move", "x": 300, "y": 300,
+                        "shot": shot, "force": True, "smooth": False})
+                    assert not moved.is_error, moved.content
+
+                    def cursor_at_negative_target():
+                        position = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"],
+                            check=True, capture_output=True, text=True, timeout=5).stdout)
+                        if abs(position["x"] + 980) <= 2 and abs(position["y"] - 300) <= 2:
+                            return position
+                        return None
+
+                    evidence["pointer"] = wait_for(cursor_at_negative_target,
+                        description="shot coordinate mapped to negative platform position")
                 evidence["passed"] = True
             finally:
                 try:
@@ -171,9 +202,10 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument("--layout", choices=("rotated", "negative"), default="rotated")
     args = parser.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    evidence = {"passed": False, "cleanup": {}}
+    evidence = {"passed": False, "layout": args.layout, "cleanup": {}}
     failure = None
     idle = pattern = None
     try:
@@ -215,7 +247,7 @@ def main():
                 connectors = reader.expect("ready ", 30).split(" ", 1)[1].split(",")
                 assert connectors == ["Virtual-1", "Virtual-2"], connectors
                 asyncio.run(asyncio.wait_for(run(cfg, pattern, reader, connectors,
-                    original, binary, args.out_dir, evidence), timeout=75))
+                    original, binary, args.out_dir, evidence, args.layout), timeout=75))
             finally:
                 if pattern:
                     if pattern.poll() is None:
