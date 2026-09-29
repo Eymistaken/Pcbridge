@@ -2862,3 +2862,49 @@ scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_A11Y
 ./.venv/bin/python -m unittest discover -s tests/integration -t .
 ./.venv/bin/python tests/test_desktop.py
 ```
+
+## Stage 9l: Capture across a fractional rotated output through normal MCP
+
+**Objective:** Check that the packaged release helper, visible grant frame,
+and MCP capture stay aligned when Virtual-2 changes scale and transform, and
+that an old screenshot coordinate is refused before any pointer movement.
+
+**Design:** A guarded VM-only fixture opens its own fullscreen pattern
+windows on both outputs and a fresh native idle watcher. It uses normal MCP
+`desktop_unlock` and `screen_capture`, decodes the actual returned image
+blocks, and checks each image against the current monitor table, marker,
+and counter. It then changes Virtual-2 to scale 1.25 and transform 1 using
+the VM compositor, waits for a frame covering the new output geometry and
+the normal monitor cache to expire, and tries a `mouse` move with an old
+shot ID. The rejection must leave compositor cursor coordinates unchanged.
+A fresh MCP capture must show the new geometry and counter. Cleanup restores
+both original monitor rules, closes the grant and pattern windows, and stops
+the watcher.
+
+**Fresh VM measurements (September 29, 2026):** Two runs passed with the
+packaged release helper (`test_harness=false`). Initial images were
+1280x800 on both outputs with exact magenta/cyan markers and counter 741.
+After the live topology change, Virtual-1 stayed at `(0,0) 1280x800` and
+Virtual-2 reported `(1280,0) 640x1024`; its delivered image was 800x1280.
+Both new images showed counter 742 and their expected markers. The old
+Virtual-2 shot returned a screen-layout-changed error, and read-only
+`hyprctl cursorpos` remained identical before and after the refused move.
+The rotated capture was inspected visually. The normal capture audit named
+`linux.hyprland.image-copy`. The frame resource briefly withdrew during
+the output change and recovered with new presentation proof. Both runs
+restored the exact initial output table, closed the grant, and exited 0.
+Independent VM inspection found no glow layer, idle proof, native helper,
+or pattern window and a known unlocked screen.
+
+This covers one fractional scale and 90° transform on two VM outputs.
+Negative-coordinate, vertical, hotplug, mirror, and other transform layouts
+still need their own acceptance or explicit scope decisions. Production code
+was not changed in this stage.
+
+**Verification:** Python compilation and the three host guards passed. The
+two actual VM runs and the independent cleanup check passed.
+
+```bash
+./.venv/bin/python -m py_compile tests/live/hyprland/check_topology_capture.py
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --out-dir /tmp/pcbridge-stage9l-topology-final'
+```

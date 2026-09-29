@@ -1073,3 +1073,20 @@ guard in the code (the guards limit damage, they do not make it impossible):
   open. Normal lock and independent cleanup found no frame, idle proof, or
   test helper process. This is scoped policy/accessibility evidence, not
   full Hyprland acceptance.
+
+### Normal MCP capture through a fractional rotated output change
+
+- On September 29, two guarded VM runs used the packaged release helper and
+  normal `desktop_unlock`/`screen_capture` tools while a controlled pattern
+  filled Virtual-1 and Virtual-2. Both initial image blocks were 1280x800
+  with the correct output markers and fresh counter 741. After changing
+  Virtual-2 to scale 1.25 and transform 1, its reported logical span was
+  `(1280,0) 640x1024` and the delivered image was 800x1280. Both outputs
+  showed counter 742. The rotated image was visually inspected.
+- An MCP mouse move using a shot ID from before the change returned a
+  screen-layout-changed error. Compositor cursor coordinates were unchanged
+  before and after that refusal. The grant frame withdrew resource health
+  while the output changed, then new presentation proof allowed fresh
+  capture. Both runs restored the exact original monitor table, closed the
+  grant and test processes, and left no frame or idle proof. Other layouts
+  and full platform acceptance remain open.
