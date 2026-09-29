@@ -3188,3 +3188,34 @@ compilation, `git diff --check`, and independent VM cleanup passed.
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout mirror --out-dir /tmp/pcbridge-stage9s-mirror-mcp-final2'
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout hotplug --out-dir /tmp/pcbridge-stage9s-hotplug-regression'
 ```
+
+## Stage 9t: Native grant frame visual check
+
+**Objective:** Measure the white glow's edge pixels, inward falloff, and
+cleanup on both VM outputs without moving focus or changing fullscreen
+window geometry.
+
+**Fresh VM measurement (September 30, 2026):** The guarded live renderer
+fixture passed on the original two 1280x800 outputs. At the four sampled
+outer edges of each output, the dark background `(30,30,40)` became
+`(124,124,130)` with the glow. Samples at depths 0, 4, 12, 24, 37, 53,
+and 67 pixels matched the renderer's expected falloff within five channel
+values. The fixture also observed the breathing cycle and fade-out, the
+same focused window and fullscreen geometry, eight glow layers while active,
+and no glow layers after shutdown. A captured Virtual-1 PNG was visually
+inspected and showed the white border. An independent VM check found both
+outputs at their original positions and no frame, idle proof, native helper,
+or test window. The screen was unlocked.
+
+This uses the native Rust renderer's debug test fixture and `grim` screenshots
+without a desktop grant. It checks actual compositor pixels, but it does not
+measure the packaged release helper's normal MCP capture latency or prove
+physical visibility on a mirrored follower. The test log included two Mesa
+EGL `failed to create dri2 screen` warnings; the fixture exited 0.
+
+**Verification:** The guarded VM fixture, saved image inspection, and
+independent cleanup check passed.
+
+```bash
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_LIVE_HYPRLAND=1 .venv/bin/python tests/live/hyprland/check_glow_renderer.py --out-dir /tmp/pcbridge-stage9t-glow-visual'
+```

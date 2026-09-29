@@ -1197,3 +1197,18 @@ guard in the code (the guards limit damage, they do not make it impossible):
   runs restored the original monitor rules and closed the grant and test
   processes. The physical visibility of the grant frame on the mirrored
   follower and a successful source-shot input effect remain unmeasured.
+
+### Native Hyprland grant frame pixels on two outputs
+
+- On September 30, the guarded Rust renderer fixture presented the white
+  glow on both 1280x800 VM outputs. At four outer edges of each output, a
+  `(30,30,40)` background became `(124,124,130)`. Seven depths through the
+  68-pixel edge matched the expected falloff within five channel values.
+  The saved Virtual-1 image was visually inspected. Focus and fullscreen
+  window geometry were unchanged; eight glow layers appeared during the
+  fixture and none remained after shutdown.
+- The fixture observed breathing and fade-out and exited 0 despite two Mesa
+  EGL DRI2 warnings. An independent check found the original monitor layout,
+  unlocked screen, and no frame, idle proof, native helper, or test window.
+  This is a debug renderer fixture measured with `grim`, not normal MCP
+  capture performance or physical mirrored-output visibility.

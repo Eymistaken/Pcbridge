@@ -34,7 +34,8 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   swapped identical outputs, vertical placement, and simulated output removal
   and return have scoped VM evidence in
   [WALKTHROUGH.md](WALKTHROUGH.md). Finish remaining
-  policy and mirror layouts, physical hotplug, visual/performance and nested
+  policy and mirror layouts, physical hotplug, normal MCP capture performance
+  (the native renderer's two-output visual pixels are measured), and nested
   checks, consolidate real VM acceptance, and run GNOME/KDE live regressions
   before claiming general support.
 - **Hyprland mirror semantics.** The real active-monitor query hides a
