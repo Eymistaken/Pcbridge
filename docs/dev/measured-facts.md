@@ -974,3 +974,25 @@ guard in the code (the guards limit damage, they do not make it impossible):
   Normal desktop_lock plus independent process/layer checks left the VM
   known unlocked with no frame, native helper, idle writer, or observer.
   These scoped measurements do not complete platform acceptance.
+
+### Real Wayland pointer lock on Hyprland
+
+- On September 29, two fresh disposable VM runs used a test-only Wayland
+  client and the normal MCP mouse tools with the packaged release helper.
+  Both received an actual pointer-constraint `locked` callback. Requested
+  unaccelerated deltas `(3,0)`, `(40,0)`, `(80,0)`, `(-40,0)`, `(0,50)`, and
+  `(0,-50)` all arrived exactly; the five non-warmup ratios were 1.0.
+  Across each complete 24-event locked interval, the client received no
+  absolute pointer motion, leave, or unlocked callback. It did receive left
+  button down/up and vertical scroll `-15`. After it destroyed the constraint,
+  a requested absolute target `(754,484)` yielded client motion `(753,484)`.
+- Both fresh runs kept read-only `hyprctl cursorpos` at `(671,423)` during the
+  lock. Native pointer-included screenshots in the first run showed unchanged
+  cursor bounds `(666,413)-(674,432)`. An earlier uncommitted rollback draft
+  reported intermittent `cursorpos` Y drift; these runs did not reproduce it.
+  The protocol checks above rely on actual client callbacks and do not imply
+  that compositor IPC cursor coordinates must stay fixed.
+- The receiver compiled without warnings using Wayland client 1.26.0 and
+  protocol package 1.49-1. Its process exited 0 and reader stopped in both
+  runs. Normal grant closure and independent VM checks left known unlocked
+  state with no grant layer, idle proof, native helper, or observer.

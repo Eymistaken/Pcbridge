@@ -2587,3 +2587,66 @@ review approved after both assertion gaps were fixed and the real lock case
 was rerun. Reviewer independently checked final owner identity, actual
 capture closure, kernel release/removal, final session state, corrected
 observer cleanup, compilation, and diff hygiene. No remaining scoped findings.
+
+**Local commit:** `fbc25e1`.
+
+## Stage 9g: Observe native relative input under a real Wayland pointer lock
+
+**Objective:** Verify the packaged native relative pointer path while an actual
+Wayland client holds a pointer constraint. Require the client's `locked`
+callback, delivered relative movement, no absolute motion during the lock,
+click and scroll delivery to that client, and a fresh absolute move after the
+client removes the constraint.
+
+**Design:** Add a VM-only Wayland receiver compiled from the VM's installed
+xdg-shell, pointer-constraints, and relative-pointer protocol XML. A guarded
+Python fixture drives the existing MCP `desktop_unlock`, `mouse`,
+`screen_capture`, and `desktop_lock` tools using the packaged release helper.
+The receiver reports actual protocol callbacks. Read-only `hyprctl cursorpos`
+and native screenshots provide separate diagnostics. The fixture refuses
+execution outside the disposable VM, without explicit opt-in, under `-O`, or
+with a native helper override. It verifies the focused receiver identity and
+geometry before acting, bounds the run, and closes its own processes and grant.
+
+**Fresh VM measurements (September 29, 2026):** The VM had Wayland client
+1.26.0, protocols 1.49-1, `wayland-scanner`, and `cc`. The observer compiled
+with `-Wall -Wextra` and no warnings. Two independent normal MCP runs exited
+0 with `release` helper discovery and `test_harness=false`. Both received the
+real `locked` callback. In each run, the unaccelerated relative totals matched
+the requested warmup `(3,0)` and `(40,0)`, `(80,0)`, `(-40,0)`, `(0,50)`,
+`(0,-50)` exactly. The five non-warmup ratios were 1.0. The full 24-event
+interval from the locked callback to local constraint destruction contained
+no `wl_pointer.motion`, leave, or unlocked callback. The same client received
+left button down/up and vertical scroll `-15`. After the receiver destroyed
+the constraint, a normal absolute move to `(754,484)` produced client motion
+`(753,484)`, within the existing one-pixel tolerance. Both runs closed the
+grant and receiver normally. Separate VM checks found known unlocked state,
+no idle proof, grant layer, native helper, or observer process.
+
+Both fresh runs reported stable read-only `hyprctl cursorpos` at `(671,423)`
+while locked. Pointer-included screenshots from the first run showed identical
+white cursor bounds `(666,413)-(674,432)` before and after relative input.
+The rollback backup's *uncommitted* draft described an intermittent `-24` Y
+change in `cursorpos`; these two runs did not reproduce it. That draft is a
+diagnostic lead, not a committed acceptance result. The actual client
+constraint and input checks above do not depend on IPC cursor equality.
+
+**Verification:**
+
+```bash
+./.venv/bin/python -m py_compile tests/live/hyprland/check_pointer_lock.py
+./.venv/bin/python -m unittest tests.contracts.test_rust_pointer_provider tests.contracts.test_hyprland_gate tests.contracts.test_hyprland_focus tests.contracts.test_english_only
+(cd rust && cargo test -p pcbridge-native --locked --test relative_contract --test pointer_contract)
+scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/wayland_input_window.c' < tests/live/hyprland/wayland_input_window.c
+scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/check_pointer_lock.py' < tests/live/hyprland/check_pointer_lock.py
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_POINTER_LOCK=1 .venv/bin/python tests/live/hyprland/check_pointer_lock.py --out-dir /tmp/pcbridge-stage9g-resume'
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_POINTER_LOCK=1 .venv/bin/python tests/live/hyprland/check_pointer_lock.py --out-dir /tmp/pcbridge-stage9g-resume-repeat'
+```
+
+Python contracts: 33 pass. Rust pointer and relative contracts: 17 and 7
+pass. Three host guards and the VM native-override guard refused before GUI
+work, as expected. The client test has two fresh VM passes and no production
+behavior change. Touch transparency, clipboard ownership, policy,
+accessibility, geometry/topology, visual and performance evidence, nested
+smoke, consolidated acceptance, and GNOME/KDE regression remain open. No
+overall Hyprland support or release claim follows from this stage.
