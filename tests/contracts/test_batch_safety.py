@@ -261,6 +261,40 @@ class TempDirTest(unittest.TestCase):
 
 
 class PerActionRecheckTests(TempDirTest):
+    def test_closed_grant_has_no_manual_lock_attribution(self) -> None:
+        for cleanup in (False, True):
+            with self.subTest(cleanup=cleanup):
+                desk = Desk(self.root)
+                store = LeaseStore(self.root)
+                with mock.patch("pcbridge.desktop.lease.time.time", return_value=1000):
+                    token = store.grant(until=1010, reason="test", granted=1000,
+                                        granted_by="test").token()
+                with mock.patch("pcbridge.desktop.lease.time.time",
+                                return_value=1011 if cleanup else 1005):
+                    if cleanup:
+                        self.assertFalse(store.snapshot().is_active())
+                        expired = desk.gate.verify(token)
+                        self.assertEqual(expired.code, ErrorCode.GRANT_EXPIRED)
+                        self.assertTrue(expired.retryable)
+                        self.assertTrue(store.revoke_if(token))
+                    else:
+                        self.assertTrue(store.snapshot().is_active())
+                        store.revoke()
+                    before = store.snapshot()
+                    decision = desk.gate.verify(token)
+                    self.assertEqual(store.snapshot(), before)
+                    self.assertEqual(before.grant_id, token.grant_id)
+                    self.assertEqual(before.revoke_epoch, token.revoke_epoch + 1)
+                    self.assertEqual(decision.code, ErrorCode.REVOKED)
+                    self.assertEqual(decision.category, ErrorCategory.SAFETY)
+                    self.assertEqual(decision.permission_scope, "pcbridge.desktop")
+                    self.assertFalse(decision.allowed)
+                    self.assertFalse(decision.retryable)
+                    self.assertEqual(decision.suggested_action,
+                                     "Stop here; continue only after the user grants desktop_unlock again.")
+                    self.assertIn("grant was closed", decision.reason)
+                    self.assertNotIn("desktop_lock", decision.reason)
+
     def test_revoke_mid_sequence_sends_nothing_more(self) -> None:
         desk = Desk(self.root)
         desk.grant()

@@ -2232,3 +2232,184 @@ They checked the consolidated code, final five-case logs, independent cleanup,
 early refusals, 80-test result, and journal reconciliation. Quality review
 also corrected the physical replacement-hold chronology described above.
 No remaining scoped findings; full acceptance and regression remain pending.
+
+**Local commit:** `d8b64d5`.
+
+## Stage 10d: Report grant closure and compositor context accurately
+
+**Objective:** Correct the automatic-expiry attribution measured in Stage 9e,
+remove the GNOME/KDE-only server orientation, and describe Hyprland capture
+cleanup without claiming a GNOME screen-sharing indicator. Preserve existing
+safety codes, policies, resource ordering, and GNOME/KDE behavior.
+
+**Design/files:** Change only the inactive REVOKED message in
+pcbridge/desktop/safety.py, initial instructions in pcbridge/app.py, and
+backend-specific cleanup notes in pcbridge/tools.py. Preserve decisions,
+retryability, suggested actions, lease identity, and revoke-first resource
+ordering. Contracts in tests/contracts/test_batch_safety.py use public
+LeaseStore revoke and expired revoke_if paths with a controlled unit clock;
+tests/contracts/test_runtime_contract.py exercise all 12 registered-tool
+backend/capture-state combinations and server orientation. No public API,
+settings, capture/input behavior, or tested-version claims change.
+
+**Evidence/results:** Three new contracts reproduced seven failures against
+unchanged d8b64d5 production in a temporary git archive; the worktree was
+never reverted. Focused implementer tests passed 56; root's broader run passed
+77 contracts and 615 desktop checks. The native packaged release VM MCP
+initialization now includes runtime-binding/submap guidance. Normal unlock
+presented eight strips and opened capture; normal lock closed capture and
+removed all strips. No input was sent. Independent final state was known
+unlocked, idle unknown because the writer was stopped, zero glow/helpers.
+
+**Measurement adjustment:** The first ephemeral VM probe wrongly required an
+optional cleanup note. Actual ResourceWatch audit occurred during gate.lock's
+frame shutdown wait, before tools.py sampled capture.is_open. A second run
+recorded capture_before_lock=true, capture_after_lock=false, and the accurate
+result `Desktop control closed.` with no sharing-indicator claim. This is a
+probe expectation correction; no production behavior was changed to force
+that note. Registered-tool contracts separately exercise its conditional
+branches.
+
+**Exact commands/results:**
+
+- `./.venv/bin/python -m unittest tests.contracts.test_batch_safety.PerActionRecheckTests.test_closed_grant_has_no_manual_lock_attribution tests.contracts.test_runtime_contract.DesktopRuntimeContractTests.test_mcp_lock_reports_actual_backend_cleanup tests.contracts.test_runtime_contract.DesktopRuntimeContractTests.test_instructions_require_runtime_shortcuts`
+  — implementer RED, three tests/seven failures retained in tool output.
+- `./.venv/bin/python -m unittest tests.contracts.test_batch_safety tests.contracts.test_runtime_contract tests.contracts.test_english_only`
+  — implementer GREEN, 56 pass.
+- `env -u PCBRIDGE_TEST_CAPTURE -u PCBRIDGE_TEST_INPUT -u PCBRIDGE_TEST_ATSPI -u PCBRIDGE_TEST_BATCH ./.venv/bin/python tests/test_desktop.py`
+  — implementer pass, 615 checks/zero failures.
+- `./.venv/bin/python -m unittest tests.contracts.test_batch_safety tests.contracts.test_runtime_contract tests.contracts.test_mcp_errors tests.contracts.test_english_only > /tmp/pcbridge-stage10d-contracts.log 2>&1 && ./.venv/bin/python tests/test_desktop.py > /tmp/pcbridge-stage10d-desktop.log 2>&1 && git diff --check`
+  — root pass, 77 contracts/615 checks/clean diff. Live input flags unset.
+- `scripts/dev/hyprland-vm.sh sync`
+  — pass; copies current tracked source and preserves the packaged helper.
+
+Exact independent RED reconstruction, exit 0 after observing the expected
+seven failures in untouched d8b64d5 production:
+
+```bash
+python3 - <<'PY' > /tmp/pcbridge-stage10d-reporting-red.log 2>&1
+import io, os, shutil, subprocess, tarfile, tempfile
+from pathlib import Path
+root=Path.cwd()
+tests=['tests.contracts.test_batch_safety.PerActionRecheckTests.test_closed_grant_has_no_manual_lock_attribution','tests.contracts.test_runtime_contract.DesktopRuntimeContractTests.test_mcp_lock_reports_actual_backend_cleanup','tests.contracts.test_runtime_contract.DesktopRuntimeContractTests.test_instructions_require_runtime_shortcuts']
+with tempfile.TemporaryDirectory(prefix='pcbridge-reporting-red-') as temporary:
+    directory=Path(temporary)
+    archive=subprocess.run(['git','archive','d8b64d5','pcbridge','tests'],check=True,capture_output=True).stdout
+    with tarfile.open(fileobj=io.BytesIO(archive)) as files:
+        files.extractall(directory,filter='data')
+    for relative in ('tests/contracts/test_batch_safety.py','tests/contracts/test_runtime_contract.py'):
+        shutil.copyfile(root/relative,directory/relative)
+    environment=dict(os.environ)
+    for key in ('PCBRIDGE_TEST_CAPTURE','PCBRIDGE_TEST_INPUT','PCBRIDGE_TEST_ATSPI','PCBRIDGE_TEST_BATCH'):
+        environment.pop(key,None)
+    result=subprocess.run([str(root/'.venv/bin/python'),'-m','unittest',*tests],cwd=directory,env=environment,capture_output=True,text=True,timeout=30)
+    print(result.stdout+result.stderr,flush=True)
+    assert result.returncode==1 and 'FAILED (failures=7)' in result.stderr,(result.returncode,result.stderr)
+    print('Expected reporting failures on unchanged d8b64d5 production: 7; worktree untouched',flush=True)
+PY
+```
+
+Exact final VM diagnostic, exit 0:
+
+```bash
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python - <<'\''PY'\''
+import asyncio, dataclasses, json, os, subprocess, tempfile
+from pathlib import Path
+from fastmcp import Client
+from pcbridge.app import build_app
+from pcbridge.config import load_config
+from pcbridge.native import discover_native_binary
+from pcbridge.desktop import hyprland, idlewatch
+from tests.live.hyprland.check_glow_owner import layers, wait_for
+assert os.uname().nodename == "pcbridge-hyprland"
+assert not os.environ.get("PCBRIDGE_NATIVE_BIN")
+assert hyprland.screen_locked() is False and not layers() and idlewatch.read_idle_ms() is None
+with tempfile.TemporaryDirectory(prefix="pcbridge-reporting-") as temporary:
+    root=Path(temporary)
+    base=load_config("config.example.toml",check_state=False)
+    assert base.native.binary_path is None
+    binary=discover_native_binary(base.native)
+    assert binary.is_relative_to(Path.cwd()/"pcbridge/_native")
+    info=json.loads(subprocess.run([str(binary),"--build-info"],capture_output=True,text=True,timeout=5,check=True).stdout)
+    assert info["profile"] == "release" and info["test_harness"] is False
+    cfg=dataclasses.replace(base,state_dir=root,desktop=dataclasses.replace(base.desktop,enabled=True,unlock_notification=False,agent_shot_dir=str(root/"shots")))
+    cfg.jobs_dir.mkdir()
+    (root/"shots").mkdir()
+    idle=subprocess.Popen([str(binary),"idle-watch"],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    mcp=None
+    evidence={}
+    async def verify():
+        global mcp
+        mcp,_=build_app(cfg,transport="stdio")
+        async with Client(mcp,timeout=10) as client:
+            instructions=client.initialize_result.instructions
+            assert "registered runtime bindings" in instructions and "active submap" in instructions
+            assert "(GNOME or KDE" not in instructions
+            evidence["runtime_bind_instructions"]=True
+            try:
+                opened=await client.call_tool("desktop_unlock",{"minutes":1,"reason":"VM reporting acceptance"},raise_on_error=False)
+                assert not opened.is_error
+                assert len(layers()) == 8
+                evidence["initial_glow_layers"]=8
+                evidence["capture_before_lock"]=mcp._pcbridge_desktop_runtime.capture_provider.is_open()
+                assert evidence["capture_before_lock"] is True
+            finally:
+                closed=await client.call_tool("desktop_lock",{},raise_on_error=False)
+                text="\n".join(item.text for item in closed.content if item.type=="text")
+                evidence["lock_text"]=text
+                evidence["capture_after_lock"]=mcp._pcbridge_desktop_runtime.capture_provider.is_open()
+                assert not closed.is_error and "Desktop control closed" in text
+                assert "sharing indicator" not in text
+                assert evidence["capture_after_lock"] is False
+            wait_for(lambda:not layers(),description="reporting grant cleanup")
+    try:
+        wait_for(lambda:idlewatch.read_idle_ms() is not None,description="fresh packaged idle")
+        asyncio.run(verify())
+    finally:
+        if mcp:
+            mcp._pcbridge_desktop_runtime.close()
+        idle.terminate()
+        idle.wait(timeout=5)
+        wait_for(lambda:not layers(),description="final reporting frame cleanup")
+        print(json.dumps(evidence),flush=True)
+    assert hyprland.screen_locked() is False and idlewatch.read_idle_ms() is None
+    evidence.update(helper_profile=info["profile"],test_harness=info["test_harness"],final_glow_layers=len(layers()),idle_writer=False,input_sent=False)
+    print(json.dumps(evidence))
+PY' > /tmp/pcbridge-stage10d-reporting-vm-diagnostic.log 2>&1
+```
+
+Exact independent final VM cleanup, exit 0:
+
+```bash
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && .venv/bin/python - <<'\''PY'\''
+import json,os
+from pathlib import Path
+from pcbridge.desktop import hyprland,idlewatch
+from tests.live.hyprland.check_glow_owner import layers
+count=0
+for process in Path("/proc").iterdir():
+    if not process.name.isdecimal():
+        continue
+    try:
+        if process.stat().st_uid != os.getuid():
+            continue
+        argv=process.joinpath("cmdline").read_bytes().split(b"\0")
+        count+=bool(argv and Path(os.fsdecode(argv[0])).name == "pcbridge-native")
+    except OSError:
+        pass
+state={"locked":hyprland.screen_locked(),"idle":idlewatch.read_idle_ms(),"glow_layers":len(layers()),"native_helpers":count}
+assert state == {"locked":False,"idle":None,"glow_layers":0,"native_helpers":0},state
+print(json.dumps(state))
+PY' > /tmp/pcbridge-stage10d-cleanup-vm.log 2>&1 && git diff --check
+```
+
+**Review:** Spec reviewer approved the five-file code/test scope after an
+independent 50-test run and checked root's broader results. Independent
+quality review also approved code/tests and reporting documentation after a
+fresh 50-test run with live flags unset, scoped diff checks, and VM evidence
+review. No remaining scoped findings. Its first review turn was interrupted
+by the session quota; it resumed after the maintainer renewed the quota.
+
+**Remaining work:** Actual screen-lock mid-batch, pointer lock/touch,
+additional policy/clipboard/accessibility/topology/visual/performance/nested
+proof, final acceptance and GNOME/KDE regression. No support claim or push.

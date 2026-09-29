@@ -921,7 +921,23 @@ guard in the code (the guards limit damage, they do not make it impossible):
   tests used normal MCP calls, fresh native idle and a presented grant frame,
   current fullscreen observer identity, and default packaged release helper
   discovery. system_capabilities reported linux.uinput.native for keyboard.
-- A reporting follow-up remains: the shared revoked-sequence text includes
-  a desktop_lock attribution even when automatic expiry cleanup retired the
-  grant. The code and refusal are safe, but the cause is not always known and
-  must not be attributed to a specific manual action without evidence.
+- Shared revoked-sequence text now reports generic closure. Automatic expiry
+  cleanup and explicit manual revoke can both retire an identity; the cause
+  must not be attributed to a particular manual call without evidence. Error
+  codes, retryability, and safety semantics are unchanged.
+
+### Grant cleanup reporting on Hyprland
+
+- Normal MCP initialization now tells agents to inspect actual registered
+  runtime bindings and the active submap before compositor shortcuts. A
+  packaged release VM run verified those instructions without input.
+- In that run, normal unlock presented eight glow strips and opened capture;
+  normal desktop_lock changed capture open true to false and removed all
+  strips. The response was `Desktop control closed.` without a GNOME sharing
+  indicator claim. ResourceWatch had already closed capture during frame
+  shutdown, before the tool sampled capture.is_open; the additional capture
+  note is conditional. Registered-tool contracts cover local-open, other-
+  helper, and already-closed states separately for all four desktop kinds.
+- Independent final VM state was known unlocked, zero native helpers/glow,
+  and no idle writer. This reporting measurement does not establish the
+  remaining platform acceptance or existing-desktop regression.

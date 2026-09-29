@@ -21,6 +21,7 @@ from pcbridge import app as serverlib  # noqa: E402
 from pcbridge import tools as toolslib  # noqa: E402
 from pcbridge.cli import do as do_cli  # noqa: E402
 from pcbridge.config import AgentSpec, Config, DesktopSpec  # noqa: E402
+from pcbridge.desktop import compositor as compositorlib  # noqa: E402
 from pcbridge.desktop import input as inputlib  # noqa: E402
 from pcbridge.desktop import screencast as screencastlib  # noqa: E402
 from pcbridge.desktop import uitree as uitreelib  # noqa: E402
@@ -291,7 +292,30 @@ class DesktopRuntimeContractTests(unittest.TestCase):
             self.assertIs(returned.input_provider, runtime.input_provider)
             runtime.close()
 
+    def test_mcp_lock_reports_actual_backend_cleanup(self) -> None:
+        expected = {
+            compositorlib.GNOME_SHELL: "screen sharing stopped (the sharing indicator is gone)",
+            compositorlib.KWIN: "screen capture closed; the grant notification is gone",
+            compositorlib.HYPRLAND: "screen capture closed; native grant frame cleanup requested",
+            compositorlib.UNKNOWN: "screen capture closed",
+        }
+        for desktop, note in expected.items():
+            for opened, helpers in ((True, 0), (False, 2), (False, 0)):
+                with self.subTest(desktop=desktop.kind, opened=opened, helpers=helpers):
+                    self._check_mcp_lock(note, desktop, opened, helpers)
+
+    def test_instructions_require_runtime_shortcuts(self) -> None:
+        instructions = serverlib.INSTRUCTIONS
+        self.assertNotIn("(GNOME or KDE", instructions)
+        for text in ("actual desktop backend", "Hyprland", "registered runtime bindings",
+                     "active submap", "before choosing compositor shortcuts",
+                     "Do not guess default keys or parse configuration files"):
+            self.assertIn(text, instructions)
+
     def test_mcp_lock_revokes_before_releasing_any_resource(self) -> None:
+        self._check_mcp_lock()
+
+    def _check_mcp_lock(self, note=None, desktop=None, opened=False, helpers=0) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             cfg = make_config(root)
@@ -334,7 +358,7 @@ class DesktopRuntimeContractTests(unittest.TestCase):
 
                 def kill_helpers(self) -> int:
                     events.append("legacy-kill")
-                    return 0
+                    return helpers
 
                 def describe_monitors(self) -> str:
                     return ""
@@ -355,7 +379,17 @@ class DesktopRuntimeContractTests(unittest.TestCase):
             )
 
             tool = asyncio.run(mcp.get_tool("desktop_lock"))
-            self.assertEqual(tool.fn(), "locked")
+            runtime.capture_provider.open = opened
+            with mock.patch.object(compositorlib, "current", return_value=desktop or compositorlib.GNOME_SHELL):
+                result = tool.fn()
+            expected = "locked"
+            if opened or helpers:
+                expected += "\n· " + note
+            if helpers:
+                expected += f" · {helpers} helper process(es) stopped"
+            self.assertEqual(result, expected)
+            self.assertFalse(runtime.capture_provider.is_open())
+            self.assertEqual(runtime.capture_provider.close_count, 1)
             self.assertEqual(events[0], "revoke")
             self.assertEqual(
                 events[1:],

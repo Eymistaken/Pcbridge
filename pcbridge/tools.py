@@ -1412,10 +1412,16 @@ def register(
         # cubuktaki gostergenin gercekten kaybolmasi gerekiyor.
         others = capture_provider.kill_helpers()
         note = f"\n· released: {', '.join(freed)}" if freed else ""
-        if (yayin or others) and compositorlib.is_kde():
-            note += "\n· screen capture closed; the grant notification is gone"
-        elif yayin or others:
-            note += "\n· screen sharing stopped (the sharing indicator is gone)"
+        if yayin or others:
+            kind = compositorlib.current().kind
+            if kind == compositorlib.KWIN.kind:
+                note += "\n· screen capture closed; the grant notification is gone"
+            elif kind == compositorlib.GNOME_SHELL.kind:
+                note += "\n· screen sharing stopped (the sharing indicator is gone)"
+            elif kind == compositorlib.HYPRLAND.kind:
+                note += "\n· screen capture closed; native grant frame cleanup requested"
+            else:
+                note += "\n· screen capture closed"
         if others:
             note += f" · {others} helper process(es) stopped"
         return message + note

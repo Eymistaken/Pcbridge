@@ -65,8 +65,9 @@ logging.basicConfig(
 log = logging.getLogger("pcbridge")
 
 INSTRUCTIONS = """\
-This MCP server controls the user's Linux desktop computer (GNOME or KDE
-Plasma on Wayland). The monitor layout differs from machine to machine and can change:
+This MCP server controls the user's Linux desktop computer. Read
+`system_capabilities` to learn the actual desktop backend and its available support.
+The monitor layout differs from machine to machine and can change:
 call `screen_info` (or `system_capabilities`) to learn the actual monitors,
 their sizes and their order before you act on coordinates.
 
@@ -101,6 +102,9 @@ Guidelines:
   * Call `system_capabilities` before choosing a desktop path, and again after a
     desktop error. Its scopes distinguish pcbridge's grant from operating-system
     capture, pointer, keyboard, accessibility, window, and session permissions.
+  * On Hyprland, inspect the actual registered runtime bindings and active submap
+    available in `system_capabilities` before choosing compositor shortcuts.
+    Do not guess default keys or parse configuration files to infer active bindings.
   * Screenshots go stale. If you read coordinates off one, act on them right
     away — do not do other work in between.
   * Coordinates you read off a screenshot MUST be sent with that image's

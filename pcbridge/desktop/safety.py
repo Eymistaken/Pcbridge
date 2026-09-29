@@ -728,7 +728,7 @@ class SafetyGate:
             )
         return Decision(
             False,
-            "The desktop grant was closed while this sequence was running (desktop_lock); "
+            "The desktop grant was closed while this sequence was running; "
             "the remaining actions were not sent. Do not continue until the user "
             "grants access again.",
             code=ErrorCode.REVOKED,
