@@ -225,9 +225,10 @@ class Shot:
     # Bos: pencere cekimi ya da v1 kayit -- o zaman ham piksel = masaustu
     # birimi sayilir, eski davranisin aynisi.
     desktop_size: tuple[int, int] | None = None
-    # Cekim anindaki `monitors.topology_id()`. `offset` O duzene ait: duzen
-    # degistiyse ayni ofset baska bir ekranin ustune duser. Bos: pencere
-    # cekimi ya da bu alandan once (2026-09-19) yazilmis bir kayit.
+    # The `monitors.topology_id()` at capture time. An offset can point at
+    # another output after the layout changes. The saved output identity also
+    # catches swaps between outputs with identical geometry. Empty for window
+    # captures and records written before this field (2026-09-19).
     topology: str = ""
     # Monitorun yalnizca bir BOLGESI mi (Adim 8.5). Donusum icin ek bir sey
     # gerekmiyor: `offset` bolgenin sol ustu, `desktop_size` bolgenin boyutu,
@@ -303,6 +304,7 @@ class Shot:
             "png": str(self.path),
             "monitor": None if self.monitor is None else self.monitor.index,
             "connector": None if self.monitor is None else self.monitor.connector,
+            "serial": None if self.monitor is None else self.monitor.serial,
             "primary": None if self.monitor is None else self.monitor.primary,
             "offset": list(self.offset) if self.offset else None,
             "size": list(self.size),
@@ -402,6 +404,7 @@ def load_shot(shot_id: str, dirs: Sequence[Path]) -> Shot:
                 width=box[0], height=box[1],
                 scale=(size[0] / box[0]) if box[0] else 1.0,
                 primary=bool(data.get("primary")),
+                serial=str(data.get("serial") or ""),
             )
         png = Path(str(data.get("png") or ""))
         return Shot(
@@ -469,6 +472,29 @@ AMBIGUOUS_NOTE = (
 )
 
 
+def _shot_output_matches(shot: Shot, table: list[monitorslib.Monitor]) -> bool:
+    """The saved image still belongs to the output at its canvas position.
+
+    Serial is preferred when unique, so a connector rename does not stale a
+    shot. Hyprland's virtual outputs have no serial, and duplicate serials
+    cannot identify an output alone; in those cases the connector is required.
+    """
+    if shot.monitor is None or shot.offset is None:
+        return True
+    current = monitorslib.find_monitor(shot.offset[0], shot.offset[1], table)
+    if current is None:
+        return False
+    saved = shot.monitor
+    if saved.serial:
+        same_serial = [item for item in table if item.serial == saved.serial]
+        if len(same_serial) == 1:
+            return current is same_serial[0]
+        if not same_serial:
+            return False
+        return current.serial == saved.serial and current.connector == saved.connector
+    return current.connector == saved.connector
+
+
 def to_global(
     x: int,
     y: int,
@@ -522,9 +548,9 @@ def to_global(
         # tasindi ya da cozunurlugu degistiyse ayni ofset artik baska bir
         # ekranin ustune duser ve tiklama sessizce yanlis yere gider (PLAN.md (1.x, in git history)
         # Task 5.3, madde 7). Kimligi olmayan eski kayit eskisi gibi gecer.
-        if found.topology and found.topology != monitorslib.topology_id(
-            monitorslib.list_monitors()
-        ):
+        current_table = monitorslib.list_monitors()
+        if found.topology and (found.topology != monitorslib.topology_id(current_table)
+                               or not _shot_output_matches(found, current_table)):
             raise ShotLayoutChanged(
                 f"The screen layout changed after `{shot}` was taken (a monitor "
                 "was added, removed, moved or changed resolution). A coordinate from "
@@ -613,7 +639,8 @@ def resolve_region(
                 f"The region goes outside the `{shot}` picture: it is "
                 f"{found.scaled[0]}x{found.scaled[1]} pixels."
             )
-        if found.topology and found.topology != monitorslib.topology_id(mons):
+        if found.topology and (found.topology != monitorslib.topology_id(mons)
+                               or not _shot_output_matches(found, mons)):
             raise ShotLayoutChanged(
                 f"The screen layout changed after `{shot}` was taken; the region "
                 "from that picture would land somewhere else now. Take a new "

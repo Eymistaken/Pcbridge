@@ -6,8 +6,9 @@ monitor at capture time, and `capture.to_global()` turns an image pixel into a
 global point with them. If a monitor is added, removed, moved or resized
 between the capture and the click, the same offset lands on another screen and
 the click goes somewhere the agent never saw -- the class of mistake this
-repository has paid for twice. The record now carries `monitors.topology_id()`
-and the conversion refuses with DISPLAY_CHANGED when it no longer matches.
+repository has paid for twice. The record carries `monitors.topology_id()`
+and the captured output identity; the conversion refuses with
+DISPLAY_CHANGED when either no longer matches.
 
 No compositor, no helper, no input: the capture pipeline runs with the fake
 handles from `test_capture_backend_selection` and a patched monitor table.
@@ -65,9 +66,9 @@ class ShotLayoutTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.out = Path(self.tmp.name)
 
-    def shoot(self, screencast) -> list[capturelib.Shot]:
+    def shoot(self, screencast, table=MONITORS) -> list[capturelib.Shot]:
         # Whether gnome-screenshot is installed here is not what is measured.
-        with mock.patch.object(monitorslib, "list_monitors", return_value=MONITORS), \
+        with mock.patch.object(monitorslib, "list_monitors", return_value=table), \
                 mock.patch.object(capturelib, "available", return_value=(True, "")):
             return capturelib.capture(
                 "all",
@@ -122,6 +123,35 @@ class ShotLayoutTests(unittest.TestCase):
                 with self.assertRaises(capturelib.ShotLayoutChanged) as raised:
                     self.to_global(right.id, layout)
                 self.assertIn(right.id, str(raised.exception))
+
+    def test_identical_focus_primary_outputs_swapped_refuse_the_old_shot(self) -> None:
+        before = [dataclasses.replace(m, primary_is_focus=True) for m in MONITORS]
+        after = [dataclasses.replace(m, primary_is_focus=True) for m in SWAPPED]
+        self.assertEqual(monitorslib.topology_id(before), monitorslib.topology_id(after))
+        left = self.shoot(FakeLegacyScreenCast(self.frames), table=before)[0]
+        with self.assertRaises(capturelib.ShotLayoutChanged):
+            self.to_global(left.id, after)
+        with mock.patch.object(monitorslib, "list_monitors", return_value=after):
+            with self.assertRaises(capturelib.ShotLayoutChanged):
+                capturelib.resolve_region(20, 20, 100, 100,
+                    shot=left.id, dirs=[self.out])
+
+    def test_a_connector_rename_keeps_a_unique_serial_shot_valid(self) -> None:
+        before = [dataclasses.replace(m, serial=f"panel-{m.index}") for m in MONITORS]
+        after = [dataclasses.replace(m, connector=f"renamed-{m.index}") for m in before]
+        left = self.shoot(FakeLegacyScreenCast(self.frames), table=before)[0]
+        record = json.loads((self.out / f"{left.id}.json").read_text(encoding="utf-8"))
+        self.assertEqual(record["serial"], "panel-1")
+        self.assertEqual(self.to_global(left.id, after), left.to_global(100, 100))
+
+    def test_duplicate_serials_require_the_connector_to_stay_put(self) -> None:
+        before = [dataclasses.replace(m, serial="duplicate", primary_is_focus=True)
+                  for m in MONITORS]
+        after = [dataclasses.replace(m, serial="duplicate", primary_is_focus=True)
+                 for m in SWAPPED]
+        left = self.shoot(FakeLegacyScreenCast(self.frames), table=before)[0]
+        with self.assertRaises(capturelib.ShotLayoutChanged):
+            self.to_global(left.id, after)
 
     def test_the_provider_reports_it_as_a_retryable_display_change(self) -> None:
         right = self.shoot(FakeLegacyScreenCast(self.frames))[1]

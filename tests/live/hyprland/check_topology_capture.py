@@ -123,7 +123,7 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
                         item.scale == 1.25 and item.transform == 1
                         for item in monitors.list_monitors(use_cache=False)),
                         description="fractional rotated monitor")
-                else:
+                elif layout == "negative":
                     monitor_rule(original[0], position=(-1280, 0))
                     monitor_rule(original[1], position=(0, 0))
                     wait_for(lambda: [(row["name"], row["x"], row["y"])
@@ -131,11 +131,20 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
                         (original[0]["name"], -1280, 0),
                         (original[1]["name"], 0, 0)],
                         description="negative platform origin")
+                else:
+                    monitor_rule(original[0], position=(2560, 0))
+                    monitor_rule(original[1], position=(0, 0))
+                    monitor_rule(original[0], position=(1280, 0))
+                    wait_for(lambda: [(row["name"], row["x"], row["y"])
+                        for row in hyprland.monitors()] == [
+                        (original[0]["name"], 1280, 0),
+                        (original[1]["name"], 0, 0)],
+                        description="identical outputs swapped")
                 wait_for(lambda: glowstate.read_on_current_outputs(cfg.state_dir,
                     token, binary=binary), description="new topology glow")
                 time.sleep(2.1)  # Let the product's normal monitor cache expire.
 
-                if layout == "rotated":
+                if layout in ("rotated", "swapped"):
                     cursor_before = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"],
                         check=True, capture_output=True, text=True, timeout=5).stdout)
                     stale = await call("mouse", {"action": "move", "x": 300, "y": 300,
@@ -157,7 +166,7 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
                                    if row["connector"] == original[1]["name"])
                     assert rotated["pixels"] == [800, 1280]
                     assert rotated["desktop_size"] == [640, 1024]
-                else:
+                elif layout == "negative":
                     assert [(item.connector, item.x, item.y, item.platform) for item in changed_table] == [
                         (original[0]["name"], 0, 0, (-1280, 0)),
                         (original[1]["name"], 1280, 0, (0, 0))]
@@ -177,6 +186,13 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
 
                     evidence["pointer"] = wait_for(cursor_at_negative_target,
                         description="shot coordinate mapped to negative platform position")
+                else:
+                    assert monitors.topology_id(initial_table) == monitors.topology_id(changed_table)
+                    assert [(item.connector, item.x, item.y) for item in changed_table] == [
+                        (original[1]["name"], 0, 0),
+                        (original[0]["name"], 1280, 0)]
+                    assert all(row["pixels"] == [1280, 800] for row in evidence["changed"])
+                    evidence["same_geometry_topology_id"] = True
                 evidence["passed"] = True
             finally:
                 try:
@@ -202,7 +218,8 @@ async def run(cfg, pattern, reader, connectors, original, binary, out_dir, evide
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out-dir", type=Path, required=True)
-    parser.add_argument("--layout", choices=("rotated", "negative"), default="rotated")
+    parser.add_argument("--layout", choices=("rotated", "negative", "swapped"),
+                        default="rotated")
     args = parser.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
     evidence = {"passed": False, "layout": args.layout, "cleanup": {}}

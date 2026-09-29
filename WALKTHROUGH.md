@@ -2987,3 +2987,52 @@ rotated regression, and independent VM cleanup passed.
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout negative --out-dir /tmp/pcbridge-stage9n-negative-final'
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout rotated --out-dir /tmp/pcbridge-stage9n-rotated-regression'
 ```
+
+## Stage 9o: Refuse stale shots when identical Hyprland outputs swap
+
+**Objective:** Prevent a screenshot coordinate from targeting another output
+after two same-size panels trade places.
+
+**Observed gap and fix:** The existing layout contract swapped two panels
+whose configured primary flags differed, so their topology IDs differed.
+Hyprland's primary selection follows focus and is excluded from the geometry
+ID. A new contract with that behavior failed before the fix: swapping two
+identical panels left the topology ID unchanged and an old shot coordinate
+was accepted. Shot metadata now saves the captured monitor serial. Coordinate
+and region conversion check that the output at the saved image position is
+still the same one, in addition to checking geometry. A unique serial allows
+a connector rename; absent or duplicate serials require the saved connector.
+The shared geometry ID and native protocol remain unchanged. Records from
+before the topology field retain their existing compatibility behavior.
+
+**Fresh VM measurements (September 30, 2026):** Two guarded normal MCP runs
+used the packaged release helper and moved Virtual-1 to the right and
+Virtual-2 to the left, with a temporary gap during reconfiguration. Both
+outputs were still 1280x800, and the before/after geometry topology IDs
+were identical. An old Virtual-2 shot returned a screen-layout-changed error;
+read-only `hyprctl cursorpos` was identical before and after the refused
+`mouse` move. Fresh capture reported Virtual-2 at canvas `(0,0)` with its
+cyan marker and Virtual-1 at `(1280,0)` with its magenta marker; both images
+advanced from counter 741 to 742. A transient frame resource withdrawal
+during reconfiguration recovered before capture. Both runs restored the
+original monitor rules and closed the grant and test processes. Independent
+VM inspection found no frame, idle proof, native helper, or pattern window
+and a known unlocked screen. The rotated and negative-origin layouts also
+passed again with the new shot check.
+
+**Verification:** The new identical-output contract failed before the fix
+and passed after it. Focused capture contracts passed 48 tests; the updated
+shot-layout suite passed nine, including unique and duplicate serial cases.
+Integration passed 31 tests with one skip and the safe desktop suite passed
+615 checks. The full contract suite passed 782 tests with one skip; it
+repeated the existing Pillow `getdata` deprecation warning. Independent VM
+cleanup, Python compilation, the three host guards, `git diff --check`, and
+the American English spelling scan passed.
+
+```bash
+./.venv/bin/python -m unittest tests.contracts.test_shot_layout tests.contracts.test_capture_region tests.contracts.test_capture_backend_selection tests.contracts.test_capture_contract
+./.venv/bin/python -m unittest discover -s tests/contracts -t .
+./.venv/bin/python -m unittest discover -s tests/integration -t .
+./.venv/bin/python tests/test_desktop.py
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --layout swapped --out-dir /tmp/pcbridge-stage9o-swapped-final'
+```

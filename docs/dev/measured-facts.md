@@ -1123,3 +1123,22 @@ guard in the code (the guards limit damage, they do not make it impossible):
   The prior fractional rotated case passed again with the expanded fixture.
   This measures a translated horizontal layout, not output swaps, vertical
   placement, hotplug, or mirrors.
+
+### Identical Hyprland outputs swapped after a screenshot
+
+- On September 30, an isolated contract reproduced a stale-shot gap. Two
+  same-size outputs with Hyprland's focus-based primary selection had the
+  same geometry topology ID before and after swapping positions. The old
+  shot coordinate was accepted because output identity was not checked.
+- Shot metadata now saves the monitor serial. Coordinate and region
+  conversion compare the captured output with the output currently at that
+  image position. A unique serial survives connector renames; a missing or
+  duplicate serial falls back to connector identity. The geometry topology
+  ID and native protocol are unchanged.
+- Two guarded VM runs swapped Virtual-1 and Virtual-2 under a visible grant.
+  An old Virtual-2 shot was refused with the compositor cursor unchanged.
+  Fresh 1280x800 captures placed cyan Virtual-2 at canvas `(0,0)` and magenta
+  Virtual-1 at `(1280,0)`, each with counter 742 after counter 741 before the
+  swap. Both runs restored monitor rules and closed the grant and test
+  processes. The rotated and negative-origin layouts passed again with the
+  new shot check. Vertical, hotplug, and mirror layouts remain unmeasured.
