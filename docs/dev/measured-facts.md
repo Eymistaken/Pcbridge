@@ -1090,3 +1090,21 @@ guard in the code (the guards limit damage, they do not make it impossible):
   capture. Both runs restored the exact original monitor table, closed the
   grant and test processes, and left no frame or idle proof. Other layouts
   and full platform acceptance remain open.
+
+### Hyprland native accessibility batch policy
+
+- On September 30, two guarded normal MCP VM passes used a controlled GTK
+  window and the packaged release helper. A `computer_batch` containing
+  `ui_click` followed by unconfirmed `alt+F4` returned
+  `CONFIRMATION_REQUIRED` before the button received any click. A separate
+  unconfirmed keyboard call also returned `CONFIRMATION_REQUIRED` without
+  closing the window.
+- A five-action batch clicked the same button twice with 500 ms waits and
+  requested a third click. It reported four actions done and stopped before
+  the third; the GTK window emitted exactly two `ok` signals. At 100 ms
+  spacing in an earlier diagnostic, two successful AT-SPI replies produced
+  one GTK signal, while a separate direct click produced another. The
+  fixture uses 500 ms waits to observe both allowed activations. Normal
+  grant teardown and an independent VM check found no frame, idle proof,
+  native helper, or test window left behind. Other batch policies and full
+  Hyprland acceptance remain open.

@@ -81,7 +81,7 @@ async def run(cfg, window, evidence):
                     hyprland._query("clients", json_output=True)]
                 name = node_id(body, "text", "Ad")
                 password = node_id(body, "password text", "Parola")
-                assert node_id(body, "push button", "Tamam")
+                button = node_id(body, "push button", "Tamam")
 
                 password_mark = window.mark()
                 denied = await call("ui_set_text", {"id": password,
@@ -99,6 +99,35 @@ async def run(cfg, window, evidence):
                     item.get("value") == "Hyprland policy fixture", 4, mark)
                 assert received is not None, window.since(mark)
                 evidence["ordinary_text"] = "received"
+
+                mark = window.mark()
+                close_batch = await call("computer_batch", {"actions": json.dumps([
+                    {"a": "ui_click", "id": button},
+                    {"a": "key", "keys": "alt+F4"}]),
+                    "final": "none", "force": True})
+                evidence["batch_close_refusal"] = code(close_batch)
+                assert evidence["batch_close_refusal"] == "CONFIRMATION_REQUIRED"
+                assert not any(item.get("event") == "clicked" for item in window.since(mark))
+
+                mark = window.mark()
+                repeated = await call("computer_batch", {"actions": json.dumps([
+                    {"a": "ui_click", "id": button},
+                    {"a": "wait", "ms": 500},
+                    {"a": "ui_click", "id": button},
+                    {"a": "wait", "ms": 500},
+                    {"a": "ui_click", "id": button}]),
+                    "final": "none", "force": True})
+                assert not repeated.is_error, text(repeated)
+                evidence["repeat_result"] = text(repeated)
+                assert evidence["repeat_result"].startswith("**4 of 5 actions done**")
+                assert "Repeated click" in evidence["repeat_result"], evidence["repeat_result"]
+                await asyncio.to_thread(wait_for, lambda: len([
+                    item for item in window.since(mark) if item.get("event") == "clicked"]) >= 2,
+                    timeout=3, description="two allowed accessibility clicks")
+                clicked = [item for item in window.since(mark)
+                           if item.get("event") == "clicked"]
+                assert [item.get("button") for item in clicked] == ["ok", "ok"], clicked
+                evidence["repeat_click"] = "third_refused_after_two_clicks"
 
                 denied = await call("keyboard", {"action": "key", "keys": "alt+F4",
                     "force": True})

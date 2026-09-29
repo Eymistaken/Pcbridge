@@ -2908,3 +2908,40 @@ two actual VM runs and the independent cleanup check passed.
 ./.venv/bin/python -m py_compile tests/live/hyprland/check_topology_capture.py
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOPOLOGY=1 .venv/bin/python tests/live/hyprland/check_topology_capture.py --out-dir /tmp/pcbridge-stage9l-topology-final'
 ```
+
+## Stage 9m: Batch policy through native accessibility on Hyprland
+
+**Objective:** Verify that a close shortcut is refused before any earlier
+batch action and that the repeated-click limit stops the third accessibility
+click on a controlled GTK button.
+
+**Fresh VM measurements (September 30, 2026):** The guarded normal MCP
+fixture used the packaged release helper and an isolated GTK window under
+the visible grant. A batch of `ui_click` then `alt+F4` returned
+`CONFIRMATION_REQUIRED` during preflight, with no GTK click event. A second
+batch requested three clicks on the same `Tamam` node with 500 ms waits
+between them. It reported four of five actions done and stopped before the
+third click. The GTK window independently reported exactly two `ok` click
+signals. A separate `keyboard` call also refused unconfirmed `alt+F4`, and
+the window remained open. Normal lock and teardown closed the frame, native
+helper, idle watcher, and test window; independent VM inspection found no
+remaining process, frame, or idle proof and a known unlocked screen.
+
+The first version of the repeat fixture sent clicks 100 ms apart. The native
+AT-SPI calls reported two successes, but GTK emitted only one click signal;
+a separate direct click did emit another. Spacing the actions made the two
+allowed activations observable without changing the repeated-target rule.
+This is a fixture timing observation, not evidence that every application
+will activate on each rapid AT-SPI action. The policy checks cover these two
+batch cases only; the broader policy matrix remains open. Production code
+was not changed.
+
+**Verification:** Two fresh VM passes exited 0. Python compilation, the
+host-only opt-in guard, `git diff --check`, 46 focused desktop gate and MCP
+error contracts, and an independent VM cleanup check passed.
+
+```bash
+./.venv/bin/python -m py_compile tests/live/hyprland/check_accessibility_policy.py
+./.venv/bin/python -m unittest tests.contracts.test_desktop_gates tests.contracts.test_mcp_errors
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_A11Y_POLICY=1 .venv/bin/python tests/live/hyprland/check_accessibility_policy.py --out-dir /tmp/pcbridge-stage9m-policy-final'
+```
