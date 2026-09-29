@@ -22,6 +22,7 @@ static struct wl_compositor *compositor;
 static struct wl_shm *shm;
 static struct wl_seat *seat;
 static struct wl_pointer *pointer;
+static struct wl_touch *touch;
 static struct wl_surface *surface;
 static struct xdg_wm_base *wm;
 static struct xdg_surface *shell_surface;
@@ -91,10 +92,20 @@ static void discrete(void *d, struct wl_pointer *p, uint32_t a, int32_t v) { (vo
 static const struct wl_pointer_listener pointer_listener = { .enter=enter, .leave=leave, .motion=motion, .button=button, .axis=axis, .frame=frame, .axis_source=source, .axis_stop=axis_stop, .axis_discrete=discrete };
 static void relative_motion(void *d, struct zwp_relative_pointer_v1 *p, uint32_t hi, uint32_t lo, wl_fixed_t x, wl_fixed_t y, wl_fixed_t ux, wl_fixed_t uy) { (void)d; (void)p; EVENT("relative", ",\"protocol_time_us\":%llu,\"dx\":%.5f,\"dy\":%.5f,\"ux\":%.5f,\"uy\":%.5f", (unsigned long long)(((uint64_t)hi << 32) | lo), wl_fixed_to_double(x), wl_fixed_to_double(y), wl_fixed_to_double(ux), wl_fixed_to_double(uy)); }
 static const struct zwp_relative_pointer_v1_listener relative_listener = { .relative_motion=relative_motion };
+static void touch_down(void *d, struct wl_touch *t, uint32_t serial, uint32_t time, struct wl_surface *s, int32_t id, wl_fixed_t x, wl_fixed_t y) { (void)d; (void)t; (void)serial; (void)time; EVENT("touch_down", ",\"on_surface\":%s,\"id\":%d,\"x\":%.5f,\"y\":%.5f", s == surface ? "true" : "false", id, wl_fixed_to_double(x), wl_fixed_to_double(y)); }
+static void touch_up(void *d, struct wl_touch *t, uint32_t serial, uint32_t time, int32_t id) { (void)d; (void)t; (void)serial; (void)time; EVENT("touch_up", ",\"id\":%d", id); }
+static void touch_motion(void *d, struct wl_touch *t, uint32_t time, int32_t id, wl_fixed_t x, wl_fixed_t y) { (void)d; (void)t; (void)time; EVENT("touch_motion", ",\"id\":%d,\"x\":%.5f,\"y\":%.5f", id, wl_fixed_to_double(x), wl_fixed_to_double(y)); }
+static void touch_frame(void *d, struct wl_touch *t) { (void)d; (void)t; }
+static void touch_cancel(void *d, struct wl_touch *t) { (void)d; (void)t; EVENT("touch_cancel", ""); }
+static void touch_shape(void *d, struct wl_touch *t, int32_t id, wl_fixed_t major, wl_fixed_t minor) { (void)d; (void)t; (void)id; (void)major; (void)minor; }
+static void touch_orientation(void *d, struct wl_touch *t, int32_t id, wl_fixed_t value) { (void)d; (void)t; (void)id; (void)value; }
+static const struct wl_touch_listener touch_listener = { .down=touch_down, .up=touch_up, .motion=touch_motion, .frame=touch_frame, .cancel=touch_cancel, .shape=touch_shape, .orientation=touch_orientation };
 static void capabilities(void *d, struct wl_seat *s, uint32_t caps) {
     (void)d;
     if (!(caps & WL_SEAT_CAPABILITY_POINTER)) { if (pointer) fail("Pointer capability removed"); return; }
     if (!pointer) { pointer = wl_seat_get_pointer(s); wl_pointer_add_listener(pointer, &pointer_listener, NULL); relative = zwp_relative_pointer_manager_v1_get_relative_pointer(relative_manager, pointer); zwp_relative_pointer_v1_add_listener(relative, &relative_listener, NULL); }
+    if ((caps & WL_SEAT_CAPABILITY_TOUCH) && !touch) { touch = wl_seat_get_touch(s); wl_touch_add_listener(touch, &touch_listener, NULL); EVENT("touch_capability", ""); }
+    if (!(caps & WL_SEAT_CAPABILITY_TOUCH) && touch) { fail("Touch capability removed"); }
 }
 static void seat_label(void *d, struct wl_seat *s, const char *name) { (void)d; (void)s; (void)name; }
 static const struct wl_seat_listener seat_listener = { .capabilities=capabilities, .name=seat_label };
@@ -154,6 +165,7 @@ cleanup:
     if (lock) zwp_locked_pointer_v1_destroy(lock);
     if (relative) zwp_relative_pointer_v1_destroy(relative);
     if (pointer) { if (wl_pointer_get_version(pointer) >= 3) wl_pointer_release(pointer); else wl_pointer_destroy(pointer); }
+    if (touch) { if (wl_touch_get_version(touch) >= 3) wl_touch_release(touch); else wl_touch_destroy(touch); }
     if (top) xdg_toplevel_destroy(top);
     if (shell_surface) xdg_surface_destroy(shell_surface);
     if (surface) wl_surface_destroy(surface);

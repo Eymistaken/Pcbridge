@@ -2650,3 +2650,59 @@ behavior change. Touch transparency, clipboard ownership, policy,
 accessibility, geometry/topology, visual and performance evidence, nested
 smoke, consolidated acceptance, and GNOME/KDE regression remain open. No
 overall Hyprland support or release claim follows from this stage.
+
+**Local commit:** `e421c03`.
+
+## Stage 9h: Observe touch transparency through the native glow
+
+**Objective:** Verify that the glow's empty Wayland input regions allow a real
+touchscreen to reach the client underneath, including all four first-output
+edges. Observe a baseline touch before the grant and another after closing it.
+
+**Design:** Extend the VM-only Wayland receiver with `wl_touch` callbacks and
+share its compiler/event reader with the Stage 9g fixture. A guarded Python
+fixture creates a temporary direct uinput touchscreen only inside the
+disposable VM. It checks the fullscreen client's compositor identity and
+geometry before each touch, opens a normal MCP grant, captures the visible
+client, and sends distinct touch sequences at `(640,5)`, `(640,794)`,
+`(5,400)`, and `(1274,400)`. It requires one matching client touch down/up and
+no cancellation for each point. The touchscreen is separate from PcBridge's
+pointer devices; production input and glow code are unchanged. Every process,
+grant, and device has bounded cleanup.
+
+**Fresh VM measurements (September 29, 2026):** The first and strengthened
+second runs exited 0. The temporary device caused a real `wl_touch`
+capability event. Before the grant, `(640,400)` reached the receiver exactly.
+With eight visible glow layers, each of the four first-output edge points
+reached the same fullscreen receiver at its exact requested coordinates, with
+matching down/up IDs and no cancel. A native screenshot showed the blue
+receiver and white glow. After normal `desktop_lock` and layer teardown,
+`(640,400)` again reached the receiver. The final fixture made one lock call,
+closed the receiver with exit 0, released the temporary device, and stopped
+its idle writer. A separate VM query found known unlocked state, no glow
+layers, idle proof, native helper, observer, or test touchscreen.
+
+The changed receiver was also checked by rerunning Stage 9g in the real VM:
+its pointer-lock fixture exited 0, compiled without warnings, and cleaned up.
+The touch measurement covers one 1280x800 output. Direct touchscreen mapping
+to the second output and broader topology acceptance remain open.
+
+**Verification:**
+
+```bash
+./.venv/bin/python -m py_compile tests/live/hyprland/check_pointer_lock.py tests/live/hyprland/check_touch_transparency.py tests/live/hyprland/wayland_test_support.py
+scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/wayland_input_window.c' < tests/live/hyprland/wayland_input_window.c
+scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/wayland_test_support.py' < tests/live/hyprland/wayland_test_support.py
+scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/check_pointer_lock.py' < tests/live/hyprland/check_pointer_lock.py
+scripts/dev/hyprland-vm.sh ssh 'cat > ~/pcbridge/tests/live/hyprland/check_touch_transparency.py' < tests/live/hyprland/check_touch_transparency.py
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_POINTER_LOCK=1 .venv/bin/python tests/live/hyprland/check_pointer_lock.py --out-dir /tmp/pcbridge-stage9g-after-touch-observer'
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOUCH=1 .venv/bin/python tests/live/hyprland/check_touch_transparency.py --out-dir /tmp/pcbridge-stage9h-touch-final'
+```
+
+The touch fixture's three host guards refused early as expected. The final
+VM receiver compiler emitted no warnings. Independent cleanup included
+enumerating `/dev/input` after the temporary touchscreen was closed.
+Remaining Hyprland acceptance includes second-output touch, policy,
+clipboard ownership, accessibility, topology, visual/performance and nested
+proof, consolidated tests, and GNOME/KDE regression. No general support or
+release claim follows from this stage.

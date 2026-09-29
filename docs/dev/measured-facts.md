@@ -996,3 +996,20 @@ guard in the code (the guards limit damage, they do not make it impossible):
   protocol package 1.49-1. Its process exited 0 and reader stopped in both
   runs. Normal grant closure and independent VM checks left known unlocked
   state with no grant layer, idle proof, native helper, or observer.
+
+### Real touch through the Hyprland glow
+
+- On September 29, a temporary VM-only direct uinput touchscreen created a
+  real `wl_touch` capability. A fullscreen Wayland client on the first
+  1280x800 output received `(640,400)` before the grant. With all eight glow
+  layers visible, touch down/up reached that same client at the exact top
+  `(640,5)`, bottom `(640,794)`, left `(5,400)`, and right `(1274,400)`
+  points. Every sequence had matching IDs and no cancellation. After normal
+  grant closure, `(640,400)` reached the client again. The first run and the
+  strengthened final run both exited 0; the final native screenshot showed
+  the actual client and white glow.
+- The final fixture's receiver exited 0; its reader stopped, temporary touch
+  device closed, and native idle writer stopped. An independent VM query found
+  known unlocked state and no grant layer, idle proof, native helper,
+  observer, or remaining `pcbridge-vm-touch-*` device. This proves first-output
+  touch transparency, not second-output mapping or full platform acceptance.
