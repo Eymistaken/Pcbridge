@@ -17,8 +17,9 @@ The native helper (Tasks 6.2, 6.3) is compared with the Python one on the
 same window when a helper with the accessibility methods is found
 (`PCBRIDGE_NATIVE_BIN` or the packaged one): the same reads, and every
 action test run once more through it. It runs under a grant written to a
-scratch state directory, so the user's own grant is never touched and no
-screen is shared.
+scratch state directory, so the user's own grant is never touched. On
+Hyprland, the native cases also start a temporary idle watcher and visible
+grant frame. They do not open screen capture or a keyboard or pointer device.
 """
 
 from __future__ import annotations
@@ -44,6 +45,9 @@ from pcbridge.desktop.backends.python import PythonAccessibilityProvider  # noqa
 from pcbridge.desktop.backends.rust import RustAccessibilityProvider  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCode  # noqa: E402
 from pcbridge.desktop.safety import SafetyGate  # noqa: E402
+from pcbridge.desktop import idlewatch, session  # noqa: E402
+from pcbridge.desktop.compositor import current as current_compositor  # noqa: E402
+from pcbridge.native import discover_native_binary  # noqa: E402
 
 SYSTEM_PYTHON = "/usr/bin/python3"
 APP = "pcbridge-a11y-test"
@@ -145,10 +149,30 @@ def native_provider(case: unittest.TestCase, feature: str) -> RustAccessibilityP
     that has `feature`."""
     scratch = tempfile.TemporaryDirectory()
     case.addCleanup(scratch.cleanup)
-    cfg = dataclasses.replace(
-        load_config(str(ROOT / "config.example.toml")), state_dir=Path(scratch.name)
-    )
+    base = load_config(str(ROOT / "config.example.toml"))
+    framed = current_compositor().kind == session.HYPRLAND
+    cfg = dataclasses.replace(base, state_dir=Path(scratch.name),
+        desktop=dataclasses.replace(base.desktop, enabled=True,
+            unlock_notification=False) if framed else base.desktop)
+    if framed:
+        binary = discover_native_binary(cfg.native)
+        idle = subprocess.Popen([str(binary), "idle-watch"], stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+
+        def stop_idle() -> None:
+            if idle.poll() is None:
+                idle.terminate()
+            idle.wait(timeout=3)
+
+        case.addCleanup(stop_idle)
+        deadline = time.monotonic() + 5
+        while idlewatch.read_idle_ms() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if idlewatch.read_idle_ms() is None:
+            raise AssertionError("Native idle watcher did not publish")
     gate = SafetyGate(cfg)
+    case.addCleanup(gate.close)
+    case.addCleanup(gate.lock)
     gate.unlock(5, reason="accessibility parity")
     provider = RustAccessibilityProvider(cfg, gate=gate)
     case.addCleanup(provider.close)
@@ -190,7 +214,7 @@ class _LiveCase(unittest.TestCase):
                     raise
                 time.sleep(0.2)
                 continue
-            if dump.app_pid == self.window.ready["pid"] and len(self.closes(dump)) == 3:
+            if dump.app_pid == self.window.ready["pid"] and len(self.closes(dump)) in (2, 3):
                 _measure(f"{self.label}_dump_ms", started)
                 return dump
             if time.monotonic() > deadline:
@@ -199,14 +223,14 @@ class _LiveCase(unittest.TestCase):
 
     @staticmethod
     def closes(dump: uitreelib.Dump) -> list[uitreelib.Node]:
-        return [n for n in dump.nodes if n.role == "push button" and n.name == "Kapat"]
+        return [n for n in dump.nodes if n.role in ("button", "push button") and n.name == "Kapat"]
 
     def group(self, dump: uitreelib.Dump, which: str) -> uitreelib.Node:
         """The "Kapat" of group A or B, the two in the window's own body.
 
-        The third "Kapat" is the header bar's close button, which closes the
-        window; the groups come first in the tree, so the first two are the
-        groups' in order.
+        Some desktops also expose a third "Kapat" in the header bar. The
+        groups come first in the tree, so the first two are the groups' in
+        order on both layouts.
         """
         closes = self.closes(dump)
         return closes[0] if which == "a" else closes[1]
@@ -226,7 +250,8 @@ class LiveReadTests(_LiveCase):
         self.assertTrue(all(refs))
         self.assertEqual(len(refs), len(set(refs)))
         ids = [n.node_id for n in self.closes(dump)]
-        self.assertEqual(len(set(ids)), 3, ids)
+        self.assertEqual(len(set(ids)), len(ids), ids)
+        self.assertIn(len(ids), (2, 3), ids)
 
     def test_object_paths_survive_a_shifted_tree(self) -> None:
         before = self.dump()
@@ -311,7 +336,7 @@ class LiveActionTests(_LiveCase):
 
     def test_a_disabled_button_is_refused_not_reported_clicked(self) -> None:
         dump = self.dump()
-        ok = next(n for n in dump.nodes if n.role == "push button" and n.name == "Tamam")
+        ok = next(n for n in dump.nodes if n.role in ("button", "push button") and n.name == "Tamam")
         self.window.command("disable-ok")
         mark = self.window.mark()
         with self.assertRaises(DesktopError) as raised:
@@ -411,6 +436,8 @@ class LiveNativeReadTests(_LiveCase):
         self.assertEqual(len(mine(native)), 1)
 
     def test_a_large_tree_for_timing(self) -> None:
+        if current_compositor().kind != session.GNOME:
+            self.skipTest("GNOME Shell is the timing target")
         # gnome-shell's tree changes by itself (the clock), so only time it.
         python = self.timed("python_shell_dump_ms", lambda: self.tree.dump(target="gnome-shell"))
         native = self.timed("native_shell_dump_ms", lambda: self.native.dump(target="gnome-shell"))

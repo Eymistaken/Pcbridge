@@ -29,10 +29,10 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
 ## Optional: engineering
 
 - **Hyprland acceptance.** Pointer lock, touch transparency on both VM outputs,
-  and a clipboard change during native typing have scoped VM evidence in
-  [WALKTHROUGH.md](WALKTHROUGH.md). Finish policy, accessibility, topology,
-  visual/performance and nested checks, consolidate real VM acceptance, and
-  run GNOME/KDE live regressions before claiming
+  a clipboard change during native typing, and native accessibility policy
+  have scoped VM evidence in [WALKTHROUGH.md](WALKTHROUGH.md). Finish remaining
+  policy and topology cases, visual/performance and nested checks, consolidate
+  real VM acceptance, and run GNOME/KDE live regressions before claiming
   general support.
 - **Atomic clipboard ownership during paste.** The restore path now keeps a
   different clipboard value observed after paste, but `wl-copy` exposes no

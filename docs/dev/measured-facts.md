@@ -1050,3 +1050,26 @@ guard in the code (the guards limit damage, they do not make it impossible):
   early cursor-selection and seat-listener revisions were test-only. The
   measurement is limited to two scale-1 1280x800 VM outputs and does not
   establish arbitrary touchscreen mappings or general Hyprland support.
+
+### Hyprland AT-SPI parity and target policy
+
+- On September 29, the disposable VM's libatspi named numeric role 43
+  `button`, while the native reader's stable role table named it `push button`.
+  The two readers otherwise reported the same object paths, tree paths,
+  actions, and states for the controlled GTK window. Normalizing the Python
+  name to `push button` made short IDs and full node records match. The VM's
+  GTK window exposed two body close buttons without a header close button;
+  the earlier live fixture required three and failed before this correction.
+- The guarded VM parity suite passed 20 tests with one GNOME-only timing
+  skip. Python and native reads matched repeatedly, including after the
+  tree shifted. Both action paths verified moved/stale identity, disabled
+  controls, ordinary and truncated text, and password refusal. The native
+  helper's action case found no uinput descriptor.
+- A separate normal MCP run with the packaged release helper reported
+  `GRANT_REQUIRED` before unlock, then `linux.atspi.native` under eight
+  visible glow layers. A forced password write returned `PASSWORD_FIELD`
+  without a password event. Ordinary text reached the intended field;
+  unconfirmed `alt+F4` returned `CONFIRMATION_REQUIRED` and left the window
+  open. Normal lock and independent cleanup found no frame, idle proof, or
+  test helper process. This is scoped policy/accessibility evidence, not
+  full Hyprland acceptance.

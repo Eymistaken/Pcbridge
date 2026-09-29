@@ -298,6 +298,14 @@ class HelperDumpTests(_FakeDesktopCase):
         self.assertTrue(all(refs), refs)
         self.assertEqual(len(refs), len(set(refs)))
 
+    def test_newer_libatspi_button_name_keeps_native_node_identity(self) -> None:
+        older = self.dump("editor", {"target": "focused"})
+        original = _Node.get_role_name
+        with mock.patch.object(_Node, "get_role_name", lambda node:
+                               "button" if original(node) == "push button" else original(node)):
+            newer = self.dump("editor", {"target": "focused"})
+        self.assertEqual(newer["nodes"], older["nodes"])
+
 
 class HelperActionTests(_FakeDesktopCase):
     def test_action_cases(self) -> None:

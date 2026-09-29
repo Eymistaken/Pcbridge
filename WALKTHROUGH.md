@@ -2804,3 +2804,61 @@ scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOUC
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_TOUCH=1 .venv/bin/python tests/live/hyprland/check_touch_transparency.py --output Virtual-1 --out-dir /tmp/pcbridge-stage9j-touch-output1-final2'
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_POINTER_LOCK=1 .venv/bin/python tests/live/hyprland/check_pointer_lock.py --out-dir /tmp/pcbridge-stage9j-pointer-regression'
 ```
+
+## Stage 9k: Native accessibility parity and target policy on Hyprland
+
+**Objective:** Measure the Python and packaged native AT-SPI readers and
+actions against the same controlled GTK window in Hyprland, then exercise
+password and close-shortcut policy through normal MCP tools.
+
+**Observed mismatch and fix:** The original live parity fixture expected
+three `push button` nodes named `Kapat`. In this VM, GTK exposed the two body
+buttons and no header close button, while Python libatspi called role 43
+`button`. The native reader called the same role `push button`; identical
+object paths, tree paths, states, and actions consequently had different
+short IDs. A direct VM query confirmed role 43 maps to `button` here.
+The Python helper now normalizes `button` to the native reader's stable
+`push button` role before generating IDs or validating action identity.
+The live fixture accepts two or three close buttons and either role spelling
+when selecting its controlled widgets. Its native tests open their own
+Hyprland idle watcher and visible frame in a scratch state directory, then
+close both. The GNOME Shell timing case is skipped outside GNOME. A contract
+test verifies the two libatspi names produce identical node records.
+
+**Fresh VM measurements (September 29, 2026):** The full guarded AT-SPI
+parity suite passed 20 tests with one expected GNOME-only timing skip. Python
+and native dumps matched node for node over repeated reads and a shifted
+tree. Both paths clicked the same moved button, refused stale/recreated and
+disabled controls, wrote ordinary text, detected truncated text, and refused
+the password field. The native helper had no uinput file descriptor in its
+action test.
+
+A separate VM-only normal MCP fixture used the packaged release helper and
+an isolated GTK window. `ui_dump` returned `GRANT_REQUIRED` before the grant.
+With eight native glow layers visible, `system_capabilities` reported
+`linux.atspi.native`; `ui_dump` listed the controlled fields. `ui_set_text`
+with `force=true` returned `PASSWORD_FIELD` for the password field with no
+password change event, while ordinary text reached the named field exactly.
+Unconfirmed `alt+F4` returned `CONFIRMATION_REQUIRED`, and the window stayed
+open. Normal `desktop_lock` and bounded cleanup closed the window, frame,
+native helper, and idle watcher. Independent VM inspection found known
+unlocked state and no glow layer, idle proof, or test helper process.
+
+**Verification:** The focused accessibility, native, policy, MCP error, and
+English contract group passed 96 checks. The full live parity run and normal
+MCP fixture both exited 0. The full contract suite passed 779 checks with
+one skip, integration passed 31 with one skip, and the safe desktop suite
+passed 615. The contract run repeated the existing Pillow `getdata`
+deprecation warning; integration also emitted resource and Starlette
+deprecation warnings while exiting 0. The remaining Hyprland policy matrix,
+topology, visual/performance, nested and consolidated acceptance, and
+GNOME/KDE live regression remain open. No general support or release claim
+follows from this stage.
+
+```bash
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_INPUT=1 .venv/bin/python -m unittest tests.live.test_accessibility_parity -v'
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_A11Y_POLICY=1 .venv/bin/python tests/live/hyprland/check_accessibility_policy.py --out-dir /tmp/pcbridge-stage9k-policy-final'
+./.venv/bin/python -m unittest discover -s tests/contracts -t .
+./.venv/bin/python -m unittest discover -s tests/integration -t .
+./.venv/bin/python tests/test_desktop.py
+```

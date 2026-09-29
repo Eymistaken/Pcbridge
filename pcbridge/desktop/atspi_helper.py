@@ -181,7 +181,10 @@ def _actions(node) -> list[str]:
 
 def _role(node) -> str:
     try:
-        return node.get_role_name() or "?"
+        name = node.get_role_name() or "?"
+        # libatspi names role 43 "button" on newer systems and "push button"
+        # on older ones. Keep the native reader's stable role and node IDs.
+        return "push button" if name == "button" else name
     except Exception:
         return "?"
 
