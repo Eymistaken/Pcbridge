@@ -1212,3 +1212,20 @@ guard in the code (the guards limit damage, they do not make it impossible):
   unlocked screen, and no frame, idle proof, native helper, or test window.
   This is a debug renderer fixture measured with `grim`, not normal MCP
   capture performance or physical mirrored-output visibility.
+
+### Hyprland two-output MCP capture latency
+
+- On September 30, two guarded VM runs used the packaged release helper
+  through the normal FastMCP `screen_capture` tool with a visible grant,
+  two 1280x800 outputs, `monitor=all`, `scale=0`, and no pointer. After two
+  warmups, each timed 20 in-process tool-call round trips. Run one had a
+  217.562 ms median, 249.115 ms nearest-rank 95th percentile, and
+  205.790–264.001 ms range. Run two had a 219.349 ms median, 245.674 ms
+  95th percentile, and 206.077–263.115 ms range.
+- Both runs decoded the two image blocks from every response, verified
+  output markers and a counter change midway, and saw 44 unique shot IDs
+  across 22 calls. Both closed the grant and test processes. Independent
+  inspection found the original layout and no frame, idle proof, helper, or
+  pattern window. Timing excludes client image decoding and any external
+  stdio relay or network. It is a static VM baseline without concurrent
+  load or an established product latency target.

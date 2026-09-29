@@ -3219,3 +3219,48 @@ independent cleanup check passed.
 ```bash
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_LIVE_HYPRLAND=1 .venv/bin/python tests/live/hyprland/check_glow_renderer.py --out-dir /tmp/pcbridge-stage9t-glow-visual'
 ```
+
+## Stage 9u: Two-output normal MCP capture latency
+
+**Objective:** Measure the latency of the production `screen_capture` tool
+with inline images from both VM outputs, while checking that every measured
+response contains fresh, correctly labeled pixels.
+
+**Design:** A VM-only fixture uses a scratch state directory, the packaged
+release helper, its idle watcher, two pattern windows, and a visible grant.
+It calls the normal FastMCP `screen_capture` tool with `monitor=all`,
+`scale=0`, and `include_pointer=false`. After two warmups, it times 20 MCP
+tool calls, excluding the fixture's result decoding. It decodes both
+1280x800 images from each response, checks output markers and the displayed
+counter, and requires every shot ID to be distinct. The pattern counter
+changes midway through the run. It closes the grant and all test processes.
+
+**Fresh VM measurements (September 30, 2026):** Two runs passed with the
+packaged helper reporting `profile=release` and `test_harness=false`. The
+first run measured 20 calls at a 217.562 ms median, 249.115 ms nearest-rank
+95th percentile, and 205.790–264.001 ms range. The repeat measured a
+219.349 ms median, 245.674 ms 95th percentile, and 206.077–263.115 ms
+range. Each run produced 44 unique shot IDs across 22 calls and decoded
+both output images with the expected marker and counter. The grant closed,
+the pattern process exited 0, and the idle watcher and runtime stopped.
+Independent VM inspection after each run found the original two-output
+layout, unlocked screen, and no frame, idle proof, native helper, or pattern
+window.
+
+These are in-process FastMCP tool-call round trips on the disposable VM;
+they include the production capture and inline MCP response, but exclude an
+external stdio relay, client image decoding, and network latency. They cover
+one static two-output layout without concurrent desktop load. No product
+latency target is set, so the numbers are observations rather than a
+performance acceptance claim. The logs included Mesa EGL DRI2 warnings.
+The first diagnostic invocation failed before opening a grant because it
+imported another fixture's guarded parser. The parser was made local; both
+subsequent runs passed.
+
+**Verification:** Python compilation, three host safety guards, two live VM
+runs, independent VM cleanup after each, and `git diff --check` passed.
+
+```bash
+./.venv/bin/python -m py_compile tests/live/hyprland/check_capture_performance.py
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_PERFORMANCE=1 .venv/bin/python tests/live/hyprland/check_capture_performance.py --out-dir /tmp/pcbridge-stage9u-performance-repeat'
+```
