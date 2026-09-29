@@ -1010,8 +1010,21 @@ class InputBackend:
         time.sleep(0.25)
         note = f"pasted {len(text)} characters through the clipboard"
         if restore:
-            self.clipboard.restore(saved)
-            note += "; clipboard restored" if saved else "; clipboard cleared"
+            # wl-copy exposes no owner token. Re-read the temporary text before
+            # restoring; an identical replacement or a later change remains
+            # indistinguishable from our own clipboard value.
+            current = self.clipboard.save()
+            if (
+                current is not None
+                and current.mime in (
+                    clipboardlib.TEXT_MIME, "text/plain", "UTF8_STRING", "STRING", "TEXT"
+                )
+                and current.data == text.encode("utf-8")
+            ):
+                self.clipboard.restore(saved)
+                note += "; clipboard restored" if saved else "; clipboard cleared"
+            else:
+                note += "; clipboard changed or unreadable; left as is"
         return note
 
     def _type_raw(self, text: str) -> str:

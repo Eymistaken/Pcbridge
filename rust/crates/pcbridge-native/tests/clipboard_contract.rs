@@ -162,9 +162,18 @@ fn type_through(model: &Model, text: &str, restore: bool) -> Vec<(String, Vec<u8
     model.calls.borrow_mut().push(json!("PASTE"));
     let pasted = model.state();
     if restore {
-        match saved {
-            Some(saved) => clipboard.put(&saved.mime, &saved.data).unwrap(),
-            None => clipboard.clear().unwrap(),
+        let current = clipboard.save().unwrap();
+        let still_temporary = current.as_ref().is_some_and(|current| {
+            matches!(
+                current.mime.as_str(),
+                TEXT_MIME | "text/plain" | "UTF8_STRING" | "STRING" | "TEXT"
+            ) && current.data.as_slice() == text.as_bytes()
+        });
+        if still_temporary {
+            match saved {
+                Some(saved) => clipboard.put(&saved.mime, &saved.data).unwrap(),
+                None => clipboard.clear().unwrap(),
+            }
         }
     }
     pasted

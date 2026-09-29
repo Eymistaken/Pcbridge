@@ -180,23 +180,58 @@ class ClipboardFixtureTests(unittest.TestCase):
         class Recording:
             def __init__(self) -> None:
                 self.log: list[str] = []
+                self.current = clipboardlib.Saved("text/html", b"<i>x</i>")
 
             def save(self):
                 self.log.append("save")
-                return clipboardlib.Saved("text/html", b"<i>x</i>")
+                return self.current
 
             def put_text(self, text):
                 self.log.append(f"put {text}")
+                self.current = clipboardlib.Saved(clipboardlib.TEXT_MIME, text.encode())
 
             def restore(self, saved):
                 self.log.append(f"restore {saved.mime}")
+                self.current = saved
 
         recording = Recording()
         backend = inputlib.InputBackend(clipboard=recording)
         backend.key = lambda combo: recording.log.append(combo)  # type: ignore[method-assign]
         with mock.patch.object(inputlib.time, "sleep", lambda _seconds: None):
             backend.type_text("çğ", restore_clipboard=True)
-        self.assertEqual(recording.log, ["save", "put çğ", "ctrl+v", "restore text/html"])
+        self.assertEqual(recording.log, ["save", "put çğ", "ctrl+v", "save", "restore text/html"])
+
+    def test_changed_or_unreadable_clipboard_is_not_replaced_after_pasting(self) -> None:
+        class ChangedClipboard:
+            def __init__(self) -> None:
+                self.current = clipboardlib.Saved(clipboardlib.TEXT_MIME, b"original")
+                self.restores = 0
+
+            def save(self):
+                return self.current
+
+            def put_text(self, text):
+                self.current = clipboardlib.Saved(clipboardlib.TEXT_MIME, text.encode())
+
+            def restore(self, saved):
+                self.restores += 1
+                self.current = saved
+
+        for replacement in (
+            clipboardlib.Saved(clipboardlib.TEXT_MIME, b"new owner"),
+            clipboardlib.Saved("image/png", b"temporary"),
+            None,
+        ):
+            with self.subTest(replacement=replacement):
+                clipboard = ChangedClipboard()
+                backend = inputlib.InputBackend(clipboard=clipboard)
+                backend.key = lambda _combo: setattr(  # type: ignore[method-assign]
+                    clipboard, "current", replacement)
+                with mock.patch.object(inputlib.time, "sleep", lambda _seconds: None):
+                    note = backend.type_text("temporary", restore_clipboard=True)
+                self.assertEqual(clipboard.current, replacement)
+                self.assertEqual(clipboard.restores, 0)
+                self.assertIn("clipboard changed", note)
 
 
 if __name__ == "__main__":

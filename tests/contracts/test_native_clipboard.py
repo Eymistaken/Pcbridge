@@ -148,7 +148,8 @@ class NativeClipboardTests(unittest.TestCase):
                     for entry in ([case["final"][0]] if case["final"] else [None])
                 ]
                 expected = (
-                    ["clipboard.read", "clipboard.write", "input.keyboard.key", *restored]
+                    ["clipboard.read", "clipboard.write", "input.keyboard.key",
+                     "clipboard.read", *restored]
                     if case["restore"]
                     else ["clipboard.write", "input.keyboard.key"]
                 )

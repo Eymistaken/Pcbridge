@@ -198,8 +198,41 @@ def main():
                     assert window.wait(lambda event: event.get("event") == "text" and event["value"] == text, 5, mark)
                     assert pointer.clipboard.save().data == b"PcBridge clipboard sentinel"
                     evidence["clipboard_typing"] = "exact_text_and_restored_clipboard"
+
+                    race_text = "PcBridge clipboard owner probe"
+                    external = b"PcBridge external clipboard owner"
+                    mark = window.mark()
+                    original_key = pointer.key
+
+                    def paste_then_external(combo):
+                        result = original_key(combo)
+                        if combo == "ctrl+v":
+                            pasted = window.wait(lambda event: event.get("event") == "text"
+                                and race_text in event["value"], 5, mark)
+                            assert pasted, window.since(mark)
+                            subprocess.run(["wl-copy", "--type", "text/plain;charset=utf-8"],
+                                input=external, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, check=True, timeout=10)
+                        return result
+
+                    pointer.key = paste_then_external
+                    try:
+                        guard("type with clipboard owner change")
+                        note = pointer.type_text(race_text)
+                    finally:
+                        pointer.key = original_key
+                    guard("clipboard owner observation")
+                    assert pointer.clipboard.save().data == external
+                    assert "clipboard changed" in note, note
+                    evidence["clipboard_owner_change"] = "external_value_preserved"
                 finally:
                     pointer.clipboard.restore(original_clipboard)
+                guard("original clipboard restored")
+                final_clipboard = pointer.clipboard.save()
+                assert ((original_clipboard is None and final_clipboard is None)
+                        or (original_clipboard is not None and final_clipboard is not None
+                            and final_clipboard.data == original_clipboard.data))
+                evidence["original_clipboard_bytes_restored"] = True
                 mark = window.mark()
                 guard("key")
                 pointer.key("shift+a")

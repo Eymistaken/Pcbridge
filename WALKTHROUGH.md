@@ -2706,3 +2706,53 @@ Remaining Hyprland acceptance includes second-output touch, policy,
 clipboard ownership, accessibility, topology, visual/performance and nested
 proof, consolidated tests, and GNOME/KDE regression. No general support or
 release claim follows from this stage.
+
+**Local commit:** `18005b3`.
+
+## Stage 9i: Preserve a changed clipboard value after native paste
+
+**Objective:** Keep a different clipboard value set by another application
+during a PcBridge paste. Preserve the existing restore behavior when the
+temporary text is still present, and measure both through the packaged native
+helper in the disposable Hyprland VM.
+
+**Root cause and design:** A controlled VM probe wrote a new clipboard value
+after PcBridge's temporary text and before `restore`; the new value was
+visible, then the unconditional restore replaced it. The shared
+`InputBackend._type_clipboard` performed no check after Ctrl+V. A new contract
+test failed on this behavior (`original` replaced `new owner`). The fix
+re-reads the clipboard after paste and restores the saved value only when the
+current first MIME is a recognized text type and its bytes still equal the
+temporary text. A different value, different MIME with equal bytes, or an
+unreadable clipboard is left in place and reported in the tool note. The
+common orchestration means this applies to Python and native providers, with
+the same program-call fixture updated for both. No setting default changed.
+
+This is a best-effort content check. `wl-copy` does not provide an atomic
+owner identity here: a new owner offering identical text, or a change between
+the re-read and restore, cannot be distinguished. That remaining race is in
+ROADMAP.md and requires separate acceptance before any stronger ownership
+claim. The existing single-MIME restore limitation remains.
+
+**Fresh VM measurements (September 29, 2026):** The full guarded native input
+fixture passed twice after the change. In the strengthened final run, normal
+clipboard typing delivered the exact controlled text and restored the test
+sentinel. For the change case, a separate VM `wl-copy` ran only after GTK
+reported the pasted text; the normal provider reported a changed clipboard
+and left the other value intact. The fixture then restored the
+pre-test clipboard bytes in its cleanup. Both runs also passed the existing
+eight-edge click/drag/scroll checks, two screenshot mappings, relative input,
+and held-key revoke. A separate VM query after the final run found known
+unlocked state, no frame layer, idle writer, native helper, or observer.
+
+**Verification:** The contract test failed before the fix and passed after it.
+The final targeted Python run passed 44 clipboard, input, language, and link
+checks; the full hermetic contract suite passed 778 with one skip, the
+integration suite passed 31 with one skip, and the safe desktop suite passed
+615 checks. Rust's clipboard contract passed all six cases and `cargo fmt`
+found no changes. The contract run emitted an existing Pillow `getdata`
+deprecation warning. The final VM input fixture exited 0 with
+`clipboard_owner_change=external_value_preserved` and
+`original_clipboard_bytes_restored=true`. GNOME and KDE live regression is
+still required because the typing orchestration is shared. No full Hyprland
+support or release claim follows from this stage.

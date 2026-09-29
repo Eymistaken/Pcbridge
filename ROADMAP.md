@@ -28,6 +28,18 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
 
 ## Optional: engineering
 
+- **Hyprland acceptance.** Pointer lock, first-output touch transparency,
+  and a clipboard change during native typing have scoped VM evidence in
+  [WALKTHROUGH.md](WALKTHROUGH.md). Finish second-output touch, policy,
+  accessibility, topology, visual/performance and nested checks, consolidate
+  real VM acceptance, and run GNOME/KDE live regressions before claiming
+  general support.
+- **Atomic clipboard ownership during paste.** The restore path now keeps a
+  different clipboard value observed after paste, but `wl-copy` exposes no
+  atomic owner identity to this path. An identical replacement or a change
+  after the re-read can still be overwritten. Close this when an atomic owner
+  check is available and measured on supported desktops, or document and
+  accept the remaining race as product behavior.
 - **`is_open()` does not see the screen lock.** When the screen locks,
   Mutter closes the screen share but the Python side still reports it open.
   Access is not affected (the gate answers `SCREEN_LOCKED`, and expiry

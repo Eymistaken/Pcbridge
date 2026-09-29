@@ -1013,3 +1013,22 @@ guard in the code (the guards limit damage, they do not make it impossible):
   known unlocked state and no grant layer, idle proof, native helper,
   observer, or remaining `pcbridge-vm-touch-*` device. This proves first-output
   touch transparency, not second-output mapping or full platform acceptance.
+
+### Clipboard change during native typing on Hyprland
+
+- On September 29, a controlled VM probe confirmed the old sequence could
+  overwrite a separate clipboard owner's different value: the new value was
+  visible before `restore`, then the saved value replaced it. The shared
+  typing path now re-reads the current first MIME and bytes after paste and
+  restores only when recognized temporary text is still present.
+- A real guarded Hyprland input fixture used the packaged native helper and
+  the temporary GTK observer. It first verified ordinary exact typing and
+  restoration of a controlled sentinel. In a second paste, another VM
+  `wl-copy` wrote a different value after GTK received the text and before
+  PcBridge's restore step. The helper left that value in place, and fixture
+  cleanup restored the pre-test clipboard bytes. Two VM runs passed, with
+  independent final checks finding no grant layer, native helper, idle
+  writer, or observer.
+- This is a content check, not atomic ownership proof. An identical text
+  replacement or a clipboard change after the re-read can still race the
+  restore. The first-MIME-only restore limit also remains.

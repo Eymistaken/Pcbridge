@@ -275,8 +275,9 @@ max_actions_per_second = 10
 default_monitor = 1
 
 # Text is typed through the clipboard + Ctrl+V by default (independent of the
-# keyboard layout). true = the clipboard's previous content is restored after
-# pasting, so the clipboard is never silently taken.
+# keyboard layout). true = restore the previous content after pasting only if
+# the temporary text is still present. A different value copied in the
+# meantime is left in place. This is a content check, not an atomic owner check.
 restore_clipboard = true
 
 # keyboard_layout is no longer used: text is typed through the clipboard, so

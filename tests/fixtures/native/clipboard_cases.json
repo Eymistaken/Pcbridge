@@ -31,6 +31,16 @@
         ],
         "PASTE",
         [
+          "wl-paste",
+          "--list-types"
+        ],
+        [
+          "wl-paste",
+          "--type",
+          "text/plain;charset=utf-8",
+          "--no-newline"
+        ],
+        [
           "wl-copy",
           "--type",
           "text/plain;charset=utf-8"
@@ -59,6 +69,16 @@
           "text/plain;charset=utf-8"
         ],
         "PASTE",
+        [
+          "wl-paste",
+          "--list-types"
+        ],
+        [
+          "wl-paste",
+          "--type",
+          "text/plain;charset=utf-8",
+          "--no-newline"
+        ],
         [
           "wl-copy",
           "--clear"
@@ -93,6 +113,16 @@
           "text/plain;charset=utf-8"
         ],
         "PASTE",
+        [
+          "wl-paste",
+          "--list-types"
+        ],
+        [
+          "wl-paste",
+          "--type",
+          "text/plain;charset=utf-8",
+          "--no-newline"
+        ],
         [
           "wl-copy",
           "--type",
@@ -133,6 +163,16 @@
           "text/plain;charset=utf-8"
         ],
         "PASTE",
+        [
+          "wl-paste",
+          "--list-types"
+        ],
+        [
+          "wl-paste",
+          "--type",
+          "text/plain;charset=utf-8",
+          "--no-newline"
+        ],
         [
           "wl-copy",
           "--type",
@@ -177,6 +217,16 @@
           "text/plain;charset=utf-8"
         ],
         "PASTE",
+        [
+          "wl-paste",
+          "--list-types"
+        ],
+        [
+          "wl-paste",
+          "--type",
+          "text/plain;charset=utf-8",
+          "--no-newline"
+        ],
         [
           "wl-copy",
           "--type",
@@ -229,6 +279,16 @@
           "text/plain;charset=utf-8"
         ],
         "PASTE",
+        [
+          "wl-paste",
+          "--list-types"
+        ],
+        [
+          "wl-paste",
+          "--type",
+          "text/plain;charset=utf-8",
+          "--no-newline"
+        ],
         [
           "wl-copy",
           "--type",
@@ -295,6 +355,16 @@
           "text/plain;charset=utf-8"
         ],
         "PASTE",
+        [
+          "wl-paste",
+          "--list-types"
+        ],
+        [
+          "wl-paste",
+          "--type",
+          "text/plain;charset=utf-8",
+          "--no-newline"
+        ],
         [
           "wl-copy",
           "--clear"
