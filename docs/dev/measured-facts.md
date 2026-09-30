@@ -1274,3 +1274,17 @@ guard in the code (the guards limit damage, they do not make it impossible):
   timed in-process MCP calls. It saw 44 distinct shot IDs across 22 calls.
   This run did not exercise nested compositor isolation, physical hotplug
   or mirrors, QMP frame pixels, performance under load, or GNOME/KDE.
+
+### Nested Hyprland IPC routing in the VM
+
+- On September 30, a second live Hyprland process registered a distinct
+  instance and `wayland-2` socket inside the VM parent on `wayland-1`.
+  PcBridge selected parent and child from their matching signature/socket
+  pairs and refused mixed or ambiguous pairs. Three scoped runs passed;
+  after child exit, only the parent instance and original two outputs
+  remained. Independent cleanup found no frame, idle watcher, or helper.
+- The child initialized a `WAYLAND-1` backend but presented no output.
+  Aquamarine logged GBM buffer allocation and swapchain acquisition failures
+  in this QEMU setup. Child-only `AQ_NO_MODIFIERS=1` did not change that
+  result. This measures IPC isolation, not nested graphical presentation or
+  desktop capture/input in the child compositor.

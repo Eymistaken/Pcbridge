@@ -36,9 +36,10 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   [WALKTHROUGH.md](WALKTHROUGH.md). Finish remaining
   batch policy cases, physical mirror and hotplug, performance under load
   (static two-output MCP latency and native renderer pixels are measured),
-  and nested checks. A 17-case VM cohort passed with cleanup between cases;
-  expand acceptance and run GNOME/KDE live regressions before claiming
-  general support.
+  and graphical nested checks (live nested IPC routing passed, but this VM
+  could not allocate the child's GBM output). A 17-case VM cohort passed
+  with cleanup between cases. Expand acceptance and run GNOME/KDE live
+  regressions before claiming general support.
 - **Hyprland mirror semantics.** The real active-monitor query hides a
   mirrored output even though `hyprctl monitors all` reports it. Normal MCP
   capture returns the source output, old follower shots are refused, and a

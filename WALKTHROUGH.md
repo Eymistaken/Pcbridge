@@ -3398,3 +3398,46 @@ cases and per-case cleanups, the independent final cleanup check, and
 bash -n tests/live/hyprland/run_acceptance.sh
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_MATRIX=1 tests/live/hyprland/run_acceptance.sh'
 ```
+
+## Stage 9y: Nested Hyprland instance routing
+
+**Objective:** Check PcBridge's live IPC instance selection when a second
+Hyprland process runs inside the VM's parent compositor. The test sends no
+desktop input and opens no grant.
+
+**Design:** A guarded VM fixture starts a child Hyprland process with a
+temporary minimal Lua config and its own Wayland socket. It keeps the
+parent's session environment, except that the child's inherited instance
+signature is removed and systemd environment changes are disabled. The
+fixture requires the parent environment to select the parent, the child
+identity and socket pair to select the child, and mixed or unqualified pairs
+to select no IPC instance. It queries both compositor instances, stops the
+child, and verifies that only the original parent and outputs remain.
+
+**Fresh VM measurements (September 30, 2026):** The child registered a
+distinct Hyprland instance on `wayland-2` while the parent stayed on
+`wayland-1`. Three scoped runs without the no-modifiers setting passed
+parent/child selection and mixed/ambiguous refusal, including the final run
+with strengthened cleanup assertions. The child exited cleanly, the parent
+retained Virtual-1 and Virtual-2 at `(0,0)` and `(1280,0)`, and no frame, idle
+watcher, or helper remained. A separate VM cleanup check passed.
+
+The child did **not** present a nested output in this QEMU setup. Its own
+log reported Aquamarine `GBM: Failed to allocate a GBM buffer: bo null` and
+`Swapchain: Failed acquiring a buffer` after initializing `WAYLAND-1`.
+One diagnostic also tried the child-only `AQ_NO_MODIFIERS=1` setting and
+still found no output; the final fixture does not set it. The first test
+failed because it required a visible child output. A later diagnostic read
+the compositor log before its errors were flushed; the final fixture checks
+that diagnostic after child shutdown. This is a passed **IPC routing** check,
+not a rendered nested compositor, capture, input, or grant check. Graphical
+nested acceptance remains open on a backend that can allocate its buffers.
+
+**Verification:** Python compilation, three host containment refusals,
+three scoped VM passes, the no-modifiers diagnostic, independent VM
+cleanup, and `git diff --check` passed.
+
+```bash
+./.venv/bin/python -m py_compile tests/live/hyprland/check_nested_session.py
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_NESTED=1 .venv/bin/python tests/live/hyprland/check_nested_session.py --out-dir /tmp/pcbridge-stage9y-nested-final'
+```
