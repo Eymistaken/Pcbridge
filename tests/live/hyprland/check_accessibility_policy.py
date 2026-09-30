@@ -329,6 +329,80 @@ async def run(cfg, window, evidence):
                 assert received is not None, window.since(mark)
                 evidence["confirmed_close"] = "shortcut_delivered"
 
+                # Give pcb-do the same scratch grant and state directory as
+                # the MCP writer. The source is the public example config.
+                cli_source = (ROOT / "config.example.toml").read_text(encoding="utf-8")
+                replacements = {
+                    'state_dir = "~/.local/state/pcbridge"':
+                        "state_dir = " + json.dumps(str(cfg.state_dir)),
+                    "enabled = false": "enabled = true",
+                    "unlock_notification = true": "unlock_notification = false",
+                    "idle_guard_seconds = 60": "idle_guard_seconds = 2",
+                }
+                for old, new in replacements.items():
+                    assert cli_source.count(old) == 1, old
+                    cli_source = cli_source.replace(old, new, 1)
+                cli_file = cfg.state_dir.parent / "cli-config.toml"
+                cli_file.write_text(cli_source, encoding="utf-8")
+                cli_file.chmod(0o600)
+
+                mark = window.mark()
+                writer_batch = asyncio.create_task(client.call_tool("computer_batch", {
+                    "actions": json.dumps([
+                        {"a": "ui_click", "id": button},
+                        {"a": "wait", "ms": 1800},
+                        {"a": "ui_click", "id": button}]),
+                    "final": "none", "force": True}, raise_on_error=False))
+                cli_writer = None
+                try:
+                    first = await asyncio.to_thread(window.wait,
+                        lambda item: item.get("event") == "clicked" and
+                        item.get("button") == "ok", 5, mark)
+                    assert first is not None and not writer_batch.done(), window.since(mark)
+                    assert hyprland._query("activewindow", json_output=True).get("pid") == window.ready["pid"]
+                    cli_writer = subprocess.Popen([sys.executable, "-m", "pcbridge.cli.do",
+                        json.dumps({"a": "key", "keys": "F8"}),
+                        "--force", "--json"], env={**os.environ,
+                        "PCBRIDGE_CONFIG": str(cli_file)}, stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE, text=True)
+                    await asyncio.sleep(0.35)
+                    assert cli_writer.poll() is None, "pcb-do exited while MCP held the lock"
+                    assert not any(item.get("event") == "key" and
+                                   item.get("keys") == "F8"
+                                   for item in window.since(mark))
+                    first_result = await asyncio.wait_for(writer_batch, timeout=7)
+                    assert not first_result.is_error, text(first_result)
+                    assert "**3 of 3 actions done**" in text(first_result), text(first_result)
+                    cli_out, cli_error = await asyncio.to_thread(cli_writer.communicate, timeout=8)
+                    assert cli_writer.returncode == 0, {"code": cli_writer.returncode,
+                        "stdout": cli_out[-1200:], "stderr": cli_error[-1200:]}
+                    cli_result = json.loads(cli_out)
+                    assert cli_result["ok"] and cli_result["done"] == 1, cli_result
+                    delivered = await asyncio.to_thread(window.wait,
+                        lambda item: item.get("event") == "key" and
+                        item.get("keys") == "F8", 3, mark)
+                    assert delivered is not None, window.since(mark)
+                    actions = [(item.get("event"),
+                                item.get("button", item.get("keys")))
+                               for item in window.since(mark)
+                               if item.get("event") in ("clicked", "key")]
+                    assert actions == [("clicked", "ok"), ("clicked", "ok"),
+                                       ("key", "F8")], actions
+                    evidence["two_writers"] = "MCP_click_click_then_CLI_F8"
+                finally:
+                    if not writer_batch.done():
+                        writer_batch.cancel()
+                        try:
+                            await writer_batch
+                        except asyncio.CancelledError:
+                            pass
+                    if cli_writer and cli_writer.poll() is None:
+                        cli_writer.terminate()
+                        await asyncio.to_thread(cli_writer.wait)
+                    if cli_writer:
+                        cli_writer.stdout.close()
+                        cli_writer.stderr.close()
+
                 closed = await call("desktop_lock", {})
                 assert not closed.is_error, text(closed)
                 grant_open = False

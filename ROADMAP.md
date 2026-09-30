@@ -37,9 +37,9 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   password targets, close shortcuts, repeat clicks, and budget preflight
   through normal MCP in the VM. A separate VM process also proved that its
   execution lock and seeded rate window delay a normal MCP click. A separate
-  VM focus shift during a batch wait now stops before the next key. Check two
-  actual desktop writers,
-  physical mirror and hotplug, and the intermittent visible-frame refusal
+  VM focus shift during a batch wait now stops before the next key. Real MCP
+  and `pcb-do` writers were observed in order in the VM. Check physical
+  mirror and hotplug, and the intermittent visible-frame refusal
   seen under three saturated VM CPU workers (loaded two-output latency is
   measured, but the proof-loss cause and physical workload are not),
   and graphical nested checks (live nested IPC routing passed, but this VM

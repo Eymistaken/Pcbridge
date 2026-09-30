@@ -1427,3 +1427,25 @@ guard in the code (the guards limit damage, they do not make it impossible):
   22 calls and measured a 218.595 ms median and 228.795 ms nearest-rank
   95th percentile over 20 timed calls. This unloaded VM measurement does
   not resolve the intermittent frame-proof loss seen under saturated CPU.
+
+### Two VM desktop writers
+
+- On September 30, a normal MCP batch clicked a controlled GTK button,
+  waited 1.8 seconds, and clicked again while a separate `pcb-do` process
+  ran with the same scratch grant state. During the batch, the CLI was
+  active and GTK had received no `F8` from it. The batch reported all three
+  actions done; the CLI then reported its one `F8` action done. GTK's event
+  order was click, click, `F8` in two corrected VM runs. Both closed the
+  grant and writers. The second run was part of a 17-case cohort that
+  passed with cleanup after each case. An independent final check found
+  the original two-output layout, unlocked screen, and no frame, idle
+  watcher, native helper, CLI writer, or test window. This observes
+  serialized desktop delivery for one MCP and CLI pairing in the VM.
+- An earlier attempt passed an MCP accessibility node ID to the CLI, which
+  returned `ELEMENT_STALE` because IDs are local to a process's `ui_dump`
+  snapshot. The test now uses a benign key action with an independent GTK
+  key event, not a borrowed accessibility ID.
+- The second cohort's unloaded two-output capture returned 44 unique shot
+  IDs across 22 calls, with a 221.538 ms median and 239.280 ms nearest-rank
+  95th percentile over 20 timed calls. It does not resolve the intermittent
+  frame-proof refusal under saturated CPU.

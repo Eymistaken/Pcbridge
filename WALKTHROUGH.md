@@ -3687,3 +3687,44 @@ outside it.
 **Verification:** `run_acceptance.sh` completed 17 cases and per-case
 cleanup; the independent final VM check, shell syntax, Python compilation,
 and `git diff --check` passed.
+
+## Stage 9af: Two real writers in the disposable VM
+
+**Objective:** Observe whether an ordinary MCP batch and a separate
+`pcb-do` process serialize actual desktop actions through their shared
+execution lock.
+
+**Design:** During the guarded accessibility-policy fixture, start a normal
+MCP batch that clicks a button, waits 1.8 seconds, then clicks it again.
+After the first GTK click arrives and the original window is confirmed
+focused, start `pcb-do` in another process with the same temporary grant
+state and a scratch config derived from the public example. Its one benign
+`F8` key action targets the same controlled GTK window. While the MCP batch
+is pending, assert that the CLI has not exited or delivered `F8`. After
+both calls return, require the GTK event order to be exactly click, click,
+`F8`, with both writers reporting full completion. The child config and
+all action content are fixture-only; the repository's private config is
+never read.
+
+**Fresh VM measurements (September 30, 2026):** An initial attempt asked
+the CLI to use an accessibility node ID from the MCP process. It returned
+`ELEMENT_STALE`: those IDs require a `ui_dump` in the same process. The
+corrected CLI action used `F8`, which the GTK fixture already reports.
+Two corrected runs passed: the second process stayed active with no `F8`
+while the MCP batch held the lock, the batch completed all three actions,
+and the CLI then completed its one key action. GTK recorded two button
+clicks followed by `F8` in each run. Both processes closed their resources
+and the grant was locked. The second run was part of a full 17-case
+acceptance cohort, which passed every case and per-case cleanup. Its
+two-output capture case returned 44 unique shot IDs, a 221.538 ms median,
+and a 239.280 ms nearest-rank p95 over 20 timed calls. Independent final
+VM inspection found the original two-output layout, unlocked screen, and
+no frame, idle watcher, native helper, CLI writer, or test window.
+
+This proves serialized delivery for one real MCP and CLI writer pairing in
+the VM. It does not cover every combination of writer backends or physical
+desktop workloads.
+
+**Verification:** Two corrected guarded VM passes, the second inside the
+17-case acceptance cohort with cleanup after each case; independent VM
+cleanup, Python compilation, and `git diff --check` passed.
