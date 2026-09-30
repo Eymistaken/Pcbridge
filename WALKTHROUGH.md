@@ -3581,3 +3581,36 @@ three-worker runs through the normal MCP fixture; the three successful
 loaded runs each verified 20 timed captures and teardown. The failed
 three-worker run also completed teardown. An independent final VM cleanup
 check passed.
+
+## Stage 9ac: Shared execution state across VM processes
+
+**Objective:** Check that a separate process can hold the desktop execution
+lock and fill the shared action-rate window seen by an ordinary MCP writer.
+
+**Design:** The guarded accessibility-policy fixture starts a child process
+using the same temporary state directory. In the first check, the child holds
+`ExecutionLock` for 1.5 seconds while a normal MCP `ui_click` waits; the GTK
+window must see no click before the child exits and one click afterward. In
+the second check, the child records ten actions in `ExecutionSlot.pace(10)`
+without sending desktop input. The next normal MCP click must wait for the
+one-second window and reach GTK. The fixture clears its earlier policy
+actions from that window before seeding it.
+
+**Fresh VM measurements (September 30, 2026):** The first rate attempt
+measured only 0.294 seconds because earlier fixture actions still occupied
+the window while the child paced; it did not leave ten fresh entries. After
+adding a 1.2-second clearing interval, two final guarded runs passed. The
+normal MCP click stayed pending with no GTK click while the other process
+held the lock, then reached GTK after the holder exited. The seeded-rate
+click took 1.010 and 1.011 seconds in the two runs and reached GTK. Both
+runs closed the grant and restored the original two-output layout, with no
+frame, idle watcher, helper, or test window. An independent VM cleanup check
+also passed.
+
+This proves shared lock and rate state across processes for this VM path.
+The child did not write to the desktop. Two actual desktop writers and a
+focus change during a sequence remain unmeasured.
+
+**Verification:** Two final guarded VM passes, 70 focused desktop-gate,
+batch-safety, and English-only contracts, Python compilation,
+`git diff --check`, and independent VM cleanup passed.

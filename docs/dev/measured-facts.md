@@ -1368,3 +1368,23 @@ guard in the code (the guards limit damage, they do not make it impossible):
   the original layout, unlocked screen, and no frame, idle watcher, native
   helper, or CPU worker. This is a fail-closed observation, not a reason to
   weaken the frame requirement; physical workload remains unmeasured.
+
+### Shared Hyprland execution state across processes
+
+- On September 30, a separate process held `ExecutionLock` for 1.5 seconds
+  in the guarded Hyprland VM policy fixture. A normal MCP `ui_click` remained
+  pending with no GTK button event after 0.35 seconds, then completed with
+  one observed GTK click after the child released the lock. Two final runs
+  passed this check.
+- The child then seeded ten entries in `ExecutionSlot.pace(10)` under the
+  same temporary state directory, without sending desktop input. After a
+  1.2-second pause to clear earlier fixture actions, the normal MCP click
+  waited 1.010 and 1.011 seconds in the two final runs and reached GTK.
+  Before the clearing pause, a rate attempt took only 0.294 seconds because
+  the child's pacing overlapped earlier window entries and left fewer than
+  ten fresh entries. That attempt did not establish the intended condition.
+- Both final runs closed the grant and restored the original two-output VM
+  layout, with no frame, idle watcher, native helper, or test window.
+  Independent VM cleanup passed. These checks establish shared lock and
+  rate state, but do not test two processes both writing desktop input or
+  a focus change during a sequence.

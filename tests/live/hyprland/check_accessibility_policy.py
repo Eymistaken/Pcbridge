@@ -21,6 +21,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
@@ -31,6 +32,20 @@ from pcbridge.desktop import hyprland, idlewatch  # noqa: E402
 from pcbridge.native import discover_native_binary  # noqa: E402
 from tests.live.hyprland.check_glow_owner import layers, wait_for  # noqa: E402
 from tests.live.test_accessibility_parity import A11yWindow, APP  # noqa: E402
+
+EXECUTION_CHILD = """
+import sys, time
+sys.path.insert(0, sys.argv[1])
+from pcbridge.desktop.execution import ExecutionLock
+with ExecutionLock(sys.argv[2]).hold('separate_vm_writer') as slot:
+    if sys.argv[3] == 'hold':
+        print('held', flush=True)
+        time.sleep(1.5)
+    else:
+        for _ in range(10):
+            slot.pace(10)
+        print('paced', flush=True)
+"""
 
 
 def code(result):
@@ -145,6 +160,59 @@ async def run(cfg, window, evidence):
                 await asyncio.sleep(0.2)
                 assert not any(item.get("event") == "clicked" for item in window.since(mark))
                 evidence["budget_preflight"] = "no_action_sent"
+
+                holder = subprocess.Popen([sys.executable, "-c", EXECUTION_CHILD,
+                    str(ROOT), str(cfg.state_dir), "hold"], stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, text=True)
+                pending = None
+                try:
+                    ready = await asyncio.to_thread(holder.stdout.readline)
+                    assert ready.strip() == "held", ready
+                    mark = window.mark()
+                    pending = asyncio.create_task(client.call_tool("ui_click", {
+                        "id": button, "force": True}, raise_on_error=False))
+                    await asyncio.sleep(0.35)
+                    assert not pending.done(), "MCP click bypassed the separate process lock"
+                    assert not any(item.get("event") == "clicked" for item in window.since(mark))
+                    assert await asyncio.to_thread(holder.wait) == 0
+                    clicked_after = await asyncio.wait_for(pending, timeout=5)
+                    assert not clicked_after.is_error, text(clicked_after)
+                    event = await asyncio.to_thread(window.wait,
+                        lambda item: item.get("event") == "clicked" and
+                        item.get("button") == "ok", 3, mark)
+                    assert event is not None, window.since(mark)
+                    evidence["cross_process_lock"] = "click_waited_for_holder"
+                finally:
+                    if holder.poll() is None:
+                        holder.terminate()
+                        await asyncio.to_thread(holder.wait)
+                    if pending and not pending.done():
+                        pending.cancel()
+                        try:
+                            await pending
+                        except asyncio.CancelledError:
+                            pass
+                    holder.stdout.close()
+                    holder.stderr.close()
+
+                # Clear earlier policy actions from the one-second window so
+                # the child leaves exactly ten fresh slots for this check.
+                await asyncio.sleep(1.2)
+                paced = subprocess.run([sys.executable, "-c", EXECUTION_CHILD,
+                    str(ROOT), str(cfg.state_dir), "pace"], capture_output=True,
+                    text=True, timeout=5)
+                assert paced.returncode == 0 and paced.stdout.strip() == "paced", paced.stderr
+                mark = window.mark()
+                started = time.monotonic()
+                rate_click = await call("ui_click", {"id": button, "force": True})
+                elapsed = time.monotonic() - started
+                assert not rate_click.is_error, text(rate_click)
+                event = await asyncio.to_thread(window.wait,
+                    lambda item: item.get("event") == "clicked" and
+                    item.get("button") == "ok", 3, mark)
+                assert event is not None, window.since(mark)
+                assert elapsed >= 0.65, f"shared rate window did not delay the click: {elapsed:.3f} s"
+                evidence["cross_process_rate_seconds"] = round(elapsed, 3)
 
                 mark = window.mark()
                 repeated = await call("computer_batch", {"actions": json.dumps([

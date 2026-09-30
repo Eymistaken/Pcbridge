@@ -35,7 +35,9 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   and return have scoped VM evidence in
   [WALKTHROUGH.md](WALKTHROUGH.md). The batch content-policy matrix now covers
   password targets, close shortcuts, repeat clicks, and budget preflight
-  through normal MCP in the VM. Check cross-process rate and focus changes,
+  through normal MCP in the VM. A separate VM process also proved that its
+  execution lock and seeded rate window delay a normal MCP click. Check two
+  actual desktop writers and focus changes,
   physical mirror and hotplug, and the intermittent visible-frame refusal
   seen under three saturated VM CPU workers (loaded two-output latency is
   measured, but the proof-loss cause and physical workload are not),
