@@ -4,6 +4,8 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -66,12 +68,16 @@ class GlowHealthTests(unittest.TestCase):
     def test_reader_rejects_untrusted_files_and_dead_or_reused_processes(self):
         data = json.loads(FIXTURE.read_text())
         token = LeaseToken(**data["token"])
-        record = {**data["base"], "pid": os.getpid(), "owner_pid": os.getppid(),
-                  "writer_start_ticks": glowstate._writer_start_ticks(os.getpid()),
-                  "owner_start_ticks": glowstate._writer_start_ticks(os.getppid())}
-        with tempfile.TemporaryDirectory() as temporary, \
+        # A CI launcher can belong to root. Own both fixture processes so
+        # their identities satisfy the same-user requirement being tested.
+        with subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.buffer.read()"],
+                              stdin=subprocess.PIPE) as writer, \
+                tempfile.TemporaryDirectory() as temporary, \
                 mock.patch.dict(os.environ, WAYLAND_DISPLAY=data["display"], HYPRLAND_INSTANCE_SIGNATURE=data["signature"]), \
                 mock.patch.object(glowstate, "_writer_matches_binary", return_value=True):
+            record = {**data["base"], "pid": writer.pid, "owner_pid": os.getpid(),
+                      "writer_start_ticks": glowstate._writer_start_ticks(writer.pid),
+                      "owner_start_ticks": glowstate._writer_start_ticks(os.getpid())}
             directory = Path(temporary)
             path = directory / glowstate.STATE_FILE
             def read():
