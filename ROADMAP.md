@@ -38,8 +38,11 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   (static two-output MCP latency and native renderer pixels are measured),
   and graphical nested checks (live nested IPC routing passed, but this VM
   could not allocate the child's GBM output). A 17-case VM cohort passed
-  with cleanup between cases. Expand acceptance and run GNOME/KDE live
-  regressions before claiming general support.
+  with cleanup between cases. The current checkout also passed the full
+  Plasma MCP test in the separate VM, and the GNOME 50.5 headless extension,
+  capture, and fake-grant checks passed. Expand acceptance and check a real
+  GNOME session before claiming general support; no host desktop input was
+  used for this regression.
 - **Hyprland mirror semantics.** The real active-monitor query hides a
   mirrored output even though `hyprctl monitors all` reports it. Normal MCP
   capture returns the source output, old follower shots are refused, and a

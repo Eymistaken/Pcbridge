@@ -3441,3 +3441,59 @@ cleanup, and `git diff --check` passed.
 ./.venv/bin/python -m py_compile tests/live/hyprland/check_nested_session.py
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_NESTED=1 .venv/bin/python tests/live/hyprland/check_nested_session.py --out-dir /tmp/pcbridge-stage9y-nested-final'
 ```
+
+## Stage 9z: Isolated GNOME and Plasma regression
+
+**Objective:** Recheck the shared desktop paths after the Hyprland stages,
+without sending input to the host GNOME session. Keep the separate Arch VM's
+installed service and KWin authorization intact after testing.
+
+**Design:** Run all four shell-independent GNOME extension tests on the host.
+Run headless KWin under its own D-Bus session in the Arch VM. For the full
+Plasma MCP check, run the current source daemon with the current release
+native helper in the VM. KWin must see that helper's `.desktop` entry when
+the disposable Plasma session starts. A private GNOME 50.5 headless session
+in the same VM gets its own XDG directories, D-Bus bus, and fake grant file;
+it exercises the extension's D-Bus method, monitor capture, grant transitions,
+click-through checks, breathing policy, and main-loop watchdog.
+
+**Fresh measurements (September 30, 2026):** The four GJS suites passed
+104 checks. Headless KWin passed at 1280x720 with OpenGL compositing, a KWin
+script reply, and a ScreenShot2 frame (4 ms call, 6 ms total). The installed
+Plasma baseline and the current checkout each passed the full MCP test with
+zero failures on two 1280x800 VM outputs. The current checkout focused Kate,
+captured its window and both monitors, clicked and typed through MCP, found
+the text with OCR, closed the grant, refused capture after lock, restored Qt
+accessibility, and removed the notification.
+
+The first current-checkout service override ran from the guest home directory
+and imported the checkout directory as a namespace package; its daemon
+failed, so the MCP relay fell back to an in-process server. Fixing the
+working directory allowed the daemon to start. KWin still refused screenshots
+from the newly built helper even after its desktop entry was refreshed and
+15 seconds elapsed. Starting the disposable Plasma session with that entry
+already present resolved authorization, and the current helper plus current
+Python passed. A diagnostic pairing with the installed older helper captured
+but reported `ACTIVITY_UNKNOWN` because its idle record format did not match
+the current reader. These failed attempts were kept distinct from the
+passing current-build result.
+
+The first private GNOME 50.5 headless run returned extension version `2.4.2`,
+a 1280x720 ScreenCast frame, active and inactive fake-grant transitions, and
+passing click-through checks. Its breathing self-test falsely failed: this
+headless shell disabled animations, and the production frame intentionally
+remained at scale 1.000. The self-test now checks for a stationary scale in
+that mode. The rerun passed every self-test check; 15 scale samples were
+1.000, all four 50-tick watchdog reports had zero late ticks over 60 ms, and
+the direct frame still decoded at 1280x720.
+
+Afterward the VM's installed helper entry and service were restored, the
+Plasma session restarted, and an independent check found the service active,
+grant closed, zero jobs, no override, and no headless GNOME shell. This does
+not measure the physical GNOME or Plasma desktop or graphical nested
+Hyprland behavior. The production desktop backends were not changed; only
+the GNOME self-test's expectation for disabled animations changed.
+
+**Verification:** Two full Plasma MCP passes (installed and current), one
+headless KWin smoke, two private GNOME headless runs with the failing then
+corrected self-test, four GJS suites, `git diff --check`, and guest cleanup.

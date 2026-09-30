@@ -303,11 +303,41 @@ folded into this file for 2.0 and removed; git history keeps them.
   `onComplete` synchronously, so a chain that starts the next step from
   `onComplete` recursed without end ("too much recursion"). A headless shell
   has animations off; so does Reduce Animation in Settings.
+- **GNOME 50.5 regression on September 30, 2026:** the current extension ran
+  in a private headless Arch VM session with a fake grant file. Its D-Bus
+  `Version` replied `2.4.2`, a direct ScreenCast frame decoded at 1280x720,
+  and the extension logged active then inactive grant transitions. Its four
+  edge checks and click-through summary passed. Across four 50-tick watchdog
+  reports, no main-loop tick exceeded the 60 ms lateness threshold. Headless
+  GNOME disabled animations: all 15 breathing samples stayed at 1.000, which
+  is the intended stationary frame. The self-test now checks that state
+  instead of requiring motion; its first run had falsely marked it failed,
+  and the rerun reported no self-test failures. The four shell-independent
+  GJS test files also passed 104 checks on GNOME 46's host libraries. No
+  input or grant was sent to the host session.
 
 ## KDE Plasma
 
 Measured 2026-09-23 in the Arch VM, Plasma 6.7.5 on Wayland, with the
 probes in `tests/live/kde/`.
+
+- **September 30, 2026 regression:** the headless KWin smoke under a private
+  session saw one 1280x720 virtual output, a successful KWin script reply,
+  and a ScreenShot2 frame (4 ms call, 6 ms total). The full normal MCP check
+  on the two-output Plasma VM passed with both the installed baseline and
+  current checkout: window focus, a window shot, two full-monitor shots,
+  Kate click and typed-text readback, OCR, grant close, post-lock capture
+  refusal, accessibility restoration, and notification cleanup all passed.
+  The current checkout used its freshly built release helper and source
+  daemon. The first checkout attempts failed because the temporary service
+  ran from the wrong working directory, then because KWin refused the new
+  helper path until the disposable VM session restarted with its desktop
+  entry already present. Pairing current Python with the installed older
+  helper captured successfully but gave `ACTIVITY_UNKNOWN` because its idle
+  record did not match the current format. After the passing run, the VM's
+  installed entry and service were restored; the grant was closed and no
+  jobs or test shell remained. This is VM evidence, not a physical Plasma
+  machine or a full MCP run on GNOME.
 
 - **Screen lock: `org.freedesktop.ScreenSaver` at `/ScreenSaver`**, owned by
   `kwin_wayland` itself (Plasma 6 runs the locker inside KWin). `GetActive`

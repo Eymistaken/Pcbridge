@@ -15,6 +15,7 @@
 
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
+import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
@@ -109,8 +110,14 @@ export function reportBreathing(actorlar, sureSn = 13, aralikMs = 900) {
         const enAz = Math.min(...ornekler);
         const enCok = Math.max(...ornekler);
         yaz(`breathing samples: ${ornekler.map(v => v.toFixed(3)).join(' ')}`);
-        sonuc('breathing runs (the scale changes)', enCok - enAz > 0.02,
-            `range ${enAz.toFixed(3)} – ${enCok.toFixed(3)}`);
+        if (St.Settings.get().enable_animations) {
+            sonuc('breathing runs (the scale changes)', enCok - enAz > 0.02,
+                `range ${enAz.toFixed(3)} – ${enCok.toFixed(3)}`);
+        } else {
+            sonuc('breathing pauses with animations off',
+                enAz >= 0.9999 && enCok <= 1.0001,
+                `range ${enAz.toFixed(3)} – ${enCok.toFixed(3)}`);
+        }
         sonuc('NO THICKENING (the scale never goes above 1.0)', enCok <= 1.0001,
             `highest ${enCok.toFixed(4)}`);
         return GLib.SOURCE_REMOVE;
