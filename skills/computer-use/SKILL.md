@@ -118,8 +118,9 @@ moved), held input is released automatically; if it finishes normally it is
 which one happened. As a last resort the server releases everything after a
 while (default 120 s), but until then the user cannot use the machine.
 
-`ui_click` / `ui_set_text` need no coordinates and are **far more reliable** —
-but they only work in GTK/GNOME applications. In Electron applications
+`ui_click` / `ui_set_text` need no coordinates and are **far more reliable**
+when an application exposes its controls through AT-SPI (including tested GTK
+and Qt applications). In Electron applications
 (Vesktop, VS Code, Discord) the accessibility tree is **empty**; there you have
 to work with your eyes. That is why this skill exists.
 

@@ -80,8 +80,8 @@ commands does:
 
 Every desktop call passes five layers: `[desktop] enabled` -> screen lock
 (nothing is sent behind a locked screen) -> the time-limited grant ->
-the "user is at the machine" guard (`Mutter.IdleMonitor`; on Plasma the
-native helper's `ext_idle_notifier_v1` watcher) -> a rate limit,
+the "user is at the machine" guard (`Mutter.IdleMonitor`; on Plasma and
+Hyprland the native helper's `ext_idle_notifier_v1` watcher) -> a rate limit,
 plus the audit log. A write sequence then takes a cross-process execution
 lock and rechecks the grant **before every action**: a `desktop_lock` from
 anywhere stops the next action. The grant slides: it closes 90 s after the
@@ -112,7 +112,7 @@ The agent opens the grant itself (`desktop_unlock`); no person is asked. The
 person's controls are the config switch, the lock screen, the kill switch and
 the audit log.
 
-### Hyprland grant implementation (acceptance still in progress)
+### Hyprland grant implementation
 
 Hyprland uses the same shared gate, execution lock, lease identity, rate
 counter, and content policy. It additionally requires a native frame with
@@ -132,8 +132,10 @@ cannot revoke a replacement. Native and Python resource guards release open
 resources on failed visibility, unknown idle, expiry, and replacement without
 waiting for another action. Their timers never slide a grant. Hyprland force
 can bypass the known user's conflict threshold, but cannot bypass unknown idle,
-lock, missing visibility, or lease checks. Capture/input VM acceptance and
-existing-platform regression are still required before a support claim.
+lock, missing visibility, or lease checks. The scoped VM acceptance and
+GNOME/Plasma regressions are recorded in
+[measured facts](dev/measured-facts.md#hyprland-release-scope-and-limits).
+Physical Hyprland connectors and hotplug remain unmeasured.
 
 Native Hyprland screenshots own bounded SHM buffers and a fresh Wayland
 image-copy session per request. Watchdog generation changes cancel in-flight

@@ -322,11 +322,11 @@ def support_note(env: dict[str, str] | None = None) -> str:
     )
 
 
-# GNOME Shell and Plasma major versions pcbridge has actually run on. Others
-# are reported as untested rather than refused (Step 9 of 2.0).
+# Compositor versions pcbridge has actually run on. Others are reported as
+# untested rather than refused.
 TESTED_SHELL_MAJORS = frozenset({"46", "50"})
 TESTED_PLASMA_MAJORS = frozenset({"6"})
-TESTED_HYPRLAND_VERSIONS: frozenset[str] = frozenset()
+TESTED_HYPRLAND_VERSIONS: frozenset[str] = frozenset({"0.56.2"})
 _PLATFORM_TTL = 60.0
 _platform_cache: tuple[float, dict] | None = None
 _kind_cache: tuple[float, tuple[str, str, str], str] | None = None

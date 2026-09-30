@@ -227,3 +227,23 @@ The tools and their arguments are the same; a few answers differ:
   application that was already running appears within about 2 s.
 - `system_capabilities` names the KWin backends (`linux.kwin.screenshot2`,
   `linux.kwin-script`, `linux.freedesktop-screen-saver`).
+
+## On Hyprland
+
+Hyprland 0.56.2 has two-output VM acceptance evidence. The native helper
+captures through image-copy and draws a white, slowly breathing grant frame;
+there is no panel icon. `desktop_unlock` needs current presentation on every
+active output, known user activity, and authoritative unlocked state. If any
+proof becomes unknown, desktop actions refuse until it recovers. Use
+`pcbridge doctor` to inspect the selected compositor session and helper.
+
+`screen_info` reports the current output layout. `screen_capture` returns a
+shot ID for pixel coordinates; keep using that ID with `mouse` after scaling
+or moving outputs. A shot from a removed or swapped output is refused. Window
+focus uses the compositor's exact window identity, and registered runtime
+bindings and the active submap can be read before attempting shortcuts.
+
+The VM evidence includes native input, AT-SPI, rotated and negative-origin
+layouts, a mirrored source shot, and lock/revoke safety. Physical monitor
+mirroring and hotplug have not been tested; see
+[measured facts](dev/measured-facts.md#hyprland-release-scope-and-limits).

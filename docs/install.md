@@ -1,6 +1,8 @@
 # Installing pcbridge
 
-Supported: GNOME Shell 46 or 50, or KDE Plasma 6, on Wayland. Distributions:
+Supported: GNOME Shell 46 or 50, KDE Plasma 6, or Hyprland 0.56.2 on Wayland.
+Hyprland validation is from an isolated Arch VM; physical hardware remains
+untested. Distributions:
 the Debian family (Ubuntu 24.04, Zorin OS 18, Debian 13; Ubuntu 26.04 builds
 and installs in CI) and Arch Linux. Python 3.12 or newer. GNOME 47-49 are
 expected to work and are untested; `system_capabilities` says so when it
@@ -104,6 +106,13 @@ package and release wheel has it; a git install builds it when Rust is
 installed). While a grant is open, pcbridge shows a notification with a
 "Lock now" button and turns on Qt accessibility, so `ui_dump` sees Qt
 applications; the end of the grant closes the one and restores the other.
+
+On Hyprland, the native helper, a session-bound idle watcher, authoritative
+screen-lock state, and a freshly presented white frame on every active output
+are required for desktop actions. `pcbridge doctor` checks the read-only
+prerequisites. No GNOME extension, KWin permission entry, or tray is required.
+Unknown lock or idle state and missing frame proof refuse actions, including
+when `force=true`.
 
 ## 4. Remote access (optional)
 

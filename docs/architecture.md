@@ -11,12 +11,14 @@
                                                                 (pcbridge.service)
                                                                      │
           jobs: one systemd scope each (pcbridge-job-<id>.scope) ◄───┤
-          desktop: uinput, Mutter ScreenCast, AT-SPI,                │
+          desktop: uinput, compositor capture, AT-SPI,               │
                    native helper (pcbridge-native, Rust) ◄───────────┘
           GNOME extension: frame, panel indicator, ActivateWindow /
                            FocusedWindow (reads the grant and status.json)
           on KDE Plasma instead: KWin ScreenShot2, one-shot KWin scripts,
                            the grant notification, idle-watch
+          on Hyprland instead: image-copy capture, exact IPC window focus,
+                           native grant frame, idle-watch
 ```
 
 - **One resident daemon** (`pcbridge serve`, `pcbridge.service`) serves
@@ -94,27 +96,26 @@ session.py     repairing the session environment; desktop detection; the platfor
 backends/      python.py and rust.py providers behind one runtime
 ```
 
-### GNOME and KDE Plasma
+### GNOME, KDE Plasma, and Hyprland
 
-`session.desktop_kind()` decides once which desktop this is:
-`XDG_CURRENT_DESKTOP` when it is set, otherwise the owner of `org.gnome.Shell`
-or `org.kde.KWin` on the session bus. An unknown desktop is treated as GNOME,
-so every check fails closed with GNOME's messages. `compositor.py` names the
-backend behind each question; the rest of the code asks it instead of
-testing the desktop itself.
+`session.desktop_kind()` uses the desktop environment when known, the
+selected Hyprland instance and matching Wayland socket, or the GNOME/KWin
+session-bus owner. Ambiguous or invalid sessions stay UNKNOWN and refuse
+desktop actions. `compositor.py` selects the backend behind each question.
 
-| Question | GNOME | KDE Plasma |
-|---|---|---|
-| Screen locked? | `org.gnome.ScreenSaver` | `org.freedesktop.ScreenSaver` (KWin) |
-| Idle time | `Mutter.IdleMonitor` | `pcbridge-native idle-watch` (`ext_idle_notifier_v1`), a file in the runtime dir |
-| Monitor table | Mutter `DisplayConfig` | `kscreen-doctor -j` |
-| Screenshots | Mutter ScreenCast over PipeWire | KWin `ScreenShot2` (native helper only), display ids `kwin:` |
-| Raise / name a window | the extension (D-Bus) | a one-shot KWin script; GNOME search / KRunner as fallback |
-| The grant on screen | frame + panel indicator | a lasting notification with "Lock now" |
+| Question | GNOME | KDE Plasma | Hyprland |
+|---|---|---|---|
+| Screen locked? | `org.gnome.ScreenSaver` | `org.freedesktop.ScreenSaver` (KWin) | selected-instance `hyprctl -j locked` |
+| Idle time | `Mutter.IdleMonitor` | native `idle-watch` | session-bound native `idle-watch` |
+| Monitor table | Mutter `DisplayConfig` | `kscreen-doctor -j` | selected-instance monitor IPC |
+| Screenshots | Mutter ScreenCast over PipeWire | KWin `ScreenShot2` | native image-copy capture |
+| Raise / name a window | extension D-Bus | one-shot KWin script | exact compositor identity, with focus verification |
+| The grant on screen | frame + panel indicator | lasting notification with "Lock now" | native white frame with fresh presentation proof |
 
-Both feed the same neutral display state (`monitors.resolve_state` in
+All three feed the same neutral display state (`monitors.resolve_state` in
 Python, `DisplayState` in Rust), so coordinates, scale and rotation follow
-one set of rules; a shared fixture pins both KScreen adapters.
+one set of rules. A shot records output identity as well as geometry; a shot
+from an output that was swapped or removed is refused.
 
 ## Two decisions that are defended hard
 
@@ -130,10 +131,11 @@ one set of rules; a shared fixture pins both KScreen adapters.
 
 `pcbridge-native` is a separate Rust process, one per grant, speaking a
 framed JSON protocol over stdio ([native/protocol-v1.md](native/protocol-v1.md)).
-It captures through Mutter ScreenCast/PipeWire (KWin ScreenShot2 on
-Plasma), drives uinput, and reads and acts on AT-SPI over raw D-Bus. On
-Plasma the daemon also runs `pcbridge-native idle-watch`, which holds a
-Wayland idle notification open and writes the idle state to
+It captures through Mutter ScreenCast/PipeWire, KWin ScreenShot2, or
+Hyprland image-copy, drives uinput, and reads and acts on AT-SPI over raw
+D-Bus. On Plasma and Hyprland the daemon also runs
+`pcbridge-native idle-watch`, which holds a Wayland idle notification open
+and writes the idle state to
 `$XDG_RUNTIME_DIR/pcbridge/idle.json`. Each subsystem (`[native] capture / input /
 accessibility`) is `auto` by default: the helper when it is packaged, the
 Python path otherwise, and a fallback is reported, never silent. It

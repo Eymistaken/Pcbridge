@@ -54,16 +54,18 @@ class HyprlandSessionTests(unittest.TestCase):
                 mock.patch.object(session, "_bus_names", return_value=["org.gnome.Shell"]):
             self.assertEqual(session.desktop_kind(env), session.UNKNOWN)
 
-    def test_platform_summary_names_hyprland_without_claiming_validation(self) -> None:
+    def test_platform_summary_distinguishes_tested_hyprland_version(self) -> None:
         env = {"XDG_CURRENT_DESKTOP": "Hyprland", "XDG_SESSION_TYPE": "wayland"}
-        with mock.patch.object(session, "_bus_names", return_value=[]), \
-                mock.patch.object(session, "_hyprland_version", return_value="0.56.2"):
-            report = session.platform_summary(env)
-        self.assertEqual(report["environment"], session.HYPRLAND)
-        self.assertEqual(report["hyprland"], "0.56.2")
-        self.assertIsNone(report["gnome_shell"])
-        self.assertIsNone(report["plasma"])
-        self.assertTrue(any("untested" in note for note in report["notes"]))
+        for version, untested in (("0.56.2", False), ("0.56.3", True)):
+            with self.subTest(version=version), \
+                    mock.patch.object(session, "_bus_names", return_value=[]), \
+                    mock.patch.object(session, "_hyprland_version", return_value=version):
+                report = session.platform_summary(env)
+            self.assertEqual(report["environment"], session.HYPRLAND)
+            self.assertEqual(report["hyprland"], version)
+            self.assertIsNone(report["gnome_shell"])
+            self.assertIsNone(report["plasma"])
+            self.assertEqual(any("untested" in note for note in report["notes"]), untested)
 
     def test_unknown_cannot_open_or_use_a_grant(self) -> None:
         from pcbridge.desktop import safety

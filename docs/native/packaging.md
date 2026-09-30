@@ -11,7 +11,7 @@ and how an installation is diagnosed.
 |---|---|---|
 | Rust | 1.95.0 (`rust/rust-toolchain.toml`), rustup | none |
 | System packages | `libpipewire-0.3-dev`, `libspa-0.2-dev`, `libclang-dev`, `pkg-config` (Arch: `pipewire`, `clang`, `pkgconf`) | `libpipewire-0.3-0t64`, `libc6` (>= 2.39), `libgcc-s1` (Arch: `libpipewire`, `glibc`, `gcc-libs`) |
-| Session | none | GNOME: a PipeWire socket and `org.gnome.Mutter.ScreenCast` on the session bus. KDE Plasma: `org.kde.KWin.ScreenShot2` and a `.desktop` entry that authorizes the helper (`pcbridge setup` writes it; packages ship it) |
+| Session | none | GNOME: PipeWire and Mutter ScreenCast. KDE Plasma: KWin ScreenShot2 and an authorizing `.desktop` entry. Hyprland: selected Wayland/IPC instance, image-copy protocols, session-bound idle observation, and a visible grant frame. |
 | `python3-gi`, GStreamer, `pipewiresrc` | none | **not needed** |
 
 Runtime libraries, measured with `readelf -d` on a release build:
@@ -100,10 +100,11 @@ touches no real grant file. It reports:
   capability's state and, when not supported, why;
 - that the Python fallbacks still need `python3-gi`.
 
-The helper computes `capabilities` at run time: on every request it checks
-that `org.gnome.Mutter.ScreenCast` has an owner and that the PipeWire socket
-exists, without opening a session. Before, it answered a fixed "supported",
-even on a machine where capture could never work.
+The helper computes `capabilities` at run time. On GNOME it checks that
+`org.gnome.Mutter.ScreenCast` has an owner and that the PipeWire socket exists,
+without opening a session. On Hyprland it probes the selected Wayland
+session's image-copy protocols without opening capture. Before, the GNOME
+probe answered a fixed "supported" even when capture could never work.
 
 ## Tests
 

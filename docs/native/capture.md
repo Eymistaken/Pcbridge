@@ -45,7 +45,9 @@ revalidate exact identity and geometry. Publication captures one lease token,
 checks it and current outputs before each PNG/metadata link and at completion,
 and withdraws newly published artifacts if validation fails. A separate
 read-only capability helper cannot bind the later capture helper to a missing
-grant. Platform acceptance and GNOME/KDE regression remain in progress.
+grant. Scoped VM acceptance and GNOME/KDE regression results are in
+[measured facts](../dev/measured-facts.md#hyprland-release-scope-and-limits).
+Physical connectors and hotplug remain unmeasured.
 
 ## Why a session
 

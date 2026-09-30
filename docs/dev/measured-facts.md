@@ -11,14 +11,49 @@ and Arch Linux were measured in the test VM (`scripts/dev/arch-vm.sh`): Arch
 with Plasma 6.7.5 (KWin 6.7.5) and GNOME 50.5, Python 3.14, two virtio-gpu
 outputs of 1280x800; see [KDE Plasma](#kde-plasma).
 
-Older journals (`WALKTHROUGH.md`, `PLAN.md`, `UYGULAMA.md` and others) were
-folded into this file for 2.0 and removed; git history keeps them.
+The completed development journals were folded into canonical documents;
+git history keeps their chronology. Entries below retain the evidence known
+at each stage. Later measurements supersede earlier pending-work statements.
+
+## Hyprland release scope and limits
+
+PcBridge 2.5.0 supports Hyprland 0.56.2 on Wayland with the native helper.
+The measured environment was a disposable Arch VM with two 1280x800 virtio
+outputs, not a physical Hyprland desktop. A 17-case normal-MCP acceptance
+cohort passed after the keyboard focus guard, with cleanup checked after each
+case. A later cohort also observed MCP and `pcb-do` desktop actions in order.
+The [individual measurements](#hyprland-baseline) cover selected-session
+detection and UNKNOWN refusal, registered bindings and submaps, monitor and
+window identity, image-copy capture and shot delivery, exact window focus,
+mouse, keyboard, pointer lock, touch through the white breathing grant frame,
+native accessibility, and grant, lock, activity, revoke, expiry, replacement,
+and cancellation safety.
+
+Two-output tests covered fractional rotation, negative origins, vertical
+placement, swapped identical outputs, compositor-rule removal and return,
+and mirroring. Old shots were refused after output changes; a fresh source
+shot moved the pointer to the measured compositor position during mirroring.
+QMP checks saw the grant frame on both mirrored virtual GPU displays. The
+mirror follower is absent from the active-monitor query, so normal capture
+returns the source output. These measurements do not establish behavior on
+a physical mirrored connector or physical hotplug.
+
+Unloaded two-output capture measured 218.595 ms median and 228.795 ms p95
+over 20 timed in-process MCP calls in the post-focus-guard cohort. Three
+saturated VM CPU workers caused one `BACKEND_UNAVAILABLE` frame-proof refusal;
+four follow-up loaded runs passed, with medians of 320.055–324.338 ms and
+p95s of 358.487–365.604 ms. The refusal's cause is unknown and the native
+fail-closed rule remains. Nested parent/child IPC routing passed, but the
+child could not allocate a graphical output in this QEMU setup. The current
+checkout passed the full Plasma MCP test in the separate VM; private GNOME
+50.5 headless extension and capture checks passed. No input was sent to the
+host GNOME session for these regressions. See [ROADMAP](../../ROADMAP.md)
+for optional physical-hardware and engineering follow-ups.
 
 ## Platform and session
 
-- **X11 is not an option.** The targets are GNOME and KDE Plasma on
-  Wayland; the desktop tools are built on Mutter and GNOME Shell, or KWin,
-  plus AT-SPI.
+- **X11 is not an option.** The targets are GNOME, KDE Plasma, and Hyprland
+  on Wayland; desktop tools use their compositor interfaces plus AT-SPI.
 - **Mutter runs the PHYSICAL layout mode by default** (`GetCurrentState`
   property `layout-mode` = 2, measured 2026-09-23; the logical mode needs the
   `scale-monitor-framebuffer` experimental feature). In that mode positions
@@ -531,8 +566,8 @@ and xdg-desktop-portal-hyprland 1.4.1.
   closed frame state. A dead idle watcher produced ACTIVITY_UNKNOWN even
   with force. An active grant had trusted presentation on all eight strips;
   cleanup removed them. Doctor itself created no grant, state lockfile, input
-  device, or capture. Version 0.56.2 is still reported as untested until full
-  acceptance. Overall CLI doctor exit 1 remains truthful for outstanding
+  device, or capture. At this stage, version 0.56.2 was reported as untested;
+  the release adds it to the tested-version list. Overall CLI doctor exit 1 remains truthful for outstanding
   installation/configuration checks; desktop diagnostics passing does not
   imply the entire installation is ready.
 - **Detailed real input was verified with the default packaged release helper.**
@@ -617,7 +652,8 @@ and xdg-desktop-portal-hyprland 1.4.1.
   was ignored while surfaces were still being presented. Native lock IPC
   has a 200 ms absolute operation deadline and a 4096-byte reply limit.
   Missing, malformed, oversized, or timed-out replies are UNKNOWN.
-  Production Hyprland control remains closed pending a healthy visible frame.
+  At this measurement stage, production control was still closed pending a
+  healthy visible frame.
 - **The VM needs two actual virtio GPUs, with implicit VGA disabled.** On
   September 28, `/sys/class/drm` showed the original first output belonged
   to QEMU's implicit standard VGA, while only the second belonged to virtio.
@@ -654,7 +690,8 @@ and xdg-desktop-portal-hyprland 1.4.1.
   refused the stale write and exited. Replacement/revoke/expiry and helper or
   owner death removed all layers. Fractional-scale rotation rebuilt surfaces
   under the same observer identity. The scratch leases used by this probe
-  authorize no production input or capture; shared gate integration is pending.
+  authorized no production input or capture; shared gate integration was
+  still pending at this stage.
 - **Monitor focus is transient, not a configured primary output.** A measured
   `hyprctl dispatch 'hl.dsp.focus({ monitor = "Virtual-1" })'` changed focused
   output Virtual-2 -> Virtual-1 while both positions, sizes, scales, and
@@ -742,8 +779,8 @@ The combined probe initially failed at `window_list`: actual stable IDs
 [formats stableId as hexadecimal](https://github.com/hyprwm/Hyprland/blob/v0.56.2/src/debug/HyprCtl.cpp).
 Decimal-only validation had passed earlier IDs accidentally. Regression
 tests now cover the actual IDs, retain bounded identity validation, and
-reject malformed IDs. Full input/platform acceptance and existing-platform
-regression remain required.
+reject malformed IDs. This combined probe preceded the later input and
+existing-platform regression checks.
 
 ### Hyprland activation by compositor identity
 
@@ -761,7 +798,7 @@ the exact requested focus. Existing provider contracts cover the hyprlang
 argument vector; that config provider has not yet been exercised in this VM.
 One probe initially assumed a focused baseline window and failed because a
 previous test had closed it; the probe now selects a known mapped VM window.
-Full input/platform acceptance remains pending.
+This activation probe preceded the later input and platform acceptance runs.
 
 ## Terminal UI (settings CLI)
 

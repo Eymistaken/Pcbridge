@@ -343,8 +343,9 @@ limit), and private unlinked files. Wayland waits honor deadlines and watchdog
 cancellation. The helper normalizes advertised transforms, releases the
 session before encoding, and validates its initialized grant before capture
 and after PNG encoding. The scheme is `hyprland:<connector>` and backend is
-`linux.hyprland.image-copy`. Native VM pixel/freshness evidence passes; the
-Python/tool/shot integration and full platform acceptance remain pending.
+`linux.hyprland.image-copy`. Native VM pixel/freshness, Python shot delivery,
+and normal MCP acceptance results are in
+[measured facts](../dev/measured-facts.md#hyprland-release-scope-and-limits).
 
 Hyprland also requires a known, session-bound idle observation, including
 with explicit force. The independent guard closes resources on idle observer

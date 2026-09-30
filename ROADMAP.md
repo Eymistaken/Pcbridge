@@ -25,40 +25,27 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   (virtio-gpu, two 1280x800 outputs). Done when the Plasma checks
   (`tests/live/kde/check_mcp.py`) pass on a physical machine, with a
   fractional scale and a real lock and unlock.
+- **Hyprland on physical hardware.** The two-output VM acceptance results
+  are in [measured facts](docs/dev/measured-facts.md#hyprland-release-scope-and-limits).
+  Check a real mirrored connector, monitor hotplug, fractional scale,
+  pointer/touch input, and lock and unlock before extending the support
+  claim beyond the tested VM configuration.
+- **GNOME regression in a real session.** GNOME 50.5 extension and capture
+  checks passed in a private headless VM session; the host's GNOME 46
+  desktop received no input during this release cycle. Run a scoped real
+  session check when a person is available to watch the machine.
 
 ## Optional: engineering
 
-- **Hyprland acceptance.** Pointer lock, touch transparency on both VM outputs,
-  a clipboard change during native typing, native accessibility and batch
-  policy checks, fractional rotated capture, negative compositor origin,
-  swapped identical outputs, vertical placement, and simulated output removal
-  and return have scoped VM evidence in
-  [WALKTHROUGH.md](WALKTHROUGH.md). The batch content-policy matrix now covers
-  password targets, close shortcuts, repeat clicks, and budget preflight
-  through normal MCP in the VM. A separate VM process also proved that its
-  execution lock and seeded rate window delay a normal MCP click. A separate
-  VM focus shift during a batch wait now stops before the next key. Real MCP
-  and `pcb-do` writers were observed in order in the VM. Check physical
-  mirror and hotplug, and the intermittent visible-frame refusal
-  seen under three saturated VM CPU workers (four follow-up runs passed;
-  a safe failure diagnostic is in the fixture, but the proof-loss cause and
-  physical workload are not measured),
-  and graphical nested checks (live nested IPC routing passed, but this VM
-  could not allocate the child's GBM output). A 17-case VM cohort passed
-  again after the focus guard, with cleanup between cases. The current
-  checkout also passed the full Plasma MCP test in the separate VM, and the
-  GNOME 50.5 headless extension,
-  capture, and fake-grant checks passed. Expand acceptance and check a real
-  GNOME session before claiming general support; no host desktop input was
-  used for this regression.
-- **Hyprland mirror semantics.** The real active-monitor query hides a
-  mirrored output even though `hyprctl monitors all` reports it. Normal MCP
-  capture returns the source output, old follower shots are refused, and a
-  fresh source shot moves the pointer to the expected compositor position.
-  The existing mirror-row refusal contract is not reached in that
-  configuration. QMP captures show the grant frame on both separate VM GPU
-  displays. Verify it on a physical mirrored connector before choosing
-  support or explicit refusal.
+- **Hyprland frame proof under saturated load.** One three-worker VM run
+  refused capture with `BACKEND_UNAVAILABLE` while the grant was active;
+  four follow-up runs passed. The cause of that transient proof loss is
+  unknown. Use the fixture's safe frame-health diagnostic on a recurrence
+  and measure a physical workload before changing the fail-closed rule.
+- **Graphical nested Hyprland.** Parent/child IPC isolation passed with a
+  second live VM compositor, but the child could not allocate a GBM output
+  in QEMU. Repeat with a working graphical nested output before claiming
+  nested capture or input support.
 - **Atomic clipboard ownership during paste.** The restore path now keeps a
   different clipboard value observed after paste, but `wl-copy` exposes no
   atomic owner identity to this path. An identical replacement or a change
@@ -100,15 +87,3 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   needs a check that it was not closed by pcbridge itself.
 - **A graphical control panel.** A proposal (Tauri + React) for status,
   grant and jobs in one window; nobody has started it.
-
-## Decided and closed
-
-- Windows and macOS backends were dropped (2026-09-20); the project targets
-  Linux desktops on Wayland.
-- An XDG-portal capture backend for GNOME was dropped (2026-09-20): it
-  flashes and asks for consent. This still holds on GNOME.
-- "GNOME only" (2026-09-20) was reopened on 2026-09-23: 2.1 adds KDE
-  Plasma 6 on Wayland and Arch Linux. Plasma 5, X11 and other distributions
-  stay out.
-- `JARVIS.md`, a proposal to grow pcbridge into a personal assistant, is not
-  documentation and was removed in 2.0; git history keeps it.

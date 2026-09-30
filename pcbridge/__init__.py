@@ -1,3 +1,3 @@
-"""pcbridge: an MCP server that lets coding agents drive a GNOME or KDE Plasma desktop on Wayland."""
+"""pcbridge: an MCP server that lets coding agents drive a Wayland desktop."""
 
-__version__ = "2.4.2"
+__version__ = "2.5.0"

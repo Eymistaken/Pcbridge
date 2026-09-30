@@ -59,11 +59,11 @@ Homepage: https://github.com/Eymistaken/Pcbridge
 Depends: python3 (>= @PYVER@), python3 (<< @PYNEXT@), tmux, wl-clipboard, libnotify-bin, python3-gi, gir1.2-atspi-2.0, gstreamer1.0-pipewire, gir1.2-gst-plugins-base-1.0, libpipewire-0.3-0t64 | libpipewire-0.3-0, libc6 (>= 2.39), libgcc-s1
 Recommends: tesseract-ocr, gnome-screenshot
 Suggests: tailscale
-Description: MCP server that lets coding agents drive a GNOME desktop
+Description: MCP server that lets coding agents drive a Wayland desktop
  pcbridge gives Claude Code, Codex, Claude Desktop and remote MCP clients
  background jobs, tmux, shell and file tools, and (off by default)
- time-limited control of the GNOME on Wayland desktop through a virtual
- keyboard and pointer, screen capture and the accessibility tree.
+ time-limited control of GNOME, KDE Plasma or Hyprland on Wayland through
+ a virtual keyboard and pointer, screen capture and the accessibility tree.
  .
  After installing, run "pcbridge setup" as your own user.
 CONTROL

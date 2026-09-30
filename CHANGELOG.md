@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+## 2.5.0 - 2026-09-30
+
+### Added
+
+- **Hyprland 0.56.2 on Wayland.** Desktop tools now use a selected
+  compositor session for runtime bindings, monitors, windows, native input,
+  accessibility and image-copy screenshots. Relative pointer input under
+  Wayland pointer lock and touch through the native frame were checked in
+  the VM. The white grant frame requires fresh presentation on current
+  outputs. Missing lock, idle, or frame evidence refuses desktop actions.
+  Two-output Arch VM acceptance passed; physical Hyprland hardware remains
+  untested.
+- **Hyprland capture and input across changing layouts.** Normal MCP shots
+  and coordinates were checked with fractional rotation, negative origins,
+  vertical placement, swapped identical outputs, simulated output removal,
+  and mirroring. Old shots from changed outputs are refused. A fresh source
+  shot works while a VM output mirrors it; physical connectors are untested.
+
+### Fixed
+
+- **Desktop batch focus safety.** Keyboard actions now recheck focus after
+  waits and shared rate limits, so a batch stops when another window takes
+  focus before the next key. Canceled sequences release held input before
+  another writer takes the execution lock.
+- **Clipboard restoration.** Native paste no longer overwrites a different
+  clipboard value that another application set during typing. The check is
+  content-based; identical replacements and changes after the re-read can
+  still race restoration.
+- **Accessibility and reporting.** GTK button roles now match between Python
+  and native AT-SPI readers. Hyprland reports compositor context and grant
+  closure without suggesting GNOME-only panel or sharing controls.
+
+### API
+
+- **Tools**: unchanged, 37.
+- **Config file**: unchanged.
+
 ## 2.4.2 - 2026-09-27
 
 ### Fixed

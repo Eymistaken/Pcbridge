@@ -74,6 +74,10 @@ capture works only through the native helper (`[native] capture` `auto` or
 `[desktop] unlock_notification` is the grant's only visible signal, so it
 should stay `true`.
 
+On Hyprland, desktop control needs the packaged native helper for capture,
+input, and the visible grant frame. Keep the native desktop backends on
+`auto` or `rust`; the Python fallback does not supply Hyprland capture.
+
 ## Adding an agent
 
 Agents live only in the config; no Python changes. Try the CLI by hand

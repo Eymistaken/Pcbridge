@@ -7,9 +7,9 @@ Guidance for Claude Code (and other agents) working in this repository.
 pcbridge makes the maintainer's Linux desktop (Zorin OS 18 / GNOME 46 /
 Wayland) drivable over MCP: 37 tools for coding-agent jobs, background
 jobs, tmux, shell and files, and, under `[desktop]`, a virtual keyboard and
-pointer plus screen reading. Since 2.1 it also supports KDE Plasma 6 and
-Arch Linux; those are tested in a VM (`scripts/dev/arch-vm.sh`), never on
-this desktop.
+pointer plus screen reading. KDE Plasma 6 and Hyprland 0.56.2 on Arch Linux
+have VM evidence (`scripts/dev/arch-vm.sh` and `scripts/dev/hyprland-vm.sh`),
+not physical-hardware validation on this desktop.
 
 Since 2.0 **one resident daemon** (`pcbridge serve`, `pcbridge.service`,
 started by `pcbridge.socket`) serves every client. Local clients (Claude

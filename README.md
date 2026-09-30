@@ -9,8 +9,8 @@
 pcbridge exposes one machine over the [Model Context Protocol](https://modelcontextprotocol.io).
 A connected agent can hand work to terminal coding agents, drive a live
 tmux session, run commands, read and write files, and, when explicitly
-permitted, operate a GNOME or KDE Plasma desktop with a virtual keyboard,
-pointer and screen reader.
+permitted, operate a GNOME, KDE Plasma, or Hyprland desktop with a virtual
+keyboard, pointer and screen reader.
 
 > **Read [docs/security.md](docs/security.md) before installing.** pcbridge
 > is remote code execution on your own desktop, by design.
@@ -22,11 +22,11 @@ pointer and screen reader.
 | **Delegate to coding agents** | Hand a task to Claude Code, Antigravity CLI or any CLI you configure; get a job id back at once. Jobs survive a daemon restart. |
 | **Drive a live terminal** | Open a tmux session, type into it, read it back, answer an agent's prompts. |
 | **Shell and files** | Commands in the foreground or background; read, write, search. |
-| **Read the screen** | The accessibility tree as text (cheap, cannot miss), silent screenshots (screen sharing: no flash, no sound), or OCR as plain text. |
-| **Use the desktop** | Virtual keyboard and pointer through uinput, absolute and relative motion, windows raised in ~5 ms through its GNOME extension, or through a KWin script on Plasma. |
-| **Click what you see** | Every screenshot has an id; send the pixel you see plus the id, and pcbridge applies the monitor offset and scale. Any monitor layout, scale and rotation. |
+| **Read the screen** | The accessibility tree as text, silent screenshots, or OCR as plain text. GNOME capture uses screen sharing without a flash or sound. |
+| **Use the desktop** | Virtual keyboard and pointer through uinput, absolute and relative motion, and compositor-specific window activation. GNOME's extension raises windows in ~5 ms. |
+| **Click what you see** | Every screenshot has an id; send the pixel you see plus the id, and pcbridge applies the monitor offset and scale. Changed or missing outputs make old shots invalid. |
 | **Run it from a terminal** | `pcbridge` opens a terminal UI: every setting, the desktop grant with one Lock / Unlock button, all 37 tools with a search box, and a switch per MCP client; mouse and keyboard. Every part of it is also a plain command. |
-| **Stay safe enough to leave on** | Desktop control is off by default; a time-limited grant that closes 90 s after the last action; nothing is sent behind a locked screen; a panel indicator (a lasting notification on Plasma) and a one-click kill switch. |
+| **Stay safe enough to leave on** | Desktop control is off by default; a time-limited grant closes 90 s after the last action; nothing is sent behind a locked screen. GNOME shows a frame and panel icon, Plasma a lasting notification, and Hyprland a native frame. Each has a kill switch. |
 
 ## Always ready
 
@@ -40,7 +40,7 @@ Remote clients use HTTPS through Tailscale Funnel with OAuth 2.1.
  Claude Code / Codex / Claude Desktop ── pcbridge stdio ──► mcp.sock ──┐
  phone / web ── HTTPS ── Tailscale Funnel ── 127.0.0.1:8765 ───────────┼─► pcbridge daemon
                                                                        │   jobs in their own scopes
-                                GNOME extension or KWin, native helper ┘   desktop: uinput, ScreenCast, AT-SPI
+                      GNOME extension, KWin, or Hyprland, native helper ┘   desktop: uinput, capture, AT-SPI
 ```
 
 Measured on the reference machine (Zorin OS 18.1, GNOME 46, Wayland):
@@ -63,6 +63,7 @@ More numbers, and why things are the way they are:
 |---|---|
 | Ubuntu 24.04, Zorin OS 18 (GNOME 46, Wayland) | tested daily |
 | Arch Linux, KDE Plasma 6 (Wayland) | tested end to end in a VM; the package builds, installs and passes the suites in CI |
+| Arch Linux, Hyprland 0.56.2 (Wayland) | native desktop control and capture tested in a two-output VM, including a 17-case acceptance cohort; physical hardware is untested |
 | Arch Linux, GNOME 50 (Wayland) | the extension and screen capture tested in a headless shell |
 | Debian 13, Ubuntu 26.04 | the `.deb` builds, installs and passes the suites in CI |
 | GNOME 47-49 on Wayland | expected to work, untested; `system_capabilities` reports it |
