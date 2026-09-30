@@ -33,8 +33,10 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   policy checks, fractional rotated capture, negative compositor origin,
   swapped identical outputs, vertical placement, and simulated output removal
   and return have scoped VM evidence in
-  [WALKTHROUGH.md](WALKTHROUGH.md). Finish remaining
-  batch policy cases, physical mirror and hotplug, performance under load
+  [WALKTHROUGH.md](WALKTHROUGH.md). The batch content-policy matrix now covers
+  password targets, close shortcuts, repeat clicks, and budget preflight
+  through normal MCP in the VM. Check cross-process rate and focus changes,
+  physical mirror and hotplug, performance under load
   (static two-output MCP latency and native renderer pixels are measured),
   and graphical nested checks (live nested IPC routing passed, but this VM
   could not allocate the child's GBM output). A 17-case VM cohort passed

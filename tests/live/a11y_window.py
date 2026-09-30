@@ -17,6 +17,7 @@ Every report goes to stdout as one JSON line:
 
     {"event": "ready", "pid": 1234, "app": "pcbridge-a11y-test"}
     {"event": "clicked", "button": "close-a" | "close-b" | "extra" | ...}
+    {"event": "key", "keys": "alt+F4"}
     {"event": "text", "field": "name", "chars": 5, "value": "..."}
     {"event": "done", "command": "prepend"}
 
@@ -41,7 +42,7 @@ import threading
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
 APP_NAME = "pcbridge-a11y-test"
 TITLE = "pcbridge erisilebilirlik testi"
@@ -116,10 +117,18 @@ class Window:
         self.ok = self.button("Tamam", "ok")
         box.append(self.ok)
         window.set_child(box)
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self.on_key_pressed)
+        window.add_controller(keys)
         window.present()
         self.window, self.box = window, box
         threading.Thread(target=self.commands, daemon=True).start()
         emit(event="ready", pid=os.getpid(), app=APP_NAME, title=TITLE)
+
+    def on_key_pressed(self, _controller, keyval, _keycode, state) -> bool:
+        if keyval == Gdk.KEY_F4 and state & Gdk.ModifierType.ALT_MASK:
+            emit(event="key", keys="alt+F4")
+        return False
 
     # Commands arrive on a reader thread; the tree changes on the GTK thread.
     def commands(self) -> None:

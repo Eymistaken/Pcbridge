@@ -3497,3 +3497,48 @@ the GNOME self-test's expectation for disabled animations changed.
 **Verification:** Two full Plasma MCP passes (installed and current), one
 headless KWin smoke, two private GNOME headless runs with the failing then
 corrected self-test, four GJS suites, `git diff --check`, and guest cleanup.
+
+## Stage 9aa: Expanded batch policy on the Hyprland VM
+
+**Objective:** Extend normal MCP evidence beyond the first close-shortcut
+and repeated-click cases. Each refusal must prove that no earlier sentinel
+click or password write reached the controlled GTK window.
+
+**Design:** The existing guarded accessibility-policy fixture now tries a
+password write inside a batch, all five close-shortcut chords after a
+sentinel click, a held close shortcut, and an over-budget plan with two
+30-second waits. It checks structured codes and batch counts, then reads
+the GTK event stream for the absence of writes and clicks. A positive
+`confirm_close=true` call acts only after verifying the focused window PID.
+The GTK fixture reports this one key chord, so delivery has an observation
+independent of the MCP response; it does not log arbitrary keys.
+
+**Fresh VM measurements (September 30, 2026):** Two final guarded runs
+passed. Password text inside a batch returned `PASSWORD_FIELD`, zero of two
+actions done, and no password or button event. `alt+F4`, `ctrl+q`, `ctrl+w`,
+`ctrl+shift+q`, and `super+q` each returned `CONFIRMATION_REQUIRED` for
+the whole batch before its preceding click; holding `ctrl+q` was refused
+the same way. A plan estimated above the configured 50-second budget
+reported zero of three actions done and sent no click. The earlier
+repeated-click check again emitted exactly two GTK activations and refused
+the third. An unconfirmed standalone `alt+F4` was refused; the confirmed
+one-action batch completed and the focused GTK window emitted its
+`alt+F4` key event. Every run closed the grant and restored the original
+two-output VM layout, with no frame, idle watcher, helper, or test window.
+
+The first positive-case run failed because the fixture expected `alt+F4`
+to terminate the GTK process. Hyprland accepted the key action but that
+VM session did not close the window. The new narrow GTK event probe showed
+actual key delivery in both final runs, so the test now measures the policy
+promise without assuming a compositor shortcut. Production behavior was
+not changed. Cross-process rate and focus-change cases remain for live
+Hyprland acceptance.
+
+**Verification:** Two final VM passes, 70 focused desktop-policy, batch,
+and English-only contracts, Python compilation, host containment refusal,
+`git diff --check`, and independent VM cleanup passed.
+
+```bash
+./.venv/bin/python -m unittest tests.contracts.test_desktop_gates tests.contracts.test_batch_safety tests.contracts.test_english_only
+scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_A11Y_POLICY=1 .venv/bin/python tests/live/hyprland/check_accessibility_policy.py --out-dir /tmp/pcbridge-stage9aa-policy-matrix-repeat'
+```

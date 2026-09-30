@@ -1318,3 +1318,29 @@ guard in the code (the guards limit damage, they do not make it impossible):
   in this QEMU setup. Child-only `AQ_NO_MODIFIERS=1` did not change that
   result. This measures IPC isolation, not nested graphical presentation or
   desktop capture/input in the child compositor.
+
+### Expanded Hyprland batch policy through normal MCP
+
+- On September 30, two guarded VM runs used the packaged release helper,
+  visible grant, and a controlled GTK accessibility window. A password
+  `ui_set_text` as the first batch action returned `PASSWORD_FIELD` with
+  `done=0` and sent neither text nor the next button click. Each of
+  `alt+F4`, `ctrl+q`, `ctrl+w`, `ctrl+shift+q`, and `super+q` rejected an
+  entire two-action batch during preflight with `CONFIRMATION_REQUIRED`;
+  a held `ctrl+q` did the same. No preceding sentinel click reached GTK.
+- A batch beginning with a sentinel click and two 30-second waits exceeded
+  the configured 50-second budget and reported zero of three actions done;
+  no click reached GTK. The repeated-click case still sent exactly two
+  button events and stopped before the third, despite waits between them.
+  After an unconfirmed standalone `alt+F4` was refused, a one-action batch
+  with `confirm_close=true` delivered `alt+F4` to the focused GTK window;
+  the window's narrow key-event probe observed it. This VM has no automatic
+  window close on that shortcut, so delivery is the measured outcome.
+- A first positive-case attempt wrongly expected the GTK process to exit
+  when the shortcut was sent. It did not, despite the batch reporting one
+  completed action. The controlled window now emits an event only for that
+  shortcut, allowing independent delivery verification without logging
+  arbitrary keys. Both final runs cleaned the grant, frame, native helper,
+  idle watcher, and window, and restored the original two-output layout.
+  These are scoped content-policy and budget checks; cross-process rate and
+  focus-change behavior still need live Hyprland evidence.

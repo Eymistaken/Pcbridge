@@ -101,13 +101,50 @@ async def run(cfg, window, evidence):
                 evidence["ordinary_text"] = "received"
 
                 mark = window.mark()
-                close_batch = await call("computer_batch", {"actions": json.dumps([
-                    {"a": "ui_click", "id": button},
-                    {"a": "key", "keys": "alt+F4"}]),
+                password_batch = await call("computer_batch", {"actions": json.dumps([
+                    {"a": "ui_set_text", "id": password, "text": "refused-fixture-value"},
+                    {"a": "ui_click", "id": button}]),
                     "final": "none", "force": True})
-                evidence["batch_close_refusal"] = code(close_batch)
-                assert evidence["batch_close_refusal"] == "CONFIRMATION_REQUIRED"
+                evidence["batch_password_refusal"] = code(password_batch)
+                assert evidence["batch_password_refusal"] == "PASSWORD_FIELD"
+                assert password_batch.structured_content["batch"] == {
+                    "done": 0, "total": 2, "stopped": "error"}
+                assert not any(item.get("event") == "clicked" or
+                               item.get("field") == "password" for item in window.since(mark))
+
+                mark = window.mark()
+                close_shortcuts = ("alt+F4", "ctrl+q", "ctrl+w", "ctrl+shift+q", "super+q")
+                for keys in close_shortcuts:
+                    close_batch = await call("computer_batch", {"actions": json.dumps([
+                        {"a": "ui_click", "id": button},
+                        {"a": "key", "keys": keys}]),
+                        "final": "none", "force": True})
+                    assert code(close_batch) == "CONFIRMATION_REQUIRED", keys
+                    assert close_batch.structured_content["batch"] == {
+                        "done": 0, "total": 0, "stopped": "refused"}, keys
+                evidence["batch_close_refusal"] = "CONFIRMATION_REQUIRED"
+                evidence["close_shortcuts"] = list(close_shortcuts)
+                held_close = await call("computer_batch", {"actions": json.dumps([
+                    {"a": "ui_click", "id": button},
+                    {"a": "hold", "keys": "ctrl+q"}]),
+                    "final": "none", "force": True})
+                assert code(held_close) == "CONFIRMATION_REQUIRED"
+                evidence["held_close_refusal"] = "CONFIRMATION_REQUIRED"
+                await asyncio.sleep(0.2)
                 assert not any(item.get("event") == "clicked" for item in window.since(mark))
+
+                mark = window.mark()
+                over_budget = await call("computer_batch", {"actions": json.dumps([
+                    {"a": "ui_click", "id": button},
+                    {"a": "wait", "ms": 30000},
+                    {"a": "wait", "ms": 30000}]),
+                    "final": "none", "force": True})
+                assert not over_budget.is_error, text(over_budget)
+                assert "**0 of 3 actions done**" in text(over_budget)
+                assert "NO action was sent" in text(over_budget)
+                await asyncio.sleep(0.2)
+                assert not any(item.get("event") == "clicked" for item in window.since(mark))
+                evidence["budget_preflight"] = "no_action_sent"
 
                 mark = window.mark()
                 repeated = await call("computer_batch", {"actions": json.dumps([
@@ -137,6 +174,26 @@ async def run(cfg, window, evidence):
                 assert window.process.poll() is None
                 assert not any(item.get("field") == "password" for item in window.since(password_mark))
                 evidence["window_alive_after_refusals"] = True
+
+                active = hyprland._query("activewindow", json_output=True)
+                if active.get("pid") != window.ready["pid"]:
+                    focused = await call("window_focus", {"window": window.ready["title"],
+                        "force": True})
+                    assert not focused.is_error, text(focused)
+                    wait_for(lambda: hyprland._query("activewindow", json_output=True).get("pid")
+                             == window.ready["pid"], description="policy window focus")
+                mark = window.mark()
+                confirmed = await call("computer_batch", {"actions": json.dumps([
+                    {"a": "key", "keys": "alt+F4", "confirm_close": True}]),
+                    "final": "none", "force": True})
+                assert not confirmed.is_error, text(confirmed)
+                assert "**1 of 1 actions done**" in text(confirmed)
+                received = await asyncio.to_thread(window.wait,
+                    lambda item: item.get("event") == "key" and
+                    item.get("keys") == "alt+F4", 4, mark)
+                assert received is not None, window.since(mark)
+                evidence["confirmed_close"] = "shortcut_delivered"
+
                 closed = await call("desktop_lock", {})
                 assert not closed.is_error, text(closed)
                 grant_open = False
