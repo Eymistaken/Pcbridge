@@ -36,15 +36,17 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   [WALKTHROUGH.md](WALKTHROUGH.md). The batch content-policy matrix now covers
   password targets, close shortcuts, repeat clicks, and budget preflight
   through normal MCP in the VM. A separate VM process also proved that its
-  execution lock and seeded rate window delay a normal MCP click. Check two
-  actual desktop writers and focus changes,
+  execution lock and seeded rate window delay a normal MCP click. A separate
+  VM focus shift during a batch wait now stops before the next key. Check two
+  actual desktop writers,
   physical mirror and hotplug, and the intermittent visible-frame refusal
   seen under three saturated VM CPU workers (loaded two-output latency is
   measured, but the proof-loss cause and physical workload are not),
   and graphical nested checks (live nested IPC routing passed, but this VM
   could not allocate the child's GBM output). A 17-case VM cohort passed
-  with cleanup between cases. The current checkout also passed the full
-  Plasma MCP test in the separate VM, and the GNOME 50.5 headless extension,
+  again after the focus guard, with cleanup between cases. The current
+  checkout also passed the full Plasma MCP test in the separate VM, and the
+  GNOME 50.5 headless extension,
   capture, and fake-grant checks passed. Expand acceptance and check a real
   GNOME session before claiming general support; no host desktop input was
   used for this regression.

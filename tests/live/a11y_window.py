@@ -53,8 +53,9 @@ def emit(**event) -> None:
 
 
 class Window:
-    def __init__(self, app: Gtk.Application) -> None:
+    def __init__(self, app: Gtk.Application, title: str = TITLE) -> None:
         self.app = app
+        self.title = title
         self.window: Gtk.ApplicationWindow | None = None
         self.box: Gtk.Box | None = None
         self.group_a: Gtk.Frame | None = None
@@ -98,7 +99,7 @@ class Window:
             emit(event="text", field=report, chars=len(value), value=value)
 
     def activate(self, app: Gtk.Application) -> None:
-        window = Gtk.ApplicationWindow(application=app, title=TITLE)
+        window = Gtk.ApplicationWindow(application=app, title=self.title)
         window.set_default_size(640, 360)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.set_margin_top(16)
@@ -123,11 +124,13 @@ class Window:
         window.present()
         self.window, self.box = window, box
         threading.Thread(target=self.commands, daemon=True).start()
-        emit(event="ready", pid=os.getpid(), app=APP_NAME, title=TITLE)
+        emit(event="ready", pid=os.getpid(), app=APP_NAME, title=self.title)
 
     def on_key_pressed(self, _controller, keyval, _keycode, state) -> bool:
         if keyval == Gdk.KEY_F4 and state & Gdk.ModifierType.ALT_MASK:
             emit(event="key", keys="alt+F4")
+        elif keyval == Gdk.KEY_F8:
+            emit(event="key", keys="F8")
         return False
 
     # Commands arrive on a reader thread; the tree changes on the GTK thread.
@@ -154,7 +157,7 @@ class Window:
             self.box.remove(self.group_a)
             self.group_a = self.group_a_box = self.close_a = None
         elif command == "retitle":
-            self.window.set_title(f"{TITLE} (degisti)")
+            self.window.set_title(f"{self.title} (degisti)")
         elif command == "disable-ok" and self.ok is not None:
             self.ok.set_sensitive(False)
         else:
@@ -167,10 +170,12 @@ class Window:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--timeout", type=int, default=120)
+    parser.add_argument("--app-id", default="org.pcbridge.A11yTest")
+    parser.add_argument("--title", default=TITLE)
     args = parser.parse_args()
     GLib.set_prgname(APP_NAME)
-    app = Gtk.Application(application_id="org.pcbridge.A11yTest")
-    window = Window(app)
+    app = Gtk.Application(application_id=args.app_id)
+    window = Window(app, args.title)
     app.connect("activate", window.activate)
     GLib.timeout_add_seconds(args.timeout, lambda: app.quit() or False)
     return app.run([])

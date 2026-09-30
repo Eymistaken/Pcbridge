@@ -1388,3 +1388,42 @@ guard in the code (the guards limit damage, they do not make it impossible):
   Independent VM cleanup passed. These checks establish shared lock and
   rate state, but do not test two processes both writing desktop input or
   a focus change during a sequence.
+
+### Hyprland batch focus shift during a wait
+
+- On September 30, device-free batch tests first showed that a focus change
+  or unreadable focus during `wait` allowed a later `F8` key action to run.
+  The engine now reads focus after the shared execution guard and before
+  each keyboard dispatch when focus tracking has a known baseline. A
+  device-free test also changes focus in the guard itself to cover a shared
+  rate pause. GNOME overview raw typing remains exempt and passed its
+  contract.
+- Five passing guarded VM runs used two controlled GTK windows with distinct
+  application IDs. The first received the batch's button click, then an
+  external Hyprland dispatch focused the second during a 1.5-second wait.
+  Normal MCP reported two of three actions done and a focus stop. Neither
+  window reported the pending `F8` key. In the last run, a separate
+  one-key batch sent `F8` while focus stayed on the second window, and
+  that window reported it. This positive control validates the key probe.
+  The last run also verified both window processes exited normally.
+  Each run closed the grant, frame,
+  helper, and idle watcher; an independent check found the original layout
+  and an unlocked screen.
+- The keyboard focus check adds a 120 ms allowance per action to the batch
+  budget estimate. The live test establishes the stop and event absence,
+  not a new latency distribution or atomic focus ownership. A focus change
+  between the final read and device dispatch remains possible.
+
+### Post-focus-guard Hyprland acceptance cohort
+
+- On September 30, the 17-case disposable VM cohort passed again after the
+  keyboard focus guard changed. The accessibility case recorded the focus
+  stop before `F8`, then observed a separate positive `F8` delivery while
+  focus stayed on its target. Cleanup passed after every case, including a
+  new check for surviving accessibility GTK processes. Independent final
+  inspection found the original two-output layout, unlocked screen, and no
+  frame, idle watcher, native helper, or test window.
+- The cohort's two-output capture case returned 44 unique shot IDs across
+  22 calls and measured a 218.595 ms median and 228.795 ms nearest-rank
+  95th percentile over 20 timed calls. This unloaded VM measurement does
+  not resolve the intermittent frame-proof loss seen under saturated CPU.

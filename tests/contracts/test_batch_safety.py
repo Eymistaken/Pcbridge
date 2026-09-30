@@ -440,7 +440,56 @@ class PerActionRecheckTests(TempDirTest):
 
 class FocusVerificationTests(unittest.TestCase):
     def run_plan(self, actions, ops, **kwargs) -> batchlib.Result:
-        return batchlib.run(actions, ops, budget=1e6, sleep=lambda s: None, **kwargs)
+        kwargs.setdefault("sleep", lambda s: None)
+        return batchlib.run(actions, ops, budget=1e6, **kwargs)
+
+    def test_focus_change_during_wait_stops_before_key(self) -> None:
+        ops = RecordingOps()
+
+        def change_focus(_seconds: float) -> None:
+            ops.focus = "different window"
+
+        result = self.run_plan(plan(
+            {"a": "wait", "ms": 100}, {"a": "key", "keys": "F8"},
+        ), ops, sleep=change_focus)
+        self.assertEqual(result.stopped, "focus")
+        self.assertEqual(result.done, 1)
+        self.assertEqual(ops.log, [])
+
+    def test_unreadable_focus_after_wait_stops_before_key(self) -> None:
+        ops = RecordingOps()
+
+        def lose_focus(_seconds: float) -> None:
+            ops.focus_error = RuntimeError("focus query failed")
+
+        result = self.run_plan(plan(
+            {"a": "wait", "ms": 100}, {"a": "key", "keys": "F8"},
+        ), ops, sleep=lose_focus)
+        self.assertEqual(result.stopped, "focus")
+        self.assertEqual(result.done, 1)
+        self.assertEqual(ops.log, [])
+
+    def test_focus_change_during_rate_wait_stops_before_key(self) -> None:
+        ops = RecordingOps()
+
+        def rate_wait(_action: batchlib.Action) -> None:
+            ops.focus = "different window"
+
+        result = self.run_plan(plan({"a": "key", "keys": "F8"}), ops,
+                               before_action=rate_wait)
+        self.assertEqual(result.stopped, "focus")
+        self.assertEqual(result.done, 0)
+        self.assertEqual(ops.log, [])
+
+    def test_super_overview_still_allows_raw_type(self) -> None:
+        ops = RecordingOps()
+        ops.focus_after["key"] = ""
+        result = self.run_plan(plan(
+            {"a": "key", "keys": "super"},
+            {"a": "type", "text": "application"},
+        ), ops)
+        self.assertEqual(result.done, 2)
+        self.assertEqual(result.stopped, "")
 
     def test_unreadable_focus_refuses_a_plan_with_clicks_before_anything_runs(self) -> None:
         ops = RecordingOps()

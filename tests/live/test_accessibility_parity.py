@@ -66,10 +66,16 @@ def _measure(name: str, started: float) -> None:
 class A11yWindow:
     """`a11y_window.py` and what it reports."""
 
-    def __init__(self, errors: Path) -> None:
+    def __init__(self, errors: Path, *, app_id: str | None = None,
+                 title: str | None = None) -> None:
         self._stderr = errors.open("w", encoding="utf-8")
+        options = ["--timeout", "90"]
+        if app_id is not None:
+            options.extend(["--app-id", app_id])
+        if title is not None:
+            options.extend(["--title", title])
         self.process = subprocess.Popen(
-            [SYSTEM_PYTHON, str(HERE / "a11y_window.py"), "--timeout", "90"],
+            [SYSTEM_PYTHON, str(HERE / "a11y_window.py"), *options],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=self._stderr,

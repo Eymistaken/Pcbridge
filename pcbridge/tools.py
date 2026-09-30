@@ -2954,7 +2954,7 @@ def register(
         at a time: each separate call asks the user for confirmation on their
         phone, so a five-step menu selection becomes five interruptions. Put the
         whole sequence here instead. Actions stop as soon as one fails, the time
-        budget runs out, or a click moves focus to a different window — you get
+        budget runs out, or focus changes before a later key — you get
         back what was done and what was left. A list whose estimated duration
         (waits included) exceeds the time budget is refused before anything
         runs, so split long sequences into several calls, and wait for

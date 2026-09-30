@@ -31,7 +31,7 @@ if observed != expected or hyprland.screen_locked() is not False:
 if layers() or idlewatch.read_idle_ms() is not None:
     raise RuntimeError("A frame or idle watcher remains after a case")
 PY
-    if pgrep -x pcbridge-native >/dev/null || pgrep -f '[p]attern_window.py|[i]nput_window.py' >/dev/null; then
+    if pgrep -x pcbridge-native >/dev/null || pgrep -f '[p]attern_window.py|[i]nput_window.py|[a]11y_window.py' >/dev/null; then
         echo 'A native helper or test window remains after a case' >&2
         return 1
     fi

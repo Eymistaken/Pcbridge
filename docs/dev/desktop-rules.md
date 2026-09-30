@@ -78,6 +78,10 @@ Known limits, on purpose:
 - A click that moves the focus stops the rest of a `computer_batch` /
   `pcb-do` list (`batch_check_focus`), unless the caller declared the
   expected window (`expect_focus`); a move anywhere else still stops it.
+- A batch also checks the focused window immediately before each keyboard
+  action. If focus changes during a wait or shared rate pause, the next key
+  is withheld. The GNOME overview's raw typing path remains exempt because
+  the overview intentionally has no focused window.
 - A coordinate without `shot=` or `monitor=` that falls inside a recent
   downscaled screenshot is refused as ambiguous
   (`ambiguous_coord_guard`): the caller says which space it meant.

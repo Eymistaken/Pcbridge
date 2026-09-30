@@ -3614,3 +3614,76 @@ focus change during a sequence remain unmeasured.
 **Verification:** Two final guarded VM passes, 70 focused desktop-gate,
 batch-safety, and English-only contracts, Python compilation,
 `git diff --check`, and independent VM cleanup passed.
+
+## Stage 9ad: Stop a batch when focus changes during a wait
+
+**Objective:** Prevent a later key in a batch from reaching a different
+window if focus changes after an earlier action or during a wait.
+
+**Finding:** The batch engine checked focus after coordinate clicks but did
+not check it again before a later keyboard action. Two new device-free
+contracts first failed: a focus change during `wait` and an unreadable
+focus after `wait` both allowed `F8` to dispatch.
+
+**Change:** With focus tracking enabled and a known baseline, check the
+focused window before each `key`, `type`, `hold`, or `release`. The check
+runs after the shared execution guard, which may pause for the rate window,
+and before dispatch. If focus differs or cannot be read, the remaining
+actions stop with `stopped="focus"`; existing early-stop cleanup releases
+held input. Add the measured 120 ms focus-check allowance to the budget
+estimate for keyboard actions. Keep the existing GNOME overview raw-typing
+exception and test it. Update the batch result guidance and tool description
+to describe the wider focus protection.
+
+**Fresh VM measurements (September 30, 2026):** The guarded normal MCP
+fixture opened two controlled GTK windows with distinct application IDs.
+After focusing the first, its button received the first batch action. During
+the following 1.5-second wait, an independent Hyprland dispatch focused the
+second window. Five passing runs reported two of three actions done and a
+focus stop. Neither GTK window received the pending `F8`. The last run
+also sent a separate one-key batch while focus stayed on the second
+window; its GTK probe received `F8`, proving that the earlier absence was
+observable. The first two setup attempts failed before this measurement:
+the second window was not
+yet in Hyprland's client table, then a bare `hyprctl` command lacked the
+selected instance. Waiting for both mapped windows and using the exact
+instance-aware focus command fixed the fixture. A later assertion used a
+structured batch result that successful MCP calls do not return; the text
+report supplied the measured count and stop reason. The final runs closed
+the grant and both windows; independent VM cleanup confirmed the original
+two-output layout, unlocked screen, and no frame, idle watcher, or helper.
+
+This guards a focus change between batch actions. A compositor can still
+change focus in the small interval between the final observation and device
+dispatch; the VM test does not claim atomic focus ownership.
+
+**Verification:** Five passing VM runs (the last three after moving the
+check behind the rate guard), 83 focused desktop contracts, 786 full
+contracts (one skipped), 31 integration tests (one skipped), and 615 checks
+across `test_models.py` and `test_desktop.py` passed. Python compilation,
+`git diff --check`, and independent VM cleanup passed. The 17-case VM
+cohort was rerun afterward; its result is recorded below.
+
+## Stage 9ae: Acceptance cohort after the focus guard
+
+**Objective:** Check that the new keyboard focus check and expanded policy
+fixture do not disturb the other guarded Hyprland scenarios.
+
+**Fresh VM measurement (September 30, 2026):** All 17 cases passed again
+in one disposable VM session: pointer lock, touch, accessibility policy,
+screen lock and activity, five sequence lifecycles, six output layouts,
+and two-output capture performance. The runner checked cleanup after each
+case, now including the accessibility GTK process. The policy case recorded
+both the focus stop before `F8` and the positive `F8` delivery under stable
+focus. The capture case returned 44 unique shot IDs, a 218.595 ms median,
+and a 228.795 ms nearest-rank p95 over 20 timed calls. An independent final
+check found the original two-output layout, unlocked screen, and no frame,
+idle watcher, native helper, or test window.
+
+This is a VM cohort. Physical mirror and hotplug, graphical nested capture,
+and the intermittent visible-frame refusal under saturated VM CPU remain
+outside it.
+
+**Verification:** `run_acceptance.sh` completed 17 cases and per-case
+cleanup; the independent final VM check, shell syntax, Python compilation,
+and `git diff --check` passed.

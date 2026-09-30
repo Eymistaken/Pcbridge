@@ -98,6 +98,9 @@ POINTER_ACTIONS = {
     "click", "double_click", "triple_click", "right_click", "middle_click",
     "drag", "mouse_down",
 }
+# Keyboard actions use the focused window, so a change during a wait must be
+# caught before the next key reaches another application.
+KEYBOARD_ACTIONS = {"key", "type", "hold", "release"}
 # Odagi KASITLI degistiren eylemler. Bunlardan sonra beklenen odak guncellenir.
 FOCUS_CHANGING = {"launch", "focus"}
 INPUT_ACTIONS = {
@@ -487,7 +490,7 @@ def cost_ms(action: Action, first_input: bool = False, fast_focus: bool = False)
         base += CLICK_COUNTS[action.a] * (hold - DEFAULT_CLICK_HOLD_MS)
     if first_input and action.a in INPUT_ACTIONS:
         base += FIRST_INPUT_MS
-    if action.a in POINTER_ACTIONS:
+    if action.a in POINTER_ACTIONS or action.a in KEYBOARD_ACTIONS:
         base += FOCUS_CHECK_MS
     return base
 
@@ -721,6 +724,33 @@ def run(
                 caught_error = exc
                 break
 
+        # The sequence guard can wait for a shared rate slot. Read focus after
+        # that wait, as close as possible to the keyboard dispatch.
+        if check_focus and act.a in KEYBOARD_ACTIONS and not auto_raw:
+            if not focus_known:
+                stopped = "focus"
+                detail = (
+                    f"action {i} ({act.describe()}) was not sent: the focused window "
+                    "could not be read after the previous window change"
+                )
+                break
+            try:
+                focus_now = ops.focused()
+            except Exception as exc:  # noqa: BLE001 - an unreadable target is unsafe
+                stopped = "focus"
+                detail = (
+                    f"action {i} ({act.describe()}) was not sent: the focused window "
+                    f"could not be read ({str(exc)[:200]})"
+                )
+                break
+            if focus_now != focus_start:
+                stopped = "focus"
+                detail = (
+                    f"action {i} ({act.describe()}) was not sent: the focus changed "
+                    f"from {focus_start!r} to {focus_now!r}"
+                )
+                break
+
         t0 = clock()
         try:
             note = _dispatch(ops, act, sleep, auto_raw and act.a == "type",
@@ -891,9 +921,9 @@ def describe(result: Result) -> str:
             )
         elif result.stopped == "focus":
             lines.append(
-                "First look where you are with ui_dump. Using ui_click instead of "
-                "coordinate clicks removes this problem "
-                "entirely."
+                "Inspect the current window with ui_dump or window_list before "
+                "retrying. If a click was meant to switch windows, declare its "
+                "target with expect_focus."
             )
         elif result.stopped == "safety":
             lines.append(

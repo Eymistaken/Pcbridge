@@ -234,6 +234,73 @@ async def run(cfg, window, evidence):
                 assert [item.get("button") for item in clicked] == ["ok", "ok"], clicked
                 evidence["repeat_click"] = "third_refused_after_two_clicks"
 
+                other = A11yWindow(cfg.state_dir.parent / "focus-window.stderr",
+                    app_id="org.pcbridge.A11yFocusProbe", title="PcBridge focus probe")
+                focus_batch = None
+                try:
+                    target_pids = {window.ready["pid"], other.ready["pid"]}
+                    wait_for(lambda: target_pids <= {row.get("pid") for row in
+                             hyprland._query("clients", json_output=True)},
+                             description="both controlled policy windows")
+                    clients = hyprland._query("clients", json_output=True)
+                    targets = {row["pid"]: (row["address"], row.get("stableId", ""))
+                               for row in clients
+                               if row.get("pid") in target_pids}
+                    assert set(targets) == target_pids, targets
+                    focused = await call("window_focus", {"window":
+                        "hyprland:" + targets[window.ready["pid"]][0], "force": True})
+                    assert not focused.is_error, text(focused)
+                    wait_for(lambda: hyprland._query("activewindow", json_output=True).get("pid")
+                             == window.ready["pid"], description="first policy window focus")
+
+                    mark = window.mark()
+                    other_mark = other.mark()
+                    focus_batch = asyncio.create_task(client.call_tool("computer_batch", {
+                        "actions": json.dumps([
+                            {"a": "ui_click", "id": button},
+                            {"a": "wait", "ms": 1500},
+                            {"a": "key", "keys": "F8"}]),
+                        "final": "none", "force": True}, raise_on_error=False))
+                    first = await asyncio.to_thread(window.wait,
+                        lambda item: item.get("event") == "clicked" and
+                        item.get("button") == "ok", 5, mark)
+                    assert first is not None and not focus_batch.done(), window.since(mark)
+                    assert hyprland._query("activewindow", json_output=True).get("pid") == window.ready["pid"]
+                    hyprland.focus_exact(*targets[other.ready["pid"]], checkpoint=lambda: None)
+                    wait_for(lambda: hyprland._query("activewindow", json_output=True).get("pid")
+                             == other.ready["pid"], description="external focus change")
+                    stopped = await asyncio.wait_for(focus_batch, timeout=5)
+                    assert not stopped.is_error, text(stopped)
+                    assert "**2 of 3 actions done**" in text(stopped), text(stopped)
+                    assert "Focus moved" in text(stopped), text(stopped)
+                    await asyncio.sleep(0.2)
+                    assert not any(item.get("event") == "key" and item.get("keys") == "F8"
+                                   for item in other.since(other_mark))
+                    assert not any(item.get("event") == "key" and item.get("keys") == "F8"
+                                   for item in window.since(mark))
+                    evidence["focus_change"] = "stopped_before_F8"
+
+                    positive_mark = other.mark()
+                    positive = await call("computer_batch", {"actions": json.dumps([
+                        {"a": "key", "keys": "F8"}]), "final": "none", "force": True})
+                    assert not positive.is_error, text(positive)
+                    assert "**1 of 1 actions done**" in text(positive), text(positive)
+                    received = await asyncio.to_thread(other.wait,
+                        lambda item: item.get("event") == "key" and
+                        item.get("keys") == "F8", 3, positive_mark)
+                    assert received is not None, other.since(positive_mark)
+                    evidence["focus_probe_positive"] = "F8_received_when_focus_stable"
+                finally:
+                    if focus_batch and not focus_batch.done():
+                        focus_batch.cancel()
+                        try:
+                            await focus_batch
+                        except asyncio.CancelledError:
+                            pass
+                    other.close()
+                    evidence["cleanup"]["focus_window_exit"] = other.process.returncode
+                    assert other.process.returncode == 0
+
                 denied = await call("keyboard", {"action": "key", "keys": "alt+F4",
                     "force": True})
                 evidence["close_refusal"] = code(denied)

@@ -84,7 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
                         "to switch to. If the focus goes there the sequence goes "
                         "on; anywhere else it still stops.")
     p.add_argument("--no-check-focus", action="store_true",
-                   help="Turn off the focus check after clicks (not recommended; "
+                   help="Turn off focus checks after clicks and before keys (not recommended; "
                         "try --expect-focus first).")
     p.add_argument("--json", action="store_true", help="Machine-readable output.")
     return p
