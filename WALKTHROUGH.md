@@ -3542,3 +3542,42 @@ and English-only contracts, Python compilation, host containment refusal,
 ./.venv/bin/python -m unittest tests.contracts.test_desktop_gates tests.contracts.test_batch_safety tests.contracts.test_english_only
 scripts/dev/hyprland-vm.sh session 'cd ~/pcbridge && PCBRIDGE_TEST_HYPRLAND_A11Y_POLICY=1 .venv/bin/python tests/live/hyprland/check_accessibility_policy.py --out-dir /tmp/pcbridge-stage9aa-policy-matrix-repeat'
 ```
+
+## Stage 9ab: Two-output capture under VM CPU load
+
+**Objective:** Measure normal MCP two-output capture while the disposable
+Hyprland VM is busy, and keep image correctness and visible-grant safety in
+the result rather than reporting timing alone.
+
+**Design:** Run the existing 22-call performance fixture once without load,
+then with one, two, and three `/usr/bin/yes` worker processes in the guest.
+The first two calls warm up; every subsequent call must decode both
+1280x800 images, match their output markers and pattern counter, and return
+unique shot IDs. The load process CPU time divided by fixture wall time
+measures the actual VM cores used. Workers are terminated after each run.
+
+**Fresh VM measurements (September 30, 2026):** The unloaded run's 20
+timed captures had a 218.842 ms median and 252.932 ms nearest-rank p95.
+One worker used 1.00 core and measured 219.289/227.069 ms median/p95.
+Two workers used 1.99 cores and measured 242.300/249.050 ms. The first
+three-worker attempt returned `BACKEND_UNAVAILABLE` during an active grant
+instead of completing the image cohort. It still locked and cleaned up.
+A second three-worker run used 2.92 cores and passed all 20 captures at
+327.188/368.130 ms. Each successful run returned 44 distinct shot IDs
+across 22 calls and checked the content of both images. Independent VM
+inspection after the experiments found the original output layout, unlocked
+screen, and no frame, idle watcher, native helper, or load worker.
+
+The native lifecycle maps `BACKEND_UNAVAILABLE` here to unavailable current
+visible-frame proof. The first overloaded run did not record which part of
+that proof failed; it should not be counted as a successful latency run.
+The passing repeat shows intermittent availability at this load, not a
+fixed throughput ceiling. The security behavior was fail-closed. No
+production code changed. Diagnosis of the proof loss and physical desktop
+performance remain open.
+
+**Verification:** One unloaded, one one-worker, one two-worker, and two
+three-worker runs through the normal MCP fixture; the three successful
+loaded runs each verified 20 timed captures and teardown. The failed
+three-worker run also completed teardown. An independent final VM cleanup
+check passed.

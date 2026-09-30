@@ -36,8 +36,9 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   [WALKTHROUGH.md](WALKTHROUGH.md). The batch content-policy matrix now covers
   password targets, close shortcuts, repeat clicks, and budget preflight
   through normal MCP in the VM. Check cross-process rate and focus changes,
-  physical mirror and hotplug, performance under load
-  (static two-output MCP latency and native renderer pixels are measured),
+  physical mirror and hotplug, and the intermittent visible-frame refusal
+  seen under three saturated VM CPU workers (loaded two-output latency is
+  measured, but the proof-loss cause and physical workload are not),
   and graphical nested checks (live nested IPC routing passed, but this VM
   could not allocate the child's GBM output). A 17-case VM cohort passed
   with cleanup between cases. The current checkout also passed the full

@@ -1344,3 +1344,27 @@ guard in the code (the guards limit damage, they do not make it impossible):
   idle watcher, and window, and restored the original two-output layout.
   These are scoped content-policy and budget checks; cross-process rate and
   focus-change behavior still need live Hyprland evidence.
+
+### Hyprland two-output capture under VM CPU load
+
+- On September 30, the normal in-process MCP capture fixture decoded and
+  checked two 1280x800 images, their output markers and counter, and 44
+  unique shot IDs across 22 calls in every successful run. Two calls were
+  warmups and 20 were timed. An unloaded run measured a 218.842 ms median
+  and 252.932 ms nearest-rank 95th percentile.
+- With one `/usr/bin/yes` worker using 1.00 VM CPU core, the median was
+  219.289 ms and p95 227.069 ms. With two workers using 1.99 cores, the
+  median was 242.300 ms and p95 249.050 ms. A three-worker repeat using
+  2.92 cores measured 327.188 ms median and 368.130 ms p95. All three
+  successful loaded runs had 20 valid timed calls and clean grant, pattern,
+  idle-watcher, and native-helper teardown.
+- The first three-worker run failed a capture with `BACKEND_UNAVAILABLE`
+  while the grant was active; its fixture still closed the grant and exited
+  cleanly. In the native lifecycle that code means current visible-frame
+  proof was unavailable. The test did not record whether presentation age,
+  output querying, or another part of the proof caused the refusal. The
+  repeat passed, so a three-worker workload has intermittent availability
+  in this VM. The workers were terminated and an independent check found
+  the original layout, unlocked screen, and no frame, idle watcher, native
+  helper, or CPU worker. This is a fail-closed observation, not a reason to
+  weaken the frame requirement; physical workload remains unmeasured.
