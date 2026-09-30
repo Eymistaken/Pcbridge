@@ -76,6 +76,10 @@ TWO_SCREENS = [
 LIVE_FLAGS = ("PCBRIDGE_TEST_CAPTURE", "PCBRIDGE_TEST_INPUT", "PCBRIDGE_TEST_ATSPI",
               "PCBRIDGE_TEST_BATCH")
 if not any(os.environ.get(flag) == "1" for flag in LIVE_FLAGS):
+    # These fixtures describe GNOME, including in headless package CI.
+    # Do not inherit another compositor's routing from the host session.
+    os.environ["XDG_CURRENT_DESKTOP"] = "GNOME"
+    os.environ.pop("HYPRLAND_INSTANCE_SIGNATURE", None)
     S.screen_locked = lambda: False          # an unlocked session
     S.idle_ms = lambda: 600_000               # the user away for ten minutes
     _FIXED_SCREENS = M._ordered(list(TWO_SCREENS))
