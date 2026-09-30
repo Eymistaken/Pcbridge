@@ -1449,3 +1449,25 @@ guard in the code (the guards limit damage, they do not make it impossible):
   IDs across 22 calls, with a 221.538 ms median and 239.280 ms nearest-rank
   95th percentile over 20 timed calls. It does not resolve the intermittent
   frame-proof refusal under saturated CPU.
+
+### Three-worker frame diagnostic follow-up
+
+- On September 30, four further three-worker VM runs completed every one
+  of 22 normal MCP two-output captures, checking both 1280x800 images and
+  44 unique shot IDs each. The 20 timed-call median/p95 pairs in
+  milliseconds were 320.591/358.722, 323.823/360.423,
+  320.055/358.487, and 324.338/365.604. The earlier single
+  `BACKEND_UNAVAILABLE` did not recur in this bounded set; its cause is
+  still unknown.
+- The capture fixture now records derived frame-health data immediately
+  after any refusal, without grant identity or configuration secrets. A
+  baseline in the final loaded run verified the diagnostic on a valid
+  active grant: ready frame, 127 ms presentation age, mode 0600, matching
+  owner, two covered outputs, eight strips, live owner and writer, active
+  lease, and a valid later local record read. This baseline does not
+  explain the earlier refusal. A future failure snapshot might miss a
+  transient state because it is read after the rejected call.
+- Each run closed the grant, frame, pattern window, helper, and idle
+  watcher; load workers were stopped. Independent final inspection found
+  the original two-output layout, unlocked screen, and no helper or
+  worker. The native fail-closed rule was not changed.

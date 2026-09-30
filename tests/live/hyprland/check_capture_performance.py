@@ -34,7 +34,8 @@ sys.path.insert(0, str(ROOT))
 from fastmcp import Client  # noqa: E402
 from pcbridge.app import build_app  # noqa: E402
 from pcbridge.config import load_config  # noqa: E402
-from pcbridge.desktop import hyprland, idlewatch, monitors  # noqa: E402
+from pcbridge.desktop import glowstate, hyprland, idlewatch, monitors  # noqa: E402
+from pcbridge.desktop.lease import LeaseStore  # noqa: E402
 from pcbridge.native import discover_native_binary  # noqa: E402
 from tests.live.hyprland.check_glow_owner import layers, wait_for  # noqa: E402
 from tests.live.test_capture_parity import (  # noqa: E402
@@ -45,6 +46,44 @@ SHOT_LINE = re.compile(
     r'\*\*([^\n*]+)\*\* · (\d+)x(\d+) @ \((-?\d+), (-?\d+)\) → '
     r'(\d+)x(\d+) \(scale ([0-9.]+)\)\n  shot: `([^`]+)`'
 )
+
+
+def frame_diagnostic(cfg):
+    """Record safe frame-health facts immediately after a capture refusal."""
+    path = cfg.state_dir / glowstate.STATE_FILE
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        info = path.stat()
+        assert isinstance(raw, dict)
+    except (OSError, ValueError, AssertionError):
+        return {"record": "unreadable"}
+    presented = raw.get("presented_unix_ms")
+    now = int(time.time() * 1000)
+    result = {
+        "record": "readable",
+        "ready": raw.get("ready"),
+        "age_ms": now - presented if type(presented) is int and presented > 0 else None,
+        "outputs": raw.get("outputs"),
+        "strip_count": raw.get("strip_count"),
+        "owner_alive": Path(f'/proc/{raw.get("owner_pid")}').exists(),
+        "writer_alive": Path(f'/proc/{raw.get("pid")}').exists(),
+        "file_mode": oct(info.st_mode & 0o777),
+        "file_owner_matches": info.st_uid == os.getuid(),
+    }
+    try:
+        table = monitors.list_monitors(use_cache=False)
+        result["output_match"] = glowstate.covers_outputs(raw, table)
+    except Exception as error:  # noqa: BLE001 - diagnostics must not hide the refusal
+        result["output_query_error"] = type(error).__name__
+    try:
+        token = LeaseStore(cfg.state_dir).snapshot().token()
+        result["lease_active"] = token is not None
+        if token is not None:
+            result["record_valid_later"] = glowstate.read(cfg.state_dir, token,
+                binary=discover_native_binary(cfg.native)) is not None
+    except Exception as error:  # noqa: BLE001 - diagnostics must not hide the refusal
+        result["record_check_error"] = type(error).__name__
+    return result
 
 
 def check_capture(result, connectors, counter, seen_shots):
@@ -86,6 +125,7 @@ async def run(cfg, pattern, reader, connectors, evidence):
                 assert not opened.is_error, opened.content
                 grant_open = True
                 wait_for(lambda: len(layers()) == 8, description="capture performance glow")
+                evidence["frame_baseline"] = frame_diagnostic(cfg)
                 seen_shots = set()
                 durations = []
                 for index in range(22):
@@ -99,6 +139,12 @@ async def run(cfg, pattern, reader, connectors, evidence):
                     result = await call("screen_capture", {"monitor": "all", "scale": 0,
                         "include_pointer": False})
                     elapsed_ms = (time.perf_counter() - start) * 1000
+                    if result.is_error:
+                        evidence["capture_refusal"] = {
+                            "index": index,
+                            "code": ((result.structured_content or {}).get("error") or {}).get("code"),
+                            "frame": frame_diagnostic(cfg),
+                        }
                     check_capture(result, connectors, counter, seen_shots)
                     if index >= 2:
                         durations.append(round(elapsed_ms, 3))

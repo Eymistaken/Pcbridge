@@ -3728,3 +3728,38 @@ desktop workloads.
 **Verification:** Two corrected guarded VM passes, the second inside the
 17-case acceptance cohort with cleanup after each case; independent VM
 cleanup, Python compilation, and `git diff --check` passed.
+
+## Stage 9ag: Capture refusal diagnostics under VM CPU load
+
+**Objective:** Identify which visible-frame proof failed in the earlier
+three-worker `BACKEND_UNAVAILABLE` capture refusal without relaxing the
+native fail-closed rule.
+
+**Design:** The guarded capture-performance fixture now records only safe
+derived frame-health fields on an MCP refusal: presentation age, ready
+state, output coverage, strip count, file mode/owner match, process
+liveness, lease activity, and a later local record-validity check. It does
+not write grant IDs or config secrets. One baseline sample after the frame
+appears verifies that the diagnostic itself can read a valid record. The
+failure snapshot is necessarily taken after the refused call, so it may
+miss a transient condition that has already recovered.
+
+**Fresh VM measurements (September 30, 2026):** Four bounded runs with
+three `/usr/bin/yes` workers each completed all 22 normal MCP two-output
+captures and returned 44 unique shot IDs per run. Their 20 timed-call
+median/p95 pairs were 320.591/358.722, 323.823/360.423,
+320.055/358.487, and 324.338/365.604 ms. The final run's active-grant
+baseline record was ready, 127 ms old, mode 0600, owned by the VM user,
+covered both outputs with eight strips, and passed the local lease-bound
+read. Every run closed the grant, frame, pattern window, native helper,
+and idle watcher; all CPU workers exited. Independent final VM inspection
+found the original two-output layout and unlocked screen.
+
+The earlier `BACKEND_UNAVAILABLE` did not recur in these four runs. Its
+cause remains unknown. The native safety check still refuses an operation
+when fresh presentation proof is unavailable; no production threshold or
+watchdog behavior changed.
+
+**Verification:** Four loaded VM fixture passes, one observed valid frame
+diagnostic, Python compilation, `git diff --check`, and independent VM
+cleanup passed.

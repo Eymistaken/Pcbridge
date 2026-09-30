@@ -40,8 +40,9 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   VM focus shift during a batch wait now stops before the next key. Real MCP
   and `pcb-do` writers were observed in order in the VM. Check physical
   mirror and hotplug, and the intermittent visible-frame refusal
-  seen under three saturated VM CPU workers (loaded two-output latency is
-  measured, but the proof-loss cause and physical workload are not),
+  seen under three saturated VM CPU workers (four follow-up runs passed;
+  a safe failure diagnostic is in the fixture, but the proof-loss cause and
+  physical workload are not measured),
   and graphical nested checks (live nested IPC routing passed, but this VM
   could not allocate the child's GBM output). A 17-case VM cohort passed
   again after the focus guard, with cleanup between cases. The current
