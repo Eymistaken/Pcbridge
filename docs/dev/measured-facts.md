@@ -15,6 +15,27 @@ The completed development journals were folded into canonical documents;
 git history keeps their chronology. Entries below retain the evidence known
 at each stage. Later measurements supersede earlier pending-work statements.
 
+## File tools through remote MCP (2026-10-04)
+
+PcBridge 2.5.0 was probed through the remote MCP tools with a closed desktop
+grant (`grant_remaining_seconds = 0`); no desktop unlock or OS input was
+used. A disposable ASCII fixture contained 163,859 characters/bytes over
+1,403 lines, with unique beginning, middle and end markers. Live `fs_read`
+responses retained only the tail: 8,000 content characters by default, 200
+when requested, and 60,000 at the accepted maximum. Each response contained
+`…(kirpildi)…` and the end marker, but neither earlier marker. Requesting `max_chars=60001` returned a
+validation error. This is a character limit, not a measured token cutoff.
+The schema/source has no line range, offset or continuation cursor.
+
+Live `fs_write` create, append and overwrite calls preserved Turkish text,
+quotes, dollar/backtick characters, newlines and an emoji in read-back. The
+initial file was 102 UTF-8 bytes, append produced 123 bytes, and overwrite
+left exactly the new 45-byte content. The exposed file tools are `fs_list`,
+`fs_read`, `fs_search` and `fs_write`; there is no targeted edit/patch tool.
+Source inspection confirms direct UTF-8 append/overwrite with no atomic
+replacement or expected-content/hash check. This establishes working basic
+writes and the missing editing facilities, not a failed write operation.
+
 ## Hyprland release scope and limits
 
 PcBridge 2.5.0 supports Hyprland 0.56.2 on Wayland with the native helper.

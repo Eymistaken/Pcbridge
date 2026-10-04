@@ -5,6 +5,29 @@ Each item says what is left and what would prove it done. Finished work is
 in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
 [docs/dev/measured-facts.md](docs/dev/measured-facts.md).
 
+Product direction: improve the existing terminal UI; do not introduce a
+Tauri application.
+
+## Optional: file tools
+
+- **Paginated and ranged file reads.** Replace tail-only reads with explicit
+  line ranges or offsets/cursors and bounded page sizes. Return the covered
+  range, total size, truncation/EOF state and a continuation cursor so an
+  agent can recover every part of a large file in order. Make multiple-file
+  reads convenient and keep response budgets explicit. The current behavior
+  was measured in [file-tool evidence](docs/dev/measured-facts.md#file-tools-through-remote-mcp-2026-10-04).
+  Done when an agent can read the beginning, middle and end of a file larger
+  than the current response cap through file tools alone, without dropped or
+  duplicated content or shell-based slicing.
+- **Targeted edits and easier writes.** Keep create/overwrite/append, and add
+  an edit/patch tool for exact text replacements or focused changes without
+  resending the whole file. Provide a diff preview, explicit single/all-match
+  behavior, clear missing/ambiguous-match errors, expected-content/hash
+  conflict detection and atomic writes. Preserve encoding and line endings.
+  Done when a small edit to a large file changes only the requested region,
+  concurrent changes produce a conflict instead of silent replacement, and
+  multiline UTF-8 edits can be submitted without shell escaping.
+
 ## Optional: browser control
 
 - **Browser tools for the user's existing session.** Connect to the user's
@@ -14,13 +37,18 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
   elements. Read the resulting page state after each action, with screenshots
   available when needed. Support local web interfaces such as router admin
   pages so an agent can inspect them without reverse-engineering their login
-  JavaScript and API requests. Use the existing time-limited desktop grant
-  and audit action metadata without recording passwords or sensitive page
-  content. `desktop_lock` and grant expiry must stop browser reading and
-  control immediately while preserving the user's tabs and login sessions.
-  Done when a local router panel and a signed-in website can be inspected
-  through the existing browser session, page actions are verified against
-  fresh state, and lock/expiry reliably deny further browser access.
+  JavaScript and API requests. Browser tools are a non-desktop capability,
+  like file, shell and agent tools: browser reads, page actions and browser
+  screenshots must work without `desktop_unlock`, without an active desktop
+  grant, and independently of `[desktop] enabled`. `desktop_lock` and desktop
+  grant expiry must not stop browser access. Use normal MCP/session
+  authentication and tool availability, and audit action metadata without
+  recording passwords or sensitive page content. Preserve the user's tabs
+  and login sessions when detaching. Done when a local router panel and a
+  signed-in website can be inspected through the existing browser session,
+  actions are verified against fresh state, and browser reads/actions still
+  work with the desktop grant closed, after `desktop_lock`, and after its
+  expiry. This is a requirement for the future browser implementation.
 
 ## Optional: needs a person at the machine
 
@@ -102,5 +130,3 @@ in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
 - **Plasma's grant notification can be dismissed.** Closing it by hand
   does not end the grant (only "Lock now" does); ending the grant on dismiss
   needs a check that it was not closed by pcbridge itself.
-- **A graphical control panel.** A proposal (Tauri + React) for status,
-  grant and jobs in one window; nobody has started it.
