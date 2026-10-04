@@ -5,6 +5,23 @@ Each item says what is left and what would prove it done. Finished work is
 in [CHANGELOG.md](CHANGELOG.md), the numbers behind it in
 [docs/dev/measured-facts.md](docs/dev/measured-facts.md).
 
+## Optional: browser control
+
+- **Browser tools for the user's existing session.** Connect to the user's
+  existing Chrome/Brave session and preserve its signed-in state. List and
+  select tabs, open URLs and navigate, read DOM/accessibility snapshots
+  including forms and tables, and click, type or select using observed page
+  elements. Read the resulting page state after each action, with screenshots
+  available when needed. Support local web interfaces such as router admin
+  pages so an agent can inspect them without reverse-engineering their login
+  JavaScript and API requests. Use the existing time-limited desktop grant
+  and audit action metadata without recording passwords or sensitive page
+  content. `desktop_lock` and grant expiry must stop browser reading and
+  control immediately while preserving the user's tabs and login sessions.
+  Done when a local router panel and a signed-in website can be inspected
+  through the existing browser session, page actions are verified against
+  fresh state, and lock/expiry reliably deny further browser access.
+
 ## Optional: needs a person at the machine
 
 - **`FocusedWindow` in the real session.** Measured in a nested shell; the
