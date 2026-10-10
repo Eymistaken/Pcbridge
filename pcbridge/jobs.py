@@ -56,7 +56,7 @@ def _short(value: Any, limit: int = 160) -> str:
 def tail_chars(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
-    return "…(kirpildi)…\n" + text[-limit:]
+    return "…(truncated)…\n" + text[-limit:]
 
 
 class JobStartError(RuntimeError):

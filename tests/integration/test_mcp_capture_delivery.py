@@ -239,7 +239,7 @@ class InMemoryDelivery(DeliveryChecks, unittest.IsolatedAsyncioTestCase):
 
             self.assert_fixture_images(result)
             self.assertIn(
-                "…(kirpildi)…", result.content[0].text, "the report itself is still trimmed"
+                "…(truncated)…", result.content[0].text, "the report itself is still trimmed"
             )
 
 

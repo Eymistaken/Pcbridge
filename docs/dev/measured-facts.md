@@ -23,7 +23,7 @@ used. A disposable ASCII fixture contained 163,859 characters/bytes over
 1,403 lines, with unique beginning, middle and end markers. Live `fs_read`
 responses retained only the tail: 8,000 content characters by default, 200
 when requested, and 60,000 at the accepted maximum. Each response contained
-`…(kirpildi)…` and the end marker, but neither earlier marker. Requesting `max_chars=60001` returned a
+`…(kirpildi)…` (now `…(truncated)…`) and the end marker, but neither earlier marker. Requesting `max_chars=60001` returned a
 validation error. This is a character limit, not a measured token cutoff.
 The schema/source has no line range, offset or continuation cursor.
 

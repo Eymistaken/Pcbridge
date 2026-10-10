@@ -68,6 +68,20 @@ class FsReadToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("bytes)", out)
         self.assertNotIn("�", out)
 
+    async def test_long_file_keeps_the_tail_with_an_english_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            f = root / "long.txt"
+            f.write_text("BEGIN\n" + "x" * 1000 + "\nEND\n", encoding="utf-8")
+            mcp, _tree = build_mcp(root)
+            async with Client(mcp) as client:
+                result = await client.call_tool(
+                    "fs_read", {"path": str(f), "max_chars": 200})
+            out = result.content[0].text
+        self.assertIn("…(truncated)…", out)
+        self.assertIn("END", out)
+        self.assertNotIn("BEGIN", out)
+
     async def test_binary_files_are_refused_without_replacement_chars(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)

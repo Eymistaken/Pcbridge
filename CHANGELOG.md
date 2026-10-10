@@ -12,6 +12,9 @@
   with a plain message that names the format and the size. The size in the
   reply now reads "bytes" instead of the Turkish "bayt". Binary transfer
   itself is still open in the roadmap.
+- **English truncation marker.** Trimmed tool output (`fs_read`, job logs,
+  shell output and the other tools that keep the tail) now starts with
+  `…(truncated)…` instead of the Turkish `…(kirpildi)…`.
 
 ### API
 
