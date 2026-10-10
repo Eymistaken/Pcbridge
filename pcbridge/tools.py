@@ -190,6 +190,41 @@ def _resolve_file(cfg: Config, path: str) -> Path:
     return p.resolve()
 
 
+# Bilinen ikili bicimlerin imzalari: reddetme mesaji "ikili" demek yerine ne
+# oldugunu soyleyebilsin. Tespit bunlara DAYANMIYOR; liste yalnizca etiket.
+_BINARY_SIGNATURES: tuple[tuple[bytes, str], ...] = (
+    (b"%PDF-", "PDF document"),
+    (b"\x89PNG\r\n\x1a\n", "PNG image"),
+    (b"\xff\xd8\xff", "JPEG image"),
+    (b"GIF87a", "GIF image"),
+    (b"GIF89a", "GIF image"),
+    (b"PK\x03\x04", "ZIP archive (also docx/xlsx/odt/jar)"),
+    (b"\x1f\x8b", "gzip archive"),
+    (b"\x7fELF", "ELF executable"),
+    (b"SQLite format 3\x00", "SQLite database"),
+)
+
+
+def _decode_text_file(raw: bytes) -> tuple[str | None, str | None]:
+    """`fs_read` icin: (metin, None) ya da (None, neden).
+
+    Eskiden `errors="replace"` ile cozuluyordu: bir PDF ya da resim hata
+    vermeden U+FFFD dolu bozuk icerik olarak donuyordu. Artik NUL bayti olan
+    ya da gecerli UTF-8 olmayan dosya acikca reddediliyor.
+    """
+    label = next((name for magic, name in _BINARY_SIGNATURES if raw.startswith(magic)), None)
+    if label is None and raw.startswith(b"RIFF") and raw[8:12] == b"WEBP":
+        label = "WebP image"
+    if label is not None:
+        return None, f"it is a binary file ({label})"
+    if b"\x00" in raw[:8192]:
+        return None, "it is a binary file (contains NUL bytes)"
+    try:
+        return raw.decode("utf-8"), None
+    except UnicodeDecodeError as exc:
+        return None, f"it is not valid UTF-8 text (invalid byte at offset {exc.start:,})"
+
+
 def _model_matches(requested: str, actual: str) -> bool:
     """Istenen model adi ile CLI'in bildirdigi ad ortusuyor mu?
 
@@ -922,20 +957,31 @@ def register(
         path: Annotated[str, Field(description="Absolute path of the file to read.")],
         max_chars: Annotated[int, Field(ge=200, le=60000)] = 8000,
     ) -> str:
-        """Read the contents of a text file on the computer."""
+        """Read the contents of a UTF-8 text file on the computer (source code,
+        logs, configs, notes). Long files return their last max_chars
+        characters. Binary files (PDF, images, archives, executables) and
+        non-UTF-8 files are refused with a plain message instead of returning
+        corrupted text; use fs_list to see their size."""
         f = _resolve_file(cfg, path)
         if not f.is_file():
             return f"File not found: {f}"
         try:
-            data = f.read_text(encoding="utf-8", errors="replace")
+            raw = f.read_bytes()
         except OSError as exc:
             return f"Could not read it: {exc}"
+        data, refused = _decode_text_file(raw)
         # YOL kaydedilir, ICERIK kaydedilmez. Bu satirin asil amaci: `config.toml`
         # parola ve statik token iceriyor ve okunmasi engellenmis DEGIL (engellemek
         # aldatici olurdu -- `shell_run` zaten keyfi komut calistiriyor, `cat` ile
         # de okunur). Engellemek yerine IZ birakiliyor.
-        gate.audit("fs_read", path=str(f)[:200], bytes=f.stat().st_size)
-        return f"`{f}` ({f.stat().st_size:,} bayt)\n```\n" + jobslib.tail_chars(
+        gate.audit("fs_read", path=str(f)[:200], bytes=len(raw),
+                   refused="binary" if refused else None)
+        if data is None:
+            return (
+                f"Not read: `{f}` ({len(raw):,} bytes) {refused}. fs_read returns "
+                "UTF-8 text only; binary transfer is not supported yet."
+            )
+        return f"`{f}` ({len(raw):,} bytes)\n```\n" + jobslib.tail_chars(
             data, max_chars
         ) + "\n```"
 

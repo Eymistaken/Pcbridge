@@ -36,6 +36,16 @@ Source inspection confirms direct UTF-8 append/overwrite with no atomic
 replacement or expected-content/hash check. This establishes working basic
 writes and the missing editing facilities, not a failed write operation.
 
+Binary refusal (2026-10-10, unreleased code through an in-process FastMCP
+client, not the installed daemon): a 2,637-byte PNG icon, a 295,259-byte PDF
+manual and `/usr/bin/ls` (142,312 bytes) were each refused with the format
+named (PNG image, PDF document, ELF executable) and no U+FFFD in the reply;
+`README.md` (9,222 bytes) still read normally. Before the change, with
+`max_chars=200`, the PNG and `ls` came back as text containing U+FFFD with
+no error, and the PDF came back as plausible-looking text with no U+FFFD at
+all, because only its ASCII trailer fit in the tail: a replacement-character
+check alone would not have caught it.
+
 ## Hyprland release scope and limits
 
 PcBridge 2.5.0 supports Hyprland 0.56.2 on Wayland with the native helper.

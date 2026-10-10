@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`fs_read` refuses binary files.** It used to decode with
+  `errors="replace"`, so a PDF, an image or an executable came back as
+  corrupted text full of replacement characters, with no error. A file that
+  contains NUL bytes, starts with a known binary signature (PDF, PNG, JPEG,
+  GIF, WebP, ZIP, gzip, ELF, SQLite) or is not valid UTF-8 is now refused
+  with a plain message that names the format and the size. The size in the
+  reply now reads "bytes" instead of the Turkish "bayt". Binary transfer
+  itself is still open in the roadmap.
+
+### API
+
+- **Tools**: unchanged, 37. `fs_read` refuses binary and non-UTF-8 files.
+- **Config file**: unchanged.
+
 ## 2.5.0 - 2026-09-30
 
 ### Added
