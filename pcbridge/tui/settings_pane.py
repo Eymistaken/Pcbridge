@@ -351,8 +351,9 @@ class SettingsPane(Vertical):
             bits.append(f"default {S.format_value(s, self.ed.default(s.key))}")
         if s.choices:
             bits.append(f"allowed {', '.join(s.choices)}")
-        bits.append("applies after a daemon restart" if s.restart == S.RESTART_DAEMON
-                    else "applies after restarting the daemon and the clients")
+        bits.append({S.RESTART_DAEMON: "applies after a daemon restart",
+                     S.RESTART_NONE: "applies at once, no restart"}.get(
+                         s.restart, "applies after restarting the daemon and the clients"))
         env = self.ed.env_override(s.key)
         if env:
             bits.append(f"${env} is set and wins over the file")

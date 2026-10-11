@@ -63,6 +63,7 @@ screenshots) are filled in with their 1.x values.
 | `[auth]` | password, static token, token lifetimes, failed-attempt lockout |
 | `[paths]` | `state_dir` (grant, jobs, audit log, OAuth DB, shots), `default_workdir` |
 | `[limits]` | output size, job timeouts, `audit_max_bytes` (log rotation) |
+| `[power]` | `keep_awake` (**false** by default): hold a sleep inhibitor while a job runs; the running daemon re-reads it, no restart |
 | `[native]` | `capture` / `input` / `accessibility`: `auto` (native helper when packaged), `rust` (the helper, or fail) or `python`; `binary_path` |
 | `[desktop]` | `enabled` (**false** by default), grant length and sliding window, the idle guard, rate limit, pointer speed, hold limit, screenshot scaling (`screenshot_scale_long_edge = 1536`, `screenshot_max_pixels`), shot lifetimes, the capture backend, batch budget and focus checks, OCR languages, `computer_task` agent |
 | `[agents.<name>]` | a coding agent: command, resume syntax, output parser, `pty`, models, efforts, aliases |
@@ -73,6 +74,17 @@ capture works only through the native helper (`[native] capture` `auto` or
 `rust`, and `[desktop] capture_backend = "auto"`), and
 `[desktop] unlock_notification` is the grant's only visible signal, so it
 should stay `true`.
+
+`[power] keep_awake` picks the inhibitor each desktop honors: GNOME a
+gnome-session suspend inhibitor, KDE Plasma PowerDevil through
+`kde-inhibit` (a logind `sleep` inhibitor if it is missing), Hyprland and
+others a logind `idle` inhibitor. The screen still locks on GNOME and
+Plasma. On Hyprland, hypridle skips every timeout rule while an idle
+inhibitor is held, its lock rule too, unless that rule sets
+`ignore_inhibit = true`. logind gives inhibitors to a user only through
+polkit; without it `pcbridge doctor` says so. The inhibitor ends with the
+daemon, so `pcbridge stop --keep-jobs` leaves the jobs running unprotected.
+Measurements: [measured facts](dev/measured-facts.md#keep-awake-while-jobs-run).
 
 On Hyprland, desktop control needs the packaged native helper for capture,
 input, and the visible grant frame. Keep the native desktop backends on

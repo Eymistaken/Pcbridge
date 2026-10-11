@@ -40,6 +40,7 @@ from .config import AgentSpec, DesktopSpec
 # What a change needs before it takes effect.
 RESTART_DAEMON = "daemon"      # the daemon reads it at start
 RESTART_CLIENTS = "clients"    # the daemon, then the clients (the tool list changes)
+RESTART_NONE = "live"          # the running daemon re-reads it; nothing to restart
 
 KINDS = ("bool", "int", "str", "choice", "list", "table")
 
@@ -63,6 +64,7 @@ SECTION_TITLES = {
     "auth": "Authentication",
     "paths": "Paths",
     "limits": "Limits",
+    "power": "Power",
     "native": "Native helper",
     "desktop": "Desktop control",
     "tools": "Tools",
@@ -119,6 +121,7 @@ _FIXED: dict[str, tuple[str, Any, tuple[str, ...]]] = {
     "limits.default_job_timeout": ("int", 1800, ()),
     "limits.max_sync_timeout": ("int", 120, ()),
     "limits.audit_max_bytes": ("int", 5_000_000, ()),
+    "power.keep_awake": ("bool", False, ()),
     "native.capture": ("choice", "auto", ("auto", "python", "rust")),
     "native.input": ("choice", "auto", ("auto", "python", "rust")),
     "native.accessibility": ("choice", "auto", ("auto", "python", "rust")),
@@ -131,6 +134,9 @@ _DESKTOP_CHOICES = {
 }
 
 _SECRETS = {"auth.password", "auth.static_token"}
+
+# Settings the running daemon re-reads from the file.
+_LIVE = {"power.keep_awake"}
 
 # Descriptions for keys config.example.toml documents in a block rather than
 # above the key itself.
@@ -284,6 +290,8 @@ def registry(agent_names: list[str] | tuple[str, ...] = ()) -> list[Setting]:
     for key, (kind, default, choices) in _FIXED.items():
         section, _, name = key.rpartition(".")
         restart = RESTART_CLIENTS if key in ("tools.profile", "default_agent") else RESTART_DAEMON
+        if key in _LIVE:
+            restart = RESTART_NONE
         out.append(Setting(key, section, name, kind, default, choices,
                            secret=key in _SECRETS, restart=restart,
                            help=_HELP.get(key) or helps.get(key, "")))
@@ -311,7 +319,7 @@ def registry(agent_names: list[str] | tuple[str, ...] = ()) -> list[Setting]:
                                default, choices, restart=RESTART_CLIENTS,
                                help=_AGENT_HELP.get(f.name, "")))
     # Keep the document order of the fixed sections: top, server, auth, ...
-    order = ["", "server", "auth", "paths", "limits", "native", "desktop", "tools"]
+    order = ["", "server", "auth", "paths", "limits", "power", "native", "desktop", "tools"]
     rank = {s: i for i, s in enumerate(order)}
     return sorted(out, key=lambda s: rank.get(s.section, len(order)))
 
@@ -611,7 +619,7 @@ class ConfigEditor:
                 pass
 
     def restart_needed(self) -> str | None:
-        levels = {self.setting(k).restart for k in self.changed}
+        levels = {self.setting(k).restart for k in self.changed} - {RESTART_NONE}
         if RESTART_CLIENTS in levels:
             return RESTART_CLIENTS
         return RESTART_DAEMON if levels else None
@@ -655,7 +663,7 @@ def restart_advice(level: str | None) -> str:
 
 
 __all__ = [
-    "ConfigEditor", "NOT_EDITABLE", "RESTART_CLIENTS", "RESTART_DAEMON", "SaveResult",
+    "ConfigEditor", "NOT_EDITABLE", "RESTART_CLIENTS", "RESTART_DAEMON", "RESTART_NONE", "SaveResult",
     "Setting", "SettingsError", "example_help", "format_value", "parse_value",
     "registry", "restart_advice",
 ]

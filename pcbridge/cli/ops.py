@@ -78,7 +78,39 @@ def status_data() -> dict:
         out["jobs_running"] = [{"id": j["job_id"], "kind": j["kind"], "label": j["label"][:60]} for j in running]
         st = inst.run(["tailscale", "funnel", "status"], timeout=10).stdout if shutil.which("tailscale") else ""
         out["remote_tunnel"] = "open" if f":{cfg.port}" in st else "closed"
+        out["keep_awake"] = keep_awake_state(cfg, out["daemon"])
     return out
+
+
+def keep_awake_state(cfg, daemon: dict | None = None) -> dict:
+    """`[power] keep_awake` as set in the file, plus what the daemon holds.
+
+    The daemon writes what it holds to status.json every few seconds; when it
+    is not running nothing is held.
+    """
+    state: dict = {"enabled": bool(cfg.keep_awake), "held": False}
+    if daemon is not None and daemon.get("reachable") is False:
+        return state
+    try:
+        written = json.loads((Path(cfg.state_dir) / "status.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return state
+    held = written.get("keep_awake") if written.get("daemon") == "running" else None
+    if isinstance(held, dict):
+        state.update({k: v for k, v in held.items() if k != "enabled"})
+    return state
+
+
+def describe_keep_awake(state: dict) -> tuple[bool, str]:
+    """(fine, text) for `pcbridge status` and the terminal UI."""
+    if not state.get("enabled"):
+        return True, "off (`pcbridge keep-awake on` to stop idle suspend while jobs run)"
+    if state.get("held"):
+        return True, (f"on, holding a {state.get('method')} {state.get('what')} inhibitor"
+                      f" ({state.get('reason')})")
+    if state.get("error"):
+        return False, f"on, but the last attempt to hold an inhibitor failed: {state['error']}"
+    return True, "on, nothing held (no job running)"
 
 
 def status(argv: list[str]) -> int:
@@ -102,7 +134,51 @@ def status(argv: list[str]) -> int:
         for j in out["jobs_running"]:
             inst.say(f"          {j['id']}  {j['kind']}  {j['label']}")
         inst.ok(f"remote tunnel: {out['remote_tunnel']}")
+        fine, text = describe_keep_awake(out["keep_awake"])
+        (inst.ok if fine else inst.warn)(f"keep awake: {text}")
     return 0
+
+
+def keep_awake(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(
+        prog="pcbridge keep-awake",
+        description="Keep the machine from suspending on idle while jobs run "
+                    "([power] keep_awake; off by default). Alone: show the state.",
+    )
+    p.add_argument("state", nargs="?", choices=("on", "off", "status"), default="status")
+    p.add_argument("--json", action="store_true")
+    args = p.parse_args(argv)
+    if args.state != "status":
+        from .. import settings as S
+
+        want = args.state == "on"
+        try:
+            ed = S.ConfigEditor()
+            if ed.value("power.keep_awake") is want:
+                inst.ok(f"keep awake is already {args.state}")
+                return 0
+            ed.set("power.keep_awake", want)
+            result = ed.save()
+        except S.SettingsError as exc:
+            inst.fail(str(exc))
+            return 1
+        inst.ok(f"power.keep_awake = {'true' if want else 'false'}")
+        if result.backup:
+            inst.say(f"          backup: {result.backup}")
+        inst.say("          The running daemon applies it within a few seconds; no restart.")
+        return 0
+    try:
+        cfg = _load_cfg()
+    except SystemExit as exc:
+        inst.fail(str(exc))
+        return 1
+    state = keep_awake_state(cfg)
+    if args.json:
+        print(json.dumps(state, indent=2))
+        return 0
+    fine, text = describe_keep_awake(state)
+    (inst.ok if fine else inst.warn)(f"keep awake: {text}")
+    return 0 if fine else 1
 
 
 # ---------------------------------------------------------------------------

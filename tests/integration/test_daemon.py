@@ -264,6 +264,78 @@ class DaemonIntegrationTests(unittest.TestCase):
         self._stop_daemon()
         read_until(lambda d: d["daemon"] == "stopped" and d["pid"] == 0)
 
+    def test_keep_awake_follows_the_setting_and_the_jobs(self) -> None:
+        # A stub systemd-inhibit records how it was called and holds like the
+        # real one: it runs `cat` on the daemon's pipe.
+        bin_dir = self.tmp / "bin"
+        bin_dir.mkdir()
+        calls = self.tmp / "inhibit.log"
+        stub = bin_dir / "systemd-inhibit"
+        stub.write_text(f'#!/bin/sh\necho "$$ $*" >> "{calls}"\nexec cat\n')
+        stub.chmod(0o755)
+        self.env["PATH"] = f"{bin_dir}:{self.env.get('PATH', '/usr/bin:/bin')}"
+        self.env["XDG_CURRENT_DESKTOP"] = "Hyprland"
+        self.env.pop("HYPRLAND_INSTANCE_SIGNATURE", None)
+        self.env["PCBRIDGE_STATUS_POLL_S"] = "0.2"
+        self.env["PCBRIDGE_POWER_POLL_S"] = "0.2"
+        self._start_daemon()
+        status = self.tmp / "state" / "status.json"
+
+        def read_until(pred, timeout=10.0):
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                try:
+                    data = json.loads(status.read_text())
+                    if pred(data):
+                        return data
+                except (OSError, ValueError):
+                    pass
+                time.sleep(0.05)
+            raise AssertionError(status.read_text() if status.exists() else "no status.json")
+
+        def holder() -> int:
+            return int(calls.read_text().splitlines()[-1].split()[0])
+
+        def gone(pid: int, timeout: float = 5.0) -> bool:
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    return True
+                time.sleep(0.05)
+            return False
+
+        c = self._client()
+        work = str(self.tmp / "work")
+        # Off (the default): a running job takes nothing.
+        c.tool("shell_run_background", {"command": "sleep 3", "workdir": work})
+        read_until(lambda d: d["jobs_running"] == 1)
+        time.sleep(0.8)
+        self.assertFalse(calls.exists(), "an inhibitor was taken while keep_awake is off")
+        self.assertEqual(json.loads(status.read_text())["keep_awake"]["held"], False)
+
+        # On, in the file, with the daemon running: held within a poll.
+        self.cfg.write_text(self.cfg.read_text() + "\n[power]\nkeep_awake = true\n")
+        data = read_until(lambda d: d["keep_awake"].get("held") is True)
+        self.assertEqual((data["keep_awake"]["method"], data["keep_awake"]["what"]), ("logind", "idle"))
+        self.assertIn("--what=idle --mode=block --who=pcbridge", calls.read_text())
+        first = holder()
+
+        # The last job ends: released, and the holder is gone.
+        read_until(lambda d: d["jobs_running"] == 0 and d["keep_awake"]["held"] is False)
+        self.assertTrue(gone(first), "the inhibitor outlived the last job")
+
+        # Held again for a new job; then the daemon is killed outright.
+        c.tool("shell_run_background", {"command": "sleep 20", "workdir": work})
+        read_until(lambda d: d["keep_awake"].get("held") is True)
+        second = holder()
+        self.assertNotEqual(first, second)
+        assert self.daemon is not None
+        self.daemon.kill()
+        self.daemon.wait()
+        self.assertTrue(gone(second), "the inhibitor outlived a killed daemon")
+
     def test_an_update_during_a_job_waits_until_idle(self) -> None:
         stamp = self.tmp / "data" / "pcbridge" / "version-stamp"
         stamp.parent.mkdir(parents=True)

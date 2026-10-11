@@ -295,6 +295,10 @@ class Config:
     # desktop tools plus job and status tools. Applied at startup only:
     # clients cache the tool list, so nothing is hidden at runtime.
     tools_profile: str = "full"
+    # [power] keep_awake: hold a sleep inhibitor while a job runs. Off by
+    # default. The daemon re-reads it from the file while it runs
+    # (`read_keep_awake`), so it needs no restart.
+    keep_awake: bool = False
     source_path: Path | None = None
     # Where the file was found: "explicit" (-c), "env" ($PCBRIDGE_CONFIG),
     # "xdg" (~/.config/pcbridge) or "legacy" (<repo>/config.toml).
@@ -410,7 +414,7 @@ def find_config(explicit: str | None = None) -> Path:
 _TOP_KEYS = {
     "config_version", "public_url", "host", "port", "mcp_path", "default_agent",
     "inline_images", "auth", "paths", "limits", "server", "native", "desktop",
-    "agents", "tools",
+    "agents", "tools", "power",
 }
 _SECTION_KEYS: dict[str, set[str]] = {
     "auth": {
@@ -422,6 +426,7 @@ _SECTION_KEYS: dict[str, set[str]] = {
     "server": {"inline_images"},
     "native": {"capture", "input", "accessibility", "binary_path"},
     "tools": {"profile"},
+    "power": {"keep_awake"},
 }
 _HINTS = {
     ("limits", "default_agent"): "`default_agent` belongs at the top of the file, before any [section]",
@@ -744,6 +749,30 @@ def _tools_profile(raw: dict[str, Any], path: Path) -> str:
             f"{', '.join(TOOL_PROFILES)}. Use \"full\" for every tool."
         )
     return value
+
+
+def _keep_awake(raw: dict[str, Any], path: Path | str) -> bool:
+    power = raw.get("power") or {}
+    value = power.get("keep_awake", False) if isinstance(power, dict) else False
+    if not isinstance(value, bool):
+        raise SystemExit(
+            f"[power] ({path}): `keep_awake = {value!r}` must be true or false."
+        )
+    return value
+
+
+def read_keep_awake(path: Path | str) -> bool | None:
+    """`[power] keep_awake` from the file as it is now, for the running daemon.
+
+    None when the file cannot be read or the value is invalid: the caller
+    keeps what it had rather than guessing.
+    """
+    try:
+        with open(path, "rb") as fh:
+            raw = tomllib.load(fh)
+        return _keep_awake(raw, path)
+    except (OSError, tomllib.TOMLDecodeError, SystemExit):
+        return None
 
 
 def _ensure_writable_state(state_dir: Path) -> None:
@@ -1087,6 +1116,7 @@ def _load_config(explicit: str | None = None, *, check_state: bool = True) -> Co
         max_sync_timeout=int(limits.get("max_sync_timeout", 120)),
         audit_max_bytes=int(limits.get("audit_max_bytes", 5_000_000)),
         tools_profile=_tools_profile(raw, path),
+        keep_awake=_keep_awake(raw, path),
         inline_images=inline_images,
         agents=agents,
         default_agent=default_agent,

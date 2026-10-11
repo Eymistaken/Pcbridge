@@ -166,6 +166,26 @@ class Doctor:
             except OSError as exc:
                 self.add(g, "http", "warn", f"{url}: {exc}", "systemctl --user start pcbridge.service")
 
+    def power(self) -> None:
+        g = "power"
+        if self.cfg is None:
+            return
+        if not self.cfg.keep_awake:
+            self.add(g, "keep awake", "info",
+                     "off ([power] keep_awake = false): the machine may suspend on idle during jobs")
+            return
+        from .. import power as powerlib
+        from .ops import describe_keep_awake, keep_awake_state
+
+        works, detail = powerlib.probe()
+        self.add(g, "keep awake", "ok" if works else "fail",
+                 f"on; this desktop takes a {detail}" if works else f"on, but {detail}",
+                 "" if works else "install polkit (logind) or the desktop's session tools, "
+                                  "or turn it off: pcbridge keep-awake off")
+        fine, text = describe_keep_awake(keep_awake_state(self.cfg))
+        if not fine:
+            self.add(g, "keep awake now", "warn", text)
+
     def clients(self) -> None:
         g = "clients"
         want = inst.client_command()
@@ -411,7 +431,7 @@ class Doctor:
                      f"move finished jobs you no longer need to the trash: gio trash {jobs}/<job-id>" if big else "")
 
     def run_all(self) -> list[Check]:
-        for step in (self.install, self.config, self.daemon, self.clients, self.readiness,
+        for step in (self.install, self.config, self.daemon, self.power, self.clients, self.readiness,
                      self.agents, self.desktop, self.native, self.remote, self.logs):
             try:
                 step()

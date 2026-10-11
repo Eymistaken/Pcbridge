@@ -95,6 +95,19 @@ max_sync_timeout = 120
 audit_max_bytes = 5000000
 
 
+[power]
+# Keep the machine from suspending on idle while at least one job
+# (agent_run, shell_run_background) is running; it may suspend again once
+# the last job ends. Off by default. The running daemon picks a change up
+# within seconds, no restart needed. GNOME: a gnome-session suspend
+# inhibitor (closing the lid then locks instead of suspending). KDE Plasma:
+# PowerDevil through kde-inhibit, or a logind sleep inhibitor without it.
+# Hyprland and others: a logind idle inhibitor, which also pauses hypridle's
+# lock rule unless that rule sets ignore_inhibit. The screen still locks on
+# GNOME and Plasma. logind inhibitors need polkit.
+keep_awake = false
+
+
 # ---------------------------------------------------------------------------
 # NATIVE DESKTOP HELPER
 #

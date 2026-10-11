@@ -58,6 +58,7 @@ STAMP_POLL_S = float(os.environ.get("PCBRIDGE_STAMP_POLL_S") or 5.0)
 STATUS_FILE = "status.json"
 STATUS_POLL_S = float(os.environ.get("PCBRIDGE_STATUS_POLL_S") or 5.0)
 STATUS_SCHEMA = 1
+POWER_POLL_S = float(os.environ.get("PCBRIDGE_POWER_POLL_S") or 5.0)
 THREAD_LIMIT = 128
 MAX_LINE = 64 * 1024 * 1024
 
@@ -184,6 +185,10 @@ class Daemon:
         self.counter = 0
         self.state = DaemonState()
         self._last_status: dict[str, Any] | None = None
+        from .power import KeepAwake
+
+        self.keep_awake = KeepAwake()
+        self._keep_awake_on = bool(getattr(cfg, "keep_awake", False))
 
     # -- session -----------------------------------------------------------
     async def handle(self, stream: SocketStream) -> None:
@@ -363,6 +368,8 @@ class Daemon:
             "jobs_running": jobs,
             "remote": remote,
             "cli": cli,
+            "keep_awake": self.keep_awake.status() if running else {
+                "enabled": self._keep_awake_on, "held": False},
         }
 
     def write_status(self, cfg: Any, running: bool = True) -> bool:
@@ -386,6 +393,29 @@ class Daemon:
         while True:
             await anyio.to_thread.run_sync(self.write_status, cfg)
             await anyio.sleep(STATUS_POLL_S)
+
+    # -- keep the machine awake while jobs run ------------------------------
+    def update_keep_awake(self) -> None:
+        """Read `[power] keep_awake` from the file and apply it to the jobs now."""
+        path = getattr(self.cfg, "source_path", None)
+        if path is not None:
+            from .config import read_keep_awake
+
+            value = read_keep_awake(path)
+            if value is not None:
+                self._keep_awake_on = value
+        jobs = 0
+        if self._keep_awake_on and self.jm is not None:
+            try:
+                jobs = len(self.jm.list_jobs(limit=200, only_running=True))
+            except Exception:  # noqa: BLE001
+                jobs = 0
+        self.keep_awake.update(self._keep_awake_on, jobs)
+
+    async def watch_keep_awake(self) -> None:
+        while True:
+            await anyio.to_thread.run_sync(self.update_keep_awake)
+            await anyio.sleep(POWER_POLL_S)
 
     async def watch_stamp(self, done: anyio.Event) -> None:
         path = pathslib.data_home() / "version-stamp"
@@ -508,6 +538,7 @@ async def _serve(args: argparse.Namespace, bind_socket: bool) -> int:
                 if listener is not None:
                     tg.start_soon(local)
                 tg.start_soon(daemon.watch_stamp, restart)
+                tg.start_soon(daemon.watch_keep_awake)
                 tg.start_soon(daemon.watch_status, cfg)
                 watcher = idle_watch_binary(cfg)
                 if watcher is not None:
@@ -520,6 +551,7 @@ async def _serve(args: argparse.Namespace, bind_socket: bool) -> int:
             code = RESTART_EXIT_CODE
     finally:
         STATE = None
+        daemon.keep_awake.close()
         daemon.write_status(cfg, running=False)
         if daemon.state.socket_source == "bound" and daemon.state.socket_path:
             try:

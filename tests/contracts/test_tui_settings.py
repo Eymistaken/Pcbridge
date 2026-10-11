@@ -252,6 +252,27 @@ class SettingsTabTests(unittest.TestCase):
 
         self.run_app(body)
 
+    def test_keep_awake_is_a_switch_that_applies_without_a_restart(self) -> None:
+        async def body(app, pilot):
+            sections = app.query_one("#settings-sections", OptionList)
+            titles = [str(sections.get_option_at_index(i).prompt) for i in range(sections.option_count)]
+            self.assertIn("Power", titles)
+            await self.select(app, pilot, "power.keep_awake")
+            self.assertIn("applies at once, no restart", str(app.query_one("#editor-meta").render()))
+            switch = app.query_one(".edit-switch", Switch)
+            self.assertFalse(switch.value)                        # off by default
+            await pilot.click(".edit-switch")
+            await pilot.pause()
+            await pilot.click("#settings-save")
+            await settle(app, pilot)
+            if isinstance(app.screen, Confirm):
+                await pilot.click("#confirm-yes")
+                await settle(app, pilot)
+            self.assertIs(tomllib.loads(self.path.read_text())["power"]["keep_awake"], True)
+            self.assertFalse(app.query_one("#settings-restart").display)
+
+        self.run_app(body)
+
     def test_a_bad_number_is_refused_in_place(self) -> None:
         async def body(app, pilot):
             await self.select(app, pilot, "desktop.pointer_speed")

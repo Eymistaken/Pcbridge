@@ -418,6 +418,10 @@ class PcbridgeApp(App):
             for j in jobs[:10]:
                 lines.append(_row("", f"{j['id']}  {j['kind']}  {j['label']}"))
             lines.append(_row("Remote tunnel", str(info.get("remote_tunnel", "unknown"))))
+            if "keep_awake" in info:
+                from ..cli.ops import describe_keep_awake
+
+                lines.append(_row("Keep awake", describe_keep_awake(info["keep_awake"])[1]))
             if "tools_offered" in info:
                 profile, offered, total = info["tools_offered"]
                 lines.append(_row("Tools profile", f"{profile}: {offered} of {total} tools offered"))

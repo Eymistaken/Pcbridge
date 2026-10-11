@@ -17,9 +17,10 @@ measured facts are updated before the next stage starts. Change the order
 here, not by moving sections.
 
 1. **Quick wins.** ~~`fs_read` detects a binary file and refuses it (the
-   minimal part of *Binary file transfer*)~~ (done, Unreleased); *Keep the
-   machine awake while work is running*. Small, and they stop silent
-   corruption and frozen jobs.
+   minimal part of *Binary file transfer*)~~ (done, Unreleased); ~~*Keep the
+   machine awake while work is running*~~ (done, Unreleased, except the
+   optional tunnel part). Small, and they stop silent corruption and frozen
+   jobs.
 2. **Remote access safety.** *List and revoke remote clients*; *A separate
    tool profile for remote access*. Before the browser: browser tools work
    without the desktop grant, so remote clients gain power, and
@@ -202,16 +203,16 @@ at the machine* checks, batched for a session at the machine.
 
 ## Optional: availability
 
-- **Keep the machine awake while work is running.** pcbridge takes no
-  logind inhibitor: if the machine suspends during a long `agent_run` or
-  `shell_run_background` job, the job freezes and the Funnel endpoint
-  becomes unreachable, which undercuts "safe enough to leave on". Hold a
-  `sleep:idle` inhibitor (logind / `systemd-inhibit`) while at least one job
-  is running and release it when the last one ends; optionally also while
-  the remote tunnel is open, behind a setting. `pcbridge status` and the
-  terminal UI should show when an inhibitor is held and why. Done when the
-  machine does not suspend on idle during a running job, suspends normally
-  once the jobs end, and the inhibitor never outlives the daemon.
+- **Keep the machine awake while work is running.** Done (Unreleased):
+  `[power] keep_awake`, off by default. The terminal UI and `pcbridge
+  keep-awake` switch it. While a job runs it holds the inhibitor each
+  desktop honors (see measured facts) and releases it after the last job.
+  It never outlives the daemon. Left: optionally also hold it while the
+  remote tunnel is open, behind its own setting. That needs a reliable
+  tunnel state in the daemon, which `status.json` currently learns from
+  `tailscale funnel status` every 5 s. Also left: check Sleep chosen on
+  purpose and the lock on GNOME, and Plasma and Hyprland on physical
+  hardware (see *needs a person at the machine*).
 
 ## Optional: installation
 
@@ -340,6 +341,12 @@ at the machine* checks, batched for a session at the machine.
   `pcbridge doctor` reports the current extension and a `computer_batch`
   with a click succeeds while a window AT-SPI cannot see (a native Wayland
   game) is in front.
+- **Keep awake on real hardware.** Measured in VMs only, and this machine
+  has suspend turned off. Check these on a laptop or desktop with idle
+  suspend on: GNOME still locks while a job runs, Sleep chosen from the menu
+  still suspends, and closing the lid locks (GNOME's rule with a suspend
+  inhibitor). Do the same on physical Plasma and Hyprland. Done when each
+  case is recorded in measured facts.
 - **OCR on this machine.** `find_text` / `wait_for_text` need
   `sudo apt install tesseract-ocr` (plus `tesseract-ocr-tur` for Turkish).
   Measure: finding and clicking a known word in `gnome-text-editor`, a game

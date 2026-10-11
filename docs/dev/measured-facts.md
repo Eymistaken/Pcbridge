@@ -311,6 +311,75 @@ for optional physical-hardware and engineering follow-ups.
   to the daemon through the relay; a client started before the install keeps
   its old process until it restarts.
 
+## Keep awake while jobs run
+
+Measured 2026-10-11 for `[power] keep_awake`. Method: in the two Arch test
+VMs (systemd 261), an idle-suspend timeout of 60 s, one QMP `send-key` to
+start the idle clock, then QMP `query-status` every 5 s; "suspended" is a
+real guest S3. Each desktop slept at 60-65 s with no inhibitor. The checkout's
+daemon ran as a `systemd-run --user` service, like `pcbridge.service`, and a
+job came from `shell_run_background` through `pcbridge stdio`.
+
+- **Each desktop honors a different inhibitor**, so one kind does not cover
+  them all:
+  - **GNOME 50**: `gnome-session-inhibit --inhibit suspend` kept it awake
+    for 150 s (InhibitedActions = 4). gsd-power reads gnome-session's
+    InhibitedActions, not logind. A logind `sleep:idle` block also kept it
+    awake, but only because systemd 261 refused gsd-power's own suspend
+    (`BlockedByInhibitorLock` in the journal). systemd 255 skips block
+    inhibitors that the caller's own user holds (`ignore_uid` in
+    `manager_is_inhibited`), so on Debian and Ubuntu logind would not stop
+    GNOME.
+  - **gsd-power never suspends a VM on idle** (`gsd_power_is_hardware_a_vm`).
+    The GNOME numbers needed `gnome.is_vm=0` on the kernel command line.
+    `CHASSIS=desktop` in `/etc/machine-info` did not help. After a suspend,
+    gsd-power does not set its timer again until there is input, so every
+    round started with a key press.
+  - **KDE Plasma 6.7.5**: a logind `idle` block kept it awake but also
+    stopped the screen lock. With a 1-minute autolock, LockedHint stayed `no`
+    for 110 s; without the block it was `yes` at 110 s. PowerDevil's
+    PolicyAgent maps `idle` to ChangeScreenSettings and `sleep` to
+    InterruptSession. A logind `sleep` block kept it awake and the screen
+    locked. On systemd 261 that block also refused Sleep chosen on purpose
+    (PowerDevil `suspendToRam`): the screen locked and the machine stayed
+    up. `kde-inhibit --power` kept it awake for 150 s, the screen locked,
+    and `suspendToRam` suspended in 5 s, so pcbridge uses kde-inhibit there.
+  - **kde-inhibit exits 0 and runs its command even when PowerDevil is not
+    there**, with no session bus or under a bare `dbus-run-session`.
+    PowerDevil lists the inhibition as `["Running Script", "cat"]`, but only
+    about 5 s after it is asked (empty at 2 s). pcbridge confirms it after
+    6 s and otherwise falls back to the logind `sleep` block.
+  - **Hyprland 0.56.2 with hypridle 0.1.8**: hypridle reads only logind's
+    `idle` block (`BlockInhibited`). While one is held it skips every timeout
+    rule: the suspend rule, and a stand-in lock rule too. Only a rule with
+    `ignore_inhibit = true` still fired. hypridle picked up an inhibitor taken
+    after it started. Stock Hyprland starts hypridle with no config, so it
+    does nothing until the user configures it.
+- **Without polkit, logind grants no inhibitor to a user**:
+  `Failed to inhibit: Access denied`, measured on the Hyprland VM before
+  polkit was installed. A `systemd-run --user` service outside any session
+  is granted one when polkit is present (polkit uses the user's display
+  session).
+- **End to end, through the daemon**, on GNOME (gnome-session), Plasma
+  (kde-inhibit, confirmed) and Hyprland (logind idle): the machine stayed
+  awake 150 s while the job ran; once the job was cancelled the inhibitor was
+  released within a 2 s poll and the machine slept at 60-65 s. The
+  reference machine (Zorin, GNOME 46, systemd 255) registered the inhibitor
+  as app id `pcbridge` with flags 4 and removed it afterwards. Suspend is
+  turned off there, so it was not let sleep.
+- **The inhibitor dies with the daemon**: it is a child running `cat` on a
+  pipe from the daemon. A SIGKILLed daemon closes the pipe and the holder
+  exits (contract and integration tests).
+- **Not measured**: GNOME's lock while the gnome-session inhibitor is held.
+  The VM's GNOME runs under SDDM and never locks without GDM; the source
+  ties the lock to the IDLE flag, which pcbridge does not set. Also not
+  measured: Sleep chosen on purpose on GNOME with the inhibitor held, lid
+  close (a VM has no lid), and physical hardware for Plasma and Hyprland.
+- **A virtio-gpu hang is not pcbridge**: after many suspend cycles,
+  `kwin_wayland` stuck in D state in `virtio_gpu_queue_fenced_ctrl_buffer`
+  made every suspend fail with "1 tasks refusing to freeze". That held with
+  the daemon stopped too. A VM reset cleared it.
+
 ## GNOME Shell extension
 
 - **GNOME 45+ caches extension ESM modules.** `disable/enable` does not

@@ -153,7 +153,8 @@ also works without it. `pcbridge list` prints them all by group.
 | `pcbridge clients` | Every MCP client and whether it is connected |
 | `pcbridge connect NAME...` / `pcbridge disconnect NAME...` | Let a client use pcbridge, or stop it (backed up; `--dry-run`) |
 | `pcbridge restart [--wait S]` | Restart the daemon to apply settings, only when no job is running and the grant is closed |
-| `pcbridge status` | Daemon, grant, jobs, remote tunnel |
+| `pcbridge status` | Daemon, grant, jobs, remote tunnel, keep awake |
+| `pcbridge keep-awake [on\|off]` | Stop idle suspend while jobs run (`[power] keep_awake`, off by default); alone, what is held now |
 | `pcbridge doctor [--json] [--fix]` | Checks everything, with the fix for each problem |
 | `pcbridge lock` (`bridgekilit`) | The kill switch: close the grant and stop screen sharing, whichever process opened it |
 | `pcbridge unlock --minutes N` | Open the grant from a terminal |

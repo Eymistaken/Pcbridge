@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Added
+
+- **Keep the machine awake while jobs run.** With `[power] keep_awake`
+  on, the daemon holds a sleep inhibitor while at least one job is running
+  and releases it when the last job ends. This stops idle suspend from
+  freezing a long `agent_run` or `shell_run_background` job and cutting off
+  the remote endpoint. The setting is off by default. The terminal UI
+  settings, `pcbridge keep-awake on|off` and `pcbridge set` change it, and
+  the running daemon applies the change within seconds without a restart.
+  The inhibitor is the one each desktop honors: a gnome-session suspend
+  inhibitor on GNOME, PowerDevil through `kde-inhibit` on Plasma, and a
+  logind idle inhibitor on Hyprland and other sessions. The screen still
+  locks on GNOME and Plasma, and a suspend chosen on purpose still works.
+  On Hyprland, hypridle skips its lock rule while the inhibitor is held,
+  unless that rule sets `ignore_inhibit`. The inhibitor ends with the
+  daemon, even when the daemon is killed. `pcbridge status`, `pcbridge
+  doctor` and the Overview show what is held and why. They also show when
+  logind refuses the inhibitor, which happens when polkit is missing. This
+  was measured in the Arch VMs on GNOME 50, Plasma 6.7.5 and Hyprland
+  0.56.2 with real suspends. It was not tested on physical Plasma or
+  Hyprland hardware.
+
 ### Fixed
 
 - **`fs_read` refuses binary files.** It used to decode with
@@ -19,7 +41,10 @@
 ### API
 
 - **Tools**: unchanged, 37. `fs_read` refuses binary and non-UTF-8 files.
-- **Config file**: unchanged.
+- **Config file**: new `[power] keep_awake` (default `false`); no
+  migration, a file without it keeps the old behavior.
+- **CLI**: new `pcbridge keep-awake [on|off]`. `status.json` gains a
+  `keep_awake` object, and `pcbridge status --json` gains the same field.
 
 ## 2.5.0 - 2026-09-30
 
