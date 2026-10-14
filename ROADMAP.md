@@ -211,37 +211,46 @@ at the machine* checks, batched for a session at the machine.
   `~/.config/pcbridge/config.toml`, nothing in `pcbridge setup`, `pcbridge
   doctor`, the terminal UI or `docs/install.md` tells them so, and by
   design no command shows the password. Decided with the maintainer
-  (2026-10-14), in the order to build it:
-  1. **The first install asks for it.** `pcbridge setup` on a new config
-     lets the user choose the remote password, or shows the generated one
-     once, together with the remote address. Someone who knows the
-     password from the start rarely needs to see it again.
-  2. **The terminal UI shows it after the login password.** A "Show
-     password" action on the Remote tab asks for the user's own login
-     password, checked through PAM (for example `su -c true "$USER"`), not
-     the sudo password: a user without sudo rights must still see their own
-     password, `NOPASSWD` sudo would skip the question, and sudo's 15-minute
-     cache would skip it again. On Windows, the account password or Windows
-     Hello. The password stays on screen briefly next to the address; an
-     optional copy puts it on the clipboard and clears it after a few
-     seconds. This is a deliberate step, not a wall: `config.toml` is the
-     user's own file and anyone with their shell can read it; the check
-     keeps the password from appearing by accident or while someone
-     watches. It relaxes the "never print secrets" rule for this one
-     action only.
-  3. **Resetting stays an option, never a requirement, behind the same
-     check.** The Remote tab offers a new password next to Show, and it
-     asks for the login password first as well: a reset that anyone at the
-     keyboard can do would let them take over remote access, which defeats
-     the check on Show. `pcbridge set auth.password` (and `--generate`)
-     asks too, so the command line is not a way around the terminal UI;
-     how scripts and the tests set it without a terminal is decided with
-     the work. The offer to revoke the remote clients after a new password
-     already exists. A user who only wants to see the password is never
-     pushed to change it.
+  (2026-10-14): the password is never stored, only its hash, so it cannot
+  be read back from any file or command, and a leaked `config.toml`, backup
+  or report gives nothing away. In the order to build it:
+  1. **Store hashes, not secrets.** `[auth] password` becomes a slow hash
+     (argon2 or scrypt; the consent page only has to verify it). The static
+     token and the access and refresh tokens in `oauth.db` are stored as
+     SHA-256 hashes (they are long and random, so a fast hash is enough):
+     today a copied `oauth.db` hands out live refresh tokens. Existing
+     configs and databases are migrated in place; `pcbridge report` has
+     nothing left to redact.
+  2. **No password until remote access is wanted.** Local clients on the
+     socket never use it, so someone who only uses pcbridge as a local MCP
+     server never meets it. Setup stops generating one silently; the first
+     `pcbridge remote start`, the Remote tab, or an optional step at the
+     end of `pcbridge setup` asks for it, and the tunnel does not open
+     without one.
+  3. **Choose or generate, shown once, with no time limit.** The user types
+     a password or lets pcbridge generate one; the default generator makes
+     a word passphrase (for example `table-cloud-pencil-sea-seven`), as
+     strong as a random string but easy to type on a phone. The screen says
+     plainly that this is the only time it is shown and that it cannot be
+     recovered, only replaced. It stays next to the remote address until
+     the user confirms they saved it, with no timer, so there is time for a
+     screenshot or a password manager; an optional copy puts it on the
+     clipboard. Setup and `docs/install.md` say this too.
+  4. **Replacing it needs the login password.** Forgotten or leaked, it is
+     replaced, never shown: the Remote tab and `pcbridge set auth.password`
+     (and `--generate`) first ask for the user's own login password,
+     checked through PAM (for example `su -c true "$USER"`), not the sudo
+     password: a user without sudo rights must still manage their own
+     remote access, `NOPASSWD` sudo would skip the question, and sudo's
+     15-minute cache would skip it again. On Windows, the account password
+     or Windows Hello. A replacement that anyone at the keyboard could do
+     would hand them remote access. The existing offer to revoke the remote
+     clients follows. How scripts and the tests set the password without a
+     terminal is decided with the work.
   Done when someone who installed from a release can connect a remote
-  client without reading a file by hand, and the password is never shown
-  or replaced without the login-password check.
+  client without reading a file by hand, no file pcbridge writes contains
+  the password or a usable token, and the password is never replaced
+  without the login-password check.
 - **Push notification when a job ends.** A remote client has to poll
   `job_status` to learn that a long job finished. An optional notifier (for
   example ntfy) could send the job id, status and a one-line summary to the
