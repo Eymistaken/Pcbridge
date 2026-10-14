@@ -77,6 +77,58 @@ def section(title: str) -> None:
     print(f"\n\033[1m{title}\033[0m")
 
 
+# Every OAuth client this run registered on the daemon. Only these are revoked
+# at the end: the test must never touch a client someone else registered
+# (ChatGPT, Gemini, a phone). Before this, every run left two or three
+# registrations with 90-day refresh tokens in the live `oauth.db`.
+REGISTERED: list[str] = []
+
+
+def _register(c: httpx.Client, body: dict) -> httpx.Response:
+    """POST /register and remember the client id for `_revoke_registered()`."""
+    r = c.post(f"{BASE}/register", json=body)
+    if r.status_code in (200, 201):
+        try:
+            client_id = r.json().get("client_id")
+        except ValueError:
+            client_id = None
+        if client_id:
+            REGISTERED.append(client_id)
+    return r
+
+
+def _revoke_registered() -> None:
+    """Revoke exactly the clients in REGISTERED, with their tokens.
+
+    Ids missing from the local database are left alone and reported: then
+    PCBRIDGE_TEST_BASE points at a daemon that uses another config.
+    """
+    if not REGISTERED:
+        skip("test OAuth clients revoked", "this run registered none")
+        return
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+    try:
+        from pcbridge import remoteclients  # noqa: PLC0415
+        from pcbridge.config import load_config as _load  # noqa: PLC0415
+
+        cfg = _load()
+        present = {r.client_id for r in remoteclients.registrations(cfg.db_path)}
+        mine = list(dict.fromkeys(REGISTERED))
+        ids = [i for i in mine if i in present]
+        missing = len(mine) - len(ids)
+        res = remoteclients.revoke(cfg.db_path, ids, cfg.audit_log)
+    except Exception as e:  # noqa: BLE001 -- cleanup must not hide the run's result
+        check("test OAuth clients revoked", False, f"{type(e).__name__}: {e}")
+        return
+    check(
+        f"revoked the {len(mine)} OAuth clients this run registered",
+        missing == 0 and res.registrations == len(ids),
+        f"{missing} not found in {cfg.db_path}; does {BASE} use this config?"
+        if missing else f"{res.registrations} of {len(ids)} deleted",
+    )
+    REGISTERED.clear()
+
+
 def _stdio_session(timeout: float = 45.0):
     """stdio sunucusunu baslat, initialize et, (gonder, oku, kapat) ver.
 
@@ -221,7 +273,7 @@ def _test_inline_setting() -> None:
         skip("inline_images kapali", f"deger: {cfg.inline_images}")
 
 
-def main() -> int:
+def _main() -> int:
     # trust_env=False: ortamdaki HTTP(S)_PROXY ayarlari yerel testi bozmasin
     c = httpx.Client(follow_redirects=False, timeout=30, trust_env=False)
 
@@ -280,9 +332,9 @@ def main() -> int:
 
     # ------------------------------------------------------------------ DCR
     section("3. Dynamic Client Registration")
-    r = c.post(
-        f"{BASE}/register",
-        json={
+    r = _register(
+        c,
+        {
             "client_name": "Gemini Spark (test)",
             "redirect_uris": [REDIRECT],
             "grant_types": ["authorization_code", "refresh_token"],
@@ -1031,9 +1083,9 @@ def main() -> int:
     # gonderiyor. MCP SDK'si onu form gövdesinde arıyor; BasicAuthFormShim
     # aradaki farki kapatiyor. Bu bolum o koprunun bozulmadigini dogrular.
     def basic_flow(auth_method: str):
-        reg_ = c.post(
-            f"{BASE}/register",
-            json={
+        reg_ = _register(
+            c,
+            {
                 "client_name": "Google",
                 "redirect_uris": [REDIRECT],
                 "grant_types": ["authorization_code", "refresh_token"],
@@ -1120,12 +1172,23 @@ def main() -> int:
 
     section("19. inline_images (faz H)")
     _test_inline_setting()
+    return 0
+
+
+def main() -> int:
+    try:
+        rc = _main()
+    finally:
+        # Also after an early return or an exception: a failed run must not
+        # leave its clients behind either.
+        section("20. Cleanup: revoke the OAuth clients this run registered")
+        _revoke_registered()
 
     tail = f", {skip_count} atlandi" if skip_count else ""
     print(f"\n\033[1mSonuc: {ok_count} basarili, {fail_count} basarisiz{tail}\033[0m")
     if skip_count:
         print("  Atlananlarin kapsami: ./.venv/bin/python tests/test_models.py")
-    return 1 if fail_count else 0
+    return 1 if rc or fail_count else 0
 
 
 if __name__ == "__main__":

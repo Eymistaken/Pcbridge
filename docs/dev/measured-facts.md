@@ -131,8 +131,9 @@ not the installed one.
 - **What the live database held.** On 2026-10-14 the maintainer's
   `oauth.db` had 298 registrations: 200 named "Google", 97 "Gemini Spark
   (test)" and 1 "ChatGPT", 190 of them with an unexpired token (refresh
-  tokens live 90 days). Nearly all come from `tests/test_e2e.py`, which
-  registers clients on the live daemon and never revokes them. That is
+  tokens live 90 days). Nearly all came from `tests/test_e2e.py`, which
+  registered clients on the live daemon and never revoked them (it now
+  revokes its own when it ends). That is
   why `pcbridge remote clients` groups by app name and hides names whose
   every token has expired.
 

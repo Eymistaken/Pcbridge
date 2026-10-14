@@ -184,10 +184,16 @@ at the machine* checks, batched for a session at the machine.
   Remote tab does the same. A new password does not end existing sessions
   (measured), so changing it offers to revoke everything. Left: check it
   once through the real tunnel with a real app (ChatGPT or Gemini) after
-  the next install; the tests used a throwaway daemon on localhost. Also
-  left: `tests/test_e2e.py` registers OAuth clients on the live daemon and
-  never revokes them (298 registrations on 2026-10-14); it should revoke the
-  ones it made when it ends.
+  the next install; the tests used a throwaway daemon on localhost.
+  `tests/test_e2e.py` now revokes the OAuth clients it registered when it
+  ends, failed runs included, and only those (checked against a throwaway
+  daemon). The ones earlier runs left in the live `oauth.db` (298
+  registrations on 2026-10-14, mostly "Google" and "Gemini Spark (test)")
+  were cleared the same day: 281 registrations with the test's redirect
+  URI were revoked, 18 remain (16 real Google, ChatGPT, one tokenless
+  test entry), and the old file is kept as `oauth.db.bak-2026-10-14`. The
+  test registers as "Google", the name Google's real clients use, so
+  revoking that name by hand would also sign out a real Gemini.
 - **A separate tool profile for remote access.** Done (Unreleased):
   `[tools] remote_profile` (default `same`, following `profile`) decides
   what every HTTP client gets, the static token included; a new `readonly`
