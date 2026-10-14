@@ -229,13 +229,19 @@ at the machine* checks, batched for a session at the machine.
      keeps the password from appearing by accident or while someone
      watches. It relaxes the "never print secrets" rule for this one
      action only.
-  3. **Resetting stays an option, never a requirement.** The Remote tab
-     offers a new password next to Show (`pcbridge set auth.password` and
-     its offer to revoke the remote clients already exist); a user who
-     only wants to see the password is never pushed to change it.
+  3. **Resetting stays an option, never a requirement, behind the same
+     check.** The Remote tab offers a new password next to Show, and it
+     asks for the login password first as well: a reset that anyone at the
+     keyboard can do would let them take over remote access, which defeats
+     the check on Show. `pcbridge set auth.password` (and `--generate`)
+     asks too, so the command line is not a way around the terminal UI;
+     how scripts and the tests set it without a terminal is decided with
+     the work. The offer to revoke the remote clients after a new password
+     already exists. A user who only wants to see the password is never
+     pushed to change it.
   Done when someone who installed from a release can connect a remote
   client without reading a file by hand, and the password is never shown
-  without the login-password check.
+  or replaced without the login-password check.
 - **Push notification when a job ends.** A remote client has to poll
   `job_status` to learn that a long job finished. An optional notifier (for
   example ntfy) could send the job id, status and a one-line summary to the
