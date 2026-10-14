@@ -223,10 +223,12 @@ at the machine* checks, batched for a session at the machine.
      nothing left to redact.
   2. **No password until remote access is wanted.** Local clients on the
      socket never use it, so someone who only uses pcbridge as a local MCP
-     server never meets it. Setup stops generating one silently; the first
-     `pcbridge remote start`, the Remote tab, or an optional step at the
-     end of `pcbridge setup` asks for it, and the tunnel does not open
-     without one.
+     server never meets it. Setup stops generating one silently. Remote
+     access stays off until a password exists; whenever the user wants it,
+     now or months later, `pcbridge remote start`, the Remote tab ("Turn on
+     remote access"), an optional step at the end of `pcbridge setup`, or
+     `pcbridge set auth.password` creates one, and the tunnel does not open
+     without it.
   3. **Choose or generate, shown once, with no time limit.** The user types
      a password or lets pcbridge generate one; the default generator makes
      a word passphrase (for example `table-cloud-pencil-sea-seven`), as
@@ -236,21 +238,23 @@ at the machine* checks, batched for a session at the machine.
      the user confirms they saved it, with no timer, so there is time for a
      screenshot or a password manager; an optional copy puts it on the
      clipboard. Setup and `docs/install.md` say this too.
-  4. **Replacing it needs the login password.** Forgotten or leaked, it is
-     replaced, never shown: the Remote tab and `pcbridge set auth.password`
-     (and `--generate`) first ask for the user's own login password,
+  4. **Creating or replacing it needs the login password.** Forgotten or
+     leaked, it is replaced, never shown. Creating the first one and
+     replacing it both ask first for the user's own login password, in
+     every path above (the Remote tab, `pcbridge remote start`, setup and
+     `pcbridge set auth.password`, `--generate` included),
      checked through PAM (for example `su -c true "$USER"`), not the sudo
      password: a user without sudo rights must still manage their own
      remote access, `NOPASSWD` sudo would skip the question, and sudo's
      15-minute cache would skip it again. On Windows, the account password
-     or Windows Hello. A replacement that anyone at the keyboard could do
-     would hand them remote access. The existing offer to revoke the remote
+     or Windows Hello. A password that anyone at the keyboard could create
+     or replace would hand them remote access. The existing offer to revoke the remote
      clients follows. How scripts and the tests set the password without a
      terminal is decided with the work.
   Done when someone who installed from a release can connect a remote
   client without reading a file by hand, no file pcbridge writes contains
-  the password or a usable token, and the password is never replaced
-  without the login-password check.
+  the password or a usable token, and the password is never created or
+  replaced without the login-password check.
 - **Push notification when a job ends.** A remote client has to poll
   `job_status` to learn that a long job finished. An optional notifier (for
   example ntfy) could send the job id, status and a one-line summary to the
