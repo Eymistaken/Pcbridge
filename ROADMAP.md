@@ -182,10 +182,15 @@ at the machine* checks, batched for a session at the machine.
   Remote tab does the same. A new password does not end existing sessions
   (measured), so changing it offers to revoke everything. Left: check it
   once through the real tunnel with a real app (ChatGPT or Gemini) after
-  the next install; the tests used a throwaway daemon on localhost. Also
-  left: `tests/test_e2e.py` registers OAuth clients on the live daemon and
-  never revokes them (298 registrations on 2026-10-14); it should revoke the
-  ones it made when it ends.
+  the next install; the tests used a throwaway daemon on localhost.
+  `tests/test_e2e.py` now revokes the OAuth clients it registered when it
+  ends, failed runs included, and only those (checked against a throwaway
+  daemon). The ones earlier runs left in the live `oauth.db` (298
+  registrations on 2026-10-14, mostly "Google" and "Gemini Spark (test)")
+  are still there: clear them once with `pcbridge remote revoke` after the
+  next install. The test registers as "Google", the name Google's real
+  clients use, so revoking that name also signs out a real Gemini; it then
+  has to authorize again.
 - **A separate tool profile for remote access.** Done (Unreleased):
   `[tools] remote_profile` (default `same`, following `profile`) decides
   what every HTTP client gets, the static token included; a new `readonly`
