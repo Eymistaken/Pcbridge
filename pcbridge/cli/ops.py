@@ -28,14 +28,6 @@ from .. import paths as pathslib
 from . import connect as connectlib
 from . import install as inst
 
-REQUIRED_COMMANDS = {
-    # command -> what provides it (a logical name in pcbridge.distro)
-    "tmux": "tmux",
-    "wl-copy": "wl-clipboard",
-    "notify-send": "notify-send",
-    "script": "script",
-}
-
 
 def _load_cfg():
     from ..config import load_config
@@ -531,25 +523,6 @@ def _fresh_config(dest: Path) -> None:
         fh.write(text)
 
 
-def _deps_report() -> list[str]:
-    """The logical needs (see `pcbridge.distro`) that are not installed."""
-    missing = [need for cmd, need in REQUIRED_COMMANDS.items() if not shutil.which(cmd)]
-    if session_desktop() == "gnome" and not shutil.which("gnome-screenshot"):
-        missing.append("gnome-screenshot")
-    probe = inst.run(["/usr/bin/python3", "-c", "import gi; gi.require_version('Atspi','2.0'); from gi.repository import Atspi"])
-    if probe.returncode != 0:
-        missing.append("atspi")
-    if not shutil.which("tesseract"):
-        missing.append("tesseract")
-    return missing
-
-
-def session_desktop() -> str:
-    from ..desktop.session import desktop_kind
-
-    return desktop_kind()
-
-
 def _restart_when_idle(cfg, wait_s: float) -> str:
     """Restart pcbridge.service into the daemon, only when nothing is running (I5)."""
     deadline = time.monotonic() + wait_s
@@ -574,9 +547,23 @@ def _restart_when_idle(cfg, wait_s: float) -> str:
     return "restarted, but the daemon does not answer on the socket yet; see `pcbridge logs`"
 
 
+def expected_tools(profile: str) -> int:
+    """How many tools a fresh local client must get with this profile."""
+    from ..tools import tools_in_profile
+
+    return len(tools_in_profile(profile))
+
+
 def setup(argv: list[str]) -> int:
-    p = argparse.ArgumentParser(prog="pcbridge setup", description="Install or update pcbridge for this user.")
-    p.add_argument("--yes", action="store_true", help="Do not ask; take the defaults.")
+    p = argparse.ArgumentParser(
+        prog="pcbridge setup", description="Install or update pcbridge for this user. "
+        "Detects the machine, shows the plan and asks once; run it again after an update.")
+    p.add_argument("--yes", action="store_true", help="Do not ask; take the defaults (installs the packages).")
+    p.add_argument("--optional", metavar="LIST",
+                   help="Optional components to install, comma-separated (ocr), or none. "
+                        "Default: every one the plan ticks.")
+    p.add_argument("--no-packages", action="store_true",
+                   help="Install no system packages; print the command instead.")
     p.add_argument("--from-config", help="Migrate this pre-2.0 config.toml instead of the one found automatically.")
     p.add_argument("--no-connect", action="store_true", help="Do not register MCP clients.")
     p.add_argument("--no-aliases", action="store_true", help="Leave ~/.bashrc alone.")
@@ -584,21 +571,62 @@ def setup(argv: list[str]) -> int:
     p.add_argument("--idle-wait", type=float, default=600, help="Seconds to wait for running jobs before restarting (default 600).")
     args = p.parse_args(argv)
     from .. import config as configlib
+    from .. import platforminfo
+    from .. import settings as settingslib
+    from . import plan as planlib
 
     backup = inst.Backup()
     notes: list[str] = []
     inst.say(f"pcbridge {__version__} setup ({inst.install_kind()} install)\n")
 
-    inst.say("1. System packages")
-    missing = _deps_report()
-    if missing:
-        command = distrolib.install_command(*missing)
-        inst.warn("missing: " + ", ".join(distrolib.packages(*missing)))
+    xdg = pathslib.config_file()
+    found = platforminfo.detect()
+    profile_now = "full"
+    if xdg.exists():
+        try:
+            profile_now = settingslib.ConfigEditor(xdg).value("tools.profile")
+        except settingslib.SettingsError as exc:
+            inst.warn(str(exc))
+    plan = planlib.build(found, profile_now=profile_now,
+                         recorded_profile=planlib.read_state().get("profile"))
+    if args.optional is not None:
+        wanted = {w.strip().lower() for w in args.optional.split(",") if w.strip()}
+        unknown = wanted - {c.key for c in plan.components} - {"none"}
+        if unknown:
+            inst.warn("not offered on this machine: " + ", ".join(sorted(unknown)))
+        for c in plan.components:
+            c.ticked = c.key in wanted
+    planlib.show(plan)
+    install_now = bool(plan.chosen_packages()) and not args.no_packages
+    if args.yes:
+        pass
+    elif planlib.interactive():
+        if not planlib.ask(plan):
+            inst.say("Stopped; nothing was changed.")
+            return 1
+        install_now = bool(plan.chosen_packages()) and not args.no_packages
+    elif install_now:
+        inst.say("Not a terminal and no --yes: the packages are left for you (the command is repeated at the end).")
+        install_now = False
+
+    inst.say("\n1. System packages")
+    chosen = plan.chosen_packages()
+    if not chosen:
+        inst.ok("all present")
+    elif install_now:
+        done, left = planlib.install_packages(plan)
+        if done:
+            inst.ok("installed: " + " ".join(chosen))
+        else:
+            inst.warn("not installed: " + " ".join(chosen))
+            notes.append(left)
+    else:
+        argv_ = plan.install_argv()
+        command = shlex.join(argv_) if argv_ else distrolib.install_command(raw=tuple(chosen), fam=plan.family)
+        inst.warn("missing: " + " ".join(chosen))
         inst.say(f"          install with: {command}")
         notes.append(command)
-    else:
-        inst.ok("all present")
-    if not os.access("/dev/uinput", os.R_OK | os.W_OK):
+    if found.desktop_supported and not os.access("/dev/uinput", os.R_OK | os.W_OK):
         from .doctor import udev_hint
 
         inst.warn("/dev/uinput is not writable: keyboard and pointer control will not work")
@@ -606,7 +634,6 @@ def setup(argv: list[str]) -> int:
         notes.append(udev_hint())
 
     inst.say("\n2. Configuration")
-    xdg = pathslib.config_file()
     if xdg.exists():
         res = configlib.migrate_config(xdg, xdg)
         inst.ok(f"{xdg} " + ("migrated to config_version %d" % res.to_version if res.changed else "is current"))
@@ -621,6 +648,9 @@ def setup(argv: list[str]) -> int:
         else:
             _fresh_config(xdg)
             inst.ok(f"created {xdg} with a new password and token; desktop control is OFF until you enable it there")
+    for line in planlib.apply_settings(plan, xdg):
+        inst.ok(line)
+    settings_changed = plan.profile_target is not None
     cfg = configlib.load_config(str(xdg))
     db = Path(cfg.db_path)
     if db.exists():
@@ -650,7 +680,7 @@ def setup(argv: list[str]) -> int:
         running_daemon = isinstance(reply, dict) and reply.get("version") == __version__
     except pathslib.RuntimeDirError:
         pass
-    if running_daemon and not changed:
+    if running_daemon and not changed and not settings_changed:
         inst.systemctl("enable", *inst.UNIT_NAMES)
         inst.ok("daemon already running this version")
     else:
@@ -662,7 +692,7 @@ def setup(argv: list[str]) -> int:
             inst.warn(msg)
             notes.append("pcbridge update   # finishes the service switch when no job is running")
 
-    setup_desktop(cfg.native, backup, no_extension=args.no_extension)
+    setup_desktop(cfg.native, backup, no_extension=args.no_extension, kind=found.desktop_kind)
 
     if not args.no_connect:
         inst.say("\n6. MCP clients")
@@ -676,20 +706,25 @@ def setup(argv: list[str]) -> int:
     inst.say("\n8. Readiness")
     from .doctor import probe
 
+    want = expected_tools(cfg.tools_profile)
     t0 = time.monotonic()
     n = probe(inst.client_command())
-    if isinstance(n, int) and n >= 37:
-        inst.ok(f"a fresh client got {n} tools in {(time.monotonic() - t0) * 1000:.0f} ms")
+    ready = isinstance(n, int) and n >= want
+    if ready:
+        inst.ok(f"a fresh client got {n} tools (profile \"{cfg.tools_profile}\") in {(time.monotonic() - t0) * 1000:.0f} ms")
     else:
-        inst.fail(f"a fresh client failed: {n}")
+        inst.fail(f"a fresh client failed: {n}" + (f" (expected {want})" if isinstance(n, int) else ""))
     rb = backup.write_rollback(extra=["Commands that still need you:", *[f"    {n}" for n in notes]] if notes else None)
     if rb:
         inst.say(f"\nBackups and undo instructions: {rb}")
+    inst.say("\nSummary")
+    for line in planlib.summary(plan):
+        inst.say(f"  {line}")
     if notes:
         inst.say("\nStill to do by hand:")
         for n_ in notes:
             inst.say(f"  {n_}")
-    return 0 if isinstance(n, int) and n >= 37 else 1
+    return 0 if ready else 1
 
 
 # ---------------------------------------------------------------------------
@@ -762,13 +797,17 @@ def uninstall(argv: list[str]) -> int:
     return 0
 
 
-def setup_desktop(native, backup, *, no_extension: bool = False) -> None:
-    """Install only the integration belonging to the selected desktop."""
+def setup_desktop(native, backup, *, no_extension: bool = False, kind: str | None = None) -> None:
+    """Install only the integration belonging to the selected desktop.
+
+    `kind` comes from the install plan, which also reads the session over
+    SSH; without it, this process's environment decides.
+    """
     if no_extension:
         return
     from ..desktop.session import GNOME, KDE, HYPRLAND, desktop_kind
 
-    kind = desktop_kind()
+    kind = kind or desktop_kind()
     if kind == KDE:
         inst.say("\n5. KDE Plasma")
         for line in inst.install_kde_entries(native):
@@ -782,4 +821,5 @@ def setup_desktop(native, backup, *, no_extension: bool = False) -> None:
         inst.say("\n5. Hyprland")
         setup_notes()
     else:
-        inst.warn("Unknown desktop: desktop integration is unavailable; general CLI tools remain available")
+        inst.say("\n5. Desktop integration")
+        inst.ok("none for this desktop; the terminal, file, tmux and agent tools need none")

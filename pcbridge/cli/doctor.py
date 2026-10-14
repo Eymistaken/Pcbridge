@@ -231,7 +231,10 @@ class Doctor:
         res = probe(inst.client_command())
         ms = (time.monotonic() - t0) * 1000
         if isinstance(res, int):
-            self.add(g, "fresh client", "ok" if res >= 37 else "fail",
+            from .ops import expected_tools
+
+            want = expected_tools(self.cfg.tools_profile if self.cfg is not None else "full")
+            self.add(g, "fresh client", "ok" if res >= want else "fail",
                      f"`{shlex.join(inst.client_command())}` answered tools/list with {res} tools in {ms:.0f} ms")
         else:
             self.add(g, "fresh client", "fail", str(res), "pcbridge logs")
@@ -261,8 +264,16 @@ class Doctor:
 
     def desktop(self) -> None:
         from ..desktop.session import GNOME, KDE, HYPRLAND, desktop_kind
+        from ..platforminfo import detect
 
         g = "desktop"
+        found = detect()
+        self.add(g, "platform", "info", found.found_line().removeprefix("Found: "))
+        if not found.desktop_supported:
+            # Its packages would be installed for tools that refuse here anyway.
+            self.add(g, "desktop control", "info",
+                     f"not available: {found.unsupported_reason()}; the desktop checks are skipped")
+            return
         kind = desktop_kind()
         session = os.environ.get("XDG_SESSION_TYPE", "")
         wayland = bool(os.environ.get("WAYLAND_DISPLAY")) or session == "wayland"
@@ -524,7 +535,9 @@ def main(argv: list[str]) -> int:
     import argparse
 
     p = argparse.ArgumentParser(prog="pcbridge doctor", description="Check that pcbridge is installed and ready.")
-    p.add_argument("--fix", action="store_true", help="Repair what is safe to repair unattended.")
+    p.add_argument("--fix", action="store_true",
+                   help="Repair what is safe to repair unattended, then offer the missing "
+                        "system packages and optional components (asks first; prints every sudo command).")
     p.add_argument("--json", action="store_true", help="Machine-readable output.")
     args = p.parse_args(argv)
     doc = Doctor(fix=args.fix)
@@ -547,4 +560,39 @@ def main(argv: list[str]) -> int:
                 text += f"\n          fix: {c.fix}"
             fn(text)
         inst.say(f"\n{counts['ok']} ok, {counts['warn']} warning(s), {counts['fail']} failure(s)")
+        if args.fix:
+            offer_missing()
     return 1 if counts["fail"] else 0
+
+
+def offer_missing() -> bool:
+    """What `pcbridge setup` would install and is still missing, offered again.
+
+    Asks only on a terminal; otherwise prints the command. True when nothing
+    is left missing.
+    """
+    from .. import platforminfo
+    from . import plan as planlib
+
+    try:
+        from .. import settings as settingslib
+
+        profile = settingslib.ConfigEditor(pathslib.config_file()).value("tools.profile")
+    except Exception:  # noqa: BLE001 - the config group reports it
+        profile = "full"
+    plan = planlib.build(platforminfo.detect(), profile_now=profile,
+                         recorded_profile=planlib.read_state().get("profile"))
+    if not plan.chosen_packages():
+        return True
+    inst.say("\nMissing parts (pcbridge setup would install them):")
+    planlib.show(plan)
+    if not planlib.interactive():
+        argv = plan.install_argv()
+        inst.say("Not a terminal, so nothing was asked; install them with: "
+                 + (shlex.join(argv) if argv else " ".join(plan.chosen_packages())))
+        return False
+    if not planlib.ask(plan) or not plan.chosen_packages():
+        return False
+    done, left = planlib.install_packages(plan)
+    (inst.ok if done else inst.warn)("installed" if done else f"not installed; run: {left}")
+    return done
