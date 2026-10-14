@@ -210,15 +210,32 @@ at the machine* checks, batched for a session at the machine.
   release has the same need but no repository: the file is
   `~/.config/pcbridge/config.toml`, nothing in `pcbridge setup`, `pcbridge
   doctor`, the terminal UI or `docs/install.md` tells them so, and by
-  design no command shows the password. The maintainer's direction: the
-  terminal UI shows it, but only after the user proves they own the
-  machine again, with the sudo password on Linux and the account password
-  once Windows support exists. Showing a secret relaxes the "never print
-  secrets" rule, so the details (where it appears, how long, whether the
-  clipboard is an option) are decided before the work starts. Done when
-  someone who installed from a release can connect a remote client
-  without reading a file by hand, and the password is never shown without
-  that check.
+  design no command shows the password. Decided with the maintainer
+  (2026-10-14), in the order to build it:
+  1. **The first install asks for it.** `pcbridge setup` on a new config
+     lets the user choose the remote password, or shows the generated one
+     once, together with the remote address. Someone who knows the
+     password from the start rarely needs to see it again.
+  2. **The terminal UI shows it after the login password.** A "Show
+     password" action on the Remote tab asks for the user's own login
+     password, checked through PAM (for example `su -c true "$USER"`), not
+     the sudo password: a user without sudo rights must still see their own
+     password, `NOPASSWD` sudo would skip the question, and sudo's 15-minute
+     cache would skip it again. On Windows, the account password or Windows
+     Hello. The password stays on screen briefly next to the address; an
+     optional copy puts it on the clipboard and clears it after a few
+     seconds. This is a deliberate step, not a wall: `config.toml` is the
+     user's own file and anyone with their shell can read it; the check
+     keeps the password from appearing by accident or while someone
+     watches. It relaxes the "never print secrets" rule for this one
+     action only.
+  3. **Resetting stays an option, never a requirement.** The Remote tab
+     offers a new password next to Show (`pcbridge set auth.password` and
+     its offer to revoke the remote clients already exist); a user who
+     only wants to see the password is never pushed to change it.
+  Done when someone who installed from a release can connect a remote
+  client without reading a file by hand, and the password is never shown
+  without the login-password check.
 - **Push notification when a job ends.** A remote client has to poll
   `job_status` to learn that a long job finished. An optional notifier (for
   example ntfy) could send the job id, status and a one-line summary to the
