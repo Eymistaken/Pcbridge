@@ -32,18 +32,22 @@ here, not by moving sections.
    Unreleased). Makes trying new machines (Pardus and the like) cheap, which
    the later desktop work needs for testing. Left: the checks under each
    item below, mostly on real machines.
-4. **File tools.** *Paginated and ranged file reads*, the rest of *Binary
+4. **Connecting remote clients.** *From installed to connected without
+   reading a file*. Before the next release: it makes `install.sh` the
+   recommended path, and someone who installs from a release then has no
+   way to find the password a remote client needs.
+5. **File tools.** *Paginated and ranged file reads*, the rest of *Binary
    file transfer*, *Targeted edits and easier writes*. Together, because
    they share the cursor and conflict design.
-5. **Browser.** In this order: measure *Attaching to the existing session*,
+6. **Browser.** In this order: measure *Attaching to the existing session*,
    then *Browser tools for the user's existing session*, *Show and hide the
    browser window on demand*, *Taking over the agent's browser*.
-6. **More desktops.** *Retire the legacy Python desktop backends* first,
+7. **More desktops.** *Retire the legacy Python desktop backends* first,
    then *X11, starting with Cinnamon and XFCE*, written straight into the
    native helper instead of added to Python and moved later.
-7. **Windows.** After everything above; see *Optional: Windows* for what it
+8. **Windows.** After everything above; see *Optional: Windows* for what it
    involves. Scope to be written before work starts.
-8. **Website.** Last, once the feature set has settled, so the site is not
+9. **Website.** Last, once the feature set has settled, so the site is not
    chasing every new feature; see *Optional: website*. Until then the
    install script is served from a GitHub release URL.
 
@@ -200,6 +204,21 @@ at the machine* checks, batched for a session at the machine.
   profile offers only tools that change nothing. Hidden tools are refused
   by name too, and the refusal is audited. Left: the same real-tunnel check
   as above.
+- **From installed to connected without reading a file.** To connect
+  claude.ai or another remote client, the maintainer opens `config.toml`
+  and copies the password from it. Someone who installed from a GitHub
+  release has the same need but no repository: the file is
+  `~/.config/pcbridge/config.toml`, nothing in `pcbridge setup`, `pcbridge
+  doctor`, the terminal UI or `docs/install.md` tells them so, and by
+  design no command shows the password. The maintainer's direction: the
+  terminal UI shows it, but only after the user proves they own the
+  machine again, with the sudo password on Linux and the account password
+  once Windows support exists. Showing a secret relaxes the "never print
+  secrets" rule, so the details (where it appears, how long, whether the
+  clipboard is an option) are decided before the work starts. Done when
+  someone who installed from a release can connect a remote client
+  without reading a file by hand, and the password is never shown without
+  that check.
 - **Push notification when a job ends.** A remote client has to poll
   `job_status` to learn that a long job finished. An optional notifier (for
   example ntfy) could send the job id, status and a one-line summary to the
