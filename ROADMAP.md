@@ -51,7 +51,8 @@ here, not by moving sections.
    chasing every new feature; see *Optional: website*. Until then the
    install script is served from a GitHub release URL.
 
-Alongside, when there is time: the terminal UI logo, *Push notification
+Alongside, when there is time: the terminal UI logo, *An installer with
+its own terminal UI*, *Push notification
 when a job ends*, the remaining engineering items, and the *needs a person
 at the machine* checks, batched for a session at the machine.
 
@@ -71,6 +72,33 @@ at the machine* checks, batched for a session at the machine.
   Done when resizing cleanly switches between full and icon-only logo modes,
   idle/active/error transitions are reliable, and mouse interaction works
   without changing grant or daemon safety behavior.
+- **An installer with its own terminal UI.** The installer from stage 3
+  works but reads like a log. Measured problems, from the code
+  (2026-10-14):
+  - Choices are typed: `1`/`2`/`3` for the Python, and "a number to tick or
+    untick a component" for the optional parts.
+  - Long silent waits: downloading the wheel, uv fetching Python (about
+    14 s) and `pip -q` show no progress; the Debian VM run took 108 s.
+  - Eight numbered steps of `ok` lines (units, launchers, aliases, a backup
+    path) that mean little to a new user.
+  - No next step at the end: the summary says what works, but not which
+    clients were connected, that typing `pcbridge` opens the terminal UI,
+    or how to turn on desktop control or remote access.
+  - "desktop control is OFF until you enable it there" points at the file.
+  The maintainer wants a dedicated installer UI, separate from the
+  `pcbridge` terminal UI: choices with the arrow keys or the mouse instead
+  of typed numbers, a recommended default marked as such (for example
+  "OCR (Recommended)"), visible progress during downloads and installs, a
+  short and clean final screen that names the connected clients and says
+  to type `pcbridge` to check and change things, and the sudo commands
+  still shown before they run. `--yes` and a run without a terminal keep
+  working without the UI. One design question: the Python choice comes
+  before pcbridge's own Python exists, so either the script gets a small
+  arrow-key prompt of its own, or uv is fetched first and runs the whole
+  installer UI. Not urgent; it should not be squeezed in between the
+  stages. Done when a first install on a supported and an unsupported
+  desktop needs no typed answers, never looks frozen, and ends on a screen
+  that says what to do next.
 
 ## Optional: file tools
 
