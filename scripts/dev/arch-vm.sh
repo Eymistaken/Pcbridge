@@ -4,6 +4,8 @@
 #   scripts/dev/arch-vm.sh create      download + verify the cloud image, make the disk and seed
 #   scripts/dev/arch-vm.sh start       boot headless (VNC on 127.0.0.1:5905, SSH on 127.0.0.1:2222)
 #   scripts/dev/arch-vm.sh provision   install Plasma, GNOME and the build tools; log in to Plasma
+#   scripts/dev/arch-vm.sh fresh       a throwaway disk over arch.qcow2 (start it with PCBRIDGE_VM_DISK)
+#   scripts/dev/arch-vm.sh put FILE..  copy files to the test user's home
 #   scripts/dev/arch-vm.sh sync        copy this checkout (tracked + untracked, not ignored) to ~/pcbridge
 #   scripts/dev/arch-vm.sh ssh [cmd]   a shell (or one command) as the test user
 #   scripts/dev/arch-vm.sh session CMD run CMD inside the graphical session's environment
@@ -21,7 +23,9 @@ set -euo pipefail
 DIR="${PCBRIDGE_DEV_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/pcbridge-dev}"
 IMAGE_URL="https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2"
 BASE="$DIR/Arch-Linux-x86_64-cloudimg.qcow2"
-DISK="$DIR/arch.qcow2"
+PROVISIONED="$DIR/arch.qcow2"
+# A throwaway overlay from `fresh` keeps the provisioned disk unchanged.
+DISK="${PCBRIDGE_VM_DISK:-$PROVISIONED}"
 SEED="$DIR/seed.iso"
 KEY="$DIR/id_ed25519"
 PIDFILE="$DIR/qemu.pid"
@@ -80,8 +84,8 @@ cmd_create() {
     fi
     (cd "$DIR" && sha256sum -c "$(basename "$BASE").SHA256") || die "checksum mismatch"
     [ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N '' -C pcbridge-dev -f "$KEY"
-    if [ ! -f "$DISK" ]; then
-        qemu-img create -q -f qcow2 -b "$BASE" -F qcow2 "$DISK" 40G
+    if [ ! -f "$PROVISIONED" ]; then
+        qemu-img create -q -f qcow2 -b "$BASE" -F qcow2 "$PROVISIONED" 40G
     fi
     local tmp
     tmp="$(mktemp -d)"
@@ -102,7 +106,7 @@ EOF
     printf 'instance-id: pcbridge-arch\nlocal-hostname: pcbridge-arch\n' >"$tmp/meta-data"
     genisoimage -quiet -output "$SEED" -volid cidata -joliet -rock "$tmp/user-data" "$tmp/meta-data"
     rm -r "$tmp"
-    echo "created $DISK"
+    echo "created $PROVISIONED"
 }
 
 cmd_start() {
@@ -146,6 +150,20 @@ cmd_provision() {
     die "no SSH after the reboot"
 }
 
+cmd_fresh() {
+    running && die "stop the VM first"
+    [ -f "$PROVISIONED" ] || die "no provisioned disk; run create and provision first"
+    qemu-img create -q -f qcow2 -b "$PROVISIONED" -F qcow2 "$DIR/test.qcow2"
+    echo "fresh $DIR/test.qcow2; start it with: PCBRIDGE_VM_DISK=$DIR/test.qcow2 $0 start"
+}
+
+cmd_put() {
+    [ "$#" -gt 0 ] || die "put FILE..."
+    scp -i "$KEY" -P "$SSH_PORT" -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile="$DIR/known_hosts" -o LogLevel=ERROR \
+        "$@" "$VM_USER@127.0.0.1:"
+}
+
 cmd_sync() {
     local root
     root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -181,10 +199,12 @@ case "${1:-}" in
     create) cmd_create ;;
     start) cmd_start ;;
     provision) cmd_provision ;;
+    fresh) cmd_fresh ;;
+    put) shift; cmd_put "$@" ;;
     sync) cmd_sync ;;
     ssh) shift; vm_ssh "$@" ;;
     session) shift; vm_ssh "$SESSION_ENV; $*" ;;
     screenshot) shift; cmd_screenshot "$@" ;;
     stop) cmd_stop ;;
-    *) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+    *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

@@ -164,7 +164,8 @@ also works without it. `pcbridge list` prints them all by group.
 | `pcbridge restart [--wait S]` | Restart the daemon to apply settings, only when no job is running and the grant is closed |
 | `pcbridge status` | Daemon, grant, jobs, remote tunnel, keep awake |
 | `pcbridge keep-awake [on\|off]` | Stop idle suspend while jobs run (`[power] keep_awake`, off by default); alone, what is held now |
-| `pcbridge doctor [--json] [--fix]` | Checks everything, with the fix for each problem |
+| `pcbridge doctor [--json] [--fix]` | Checks everything, with the fix for each problem; `--fix` also offers the system packages and optional components setup would install (asks first) |
+| `pcbridge setup [--yes] [--optional ocr\|none] [--no-packages]` | Detect the machine, show the plan, ask once, install or repair; run it again after a system or desktop update |
 | `pcbridge lock` (`bridgekilit`) | The kill switch: close the grant and stop screen sharing, whichever process opened it |
 | `pcbridge unlock --minutes N` | Open the grant from a terminal |
 | `pcbridge remote start/stop/status` (`bridgeac`/`bridgekapat`/`bridgedurum`) | The Tailscale Funnel tunnel |

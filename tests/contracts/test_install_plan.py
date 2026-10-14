@@ -53,9 +53,15 @@ CINNAMON = platform(distro_name="Pardus 25.0", distro_id="pardus", family=distro
                     package_manager="apt-get", session_type="x11", desktop="Cinnamon",
                     desktop_kind=UNKNOWN, desktop_version="6.4.8", glibc=(2, 41))
 
-NOTHING = planlib.Probes(which=lambda name: None, atspi=lambda: False, ocr_languages=set)
+NO_BUILD = {"compiler": False, "kernel-headers": False, "python-headers": False}
+# Nothing installed, but the Python extras present (the common case after install.sh).
+NOTHING = planlib.Probes(which=lambda name: None, atspi=lambda: False, ocr_languages=set,
+                         desktop_extras=lambda: True, evdev_build=lambda: NO_BUILD,
+                         own_venv=lambda: True)
 EVERYTHING = planlib.Probes(which=lambda name: f"/usr/bin/{name}", atspi=lambda: True,
-                            ocr_languages=lambda: {"eng", "tur", "osd"})
+                            ocr_languages=lambda: {"eng", "tur", "osd"},
+                            desktop_extras=lambda: True, evdev_build=lambda: NO_BUILD,
+                            own_venv=lambda: True)
 
 
 class SessionTests(unittest.TestCase):
@@ -184,6 +190,28 @@ class PlanTests(unittest.TestCase):
     def test_an_english_locale_adds_no_language(self) -> None:
         [ocr] = planlib.build(platform(language="en"), probes=NOTHING).components
         self.assertEqual(ocr.languages, ["eng"])
+
+    def test_missing_evdev_brings_its_build_tools_only_where_it_is_used(self) -> None:
+        probes = replace(NOTHING, desktop_extras=lambda: False)
+        plan = planlib.build(platform(family=distro.DEBIAN, package_manager="apt-get",
+                                      desktop="GNOME", desktop_kind=GNOME), probes=probes)
+        self.assertTrue(plan.extras)
+        for name in ("gcc", "libc6-dev", "linux-libc-dev", f"python{sys.version_info[0]}.{sys.version_info[1]}-dev"):
+            self.assertIn(name, plan.packages)
+        # Only what is missing: here the kernel headers.
+        headers = replace(probes, evdev_build=lambda: {"compiler": True, "kernel-headers": False,
+                                                       "python-headers": True})
+        plan = planlib.build(platform(), probes=headers)
+        self.assertIn("linux-api-headers", plan.packages)
+        self.assertNotIn("gcc", plan.packages)
+        # A compiler and headers already there: only pip runs.
+        ready = replace(probes, evdev_build=lambda: dict.fromkeys(NO_BUILD, True))
+        plan = planlib.build(platform(), probes=ready)
+        self.assertTrue(plan.extras)
+        self.assertNotIn("gcc", plan.packages)
+        # Not on an unsupported desktop, and not into a package's venv.
+        self.assertFalse(planlib.build(CINNAMON, probes=probes).extras)
+        self.assertFalse(planlib.build(platform(), probes=replace(probes, own_venv=lambda: False)).extras)
 
     def test_nothing_missing_means_nothing_to_run(self) -> None:
         plan = planlib.build(platform(), probes=EVERYTHING)

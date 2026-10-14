@@ -15,6 +15,96 @@ The completed development journals were folded into canonical documents;
 git history keeps their chronology. Entries below retain the evidence known
 at each stage. Later measurements supersede earlier pending-work statements.
 
+## Installation from a clean machine (2026-10-14)
+
+Measured with unreleased code: a wheel built from the checkout (native
+helper included, built on the reference machine against glibc 2.39),
+installed with `install.sh --wheel FILE` over SSH into throwaway disks
+(`fresh`) of the two test VMs. No input went to the reference desktop.
+
+- **Detection.** `platforminfo.detect()` took 35 ms on the reference
+  machine; the logind path 8 ms. Under GDM the session's logind `Desktop`
+  property is empty, so the desktop name comes from the user manager's
+  environment (`systemctl --user show-environment`:
+  `XDG_CURRENT_DESKTOP=zorin:GNOME`). That needs `XDG_RUNTIME_DIR`; with
+  `env -i` it is missing and `systemctl --user` finds no manager until it
+  is set to `/run/user/<uid>`. Over SSH, `XDG_SESSION_TYPE` is `tty` and
+  `XDG_CURRENT_DESKTOP` empty (both VMs).
+- **The native helper's glibc requirement can be read from the binary.**
+  The newest `GLIBC_2.N` string in the 7.4 MB release-built helper is 2.39,
+  the same as `objdump -T`; the scan takes 5 ms. A helper built on an older
+  system needs less, so the check is per binary and not a fixed number.
+- **`plasmashell --version` crashes without a display**: SIGABRT (exit 134)
+  over SSH, SIGSEGV (139) with `QT_QPA_PLATFORM=offscreen` (Plasma 6.7.5).
+  `/usr/share/wayland-sessions/plasma.desktop` has
+  `X-KDE-PluginInfo-Version=6.7.5`, which is where the version is read now.
+- **`evdev` has no wheels on PyPI** (2.0.0 has only an sdist; the
+  constraints pin 1.9.3), so `pip install pcbridge[desktop]` needs a C
+  compiler and the kernel headers. On the clean Debian VM (no gcc) the
+  extra failed and the base install went on; on Arch without gcc
+  (`pacman -Rdd gcc` on the throwaway disk) setup planned `gcc`, installed
+  it and built evdev.
+- **Arch does not put `~/.local/bin` on `PATH`**, not even in a login shell
+  (`/etc/profile` adds only `/usr/local/{sbin,bin}`). Debian's `~/.profile`
+  adds it at login once the directory exists. MCP clients use full paths,
+  so only typing `pcbridge` is affected; setup says which case applies.
+
+**Supported desktop: Arch VM, KDE Plasma 6.7.5, Wayland** (Python 3.14.7,
+glibc 2.44). Before the run the old pcbridge package and config were
+removed and `tmux` and `wl-clipboard` uninstalled. `tesseract` and
+`tesseract-data-eng` stayed because `spectacle` depends on them, so on
+Plasma OCR needs only a language package. The session language was set to
+`tr_TR.UTF-8` with `systemctl --user set-environment` to exercise the
+locale (the VM's own is `en_US.UTF-8`). One command,
+`sh install.sh --wheel … --yes`, took 34 s: "Found: Arch Linux · KDE Plasma
+· Wayland · x86_64" (the version was empty then, see above), installed
+exactly `tmux wl-clipboard tesseract-data-tur` (`pacman -Q` before and
+after), set `ocr_languages = "eng+tur"`, kept the `full` profile, started
+the daemon, installed the KWin entries, and a fresh client got 37 tools in
+46 ms. A second run took 3 s and installed nothing. `pcbridge doctor --fix`
+after `pacman -R tmux` printed the command without a terminal, and with a
+terminal one Enter installed `tmux`. The earlier OCR checklist, the
+`--optional` flag, and an interactive sudo password prompt were not run
+(the VM user has NOPASSWD sudo).
+
+**Unsupported desktop: Debian 12 VM, Cinnamon 5.6.8 on X11.** Pardus has
+no cloud image; Pardus 23 is based on Debian 12, so this stands in for it.
+The "generic" image was used, not "genericcloud", on the assumption that the
+cloud kernel lacks display drivers (not measured). Provisioning installed
+`cinnamon-core lightdm lightdm-gtk-greeter xserver-xorg locales` (1253
+packages in all, none of tmux, libnotify-bin, tesseract, gcc or
+python3-venv) and `LANG=tr_TR.UTF-8`. Python 3.11.2 without `ensurepip`,
+glibc 2.36. logind reported the session as `Type=x11 Desktop=cinnamon`, the
+user manager `XDG_CURRENT_DESKTOP=X-Cinnamon`. One command with `--yes`
+took 108 s: the script offered the three Python choices and took 1. uv
+0.12.21 fetched CPython 3.12.14 (32.7 MiB, 13-14 s) into
+`~/.local/share/pcbridge/python`, and the system `python3` stayed 3.11.
+The plan said "Found: Debian GNU/Linux 12 · Cinnamon 5.6.8 · X11 · x86_64",
+"✗ Desktop control: Cinnamon on X11 is not supported yet", and that the
+helper was skipped because it needs glibc 2.39 and the system has 2.36. It
+installed `tmux libnotify-bin`, and `dpkg-query` before and after shows
+only those plus their dependency `libevent-core-2.1-7`. It set
+`profile = "core"`, and a fresh client got 21 tools in 37 ms. `pcbridge
+doctor` skipped the desktop checks with one line (16 ok, 3 warnings, 0
+failures). The interactive run on a fresh disk (pseudo-terminal, Enter at
+the Python choice and at the plan) took 145 s including the scripted
+pauses. `install.sh --uninstall --yes` disabled the units and moved the
+venv, the Python and uv to the trash with `gio`; the config stayed.
+
+**The release download path** (`cat install.sh | sh -s -- --yes`, v2.5.0
+from GitHub) fetched `sha256sums.txt` and the wheel, and the checksum
+matched. v2.5.0 has no `constraints.txt`, which the script reported. The
+2.5.0 `pcbridge setup` it then ran shows both bugs fixed here: it failed
+its readiness check on the `core` config (21 tools against a fixed 37), and
+it advised `wl-clipboard python3-gi gir1.2-atspi-2.0 tesseract-ocr` and the
+uinput rule on X11.
+
+Not measured: Pardus itself, the Ubuntu 22.04 deadsnakes path, Fedora
+(names from the distributions' package lists only), GNOME through the
+script, aarch64 (there is no release wheel for it), and the
+`releases/latest/download/install.sh` URL, which exists only from the next
+release.
+
 ## Remote clients, revocation and the password (2026-10-14)
 
 Measured with unreleased code against a throwaway daemon (temp config, state

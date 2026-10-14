@@ -626,6 +626,12 @@ def setup(argv: list[str]) -> int:
         inst.warn("missing: " + " ".join(chosen))
         inst.say(f"          install with: {command}")
         notes.append(command)
+    if plan.extras:
+        if planlib.install_extras():
+            inst.ok("Python packages for desktop control: evdev, Pillow")
+        else:
+            inst.warn("evdev and Pillow were not installed; desktop control needs them")
+            notes.append("pcbridge setup   # tries evdev and Pillow again")
     if found.desktop_supported and not os.access("/dev/uinput", os.R_OK | os.W_OK):
         from .doctor import udev_hint
 
@@ -660,6 +666,10 @@ def setup(argv: list[str]) -> int:
     for n in inst.install_launchers(backup):
         inst.ok(n)
     inst.ok(f"launcher: {inst.launcher_path()}")
+    path_note = inst.path_note()
+    if path_note:
+        inst.warn(path_note)
+        notes.append(path_note)
 
     inst.say("\n4. Background service")
     changed = inst.install_units(backup)

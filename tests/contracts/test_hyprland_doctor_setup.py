@@ -29,8 +29,16 @@ class DesktopDispatchTests(unittest.TestCase):
                 self.assertEqual(ext.call_count + kde.call_count + notes.call_count, int(kind != 'unknown'))
 
     def test_doctor_dispatch(self):
+        from pcbridge.platforminfo import Platform
+
         for kind in ('gnome', 'kde', 'hyprland', 'unknown'):
             with self.subTest(kind=kind), ExitStack() as stack:
+                found = Platform(arch='x86_64', distro_name='Arch Linux', distro_id='arch', family='arch',
+                                 package_manager='pacman', session_type='wayland',
+                                 desktop={'unknown': 'Sway'}.get(kind, kind), desktop_kind=kind,
+                                 desktop_version='1.0', session_source='environment', glibc=(2, 42),
+                                 language='')
+                stack.enter_context(patch('pcbridge.platforminfo.detect', return_value=found))
                 stack.enter_context(patch('pcbridge.desktop.session.desktop_kind', return_value=kind))
                 run = stack.enter_context(patch('pcbridge.cli.install.run', return_value=SimpleNamespace(stdout='', stderr='', returncode=0)))
                 stack.enter_context(patch('pcbridge.cli.doctor.shutil.which', return_value='/stub'))
@@ -45,10 +53,14 @@ class DesktopDispatchTests(unittest.TestCase):
                 self.assertEqual(kde.call_count, int(kind == 'kde'))
                 self.assertEqual(hypr.call_count, int(kind == 'hyprland'))
                 commands = [call.args[0][0] for call in run.call_args_list]
-                self.assertEqual('gnome-shell' in commands, kind == 'gnome')
-                self.assertEqual('plasmashell' in commands, kind == 'kde')
+                # The version comes from the detection; `plasmashell --version`
+                # crashes without a display (measured over SSH).
+                self.assertNotIn('plasmashell', commands)
                 if kind == 'unknown':
-                    self.assertTrue(any(c.name == 'desktop backend' and c.status == 'fail' for c in doc.checks))
+                    # An unsupported desktop: one line why, no package advice.
+                    self.assertTrue(any(c.name == 'desktop control' and 'Sway on Wayland is not supported'
+                                        in c.detail for c in doc.checks))
+                    self.assertFalse(any(c.fix for c in doc.checks))
 
 
 class HyprlandDoctorTests(unittest.TestCase):

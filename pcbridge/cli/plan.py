@@ -12,11 +12,13 @@ refuse there. Every command that needs sudo is printed before it runs.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import shlex
 import shutil
 import subprocess
 import sys
+import sysconfig
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -43,6 +45,20 @@ def _tesseract_languages() -> set[str]:
     return {line.strip() for line in (res.stdout + res.stderr).splitlines() if line.strip()}
 
 
+def _has_desktop_extras() -> bool:
+    importlib.invalidate_caches()  # pip may have just installed them
+    return all(importlib.util.find_spec(m) is not None for m in ("evdev", "PIL"))
+
+
+def _can_build_evdev() -> dict[str, bool]:
+    include = Path(sysconfig.get_path("include") or "/nonexistent")
+    return {
+        "compiler": bool(shutil.which("gcc") or shutil.which("cc")),
+        "kernel-headers": Path("/usr/include/linux/input.h").exists(),
+        "python-headers": (include / "Python.h").exists(),
+    }
+
+
 @dataclass
 class Probes:
     """What is installed; replaceable in tests."""
@@ -50,6 +66,10 @@ class Probes:
     which: Callable[[str], str | None] = shutil.which
     atspi: Callable[[], bool] = _has_atspi
     ocr_languages: Callable[[], set[str]] = _tesseract_languages
+    desktop_extras: Callable[[], bool] = _has_desktop_extras
+    evdev_build: Callable[[], dict[str, bool]] = _can_build_evdev
+    # Only a venv pcbridge owns can take the extras; a package's venv has them.
+    own_venv: Callable[[], bool] = lambda: inst.install_kind() in ("user", "git", "pip")
 
 
 @dataclass
@@ -79,6 +99,7 @@ class Plan:
     profile_owned: bool             # False: the user chose the profile, setup keeps out
     profile_note: str
     native_note: str
+    extras: bool = False            # pip still has to install evdev and Pillow
 
     def chosen_packages(self) -> list[str]:
         out = list(self.packages)
@@ -176,6 +197,17 @@ def build(platform: Platform, *, profile_now: str = "full", recorded_profile: st
             needs.append("gnome-screenshot")
         if not probes.atspi():
             needs.append("atspi")
+        extras = not probes.desktop_extras() and probes.own_venv()
+        raw: list[str] = []
+        if extras:
+            build = probes.evdev_build()
+            if not build["compiler"]:
+                needs.append("c-compiler")
+            if not build["kernel-headers"]:
+                needs.append("kernel-headers")
+            if not build["python-headers"]:
+                raw.append(distrolib.python_headers_package(
+                    f"{sys.version_info[0]}.{sys.version_info[1]}", fam))
         # OCR for find_text / wait_for_text: English plus the locale's language.
         langs = ["eng"]
         extra = distrolib.tesseract_language(platform.language)
@@ -195,18 +227,23 @@ def build(platform: Platform, *, profile_now: str = "full", recorded_profile: st
                     missing.append(name)
         title = "OCR for find_text / wait_for_text (" + " + ".join(langs) + ")"
         components.append(Component("ocr", title, missing, ticked=True, languages=langs))
+    else:
+        extras, raw = False, []
     target, note = decide_profile(platform.desktop_supported, profile_now, recorded_profile)
+    names = distrolib.packages(*needs, fam=fam)
+    names += [n for n in raw if n not in names]
     return Plan(
         platform=platform,
         family=fam,
         needs=needs,
-        packages=distrolib.packages(*needs, fam=fam),
+        packages=names,
         components=components,
         profile_now=profile_now,
         profile_target=target,
         profile_owned=owns_profile(profile_now, recorded_profile),
         profile_note=note,
         native_note=native_note(platform.glibc or None),
+        extras=extras,
     )
 
 
@@ -245,6 +282,8 @@ def show(plan: Plan) -> None:
             state = "installed" if c.installed else " ".join(c.packages)
             mark = "x" if (c.ticked or c.installed) else " "
             inst.say(f"  [{mark}] {i}. {c.title}: {state}")
+    if plan.extras:
+        inst.say("Python packages for desktop control: evdev Pillow (pip builds evdev; no sudo)")
     inst.say(f"Tool profile: {plan.profile_note}")
     argv = plan.install_argv()
     if argv:
@@ -292,6 +331,9 @@ def run_sudo(argv: list[str]) -> bool:
     """Print the command, then run it with the terminal (sudo asks there)."""
     if not interactive() and argv[:1] == ["sudo"]:
         argv = ["sudo", "-n", *argv[1:]]  # no terminal to ask a password on
+    if not interactive() and argv[:3] == ["sudo", "-n", "apt-get"]:
+        # No terminal for debconf to ask on: take the package defaults quietly.
+        argv = ["sudo", "-n", "env", "DEBIAN_FRONTEND=noninteractive", *argv[2:]]
     inst.say("  $ " + shlex.join(argv))
     try:
         return subprocess.run(argv, check=False).returncode == 0
@@ -317,6 +359,31 @@ def install_packages(plan: Plan) -> tuple[bool, str]:
         if run_sudo(["sudo", "apt-get", "update"]) and run_sudo(argv):
             return True, ""
     return False, shlex.join(argv)
+
+
+def constraints_file() -> Path | None:
+    """The dependency versions this pcbridge was tested with, when known."""
+    root = inst.repo_root()
+    for cand in ((root / "packaging" / "constraints.txt") if root else None,
+                 pathslib.data_home() / "constraints.txt"):
+        if cand is not None and cand.is_file():
+            return cand
+    return None
+
+
+def install_extras() -> bool:
+    """pip-install the [desktop] extra (evdev, Pillow) into this venv."""
+    argv = [sys.executable, "-m", "pip", "install", "-q"]
+    constraints = constraints_file()
+    if constraints is not None:
+        argv += ["-c", str(constraints)]
+    argv += ["evdev", "Pillow"]
+    inst.say("  $ " + shlex.join(argv))
+    try:
+        return subprocess.run(argv, check=False, timeout=600).returncode == 0
+    except (OSError, subprocess.SubprocessError) as exc:
+        inst.fail(str(exc))
+        return False
 
 
 def apply_settings(plan: Plan, config_path: Path) -> list[str]:
@@ -356,9 +423,13 @@ def summary(plan: Plan, probes: Probes | None = None) -> list[str]:
         lines.append(f"{CHECK} Terminal, files, coding agents")
     else:
         lines.append(f"{CHECK} Terminal, files, tmux, coding agents")
-    if p.desktop_supported:
+    if p.desktop_supported and plan.extras and not probes.desktop_extras():
+        lines.append(f"{CROSS} Desktop control: supported here, but evdev and Pillow are not "
+                     "installed (`pcbridge setup` tries again)")
+    elif p.desktop_supported:
         lines.append(f"{CHECK} Desktop control: supported here, off until you turn it on "
                      "(pcbridge set desktop.enabled true)")
+    if p.desktop_supported:
         for c in plan.components:
             if c.key == "ocr":
                 have = bool(probes.which("tesseract")) and set(c.languages) <= probes.ocr_languages()
@@ -375,4 +446,4 @@ def summary(plan: Plan, probes: Probes | None = None) -> list[str]:
 
 
 __all__ = ["Component", "Plan", "Probes", "apply_settings", "ask", "build", "decide_profile",
-           "install_packages", "owns_profile", "read_state", "show", "summary"]
+           "install_extras", "install_packages", "owns_profile", "read_state", "show", "summary"]

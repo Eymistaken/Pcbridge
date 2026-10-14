@@ -4,6 +4,57 @@
 
 ### Added
 
+- **One install script that finds everything itself.** `install.sh` is now
+  the recommended way to install, and from the next release on it is a
+  release asset: `curl -fsSL .../releases/latest/download/install.sh | sh`.
+  The install docs also give the path that downloads it, checks it against
+  the release's `sha256sums.txt` and runs it. Run from a release, the
+  script refuses root, downloads the wheel, checks its sha256 (and that of
+  `constraints.txt`, which the release now ships), and installs it into
+  `~/.local/share/pcbridge/venv`. It then hands over to `pcbridge setup`.
+  `--wheel FILE` installs a wheel from disk instead, `--version` picks a
+  release, and `--uninstall` removes pcbridge and its venv. From a git
+  checkout it keeps doing what it did before. The detection lives in
+  Python, in one place. It finds the CPU architecture, the distribution and
+  its family (so Pardus counts as Debian), the package manager, the
+  session type, and the desktop with its version. Over SSH it reads the
+  user's graphical session through `loginctl`. `pcbridge setup` now starts
+  with a plan: a "Found:" line, what will work and what will not, the
+  system packages, and the tool profile. A single confirmation covers the
+  whole plan (`--yes` skips it), and every sudo command is printed before
+  it runs. System packages are installed only for the capabilities that
+  will work, so an unsupported desktop gets no clipboard, AT-SPI or OCR
+  packages. On such a desktop `[tools] profile` becomes `core`, unless the
+  user chose a profile; setup only changes a value it set itself. The run
+  ends with a summary of what works, what does not and why. Running it
+  again updates and repairs. The packaged native helper is skipped when
+  the system's glibc is older than the newest glibc symbol the binary
+  links against (2.39 for the release helper), and the Python paths are
+  used instead. When `~/.local/bin` is not on `PATH`, setup says so.
+  Measured from a clean VM with one command: Arch Linux with Plasma 6.7.5
+  installed three packages and kept the `full` profile; Debian 12 with
+  Cinnamon on X11 got the `core` profile, a uv-managed Python and only the
+  packages its tools use.
+- **Python: offer the fix, do not just fail.** With a system Python older
+  than 3.12, the install script offers three choices. The default, which
+  `--yes` also picks, is a Python for pcbridge only, downloaded with a
+  pinned, checksummed uv into `~/.local/share/pcbridge/`, with no root
+  needed. The second is the distribution's own command: the deadsnakes PPA
+  on Ubuntu 22.04 and its derivatives, `python3.13` on Fedora; Debian 12
+  and Pardus 23 have no official package, and the script says so. The
+  third is to quit. The script never repoints the system `python3`.
+- **Optional components as a checklist.** Where desktop control is
+  supported, setup offers optional parts in one list. The first is OCR for
+  `find_text` / `wait_for_text`: tesseract with English and the locale's
+  language, so `LANG=tr_TR.UTF-8` ticks Turkish. The package names for
+  Debian, Arch and Fedora are in `distro.py`. With a non-English language,
+  `[desktop] ocr_languages` becomes `eng+tur` if it was still the default.
+  `pcbridge doctor --fix` offers missing packages and components again.
+  It asks on a terminal and prints the command otherwise. Where desktop
+  control is supported and `evdev` is missing, setup also installs the
+  desktop extras. `evdev` has no wheels and is built from source, so the
+  plan includes the compiler packages it needs.
+
 - **List and revoke remote clients.** Until now there was no way to see
   which remote apps held tokens or to cut one off, short of deleting the
   OAuth database. `pcbridge remote clients` lists the apps that connected
@@ -66,6 +117,16 @@
   with a plain message that names the format and the size. The size in the
   reply now reads "bytes" instead of the Turkish "bayt". Binary transfer
   itself is still open in the roadmap.
+- **Setup and doctor over SSH and on unsupported desktops.** Setup used to
+  read the desktop from its own environment, so over SSH it saw no desktop
+  and skipped the GNOME extension and the Plasma entries. It now uses the
+  detected session. `pcbridge doctor` no longer suggests clipboard, AT-SPI
+  or OCR packages on a desktop where desktop control cannot work; it says
+  why in one line. It also no longer runs `plasmashell --version`, which
+  crashes without a display; Plasma's version comes from its session file.
+  The readiness checks of setup and doctor expect the tool count of the
+  configured profile instead of a fixed 37, so a `core` install no longer
+  fails them.
 - **English truncation marker.** Trimmed tool output (`fs_read`, job logs,
   shell output and the other tools that keep the tail) now starts with
   `…(truncated)…` instead of the Turkish `…(kirpildi)…`.

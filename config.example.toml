@@ -408,8 +408,10 @@ include_pointer = true
 capture_backend = "auto"
 
 # `find_text` / `wait_for_text` read on-screen text with tesseract. Languages
-# joined with `+`; every language is a separate package. Tesseract is NOT
-# installed by default and installing it needs sudo:
+# joined with `+`; every language is a separate package. `pcbridge setup`
+# offers tesseract with English and the locale's language (where desktop
+# control is supported) and sets this to e.g. "eng+tur" while it is still
+# "eng". By hand (sudo):
 #   sudo apt install tesseract-ocr            (English data included)
 #   sudo apt install tesseract-ocr-deu        (another language, e.g. German)
 # When missing, both tools say so with the install command; nothing else is

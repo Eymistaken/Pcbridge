@@ -42,9 +42,11 @@ DESKTOP_NAMES = {
 }
 
 # desktop name -> the command that prints its version without a display.
+# Not `plasmashell --version`: without a display it crashes (SIGABRT, and
+# SIGSEGV with QT_QPA_PLATFORM=offscreen; measured over SSH on Plasma 6.7.5),
+# so Plasma's version comes from its session file instead.
 VERSION_COMMANDS = {
     "GNOME": ["gnome-shell", "--version"],
-    "KDE Plasma": ["plasmashell", "--version"],
     "Hyprland": ["Hyprland", "--version"],
     "Cinnamon": ["cinnamon", "--version"],
     "Xfce": ["xfce4-session", "--version"],
@@ -148,8 +150,24 @@ def desktop_name(desktop: str) -> str:
     return tokens[-1] if tokens else ""
 
 
+PLASMA_SESSION_FILES = (
+    Path("/usr/share/wayland-sessions/plasma.desktop"),
+    Path("/usr/share/xsessions/plasmax11.desktop"),
+    Path("/usr/share/xsessions/plasma.desktop"),
+)
+
+
 def desktop_version(name: str) -> str:
     """The desktop's version, from its own binary; "" when unknown."""
+    if name == "KDE Plasma":
+        for path in PLASMA_SESSION_FILES:
+            try:
+                version = _properties(path.read_text(encoding="utf-8")).get("X-KDE-PluginInfo-Version", "")
+            except OSError:
+                continue
+            if version:
+                return version
+        return ""
     cmd = VERSION_COMMANDS.get(name)
     if not cmd:
         return ""
@@ -214,7 +232,7 @@ class Platform:
         if not self.session_type:
             return ("no graphical session was found for this user (log in to the desktop "
                     "once, then run `pcbridge setup` again)")
-        session = "X11" if self.session_type == "x11" else self.session_type
+        session = {"x11": "X11", "wayland": "Wayland"}.get(self.session_type, self.session_type)
         name = self.desktop or "this desktop"
         if self.desktop_kind in SUPPORTED_KINDS:
             return f"{name} on {session} is not supported; log in to the {name} Wayland session"

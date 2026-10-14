@@ -261,6 +261,31 @@ def install_launchers(backup: Backup) -> list[str]:
     return notes
 
 
+def path_note(path: str | None = None) -> str:
+    """What to do when ~/.local/bin is not on PATH, "" when it is.
+
+    Arch's /etc/profile does not add it (measured on the Arch VM, 2026-10-14):
+    the launchers are there and MCP clients use full paths, but typing
+    `pcbridge` finds nothing. The shell's files are the user's; this says
+    what to add instead of editing them.
+    """
+    if is_system_package():
+        return ""
+    dirs = [d for d in (path if path is not None else os.environ.get("PATH", "")).split(os.pathsep) if d]
+    if any(Path(d).expanduser().resolve() == LOCAL_BIN.resolve() for d in dirs):
+        return ""
+    try:
+        profile = (HOME / ".profile").read_text(encoding="utf-8")
+    except OSError:
+        profile = ""
+    if ".local/bin" in profile:
+        # Debian's and Ubuntu's ~/.profile add it at login once it exists.
+        return (f"{LOCAL_BIN} is not on PATH in this shell yet; your ~/.profile adds it at "
+                f"the next login (until then: {LOCAL_BIN}/pcbridge)")
+    return (f"{LOCAL_BIN} is not on PATH, so `pcbridge` is not found by name: add "
+            "'export PATH=\"$HOME/.local/bin:$PATH\"' to ~/.bashrc (or ~/.profile)")
+
+
 # ---------------------------------------------------------------------------
 # systemd units
 # ---------------------------------------------------------------------------

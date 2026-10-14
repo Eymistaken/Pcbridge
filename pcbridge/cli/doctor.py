@@ -263,7 +263,7 @@ class Doctor:
                      "" if have else distrolib.install_command(pkg))
 
     def desktop(self) -> None:
-        from ..desktop.session import GNOME, KDE, HYPRLAND, desktop_kind
+        from ..desktop.session import GNOME, KDE, HYPRLAND, UNKNOWN, desktop_kind
         from ..platforminfo import detect
 
         g = "desktop"
@@ -275,19 +275,14 @@ class Doctor:
                      f"not available: {found.unsupported_reason()}; the desktop checks are skipped")
             return
         kind = desktop_kind()
-        session = os.environ.get("XDG_SESSION_TYPE", "")
-        wayland = bool(os.environ.get("WAYLAND_DISPLAY")) or session == "wayland"
-        self.add(g, "session", "ok" if wayland else "warn",
-                 f"XDG_SESSION_TYPE={session or '(unset)'}, WAYLAND_DISPLAY={os.environ.get('WAYLAND_DISPLAY', '(unset)')}",
-                 "" if wayland else "desktop tools need GNOME, KDE Plasma, or Hyprland on Wayland")
-        if kind == KDE:
-            plasma = inst.run(["plasmashell", "--version"]).stdout.strip()
-            self.add(g, "KDE Plasma", "ok" if plasma else "warn", plasma or "plasmashell not found")
-        elif kind == GNOME:
-            shell = inst.run(["gnome-shell", "--version"]).stdout.strip()
-            self.add(g, "GNOME Shell", "ok" if shell else "warn", shell or "gnome-shell not found")
-        elif kind not in (HYPRLAND,):
-            self.add(g, "desktop backend", "fail", "Unknown desktop: desktop tools refuse; general CLI tools remain available")
+        if kind == UNKNOWN:
+            kind = found.desktop_kind  # over SSH: the session logind reports
+        where = "this process" if found.session_source == "environment" else "logind (this shell is not in the session)"
+        self.add(g, "session", "ok", f"{found.session_type} session of {found.desktop}, read from {where}")
+        if kind in (KDE, GNOME):
+            name = "KDE Plasma" if kind == KDE else "GNOME Shell"
+            self.add(g, name, "ok" if found.desktop_version else "warn",
+                     found.desktop_version or "did not report its version")
         dev = Path("/dev/uinput")
         if not dev.exists():
             self.add(g, "/dev/uinput", "fail", "missing (uinput module not loaded)", udev_hint())

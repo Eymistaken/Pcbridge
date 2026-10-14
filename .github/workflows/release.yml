@@ -47,6 +47,14 @@ jobs:
           name: arch-package
           path: dist/
 
+      # The install script is served from the release (`.../releases/latest/
+      # download/install.sh`) and reads constraints.txt and sha256sums.txt
+      # from it, so both are release assets too.
+      - name: Install script and dependency constraints
+        run: |
+          cp install.sh dist/install.sh
+          cp packaging/constraints.txt dist/constraints.txt
+
       - name: Checksums
         working-directory: dist
         run: |

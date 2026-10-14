@@ -26,10 +26,12 @@ here, not by moving sections.
    Unreleased). Before the browser: browser tools work
    without the desktop grant, so remote clients gain power, and
    `remote_profile` decides whether a phone gets them at all.
-3. **Installation.** *One install script that finds everything itself*,
-   *Python: offer the fix, do not just fail*, *Optional components as a
-   checklist*. Makes trying new machines (Pardus and the like) cheap, which
-   the later desktop work needs for testing.
+3. **Installation.** ~~*One install script that finds everything itself*~~
+   (done, Unreleased); ~~*Python: offer the fix, do not just fail*~~ (done,
+   Unreleased); ~~*Optional components as a checklist*~~ (done,
+   Unreleased). Makes trying new machines (Pardus and the like) cheap, which
+   the later desktop work needs for testing. Left: the checks under each
+   item below, mostly on real machines.
 4. **File tools.** *Paginated and ranged file reads*, the rest of *Binary
    file transfer*, *Targeted edits and easier writes*. Together, because
    they share the cursor and conflict design.
@@ -214,65 +216,40 @@ at the machine* checks, batched for a session at the machine.
 
 ## Optional: installation
 
-- **One install script that finds everything itself.** A single
-  `install.sh` (`curl -fsSL .../install.sh | sh`, with a documented
-  "download, check the checksum, then run" path next to it, since this is
-  remote code execution by design) detects the CPU architecture, the
-  distribution and package manager (`/etc/os-release` `ID`/`ID_LIKE`, so
-  Pardus counts as Debian), the session type (Wayland/X11) and the desktop
-  with its version. Run over SSH, the environment is empty, so it reads the
-  user's graphical session through `loginctl`. It shows the plan once and
-  asks for one confirmation (`--yes` skips it), printing every command that
-  needs sudo before running it, for example:
-
-  ```
-  Found: Pardus 25 (Debian family) · Cinnamon · X11
-  ✓ Terminal, files, tmux, coding agents
-  ✗ Desktop control: Cinnamon on X11 is not supported yet
-  System packages: tmux libnotify-bin  (needs sudo)
-  ```
-
-  It downloads the release wheel and checks its sha256, installs system
-  packages only for the capabilities that will work (no PipeWire or AT-SPI
-  packages on an unsupported desktop), then hands over to `pcbridge setup`,
-  so detection logic lives in Python once and is not duplicated in shell.
-  On an unsupported desktop it sets `[tools] profile = core`, so clients do
-  not carry desktop tools that would only refuse. It ends with a summary of
-  what works, what does not and why, and that re-running after an update
-  detects again. Re-running is update and repair (idempotent); `--uninstall`
-  removes it; running as root is refused. The native helper needs glibc
-  >= 2.39: on older systems the script skips it, uses the Python paths and
-  says so. The `.deb` and Arch packages stay for people who prefer them,
-  but this becomes the recommended path.
-- **Python: offer the fix, do not just fail.** If the system Python is older
-  than 3.12, the script offers: (1, the default and what `--yes` picks) a
-  pcbridge-only Python downloaded with `uv` under
-  `~/.local/share/pcbridge/`, no root, the system untouched; (2) the command
-  to install one system-wide for this distribution (Ubuntu 22.04 and
-  derivatives: the deadsnakes PPA with `python3.12 python3.12-venv`;
-  Fedora: `dnf install python3.13`; Debian 12 / Pardus 23 have no official
-  package, so option 1 or a distribution upgrade); (3) quit. It never
-  repoints the system `python3` (no `update-alternatives`, no symlink:
-  apt and system tools depend on it) and never suggests the PPA outside
-  Ubuntu. The AT-SPI helper keeps running under the system `python3` in its
-  own process, so a separate Python for pcbridge does not affect it. With a
-  uv-managed Python one universal install can replace most of the
-  per-distribution builds.
-- **Optional components as a checklist.** When desktop control is
-  supported, the script offers optional parts in one list, starting with
-  OCR for `find_text` / `wait_for_text`: tesseract plus English and the
-  locale's language (`LANG=tr_TR.UTF-8` ticks Turkish). Package names go
-  into the `distro.py` table: Debian/Ubuntu/Pardus `tesseract-ocr
-  tesseract-ocr-tur`; Arch `tesseract tesseract-data-eng
-  tesseract-data-tur` (language data must be chosen there); Fedora
-  `tesseract tesseract-langpack-tur`. On an unsupported desktop OCR is not
-  offered (`find_text` needs the grant). The same list can later offer a
-  prebuilt native helper when there is no Rust toolchain, or
-  `wl-clipboard` on Wayland. Re-running the script or `pcbridge doctor
-  --fix` offers what is missing again. Done when, on a supported and an
-  unsupported desktop (e.g. Pardus/Cinnamon), one command from a clean
-  machine ends with a working daemon, the right profile, the summary, and
-  only the packages that are actually used.
+- **One install script that finds everything itself.** Done (Unreleased):
+  `install.sh` refuses root, downloads the release wheel, checks its sha256
+  against `sha256sums.txt` (the release now ships `install.sh` and
+  `constraints.txt` too), installs it into the user venv and hands over to
+  `pcbridge setup`, which detects the machine in Python
+  (`pcbridge/platforminfo.py`, `loginctl` over SSH), shows the plan, asks
+  once and prints every sudo command first. Packages only for what works
+  here; `[tools] profile = "core"` on an unsupported desktop unless the
+  user chose a profile; a summary at the end; `--wheel`, `--version`,
+  `--uninstall`. The packaged native helper is skipped when glibc is older
+  than the binary needs. The "download, check the checksum, then run" path
+  is in `docs/install.md`. Measured from a clean VM on Arch/Plasma and on
+  Debian 12/Cinnamon/X11 (see measured facts). Left: run
+  `curl … /releases/latest/download/install.sh | sh` once the next release
+  publishes the script; a real Pardus (23 and 25), Ubuntu 22.04 and a GNOME
+  desktop through the script; an interactive sudo password prompt (the VMs
+  use NOPASSWD); aarch64 needs a release wheel first. Making it the
+  recommended path everywhere (website) comes with *Optional: website*.
+- **Python: offer the fix, do not just fail.** Done (Unreleased): with
+  Python < 3.12 the script offers (1, the default and `--yes`) a
+  pcbridge-only Python from a pinned, checksummed uv under
+  `~/.local/share/pcbridge/`, (2) the distribution's command (deadsnakes on
+  the Ubuntu family only, `python3.13` on Fedora; Debian 12 / Pardus 23 are
+  told there is none), (3) quit. The system `python3` is never repointed.
+  Measured on Debian 12 (Python 3.11.2 -> CPython 3.12.14). Left: the
+  deadsnakes and Fedora options were not run on a real system.
+- **Optional components as a checklist.** Done (Unreleased): where desktop
+  control is supported, setup offers OCR (tesseract, English and the
+  locale's language; names for Debian, Arch and Fedora in `distro.py`) in
+  one list, and `pcbridge doctor --fix` offers missing parts again. Setup
+  also installs the desktop extras (`evdev` is built from source, so the
+  compiler packages join the plan when missing). Left: offer a prebuilt
+  native helper when there is no Rust toolchain on a git install; Fedora's
+  names are untested.
 
 ## Optional: more desktops
 

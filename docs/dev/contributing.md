@@ -79,6 +79,29 @@ exits without doing anything outside a Plasma session.
 `tests/live/kde/headless_smoke.sh` needs no VM session: it starts a virtual
 KWin under its own `dbus-run-session` (CI runs it in an Arch container).
 
+### The install script: a clean machine each time
+
+The install path is measured from a clean machine with one command, on a
+supported desktop (the Arch VM, Plasma) and an unsupported one (a Debian 12
+VM with Cinnamon on X11, standing in for Pardus 23). `fresh` puts a
+throwaway disk over the provisioned one, so every run starts clean and the
+provisioned disk never changes:
+
+```bash
+scripts/dev/debian-vm.sh create && scripts/dev/debian-vm.sh start && scripts/dev/debian-vm.sh provision
+scripts/dev/debian-vm.sh stop && scripts/dev/debian-vm.sh fresh
+PCBRIDGE_VM_DISK=~/.local/share/pcbridge-debian-dev/test.qcow2 scripts/dev/debian-vm.sh start
+python -m build --wheel --outdir dist . && (cd dist && sha256sum *.whl > sha256sums.txt)
+scripts/dev/debian-vm.sh put install.sh dist/pcbridge-*.whl dist/sha256sums.txt
+scripts/dev/debian-vm.sh ssh 'sh install.sh --wheel pcbridge-<version>-py3-none-linux_x86_64.whl --yes'
+```
+
+`arch-vm.sh` has the same `fresh` and `put`. Provisioning the Debian VM
+installs the desktop and nothing pcbridge needs, so `dpkg -l` before and
+after shows exactly what the install added. Run the installer over SSH:
+that is also the case where setup has to read the session through
+`loginctl`.
+
 ## Testing on your own desktop: the rules
 
 You are on the machine pcbridge controls. uinput clicks and keys go wherever

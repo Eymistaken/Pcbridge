@@ -67,14 +67,15 @@ More numbers, and why things are the way they are:
 | Arch Linux, GNOME 50 (Wayland) | the extension and screen capture tested in a headless shell |
 | Debian 13, Ubuntu 26.04 | the `.deb` builds, installs and passes the suites in CI |
 | GNOME 47-49 on Wayland | expected to work, untested; `system_capabilities` reports it |
+| Debian 12 (standing in for Pardus 23), Cinnamon on X11 | the install script measured in a VM: Python 3.12 through uv, profile `core`, only tmux and libnotify-bin installed |
 | X11, Plasma 5, other desktops | desktop tools refuse and say why; everything else works |
 | Python | 3.12, 3.13, 3.14 |
 
 ## Install
 
 ```bash
-# a release wheel, no root:
-packaging/install-user.sh pcbridge-<version>-py3-none-linux_x86_64.whl --yes
+# recommended, no root (from the first release after 2.5.0):
+curl -fsSL https://github.com/Eymistaken/Pcbridge/releases/latest/download/install.sh | sh
 # or the package for your release:
 sudo apt install ./pcbridge_<version>_<distro>_amd64.deb && pcbridge setup
 # or on Arch, from a checkout:
@@ -83,6 +84,11 @@ sudo apt install ./pcbridge_<version>_<distro>_amd64.deb && pcbridge setup
 git clone https://github.com/Eymistaken/Pcbridge.git && cd Pcbridge && ./install.sh
 ```
 
+The script checks the wheel's sha256, offers a pcbridge-only Python when
+the system's is older than 3.12, and hands over to `pcbridge setup`, which
+detects the distribution, desktop and session, shows one plan (packages
+only for what will work here, OCR as an option) and asks once. To read the
+script before running it, see [docs/install.md](docs/install.md).
 `pcbridge setup` writes the config, enables the socket and service,
 installs the GNOME extension (on Plasma: authorizes the native helper for
 KWin screenshots), registers Claude Code, Codex and Claude
