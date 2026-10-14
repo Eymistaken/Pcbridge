@@ -490,6 +490,8 @@ class SettingsPane(Vertical):
         self.app.reload_config()
         self.app.refresh_grant()
         self.app.load_status()
+        if "auth.password" in result.changed:
+            self.app.offer_revoke_after_password()
 
     @on(Button.Pressed, "#settings-restart")
     def _restart(self) -> None:

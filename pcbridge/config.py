@@ -292,9 +292,14 @@ class Config:
     audit_max_bytes: int = 5_000_000
     # [tools] profile: which tools this server offers. "full" (default) is
     # every tool; "core" leaves the desktop tools out; "desktop" offers the
-    # desktop tools plus job and status tools. Applied at startup only:
-    # clients cache the tool list, so nothing is hidden at runtime.
+    # desktop tools plus job and status tools; "readonly" only the tools
+    # that change nothing. Applied at startup only: clients cache the tool
+    # list, so nothing is hidden at runtime.
     tools_profile: str = "full"
+    # [tools] remote_profile: the profile for the HTTP path (remote clients
+    # through the tunnel, and anything else that uses HTTP). "same" (default)
+    # follows `profile`; local clients on the socket always get `profile`.
+    remote_tools_profile: str = "same"
     # [power] keep_awake: hold a sleep inhibitor while a job runs. Off by
     # default. The daemon re-reads it from the file while it runs
     # (`read_keep_awake`), so it needs no restart.
@@ -425,7 +430,7 @@ _SECTION_KEYS: dict[str, set[str]] = {
     "limits": {"max_output_chars", "default_job_timeout", "max_sync_timeout", "audit_max_bytes"},
     "server": {"inline_images"},
     "native": {"capture", "input", "accessibility", "binary_path"},
-    "tools": {"profile"},
+    "tools": {"profile", "remote_profile"},
     "power": {"keep_awake"},
 }
 _HINTS = {
@@ -736,17 +741,20 @@ def load_config(explicit: str | None = None, *, check_state: bool = True) -> Con
         raise
 
 
-TOOL_PROFILES = ("full", "core", "desktop")
+TOOL_PROFILES = ("full", "core", "desktop", "readonly")
+REMOTE_TOOL_PROFILES = ("same",) + TOOL_PROFILES
 
 
-def _tools_profile(raw: dict[str, Any], path: Path) -> str:
+def _tools_profile(raw: dict[str, Any], path: Path, key: str = "profile") -> str:
     tools = raw.get("tools") or {}
-    value = str(tools.get("profile", "full") if isinstance(tools, dict) else "full")
+    default, choices = ("same", REMOTE_TOOL_PROFILES) if key == "remote_profile" else ("full", TOOL_PROFILES)
+    value = str(tools.get(key, default) if isinstance(tools, dict) else default)
     value = value.strip().lower()
-    if value not in TOOL_PROFILES:
+    if value not in choices:
+        hint = ('"same" to follow `profile`' if key == "remote_profile" else '"full" for every tool')
         raise SystemExit(
-            f"[tools] ({path}): `profile = {value!r}` is not one of "
-            f"{', '.join(TOOL_PROFILES)}. Use \"full\" for every tool."
+            f"[tools] ({path}): `{key} = {value!r}` is not one of "
+            f"{', '.join(choices)}. Use {hint}."
         )
     return value
 
@@ -1116,6 +1124,7 @@ def _load_config(explicit: str | None = None, *, check_state: bool = True) -> Co
         max_sync_timeout=int(limits.get("max_sync_timeout", 120)),
         audit_max_bytes=int(limits.get("audit_max_bytes", 5_000_000)),
         tools_profile=_tools_profile(raw, path),
+        remote_tools_profile=_tools_profile(raw, path, "remote_profile"),
         keep_awake=_keep_awake(raw, path),
         inline_images=inline_images,
         agents=agents,

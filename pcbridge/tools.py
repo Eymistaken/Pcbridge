@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
+from fastmcp.server.middleware import Middleware
 from fastmcp.tools.base import ToolResult
 from mcp.types import ContentBlock, TextContent
 from pydantic import Field
@@ -371,6 +373,12 @@ _DESKTOP_PROFILE_EXTRA = frozenset({
 })
 
 
+# `[tools] profile = "readonly"`: every tool whose readOnlyHint is true,
+# except the desktop ones (they need `desktop_unlock`, which is not
+# read-only), plus these two that describe the desktop without the grant.
+_READONLY_PROFILE_EXTRA = frozenset({"system_capabilities", "screen_info"})
+
+
 def tools_in_profile(profile: str) -> frozenset[str]:
     """The tool names a `[tools] profile` offers."""
     every = frozenset(TOOL_HINTS)
@@ -378,18 +386,68 @@ def tools_in_profile(profile: str) -> frozenset[str]:
         return every - DESKTOP_TOOLS
     if profile == "desktop":
         return DESKTOP_TOOLS | _DESKTOP_PROFILE_EXTRA
+    if profile == "readonly":
+        return frozenset(n for n, (ro, *_rest) in TOOL_HINTS.items()
+                         if ro and n not in DESKTOP_TOOLS) | _READONLY_PROFILE_EXTRA
     return every
 
 
-def _with_hints(mcp: FastMCP, profile: str = "full") -> None:
+def remote_profile(cfg: Any) -> str:
+    """The profile the HTTP path offers: `[tools] remote_profile`, or `profile`."""
+    remote = getattr(cfg, "remote_tools_profile", "same")
+    return getattr(cfg, "tools_profile", "full") if remote == "same" else remote
+
+
+class ProfileFilter(Middleware):
+    """Offer each path its own profile: local sessions `[tools] profile`,
+    HTTP (remote) sessions `[tools] remote_profile`.
+
+    The server registers the tools of both; this hides the others from
+    `tools/list` and refuses a call to them, so a remote client cannot reach
+    a tool by name that it was not shown. A session counts as local only
+    when it is a stdio session (the daemon's socket or `--stdio`); every
+    HTTP request is remote, the static token included.
+    """
+
+    def __init__(self, local: str, remote: str, transport: str, gate: Any = None) -> None:
+        self.local, self.remote = local, remote
+        self.offered = {"stdio": tools_in_profile(local), "http": tools_in_profile(remote)}
+        self.transport = transport
+        self.gate = gate
+
+    def _path(self) -> str:
+        return "stdio" if sessionctx.transport(self.transport) == "stdio" else "http"
+
+    async def on_list_tools(self, context, call_next):
+        tools = await call_next(context)
+        offered = self.offered[self._path()]
+        return [t for t in tools if t.name in offered]
+
+    async def on_call_tool(self, context, call_next):
+        path = self._path()
+        name = context.message.name
+        if name not in self.offered[path]:
+            if path == "http":
+                setting = f'[tools] remote_profile = "{self.remote}"'
+                who = "remote clients"
+            else:
+                setting = f'[tools] profile = "{self.local}"'
+                who = "local clients"
+            if self.gate is not None:
+                self.gate.audit("tool_refused", tool=name, path=path,
+                                profile=self.remote if path == "http" else self.local)
+            raise ToolError(f"The tool {name!r} is not offered to {who} ({setting}).")
+        return await call_next(context)
+
+
+def _with_hints(mcp: FastMCP, offered: frozenset[str] = frozenset(TOOL_HINTS)) -> None:
     """Make `mcp.tool` take each tool's hints from TOOL_HINTS, and leave out
-    tools the profile does not offer.
+    tools no profile offers.
 
     A tool missing from the table fails at registration, so a new tool
     cannot ship with unset hints.
     """
     plain = mcp.tool
-    offered = tools_in_profile(profile)
 
     def tool(*args: Any, **kwargs: Any):
         annotations = dict(kwargs.pop("annotations", None) or {})
@@ -417,7 +475,9 @@ def register(
     runtime: DesktopRuntime | None = None,
 ) -> DesktopRuntime:
     global _DESC_AGENT, _DESC_MODEL, _DESC_EFFORT
-    _with_hints(mcp, getattr(cfg, "tools_profile", "full"))
+    local_profile = getattr(cfg, "tools_profile", "full")
+    remote = remote_profile(cfg)
+    _with_hints(mcp, tools_in_profile(local_profile) | tools_in_profile(remote))
     _DESC_AGENT = (
         "Agent name; configured here: "
         + (", ".join(f"'{n}'" for n, a in cfg.agents.items() if a.enabled) or "none")
@@ -444,6 +504,8 @@ def register(
     if runtime is None:
         runtime = create_runtime(cfg, gate=safetylib.SafetyGate(cfg))
     gate = runtime.gate
+    if remote != local_profile:
+        mcp.add_middleware(ProfileFilter(local_profile, remote, transport, gate))
 
     def _inline_images() -> bool:
         # Per call: the daemon serves local (socket) and HTTP sessions at once.

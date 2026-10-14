@@ -4,6 +4,38 @@
 
 ### Added
 
+- **List and revoke remote clients.** Until now there was no way to see
+  which remote apps held tokens or to cut one off, short of deleting the
+  OAuth database. `pcbridge remote clients` lists the apps that connected
+  through the tunnel by name (ChatGPT, Gemini and so on), how many of their
+  registrations still hold a token and when the tokens expire. `--all`
+  adds names whose tokens have all expired, `--ids` shows each
+  registration, and `--json` is for scripts. `pcbridge remote revoke NAME`
+  deletes every registration of that app together with its access tokens,
+  refresh tokens and pending authorizations, and `--all` does the same for
+  every app. The next call from a revoked app fails with 401, its refresh
+  token stops working, and it has to connect again with the password. No
+  restart is needed, and it works while the daemon is stopped. The terminal
+  UI has a new **Remote** tab with a Revoke button per app and Revoke all;
+  Commands moved from key `5` to `6`. A new password does not end the
+  sessions remote apps already have, because refresh tokens do not depend
+  on it (measured). So `pcbridge set auth.password` now offers to revoke
+  every remote client, or does it at once with `--revoke-remote`, and
+  saving a password in the terminal UI asks the same question. Revocations
+  are written to the audit log, never with a token.
+- **A separate tool profile for remote clients.** `[tools] profile` was
+  global, so a phone connected through Funnel saw `shell_run` and the
+  desktop tools exactly like a local Claude Code. The new
+  `[tools] remote_profile` sets the profile for every client that comes
+  over HTTP, the static token included, while local clients on the socket
+  keep `profile`. The default, `same`, follows `profile`, so nothing
+  changes until it is set. A tool outside the remote profile is left out
+  of `tools/list`, and a call to it by name is refused with a plain error
+  and an audit record. Hiding alone was measured not to be enough. A new
+  `readonly` profile, valid for both settings, offers only the 12 tools
+  that change nothing: job status and output, file reads, tmux capture,
+  system status, `system_capabilities` and `screen_info`. `pcbridge tools`
+  shows what remote clients get when the two profiles differ.
 - **Keep the machine awake while jobs run.** With `[power] keep_awake`
   on, the daemon holds a sleep inhibitor while at least one job is running
   and releases it when the last job ends. This stops idle suspend from

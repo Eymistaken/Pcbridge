@@ -248,8 +248,17 @@ def stop(argv: list[str]) -> int:
 
 
 def remote(argv: list[str]) -> int:
-    p = argparse.ArgumentParser(prog="pcbridge remote", description="Open or close remote access through Tailscale Funnel.")
-    p.add_argument("action", choices=["start", "stop", "status"])
+    if argv and argv[0] == "clients":
+        return remote_clients(argv[1:])
+    if argv and argv[0] == "revoke":
+        return remote_revoke(argv[1:])
+    p = argparse.ArgumentParser(
+        prog="pcbridge remote",
+        description="Open or close remote access through Tailscale Funnel; list and revoke remote clients.",
+        epilog="`pcbridge remote clients` lists the remote clients that hold tokens; "
+               "`pcbridge remote revoke NAME` (or --all) cuts them off.",
+    )
+    p.add_argument("action", choices=["start", "stop", "status", "clients", "revoke"])
     args = p.parse_args(argv)
     cfg = _load_cfg()
     if not shutil.which("tailscale"):
@@ -300,6 +309,108 @@ def remote(argv: list[str]) -> int:
         inst.say(f"  If it needs root, run: sudo tailscale funnel --bg {port} off")
         return 1
     inst.ok("remote access closed (local clients keep working)")
+    return 0
+
+
+def _when(ts: float) -> str:
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
+
+
+def remote_clients(argv: list[str]) -> int:
+    from .. import remoteclients as rc
+
+    p = argparse.ArgumentParser(
+        prog="pcbridge remote clients",
+        description="List the remote clients (OAuth apps such as ChatGPT or Gemini) that hold tokens. "
+                    "One line per app name; an app that connected several times has several registrations.",
+    )
+    p.add_argument("--all", action="store_true",
+                   help="Also list names whose every token has expired.")
+    p.add_argument("--ids", action="store_true", help="Show each registration's client id.")
+    p.add_argument("--json", action="store_true")
+    args = p.parse_args(argv)
+    cfg = _load_cfg()
+    groups = rc.clients(cfg.db_path, include_stale=args.all)
+    if args.json:
+        print(json.dumps({"clients": [g.as_dict() for g in groups],
+                          "static_token": bool(cfg.static_token)}, indent=2))
+        return 0
+    if not groups:
+        inst.ok("no remote client holds a token" + ("" if args.all else " (--all lists expired ones too)"))
+    for g in groups:
+        live = len(g.connected)
+        state = (f"{live} connected" if live else "not connected")
+        line = f"{g.name}: {state}, {len(g.registrations)} registration(s), last {_when(g.last_registered)}"
+        if live:
+            line += f", tokens expire {rc.describe_expiry(g.expires)}"
+        if live:
+            inst.ok(line)
+        else:
+            inst.say(f"        {line}")
+        if args.ids:
+            for r in g.registrations:
+                mark = "connected" if r.connected else "expired"
+                inst.say(f"          {r.client_id}  {_when(r.registered)}  {mark}")
+    if groups:
+        inst.say("        `pcbridge remote revoke NAME` cuts one off; --all cuts off every one.")
+    if cfg.static_token:
+        inst.say("        The static token (auth.static_token) is not listed here: anyone who has it can call "
+                 "pcbridge. Replace it with `pcbridge set auth.static_token --generate`.")
+    return 0
+
+
+def _confirm(question: str, yes: bool) -> bool:
+    if yes:
+        return True
+    if not sys.stdin.isatty():
+        inst.fail("not a terminal, so nothing was asked; add --yes to go ahead")
+        return False
+    return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
+
+
+def remote_revoke(argv: list[str]) -> int:
+    from .. import remoteclients as rc
+
+    p = argparse.ArgumentParser(
+        prog="pcbridge remote revoke",
+        description="Cut off a remote client: delete its registration and every token issued to it. "
+                    "Its next call fails, its refresh token stops working, and the app has to "
+                    "connect again with the password. Works whether or not the daemon runs.",
+    )
+    p.add_argument("client", nargs="?",
+                   help="An app name from `pcbridge remote clients` (every registration of that name), "
+                        "or the start of one client id (--ids shows them).")
+    p.add_argument("--all", action="store_true", help="Revoke every remote client.")
+    p.add_argument("--yes", action="store_true", help="Do not ask.")
+    args = p.parse_args(argv)
+    if bool(args.client) == bool(args.all):
+        p.error("give one client name or id, or --all")
+    cfg = _load_cfg()
+    if args.all:
+        regs = rc.registrations(cfg.db_path)
+        if not regs:
+            inst.ok("no remote client is registered; nothing to revoke")
+            return 0
+        live = sum(1 for r in regs if r.connected)
+        if not _confirm(f"Revoke every remote client ({live} connected, {len(regs)} registration(s))?",
+                        args.yes):
+            return 1
+        res = rc.revoke_all(cfg.db_path, cfg.audit_log)
+    else:
+        try:
+            regs = rc.select(cfg.db_path, args.client)
+        except rc.RevokeError as exc:
+            inst.fail(str(exc))
+            return 1
+        name = regs[0].name
+        live = sum(1 for r in regs if r.connected)
+        if not _confirm(f"Revoke {name} ({live} connected, {len(regs)} registration(s))?", args.yes):
+            return 1
+        res = rc.revoke(cfg.db_path, [r.client_id for r in regs], cfg.audit_log)
+    inst.ok(f"revoked {', '.join(res.names) or 'nothing'}: {res.registrations} registration(s), "
+            f"{res.access_tokens} access and {res.refresh_tokens} refresh token(s)")
+    inst.say("        The next call from a revoked app fails; to use pcbridge again it must connect "
+             "again and enter the password.")
     return 0
 
 

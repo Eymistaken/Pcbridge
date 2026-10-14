@@ -187,6 +187,37 @@ def _read_secret(s: S.Setting, args: argparse.Namespace) -> str:
     return first
 
 
+def _offer_revoke(path: Any, args: argparse.Namespace) -> None:
+    """After a new password: offer to end the remote sessions it does not end.
+
+    Refresh tokens do not depend on the password, so an app that connected
+    with the old one keeps working until it is revoked.
+    """
+    from .. import remoteclients as rc
+    from ..config import ConfigError, load_config
+
+    try:
+        cfg = load_config(str(path), check_state=False)
+        live = rc.connected_count(cfg.db_path)
+    except (ConfigError, SystemExit, OSError) as exc:
+        inst.warn(f"could not read the remote clients: {exc}")
+        return
+    if not live:
+        return
+    revoke = args.revoke_remote
+    if not revoke:
+        inst.warn(f"{live} remote client registration(s) still hold tokens from before; a new "
+                  "password does not end them.")
+        if sys.stdin.isatty() and not args.stdin:
+            revoke = input("          Revoke every remote client now? [y/N] ").strip().lower() in ("y", "yes")
+        else:
+            inst.say("          `pcbridge remote revoke --all` ends them.")
+    if revoke:
+        res = rc.revoke_all(cfg.db_path, cfg.audit_log)
+        inst.ok(f"revoked every remote client: {res.registrations} registration(s), "
+                f"{res.refresh_tokens} refresh token(s)")
+
+
 def set_cmd(argv: list[str]) -> int:
     p = argparse.ArgumentParser(
         prog="pcbridge set",
@@ -201,10 +232,15 @@ def set_cmd(argv: list[str]) -> int:
     p.add_argument("value", nargs="?")
     p.add_argument("--stdin", action="store_true", help="Read a secret value from stdin.")
     p.add_argument("--generate", action="store_true", help="Generate a new random secret.")
+    p.add_argument("--revoke-remote", action="store_true",
+                   help="With auth.password: also revoke every remote client, without asking. "
+                        "A new password does not end the sessions remote apps already have.")
     args = p.parse_args(argv)
     ed = _editor()
     try:
         s = ed.setting(args.key)
+        if args.revoke_remote and s.key != "auth.password":
+            raise S.SettingsError("--revoke-remote goes only with auth.password.")
         if s.secret:
             if args.value is not None:
                 raise S.SettingsError(
@@ -230,6 +266,8 @@ def set_cmd(argv: list[str]) -> int:
     inst.ok(f"{s.key} = {S.format_value(s, S.ConfigEditor(result.path).value(s.key))}")
     if s.secret and args.generate:
         inst.say(f"          The new value is in {result.path}; it is not printed.")
+    if s.key == "auth.password":
+        _offer_revoke(result.path, args)
     if s.key == "desktop.enabled" and value is True:
         inst.warn("desktop control is enabled: agents can drive this desktop once they open "
                   "the grant. `pcbridge lock` stops them at any time.")
@@ -275,7 +313,9 @@ def reset_cmd(argv: list[str]) -> int:
 
 def _tool_detail(t: Any) -> None:
     print(f"{_bold(t.name)}  {t.title}")
-    print(_dim(f"{t.group} · {t.state}{' (' + t.note + ')' if t.note else ''} · {', '.join(t.hints())}"))
+    remote = "" if t.remote else " · not offered to remote clients"
+    print(_dim(f"{t.group} · {t.state}{' (' + t.note + ')' if t.note else ''}{remote} · "
+               f"{', '.join(t.hints())}"))
     print()
     for para in t.description.split("\n\n"):
         text = " ".join(para.split())
@@ -321,12 +361,17 @@ def tools_cmd(argv: list[str]) -> int:
     if args.json:
         print(json.dumps([
             {"name": t.name, "title": t.title, "group": t.group, "state": t.state,
+             "remote": t.remote,
              "note": t.note, "hints": t.hints(), "description": t.description,
              "parameters": [p.__dict__ for p in t.params]}
             for t in found], indent=2))
         return 0
     active = sum(1 for t in tools if t.active)
     print(f"profile {cfg.tools_profile}: {active} of {len(tools)} tools offered")
+    if cfg.remote_tools_profile != "same":
+        remote = sum(1 for t in tools if t.remote)
+        print(f"remote_profile {cfg.remote_tools_profile}: {remote} of {len(tools)} tools offered "
+              "to remote (HTTP) clients")
     if not found:
         print("No tool matches.")
         return 1

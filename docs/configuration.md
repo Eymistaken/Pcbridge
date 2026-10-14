@@ -67,7 +67,7 @@ screenshots) are filled in with their 1.x values.
 | `[native]` | `capture` / `input` / `accessibility`: `auto` (native helper when packaged), `rust` (the helper, or fail) or `python`; `binary_path` |
 | `[desktop]` | `enabled` (**false** by default), grant length and sliding window, the idle guard, rate limit, pointer speed, hold limit, screenshot scaling (`screenshot_scale_long_edge = 1536`, `screenshot_max_pixels`), shot lifetimes, the capture backend, batch budget and focus checks, OCR languages, `computer_task` agent |
 | `[agents.<name>]` | a coding agent: command, resume syntax, output parser, `pty`, models, efforts, aliases |
-| `[tools]` | `profile`: `full` (default), `core`, `desktop` |
+| `[tools]` | `profile`: `full` (default), `core`, `desktop`, `readonly`; `remote_profile`: the set for HTTP (remote) clients, `same` (default) follows `profile` |
 
 On KDE Plasma no new setting is needed. Three existing ones matter there:
 capture works only through the native helper (`[native] capture` `auto` or

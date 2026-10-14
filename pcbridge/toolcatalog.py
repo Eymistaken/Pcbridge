@@ -43,6 +43,7 @@ class ToolInfo:
     params: tuple[Param, ...]
     active: bool          # offered by the configured [tools] profile
     note: str             # why it is not usable now, "" when it is
+    remote: bool = True   # offered to remote (HTTP) clients by [tools] remote_profile
 
     @property
     def state(self) -> str:
@@ -106,6 +107,7 @@ def _registered(cfg: Any) -> list[Any]:
             cfg,
             state_dir=Path(tmp),
             tools_profile="full",
+            remote_tools_profile="same",
             desktop=dataclasses.replace(cfg.desktop, enabled=False),
         )
         mcp = FastMCP(name="pcbridge")
@@ -118,9 +120,10 @@ def _registered(cfg: Any) -> list[Any]:
 
 def build(cfg: Any) -> list[ToolInfo]:
     """Every tool, marked with what the given config offers."""
-    from .tools import DESKTOP_TOOLS, tools_in_profile
+    from .tools import DESKTOP_TOOLS, remote_profile, tools_in_profile
 
     offered = tools_in_profile(getattr(cfg, "tools_profile", "full"))
+    offered_remote = tools_in_profile(remote_profile(cfg))
     desktop_on = bool(cfg.desktop.enabled)
     out = []
     for t in _registered(cfg):
@@ -141,6 +144,7 @@ def build(cfg: Any) -> list[ToolInfo]:
             params=_params(t.parameters),
             active=active,
             note=note,
+            remote=t.name in offered_remote,
         ))
     order = {g: i for i, g in enumerate(GROUPS)}
     return sorted(out, key=lambda i: (order[i.group], i.name))

@@ -103,7 +103,9 @@ COMMANDS: list[tuple[str, str, str, str]] = [
      "Stop idle suspend while jobs run ([power] keep_awake, off by default); alone, show the state."),
     ("Service", "doctor", "doctor [--fix]", "Check everything and say what to fix (--json)."),
     ("Service", "report", "report", "Write a sanitized bug-report bundle."),
-    ("Remote access", "remote", "remote start|stop|status", "Remote access through Tailscale Funnel."),
+    ("Remote access", "remote", "remote start|stop|status|clients|revoke",
+     "Remote access through Tailscale Funnel; `clients` lists the remote apps that hold tokens, "
+     "`revoke NAME` or `revoke --all` cuts them off."),
     ("Setup", "setup", "setup", "Install or update pcbridge for this user: config, service, extension, clients, aliases."),
 
     ("Setup", "uninstall", "uninstall [--purge]", "Remove pcbridge for this user (--purge also trashes config and state)."),

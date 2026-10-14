@@ -184,7 +184,8 @@ class PcbridgeApp(App):
         Binding("2", "show_tab('settings')", "Settings", show=False),
         Binding("3", "show_tab('tools')", "Tools", show=False),
         Binding("4", "show_tab('connections')", "Connections", show=False),
-        Binding("5", "show_tab('commands')", "Commands", show=False),
+        Binding("5", "show_tab('remote')", "Remote", show=False),
+        Binding("6", "show_tab('commands')", "Commands", show=False),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -201,6 +202,7 @@ class PcbridgeApp(App):
 
     def compose(self) -> ComposeResult:
         from .connections_pane import ConnectionsPane
+        from .remote_pane import RemotePane
         from .settings_pane import SettingsPane
         from .tools_pane import ToolsPane
 
@@ -214,6 +216,8 @@ class PcbridgeApp(App):
                 yield ToolsPane(classes="pane")
             with TabPane("Connections", id="connections"):
                 yield ConnectionsPane(classes="pane")
+            with TabPane("Remote", id="remote"):
+                yield RemotePane(classes="pane")
             with TabPane("Commands", id="commands"):
                 yield CommandsPane(classes="pane")
         yield Footer()
@@ -432,6 +436,30 @@ class PcbridgeApp(App):
             lines.append(_row("Config", self.cfg_error or "not loaded"))
         lines.append(_row("Install", str(info.get("install", "unknown"))))
         self.query_one("#overview-body", Static).update(Text("\n").join(lines))
+
+    # -- remote clients after a new password ------------------------------------------------
+
+    def offer_revoke_after_password(self) -> None:
+        """A new password does not end the sessions remote apps already have; offer to."""
+        self._count_remote_worker()
+
+    @work(thread=True, exclusive=True, group="remote-count")
+    def _count_remote_worker(self) -> None:
+        try:
+            live = self.backend.connected_remote(self.cfg)
+        except Exception:  # noqa: BLE001 - the offer is optional
+            return
+        if live:
+            self.post(self._offer_revoke, live)
+
+    @while_mounted
+    def _offer_revoke(self, live: int) -> None:
+        from .remote_pane import RemotePane
+
+        self.query_one(RemotePane).confirm_revoke_all(
+            f"The new password does not end the sessions remote apps already have: {live} "
+            "registration(s) still hold tokens.\n\nRevoke every remote app now? Each has to connect "
+            "again with the new password.")
 
     # -- restart --------------------------------------------------------------------------
 

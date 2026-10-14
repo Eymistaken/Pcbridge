@@ -71,6 +71,13 @@ class FakeBackend(Backend):
     def clients(self):
         return []
 
+    def remote_clients(self, cfg):
+        return {"clients": [], "registrations": 0, "static_token": False,
+                "remote_profile": "core", "remote_profile_set": False}
+
+    def connected_remote(self, cfg):
+        return 0
+
 
 def run(coro):
     return asyncio.run(coro)

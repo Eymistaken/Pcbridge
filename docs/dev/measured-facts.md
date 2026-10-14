@@ -15,6 +15,37 @@ The completed development journals were folded into canonical documents;
 git history keeps their chronology. Entries below retain the evidence known
 at each stage. Later measurements supersede earlier pending-work statements.
 
+## Remote clients, revocation and the password (2026-10-14)
+
+Measured with unreleased code against a throwaway daemon (temp config, state
+directory, socket and HTTP port; `tests/integration/test_remote_access.py`),
+not the installed one.
+
+- **A new password does not end existing sessions.** Two clients authorized
+  with the old password; `pcbridge set auth.password` and a daemon restart
+  later, both refresh tokens still returned 200 with a new access token.
+  Refresh tokens are rows in `oauth.db` and never consult the password.
+  So `pcbridge set auth.password` (and the terminal UI's Save) now offers to
+  revoke every remote client.
+- **Revocation takes effect on the next call, with no restart.** After
+  `pcbridge remote revoke NAME --yes` the client's next `/mcp` request got
+  401 `invalid_token`, and its refresh got 401 `invalid_client` (the
+  registration is gone too). The daemon reads `oauth.db` on every request
+  (`load_access_token`), and the CLI changes the file directly, so it works
+  with the daemon stopped as well.
+- **Hiding a tool is not enough.** With `remote_profile = "readonly"` and
+  only the `tools/list` filter (the call check disabled), `shell_run` was
+  still callable by name over HTTP and ran `echo leaked`. The profile
+  filter therefore refuses calls as well; the refusal is an `isError`
+  result and an audit record `tool_refused` with the tool name only.
+- **What the live database held.** On 2026-10-14 the maintainer's
+  `oauth.db` had 298 registrations: 200 named "Google", 97 "Gemini Spark
+  (test)" and 1 "ChatGPT", 190 of them with an unexpired token (refresh
+  tokens live 90 days). Nearly all come from `tests/test_e2e.py`, which
+  registers clients on the live daemon and never revokes them. That is
+  why `pcbridge remote clients` groups by app name and hides names whose
+  every token has expired.
+
 ## File tools through remote MCP (2026-10-04)
 
 PcBridge 2.5.0 was probed through the remote MCP tools with a closed desktop

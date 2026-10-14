@@ -705,7 +705,16 @@ restricted_models = [
 # "full"     every tool (default; the same set as pcbridge 1.x)
 # "core"     no desktop tools: agents, jobs, shell, files, tmux, status
 # "desktop"  the desktop tools plus job and status tools
+# "readonly" only tools that change nothing: job status and output, file
+#            reads, tmux capture, system status
 # A smaller set saves the client's context. Read at startup only: clients
 # cache the tool list, so restart pcbridge and the client after a change.
 [tools]
 profile = "full"
+# The profile for remote clients: everything that comes over HTTP, through
+# the tunnel or not, the static token included. Local clients on the socket
+# keep `profile`. "same" (default) follows `profile`; otherwise one of the
+# profiles above. A call to a tool outside it is refused. "readonly" or
+# "core" keeps a lost phone or a leaked password from running commands or
+# driving the desktop.
+remote_profile = "same"

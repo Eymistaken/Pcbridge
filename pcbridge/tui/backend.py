@@ -115,3 +115,43 @@ class Backend:
             backup.write_rollback()
             detail += f" (backup in {backup.root})"
         return status, detail
+
+    def remote_clients(self, cfg: Any) -> dict:
+        """The remote apps that hold tokens, and what the HTTP path offers."""
+        import time
+
+        from .. import remoteclients as rc
+
+        if cfg is None:
+            raise RuntimeError("the config does not load")
+        groups = rc.clients(cfg.db_path)
+        remote = getattr(cfg, "remote_tools_profile", "same")
+        return {
+            "clients": [{"name": g.name, "connected": len(g.connected),
+                         "registrations": len(g.registrations), "expires": g.expires,
+                         "last": time.strftime("%Y-%m-%d %H:%M", time.localtime(g.last_registered))}
+                        for g in groups],
+            "registrations": len(rc.registrations(cfg.db_path)),
+            "static_token": bool(getattr(cfg, "static_token", "")),
+            "remote_profile": cfg.tools_profile if remote == "same" else remote,
+            "remote_profile_set": remote != "same",
+        }
+
+    def connected_remote(self, cfg: Any) -> int:
+        from .. import remoteclients as rc
+
+        return rc.connected_count(cfg.db_path) if cfg is not None else 0
+
+    def revoke_remote(self, cfg: Any, name: str | None) -> str:
+        """Revoke one app by name, or every one with None; what happened."""
+        from .. import remoteclients as rc
+
+        if cfg is None:
+            raise RuntimeError("the config does not load")
+        if name is None:
+            res = rc.revoke_all(cfg.db_path, cfg.audit_log)
+        else:
+            res = rc.revoke(cfg.db_path, [r.client_id for r in rc.select(cfg.db_path, name)],
+                            cfg.audit_log)
+        return (f"Revoked {', '.join(res.names) or 'nothing'}: {res.registrations} registration(s), "
+                f"{res.refresh_tokens} refresh token(s).")

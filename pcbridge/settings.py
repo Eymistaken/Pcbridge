@@ -127,6 +127,7 @@ _FIXED: dict[str, tuple[str, Any, tuple[str, ...]]] = {
     "native.accessibility": ("choice", "auto", ("auto", "python", "rust")),
     "native.binary_path": ("str", "", ()),
     "tools.profile": ("choice", "full", configlib.TOOL_PROFILES),
+    "tools.remote_profile": ("choice", "same", configlib.REMOTE_TOOL_PROFILES),
 }
 
 _DESKTOP_CHOICES = {
@@ -150,8 +151,20 @@ _HELP = {
         "  full     every tool (default)\n"
         "  core     no desktop tools: agents, jobs, shell, files, tmux, status\n"
         "  desktop  the desktop tools plus job and status tools\n"
+        "  readonly only tools that change nothing: job status and output, file\n"
+        "           reads, tmux capture, system status\n"
         "A smaller set saves the client's context. Restart pcbridge and the "
         "clients after a change: clients cache the tool list."
+    ),
+    "tools.remote_profile": (
+        "Which tools remote clients get: every client that comes over HTTP, through "
+        "the tunnel or not, the static token included. Local clients on the socket "
+        "keep `profile`.\n"
+        "  same     follow `profile` (default)\n"
+        "  full, core, desktop, readonly   as for `profile`\n"
+        "A call to a tool outside it is refused. \"readonly\" or \"core\" keeps a "
+        "lost phone or a leaked password from running commands or driving the desktop. "
+        "Restart pcbridge and the remote clients after a change."
     ),
 }
 
@@ -289,7 +302,8 @@ def registry(agent_names: list[str] | tuple[str, ...] = ()) -> list[Setting]:
     out: list[Setting] = []
     for key, (kind, default, choices) in _FIXED.items():
         section, _, name = key.rpartition(".")
-        restart = RESTART_CLIENTS if key in ("tools.profile", "default_agent") else RESTART_DAEMON
+        restart = (RESTART_CLIENTS if key in ("tools.profile", "tools.remote_profile", "default_agent")
+                   else RESTART_DAEMON)
         if key in _LIVE:
             restart = RESTART_NONE
         out.append(Setting(key, section, name, kind, default, choices,

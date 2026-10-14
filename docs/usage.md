@@ -133,9 +133,18 @@ the cheapest way to find a known label in an app with no accessibility tree.
 ## Profiles
 
 `[tools] profile` in the config offers a smaller set to save the client's
-context: `full` (default, all 37), `core` (21, no desktop tools) or `desktop`
-(23: the desktop tools plus job and status tools). It is read at startup;
-restart pcbridge and the client after changing it.
+context: `full` (default, all 37), `core` (21, no desktop tools), `desktop`
+(23: the desktop tools plus job and status tools) or `readonly` (12: only
+tools that change nothing, such as job status and output, file reads, tmux
+capture and system status). It is read at startup; restart pcbridge and the
+client after changing it.
+
+`[tools] remote_profile` sets the profile for remote clients, which is every
+client that comes over HTTP. Local clients on the socket keep `profile`.
+`same` (the default) follows `profile`. A remote client does not see the
+other tools, and a call to one of them by name is refused. For example,
+`remote_profile = "readonly"` lets a phone follow jobs and read files but
+not run commands or drive the desktop.
 
 ## From a terminal
 
@@ -159,6 +168,8 @@ also works without it. `pcbridge list` prints them all by group.
 | `pcbridge lock` (`bridgekilit`) | The kill switch: close the grant and stop screen sharing, whichever process opened it |
 | `pcbridge unlock --minutes N` | Open the grant from a terminal |
 | `pcbridge remote start/stop/status` (`bridgeac`/`bridgekapat`/`bridgedurum`) | The Tailscale Funnel tunnel |
+| `pcbridge remote clients [--all] [--ids] [--json]` | The remote apps that hold tokens, by name |
+| `pcbridge remote revoke NAME` / `--all` | Cut off a remote app (or every one): its registration and tokens are deleted; `--yes` skips the question |
 | `pcbridge logs [-f]` | The daemon's journal |
 | `pcbridge stop [--keep-jobs]` | Stop the daemon (and, unless told otherwise, running jobs) |
 | `pcb-shot`, `pcb-do` | Screenshot and action shells for a local agent's Bash (see `skills/computer-use/SKILL.md`) |
@@ -194,9 +205,13 @@ hold Shift. Piped or run from a script,
   description, hints and parameters.
 - **Connections**: a switch per client (see above), with **Update** for an
   entry that runs an older command.
+- **Remote**: the remote apps that hold tokens, each with **Revoke**, and
+  **Revoke all**; which profile remote clients get. Saving a new password
+  in Settings offers to revoke every remote app, because the password alone
+  does not end their sessions.
 - **Commands**: the table `pcbridge list` prints.
 
-Keys: `1`-`5` switch tabs, `l` lock/unlock, `r` restart the daemon, `q`
+Keys: `1`-`6` switch tabs, `l` lock/unlock, `r` restart the daemon, `q`
 quits (and asks if settings are unsaved).
 
 The GNOME extension's panel icon shows the same state and has "Lock desktop

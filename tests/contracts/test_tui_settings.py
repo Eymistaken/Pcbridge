@@ -88,12 +88,12 @@ class UnreadableConfigTests(unittest.TestCase):
             async with app.run_test(size=SIZE) as pilot:
                 await settle(app, pilot)
                 self.assertEqual({pane.id for pane in app.query(TabPane)},
-                                 {"overview", "settings", "tools", "connections", "commands"})
+                                 {"overview", "settings", "tools", "connections", "remote", "commands"})
                 self.assertIsNone(app.cfg)
                 self.assertTrue(app.query_one("#grant-button").disabled)
                 self.assertIn("No pcbridge config file found", app.cfg_error)
                 self.assertIn("pcbridge setup", str(app.query_one("#settings-message").render()))
-                for tab in ("overview", "settings", "tools", "connections", "commands"):
+                for tab in ("overview", "settings", "tools", "connections", "remote", "commands"):
                     app.query_one(TabbedContent).active = tab
                     await settle(app, pilot)
                     self.assertEqual(app.query_one(TabbedContent).active, tab)

@@ -101,7 +101,7 @@ class RegistryTests(EditorCase):
         cfg = configlib.load_config(str(self.path), check_state=False)
         ed = self.editor()
         attr = {"server.inline_images": cfg.inline_images, "tools.profile": cfg.tools_profile,
-                "power.keep_awake": cfg.keep_awake}
+                "tools.remote_profile": cfg.remote_tools_profile, "power.keep_awake": cfg.keep_awake}
         for s in ed.settings:
             if s.secret or s.key.startswith("paths.") or s.key == "public_url":
                 continue

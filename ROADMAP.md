@@ -21,8 +21,9 @@ here, not by moving sections.
    machine awake while work is running*~~ (done, Unreleased, except the
    optional tunnel part). Small, and they stop silent corruption and frozen
    jobs.
-2. **Remote access safety.** *List and revoke remote clients*; *A separate
-   tool profile for remote access*. Before the browser: browser tools work
+2. **Remote access safety.** ~~*List and revoke remote clients*~~ (done,
+   Unreleased); ~~*A separate tool profile for remote access*~~ (done,
+   Unreleased). Before the browser: browser tools work
    without the desktop grant, so remote clients gain power, and
    `remote_profile` decides whether a phone gets them at all.
 3. **Installation.** *One install script that finds everything itself*,
@@ -175,25 +176,22 @@ at the machine* checks, batched for a session at the machine.
 
 ## Optional: remote access
 
-- **List and revoke remote clients.** `auth.py` has a `/revoke` endpoint,
-  but there is no user-facing way to see which devices and apps hold tokens
-  or to cut one off (a lost phone, ending a ChatGPT connection). Add
-  `pcbridge remote clients`, `pcbridge remote revoke NAME` and
-  `pcbridge remote revoke --all`, and the same list with a revoke action in
-  the terminal UI. Check whether changing the password invalidates existing
-  refresh tokens; if it does not, that makes this item more urgent, and the
-  password change should offer to revoke everything. Done when a client can
-  be revoked by name, its next call fails and its refresh token no longer
-  works, and `--all` does the same for every remote client.
-- **A separate tool profile for remote access.** `[tools] profile` is global:
-  a local Claude Code and a phone over Funnel see the same tools, including
-  `shell_run`, and the remote path is protected only by the password. Add a
-  `[tools] remote_profile` (for example `core` or a read-only set) that
-  applies to the HTTPS path while local clients keep `profile`. This does
-  not change the desktop grant rules; it only decides which tools each path
-  offers. Done when a remote client's `tools/list` follows
-  `remote_profile`, a call to a tool outside it is refused, and local
-  clients are unaffected.
+- **List and revoke remote clients.** Done (Unreleased): `pcbridge remote
+  clients` lists the remote apps by name, `pcbridge remote revoke NAME` and
+  `--all` delete their registrations and tokens, and the terminal UI's
+  Remote tab does the same. A new password does not end existing sessions
+  (measured), so changing it offers to revoke everything. Left: check it
+  once through the real tunnel with a real app (ChatGPT or Gemini) after
+  the next install; the tests used a throwaway daemon on localhost. Also
+  left: `tests/test_e2e.py` registers OAuth clients on the live daemon and
+  never revokes them (298 registrations on 2026-10-14); it should revoke the
+  ones it made when it ends.
+- **A separate tool profile for remote access.** Done (Unreleased):
+  `[tools] remote_profile` (default `same`, following `profile`) decides
+  what every HTTP client gets, the static token included; a new `readonly`
+  profile offers only tools that change nothing. Hidden tools are refused
+  by name too, and the refusal is audited. Left: the same real-tunnel check
+  as above.
 - **Push notification when a job ends.** A remote client has to poll
   `job_status` to learn that a long job finished. An optional notifier (for
   example ntfy) could send the job id, status and a one-line summary to the

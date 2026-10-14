@@ -34,8 +34,24 @@ The difference is real and was chosen knowingly.
 - The password and the static token are generated at setup; do not reuse a
   password from elsewhere. After 8 wrong attempts an IP is locked out for 15
   minutes (`[auth]`).
-- To revoke every issued token: move `state_dir/oauth.db` to the trash and
-  restart pcbridge; remote clients must authorize again.
+- `pcbridge remote clients` lists the remote apps that hold tokens;
+  `pcbridge remote revoke NAME` cuts one off and `pcbridge remote revoke
+  --all` cuts off every one (the terminal UI's **Remote** tab does the same).
+  The registration and every token issued to it are deleted: the next call
+  fails at once, the refresh token stops working, and the app has to
+  connect again with the password. No restart is needed.
+- **A new password does not end existing sessions**: refresh tokens do not
+  depend on it (measured). `pcbridge set auth.password` and the terminal UI
+  offer to revoke every remote client after a password change; after a lost
+  phone or a leaked password, do both.
+- The static token is not an app and is not listed; anyone who has it can
+  call pcbridge. Replace it with `pcbridge set auth.static_token --generate`.
+- `[tools] remote_profile` gives remote clients a smaller tool set than
+  local ones, for example `readonly` (job status and output, file reads,
+  tmux capture, system status) or `core` (no desktop tools). It covers
+  every HTTP request, the static token included; local clients on the
+  socket keep `profile`. A tool outside it is hidden from the list and a
+  call to it by name is refused. The default, `same`, follows `profile`.
 - The screenshot link works **without OAuth**: its 128-bit token is the
   authorization, so a phone browser can open it. Do not forward it. Links
   expire after `shot_ttl_seconds` (5 minutes); the PNGs are swept after
@@ -190,6 +206,7 @@ A client that can see images (Claude Code can) does the same work with
 | Stop the daemon only | `systemctl --user stop pcbridge.service` (jobs live in their own scopes and survive; the socket starts it again on the next client) |
 | Turn desktop control off | `[desktop] enabled = false`, restart pcbridge |
 | Close remote access | `pcbridge remote stop` |
+| Cut off one remote app, or all | `pcbridge remote revoke NAME`, `pcbridge remote revoke --all` |
 
 A key held by an agent is released by `desktop_lock`, by a sequence that
 stops half way, and at the latest after `hold_max_seconds` (120 s).
