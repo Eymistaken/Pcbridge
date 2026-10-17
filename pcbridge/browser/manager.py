@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import paths as pathslib
-from . import snapshot
+from . import snapshot, visibility
 from .cdp import CDPError, Connection, Disconnected
 
 KEEPER = Path(__file__).with_name("keeper.py")
@@ -42,6 +42,10 @@ LAUNCH_FLAGS = [
     "--disable-renderer-backgrounding",
     "--disable-background-timer-throttling",
     "--window-size=1280,900",
+    # Its own application id, so its window is not grouped with the user's
+    # Chrome in the task list, and compositor rules can name it (measured:
+    # Chrome 155 on Wayland uses --class as the app id).
+    "--class=pcbridge-browser",
 ]
 
 CANDIDATES = {
@@ -204,6 +208,9 @@ class BrowserManager:
         except Exception:  # noqa: BLE001 -- a headless machine has no session to repair
             pass
         self.info_path.unlink(missing_ok=True)
+        # Hidden by default: the GNOME extension minimizes the new window
+        # before it is shown when this says so.
+        visibility.write_wanted(self.dir, False)
         proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL, env=env, start_new_session=True,
                                 close_fds=True)
@@ -579,6 +586,24 @@ class BrowserManager:
         await asyncio.sleep(0.3)
         await self.wait_ready(sid, timeout)
         return t, done
+
+    # -- on screen or not ----------------------------------------------------
+    def view(self, action: str, focus: bool = False) -> visibility.View:
+        """Show, hide or report the browser window through the compositor.
+        Sends no input and needs no grant. "show" leaves the focus where it
+        is unless `focus`."""
+        info = self.status()
+        if info is None:
+            return visibility.View(False, note="The pcbridge browser is not running; "
+                                               "browser_navigate starts it (hidden).")
+        backend = visibility.for_session()
+        pid = int(info["browser_pid"])
+        if action == "status":
+            return backend.state(pid)
+        if action not in ("show", "hide"):
+            raise BrowserError(f"Unknown action {action!r}; use show, hide or status.")
+        visibility.write_wanted(self.dir, action == "show")
+        return backend.set(pid, action == "show", focus)
 
     # -- shutting down -------------------------------------------------------
     async def stop(self) -> bool:

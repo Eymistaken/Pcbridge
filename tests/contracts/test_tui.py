@@ -27,6 +27,7 @@ class FakeBackend(Backend):
         self.enabled = enabled
         self.config_error = config_error
         self.open = False
+        self.browser: bool | None = None  # None: the pcbridge browser is not running
         self.calls: list[str] = []
         self.cfg = SimpleNamespace(
             desktop=SimpleNamespace(enabled=enabled, unlock_default_minutes=15),
@@ -53,6 +54,14 @@ class FakeBackend(Backend):
             raise GrantError("disabled")
         self.open = True
         return "Desktop control open for 15 min."
+
+    def browser_shown(self, cfg):
+        return self.browser
+
+    def browser_view(self, cfg, action):
+        self.calls.append(f"browser {action}")
+        self.browser = action == "show"
+        return f"The pcbridge browser is {'on screen' if self.browser else 'hidden'}."
 
     def status(self):
         return {"version": "x", "install": "git", "service": "active", "socket_unit": "active",
@@ -120,6 +129,36 @@ class FrameTests(unittest.TestCase):
 
         run(go())
 
+    def test_the_browser_button_appears_only_with_a_browser_and_toggles_it(self) -> None:
+        backend = FakeBackend()
+
+        async def go():
+            app = PcbridgeApp(backend)
+            async with app.run_test(size=SIZE) as pilot:
+                await settle(app, pilot)
+                button = app.query_one("#browser-button")
+                self.assertFalse(button.display, "no browser, no button")
+                await pilot.press("b")
+                await settle(app, pilot)
+                self.assertEqual(backend.calls, [])
+
+                backend.browser = False
+                await pilot.pause(1.2)
+                self.assertTrue(button.display)
+                self.assertEqual(str(button.label), "Show browser")
+                await pilot.click("#browser-button")
+                await settle(app, pilot)
+                self.assertEqual(backend.calls, ["browser show"])
+                self.assertEqual(str(button.label), "Hide browser")
+                await pilot.press("b")
+                await settle(app, pilot)
+                self.assertEqual(backend.calls, ["browser show", "browser hide"])
+                self.assertEqual(str(button.label), "Show browser")
+                self.assertIn("desktop", text_of(app, "#bar-grant").lower(),
+                              "the grant text keeps its place")
+
+        run(go())
+
     def test_the_key_asks_before_it_unlocks_but_locks_at_once(self) -> None:
         backend = FakeBackend()
 
@@ -182,7 +221,7 @@ class FrameTests(unittest.TestCase):
                 await settle(app, pilot)
                 body = text_of(app, "#overview-body")
                 self.assertIn("pcbridge 9.9, pid 42", body)
-                self.assertIn("core: 29 of 45 tools offered", body)
+                self.assertIn("core: 30 of 46 tools offered", body)
                 self.assertIn("/nowhere/config.toml", body)
 
         run(go())

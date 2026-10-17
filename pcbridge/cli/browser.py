@@ -31,9 +31,11 @@ def status(args: argparse.Namespace) -> int:
     if info is None:
         inst.say(f"The pcbridge browser is not running. Profile: {m.profile}")
         return 0
+    window = m.view("status").describe()
     since = time.strftime("%Y-%m-%d %H:%M", time.localtime(info.get("started_at", 0)))
     inst.ok(f"The pcbridge browser is running: {info.get('executable')} "
             f"(pid {info.get('browser_pid')}, since {since}). Profile: {m.profile}")
+    inst.say(f"  {window}")
     return 0
 
 
@@ -42,6 +44,15 @@ def stop(args: argparse.Namespace) -> int:
         inst.ok("The pcbridge browser is closed; its sign-ins stay in its profile.")
     else:
         inst.say("The pcbridge browser was not running.")
+    return 0
+
+
+def view(args: argparse.Namespace) -> int:
+    v = _manager().view(args.action, getattr(args, "focus", False))
+    if args.action != "status" and not v.found:
+        inst.fail(v.describe())
+        return 1
+    (inst.ok if v.found else inst.say)(v.describe())
     return 0
 
 
@@ -55,5 +66,9 @@ def main(argv: list[str]) -> int:
     s.add_argument("--json", action="store_true")
     s.set_defaults(func=status)
     sub.add_parser("stop", help="Close it cleanly; the sign-ins stay.").set_defaults(func=stop)
+    show = sub.add_parser("show", help="Put its window on screen, without taking focus.")
+    show.add_argument("--focus", action="store_true", help="Also give it keyboard focus.")
+    show.set_defaults(func=view)
+    sub.add_parser("hide", help="Take its window off screen; it keeps working.").set_defaults(func=view)
     args = p.parse_args(argv)
     return args.func(args)

@@ -175,6 +175,31 @@ def register(mcp: FastMCP, manager: BrowserManager, gate: Any, shot_store: Any,
             return f"{done}.\n{page}"
         return await run("browser_navigate", go())
 
+    @mcp.tool(annotations={"title": "Show or hide the browser window"})
+    async def browser_visibility(
+        action: Annotated[Literal["show", "hide", "status"], Field(
+            description="'show' puts the pcbridge browser's window on screen, 'hide' takes it "
+                        "off, 'status' says where it is.")] = "status",
+        focus: Annotated[bool, Field(
+            description="With 'show': also give the window keyboard focus. Off by default, "
+                        "so showing never takes focus from what the user is doing.")] = False,
+    ) -> str:
+        """Show or hide the pcbridge browser's window on the user's screen.
+
+        The browser works hidden (reads, actions and screenshots do not need
+        the window); show it when the user should see or take over a page,
+        for example a captcha or a sign-in. Goes through the compositor,
+        sends no input and needs no desktop control. Does not start the
+        browser."""
+        async def go() -> str:
+            view = await asyncio.to_thread(manager.view, action, focus)
+            gate.audit("browser_visibility", action=action, focus=focus or None,
+                       found=view.found, visible=view.visible if view.found else None)
+            if action != "status" and not view.found:
+                raise BrowserError(view.describe())
+            return view.describe()
+        return await run("browser_visibility", go())
+
     @mcp.tool(annotations={"title": "Click, type or choose on a web page"})
     async def browser_act(
         action: Annotated[Literal["click", "type", "select", "press", "hover", "scroll"], Field(

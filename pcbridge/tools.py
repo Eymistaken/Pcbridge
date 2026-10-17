@@ -346,6 +346,7 @@ TOOL_HINTS: dict[str, tuple[bool, bool, bool, bool]] = {
     "browser_screenshot":   (True,  False, True,  True),
     "browser_navigate":     (False, True,  False, True),
     "browser_act":          (False, True,  False, True),
+    "browser_visibility":   (False, False, True,  False),
 }
 
 
