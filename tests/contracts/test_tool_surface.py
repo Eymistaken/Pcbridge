@@ -55,7 +55,7 @@ class ToolSurfaceTests(unittest.TestCase):
     def test_full_is_the_default_and_every_tool_has_all_four_hints(self) -> None:
         tools = build(None)
         self.assertEqual({t.name for t in tools}, set(toolslib.TOOL_HINTS))
-        self.assertEqual(len(tools), 38)
+        self.assertEqual(len(tools), 40)
         for tool in tools:
             a = tool.annotations
             for hint in ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"):
@@ -67,7 +67,7 @@ class ToolSurfaceTests(unittest.TestCase):
 
     def test_tools_that_drive_the_machine_are_never_read_only(self) -> None:
         drivers = {"shell_run", "shell_run_background", "agent_run", "tmux_send", "tmux_keys",
-                   "fs_write", "fs_edit", "keyboard", "mouse", "computer_batch", "computer_task",
+                   "fs_write", "fs_edit", "fs_upload_link", "keyboard", "mouse", "computer_batch", "computer_task",
                    "ui_click", "ui_set_text", "window_focus", "desktop_unlock", "job_cancel"}
         for name in drivers:
             ro, de, _idem, _ow = toolslib.TOOL_HINTS[name]

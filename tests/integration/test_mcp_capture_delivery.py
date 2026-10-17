@@ -252,7 +252,7 @@ class HttpLinks(unittest.TestCase):
             stores = []
             real_register = toolslib.register
 
-            def register(mcp, cfg, jm, shot_store, transport="http"):
+            def register(mcp, cfg, jm, shot_store, transport="http", link_store=None):
                 stores.append(shot_store)
                 return real_register(
                     mcp,
@@ -261,6 +261,7 @@ class HttpLinks(unittest.TestCase):
                     shot_store,
                     transport=transport,
                     runtime=fixture.fixture_runtime(cfg),
+                    link_store=link_store,
                 )
 
             with mock.patch.object(serverlib.toolsmod, "register", side_effect=register):

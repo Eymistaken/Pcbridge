@@ -65,6 +65,7 @@ screenshots) are filled in with their 1.x values.
 | `[auth]` | password, static token, token lifetimes, failed-attempt lockout |
 | `[paths]` | `state_dir` (grant, jobs, audit log, OAuth DB, shots), `default_workdir` |
 | `[limits]` | output size, job timeouts, `audit_max_bytes` (log rotation) |
+| `[files]` | the one-time file links: `link_ttl_seconds` (300; the time to start a transfer), `upload_max_mb` (512), `download_max_mb` (2048) |
 | `[power]` | `keep_awake` (**false** by default): hold a sleep inhibitor while a job runs; the running daemon re-reads it, no restart |
 | `[native]` | `capture` / `input` / `accessibility`: `auto` (native helper when packaged), `rust` (the helper, or fail) or `python`; `binary_path` |
 | `[desktop]` | `enabled` (**false** by default), grant length and sliding window, the idle guard, rate limit, pointer speed, hold limit, screenshot scaling (`screenshot_scale_long_edge = 1536`, `screenshot_max_pixels`), shot lifetimes, the capture backend, batch budget and focus checks, OCR languages, `computer_task` agent |

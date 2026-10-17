@@ -52,7 +52,8 @@ PROTOCOL_VERSION = "2025-06-18"
 EXPECTED_TOOLS = frozenset(
     """
     agent_run computer_batch computer_task desktop_lock desktop_unlock
-    find_text fs_edit fs_list fs_read fs_search fs_write job_cancel job_list
+    find_text fs_download_link fs_edit fs_list fs_read fs_search fs_upload_link
+    fs_write job_cancel job_list
     job_output job_status keyboard list_agents mouse notify screen_capture
     screen_info shell_run shell_run_background system_capabilities
     system_status tmux_capture tmux_keys tmux_kill tmux_list tmux_send

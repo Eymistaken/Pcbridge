@@ -67,6 +67,7 @@ SECTION_TITLES = {
     "paths": "Paths",
     "limits": "Limits",
     "power": "Power",
+    "files": "File links",
     "native": "Native helper",
     "desktop": "Desktop control",
     "tools": "Tools",
@@ -124,6 +125,9 @@ _FIXED: dict[str, tuple[str, Any, tuple[str, ...]]] = {
     "limits.max_sync_timeout": ("int", 120, ()),
     "limits.audit_max_bytes": ("int", 5_000_000, ()),
     "power.keep_awake": ("bool", False, ()),
+    "files.link_ttl_seconds": ("int", 300, ()),
+    "files.upload_max_mb": ("int", 512, ()),
+    "files.download_max_mb": ("int", 2048, ()),
     "native.capture": ("choice", "auto", ("auto", "python", "rust")),
     "native.input": ("choice", "auto", ("auto", "python", "rust")),
     "native.accessibility": ("choice", "auto", ("auto", "python", "rust")),
@@ -144,6 +148,16 @@ _LIVE = {"power.keep_awake", "auth.password"}
 # Descriptions for keys config.example.toml documents in a block rather than
 # above the key itself.
 _HELP = {
+    "files.link_ttl_seconds": (
+        "Seconds a link from fs_download_link or fs_upload_link stays usable (10-3600). "
+        "The transfer must start within it; a started transfer may finish later. Each "
+        "link works for one complete transfer, and its token is the authorization."
+    ),
+    "files.upload_max_mb": (
+        "The largest file an upload link accepts, in MB (1-16384). An upload must also "
+        "leave 256 MB of free space behind it."
+    ),
+    "files.download_max_mb": "The largest file a download link is made for, in MB (1-16384).",
     "paths.state_dir": (
         "Job records, logs, the grant state and the OAuth database live here. "
         "Empty = $XDG_STATE_HOME/pcbridge (~/.local/state/pcbridge)."
@@ -335,7 +349,8 @@ def registry(agent_names: list[str] | tuple[str, ...] = ()) -> list[Setting]:
                                default, choices, restart=RESTART_CLIENTS,
                                help=_AGENT_HELP.get(f.name, "")))
     # Keep the document order of the fixed sections: top, server, auth, ...
-    order = ["", "server", "auth", "paths", "limits", "power", "native", "desktop", "tools"]
+    order = ["", "server", "auth", "paths", "limits", "files", "power", "native", "desktop",
+             "tools"]
     rank = {s: i for i, s in enumerate(order)}
     return sorted(out, key=lambda s: rank.get(s.section, len(order)))
 

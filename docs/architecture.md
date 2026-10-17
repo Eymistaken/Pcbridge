@@ -54,13 +54,14 @@
 | Layer | Files | Role |
 |---|---|---|
 | Entry points | `server.py`, `daemon.py`, `relay.py`, `cli/` | `pcbridge serve / stdio / setup / doctor / …` |
-| Server | `app.py` | Builds the FastMCP app, the two ASGI shims (`MetadataNormalizer`, `BasicAuthFormShim`, required by Google's OAuth client), routes `/consent`, `/healthz`, `/shot/<token>` |
+| Server | `app.py` | Builds the FastMCP app, the two ASGI shims (`MetadataNormalizer`, `BasicAuthFormShim`, required by Google's OAuth client), routes `/consent`, `/healthz`, `/shot/<token>`, `/dl/<token>`, `/ul/<token>` |
 | Configuration | `config.py`, `paths.py` | TOML -> dataclasses; XDG locations; migration of 1.x files; typed `ConfigError` (exit 78) |
 | Settings | `settings.py`, `toolcatalog.py` | A registry of every setting and an editor that keeps comments (tomlkit), checks with the loader, backs up and writes atomically; the tool catalog from the server's own registration |
 | MCP clients | `cli/connect.py` | Registers `pcbridge stdio` with eight local clients, switches it off or removes it, backs up every file it changes |
 | Terminal UI | `tui/` | `pcbridge` alone in a terminal (Textual): the grant bar, Overview, Settings, Tools, Commands; everything through `tui/backend.py` |
 | Authentication | `auth.py` | A small OAuth 2.1 server (DCR, PKCE, refresh) and consent page, SQLite |
-| Tools | `tools.py` | All 38 MCP tools and their hints (`TOOL_HINTS`); `[tools] profile` |
+| Tools | `tools.py` | All 40 MCP tools and their hints (`TOOL_HINTS`); `[tools] profile` |
+| File links | `filelinks.py` | One-time download and upload links: the in-memory link store, `/dl/<token>` and `/ul/<token>`, the access-log filter that hides their tokens |
 | Session context | `sessionctx.py` | Per-session maps and context variables |
 | Jobs | `jobs.py` | Background processes and agent output parsers (`plain`, `claude_stream_json`, `agy_json`) |
 | Agent selection | `models.py`, `executables.py` | Pure agent/model/effort resolution; finding agent CLIs (PATH, `~/.local/bin`, npm, bun, nvm) |

@@ -182,7 +182,7 @@ class FrameTests(unittest.TestCase):
                 await settle(app, pilot)
                 body = text_of(app, "#overview-body")
                 self.assertIn("pcbridge 9.9, pid 42", body)
-                self.assertIn("core: 22 of 38 tools offered", body)
+                self.assertIn("core: 24 of 40 tools offered", body)
                 self.assertIn("/nowhere/config.toml", body)
 
         run(go())
