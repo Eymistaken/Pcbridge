@@ -1,6 +1,6 @@
 # Using pcbridge
 
-pcbridge offers 45 MCP tools. This page lists them, says which ones need the
+pcbridge offers 46 MCP tools. This page lists them, says which ones need the
 desktop grant, and shows the usual ways to use them. Every tool's own
 description (what a client sees) says when to use it; this is the overview.
 
@@ -199,7 +199,7 @@ the cheapest way to find a known label in an app with no accessibility tree.
 ## Profiles
 
 `[tools] profile` in the config offers a smaller set to save the client's
-context: `full` (default, all 45), `core` (29, no desktop tools), `desktop`
+context: `full` (default, all 46), `core` (30, no desktop tools), `desktop`
 (23: the desktop tools plus job and status tools) or `readonly` (16: only
 tools that change nothing, such as job status and output, file reads and
 download links, browser reads, tmux capture and system status). It is read at startup; restart pcbridge and the
@@ -268,7 +268,7 @@ hold Shift. Piped or run from a script,
   shows or hides the GNOME icon immediately and does not use **Save** or
   require a daemon restart. On KDE Plasma it explains that there is no
   pcbridge panel icon.
-- **Tools**: all 45 tools with their state (`active`, `not in profile`,
+- **Tools**: all 46 tools with their state (`active`, `not in profile`,
   `needs desktop`), a search box that filters by name and description as
   you type, a toggle for the offered ones only, and the selected tool's
   description, hints and parameters.
