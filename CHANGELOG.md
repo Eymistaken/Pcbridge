@@ -19,7 +19,7 @@
   (CDP screencast) and sends taps, typed text and keys to it; the link is
   bound to that one hand-over and ends with it, after 30 minutes or with a
   daemon restart. The notification closes when the browser is given back,
-  from wherever that happens, and when its daemon stops. 47 tools; `core` 31, `readonly` 16. Proved with a
+  from wherever that happens, and when its daemon stops. Proved with a
   two-factor sign-in over HTTP against a throwaway daemon and through a
   real browser at phone size; not yet from a real phone through Funnel.
 - **Showing and hiding the browser window.** The pcbridge browser starts
@@ -58,8 +58,8 @@
   audit log records the action, tab, ref and host, never typed text, page
   content or the rest of the address. `remote_profile = "readonly"` offers
   the three reading tools only. `pcbridge browser status|stop` shows and
-  closes it; `pcbridge stop` closes it too unless `--keep-jobs`. 45 tools;
-  `core` 29, `readonly` 16. Proved against a throwaway daemon over HTTP
+  closes it; `pcbridge stop` closes it too unless `--keep-jobs`. Proved
+  against a throwaway daemon over HTTP
   with OAuth on a fake router panel (sign-in, a status table inside an
   iframe, a settings form saved and confirmed by the server) and by reading
   the real router's sign-in page; a signed-in third-party site is not yet
@@ -84,8 +84,7 @@
   remote_profile` offers the tool, so `readonly` gets download links and
   never upload links. Every link is audited with what was done (path,
   bytes, SHA-256) and never the token or the content, and the access log
-  in the journal no longer shows the token. 40 tools; `core` 24,
-  `readonly` 13. Measured against a throwaway daemon over HTTP and through
+  in the journal no longer shows the token. Measured against a throwaway daemon over HTTP and through
   Funnel's public relay, with curl and with a real Chrome posing as an
   Android phone: 50 MB each way with matching SHA-256 (in Chrome 104 s
   down, 144 s up, the upload page confirming the hash itself), and a second
@@ -130,7 +129,7 @@
   middle of a 6 MB file left every byte before and after it unchanged, and
   a stale hash was refused by both `fs_edit` and `fs_write`.
 - **One install script that finds everything itself.** `install.sh` is now
-  the recommended way to install, and from the next release on it is a
+  the recommended way to install, and from this release on it is a
   release asset: `curl -fsSL .../releases/latest/download/install.sh | sh`.
   The install docs also give the path that downloads it, checks it against
   the release's `sha256sums.txt` and runs it. Run from a release, the
@@ -208,9 +207,10 @@
   changes until it is set. A tool outside the remote profile is left out
   of `tools/list`, and a call to it by name is refused with a plain error
   and an audit record. Hiding alone was measured not to be enough. A new
-  `readonly` profile, valid for both settings, offers only the 12 tools
-  that change nothing: job status and output, file reads, tmux capture,
-  system status, `system_capabilities` and `screen_info`. `pcbridge tools`
+  `readonly` profile, valid for both settings, offers only the tools that
+  change nothing: job status and output, file reads, tmux capture, system
+  status, `system_capabilities` and `screen_info` (16 with this release's
+  browser reads and download links). `pcbridge tools`
   shows what remote clients get when the two profiles differ.
 - **Keep the machine awake while jobs run.** With `[power] keep_awake`
   on, the daemon holds a sleep inhibitor while at least one job is running
