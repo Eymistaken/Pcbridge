@@ -647,6 +647,235 @@ job came from `shell_run_background` through `pcbridge stdio`.
   made every suspend fail with "1 tasks refusing to freeze". That held with
   the daemon stopped too. A VM reset cleared it.
 
+## Browser: attaching to a session (2026-10-17)
+
+Google Chrome 155.0.8059.84 and Brave 155.1.97.59 (Chromium 155.0.8059.85)
+on the reference machine. Every run used a throwaway user data directory,
+and "default profile" means the default *path* under a throwaway `HOME`;
+the maintainer's real Chrome and Brave profiles were neither launched nor
+connected to.
+
+- **Chrome ignores the CDP flags on its default data directory; Brave does
+  not.** Headed, `--remote-debugging-port=0` and `--remote-debugging-pipe`
+  with the default directory gave no CDP in Chrome (stderr: "DevTools remote
+  debugging requires a non-default data directory"), whether the directory
+  was implied or passed explicitly with `--user-data-dir`. Brave honored
+  both flags on its default directory. With any other `--user-data-dir`
+  both browsers gave CDP over the port and over the pipe. Headless runs are
+  not evidence here: without `--user-data-dir`, `--headless=new` uses a
+  temporary profile, so its CDP answered on a directory that was not the
+  default one.
+- **Chrome 144+'s own switch does reach the default profile, with a prompt
+  per connection.** `chrome://inspect/#remote-debugging` stores
+  `devtools.remote_debugging.user-enabled = true` in `Local State`; at the
+  next start the browser listens on 127.0.0.1 (9222, or a random port when
+  that is taken) with no flag on its command line and writes
+  `DevToolsActivePort`. `/json/version` returns 404, so only a client that
+  can read that file finds the WebSocket path. A connection waits at the
+  WebSocket handshake (8 s without an answer: timeout) until a person
+  clicks Allow in a dialog in the browser, and **every** connection asks
+  again: three connections in a row, three dialogs, in Chrome and in Brave
+  alike (the maintainer clicked them; nothing was automated). The
+  maintainer's own Chrome had this switch on (port 9222); pcbridge did not
+  connect to it.
+- **A dedicated profile keeps sign-ins across restarts.** A persistent
+  HttpOnly cookie and a `localStorage` value set before `Browser.close`
+  were there after a relaunch on the same `--user-data-dir`; a session
+  cookie was not (as in a normal profile). Cookie values are stored with
+  the `v11` prefix, the key from the desktop keyring (libsecret), the same
+  as a normal profile. Same results in Chrome and Brave.
+- **The pipe ends the browser.** Closing pcbridge's end of
+  `--remote-debugging-pipe` made Chrome and Brave exit within 0.2 s. A
+  browser whose pipe the daemon holds would therefore die on every daemon
+  restart, taking a half-filled form or an open captcha with it.
+- **Extensions: Chrome 155 ignores `--load-extension`; Brave loads it.**
+  With `--remote-debugging-pipe` plus `--enable-unsafe-extension-debugging`,
+  CDP's `Extensions.loadUnpacked` loaded the unpacked extension in both.
+  That only works in a browser pcbridge launched, where CDP is there anyway;
+  an extension bridge into the user's real profile would have to be
+  installed by hand (developer mode) or through the Chrome Web Store, plus
+  a native-messaging host. Not built or measured end to end.
+- **Wrapping chrome-devtools-mcp 1.11.0** (the copy in the npx cache,
+  attached with `--browserUrl` to a dedicated profile): ready in 0.38 s,
+  32 tools, a 30.8 KB `tools/list`, 171 MiB resident for its Node process.
+  Usage statistics are sent to Google unless `--no-usage-statistics` (and
+  `--no-performance-crux` for trace URLs). Page tools need a `pageId` by
+  default. pcbridge depends on neither Node nor npm. `@playwright/mcp` was
+  not in the cache and was not downloaded; Playwright MCP's own extension
+  mode is the same kind of extension bridge as above.
+- **The chosen path (the maintainer's decision, 2026-10-17): a dedicated
+  pcbridge profile and pcbridge's own CDP layer.** The browser runs on its
+  own `--user-data-dir` under pcbridge's state directory, so the user signs
+  in to a site once there and the sign-in stays. CDP goes over
+  `--remote-debugging-pipe`, which opens no TCP port another local process
+  could use; the pipe is held by a small keeper process in its own systemd
+  scope, so a daemon restart does not end the browser. The window is the
+  keeper's child, found by that PID, never by application name. Chrome is
+  preferred, then Brave, then Chromium (`[browser] executable = "auto"`).
+  The user's real profile through the inspect switch was turned down: a
+  dialog for every connection makes a phone or a restarted daemon unable to
+  continue, the user's own windows share the PID that show and hide would
+  act on, and the agent would work inside the user's own browser. This
+  meets the roadmap's "existing session" as the pcbridge profile's session,
+  not as the user's everyday profile. `scripts/dev/browser-probe.py`
+  repeats the measurements above that need no person at the machine.
+
+## Browser tools (2026-10-17)
+
+Chrome 155, headless on a throwaway profile, through the browser tools.
+
+- **A frame's content is not in its parent's accessibility tree.**
+  `Accessibility.getFullAXTree` of the main frame gave the iframe as an
+  `Iframe` node with no children; its table came only from a second call
+  with the child's `frameId`, placed under the owner found with
+  `DOM.getFrameOwner`. A cross-origin frame cannot be read from the page's
+  session and is named instead.
+- **A password field is a plain `textbox` in the tree** (no property sets
+  it apart). `DOMSnapshot.captureSnapshot`'s `type` attribute is what marks
+  it, so the outline masks its value and `browser_act` refuses to type
+  into it by the DOM node, not by the tree.
+- **An old node can still be described after a navigation.**
+  `DOM.describeNode` on a backend id from the page before a form submit
+  still answered, and a click on it failed with "Node does not have a
+  layout object". Only `isConnected` on the resolved node tells it left the
+  document, so a stale ref is refused as "gone" by that check.
+- **The browser outlived the daemon.** In the integration test the same tab
+  id was listed before and after a daemon restart, still signed in; after
+  `pcbridge browser stop` (Browser.close) and a new start, the fake
+  router's persistent session cookie still signed the browser in.
+- **A real router (Tenda, 192.168.0.1), read only:** its sign-in page came
+  back as a password field and a button with refs, and a non-blank
+  1280x813 screenshot. Its icon font draws the globe and the lock as
+  private-use characters (U+E60F, U+E610) in text nodes, which gave empty
+  lines until characters of categories Co and Cf were dropped. Not signed
+  in: the password is the maintainer's.
+- **Desktop gate independence, over HTTP with OAuth** against a throwaway
+  daemon (`tests/integration/test_browser_http.py`): reads and actions,
+  including a form saved and confirmed by the fake router, worked with
+  `[desktop] enabled = false`, with it true after `desktop_lock`, and with
+  an expired lease in `desktop_unlock.json`; `ui_dump` was refused in each
+  state. The audit log held the host and actions, and none of the typed
+  password or network name, the iframe's firmware string, the device
+  table or the address path.
+
+## The browser window: show and hide (2026-10-17)
+
+GNOME 46 in a nested shell (`scripts/dev/browser-nested.py`: its own
+`dbus-run-session`, `XDG_DATA_HOME` with only this checkout's extension, a
+1280x900 dummy monitor), Chrome 155 headed, a GTK window standing in for
+the user's work and holding focus. Window state was sampled every 50 ms.
+
+- **`--class` sets the Wayland app id.** Chrome 155 with
+  `--class=pcbridge-browser` reported that as its app id (without it,
+  `google-chrome`, grouped with the user's Chrome). pcbridge launches with
+  it.
+- **Mutter 14 cannot take another client's window off the task list.** Its
+  typelib has `is_skip_taskbar` and no setter; `minimize`, `unminimize`,
+  `activate` and `get_pid` are there. So on GNOME a hidden window is a
+  minimized one, listed as "pcbridge-browser". The roadmap asked for it to
+  be kept off the task list; on GNOME that is not possible without patching
+  the Shell's own window lists, so it was not done.
+- **Starting hidden works when the extension minimizes the window in
+  `window-created`.** Over 21-25 samples while the browser started, the
+  window was never visible or focused, and the user's window kept focus.
+- **A hidden window keeps working.** Minimized, with the three
+  anti-throttling flags: a page loaded, `browser_act` typed into a field
+  (value checked through the DOM), and CDP screenshots had 251-252 gray
+  levels (not blank).
+- **A window minimized at creation takes focus when first shown.** With no
+  other window, an un-minimize without `activate` left it unfocused for the
+  call and focused it about 0.5 s later; a second show did not. Mutter
+  treats the first show as a new window's map. The extension therefore
+  watches the focus for 2 s after a show without focus and gives it back to
+  the window that had it. With the user's window present, focus stayed
+  there at +0.5, +1 and +2.5 s.
+- **A guard must end when the next request comes.** A show with focus 1 s
+  after a show without focus was taken back by the earlier guard until
+  every request released it first.
+- **`activate()` needs a real timestamp from D-Bus.**
+  `global.get_current_time()` is 0 outside an input event and Mutter did not
+  focus with it; `global.display.get_current_time_roundtrip()` worked.
+- **The nested shell does not always come up** within 20 s (two runs of
+  about ten); the script waits 60 s and prints the extension's log lines
+  when it gives up.
+
+KDE Plasma 6.7.5 and Hyprland 0.56.2 (Lua config provider) in the Arch test
+VMs, Chromium 154 installed on a throwaway overlay of each disk,
+`scripts/dev/browser-vm-check.py` with a KWrite or foot window holding focus.
+
+- **Plasma: a one-shot KWin script does all of it.** `minimized`,
+  `skipTaskbar`, `skipPager` and `skipSwitcher` are writable from a
+  script, and a window's `pid` is readable, so a hidden browser is also off
+  the task bar and the window switcher. To hide the first window of a
+  starting browser the script waits on `workspace.windowAdded`; while the
+  first version wrote its answer to a null object, the window came up
+  visible and focused (7 of 7 samples). Fixed: never visible or focused.
+- **Plasma: a show without focus kept KWrite focused** at +0.5, +1 and
+  +2.5 s, also for the first show; a show with focus focused the browser;
+  hide gave focus back. Hidden: typing worked and screenshots had 249 gray
+  levels.
+- **Hyprland 0.56.2 with the Lua provider takes Lua dispatchers.**
+  `hl.dsp.window.move({window="address:0x...", workspace="special:pcbridge",
+  follow=false})` answered `ok` and moved that window without changing the
+  active workspace; `hl.dsp.focus({window="address:..."})` focused it.
+  `hyprctl eval` runs Lua; `hl.window_rule({match = {class =
+  "^(pcbridge-browser)$"}, workspace = "special:pcbridge silent",
+  no_initial_focus = true})` was accepted (again with the same name too). A
+  workspace id must be a Lua number, a name a string.
+- **Hyprland: with that rule the starting browser was never visible or
+  focused** (29 samples with a window); hidden it typed and gave 249 gray
+  levels; a show without focus kept foot focused, a show with focus focused
+  the browser, hide gave focus back. The hyprlang provider was not
+  measured: there pcbridge only moves the window once it appears.
+
+## Handing the browser over (2026-10-17)
+
+Against throwaway daemons with a fake router whose sign-in ends in a
+two-factor page (`tests/integration/test_browser_http.py`, and a run driven
+by hand).
+
+- **Nothing an agent sends lands while the user has the browser.** After
+  `browser_handoff`, `browser_act`, `browser_navigate` and hiding answered
+  `USER_HAS_CONTROL` (in `structuredContent.error.code`) and the site
+  received no request; `browser_read` worked.
+- **A phone page drives it.** A real browser at 375x812 opened the
+  take-over link: the CDP screencast showed the two-factor page (500x828
+  frames, about 20 KB of base64 each); the code typed into the page's box
+  and sent, then Enter, signed the browser in (the site got `POST /2fa`); a
+  tap on a link in the frame followed it once aimed inside the link (a tap
+  6 px above it, from an estimated position, did nothing, as on the page
+  itself); "Give it back to the agent" returned control, after which the
+  link answered 404 and the agent's actions landed again. The audit log
+  held neither the code nor the token.
+- **A tap blurs a focused field.** In the first automated run a tap on the
+  page's empty top edge before typing took the focus off the two-factor
+  field, and the code went nowhere; a person taps the field first.
+- **The screencast sends a frame only when the page changes** (and one at
+  the start); the page shows the last one until then.
+- **The at-machine controls** (`pcbridge browser pause` / `resume`, the
+  terminal UI's button) were checked in the same test and in the terminal
+  UI's contract tests. The GNOME panel menu's two items were not clicked:
+  they need the new extension, which loads only after a log-out.
+- **At the machine, on the real GNOME 46 session** (a throwaway daemon and
+  headed browser, real input through pcbridge's desktop tools): the
+  hand-over's notification appeared with its "Give it back to the agent"
+  button; the code typed into the browser window signed it in; the button
+  (in the notification list, as the banner had gone) gave control back,
+  and the agent read the signed-in page.
+- **A notification outlived its hand-over.** Banners from earlier test
+  daemons stayed on screen, and their `notify-send --wait` processes kept
+  running after the daemons had exited, so their buttons did nothing.
+  `notify-send -p --wait` prints the id only when it exits (also with
+  `stdbuf -oL`), so the hand-over could not close its own notification.
+  pcbridge now sends it through a small system-python helper
+  (`browser/notice.py`) that prints the id at once and closes the
+  notification when its daemon goes away; giving the browser back from
+  anywhere closes it by that id.
+- **Chrome offered to save the password** the agent had typed (with
+  `allow_password_fields = true`) in the pcbridge profile. In a hidden
+  window the bubble is never seen and nothing is saved; shown, it is the
+  user's choice.
+
 ## GNOME Shell extension
 
 - **GNOME 45+ caches extension ESM modules.** `disable/enable` does not

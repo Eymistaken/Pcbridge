@@ -153,6 +153,8 @@ class CapabilityContractTests(unittest.TestCase):
                 "GRANT_EXPIRED",
                 "REVOKED",
                 "SCREEN_LOCKED",
+                # The browser's hand-over gate (stage 6), shaped like SCREEN_LOCKED.
+                "USER_HAS_CONTROL",
                 "LOCK_STATE_UNKNOWN",
                 "USER_ACTIVE",
                 "ACTIVITY_UNKNOWN",

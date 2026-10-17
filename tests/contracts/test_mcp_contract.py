@@ -29,6 +29,13 @@ from pcbridge.shots import ShotStore  # noqa: E402
 
 EXPECTED_TOOL_NAMES = [
     "agent_run",
+    "browser_act",
+    "browser_handoff",
+    "browser_navigate",
+    "browser_read",
+    "browser_screenshot",
+    "browser_tabs",
+    "browser_visibility",
     "computer_batch",
     "computer_task",
     "desktop_lock",
@@ -72,6 +79,13 @@ EXPECTED_TOOL_NAMES = [
 
 EXPECTED_ANNOTATIONS = {
     "agent_run": {"title": "Send a prompt to a coding agent", "readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True},
+    "browser_act": {"title": "Click, type or choose on a web page", "readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True},
+    "browser_handoff": {"title": "Hand the browser to the user", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+    "browser_navigate": {"title": "Open or move between web pages", "readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True},
+    "browser_read": {"title": "Read a web page", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
+    "browser_screenshot": {"title": "Screenshot a web page", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
+    "browser_tabs": {"title": "List the browser's tabs", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
+    "browser_visibility": {"title": "Show or hide the browser window", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
     "computer_batch": {"title": "Run several actions in one go", "readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True},
     "computer_task": {"title": "Let a local agent drive the screen", "readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True},
     "desktop_lock": {"title": "Stop desktop control", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},

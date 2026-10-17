@@ -1,9 +1,11 @@
 /* Narrow GNOME Shell window surface for pcbridge.
  *
- * The exported D-Bus interface intentionally has two custom methods: one
- * activates an already-open window, the other names the window that has
- * focus (step 8.1). It never lists, moves, resizes, or closes windows. Every
- * call rereads the desktop grant before touching the compositor.
+ * The exported D-Bus interface activates an already-open window and names
+ * the window that has focus (step 8.1); both reread the desktop grant
+ * before touching the compositor. Three more methods (stage 6) hide, show
+ * and describe the pcbridge browser's own windows, found by the pid in its
+ * keeper's record; they need no grant and touch no other window. Nothing
+ * here moves, resizes or closes a window.
  */
 
 import Gio from 'gi://Gio';
@@ -27,6 +29,21 @@ const INTERFACE_XML = `
       <arg name="wm_class" type="s" direction="out"/>
       <arg name="app_id" type="s" direction="out"/>
       <arg name="title" type="s" direction="out"/>
+    </method>
+    <method name="BrowserState">
+      <arg name="found" type="b" direction="out"/>
+      <arg name="visible" type="b" direction="out"/>
+      <arg name="focused" type="b" direction="out"/>
+    </method>
+    <method name="SetBrowserVisible">
+      <arg name="visible" type="b" direction="in"/>
+      <arg name="focus" type="b" direction="in"/>
+      <arg name="found" type="b" direction="out"/>
+      <arg name="visible_now" type="b" direction="out"/>
+      <arg name="focused" type="b" direction="out"/>
+    </method>
+    <method name="BrowserWindows">
+      <arg name="windows" type="a(ssbb)" direction="out"/>
     </method>
     <property name="Version" type="s" access="read"/>
   </interface>
@@ -110,7 +127,7 @@ function shellWindows() {
         .filter(Boolean);
 }
 
-/** Own and implement the extension's single custom D-Bus method. */
+/** Own and implement the extension's D-Bus methods. */
 export class WindowControl {
     constructor(state, {
         listWindows = shellWindows,
@@ -118,8 +135,10 @@ export class WindowControl {
         focusedWindow = () => global.display.focus_window,
         onActivated = null,
         version = '',
+        browser = null,
     } = {}) {
         this._state = state;
+        this._browser = browser;
         this._version = String(version);
         this._listWindows = listWindows;
         this._currentTime = currentTime;
@@ -196,6 +215,35 @@ export class WindowControl {
         } catch (error) {
             console.warn(`[pcbridge-gorunur] could not activate the window: ${error}`);
             return false;
+        }
+    }
+
+    /** The pcbridge browser's windows (browserwindow.js). No grant: they
+     * act only on that browser's own windows and send no input. */
+    BrowserState() {
+        try {
+            return this._browser?.state() ?? [false, false, false];
+        } catch (error) {
+            console.warn(`[pcbridge-gorunur] browser state: ${error}`);
+            return [false, false, false];
+        }
+    }
+
+    SetBrowserVisible(visible, focus) {
+        try {
+            return this._browser?.setVisible(Boolean(visible), Boolean(focus)) ?? [false, false, false];
+        } catch (error) {
+            console.warn(`[pcbridge-gorunur] browser visibility: ${error}`);
+            return [false, false, false];
+        }
+    }
+
+    BrowserWindows() {
+        try {
+            return this._browser?.describe() ?? [];
+        } catch (error) {
+            console.warn(`[pcbridge-gorunur] browser windows: ${error}`);
+            return [];
         }
     }
 

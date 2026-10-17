@@ -42,9 +42,12 @@ here, not by moving sections.
    because they share the cursor and conflict design, and checked through
    claude.ai (see measured facts). ~~*Download and upload links for large
    files*~~ (done, Unreleased).
-6. **Browser.** In this order: measure *Attaching to the existing session*,
-   then *Browser tools for the user's existing session*, *Show and hide the
-   browser window on demand*, *Taking over the agent's browser*.
+6. **Browser.** In this order: ~~measure *Attaching to the existing
+   session*~~ (done: a dedicated pcbridge profile, see measured facts),
+   ~~*Browser tools for the user's existing session*~~ (done, Unreleased),
+   ~~*Show and hide the browser window on demand*~~ (done, Unreleased),
+   ~~*Taking over the agent's browser*~~ (done, Unreleased). Left: the
+   checks each item lists.
 7. **More desktops.** *Retire the legacy Python desktop backends* first,
    then *X11, starting with Cinnamon and XFCE*, written straight into the
    native helper instead of added to Python and moved later.
@@ -152,79 +155,57 @@ at the machine* checks, batched for a session at the machine.
 
 ## Optional: browser control
 
-- **Browser tools for the user's existing session.** Connect to the user's
-  existing Chrome/Brave session and preserve its signed-in state. List and
-  select tabs, open URLs and navigate, read DOM/accessibility snapshots
-  including forms and tables, and click, type or select using observed page
-  elements. Read the resulting page state after each action, with screenshots
-  available when needed. Support local web interfaces such as router admin
-  pages so an agent can inspect them without reverse-engineering their login
-  JavaScript and API requests. Browser tools are a non-desktop capability,
-  like file, shell and agent tools: browser reads, page actions and browser
-  screenshots must work without `desktop_unlock`, without an active desktop
-  grant, and independently of `[desktop] enabled`. `desktop_lock` and desktop
-  grant expiry must not stop browser access. Use normal MCP/session
-  authentication and tool availability, and audit action metadata without
-  recording passwords or sensitive page content. Preserve the user's tabs
-  and login sessions when detaching. Done when a local router panel and a
-  signed-in website can be inspected through the existing browser session,
-  actions are verified against fresh state, and browser reads/actions still
-  work with the desktop grant closed, after `desktop_lock`, and after its
-  expiry. This is a requirement for the future browser implementation.
-- **Attaching to the existing session: a known constraint.** Since Chrome
-  136, `--remote-debugging-port` and `--remote-debugging-pipe` are ignored
-  when Chrome runs with its default user data directory, so CDP cannot attach
-  to the user's normal signed-in profile
-  ([Chrome blog](https://developer.chrome.com/blog/remote-debugging-port)).
-  Brave is Chromium-based and probably behaves the same; not measured. If
-  attaching to the default profile turns out to be impossible, two fallbacks
-  keep the requirement above: a dedicated pcbridge profile (its own
-  `--user-data-dir` under pcbridge's state directory) where the user signs in
-  once and the logins persist, or a browser extension that bridges the
-  user's real tabs to the daemon, which keeps the existing session but adds
-  an extension to build and maintain. Wrapping an existing browser MCP
-  server (for example Playwright MCP) behind the daemon is worth weighing
-  against writing the CDP layer from scratch. Done when it is measured which
-  of these the supported Chrome and Brave versions allow, and the chosen
-  path is documented in measured facts.
-- **Taking over the agent's browser.** The user must be able to take the
-  browser over at any time (captcha, two-factor steps, a first sign-in, or
-  "let me do this part"), without a GUI application. Hand-over is an
-  explicit state, not a guess: a `browser_handoff` tool (with a reason the
-  user is shown through `notify`) and `pcbridge browser pause` / `resume`.
-  While the user has control, every agent browser action is refused with a
-  `USER_HAS_CONTROL` error, the same pattern as the `SCREEN_LOCKED` gate.
-  Control goes back through the places that already exist: the terminal
-  UI's top bar, the GNOME panel icon menu, the Plasma notification, or the
-  CLI. The agent works in its own window or tab group and never acts on the
-  user's other tabs on its own. For remote take-over (from a phone), the
-  daemon can serve a small `/browser` page behind the existing Funnel and
-  OAuth: frames from CDP `Page.startScreencast`, input through
-  `Input.dispatch*`. That is a web page, not an application, so it fits the
-  no-Tauri direction. Done when a sign-in with a captcha or a 2FA step can be
-  handed to the user and back mid-task, both at the machine and from a
-  phone, with no agent action landing while the user has control.
-- **Show and hide the browser window on demand.** The browser is hidden by
-  default and brought on screen when asked: by the agent (`browser_show` /
-  `browser_hide`, or one `browser_visibility` tool; a hand-over shows it
-  automatically), by `pcbridge browser show` / `hide`, or by a button in the
-  terminal UI's top bar. Headless is not the way: headless or headed is
-  fixed at launch, and relaunching loses page state (a half-filled form, an
-  open captcha), exactly when take-over is needed. Chrome always runs
-  headed, and pcbridge hides and shows its window through the compositor,
-  since a Wayland client cannot move or un-minimize itself: the GNOME
-  extension (hide the window and keep it off the task list), a Hyprland
-  special workspace, a KWin script on Plasma. The window is found by the PID
-  of the Chrome pcbridge started, never by application name, so the user's
-  own Chrome windows are never touched. Showing or hiding sends no input, so
-  like the other browser tools it does not need the desktop grant. Default
-  is show without taking focus; taking focus is a separate option. Chrome
-  throttles hidden windows, so launch with
-  `--disable-backgrounding-occluded-windows`, `--disable-renderer-backgrounding`
-  and `--disable-background-timer-throttling`. Done when, on GNOME, Plasma
-  and Hyprland, the hidden browser keeps loading pages, acting and returning
-  non-blank CDP screenshots, show/hide works from the agent, the CLI and the
-  terminal UI, and showing never steals focus unless asked.
+- ~~**Browser tools for the user's existing session.**~~ Done
+  (Unreleased): `browser_tabs`, `browser_read`, `browser_screenshot`,
+  `browser_navigate`, `browser_act` on a dedicated pcbridge profile (the
+  "existing session" is that profile's, where the user signs in once; see
+  the attach item below for why not the everyday profile). Pages read as an
+  outline with refs, including forms, tables and same-origin frames; every
+  action answers with the fresh page. No desktop gate: proved over HTTP
+  with OAuth against a throwaway daemon with `[desktop] enabled = false`,
+  after `desktop_lock` and with an expired grant, on a fake router panel
+  (`tests/integration/test_browser_http.py`), and by reading the real
+  router's sign-in page. The audit log keeps no typed text or page
+  content; `remote_profile = "readonly"` gets the reads only. Left: a
+  signed-in third-party site and the real router panel after the
+  maintainer signs in once in the pcbridge browser.
+- ~~**Attaching to the existing session: a known constraint.**~~ Measured
+  (2026-10-17, Chrome 155 and Brave 155; see measured facts): Chrome
+  ignores the CDP flags on its default data directory, Brave honors them,
+  and both reach the default profile through the `chrome://inspect` switch
+  only with a dialog a person must click for every connection. The chosen
+  path is a dedicated pcbridge profile (signed in once, logins persist)
+  with pcbridge's own CDP layer over `--remote-debugging-pipe`, the pipe
+  held by a keeper process that outlives a daemon restart. The extension
+  bridge and wrapping chrome-devtools-mcp or Playwright MCP were weighed
+  and not taken.
+- ~~**Taking over the agent's browser.**~~ Done (Unreleased):
+  `browser_handoff` (with a reason, shown in a notification that has a
+  "Give it back" action) and `pcbridge browser pause` / `resume`; while
+  the user has the browser every agent action in it is refused with
+  `USER_HAS_CONTROL` and reads still work; control goes back from the
+  notification, the GNOME panel menu, the terminal UI's top bar, the CLI or
+  the phone page. From a phone: a `/browser/<token>` page behind the
+  tunnel, bound to the one hand-over, with CDP screencast frames and taps,
+  text and keys sent through `Input.dispatch*`. Proved with a two-factor
+  step over HTTP against a throwaway daemon and through a real browser at
+  phone size, and at the machine on GNOME through the notification's
+  button (see measured facts). Left: the GNOME panel menu's items (after a
+  log-out loads the new extension), the notification on Plasma, and the
+  phone check through Funnel on a real phone.
+- ~~**Show and hide the browser window on demand.**~~ Done (Unreleased):
+  hidden by default, shown and hidden by `browser_visibility`, `pcbridge
+  browser show|hide` and the terminal UI's button (b), found by the pid of
+  the browser pcbridge started; showing takes focus only when asked. GNOME
+  through the extension (minimized; Mutter 14 cannot take another
+  client's window off the task list, so it stays there as
+  "pcbridge-browser"), Plasma through a KWin script (also off the task bar
+  and the switcher), Hyprland through `special:pcbridge` and a Lua window
+  rule. Measured on all three (nested GNOME 46, Plasma 6.7.5 and Hyprland
+  0.56.2 in the VMs): a starting browser never seen or focused, loading,
+  acting and non-blank screenshots while hidden, focus kept by the user's
+  window. Left: the GNOME extension of this version on the real session
+  (after a log-out), and Hyprland's hyprlang config provider.
 
 ## Optional: remote access
 

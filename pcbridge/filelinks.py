@@ -301,7 +301,7 @@ class RedactLinkTokens(logging.Filter):
     live tokens for anyone who can read the journal.
     """
 
-    _PATH = re.compile(r"^/(dl|ul)/[^/?\s]+")
+    _PATH = re.compile(r"^/(dl|ul|browser)/[^/?\s]+")
 
     def filter(self, record: logging.LogRecord) -> bool:
         args = record.args

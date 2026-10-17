@@ -128,6 +128,10 @@ _FIXED: dict[str, tuple[str, Any, tuple[str, ...]]] = {
     "files.link_ttl_seconds": ("int", 300, ()),
     "files.upload_max_mb": ("int", 512, ()),
     "files.download_max_mb": ("int", 2048, ()),
+    "browser.executable": ("str", "auto", ()),
+    "browser.profile_dir": ("str", "", ()),
+    "browser.extra_args": ("list", [], ()),
+    "browser.allow_password_fields": ("bool", False, ()),
     "native.capture": ("choice", "auto", ("auto", "python", "rust")),
     "native.input": ("choice", "auto", ("auto", "python", "rust")),
     "native.accessibility": ("choice", "auto", ("auto", "python", "rust")),
@@ -168,7 +172,7 @@ _HELP = {
         "  core     no desktop tools: agents, jobs, shell, files, tmux, status\n"
         "  desktop  the desktop tools plus job and status tools\n"
         "  readonly only tools that change nothing: job status and output, file\n"
-        "           reads, tmux capture, system status\n"
+        "           reads, browser reads, tmux capture, system status\n"
         "A smaller set saves the client's context. Restart pcbridge and the "
         "clients after a change: clients cache the tool list."
     ),

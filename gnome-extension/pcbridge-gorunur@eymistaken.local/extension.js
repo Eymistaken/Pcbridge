@@ -8,8 +8,11 @@
  * `ActivateWindow(hedef) -> bool` açık bir pencereyi öne alır,
  * `FocusedWindow() -> (bool, wm_class, app_id, başlık)` odaktaki pencerenin
  * adını söyler (Adım 8.1: AT-SPI'ın göremediği pencerede odak kontrolü).
- * Pencere listelemez, taşımaz, kapatmaz veya boyutlandırmaz; her çağrıda
- * `desktop_unlock.json` grant'ini yeniden okur.
+ * Bu ikisi her çağrıda `desktop_unlock.json` grant'ini yeniden okur.
+ * Stage 6: `BrowserState`, `SetBrowserVisible`, `BrowserWindows` pcbridge
+ * tarayıcısının KENDİ penceresini (keeper kaydındaki pid) küçültür, geri
+ * getirir, anlatır; grant istemez, girdi göndermez (browserwindow.js).
+ * Pencere taşımaz, kapatmaz veya boyutlandırmaz.
  *
  * GNOME 46 / Wayland. Kod değişince kabuk yeniden başlamalı (ESM önbelleği):
  * geliştirme için `./nested.sh`.
@@ -28,6 +31,7 @@ import {PcbridgeIndicator} from './indicator.js';
 import * as SelfTest from './selftest.js';
 import {UnlockState, defaultStatePath} from './state.js';
 import {StatusWatcher, defaultStatusPath} from './status.js';
+import {BrowserWindows} from './browserwindow.js';
 import {WindowControl} from './windowcontrol.js';
 
 export const LOG = '[pcbridge-gorunur]';
@@ -40,6 +44,7 @@ export default class PcbridgeGorunurExtension extends Extension {
         this._selfTestId = 0;
         this._watchdogId = 0;
         this._windowControl = null;
+        this._browser = null;
         this._status = null;
         this._indicator = null;
         this._shortcut = false;
@@ -61,7 +66,18 @@ export default class PcbridgeGorunurExtension extends Extension {
             const yol = defaultStatePath();
             this._state = new UnlockState(yol, (aktif, until) => this._onState(aktif, until));
             this._state.start();
+            this._browser = new BrowserWindows({
+                listWindows: () => global.get_window_actors()
+                    .map(actor => actor.meta_window).filter(Boolean),
+                focusedWindow: () => global.display.focus_window,
+                // A D-Bus call is not an input event: get_current_time() is 0 there
+                // and Mutter refuses to focus with it (measured, nested GNOME 46).
+                currentTime: () => global.display.get_current_time_roundtrip(),
+                display: global.display,
+            });
+            this._browser.start();
             this._windowControl = new WindowControl(this._state, {
+                browser: this._browser,
                 onActivated: SelfTest.selfTestEnabled()
                     ? (window, target) => SelfTest.reportWindowActivation(window, target)
                     : null,
@@ -89,6 +105,8 @@ export default class PcbridgeGorunurExtension extends Extension {
             this._stopIndicator();
             this._windowControl?.stop();
             this._windowControl = null;
+            this._browser?.stop();
+            this._browser = null;
             this._state?.stop();
             this._state = null;
             // İmleç ÖNCE: gerçek imleci geri vermek her şeyden önce gelir.

@@ -489,6 +489,27 @@ def build_app(cfg: Config, transport: str = "http"):
     async def _upload_receive(request: Request):
         return await filelinkslib.upload_receive(link_store, request)
 
+    # Taking the pcbridge browser over from a phone (browser/remote.py,
+    # docs/security.md "The browser"): outside OAuth like the file links; the
+    # hand-over's token is the authorization.
+    browser = getattr(mcp, "_pcbridge_browser", None)
+    if browser is not None:
+        from .browser import remote as browserremote
+
+        _manager, remote_store = browser
+
+        @mcp.custom_route("/browser/{token}", methods=["GET"], include_in_schema=False)
+        async def _browser_page(request: Request):
+            return await browserremote.page(remote_store, request)
+
+        @mcp.custom_route("/browser/{token}/frames", methods=["GET"], include_in_schema=False)
+        async def _browser_frames(request: Request):
+            return await browserremote.frames(remote_store, request)
+
+        @mcp.custom_route("/browser/{token}/input", methods=["POST"], include_in_schema=False)
+        async def _browser_input(request: Request):
+            return await browserremote.user_input(remote_store, request)
+
     @mcp.custom_route("/", methods=["GET"], include_in_schema=False)
     async def _root(request: Request):
         return PlainTextResponse(

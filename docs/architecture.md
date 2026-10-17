@@ -60,12 +60,13 @@
 | MCP clients | `cli/connect.py` | Registers `pcbridge stdio` with eight local clients, switches it off or removes it, backs up every file it changes |
 | Terminal UI | `tui/` | `pcbridge` alone in a terminal (Textual): the grant bar, Overview, Settings, Tools, Commands; everything through `tui/backend.py` |
 | Authentication | `auth.py` | A small OAuth 2.1 server (DCR, PKCE, refresh) and consent page, SQLite |
-| Tools | `tools.py` | All 40 MCP tools and their hints (`TOOL_HINTS`); `[tools] profile` |
+| Tools | `tools.py` | All 47 MCP tools and their hints (`TOOL_HINTS`); `[tools] profile` |
 | File links | `filelinks.py` | One-time download and upload links: the in-memory link store, `/dl/<token>` and `/ul/<token>`, the access-log filter that hides their tokens |
 | Session context | `sessionctx.py` | Per-session maps and context variables |
 | Jobs | `jobs.py` | Background processes and agent output parsers (`plain`, `claude_stream_json`, `agy_json`) |
 | Agent selection | `models.py`, `executables.py` | Pure agent/model/effort resolution; finding agent CLIs (PATH, `~/.local/bin`, npm, bun, nvm) |
 | Desktop | `desktop/` | Below |
+| Browser | `browser/` | The pcbridge browser: `keeper.py` holds its CDP pipe (it outlives the daemon), `cdp.py`, `snapshot.py` (a page as an outline with refs), `manager.py`, the seven `browser_*` tools (`mcptools.py`) |
 | Native helper | `rust/`, `native/` | `pcbridge-native`: capture, input, accessibility; framed stdio protocol |
 | Extension | `gnome-extension/` | Frame, indicator, two D-Bus methods |
 
@@ -148,8 +149,8 @@ from any process stops it.
 | What | Where |
 |---|---|
 | Config | `~/.config/pcbridge/config.toml` (0600) |
-| State (grant, jobs, audit log, OAuth DB, shots, status.json) | `~/.local/state/pcbridge/` |
-| Socket | `$XDG_RUNTIME_DIR/pcbridge/mcp.sock` |
+| State (grant, jobs, audit log, OAuth DB, shots, status.json, the browser profile) | `~/.local/state/pcbridge/` |
+| Socket | `$XDG_RUNTIME_DIR/pcbridge/mcp.sock`; the browser keeper's `browser-<id>.sock` |
 | User install | `~/.local/share/pcbridge/venv`, `~/.local/bin/pcbridge` |
 | Package install | `/usr/lib/pcbridge/venv`, `/usr/bin/pcbridge` |
 | Units | `~/.config/systemd/user/` (user install) or `/usr/lib/systemd/user/` |

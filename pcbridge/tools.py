@@ -37,6 +37,9 @@ from . import jobs as jobslib
 from . import models as modelslib
 from . import shots as shotslib
 from . import tmuxctl
+from .browser import mcptools as browsermcp
+from .browser import remote as browserremote
+from .browser.manager import BrowserManager
 from .config import Config
 from .desktop import a11y as a11ylib
 from .desktop import apps as appslib
@@ -339,6 +342,13 @@ TOOL_HINTS: dict[str, tuple[bool, bool, bool, bool]] = {
     "mouse":                (False, True,  False, True),
     "computer_batch":       (False, True,  False, True),
     "computer_task":        (False, True,  False, True),
+    "browser_tabs":         (True,  False, True,  True),
+    "browser_read":         (True,  False, True,  True),
+    "browser_screenshot":   (True,  False, True,  True),
+    "browser_navigate":     (False, True,  False, True),
+    "browser_act":          (False, True,  False, True),
+    "browser_visibility":   (False, False, True,  False),
+    "browser_handoff":      (False, False, True,  False),
 }
 
 
@@ -3796,6 +3806,20 @@ def register(
         if wait_seconds > 0:
             return "\n".join(head) + "\n\n---\n" + _fmt_job_summary(cfg, jm, job_id)
         return "\n".join(head)
+
+    # ================================================================ BROWSER
+    # pcbridge/browser/: the pcbridge browser over CDP. Not desktop tools:
+    # they pass no `_guard()`, so the grant and `[desktop] enabled` do not
+    # apply, and they only audit what was done.
+    browser_manager = BrowserManager(cfg, lambda: jm.use_scopes)
+    # Looked up at call time, as the other tools do: a gate is audited when
+    # something happens, not when the tools are registered.
+    browser_remote = browserremote.RemoteStore(browser_manager, cfg.public_url,
+                                               lambda event, **fields: gate.audit(event, **fields))
+    browsermcp.register(mcp, browser_manager, gate, shot_store or shotslib.ShotStore(cfg),
+                        transport, _inline_images, browser_remote)
+    # app.py serves the take-over page (/browser/<token>) with these.
+    mcp._pcbridge_browser = (browser_manager, browser_remote)
 
     # ================================================================== SISTEM
     @mcp.tool(annotations={"title": "Computer status"})

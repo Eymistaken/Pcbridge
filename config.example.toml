@@ -131,6 +131,27 @@ download_max_mb = 2048
 keep_awake = false
 
 
+[browser]
+# The browser tools (browser_tabs, browser_read, browser_navigate, ...)
+# drive a browser pcbridge starts itself, on its own profile; your everyday
+# Chrome or Brave profile is never touched. Sign in to a site once in that
+# browser and the sign-in stays. Like the file and shell tools, they work
+# without desktop control: `[desktop] enabled` and the grant do not apply.
+# "auto" (default): Google Chrome, then Brave, then Chromium. Or one of
+# "chrome", "brave", "chromium", or the path to the executable.
+executable = "auto"
+# The browser's profile directory. Empty (default) =
+# <state_dir>/browser/profile.
+profile_dir = ""
+# Extra command-line arguments for the browser, for example
+# ["--lang=en-US"].
+extra_args = []
+# Let browser_act type into password fields. Off by default: page reads
+# always mask password values, and typing into one is refused unless this
+# is true.
+allow_password_fields = false
+
+
 # ---------------------------------------------------------------------------
 # NATIVE DESKTOP HELPER
 #
@@ -731,7 +752,7 @@ restricted_models = [
 # "core"     no desktop tools: agents, jobs, shell, files, tmux, status
 # "desktop"  the desktop tools plus job and status tools
 # "readonly" only tools that change nothing: job status and output, file
-#            reads, tmux capture, system status
+#            reads, browser reads, tmux capture, system status
 # A smaller set saves the client's context. Read at startup only: clients
 # cache the tool list, so restart pcbridge and the client after a change.
 [tools]

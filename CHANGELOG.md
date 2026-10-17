@@ -4,6 +4,67 @@
 
 ### Added
 
+- **Handing the browser to the user.** `browser_handoff` gives the pcbridge
+  browser to the user for what an agent should not or cannot do, such as a
+  captcha, a two-factor code or a first sign-in: its window is shown
+  without taking focus, and a notification gives the reason with a "Give it
+  back to the agent" action. Until the user gives it back, opening pages,
+  acting and hiding the window are refused with `USER_HAS_CONTROL`, in the
+  same structured form as the desktop's `SCREEN_LOCKED`, while reading
+  still works so the agent can wait; an agent cannot take it back itself.
+  The user gives it back, or takes it over unasked, from the notification,
+  the GNOME panel menu, the terminal UI's browser button or `pcbridge
+  browser pause|resume`. Away from the machine, the hand-over also returns
+  a link to a page behind the tunnel that shows the browser's tab live
+  (CDP screencast) and sends taps, typed text and keys to it; the link is
+  bound to that one hand-over and ends with it, after 30 minutes or with a
+  daemon restart. The notification closes when the browser is given back,
+  from wherever that happens, and when its daemon stops. 47 tools; `core` 31, `readonly` 16. Proved with a
+  two-factor sign-in over HTTP against a throwaway daemon and through a
+  real browser at phone size; not yet from a real phone through Funnel.
+- **Showing and hiding the browser window.** The pcbridge browser starts
+  hidden and keeps working hidden: pages load, actions land and browser
+  screenshots are taken. `browser_visibility`, `pcbridge browser show|hide`
+  and a button in the terminal UI's top bar put it on screen without taking
+  the keyboard focus unless asked. The window is found by the process id of
+  the browser pcbridge started, never by name, and nothing is sent as
+  input, so no desktop grant is needed. On GNOME the extension minimizes it
+  (GNOME offers no way to take another program's window off the task list,
+  so it stays there as "pcbridge-browser"; this needs the new extension,
+  which loads after the next log-in), on KDE Plasma a KWin script also takes
+  it off the task bar and the window switcher, and on Hyprland it waits on
+  the special workspace `special:pcbridge`. Measured on all three: a
+  starting browser was never seen or focused and the user's window kept
+  the focus.
+- **Browser tools.** `browser_tabs`, `browser_read`, `browser_screenshot`,
+  `browser_navigate` and `browser_act` drive a Chrome, Brave or Chromium
+  that pcbridge starts on its own profile (`[browser] executable`, `auto`
+  by default: Chrome, then Brave, then Chromium). A page is read as an
+  outline of headings, text, links, form fields with their values, tables
+  and same-origin frames, in which every element an agent can act on has a
+  ref; an action names the ref and its answer is the page as it is
+  afterwards, so the result is checked against fresh state, and a ref from
+  a page that has since changed is refused. The user signs in to a site or
+  a router panel once in that browser and the sign-in stays. The everyday
+  profile is never attached to: Chrome 155 ignores the debugging flags on
+  it, and its `chrome://inspect` switch asks in a dialog for every
+  connection (measured). The browser speaks CDP over a pipe held by a
+  small keeper process, so it opens no network port and outlives a daemon
+  restart. The tools are not desktop tools: they need no `desktop_unlock`,
+  work with `[desktop] enabled = false`, after `desktop_lock` and after the
+  grant expires, and cannot type into another window. Password values are
+  never shown, typing into a password field is refused unless `[browser]
+  allow_password_fields = true`, only http and https pages open, and the
+  audit log records the action, tab, ref and host, never typed text, page
+  content or the rest of the address. `remote_profile = "readonly"` offers
+  the three reading tools only. `pcbridge browser status|stop` shows and
+  closes it; `pcbridge stop` closes it too unless `--keep-jobs`. 45 tools;
+  `core` 29, `readonly` 16. Proved against a throwaway daemon over HTTP
+  with OAuth on a fake router panel (sign-in, a status table inside an
+  iframe, a settings form saved and confirmed by the server) and by reading
+  the real router's sign-in page; a signed-in third-party site is not yet
+  checked.
+
 - **Download and upload links for large files.** `fs_download_link` and
   `fs_upload_link` return a one-time link through the tunnel that the user
   opens on the phone, so a PDF, a photo or a video goes between the phone's

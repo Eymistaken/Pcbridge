@@ -71,6 +71,11 @@ Screen {
 #grant-button {
     min-width: 18;
 }
+#browser-button {
+    min-width: 14;
+    margin-right: 1;
+    display: none;
+}
 /* The ANSI theme gives a disabled button a border (!important), which
    breaks a one-line compact button; keep compact buttons one line. */
 Button.-textual-compact:disabled {
@@ -196,6 +201,7 @@ class GrantBar(Horizontal):
         yield Static(f"pcbridge {__version__}", id="bar-title")
         yield Static("daemon: ...", id="bar-daemon")
         yield Static("Desktop: ...", id="bar-grant")
+        yield Button("Browser", id="browser-button", compact=True)
         yield Button("...", id="grant-button", compact=True, disabled=True)
 
 
@@ -237,6 +243,7 @@ class PcbridgeApp(App):
     CSS = CSS
     BINDINGS = [
         Binding("l", "toggle_grant", "Lock/Unlock"),
+        Binding("b", "toggle_browser", "Show/hide browser", show=False),
         Binding("r", "restart", "Restart daemon"),
         Binding("1", "show_tab('overview')", "Overview", show=False),
         Binding("2", "show_tab('settings')", "Settings", show=False),
@@ -338,6 +345,7 @@ class PcbridgeApp(App):
             button.label, button.variant, button.disabled = "Config error", "default", True
             return
         self.grant = self.backend.grant_state(self.cfg)
+        self._refresh_browser()
         self._render_overview()
         if self.grant_busy:
             return
@@ -363,6 +371,50 @@ class PcbridgeApp(App):
             grant_text.remove_class("open")
             button.label, button.variant, button.disabled = f"Unlock {minutes} min", "primary", False
             button.tooltip = "Let agents use the desktop for a while (l)."
+
+    # -- the pcbridge browser's window ---------------------------------------------
+
+    def _refresh_browser(self) -> None:
+        button = self.query_one("#browser-button", Button)
+        try:
+            shown = self.backend.browser_shown(self.cfg)
+            held = shown is not None and self.backend.browser_held(self.cfg)
+        except Exception:  # noqa: BLE001 - no browser state is "no button"
+            shown, held = None, False
+        self.browser_shown, self.browser_held = shown, held
+        button.display = shown is not None
+        if held:
+            button.label = "Give browser back"
+            button.tooltip = "You have the pcbridge browser; give it back to the agent (b)."
+        elif shown is not None:
+            button.label = "Hide browser" if shown else "Show browser"
+            button.tooltip = ("Take the pcbridge browser's window off screen; it keeps working (b)."
+                              if shown else
+                              "Put the pcbridge browser's window on screen, without taking focus (b).")
+
+    @on(Button.Pressed, "#browser-button")
+    def _browser_button(self) -> None:
+        self.action_toggle_browser()
+
+    def action_toggle_browser(self) -> None:
+        if self.cfg is None or getattr(self, "browser_shown", None) is None:
+            return
+        if getattr(self, "browser_held", False):
+            self._browser_worker("give_back")
+        else:
+            self._browser_worker("hide" if self.browser_shown else "show")
+
+    @work(thread=True, exclusive=True, group="browser")
+    def _browser_worker(self, action: str) -> None:
+        try:
+            if action == "give_back":
+                self.post(self.notify, self.backend.browser_give_back(self.cfg))
+            else:
+                self.post(self.notify, self.backend.browser_view(self.cfg, action))
+        except Exception as exc:  # noqa: BLE001 - shown to the user, never raised in the UI
+            self.post(self.notify, str(exc), severity="error", timeout=10)
+        finally:
+            self.post(self.refresh_grant)
 
     @on(Button.Pressed, "#grant-button")
     def _grant_button(self) -> None:

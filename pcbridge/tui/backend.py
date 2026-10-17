@@ -30,6 +30,33 @@ class Backend:
 
         return unlock(cfg, minutes, "opened in the pcbridge terminal UI", granted_by="pcbridge ui")
 
+    def browser_shown(self, cfg: Any) -> bool | None:
+        """None when the pcbridge browser is not running; else whether its
+        window was last asked to be on screen (a file read, no D-Bus)."""
+        from ..browser import visibility
+        from ..browser.manager import BrowserManager
+
+        m = BrowserManager(cfg)
+        return None if m.status() is None else visibility.wanted(m.dir)
+
+    def browser_held(self, cfg: Any) -> bool:
+        """Whether the user has the pcbridge browser (hand-over)."""
+        from ..browser import control
+        from ..browser.manager import BrowserManager
+
+        return control.read(BrowserManager(cfg).dir) is not None
+
+    def browser_give_back(self, cfg: Any) -> str:
+        from ..browser import handoff
+        from ..browser.manager import BrowserManager
+
+        return handoff.give_back(BrowserManager(cfg))
+
+    def browser_view(self, cfg: Any, action: str) -> str:
+        from ..browser.manager import BrowserManager
+
+        return BrowserManager(cfg).view(action).describe()
+
     def status(self) -> dict:
         from ..cli.ops import status_data
 

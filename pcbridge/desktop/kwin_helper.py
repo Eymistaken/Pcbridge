@@ -8,6 +8,15 @@ venv has no GObject. One JSON request on stdin, one JSON reply on stdout.
                                                "app": "org.kde.kate", "title": "..."}
     {"cmd": "focused"}                     -> {"ok": true, "found": true, "app": ...,
                                                "title": ..., "geometry": [x, y, w, h]}
+    {"cmd": "browser", "pid": 123,          -> {"ok": true, "found": true, "visible": false,
+     "visible": false, "focus": false}          "focused": false}
+
+The `browser` command acts only on the windows of one process id, the
+pcbridge browser's (stage 6): hidden = minimized and off the task bar, the
+pager and the window switcher; shown = all of that undone, focused only
+when asked. Without "visible" it only reports. With "wait_ms" it first
+waits that long for the process's first window to appear, so a browser
+that is starting is hidden before anyone works with it.
 
 HOW (measured on Plasma 6.7.5, docs/dev/measured-facts.md)
     KWin runs a script given to `org.kde.KWin /Scripting loadScript`; the
@@ -36,6 +45,7 @@ import warnings
 MAX_TARGET_LENGTH = 200
 MAX_FIELD_LENGTH = 200
 REPLY_TIMEOUT_MS = 2000
+MAX_WAIT_MS = 15000
 
 SCRIPT = r"""
 var request = %(request)s;
@@ -85,13 +95,49 @@ if (request.cmd === "activate") {
     out.ambiguous = top.length > 1;
     var d = describe(workspace.activeWindow);
     out.app = d.app; out.title = d.title;
+} else if (request.cmd === "browser") {
+    var mine = function () {
+        return workspace.windowList().filter(function (w) {
+            return w && w.normalWindow && w.pid === request.pid;
+        });
+    };
+    var apply = function () {
+        var wins = mine();
+        out.found = wins.length > 0; out.visible = false; out.focused = false;
+        for (var k = 0; k < wins.length; k++) {
+            var b = wins[k];
+            if (request.visible === false) {
+                b.minimized = true;
+                b.skipTaskbar = true; b.skipPager = true; b.skipSwitcher = true;
+            } else if (request.visible === true) {
+                b.skipTaskbar = false; b.skipPager = false; b.skipSwitcher = false;
+                b.minimized = false;
+                if (request.focus) workspace.activeWindow = b;
+            }
+            if (!b.minimized) out.visible = true;
+            if (workspace.activeWindow === b) out.focused = true;
+        }
+    };
+    if (request.wait_ms > 0 && mine().length === 0) {
+        var answered = false;
+        workspace.windowAdded.connect(function (w) {
+            if (answered || !w || w.pid !== request.pid) return;
+            answered = true;
+            out = {ok: true};
+            apply();
+            callDBus("%(name)s", "/", "%(name)s", "Reply", JSON.stringify(out));
+        });
+        out = null;  // the reply is sent when the window appears
+    } else {
+        apply();
+    }
 } else if (request.cmd === "focused") {
     var f = describe(workspace.activeWindow);
     out.found = f.found; out.app = f.app; out.title = f.title; out.geometry = f.geometry;
 } else {
     out = {ok: false, error: "unknown command"};
 }
-callDBus("%(name)s", "/", "%(name)s", "Reply", JSON.stringify(out));
+if (out !== null) callDBus("%(name)s", "/", "%(name)s", "Reply", JSON.stringify(out));
 """
 
 
@@ -127,6 +173,15 @@ def run(request: dict) -> dict:
 
     safe = {"cmd": str(request.get("cmd", "")),
             "target": str(request.get("target", ""))[:MAX_TARGET_LENGTH + 1]}
+    wait_ms = 0
+    if safe["cmd"] == "browser":
+        pid = request.get("pid")
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+            return {"ok": False, "error": "browser needs a process id"}
+        visible = request.get("visible")
+        wait_ms = max(0, min(int(request.get("wait_ms") or 0), MAX_WAIT_MS))
+        safe.update(pid=pid, visible=visible if isinstance(visible, bool) else None,
+                    focus=request.get("focus") is True, wait_ms=wait_ms)
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
         fh.write(SCRIPT % {"request": json.dumps(safe), "name": name,
                            "max": MAX_FIELD_LENGTH, "max_target": MAX_TARGET_LENGTH})
@@ -141,7 +196,7 @@ def run(request: dict) -> dict:
             return {"ok": False, "error": "KWin did not load the script"}
         conn.call_sync("org.kde.KWin", f"/Scripting/Script{sid}", "org.kde.kwin.Script",
                        "run", None, None, Gio.DBusCallFlags.NONE, 3000, None)
-        GLib.timeout_add(REPLY_TIMEOUT_MS, loop.quit)
+        GLib.timeout_add(REPLY_TIMEOUT_MS + wait_ms, loop.quit)
         loop.run()
     except GLib.Error as exc:
         return {"ok": False, "error": f"KWin scripting: {exc.message}"}

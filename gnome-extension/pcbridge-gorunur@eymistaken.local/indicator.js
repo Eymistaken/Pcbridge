@@ -1,8 +1,10 @@
 /* The panel indicator: pcbridge's state at a glance, and the kill switch.
  *
  * It READS two files (status.json, desktop_unlock.json) and never writes
- * either. Its only action with an effect is "Lock desktop control now",
- * which runs `pcbridge lock` -- the same command as the `bridgekilit` alias.
+ * either. Its actions with an effect are "Lock desktop control now", which
+ * runs `pcbridge lock` -- the same command as the `bridgekilit` alias --
+ * and, while the pcbridge browser runs, taking it over from the agent or
+ * giving it back (`pcbridge browser pause` / `resume`; stage 6).
  * Nothing here is a step before work can start (invariant I7): a closed
  * menu, a missing CLI or a dead daemon changes nothing about how an agent
  * unlocks the desktop.
@@ -17,6 +19,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
+import {browserPid, defaultBrowserDir, userHasBrowser} from './browserwindow.js';
 import {findCli, indicatorVisible, summarize} from './status.js';
 
 const ICONS = {
@@ -63,6 +66,12 @@ class PcbridgeIndicator extends PanelMenu.Button {
         }
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this.menu.addAction('Lock desktop control now', () => this.lockNow());
+        // The pcbridge browser (stage 6): shown only while it runs.
+        this._browserDir = defaultBrowserDir();
+        this._takeBrowser = this.menu.addAction('Take over the pcbridge browser',
+            () => this._run(['browser', 'pause']));
+        this._giveBrowser = this.menu.addAction('Give the browser back to the agent',
+            () => this._run(['browser', 'resume']));
         this.menu.addAction('Open logs', () => this._inTerminal(['logs', '-f']));
         this.menu.addAction('Status…', () => this._inTerminal(['status'], true));
         this.menu.connect('open-state-changed', (_menu, open) => {
@@ -102,6 +111,29 @@ class PcbridgeIndicator extends PanelMenu.Button {
             item.label.text = s.lines[i] ?? '';
             item.visible = Boolean(s.lines[i]);
         });
+        const browser = browserPid(this._browserDir) !== 0;
+        const held = browser && userHasBrowser(this._browserDir);
+        this._takeBrowser.visible = browser && !held;
+        this._giveBrowser.visible = held;
+    }
+
+    /** Run one pcbridge command in the background (no terminal). */
+    _run(args) {
+        const cli = findCli(this._watcher.status);
+        if (!cli) {
+            Main.notify('pcbridge', `The pcbridge command was not found; run: pcbridge ${args.join(' ')}`);
+            return;
+        }
+        try {
+            GLib.spawn_async(null, [cli, ...args], null, GLib.SpawnFlags.DEFAULT, null);
+            // The state file changes in a moment; read it again then.
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1500, () => {
+                this.update();
+                return GLib.SOURCE_REMOVE;
+            });
+        } catch (error) {
+            Main.notify('pcbridge', `Could not run pcbridge ${args.join(' ')}: ${error.message}`);
+        }
     }
 
     /** The kill switch. Works with the daemon down: `pcbridge lock` needs none. */
