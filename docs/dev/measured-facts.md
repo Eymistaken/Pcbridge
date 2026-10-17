@@ -269,6 +269,35 @@ conversation per check; results checked on disk and in the audit log):
   the 20,000-character cap came out of this. A 2.25 MB PDF was not
   attempted past its first chunk.
 
+Download and upload links (2026-10-17, `fs_download_link` /
+`fs_upload_link`):
+
+- Against a throwaway daemon over HTTP (`tests/integration/
+  test_file_links_http.py`): 50 MB of random bytes each way with matching
+  SHA-256; a second use, an expired link (TTL 10 s) and an unknown token
+  all got the same 404 with the same headers; a download and an upload
+  cut off mid-transfer left the link usable and no temp file behind; an
+  upload past `upload_max_mb` got 413 with or without `Content-Length`.
+- Through the real tunnel, installed daemon (pid 147289): a fresh `pcbridge
+  stdio` client made the links, and curl from this machine was forced
+  through Funnel's public relay (`--resolve` to the address public DNS
+  gives, 185.40.234.37; MagicDNS would have gone direct). 50 MB down in
+  192 s (page 2.9 s), 50 MB up in 340 s, both with matching SHA-256; the
+  second download and the second upload got 404. Both directions cross this
+  machine's uplink in that loop, so a phone should see at least this
+  speed; not measured from a phone yet. The upload ran past the 300 s TTL
+  and still completed: the TTL is the window to start, as designed.
+- The audit log had `fs_link_created`, `fs_link_used` (bytes, SHA-256,
+  seconds, the relay-forwarded client address) and one `fs_link_refused`
+  per replayed link; no token. The journal's access log showed
+  `GET /dl/<link>/fifty.bin` and `PUT /ul/<link>`, no token.
+- In the app's built-in browser the upload page's script ran under its
+  hash-only CSP, but the pane itself refused the PUT
+  (`net::ERR_BLOCKED_BY_CLIENT`; nothing reached the daemon), so the page's
+  upload path is proved by curl and the HTTP tests, not by a browser yet.
+  Each browser step there took minutes, so two 5-minute links expired
+  before they were opened and answered 404 (`reason: expired` audited).
+
 ## Hyprland release scope and limits
 
 PcBridge 2.5.0 supports Hyprland 0.56.2 on Wayland with the native helper.
