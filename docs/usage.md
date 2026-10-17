@@ -1,6 +1,6 @@
 # Using pcbridge
 
-pcbridge offers 38 MCP tools. This page lists them, says which ones need the
+pcbridge offers 40 MCP tools. This page lists them, says which ones need the
 desktop grant, and shows the usual ways to use them. Every tool's own
 description (what a client sees) says when to use it; this is the overview.
 
@@ -81,6 +81,8 @@ same agent by passing its `session_id` as `resume_session`.
 | `fs_read` | ro | A text file one page at a time: from the beginning, from `start_line` (negative counts from the end) or from the previous page's `cursor`; several files with `paths`. Images come back as pictures; `encoding="base64"` gives any file's exact bytes in chunks of up to 20,000 characters, each with its sha256. Bytes pass through the model, so this suits files of a few tens of kilobytes |
 | `fs_write` | destructive | Create, overwrite (atomically) or append to a text file; `expected_sha256` refuses to overwrite a file that changed since it was read. `content_base64` writes bytes, in chunks with `offset`, each chunk's `chunk_sha256` and a `final_sha256` check |
 | `fs_edit` | destructive | Replace exact text in a file without resending it: one match, every match, or several edits written together; keeps line endings, shows a diff, `dry_run` |
+| `fs_download_link` | ro | A one-time link that lets the user download one file to their phone or browser; the bytes never pass through the model. For anything larger than a few tens of kilobytes |
+| `fs_upload_link` | destructive | A one-time link to an upload page for one file, stored at the given path; `overwrite` (off by default), `expected_sha256` |
 | `tmux_start` | write | Open a persistent terminal session, optionally with an interactive CLI in it |
 | `tmux_send`, `tmux_keys` | destructive | Type into it, or press raw keys (answer an agent's y/n prompt) |
 | `tmux_capture`, `tmux_list` | ro | Read a session's screen; list sessions |
@@ -91,6 +93,35 @@ same agent by passing its `session_id` as `resume_session`.
 
 These do not go through the desktop grant: `[desktop] enabled = false` does
 not turn them off. That is deliberate (see [security.md](security.md)).
+
+### Large files: download and upload links
+
+Bytes that pass through the model (base64 with `fs_read` / `fs_write`) stop
+being reliable after a few tens of kilobytes. For a PDF, a photo or a video,
+ask for a link instead:
+
+- **Taking a file off the machine.** "Send me ~/Documents/report.pdf" ->
+  `fs_download_link` returns a link. On the phone it opens a page with the
+  file's name, size and SHA-256 and a **Download** button.
+- **Putting a file on the machine.** "I want to upload a photo to
+  ~/Pictures/beach.jpg" -> `fs_upload_link` returns a link to an upload page:
+  pick the file, tap **Upload**, and the page shows the SHA-256 the computer
+  stored, compared with the file on the phone when the browser can compute
+  it (up to 200 MB). The phone's file name does not matter; the file goes
+  exactly where the link says, and appears there only once it arrived whole.
+  An existing file is replaced only when the link was made with
+  `overwrite=true`. From a computer, `curl -T FILE LINK` uploads too.
+
+Each link works for **one complete transfer**, which must start within
+`[files] link_ttl_seconds` (5 minutes). A transfer that breaks off can be
+retried while the link is still valid; afterwards the link returns nothing.
+Opening the page itself, refreshing it or a chat app's link preview does
+not use it up. Uploads are limited to `[files] upload_max_mb` (512 MB) and
+downloads to `download_max_mb` (2048 MB). The links go through the tunnel,
+so they open only while remote access is open (`pcbridge remote start`);
+the tool says so when it is closed. `remote_profile = "readonly"` offers
+download links but never upload links. Security details:
+[security.md](security.md#file-links).
 
 ### Desktop
 
@@ -135,10 +166,10 @@ the cheapest way to find a known label in an app with no accessibility tree.
 ## Profiles
 
 `[tools] profile` in the config offers a smaller set to save the client's
-context: `full` (default, all 38), `core` (22, no desktop tools), `desktop`
-(23: the desktop tools plus job and status tools) or `readonly` (12: only
-tools that change nothing, such as job status and output, file reads, tmux
-capture and system status). It is read at startup; restart pcbridge and the
+context: `full` (default, all 40), `core` (24, no desktop tools), `desktop`
+(23: the desktop tools plus job and status tools) or `readonly` (13: only
+tools that change nothing, such as job status and output, file reads and
+download links, tmux capture and system status). It is read at startup; restart pcbridge and the
 client after changing it.
 
 `[tools] remote_profile` sets the profile for remote clients, which is every
@@ -203,7 +234,7 @@ hold Shift. Piped or run from a script,
   shows or hides the GNOME icon immediately and does not use **Save** or
   require a daemon restart. On KDE Plasma it explains that there is no
   pcbridge panel icon.
-- **Tools**: all 38 tools with their state (`active`, `not in profile`,
+- **Tools**: all 40 tools with their state (`active`, `not in profile`,
   `needs desktop`), a search box that filters by name and description as
   you type, a toggle for the offered ones only, and the selected tool's
   description, hints and parameters.

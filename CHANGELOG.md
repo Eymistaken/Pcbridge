@@ -4,6 +4,30 @@
 
 ### Added
 
+- **Download and upload links for large files.** `fs_download_link` and
+  `fs_upload_link` return a one-time link through the tunnel that the user
+  opens on the phone, so a PDF, a photo or a video goes between the phone's
+  browser and this machine without passing through the model. The download
+  page shows the file's name, size and SHA-256 and a Download button; the
+  upload page takes one file, stores it exactly at the path the link names
+  (atomically, never replacing an existing file unless the link says
+  `overwrite`, optionally only with an expected SHA-256), and shows the
+  stored SHA-256 next to the one the phone's browser computed. A link works
+  for one complete transfer, which must start within `[files]
+  link_ttl_seconds` (5 minutes); a transfer cut off by the network can be
+  retried, the page and link previews do not use it up, and a used,
+  expired or unknown link gets the same 404. Uploads are limited to
+  `[files] upload_max_mb` (512) and downloads to `download_max_mb` (2048).
+  The token is the authorization (256 bits, in memory only); OAuth and its
+  shims are unchanged. A link can be made only when `[tools]
+  remote_profile` offers the tool, so `readonly` gets download links and
+  never upload links. Every link is audited with what was done (path,
+  bytes, SHA-256) and never the token or the content, and the access log
+  in the journal no longer shows the token. 40 tools; `core` 24,
+  `readonly` 13. Measured against a throwaway daemon over HTTP and through
+  Funnel's public relay: 50 MB each way with matching SHA-256 (192 s down,
+  340 s up through the relay), a second use and an expired link answered
+  404. Not yet checked from a phone. See [security.md](docs/security.md#file-links).
 - **Binary files both ways: base64 chunks checked by SHA-256, images as
   pictures.** `fs_read` with `encoding="base64"` returns the exact bytes of
   any file (a PDF, a picture, an archive, a non-UTF-8 text) in chunks of up
@@ -27,8 +51,8 @@
   character in the fifth, and the client cut the sixth upload off mid-chunk
   after part of it had arrived. The per-chunk hash and the 20,000-character
   cap were added for those two failures. Passing bytes through the model
-  suits files of a few tens of kilobytes; larger ones need the download
-  links in the roadmap.
+  suits files of a few tens of kilobytes; larger ones go through the
+  download and upload links above.
 - **`fs_edit`: change part of a file without resending it.** An exact text
   replacement: `old_text` must match once, or every match is changed with
   `replace_all`. `edits` applies up to 50 replacements in order and writes

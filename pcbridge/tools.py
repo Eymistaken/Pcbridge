@@ -32,6 +32,7 @@ from . import distro as distrolib
 from . import sessionctx
 from . import executables as exelib
 from . import files as fileslib
+from . import filelinks as filelinkslib
 from . import jobs as jobslib
 from . import models as modelslib
 from . import shots as shotslib
@@ -319,6 +320,8 @@ TOOL_HINTS: dict[str, tuple[bool, bool, bool, bool]] = {
     "fs_search":            (True,  False, True,  False),
     "fs_write":             (False, True,  True,  False),
     "fs_edit":              (False, True,  False, False),
+    "fs_download_link":     (True,  False, False, False),
+    "fs_upload_link":       (False, True,  False, True),
     "notify":               (False, False, False, False),
     "panel_icon":           (False, False, True,  False),
     "system_status":        (True,  False, True,  False),
@@ -460,6 +463,7 @@ def register(
     shot_store: "shotslib.ShotStore | None" = None,
     transport: str = "http",
     runtime: DesktopRuntime | None = None,
+    link_store: "filelinkslib.LinkStore | None" = None,
 ) -> DesktopRuntime:
     global _DESC_AGENT, _DESC_MODEL, _DESC_EFFORT
     local_profile = getattr(cfg, "tools_profile", "full")
@@ -491,6 +495,9 @@ def register(
     if runtime is None:
         runtime = create_runtime(cfg, gate=safetylib.SafetyGate(cfg))
     gate = runtime.gate
+    if link_store is None:
+        link_store = filelinkslib.LinkStore(cfg)
+    link_store.audit = lambda event, **fields: gate.audit(event, **fields)
     if remote != local_profile:
         mcp.add_middleware(ProfileFilter(local_profile, remote, transport, gate))
 
@@ -1038,8 +1045,9 @@ def register(
         large. For the exact bytes of any file, such as a PDF to take off the
         machine, use encoding="base64" and follow the cursors; the header's
         sha256 checks the joined result. Each chunk passes through your
-        context, so this suits files of up to a few hundred kilobytes; for a
-        larger file, say so to the user instead of copying it chunk by chunk. Other binary and non-UTF-8 files
+        context, so this suits files of up to a few tens of kilobytes; for a
+        larger file, use fs_download_link instead of copying it chunk by
+        chunk. Other binary and non-UTF-8 files
         are refused in auto mode with a plain message, never as corrupted
         text."""
         targets = list(paths or []) + ([path] if path else [])
@@ -1164,7 +1172,8 @@ def register(
         binary file use content_base64; one too large for one call goes in
         chunks with offset and each chunk's chunk_sha256, and the last chunk
         carries final_sha256, so the file appears only once every byte
-        arrived intact."""
+        arrived intact. For a file the user has on their phone, larger than
+        a few tens of kilobytes, use fs_upload_link instead."""
         f = _resolve_file(cfg, path)
         if content is not None and content_base64 is not None:
             return "Give content (text) or content_base64 (bytes), not both."
@@ -1287,6 +1296,96 @@ def register(
         diff = fileslib.trim_diff(res.diff) or "(no change: new_text equals old_text)\n"
         fence = fileslib.fence_for(diff)
         return f"{head}\n{fence}diff\n{diff}{fence}"
+
+    # ============================================================ FILE LINKS
+    # A one-time link moves a whole file between the user's phone and this
+    # machine, so the bytes never pass through the model (filelinks.py and
+    # docs/security.md, "File links").
+    def _link_refusal(name: str) -> str | None:
+        if transport == "stdio":
+            return ("Not made: this pcbridge runs over stdio without its HTTP server, so a "
+                    "link would lead nowhere. The resident daemon (pcbridge serve) serves "
+                    "links.")
+        if name not in tools_in_profile(remote):
+            return (f"Not made: a link is used over HTTP, and {name} is not offered there "
+                    f'([tools] remote_profile = "{remote}").')
+        return None
+
+    def _link_footer(url: str) -> str:
+        ttl = link_store.ttl
+        span = f"{ttl // 60} minutes" if ttl % 60 == 0 and ttl >= 120 else f"{ttl} seconds"
+        lines = [f"Link: {url}",
+                 f"Give this link to the user exactly as it is. It works for one complete "
+                 f"transfer, which must start within {span}; after that it returns nothing. "
+                 "The file does not pass through this conversation."]
+        if filelinkslib.tunnel_open(cfg.port) is False:
+            lines.append("Remote access is closed right now: the link opens only after "
+                         "`pcbridge remote start` opens the tunnel.")
+        return "\n".join(lines)
+
+    @mcp.tool(annotations={"title": "Link to download a file"})
+    def fs_download_link(
+        path: Annotated[str, Field(description="Absolute path of the file to send.")],
+    ) -> str:
+        """Make a one-time link that lets the user download one file from this
+        computer straight to their phone or browser, without the bytes passing
+        through your context. Use it whenever the user wants a file off the
+        machine that is larger than a few tens of kilobytes (a PDF, a photo,
+        a video, an archive): base64 through fs_read is not reliable at that
+        size. The link opens a page with the file's name, size and SHA-256
+        and a Download button; it works for one complete download and only
+        for a few minutes, so make it when the user is ready to open it. The
+        reply gives the size and SHA-256 too."""
+        refused = _link_refusal("fs_download_link")
+        if refused:
+            return refused
+        f = _resolve_file(cfg, path)
+        try:
+            link, token = link_store.create_download(f)
+        except filelinkslib.LinkError as exc:
+            return f"Not made: {exc}"
+        gate.audit("fs_link_created", direction="download", path=str(f)[:200],
+                   bytes=link.size, sha256=link.sha256, ttl=link_store.ttl, link=link.id)
+        return (f"Download link for `{f}` ({fileslib.plural(link.size, 'byte')}, sha256 "
+                f"{link.sha256}).\n" + _link_footer(link_store.url(link, token)))
+
+    @mcp.tool(annotations={"title": "Link to upload a file"})
+    def fs_upload_link(
+        path: Annotated[str, Field(
+            description="Absolute path where the uploaded file is stored. Its directory "
+                        "must exist.")],
+        overwrite: Annotated[bool, Field(
+            description="Replace the file if it exists. Off: an existing file is never "
+                        "replaced.")] = False,
+        expected_sha256: Annotated[str | None, Field(
+            description="Accept only a file with this SHA-256 (64 hex digits), when the "
+                        "user told you which file it is.")] = None,
+    ) -> str:
+        """Make a one-time link to an upload page where the user picks one file
+        on their phone or browser, and it is stored at path on this computer
+        without the bytes passing through your context. Use it whenever the
+        user wants to put a file larger than a few tens of kilobytes on the
+        machine (a photo, a PDF, a video, an archive): base64 through fs_write
+        is not reliable at that size. The name of the file on the phone does
+        not matter; it is stored exactly at path, put in place only once it
+        arrived whole. It works for one complete upload within a few minutes.
+        The page shows the user the stored SHA-256; check the result yourself
+        with fs_list (size) or a hash."""
+        refused = _link_refusal("fs_upload_link")
+        if refused:
+            return refused
+        f = _resolve_file(cfg, path)
+        try:
+            link, token = link_store.create_upload(f, overwrite=overwrite,
+                                                   expected=expected_sha256)
+        except filelinkslib.LinkError as exc:
+            return f"Not made: {exc}"
+        gate.audit("fs_link_created", direction="upload", path=str(f)[:200],
+                   max_bytes=link.max_bytes, overwrite=overwrite or None,
+                   expected="yes" if link.expected else None, ttl=link_store.ttl, link=link.id)
+        what = "replaces it if it exists" if overwrite else "never replaces an existing file"
+        return (f"Upload link for `{f}` (up to {fileslib.plural(link.max_bytes, 'byte')}; "
+                f"{what}).\n" + _link_footer(link_store.url(link, token)))
 
     @mcp.tool(annotations={"title": "Search inside files"})
     def fs_search(

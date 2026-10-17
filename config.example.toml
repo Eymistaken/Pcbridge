@@ -103,6 +103,21 @@ max_sync_timeout = 120
 audit_max_bytes = 5000000
 
 
+[files]
+# fs_download_link and fs_upload_link return a one-time link through the
+# tunnel, so a large file goes between the phone's browser and this machine
+# without passing through the model. The link's token is the authorization
+# (no OAuth): it works for one complete transfer, and only if the transfer
+# starts within this many seconds (10-3600). A started transfer may finish
+# later.
+link_ttl_seconds = 300
+# The largest file an upload link accepts, in MB (1-16384). An upload must
+# also leave 256 MB of free space behind it.
+upload_max_mb = 512
+# The largest file a download link is made for, in MB (1-16384).
+download_max_mb = 2048
+
+
 [power]
 # Keep the machine from suspending on idle while at least one job
 # (agent_run, shell_run_background) is running; it may suspend again once

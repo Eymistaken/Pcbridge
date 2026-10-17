@@ -5,7 +5,7 @@ Guidance for Claude Code (and other agents) working in this repository.
 ## The project
 
 pcbridge makes the maintainer's Linux desktop (Zorin OS 18 / GNOME 46 /
-Wayland) drivable over MCP: 38 tools for coding-agent jobs, background
+Wayland) drivable over MCP: 40 tools for coding-agent jobs, background
 jobs, tmux, shell and files, and, under `[desktop]`, a virtual keyboard and
 pointer plus screen reading. KDE Plasma 6 and Hyprland 0.56.2 on Arch Linux
 have VM evidence (`scripts/dev/arch-vm.sh` and `scripts/dev/hyprland-vm.sh`),

@@ -15,6 +15,7 @@ client takes. This page says what each layer does and what it does not.
 | Desktop grant | `[desktop] enabled` + `desktop_unlock` | the same |
 | Audit log | `audit.log` | the same |
 | Screenshots | the picture itself in the tool result, and a file path | a short-lived `/shot/<token>.png` link |
+| Large files | one-time `/dl/<token>` and `/ul/<token>` links through the tunnel, for both | the same |
 
 **The local path is a deliberate step back from HTTP.** Anything that can
 run code as your user can talk to the socket, with no password. The reason
@@ -73,6 +74,71 @@ The difference is real and was chosen knowingly.
   authorization, so a phone browser can open it. Do not forward it. Links
   expire after `shot_ttl_seconds` (5 minutes); the PNGs are swept after
   `shot_keep_hours` (24 h), before every capture and at startup, on both paths.
+
+## File links
+
+`fs_download_link` and `fs_upload_link` return a link that the user opens
+on the phone, so a large file goes between the phone's browser and the
+daemon without passing through the model (base64 through the model stops
+being reliable after a few tens of kilobytes; see measured facts). They
+are a new endpoint on the internet, so:
+
+- **The token is the authorization.** Like the screenshot link, the link
+  works without OAuth so a phone browser can open it. FastMCP's bearer
+  check covers only `/mcp`; neither OAuth shim in `app.py` sees `/dl/` or
+  `/ul/`, and `auth.py` is not involved. The token is 256 random bits, kept
+  only in memory under its SHA-256, so a daemon restart ends every link.
+  OAuth tokens and the static token are not accepted on these paths.
+- **One path, one direction.** The link is bound when it is made to one
+  resolved file path and to download or upload. Nothing in the request can
+  change the path: the upload's own file name is ignored.
+- **One complete transfer.** Only a transfer that completes spends the
+  link: the last byte sent for a download, the file in place for an upload.
+  One that breaks off on the network leaves it usable until it expires; one
+  refused for a limit spends it. Only one transfer runs per link at a time.
+  The page shown before the transfer does not spend it: single-use
+  screenshot links were burned by phone refreshes and link previews, and a
+  preview fetches only the URL it was given.
+- **A few minutes.** `[files] link_ttl_seconds` (300) is the window to
+  start the transfer; a started 50 MB transfer on a slow connection may
+  finish after it. At most 16 links are open at once.
+- **Nothing for a dead link.** An unknown, expired, used or busy link gets
+  the same `404 not found` with the same headers, on every path and method.
+- **Same profiles.** `fs_download_link` is read-only, so `readonly` and
+  `core` offer it; `fs_upload_link` is not, so `readonly` and `desktop`
+  never offer it. A link is always used over HTTP, so it can be made only
+  when `remote_profile` offers the tool too: with `profile = "full"` and
+  `remote_profile = "readonly"`, a local session cannot make an upload link
+  either. A readonly remote client can take any file the user can read off
+  the machine faster than before; it already could through `fs_read`.
+- **Size limits.** Uploads up to `upload_max_mb` (512), refused before
+  reading when `Content-Length` is larger and cut off mid-stream when a
+  chunked body goes past it; an upload must leave 256 MB free. Downloads up
+  to `download_max_mb` (2048).
+- **Uploads are atomic and do not clobber.** The body streams into a temp
+  file next to the target (mode 0600), hashed as it arrives, synced, and is
+  put in place in one step with the old file's mode. Without `overwrite` an
+  existing file is refused when the link is made, and again at the end with
+  a hard link, which fails if a file appeared in the meantime. Any failure
+  removes the temp file; `expected_sha256` refuses a different file.
+- **Downloads cannot run script.** The file is always
+  `application/octet-stream`, `attachment` and `Content-Security-Policy:
+  sandbox`, so an HTML or SVG file never runs on pcbridge's origin, which
+  also serves the consent page. A file whose size, mtime or inode changed
+  since the link was made is not sent. The pages allow only their own
+  inline style and script, by hash; every response says `no-store`,
+  `no-referrer`, `nosniff` and `noindex`.
+- **Audit, never content.** `fs_link_created`, `fs_link_used` (bytes,
+  SHA-256, seconds, remote address), `fs_link_failed` (the reason) and
+  `fs_link_refused` (a used or expired link tried again, once per link) go
+  to `audit.log` with an 8-digit link id. The token, the URL and the file's
+  content are never logged, and uvicorn's access log in the journal shows
+  `/dl/<link>` instead of the token.
+- **Stopping them.** `pcbridge remote stop` makes every link unreachable
+  at once; restarting the daemon drops them. Revoking a remote client does
+  not end links it already made; they expire within minutes.
+- **Accepted:** the link is in the model's conversation, and so stored by
+  the provider, until it is used or expires. Do not forward it.
 
 ## Desktop control: a separate class of risk
 

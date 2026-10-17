@@ -52,6 +52,7 @@ from .desktop import session as sessionlib
 from .config import Config, ConfigError, exit_on_config_error, load_config, load_config_hardened
 from .jobs import JobManager
 from .shots import ShotStore
+from . import filelinks as filelinkslib
 
 # stream=sys.stderr ACIKCA veriliyor. Varsayilan zaten stderr ama stdio
 # tasimasinda stdout JSON-RPC kanalinin KENDISI: oraya dusen tek bir log satiri
@@ -353,8 +354,9 @@ def build_app(cfg: Config, transport: str = "http"):
 
     jm = JobManager(cfg.jobs_dir, default_timeout=cfg.default_job_timeout)
     shot_store = ShotStore(cfg)
+    link_store = filelinkslib.LinkStore(cfg)
     desktop_runtime = toolsmod.register(
-        mcp, cfg, jm, shot_store, transport=transport
+        mcp, cfg, jm, shot_store, transport=transport, link_store=link_store
     )
     mcp._pcbridge_desktop_runtime = desktop_runtime
     mcp._pcbridge_jobs = jm
@@ -464,6 +466,28 @@ def build_app(cfg: Config, transport: str = "http"):
                 "Referrer-Policy": "no-referrer",
             },
         )
+
+    # One-time file links (filelinks.py, docs/security.md "File links"). Like
+    # /shot they sit outside OAuth: FastMCP's bearer check covers only the
+    # MCP path, and the link's own token is the authorization. Neither ASGI
+    # shim above sees these paths (/.well-known/ and POST /token only).
+    filelinkslib.install_log_filter()
+
+    @mcp.custom_route("/dl/{token}", methods=["GET"], include_in_schema=False)
+    async def _download_page(request: Request):
+        return await filelinkslib.download_page(link_store, request)
+
+    @mcp.custom_route("/dl/{token}/{name:path}", methods=["GET"], include_in_schema=False)
+    async def _download_file(request: Request):
+        return await filelinkslib.download_file(link_store, request)
+
+    @mcp.custom_route("/ul/{token}", methods=["GET"], include_in_schema=False)
+    async def _upload_page(request: Request):
+        return await filelinkslib.upload_page(link_store, request)
+
+    @mcp.custom_route("/ul/{token}", methods=["PUT", "POST"], include_in_schema=False)
+    async def _upload_receive(request: Request):
+        return await filelinkslib.upload_receive(link_store, request)
 
     @mcp.custom_route("/", methods=["GET"], include_in_schema=False)
     async def _root(request: Request):

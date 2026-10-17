@@ -40,8 +40,8 @@ here, not by moving sections.
    Unreleased), ~~the rest of *Binary file transfer*~~ (done, Unreleased),
    ~~*Targeted edits and easier writes*~~ (done, Unreleased), together
    because they share the cursor and conflict design, and checked through
-   claude.ai (see measured facts). Left: *Download and upload links for
-   large files*, which the claude.ai measurements showed is needed.
+   claude.ai (see measured facts). *Download and upload links for large
+   files* built (Unreleased); left: its phone check.
 6. **Browser.** In this order: ~~measure *Attaching to the existing
    session*~~ (done: a dedicated pcbridge profile, see measured facts),
    then *Browser tools for the user's existing session*, *Show and hide
@@ -141,18 +141,16 @@ at the machine* checks, batched for a session at the machine.
   "Done when" (a multi-megabyte PDF through a remote client) is not
   reachable this way: every byte passes through the model, which copied a
   character wrong within 75 KB, so it moves to the item below.
-- **Download and upload links for large files.** Needed: measured through
-  claude.ai on 2026-10-17, base64 chunks stop being reliable after a few
-  tens of kilobytes (see measured facts), so a phone cannot take a PDF or
-  a photo off the machine through the model. A file tool would return
-  a one-time, short-lived link through the tunnel that the user opens on
-  the phone to download a file, or an upload page for one file, so a large
-  PDF or video never passes through the model's context. It is a new
-  endpoint exposed to the internet, so it needs its own security design
-  first: a random single-use token bound to one path, a few minutes of
-  life, the same `[tools] remote_profile` rules, and an audit line. Done
-  when a phone can take a 50 MB file off the machine and put one on it with
-  matching hashes, and a used or expired link returns nothing.
+- **Download and upload links for large files.** Built (Unreleased):
+  `fs_download_link` and `fs_upload_link`, with the security design in
+  [docs/security.md](docs/security.md#file-links). Proved against a
+  throwaway daemon over HTTP and through Funnel's public relay with curl:
+  50 MB each way with matching SHA-256, and a used or expired link returns
+  404 (see measured facts). Left, for the "Done when": the same 50 MB both
+  ways from a real phone browser (download page, upload page with its
+  in-browser SHA-256 comparison), with remote access open; and a claude.ai
+  conversation that asks for a link and hands it to the user. Record the
+  phone's speed in measured facts.
 
 ## Optional: browser control
 

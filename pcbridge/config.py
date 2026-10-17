@@ -313,6 +313,11 @@ class Config:
     # Masaustu araclarindan sonra kabuk/ajan/dosya araclari da kayit tuttugu
     # icin dosya artik hizli buyuyor.
     audit_max_bytes: int = 5_000_000
+    # [files]: the one-time links of fs_download_link / fs_upload_link. The
+    # time to START a transfer, and the largest file each way.
+    link_ttl_seconds: int = 300
+    upload_max_mb: int = 512
+    download_max_mb: int = 2048
     # [tools] profile: which tools this server offers. "full" (default) is
     # every tool; "core" leaves the desktop tools out; "desktop" offers the
     # desktop tools plus job and status tools; "readonly" only the tools
@@ -448,7 +453,7 @@ def find_config(explicit: str | None = None) -> Path:
 _TOP_KEYS = {
     "config_version", "public_url", "host", "port", "mcp_path", "default_agent",
     "inline_images", "auth", "paths", "limits", "server", "native", "desktop",
-    "agents", "tools", "power", "browser",
+    "agents", "tools", "power", "files", "browser",
 }
 _SECTION_KEYS: dict[str, set[str]] = {
     "auth": {
@@ -461,6 +466,7 @@ _SECTION_KEYS: dict[str, set[str]] = {
     "native": {"capture", "input", "accessibility", "binary_path"},
     "tools": {"profile", "remote_profile"},
     "power": {"keep_awake"},
+    "files": {"link_ttl_seconds", "upload_max_mb", "download_max_mb"},
     "browser": {"executable", "profile_dir", "extra_args", "allow_password_fields"},
 }
 _HINTS = {
@@ -819,6 +825,33 @@ def _tools_profile(raw: dict[str, Any], path: Path, key: str = "profile") -> str
             f"{', '.join(choices)}. Use {hint}."
         )
     return value
+
+
+# (lowest, highest) of each [files] setting.
+_FILES_RANGES = {
+    "link_ttl_seconds": (10, 3600),
+    "upload_max_mb": (1, 16384),
+    "download_max_mb": (1, 16384),
+}
+
+
+def _files(raw: dict[str, Any], path: Path | str) -> dict[str, int]:
+    """`[files]`: the file links' lifetime and size limits, checked."""
+    section = raw.get("files") or {}
+    if not isinstance(section, dict):
+        section = {}
+    defaults = {"link_ttl_seconds": 300, "upload_max_mb": 512, "download_max_mb": 2048}
+    out: dict[str, int] = {}
+    for key, default in defaults.items():
+        value = section.get(key, default)
+        low, high = _FILES_RANGES[key]
+        if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+            raise SystemExit(
+                f"[files] ({path}): `{key} = {value!r}` must be a whole number from "
+                f"{low} to {high}."
+            )
+        out[key] = value
+    return out
 
 
 def _browser(raw: dict[str, Any], path: Path | str) -> BrowserSpec:
@@ -1239,6 +1272,7 @@ def _load_config(explicit: str | None = None, *, check_state: bool = True) -> Co
         default_job_timeout=int(limits.get("default_job_timeout", 1800)),
         max_sync_timeout=int(limits.get("max_sync_timeout", 120)),
         audit_max_bytes=int(limits.get("audit_max_bytes", 5_000_000)),
+        **_files(raw, path),
         tools_profile=_tools_profile(raw, path),
         remote_tools_profile=_tools_profile(raw, path, "remote_profile"),
         keep_awake=_keep_awake(raw, path),
