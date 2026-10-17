@@ -185,6 +185,16 @@ class DaemonIntegrationTests(unittest.TestCase):
         finally:
             backend.close()
 
+    def test_handshake_names_the_code_the_daemon_started_with(self) -> None:
+        from pcbridge import build as buildlib
+        from pcbridge.cli import ops
+        from pcbridge.cli.doctor import handshake
+
+        self._start_daemon()
+        reply = handshake(self.sock)
+        self.assertEqual(reply["build"], buildlib.fingerprint())
+        self.assertTrue(ops.runs_installed_code(reply))
+
     def test_three_sessions_at_once(self) -> None:
         self._start_daemon()
         clients = [self._client() for _ in range(3)]

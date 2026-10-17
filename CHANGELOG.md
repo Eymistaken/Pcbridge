@@ -210,6 +210,16 @@
 
 ### Fixed
 
+- **Setup restarts a daemon that runs older code with the same version.**
+  Setup compared only version strings, and unreleased builds keep the last
+  release's, so installing a wheel built from a newer commit printed
+  "daemon already running this version", skipped the restart, and its
+  readiness check then failed against the old process ("37 (expected
+  38)"). The daemon now takes a fingerprint of its package's files at
+  startup (contents, not modification times, so reinstalling identical
+  code still needs no restart) and reports it in the socket handshake;
+  setup restarts the daemon, when idle, unless both the version and the
+  fingerprint match.
 - **The consent page's refusals answered 500.** The page for an expired or
   unknown request, and the lockout after too many wrong passwords, were
   built from a template whose CSS braces broke `str.format`. They came back

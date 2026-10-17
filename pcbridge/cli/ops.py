@@ -567,6 +567,20 @@ def expected_tools(profile: str) -> int:
     return len(tools_in_profile(profile))
 
 
+def runs_installed_code(reply: dict | str) -> bool:
+    """Does the daemon that answered the handshake run the code installed now?
+
+    The version alone is not enough: unreleased builds keep the last
+    release's version, so a wheel from a newer commit looked "already
+    running" and setup skipped the restart. A daemon older than the build
+    fingerprint reports none, so it is restarted too.
+    """
+    from .. import build as buildlib
+
+    return (isinstance(reply, dict) and reply.get("version") == __version__
+            and reply.get("build") == buildlib.fingerprint())
+
+
 def setup(argv: list[str]) -> int:
     p = argparse.ArgumentParser(
         prog="pcbridge setup", description="Install or update pcbridge for this user. "
@@ -699,13 +713,12 @@ def setup(argv: list[str]) -> int:
     from .doctor import handshake
 
     try:
-        reply = handshake(pathslib.socket_path())
-        running_daemon = isinstance(reply, dict) and reply.get("version") == __version__
+        running_daemon = runs_installed_code(handshake(pathslib.socket_path()))
     except pathslib.RuntimeDirError:
         pass
     if running_daemon and not changed and not settings_changed:
         inst.systemctl("enable", *inst.UNIT_NAMES)
-        inst.ok("daemon already running this version")
+        inst.ok("daemon already running the installed code")
     else:
         msg = _restart_when_idle(cfg, args.idle_wait)
         if msg.startswith("daemon"):

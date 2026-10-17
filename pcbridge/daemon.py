@@ -45,6 +45,7 @@ import anyio
 from anyio.abc import SocketListener, SocketStream
 
 from . import __version__
+from . import build as buildlib
 from . import paths as pathslib
 from . import sessionctx
 
@@ -52,6 +53,10 @@ log = logging.getLogger("pcbridge")
 
 RELAY_PROTOCOL = 1
 RESTART_EXIT_CODE = 75  # pcbridge.service: RestartForceExitStatus=75
+# The fingerprint of the code this daemon started with (`build.py`), taken
+# before anything else so a later install cannot change what it reports.
+BUILD = ""
+
 # How often the version stamp is read; tests shorten it.
 STAMP_POLL_S = float(os.environ.get("PCBRIDGE_STAMP_POLL_S") or 5.0)
 # status.json for the GNOME extension's panel indicator (Step 7 of 2.0).
@@ -208,7 +213,8 @@ class Daemon:
             log.warning("local connection without a valid relay preamble; closed")
             await stream.aclose()
             return
-        reply = {"pcbridge_daemon": {"version": __version__, "protocol": RELAY_PROTOCOL, "pid": os.getpid()}}
+        reply = {"pcbridge_daemon": {"version": __version__, "build": BUILD,
+                                     "protocol": RELAY_PROTOCOL, "pid": os.getpid()}}
         if pre.get("desktop_context") is True:
             from .desktop.session import grant_context
 
@@ -447,7 +453,8 @@ class Daemon:
 
 
 async def _serve(args: argparse.Namespace, bind_socket: bool) -> int:
-    global STATE
+    global STATE, BUILD
+    BUILD = buildlib.fingerprint()
     from fastmcp.server.context import set_transport
 
     from . import app as applib
