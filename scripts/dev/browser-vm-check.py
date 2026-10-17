@@ -55,7 +55,7 @@ def focused_app() -> str:
     return "?"
 
 
-def grey_levels(png: bytes) -> int:
+def gray_levels(png: bytes) -> int:
     from PIL import Image
 
     return len(set(Image.open(io.BytesIO(png)).convert("L").get_flattened_data()))
@@ -108,7 +108,7 @@ async def run(args) -> None:
         _t, png = await m.screenshot(t.id, False)
         await m.navigate("open", site.url + "/wifi", None, False, 20)
         title = await m.evaluate(sid, "document.title")
-        print(f"hidden: typed ok {typed == 'admin'}; screenshot grey levels {grey_levels(png)}; "
+        print(f"hidden: typed ok {typed == 'admin'}; screenshot gray levels {gray_levels(png)}; "
               f"loaded {title!r}")
 
         print("show, no focus ->", m.view("show").describe())
@@ -127,7 +127,7 @@ async def run(args) -> None:
         await asyncio.sleep(0.5)
         print("  +0.5 s ->", m.view("status").describe(), "| focus:", focused_app())
         _t, png = await m.screenshot(t.id, False)
-        print(f"hidden again: screenshot grey levels {grey_levels(png)}")
+        print(f"hidden again: screenshot gray levels {gray_levels(png)}")
         if args.listing:
             print(args.listing, subprocess.run(args.listing.split(), capture_output=True, text=True).stdout[:2000])
     finally:

@@ -765,7 +765,7 @@ the user's work and holding focus. Window state was sampled every 50 ms.
   window was never visible or focused, and the user's window kept focus.
 - **A hidden window keeps working.** Minimized, with the three
   anti-throttling flags: a page loaded, `browser_act` typed into a field
-  (value checked through the DOM), and CDP screenshots had 251-252 grey
+  (value checked through the DOM), and CDP screenshots had 251-252 gray
   levels (not blank).
 - **A window minimized at creation takes focus when first shown.** With no
   other window, an un-minimize without `activate` left it unfocused for the
@@ -797,7 +797,7 @@ VMs, Chromium 154 installed on a throwaway overlay of each disk,
   visible and focused (7 of 7 samples). Fixed: never visible or focused.
 - **Plasma: a show without focus kept KWrite focused** at +0.5, +1 and
   +2.5 s, also for the first show; a show with focus focused the browser;
-  hide gave focus back. Hidden: typing worked and screenshots had 249 grey
+  hide gave focus back. Hidden: typing worked and screenshots had 249 gray
   levels.
 - **Hyprland 0.56.2 with the Lua provider takes Lua dispatchers.**
   `hl.dsp.window.move({window="address:0x...", workspace="special:pcbridge",
@@ -808,7 +808,7 @@ VMs, Chromium 154 installed on a throwaway overlay of each disk,
   no_initial_focus = true})` was accepted (again with the same name too). A
   workspace id must be a Lua number, a name a string.
 - **Hyprland: with that rule the starting browser was never visible or
-  focused** (29 samples with a window); hidden it typed and gave 249 grey
+  focused** (29 samples with a window); hidden it typed and gave 249 gray
   levels; a show without focus kept foot focused, a show with focus focused
   the browser, hide gave focus back. The hyprlang provider was not
   measured: there pcbridge only moves the window once it appears.

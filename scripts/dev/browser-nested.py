@@ -184,7 +184,7 @@ async def run(env: dict, state_dir: Path, site: RouterSite) -> None:
         value = await m.evaluate(sid, "document.querySelector('input[name=user]').value")
         _t, png = await m.screenshot(t.id, False)
         print(f"hidden: state {state(env)}; typed value ok: {value == 'admin'}; "
-              f"screenshot distinct grey levels: {busy_pixels(png)}")
+              f"screenshot distinct gray levels: {busy_pixels(png)}")
         await m.navigate("open", site.url + "/wifi", None, False, 20)
         print("hidden: loaded", await m.evaluate(sid, "document.title"))
 
@@ -203,7 +203,7 @@ async def run(env: dict, state_dir: Path, site: RouterSite) -> None:
             print(f"  +{wait} s ->", state(env), focused(env))
         print("hide          ->", m.view("hide").describe(), state(env))
         _t, png = await m.screenshot(t.id, False)
-        print(f"hidden again: screenshot distinct grey levels: {busy_pixels(png)}")
+        print(f"hidden again: screenshot distinct gray levels: {busy_pixels(png)}")
         await m.stop()
     finally:
         os.environ.clear()
