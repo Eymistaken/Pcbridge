@@ -23,7 +23,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware
 from fastmcp.tools.base import ToolResult
 from mcp.types import ContentBlock, TextContent
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from . import __version__
 from . import assets as assetslib
@@ -197,6 +197,14 @@ def _resolve_file(cfg: Config, path: str) -> Path:
 _decode_text_file = fileslib.decode_text_file
 
 
+class EditItem(BaseModel):
+    """One replacement in `fs_edit`'s `edits` list."""
+
+    old_text: Annotated[str, Field(description="Exact text to replace, as fs_read shows it.")]
+    new_text: Annotated[str, Field(description="The text to put in its place.")]
+    replace_all: Annotated[bool, Field(description="Replace every match, not just one.")] = False
+
+
 def _model_matches(requested: str, actual: str) -> bool:
     """Istenen model adi ile CLI'in bildirdigi ad ortusuyor mu?
 
@@ -307,6 +315,7 @@ TOOL_HINTS: dict[str, tuple[bool, bool, bool, bool]] = {
     "fs_read":              (True,  False, True,  False),
     "fs_search":            (True,  False, True,  False),
     "fs_write":             (False, True,  True,  False),
+    "fs_edit":              (False, True,  False, False),
     "notify":               (False, False, False, False),
     "panel_icon":           (False, False, True,  False),
     "system_status":        (True,  False, True,  False),
@@ -1068,20 +1077,92 @@ def register(
         append: Annotated[
             bool, Field(description="Append instead of overwriting.")
         ] = False,
+        expected_sha256: Annotated[str | None, Field(
+            description="Write only if the file still has this SHA-256 (from fs_read or "
+                        "fs_edit); otherwise it is a conflict and nothing is written.")] = None,
+        create_only: Annotated[bool, Field(
+            description="Write only if the file does not exist yet.")] = False,
     ) -> str:
-        """Create or overwrite a text file on the computer. Overwrites existing
-        content unless append is true."""
+        """Create, overwrite or append to a text file on the computer. Use it
+        for new files and whole rewrites; for a change to part of an existing
+        file use fs_edit, which does not resend the whole file. Overwrites are
+        atomic (a reader never sees half a file). Pass expected_sha256 when
+        replacing a file you read earlier, so a change someone else made in
+        the meantime is reported as a conflict instead of being lost."""
         f = _resolve_file(cfg, path)
-        f.parent.mkdir(parents=True, exist_ok=True)
-        mode = "a" if append else "w"
+        data = (content or "").encode("utf-8")
         try:
-            with f.open(mode, encoding="utf-8") as fh:
-                fh.write(content)
+            before = fileslib._current(f)
+            if create_only and before is not None:
+                return (f"Not written: `{f}` already exists ({len(before):,} bytes). "
+                        "Leave create_only off to overwrite it, or use fs_edit.")
+            fileslib.check_expected(f, before, expected_sha256)
+            if append and before is not None:
+                with f.open("ab") as fh:
+                    fh.write(data)
+            else:
+                fileslib.atomic_write(f, data, expected=expected_sha256,
+                                      before=before if expected_sha256 else None)
+        except fileslib.FileToolError as exc:
+            return f"Not written: {exc}"
         except OSError as exc:
             return f"Could not write it: {exc}"
         gate.audit("fs_write", path=str(f)[:200], chars=len(content or ""),
                    append=append or None)
-        return f"{'Appended' if append else 'Written'}: `{f}` ({f.stat().st_size:,} bytes)"
+        after = f.read_bytes()
+        return (f"{'Appended' if append else 'Written'}: `{f}` ({len(after):,} bytes) · "
+                f"sha256 {fileslib.sha256_of(after)}")
+
+    @mcp.tool(annotations={"title": "Edit part of a file"})
+    def fs_edit(
+        path: Annotated[str, Field(description="Absolute path of the text file to edit.")],
+        old_text: Annotated[str | None, Field(
+            description="Exact text to replace (include enough lines to make it unique).")] = None,
+        new_text: Annotated[str | None, Field(description="The replacement text.")] = None,
+        replace_all: Annotated[bool, Field(
+            description="Replace every match of old_text; otherwise it must match once.")] = False,
+        edits: Annotated[list[EditItem] | None, Field(
+            max_length=50, description="Several replacements, applied in order and written "
+                                       "together, or not at all.")] = None,
+        expected_sha256: Annotated[str | None, Field(
+            description="Edit only if the file still has this SHA-256 (from fs_read).")] = None,
+        dry_run: Annotated[bool, Field(
+            description="Show the diff without writing anything.")] = False,
+    ) -> str:
+        """Change part of an existing text file by exact text replacement,
+        without resending the whole file. Use it for focused changes to code,
+        configs and notes; use fs_write to create a file or rewrite it
+        entirely. old_text must match exactly once unless replace_all is set;
+        a missing or ambiguous match changes nothing and says where the
+        matches are. The file's line endings (LF or CRLF) and BOM are kept,
+        the write is atomic, and expected_sha256 turns a change made by
+        someone else since your read into a conflict. Returns a unified diff
+        and the new sha256; dry_run returns the diff only."""
+        f = _resolve_file(cfg, path)
+        if edits and (old_text is not None or new_text is not None):
+            return "Give either old_text/new_text or edits, not both."
+        items = [fileslib.Edit(e.old_text, e.new_text, e.replace_all) for e in edits or []]
+        if not items and old_text is not None:
+            items = [fileslib.Edit(old_text, new_text or "", replace_all)]
+        try:
+            res = fileslib.apply_edits(f, items)
+            fileslib.check_expected(f, res.before, expected_sha256)
+            if not dry_run:
+                fileslib.atomic_write(f, res.after, before=res.before)
+        except fileslib.FileToolError as exc:
+            return f"Not edited: {exc}"
+        except OSError as exc:
+            return f"Could not edit it: {exc}"
+        if not dry_run:
+            gate.audit("fs_edit", path=str(f)[:200], edits=len(items), replaced=res.replacements)
+        spans = ", ".join(f"{a:,}" if a == b else f"{a:,}–{b:,}" for a, b in res.lines)
+        verb = "Would change" if dry_run else "Edited"
+        head = (f"{verb} `{f}`: {res.replacements} replacement(s) in {len(items)} edit(s), "
+                f"at line(s) {spans}. sha256 {fileslib.sha256_of(res.before)} -> "
+                f"{fileslib.sha256_of(res.after)}" + (" (nothing written)" if dry_run else ""))
+        diff = fileslib.trim_diff(res.diff) or "(no change: new_text equals old_text)\n"
+        fence = fileslib.fence_for(diff)
+        return f"{head}\n{fence}diff\n{diff}{fence}"
 
     @mcp.tool(annotations={"title": "Search inside files"})
     def fs_search(

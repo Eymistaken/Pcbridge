@@ -43,8 +43,8 @@ class ToolsTabTests(unittest.TestCase):
 
     def test_every_tool_is_listed_with_the_profile_count(self) -> None:
         async def body(app, pilot):
-            self.assertEqual(len(rows(app)), 37)
-            self.assertIn("profile core: 21 of 37 tools offered", str(app.query_one("#tools-count").render()))
+            self.assertEqual(len(rows(app)), 38)
+            self.assertIn("profile core: 22 of 38 tools offered", str(app.query_one("#tools-count").render()))
 
         self.run_app(body)
 
@@ -65,7 +65,7 @@ class ToolsTabTests(unittest.TestCase):
         async def body(app, pilot):
             await pilot.click("#tools-active-only")
             await pilot.pause()
-            self.assertEqual(len(rows(app)), 21)
+            self.assertEqual(len(rows(app)), 22)
             self.assertNotIn("mouse", rows(app))
 
         self.run_app(body)

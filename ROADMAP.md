@@ -38,7 +38,7 @@ here, not by moving sections.
    way to find the password a remote client needs.
 5. **File tools.** ~~*Paginated and ranged file reads*~~ (done,
    Unreleased), the rest of *Binary
-   file transfer*, *Targeted edits and easier writes*. Together, because
+   file transfer*, ~~*Targeted edits and easier writes*~~ (done, Unreleased). Together, because
    they share the cursor and conflict design.
 6. **Browser.** In this order: measure *Attaching to the existing session*,
    then *Browser tools for the user's existing session*, *Show and hide the
@@ -119,14 +119,13 @@ at the machine* checks, batched for a session at the machine.
   and reads several files with `paths`. Proved over HTTP with OAuth against
   a throwaway daemon (see measured facts). Left: the same check from a real
   remote client (claude.ai, ChatGPT), which the maintainer runs.
-- **Targeted edits and easier writes.** Keep create/overwrite/append, and add
-  an edit/patch tool for exact text replacements or focused changes without
-  resending the whole file. Provide a diff preview, explicit single/all-match
-  behavior, clear missing/ambiguous-match errors, expected-content/hash
-  conflict detection and atomic writes. Preserve encoding and line endings.
-  Done when a small edit to a large file changes only the requested region,
-  concurrent changes produce a conflict instead of silent replacement, and
-  multiline UTF-8 edits can be submitted without shell escaping.
+- ~~**Targeted edits and easier writes.**~~ Done (Unreleased): the new
+  `fs_edit` replaces exact text (one match, `replace_all`, or several edits
+  written together), explains missing and ambiguous matches, keeps line
+  endings and BOM, shows a diff, has `dry_run`, and refuses a stale
+  `expected_sha256`; `fs_write` writes atomically with `expected_sha256`
+  and `create_only`. Proved over HTTP with OAuth against a throwaway daemon
+  (see measured facts). Left: the same from a real remote client.
 - **Binary file transfer.** `fs_read` and `fs_write` handle UTF-8 text
   only. Done: `fs_read` no longer decodes with `errors="replace"`; a binary
   file (NUL bytes or a known signature such as PDF, PNG, JPEG, ZIP, ELF) or

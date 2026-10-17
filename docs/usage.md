@@ -1,6 +1,6 @@
 # Using pcbridge
 
-pcbridge offers 37 MCP tools. This page lists them, says which ones need the
+pcbridge offers 38 MCP tools. This page lists them, says which ones need the
 desktop grant, and shows the usual ways to use them. Every tool's own
 description (what a client sees) says when to use it; this is the overview.
 
@@ -79,7 +79,8 @@ same agent by passing its `session_id` as `resume_session`.
 | `shell_run_background` | destructive | A long command (build, install) as a job |
 | `fs_list`, `fs_search` | ro | Directory listing, text search (ripgrep if present) |
 | `fs_read` | ro | A text file one page at a time: from the beginning, from `start_line` (negative counts from the end) or from the previous page's `cursor`; several files with `paths` |
-| `fs_write` | destructive | Create or overwrite a text file |
+| `fs_write` | destructive | Create, overwrite (atomically) or append to a text file; `expected_sha256` refuses to overwrite a file that changed since it was read |
+| `fs_edit` | destructive | Replace exact text in a file without resending it: one match, every match, or several edits written together; keeps line endings, shows a diff, `dry_run` |
 | `tmux_start` | write | Open a persistent terminal session, optionally with an interactive CLI in it |
 | `tmux_send`, `tmux_keys` | destructive | Type into it, or press raw keys (answer an agent's y/n prompt) |
 | `tmux_capture`, `tmux_list` | ro | Read a session's screen; list sessions |
@@ -134,7 +135,7 @@ the cheapest way to find a known label in an app with no accessibility tree.
 ## Profiles
 
 `[tools] profile` in the config offers a smaller set to save the client's
-context: `full` (default, all 37), `core` (21, no desktop tools), `desktop`
+context: `full` (default, all 38), `core` (22, no desktop tools), `desktop`
 (23: the desktop tools plus job and status tools) or `readonly` (12: only
 tools that change nothing, such as job status and output, file reads, tmux
 capture and system status). It is read at startup; restart pcbridge and the
@@ -202,7 +203,7 @@ hold Shift. Piped or run from a script,
   shows or hides the GNOME icon immediately and does not use **Save** or
   require a daemon restart. On KDE Plasma it explains that there is no
   pcbridge panel icon.
-- **Tools**: all 37 tools with their state (`active`, `not in profile`,
+- **Tools**: all 38 tools with their state (`active`, `not in profile`,
   `needs desktop`), a search box that filters by name and description as
   you type, a toggle for the offered ones only, and the selected tool's
   description, hints and parameters.

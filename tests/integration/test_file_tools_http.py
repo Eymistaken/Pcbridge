@@ -8,6 +8,7 @@ user's daemon, config or files.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import sys
 import unittest
@@ -16,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from tests.contracts.test_fs_edit import MULTILINE_NEW, MULTILINE_OLD  # noqa: E402
 from tests.contracts.test_fs_pages import big_text, body_of  # noqa: E402
 from tests.integration import test_remote_access as remote  # noqa: E402
 
@@ -64,6 +66,38 @@ class FileToolsOverHttp(unittest.TestCase):
         end = self.text("fs_read", {"path": str(f), "start_line": -1})
         self.assertIn("END-MARKER", end)
         self.assertIn("End of file.", end)
+
+    def test_targeted_edit_changes_only_its_region_and_detects_conflicts(self) -> None:
+        self._remote()
+        lines = [f"satır {i:06d} {'x' * 60}\n" for i in range(80_000)]
+        lines[40_000] = MULTILINE_OLD
+        before = "".join(lines).encode("utf-8")
+        f = self.tmp / "work" / "big.py"
+        f.write_bytes(before)
+        read = self.text("fs_read", {"path": str(f), "start_line": 40_001, "max_lines": 2})
+        digest = re.search(r"sha256 ([0-9a-f]{64})", read).group(1)
+        self.assertEqual(digest, hashlib.sha256(before).hexdigest())
+        # The multiline UTF-8 text travels as a JSON string: no shell, no escaping.
+        out = self.text("fs_edit", {"path": str(f), "old_text": MULTILINE_OLD,
+                                    "new_text": MULTILINE_NEW, "expected_sha256": digest})
+        self.assertTrue(out.startswith("Edited"), out)
+        after = f.read_bytes()
+        i = before.index(MULTILINE_OLD.encode())
+        self.assertEqual(after[:i], before[:i])
+        self.assertEqual(after[i:i + len(MULTILINE_NEW.encode())], MULTILINE_NEW.encode())
+        self.assertEqual(after[i + len(MULTILINE_NEW.encode()):],
+                         before[i + len(MULTILINE_OLD.encode()):])
+        self.assertLess(len(out), 6000)
+        # Someone else changes the file; the stale hash is a conflict, not an overwrite.
+        f.write_bytes(after + b"# another writer\n")
+        stale = self.text("fs_edit", {"path": str(f), "old_text": "satır 000001",
+                                      "new_text": "LOST", "expected_sha256": digest})
+        self.assertIn("Conflict", stale)
+        stale_write = self.text("fs_write", {"path": str(f), "content": "LOST",
+                                             "expected_sha256": digest})
+        self.assertIn("Conflict", stale_write)
+        self.assertTrue(f.read_bytes().endswith(b"# another writer\n"))
+        self.assertNotIn(b"LOST", f.read_bytes())
 
 
 if __name__ == "__main__":

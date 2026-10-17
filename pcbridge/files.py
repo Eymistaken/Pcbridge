@@ -1,4 +1,4 @@
-"""Reading files in pages for the fs_* tools.
+"""Reading, writing and editing files for the fs_* tools.
 
 `fs_read` used to return only the last `max_chars` characters, so the start
 and middle of a large file could not be reached without `shell_run`. A page
@@ -9,14 +9,20 @@ which lines it covers, how much is left and how to get the next page.
 A cursor carries the byte offset, the line number and the first 16 hex
 digits of the file's SHA-256. If the file changes between two pages the
 cursor is refused instead of silently skipping or repeating content.
+
+Writes (`fs_write`, `fs_edit`) are atomic and can be made conditional on the
+SHA-256 a read reported; see the "writing" section below.
 """
 
 from __future__ import annotations
 
 import base64
 import codecs
+import difflib
 import hashlib
 import json
+import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -292,3 +298,186 @@ def format_page(page: Page, *, line_numbers: bool = False) -> str:
     # Only the page's own final newline goes; blank lines before it stay.
     body = body[:-1] if body.endswith("\n") else body
     return f"{head}\n{span}\n{fence}\n{body}\n{fence}\n{tail}"
+
+
+# ---------------------------------------------------------------- writing
+#
+# Every write goes to a temporary file next to the target and replaces it
+# with os.replace(), so a reader never sees half a file and a crash leaves
+# the old one. `expected_sha256` turns a write into "only if the file is
+# still what I read": the hash is checked again just before the replace, so
+# a change made in between is a conflict, not a silent overwrite.
+
+_HEX = frozenset("0123456789abcdef")
+
+
+def sha256_of(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def check_expected(path: Path, current: bytes | None, expected: str | None) -> None:
+    """Raise unless the file is what the caller last read."""
+    if expected is None:
+        return
+    want = expected.strip().lower()
+    if len(want) < 12 or not set(want) <= _HEX:
+        raise FileToolError("expected_sha256 must be the file's SHA-256 in hex (at least the "
+                            "first 12 digits), as fs_read or fs_edit reported it.")
+    if current is None:
+        raise FileToolError(f"Conflict: `{path}` does not exist, so it is not the file with "
+                            f"sha256 {want}. Nothing was written.")
+    have = sha256_of(current)
+    if not have.startswith(want):
+        raise FileToolError(
+            f"Conflict: `{path}` changed since it was read (sha256 is now {have}, expected "
+            f"{want}). Nothing was written; read it again and redo the change.")
+
+
+def _current(path: Path) -> bytes | None:
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        return None
+
+
+def atomic_write(path: Path, data: bytes, *, expected: str | None = None,
+                 before: bytes | None = None) -> None:
+    """Replace `path` with `data` in one step.
+
+    `before` is what the caller based the change on; if the file no longer
+    holds exactly that (or `expected` no longer matches), nothing is written.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        mode = path.stat().st_mode & 0o7777
+    except FileNotFoundError:
+        umask = os.umask(0)
+        os.umask(umask)
+        mode = 0o666 & ~umask
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".pcbridge-tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(tmp, mode)
+        now = _current(path)
+        if before is not None and now != before:
+            raise FileToolError(
+                f"Conflict: `{path}` changed while this edit was being made (sha256 is now "
+                f"{sha256_of(now) if now is not None else 'missing'}). Nothing was written; "
+                "read it again and redo the change.")
+        check_expected(path, now, expected)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+# ---------------------------------------------------------------- editing
+
+
+@dataclass(frozen=True)
+class Edit:
+    old_text: str
+    new_text: str
+    replace_all: bool = False
+
+
+@dataclass(frozen=True)
+class EditResult:
+    before: bytes
+    after: bytes
+    replacements: int
+    lines: list[tuple[int, int]]
+    diff: str
+
+
+def _newline_style(text: str) -> str | None:
+    """"\\r\\n" when every line ends with CRLF, "\\n" when none does, None if mixed."""
+    crlf = text.count("\r\n")
+    lf = text.count("\n")
+    if lf == 0:
+        return None
+    if crlf == lf:
+        return "\r\n"
+    if crlf == 0:
+        return "\n"
+    return None
+
+
+def _match_lines(text: str, needle: str, limit: int = 10) -> list[int]:
+    out, start = [], 0
+    while len(out) < limit:
+        i = text.find(needle, start)
+        if i < 0:
+            break
+        out.append(text.count("\n", 0, i) + 1)
+        start = i + max(1, len(needle))
+    return out
+
+
+def _not_found(text: str, old: str, n: int) -> FileToolError:
+    hint = ""
+    stripped = "\n".join(ln.strip() for ln in old.strip().splitlines())
+    flat = "\n".join(ln.strip() for ln in text.splitlines())
+    if stripped and stripped in flat:
+        line = flat[: flat.index(stripped)].count("\n") + 1
+        hint = (f" It does appear near line {line:,} with different indentation or trailing "
+                "spaces; copy the text exactly as fs_read shows it.")
+    return FileToolError(f"Edit {n}: old_text was not found, so nothing was changed.{hint}")
+
+
+def apply_edits(path: Path, edits: list[Edit], *, context: int = 2) -> EditResult:
+    """Apply `edits` in order to the file's text, in memory; nothing is written."""
+    if not edits:
+        raise FileToolError("Give old_text and new_text, or a list of edits.")
+    raw = _current(path)
+    if raw is None:
+        raise FileToolError(f"File not found: {path}. Create it with fs_write.")
+    text, refused = decode_text_file(raw)
+    if text is None:
+        raise FileToolError(f"`{path}` cannot be edited: {refused}.")
+    bom = text.startswith("﻿")
+    body = text[1:] if bom else text
+    style = _newline_style(body)
+    count = 0
+    touched: list[tuple[int, int]] = []
+    for n, e in enumerate(edits, 1):
+        old, new = e.old_text, e.new_text
+        if not old:
+            raise FileToolError(f"Edit {n}: old_text is empty; use fs_write to create or append.")
+        if style == "\r\n":
+            # Match and write the file's own line endings, so a model that
+            # sends "\n" neither misses the text nor mixes the endings.
+            old = old.replace("\r\n", "\n").replace("\n", "\r\n")
+            new = new.replace("\r\n", "\n").replace("\n", "\r\n")
+        found = body.count(old)
+        if found == 0:
+            raise _not_found(body, old, n)
+        if found > 1 and not e.replace_all:
+            where = ", ".join(f"{ln:,}" for ln in _match_lines(body, old))
+            raise FileToolError(
+                f"Edit {n}: old_text matches {found} places (lines {where}), so nothing was "
+                "changed. Include more surrounding lines to make it unique, or set "
+                "replace_all to change every one.")
+        first = body.count("\n", 0, body.find(old)) + 1
+        body = body.replace(old, new) if e.replace_all else body.replace(old, new, 1)
+        count += found if e.replace_all else 1
+        touched.append((first, first + new.count("\n")))
+    after_text = ("﻿" if bom else "") + body
+    after = after_text.encode("utf-8")
+    diff = "".join(difflib.unified_diff(
+        text.splitlines(keepends=True), after_text.splitlines(keepends=True),
+        fromfile=f"{path} (before)", tofile=f"{path} (after)", n=context))
+    return EditResult(raw, after, count, touched, diff)
+
+
+def trim_diff(diff: str, limit: int = 4000) -> str:
+    if len(diff) <= limit:
+        return diff
+    cut = diff.rfind("\n", 0, limit)
+    return diff[: cut + 1 if cut > 0 else limit] + f"…(diff truncated: {len(diff):,} characters)\n"

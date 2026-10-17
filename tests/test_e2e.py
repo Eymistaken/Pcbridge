@@ -523,6 +523,7 @@ def _main() -> int:
         "shell_run",
         "fs_read",
         "fs_write",
+        "fs_edit",
         "fs_list",
         "system_capabilities",
         "system_status",

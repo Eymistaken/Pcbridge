@@ -4,6 +4,20 @@
 
 ### Added
 
+- **`fs_edit`: change part of a file without resending it.** An exact text
+  replacement: `old_text` must match once, or every match is changed with
+  `replace_all`. `edits` applies up to 50 replacements in order and writes
+  them together, or not at all. A missing match changes nothing and, when
+  the text is there with other indentation, says near which line; an
+  ambiguous one names the lines it matches. The file's line endings (LF or
+  CRLF) and its BOM are kept, so a model that sends `\n` neither misses a
+  CRLF file's text nor mixes its endings. `expected_sha256` (from
+  `fs_read`) makes a change someone else made since the read a conflict;
+  `dry_run` shows the diff and writes nothing. The reply is a unified diff,
+  trimmed to 4,000 characters, and the new SHA-256. Measured over HTTP with
+  OAuth against a throwaway daemon: a multiline Turkish/emoji edit in the
+  middle of a 6 MB file left every byte before and after it unchanged, and
+  a stale hash was refused by both `fs_edit` and `fs_write`.
 - **One install script that finds everything itself.** `install.sh` is now
   the recommended way to install, and from the next release on it is a
   release asset: `curl -fsSL .../releases/latest/download/install.sh | sh`.
@@ -109,6 +123,12 @@
 
 ### Changed
 
+- **`fs_write` writes atomically and can refuse a stale overwrite.** An
+  overwrite goes to a temporary file next to the target and replaces it in
+  one step, keeping the file's mode, so a reader never sees half a file.
+  `expected_sha256` writes only if the file still has the hash that was
+  read, checked again just before the replace; `create_only` writes only a
+  file that does not exist yet. The reply now gives the file's SHA-256.
 - **`fs_read` reads in pages, from the beginning.** It used to return only
   the last `max_chars` characters, so the start and middle of a large file
   could be reached only through `shell_run`. A page now starts at the
@@ -204,8 +224,9 @@
 
 ### API
 
-- **Tools**: unchanged, 37. `fs_read` refuses binary and non-UTF-8 files.
-  `fs_read` reads from the beginning instead of the end and gains
+- **Tools**: 38 (new `fs_edit`; `core` offers 22). `fs_read` refuses binary
+  and non-UTF-8 files. `fs_write` gains `expected_sha256` and `create_only`
+  and reports the SHA-256 it wrote. `fs_read` reads from the beginning instead of the end and gains
   `start_line`, `cursor`, `max_lines`, `line_numbers` and `paths`; `path`
   is optional when `paths` is given.
 - **Config file**: new `[power] keep_awake` (default `false`); no

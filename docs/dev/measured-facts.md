@@ -220,6 +220,15 @@ budget; `start_line=701, max_lines=1` returned the middle marker alone and
 the byte-exact rebuild at budgets of 200, 997, 8,000 and 60,000. Not yet
 measured: the same through a real remote client.
 
+Targeted edits (2026-10-17, same harness): a 6 MB file of 80,000
+lines got a multiline edit with Turkish letters, quotes, `$HOME`, backticks
+and an emoji in the middle, sent as a plain JSON string with the SHA-256
+from `fs_read`. Every byte before and after the edited region was
+unchanged and the reply stayed under 6,000 characters. After another writer
+appended a line, `fs_edit` and `fs_write` with the old hash both answered
+"Conflict" and the other writer's line survived. Not yet measured: the
+same through a real remote client.
+
 ## Hyprland release scope and limits
 
 PcBridge 2.5.0 supports Hyprland 0.56.2 on Wayland with the native helper.
