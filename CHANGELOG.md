@@ -18,7 +18,8 @@
   a link to a page behind the tunnel that shows the browser's tab live
   (CDP screencast) and sends taps, typed text and keys to it; the link is
   bound to that one hand-over and ends with it, after 30 minutes or with a
-  daemon restart. 47 tools; `core` 31, `readonly` 16. Proved with a
+  daemon restart. The notification closes when the browser is given back,
+  from wherever that happens, and when its daemon stops. 47 tools; `core` 31, `readonly` 16. Proved with a
   two-factor sign-in over HTTP against a throwaway daemon and through a
   real browser at phone size; not yet from a real phone through Funnel.
 - **Showing and hiding the browser window.** The pcbridge browser starts

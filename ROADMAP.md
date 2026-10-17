@@ -190,9 +190,10 @@ at the machine* checks, batched for a session at the machine.
   tunnel, bound to the one hand-over, with CDP screencast frames and taps,
   text and keys sent through `Input.dispatch*`. Proved with a two-factor
   step over HTTP against a throwaway daemon and through a real browser at
-  phone size (see measured facts). Left: a person clicking the panel menu
-  and the notification's action on Plasma and GNOME, and the phone check
-  through Funnel on a real phone.
+  phone size, and at the machine on GNOME through the notification's
+  button (see measured facts). Left: the GNOME panel menu's items (after a
+  log-out loads the new extension), the notification on Plasma, and the
+  phone check through Funnel on a real phone.
 - ~~**Show and hide the browser window on demand.**~~ Done (Unreleased):
   hidden by default, shown and hidden by `browser_visibility`, `pcbridge
   browser show|hide` and the terminal UI's button (b), found by the pid of

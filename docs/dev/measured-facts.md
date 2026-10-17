@@ -839,8 +839,27 @@ by hand).
   the start); the page shows the last one until then.
 - **The at-machine controls** (`pcbridge browser pause` / `resume`, the
   terminal UI's button) were checked in the same test and in the terminal
-  UI's contract tests; the GNOME panel menu's two items and the
-  notification's action were not clicked by a person.
+  UI's contract tests. The GNOME panel menu's two items were not clicked:
+  they need the new extension, which loads only after a log-out.
+- **At the machine, on the real GNOME 46 session** (a throwaway daemon and
+  headed browser, real input through pcbridge's desktop tools): the
+  hand-over's notification appeared with its "Give it back to the agent"
+  button; the code typed into the browser window signed it in; the button
+  (in the notification list, as the banner had gone) gave control back,
+  and the agent read the signed-in page.
+- **A notification outlived its hand-over.** Banners from earlier test
+  daemons stayed on screen, and their `notify-send --wait` processes kept
+  running after the daemons had exited, so their buttons did nothing.
+  `notify-send -p --wait` prints the id only when it exits (also with
+  `stdbuf -oL`), so the hand-over could not close its own notification.
+  pcbridge now sends it through a small system-python helper
+  (`browser/notice.py`) that prints the id at once and closes the
+  notification when its daemon goes away; giving the browser back from
+  anywhere closes it by that id.
+- **Chrome offered to save the password** the agent had typed (with
+  `allow_password_fields = true`) in the pcbridge profile. In a hidden
+  window the bubble is never seen and nothing is saved; shown, it is the
+  user's choice.
 
 ## GNOME Shell extension
 
