@@ -347,21 +347,34 @@
 
 ### API
 
-- **Tools**: 38 (new `fs_edit`; `core` offers 22). `fs_read` refuses binary
-  and non-UTF-8 files in its default mode; `encoding="base64"` reads any
-  file's bytes and images come back as pictures (`fs_read` declares no
-  output schema, since it can return image content). `fs_write` gains
-  `expected_sha256`, `create_only`, `content_base64`, `offset`,
-  `chunk_sha256` (required with `offset`) and `final_sha256`, `content`
-  becomes optional, and the reply gives the SHA-256 it wrote. `fs_read`'s
-  `max_chars` defaults to 8,000 for text and 20,000 for base64, which is
-  also base64's maximum. `fs_read` reads from the beginning instead of the end and gains
-  `start_line`, `cursor`, `max_lines`, `line_numbers` and `paths`; `path`
-  is optional when `paths` is given.
-- **Config file**: new `[power] keep_awake` (default `false`); no
-  migration, a file without it keeps the old behavior.
-- **CLI**: new `pcbridge keep-awake [on|off]`. `status.json` gains a
-  `keep_awake` object, and `pcbridge status --json` gains the same field.
+- **Tools**: 47, up from 37. New: `fs_edit`, `fs_download_link`,
+  `fs_upload_link`, and seven browser tools (`browser_tabs`,
+  `browser_read`, `browser_screenshot`, `browser_navigate`, `browser_act`,
+  `browser_visibility`, `browser_handoff`). The `core` profile offers 31,
+  `readonly` 16 (it gains `browser_tabs`, `browser_read`,
+  `browser_screenshot` and `fs_download_link`), and `desktop` stays at 23.
+  `fs_read` reads from the beginning instead of the end and gains
+  `start_line`, `cursor`, `max_lines`, `line_numbers`, `paths` and
+  `encoding`; `path` is optional when `paths` is given. It refuses binary
+  and non-UTF-8 files in its default mode, returns images as pictures, and
+  with `encoding="base64"` returns any file's bytes; it declares no output
+  schema, since it can return image content. Its `max_chars` defaults to
+  8,000 for text and 20,000 for base64, which is also base64's maximum.
+  `fs_write` gains `expected_sha256`, `create_only`, `content_base64`,
+  `offset`, `chunk_sha256` (required with `offset`) and `final_sha256`,
+  `content` becomes optional, and the reply gives the SHA-256 it wrote.
+- **Config file**: new `[power] keep_awake`, `[tools] remote_profile`,
+  `[files] link_ttl_seconds`, `upload_max_mb` and `download_max_mb`, and
+  `[browser] executable`, `profile_dir`, `extra_args`,
+  `allow_password_fields` and `remote_profile`; a file without them keeps
+  the old behavior. `[auth] password` is empty by default. On its first
+  start this version replaces a plaintext `[auth] password` and
+  `static_token`, and the tokens in `oauth.db`, with hashes. An older
+  pcbridge cannot use the hashes, so going back to 2.5.0 needs a new
+  password and static token and makes every remote client connect again.
+- **CLI**: new `pcbridge keep-awake [on|off]`, `pcbridge remote clients`
+  and `revoke`, and `pcbridge browser status|show|hide|pause|resume|stop`.
+  `status.json` and `pcbridge status --json` gain a `keep_awake` object.
 
 ## 2.5.0 - 2026-09-30
 
