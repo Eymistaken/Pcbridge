@@ -45,9 +45,10 @@ JOBS_WARN_BYTES = 1_000_000_000
 def _plaintext_leftovers(cfg) -> list[Path]:
     """Backups and older copies that still hold a plaintext secret or token.
 
-    Config backups next to the file (`config.toml.backup-*`) made before
-    secrets were hashed, the legacy repository config once another file is in
-    use, and copies of oauth.db in the state directory.
+    Config backups next to the file (`config.toml.backup-*`, and the
+    `config.toml.yedek-*` of 1.x) made before secrets were hashed, the legacy
+    repository config once another file is in use and its own backups, and
+    copies of oauth.db in the state directory.
     """
     from .. import hashing
     from ..auth import plaintext_token_rows
@@ -56,11 +57,15 @@ def _plaintext_leftovers(cfg) -> list[Path]:
     candidates: list[Path] = []
     if cfg.source_path:
         src = Path(cfg.source_path)
-        candidates += sorted(src.parent.glob(src.name + ".backup-*"))
+        candidates += [p for p in sorted(src.parent.glob(src.name + ".*"))
+                       if not p.name.endswith(".tmp")]
         legacy = pathslib.LEGACY_REPO_CONFIG
         if legacy.exists() and legacy.resolve() != src.resolve():
             candidates.append(legacy)
-    for p in candidates:
+            candidates += sorted(legacy.parent.glob(legacy.name + ".*"))
+    for p in dict.fromkeys(candidates):
+        if not p.is_file():
+            continue
         try:
             if hashing.plaintext_keys(p.read_text(encoding="utf-8")):
                 found.append(p)
@@ -467,8 +472,12 @@ class Doctor:
         g = "remote"
         has_password = bool(self.cfg and self.cfg.has_password)
         if self.cfg:
+            from ..hashing import is_password_hash
+
+            stored = "stored as a hash" if is_password_hash(self.cfg.password) else \
+                "not hashed yet; see config > stored secrets"
             self.add(g, "password", "ok" if has_password else "info",
-                     "set (stored as a hash)" if has_password
+                     f"set ({stored})" if has_password
                      else "not set: remote access is off (local clients do not need it)",
                      "" if has_password else "pcbridge set auth.password")
         if not shutil.which("tailscale"):

@@ -262,13 +262,15 @@ class TokenDatabaseTests(unittest.TestCase):
         old.write_text(CONFIG.format(password=PASSWORD, token="", state=self.tmp))
         clean = self.tmp / "config.toml.backup-20260102-000000"
         clean.write_text(cfg_path.read_text())
+        yedek = self.tmp / "config.toml.yedek-20260803-131545"  # 1.x named them so
+        yedek.write_text(old.read_text())
         self._legacy()
         shutil.copy(self.db, self.tmp / "oauth.db.bak-2026-10-14")
         authlib.hash_stored_tokens(self.db)
         cfg = SimpleNamespace(source_path=cfg_path, db_path=self.db)
         with mock.patch.object(doctor.pathslib, "LEGACY_REPO_CONFIG", self.tmp / "none.toml"):
             found = doctor._plaintext_leftovers(cfg)
-        self.assertEqual(found, [old, self.tmp / "oauth.db.bak-2026-10-14"])
+        self.assertEqual(found, [old, yedek, self.tmp / "oauth.db.bak-2026-10-14"])
 
     def test_a_missing_database_is_left_alone(self) -> None:
         self.assertEqual(authlib.hash_stored_tokens(self.db), 0)
