@@ -65,10 +65,11 @@ class FsReadToolTests(unittest.IsolatedAsyncioTestCase):
             f.write_text("merhaba dünya\n", encoding="utf-8")
             out = await self._read(root, f)
         self.assertIn("merhaba dünya", out)
-        self.assertIn("bytes)", out)
+        self.assertIn("15 bytes · 1 line ·", out)
+        self.assertIn("End of file.", out)
         self.assertNotIn("�", out)
 
-    async def test_long_file_keeps_the_tail_with_an_english_marker(self) -> None:
+    async def test_long_file_starts_at_the_beginning_with_a_cursor(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             f = root / "long.txt"
@@ -78,9 +79,9 @@ class FsReadToolTests(unittest.IsolatedAsyncioTestCase):
                 result = await client.call_tool(
                     "fs_read", {"path": str(f), "max_chars": 200})
             out = result.content[0].text
-        self.assertIn("…(truncated)…", out)
-        self.assertIn("END", out)
-        self.assertNotIn("BEGIN", out)
+        self.assertIn("BEGIN", out)
+        self.assertNotIn("END\n", out)
+        self.assertIn('cursor="c1.', out)
 
     async def test_binary_files_are_refused_without_replacement_chars(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

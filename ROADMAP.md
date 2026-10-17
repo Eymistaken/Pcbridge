@@ -36,7 +36,8 @@ here, not by moving sections.
    reading a file*. Before the next release: it makes `install.sh` the
    recommended path, and someone who installs from a release then has no
    way to find the password a remote client needs.
-5. **File tools.** *Paginated and ranged file reads*, the rest of *Binary
+5. **File tools.** ~~*Paginated and ranged file reads*~~ (done,
+   Unreleased), the rest of *Binary
    file transfer*, *Targeted edits and easier writes*. Together, because
    they share the cursor and conflict design.
 6. **Browser.** In this order: measure *Attaching to the existing session*,
@@ -111,15 +112,13 @@ at the machine* checks, batched for a session at the machine.
 
 ## Optional: file tools
 
-- **Paginated and ranged file reads.** Replace tail-only reads with explicit
-  line ranges or offsets/cursors and bounded page sizes. Return the covered
-  range, total size, truncation/EOF state and a continuation cursor so an
-  agent can recover every part of a large file in order. Make multiple-file
-  reads convenient and keep response budgets explicit. The current behavior
-  was measured in [file-tool evidence](docs/dev/measured-facts.md#file-tools-through-remote-mcp-2026-10-04).
-  Done when an agent can read the beginning, middle and end of a file larger
-  than the current response cap through file tools alone, without dropped or
-  duplicated content or shell-based slicing.
+- ~~**Paginated and ranged file reads.**~~ Done (Unreleased): `fs_read`
+  starts at the beginning, at `start_line` (negative from the end) or at a
+  cursor, ends pages on line boundaries, names the lines covered, the size,
+  the SHA-256 and the next cursor, refuses a cursor once the file changed,
+  and reads several files with `paths`. Proved over HTTP with OAuth against
+  a throwaway daemon (see measured facts). Left: the same check from a real
+  remote client (claude.ai, ChatGPT), which the maintainer runs.
 - **Targeted edits and easier writes.** Keep create/overwrite/append, and add
   an edit/patch tool for exact text replacements or focused changes without
   resending the whole file. Provide a diff preview, explicit single/all-match

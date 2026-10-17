@@ -109,6 +109,22 @@
 
 ### Changed
 
+- **`fs_read` reads in pages, from the beginning.** It used to return only
+  the last `max_chars` characters, so the start and middle of a large file
+  could be reached only through `shell_run`. A page now starts at the
+  beginning, at `start_line` (negative counts from the end, so
+  `start_line=-200` is the last 200 lines of a log) or at the `cursor` the
+  previous page returned. It ends on a line boundary, unless a single line
+  is longer than the page, and says which lines it covers out of how many,
+  the file's size and SHA-256, and either "End of file." or the cursor for
+  the next page. A cursor is refused when the file changed in between, so
+  pages never skip or repeat content. `max_lines` stops a page early,
+  `line_numbers` prefixes each line with its number, and `paths` reads up
+  to 20 files in one call with `max_chars` split evenly between them. The
+  Markdown fence around a page grows longer than any run of backticks in
+  it. Measured over HTTP with OAuth against a throwaway daemon: a
+  163,000-character file with long multibyte lines came back exactly, in
+  order, from the cursors of 60,000-character pages.
 - **The remote password and the tokens are stored only as hashes.** A
   leaked `config.toml`, backup or `oauth.db` no longer gives anything away.
   `[auth] password` is stored as an scrypt hash and `[auth] static_token` as
@@ -189,6 +205,9 @@
 ### API
 
 - **Tools**: unchanged, 37. `fs_read` refuses binary and non-UTF-8 files.
+  `fs_read` reads from the beginning instead of the end and gains
+  `start_line`, `cursor`, `max_lines`, `line_numbers` and `paths`; `path`
+  is optional when `paths` is given.
 - **Config file**: new `[power] keep_awake` (default `false`); no
   migration, a file without it keeps the old behavior.
 - **CLI**: new `pcbridge keep-awake [on|off]`. `status.json` gains a

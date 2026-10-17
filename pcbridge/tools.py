@@ -30,6 +30,7 @@ from . import assets as assetslib
 from . import distro as distrolib
 from . import sessionctx
 from . import executables as exelib
+from . import files as fileslib
 from . import jobs as jobslib
 from . import models as modelslib
 from . import shots as shotslib
@@ -192,39 +193,8 @@ def _resolve_file(cfg: Config, path: str) -> Path:
     return p.resolve()
 
 
-# Bilinen ikili bicimlerin imzalari: reddetme mesaji "ikili" demek yerine ne
-# oldugunu soyleyebilsin. Tespit bunlara DAYANMIYOR; liste yalnizca etiket.
-_BINARY_SIGNATURES: tuple[tuple[bytes, str], ...] = (
-    (b"%PDF-", "PDF document"),
-    (b"\x89PNG\r\n\x1a\n", "PNG image"),
-    (b"\xff\xd8\xff", "JPEG image"),
-    (b"GIF87a", "GIF image"),
-    (b"GIF89a", "GIF image"),
-    (b"PK\x03\x04", "ZIP archive (also docx/xlsx/odt/jar)"),
-    (b"\x1f\x8b", "gzip archive"),
-    (b"\x7fELF", "ELF executable"),
-    (b"SQLite format 3\x00", "SQLite database"),
-)
-
-
-def _decode_text_file(raw: bytes) -> tuple[str | None, str | None]:
-    """`fs_read` icin: (metin, None) ya da (None, neden).
-
-    Eskiden `errors="replace"` ile cozuluyordu: bir PDF ya da resim hata
-    vermeden U+FFFD dolu bozuk icerik olarak donuyordu. Artik NUL bayti olan
-    ya da gecerli UTF-8 olmayan dosya acikca reddediliyor.
-    """
-    label = next((name for magic, name in _BINARY_SIGNATURES if raw.startswith(magic)), None)
-    if label is None and raw.startswith(b"RIFF") and raw[8:12] == b"WEBP":
-        label = "WebP image"
-    if label is not None:
-        return None, f"it is a binary file ({label})"
-    if b"\x00" in raw[:8192]:
-        return None, "it is a binary file (contains NUL bytes)"
-    try:
-        return raw.decode("utf-8"), None
-    except UnicodeDecodeError as exc:
-        return None, f"it is not valid UTF-8 text (invalid byte at offset {exc.start:,})"
+# `fs_read`'in eski adi; testler ve cagiranlar icin.
+_decode_text_file = fileslib.decode_text_file
 
 
 def _model_matches(requested: str, actual: str) -> bool:
@@ -1016,36 +986,80 @@ def register(
 
     @mcp.tool(annotations={"title": "Read a file"})
     def fs_read(
-        path: Annotated[str, Field(description="Absolute path of the file to read.")],
-        max_chars: Annotated[int, Field(ge=200, le=60000)] = 8000,
+        path: Annotated[str | None, Field(
+            description="Absolute path of the file to read. Use paths instead for several files.")] = None,
+        start_line: Annotated[int | None, Field(
+            description="1-based line to start at; negative counts from the end "
+                        "(-200 = the last 200 lines). Default: the beginning.")] = None,
+        cursor: Annotated[str | None, Field(
+            description="The cursor the previous page returned, to read the next page "
+                        "of the same file in order.")] = None,
+        max_chars: Annotated[int, Field(
+            ge=fileslib.PAGE_MIN, le=fileslib.PAGE_MAX,
+            description="Page budget in file characters, shared between all paths.")] = 8000,
+        max_lines: Annotated[int | None, Field(ge=1, description="Stop the page after this many lines.")] = None,
+        line_numbers: Annotated[bool, Field(
+            description="Prefix each line with its number (adds about 7 characters per line).")] = False,
+        paths: Annotated[list[str] | None, Field(
+            max_length=20, description="Several files at once; max_chars is split evenly "
+                                       "and each file gets its own cursor.")] = None,
     ) -> str:
-        """Read the contents of a UTF-8 text file on the computer (source code,
-        logs, configs, notes). Long files return their last max_chars
-        characters. Binary files (PDF, images, archives, executables) and
-        non-UTF-8 files are refused with a plain message instead of returning
-        corrupted text; use fs_list to see their size."""
-        f = _resolve_file(cfg, path)
+        """Read a UTF-8 text file on the computer (source code, logs, configs,
+        notes) one page at a time. Use it instead of shell slicing whenever a
+        file is longer than one page: each page names the lines it covers,
+        the file's size, line count and sha256, and ends either with "End of
+        file." or with a cursor for the next page, so the beginning, middle
+        and end are all reachable without gaps or repeats. Use start_line=-N
+        for the end of a log, and the sha256 with fs_edit's expected_sha256.
+        Binary files (PDF, images, archives, executables) and non-UTF-8 files
+        are refused with a plain message instead of returning corrupted text."""
+        targets = list(paths or []) + ([path] if path else [])
+        if not targets:
+            return "Give path (one file) or paths (several files)."
+        if cursor and len(targets) > 1:
+            return "A cursor belongs to one file: pass it with that file's path alone."
+        budget = max(fileslib.PAGE_MIN, max_chars // len(targets))
+        parts = []
+        for one in targets:
+            f = _resolve_file(cfg, one)
+            parts.append(_read_one(f, start_line, cursor, budget, max_lines, line_numbers))
+        if len(targets) > 1:
+            return (f"{len(targets)} files, up to {budget:,} characters each\n\n"
+                    + "\n\n".join(parts))
+        return parts[0]
+
+    def _read_one(f: Path, start_line: int | None, cursor: str | None, budget: int,
+                  max_lines: int | None, line_numbers: bool) -> str:
         if not f.is_file():
             return f"File not found: {f}"
         try:
-            raw = f.read_bytes()
+            snap = fileslib.snapshot(f)
         except OSError as exc:
-            return f"Could not read it: {exc}"
-        data, refused = _decode_text_file(raw)
+            return f"Could not read `{f}`: {exc}"
+        refused = fileslib.sniff_binary(snap.head)
+        page = None
+        try:
+            if not refused:
+                page = fileslib.read_page(
+                    f, start_line=start_line, cursor=cursor, max_chars=budget,
+                    max_lines=max_lines, snap=snap)
+        except fileslib.FileToolError as exc:
+            refused = str(exc)
+        except OSError as exc:
+            return f"Could not read `{f}`: {exc}"
         # YOL kaydedilir, ICERIK kaydedilmez. Bu satirin asil amaci: `config.toml`
         # parola ve statik token iceriyor ve okunmasi engellenmis DEGIL (engellemek
         # aldatici olurdu -- `shell_run` zaten keyfi komut calistiriyor, `cat` ile
         # de okunur). Engellemek yerine IZ birakiliyor.
-        gate.audit("fs_read", path=str(f)[:200], bytes=len(raw),
-                   refused="binary" if refused else None)
-        if data is None:
-            return (
-                f"Not read: `{f}` ({len(raw):,} bytes) {refused}. fs_read returns "
-                "UTF-8 text only; binary transfer is not supported yet."
-            )
-        return f"`{f}` ({len(raw):,} bytes)\n```\n" + jobslib.tail_chars(
-            data, max_chars
-        ) + "\n```"
+        gate.audit("fs_read", path=str(f)[:200], bytes=snap.size,
+                   lines=f"{page.first_line}-{page.last_line}" if page else None,
+                   refused="yes" if refused else None)
+        if page is None:
+            if refused and refused.startswith("it is"):
+                return (f"Not read: `{f}` ({snap.size:,} bytes) {refused}. fs_read returns "
+                        "UTF-8 text only; binary transfer is not supported yet.")
+            return f"Not read: {refused}"
+        return fileslib.format_page(page, line_numbers=line_numbers)
 
     @mcp.tool(annotations={"title": "Write a file"})
     def fs_write(

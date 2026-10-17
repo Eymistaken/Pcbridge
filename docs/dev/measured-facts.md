@@ -210,6 +210,16 @@ no error, and the PDF came back as plausible-looking text with no U+FFFD at
 all, because only its ASCII trailer fit in the tail: a replacement-character
 check alone would not have caught it.
 
+Paged reads (2026-10-17, unreleased code, a throwaway daemon over HTTP with
+an OAuth token, `tests/integration/test_file_tools_http.py`): a
+163,000-character fixture of 1,401 lines, with Turkish letters, emoji,
+backtick runs and lines of 18,000 multibyte characters, came back exactly
+when the pages' bodies were joined in cursor order at a 60,000-character
+budget; `start_line=701, max_lines=1` returned the middle marker alone and
+`start_line=-1` the last line with "End of file.". The contract tests repeat
+the byte-exact rebuild at budgets of 200, 997, 8,000 and 60,000. Not yet
+measured: the same through a real remote client.
+
 ## Hyprland release scope and limits
 
 PcBridge 2.5.0 supports Hyprland 0.56.2 on Wayland with the native helper.

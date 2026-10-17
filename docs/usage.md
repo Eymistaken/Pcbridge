@@ -77,7 +77,8 @@ same agent by passing its `session_id` as `resume_session`.
 |---|---|---|
 | `shell_run` | destructive | A short command; output returned |
 | `shell_run_background` | destructive | A long command (build, install) as a job |
-| `fs_list`, `fs_read`, `fs_search` | ro | Directory listing, file contents, text search (ripgrep if present) |
+| `fs_list`, `fs_search` | ro | Directory listing, text search (ripgrep if present) |
+| `fs_read` | ro | A text file one page at a time: from the beginning, from `start_line` (negative counts from the end) or from the previous page's `cursor`; several files with `paths` |
 | `fs_write` | destructive | Create or overwrite a text file |
 | `tmux_start` | write | Open a persistent terminal session, optionally with an interactive CLI in it |
 | `tmux_send`, `tmux_keys` | destructive | Type into it, or press raw keys (answer an agent's y/n prompt) |
