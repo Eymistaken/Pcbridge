@@ -493,3 +493,34 @@ at the machine* checks, batched for a session at the machine.
 - **Plasma's grant notification can be dismissed.** Closing it by hand
   does not end the grant (only "Lock now" does); ending the grant on dismiss
   needs a check that it was not closed by pcbridge itself.
+
+## New ideas
+
+Notes from driving an Arch Linux VM in GNOME Boxes (installing Hyprland and
+Caelestia through the VM window). Not yet triaged.
+
+- **Focus tracking misreads a VM window that grabs the keyboard.** With the
+  Boxes window in front and holding the keyboard grab, the focused window was
+  repeatedly reported as Chrome, so `expect_focus` stopped correct
+  sequences after a click. Done when a focused Boxes/virt-manager window with
+  an active keyboard grab is reported as itself.
+- **`super+q` treated as a close shortcut everywhere.** It needed
+  `confirm_close`, but on Hyprland's default config it opens a terminal.
+  Apply the close-shortcut guard per desktop (GNOME, Plasma) or only to
+  combinations known to close on the current desktop. Done when `super+q`
+  goes through without `confirm_close` on Hyprland and inside a VM window.
+- **Raw typing for non-US layouts.** `raw` sends US key codes, so it is
+  correct only when the receiving side uses a US layout (it was right inside
+  the US-layout VM and produced `*`, `.`, `$` on the Turkish host). A
+  `layout` parameter (e.g. `layout: "tr"`) mapping characters to the target
+  layout's key codes would make raw typing work in VMs and consoles that use
+  other layouts. Done when `raw` with `layout: "tr"` types punctuation and
+  Turkish letters correctly into a Turkish-Q VM console.
+- **Longer waits inside `computer_batch`.** `wait` is capped at 30 s, so
+  long installs (package builds, AUR) needed loops of 45 s `wait_for_text`
+  calls. Either a higher cap or a batch step that waits for text to appear
+  (e.g. `{"a": "wait_text", "text": "...", "timeout": 600}`) would cover it.
+  Done when one call can wait several minutes for a prompt to come back.
+
+What worked well and should stay: `wait_for_text` for long-running jobs and
+`region` captures with `shot=` for reading small parts of the screen.
