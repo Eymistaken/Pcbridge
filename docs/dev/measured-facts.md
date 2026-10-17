@@ -743,6 +743,105 @@ Chrome 155, headless on a throwaway profile, through the browser tools.
   password or network name, the iframe's firmware string, the device
   table or the address path.
 
+## The browser window: show and hide (2026-10-17)
+
+GNOME 46 in a nested shell (`scripts/dev/browser-nested.py`: its own
+`dbus-run-session`, `XDG_DATA_HOME` with only this checkout's extension, a
+1280x900 dummy monitor), Chrome 155 headed, a GTK window standing in for
+the user's work and holding focus. Window state was sampled every 50 ms.
+
+- **`--class` sets the Wayland app id.** Chrome 155 with
+  `--class=pcbridge-browser` reported that as its app id (without it,
+  `google-chrome`, grouped with the user's Chrome). pcbridge launches with
+  it.
+- **Mutter 14 cannot take another client's window off the task list.** Its
+  typelib has `is_skip_taskbar` and no setter; `minimize`, `unminimize`,
+  `activate` and `get_pid` are there. So on GNOME a hidden window is a
+  minimized one, listed as "pcbridge-browser". The roadmap asked for it to
+  be kept off the task list; on GNOME that is not possible without patching
+  the Shell's own window lists, so it was not done.
+- **Starting hidden works when the extension minimizes the window in
+  `window-created`.** Over 21-25 samples while the browser started, the
+  window was never visible or focused, and the user's window kept focus.
+- **A hidden window keeps working.** Minimized, with the three
+  anti-throttling flags: a page loaded, `browser_act` typed into a field
+  (value checked through the DOM), and CDP screenshots had 251-252 grey
+  levels (not blank).
+- **A window minimized at creation takes focus when first shown.** With no
+  other window, an un-minimize without `activate` left it unfocused for the
+  call and focused it about 0.5 s later; a second show did not. Mutter
+  treats the first show as a new window's map. The extension therefore
+  watches the focus for 2 s after a show without focus and gives it back to
+  the window that had it. With the user's window present, focus stayed
+  there at +0.5, +1 and +2.5 s.
+- **A guard must end when the next request comes.** A show with focus 1 s
+  after a show without focus was taken back by the earlier guard until
+  every request released it first.
+- **`activate()` needs a real timestamp from D-Bus.**
+  `global.get_current_time()` is 0 outside an input event and Mutter did not
+  focus with it; `global.display.get_current_time_roundtrip()` worked.
+- **The nested shell does not always come up** within 20 s (two runs of
+  about ten); the script waits 60 s and prints the extension's log lines
+  when it gives up.
+
+KDE Plasma 6.7.5 and Hyprland 0.56.2 (Lua config provider) in the Arch test
+VMs, Chromium 154 installed on a throwaway overlay of each disk,
+`scripts/dev/browser-vm-check.py` with a KWrite or foot window holding focus.
+
+- **Plasma: a one-shot KWin script does all of it.** `minimized`,
+  `skipTaskbar`, `skipPager` and `skipSwitcher` are writable from a
+  script, and a window's `pid` is readable, so a hidden browser is also off
+  the task bar and the window switcher. To hide the first window of a
+  starting browser the script waits on `workspace.windowAdded`; while the
+  first version wrote its answer to a null object, the window came up
+  visible and focused (7 of 7 samples). Fixed: never visible or focused.
+- **Plasma: a show without focus kept KWrite focused** at +0.5, +1 and
+  +2.5 s, also for the first show; a show with focus focused the browser;
+  hide gave focus back. Hidden: typing worked and screenshots had 249 grey
+  levels.
+- **Hyprland 0.56.2 with the Lua provider takes Lua dispatchers.**
+  `hl.dsp.window.move({window="address:0x...", workspace="special:pcbridge",
+  follow=false})` answered `ok` and moved that window without changing the
+  active workspace; `hl.dsp.focus({window="address:..."})` focused it.
+  `hyprctl eval` runs Lua; `hl.window_rule({match = {class =
+  "^(pcbridge-browser)$"}, workspace = "special:pcbridge silent",
+  no_initial_focus = true})` was accepted (again with the same name too). A
+  workspace id must be a Lua number, a name a string.
+- **Hyprland: with that rule the starting browser was never visible or
+  focused** (29 samples with a window); hidden it typed and gave 249 grey
+  levels; a show without focus kept foot focused, a show with focus focused
+  the browser, hide gave focus back. The hyprlang provider was not
+  measured: there pcbridge only moves the window once it appears.
+
+## Handing the browser over (2026-10-17)
+
+Against throwaway daemons with a fake router whose sign-in ends in a
+two-factor page (`tests/integration/test_browser_http.py`, and a run driven
+by hand).
+
+- **Nothing an agent sends lands while the user has the browser.** After
+  `browser_handoff`, `browser_act`, `browser_navigate` and hiding answered
+  `USER_HAS_CONTROL` (in `structuredContent.error.code`) and the site
+  received no request; `browser_read` worked.
+- **A phone page drives it.** A real browser at 375x812 opened the
+  take-over link: the CDP screencast showed the two-factor page (500x828
+  frames, about 20 KB of base64 each); the code typed into the page's box
+  and sent, then Enter, signed the browser in (the site got `POST /2fa`); a
+  tap on a link in the frame followed it once aimed inside the link (a tap
+  6 px above it, from an estimated position, did nothing, as on the page
+  itself); "Give it back to the agent" returned control, after which the
+  link answered 404 and the agent's actions landed again. The audit log
+  held neither the code nor the token.
+- **A tap blurs a focused field.** In the first automated run a tap on the
+  page's empty top edge before typing took the focus off the two-factor
+  field, and the code went nowhere; a person taps the field first.
+- **The screencast sends a frame only when the page changes** (and one at
+  the start); the page shows the last one until then.
+- **The at-machine controls** (`pcbridge browser pause` / `resume`, the
+  terminal UI's button) were checked in the same test and in the terminal
+  UI's contract tests; the GNOME panel menu's two items and the
+  notification's action were not clicked by a person.
+
 ## GNOME Shell extension
 
 - **GNOME 45+ caches extension ESM modules.** `disable/enable` does not

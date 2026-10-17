@@ -1,6 +1,6 @@
 # Using pcbridge
 
-pcbridge offers 46 MCP tools. This page lists them, says which ones need the
+pcbridge offers 47 MCP tools. This page lists them, says which ones need the
 desktop grant, and shows the usual ways to use them. Every tool's own
 description (what a client sees) says when to use it; this is the overview.
 
@@ -151,6 +151,8 @@ download links but never upload links. Security details:
 | `browser_screenshot` | ro | no | A picture of a page, taken by the browser itself (works while the window is hidden or covered) |
 | `browser_navigate` | destructive | no | Open a URL (in a new tab with `new_tab`), back, forward, reload, select or close a tab; starts the browser when needed; returns the new page's outline |
 | `browser_act` | destructive | no | Click, type, select an option, press a key, hover or scroll, on an element by its ref; returns the page as it is afterwards |
+| `browser_visibility` | write | no | Show the browser's window on screen (without taking focus unless `focus=true`), hide it, or say where it is |
+| `browser_handoff` | write | no | Hand the browser to the user (a captcha, a two-factor step, a first sign-in) with a reason; `status` says whether they gave it back |
 
 The browser is a Google Chrome, Brave or Chromium that pcbridge starts on
 its **own profile** (`<state_dir>/browser/profile`), never your everyday
@@ -161,7 +163,16 @@ browser tools are not desktop tools: they go through the browser's own
 debugging pipe, not the keyboard and mouse, so they need no
 `desktop_unlock`, work with `[desktop] enabled = false`, and keep working
 after `desktop_lock` or when the grant expires; they cannot type into
-another window. The browser outlives a pcbridge restart (a small keeper
+another window. The window is **hidden by default** and keeps working hidden (pages load,
+actions and screenshots work); `browser_visibility`, `pcbridge browser
+show|hide` or the terminal UI's Show browser button (b) puts it on screen,
+for example for a captcha or a sign-in. Showing never takes the keyboard
+focus unless asked. On GNOME a hidden window is minimized and stays in the
+task list as "pcbridge-browser" (GNOME offers no way to take another
+program's window off it); on KDE Plasma it also leaves the task bar and the
+window switcher; on Hyprland it sits on the special workspace
+`special:pcbridge`. On GNOME this needs the extension of this version: log
+out and back in after an update. The browser outlives a pcbridge restart (a small keeper
 process holds it). Typing into a password field is refused unless
 `[browser] allow_password_fields = true`, and a page read never shows a
 password field's value. `remote_profile = "readonly"` gives a phone the
@@ -174,6 +185,22 @@ the page's content or the rest of the address.
 2. `browser_act(action="type", ref="e12", text="...")`, `select`, `click`:
    each answer is the page as it is now, so check it before the next step.
 3. A ref from before the page changed is refused ("is gone"); read again.
+
+**Handing it to the user.** For a captcha, a two-factor code, a first
+sign-in, or when the user wants to do a part, the agent calls
+`browser_handoff(reason="...")`: the window is shown (without taking
+focus), a notification says why, and until the user gives it back every
+agent action in the browser (`browser_navigate`, `browser_act`, hiding it)
+is refused with `USER_HAS_CONTROL`; reading still works, so the agent waits
+and checks `browser_handoff(action="status")`. Only the user gives it back:
+the notification's "Give it back to the agent", the GNOME panel menu, the
+terminal UI's browser button (b), or `pcbridge browser resume`. The user can
+also take it over unasked: `pcbridge browser pause`, or "Take over the
+pcbridge browser" in the panel menu. When the user is away from the
+machine, the hand-over also returns a link (through the tunnel, like file
+links) to a page that shows the browser's tab live and sends taps, typed
+text and keys to it, with its own "Give it back" button; the link works
+only for that hand-over.
 
 ## Reading and driving the screen
 
@@ -199,7 +226,7 @@ the cheapest way to find a known label in an app with no accessibility tree.
 ## Profiles
 
 `[tools] profile` in the config offers a smaller set to save the client's
-context: `full` (default, all 46), `core` (30, no desktop tools), `desktop`
+context: `full` (default, all 47), `core` (31, no desktop tools), `desktop`
 (23: the desktop tools plus job and status tools) or `readonly` (16: only
 tools that change nothing, such as job status and output, file reads and
 download links, browser reads, tmux capture and system status). It is read at startup; restart pcbridge and the
@@ -239,7 +266,9 @@ also works without it. `pcbridge list` prints them all by group.
 | `pcbridge remote revoke NAME` / `--all` | Cut off a remote app (or every one): its registration and tokens are deleted; `--yes` skips the question |
 | `pcbridge logs [-f]` | The daemon's journal |
 | `pcbridge stop [--keep-jobs]` | Stop the daemon (and, unless told otherwise, running jobs and the pcbridge browser) |
-| `pcbridge browser status` / `stop` | Whether the pcbridge browser runs, which one, its profile; close it cleanly (sign-ins stay) |
+| `pcbridge browser status` / `stop` | Whether the pcbridge browser runs, which one, its profile and window; close it cleanly (sign-ins stay) |
+| `pcbridge browser show [--focus]` / `hide` | Put the pcbridge browser's window on screen (focus only with `--focus`) or take it off |
+| `pcbridge browser pause [--reason]` / `resume` | Take the browser over from agents (they are refused until resume) / give it back |
 | `pcb-shot`, `pcb-do` | Screenshot and action shells for a local agent's Bash (see `skills/computer-use/SKILL.md`) |
 
 ### The terminal UI
@@ -268,7 +297,7 @@ hold Shift. Piped or run from a script,
   shows or hides the GNOME icon immediately and does not use **Save** or
   require a daemon restart. On KDE Plasma it explains that there is no
   pcbridge panel icon.
-- **Tools**: all 46 tools with their state (`active`, `not in profile`,
+- **Tools**: all 47 tools with their state (`active`, `not in profile`,
   `needs desktop`), a search box that filters by name and description as
   you type, a toggle for the offered ones only, and the selected tool's
   description, hints and parameters.

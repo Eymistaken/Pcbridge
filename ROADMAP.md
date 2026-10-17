@@ -45,8 +45,9 @@ here, not by moving sections.
 6. **Browser.** In this order: ~~measure *Attaching to the existing
    session*~~ (done: a dedicated pcbridge profile, see measured facts),
    ~~*Browser tools for the user's existing session*~~ (done, Unreleased),
-   then *Show and hide the browser window on demand*, *Taking over the
-   agent's browser*.
+   ~~*Show and hide the browser window on demand*~~ (done, Unreleased),
+   ~~*Taking over the agent's browser*~~ (done, Unreleased). Left: the
+   checks each item lists.
 7. **More desktops.** *Retire the legacy Python desktop backends* first,
    then *X11, starting with Cinnamon and XFCE*, written straight into the
    native helper instead of added to Python and moved later.
@@ -179,44 +180,32 @@ at the machine* checks, batched for a session at the machine.
   held by a keeper process that outlives a daemon restart. The extension
   bridge and wrapping chrome-devtools-mcp or Playwright MCP were weighed
   and not taken.
-- **Taking over the agent's browser.** The user must be able to take the
-  browser over at any time (captcha, two-factor steps, a first sign-in, or
-  "let me do this part"), without a GUI application. Hand-over is an
-  explicit state, not a guess: a `browser_handoff` tool (with a reason the
-  user is shown through `notify`) and `pcbridge browser pause` / `resume`.
-  While the user has control, every agent browser action is refused with a
-  `USER_HAS_CONTROL` error, the same pattern as the `SCREEN_LOCKED` gate.
-  Control goes back through the places that already exist: the terminal
-  UI's top bar, the GNOME panel icon menu, the Plasma notification, or the
-  CLI. The agent works in its own window or tab group and never acts on the
-  user's other tabs on its own. For remote take-over (from a phone), the
-  daemon can serve a small `/browser` page behind the existing Funnel and
-  OAuth: frames from CDP `Page.startScreencast`, input through
-  `Input.dispatch*`. That is a web page, not an application, so it fits the
-  no-Tauri direction. Done when a sign-in with a captcha or a 2FA step can be
-  handed to the user and back mid-task, both at the machine and from a
-  phone, with no agent action landing while the user has control.
-- **Show and hide the browser window on demand.** The browser is hidden by
-  default and brought on screen when asked: by the agent (`browser_show` /
-  `browser_hide`, or one `browser_visibility` tool; a hand-over shows it
-  automatically), by `pcbridge browser show` / `hide`, or by a button in the
-  terminal UI's top bar. Headless is not the way: headless or headed is
-  fixed at launch, and relaunching loses page state (a half-filled form, an
-  open captcha), exactly when take-over is needed. Chrome always runs
-  headed, and pcbridge hides and shows its window through the compositor,
-  since a Wayland client cannot move or un-minimize itself: the GNOME
-  extension (hide the window and keep it off the task list), a Hyprland
-  special workspace, a KWin script on Plasma. The window is found by the PID
-  of the Chrome pcbridge started, never by application name, so the user's
-  own Chrome windows are never touched. Showing or hiding sends no input, so
-  like the other browser tools it does not need the desktop grant. Default
-  is show without taking focus; taking focus is a separate option. Chrome
-  throttles hidden windows, so launch with
-  `--disable-backgrounding-occluded-windows`, `--disable-renderer-backgrounding`
-  and `--disable-background-timer-throttling`. Done when, on GNOME, Plasma
-  and Hyprland, the hidden browser keeps loading pages, acting and returning
-  non-blank CDP screenshots, show/hide works from the agent, the CLI and the
-  terminal UI, and showing never steals focus unless asked.
+- ~~**Taking over the agent's browser.**~~ Done (Unreleased):
+  `browser_handoff` (with a reason, shown in a notification that has a
+  "Give it back" action) and `pcbridge browser pause` / `resume`; while
+  the user has the browser every agent action in it is refused with
+  `USER_HAS_CONTROL` and reads still work; control goes back from the
+  notification, the GNOME panel menu, the terminal UI's top bar, the CLI or
+  the phone page. From a phone: a `/browser/<token>` page behind the
+  tunnel, bound to the one hand-over, with CDP screencast frames and taps,
+  text and keys sent through `Input.dispatch*`. Proved with a two-factor
+  step over HTTP against a throwaway daemon and through a real browser at
+  phone size (see measured facts). Left: a person clicking the panel menu
+  and the notification's action on Plasma and GNOME, and the phone check
+  through Funnel on a real phone.
+- ~~**Show and hide the browser window on demand.**~~ Done (Unreleased):
+  hidden by default, shown and hidden by `browser_visibility`, `pcbridge
+  browser show|hide` and the terminal UI's button (b), found by the pid of
+  the browser pcbridge started; showing takes focus only when asked. GNOME
+  through the extension (minimized; Mutter 14 cannot take another
+  client's window off the task list, so it stays there as
+  "pcbridge-browser"), Plasma through a KWin script (also off the task bar
+  and the switcher), Hyprland through `special:pcbridge` and a Lua window
+  rule. Measured on all three (nested GNOME 46, Plasma 6.7.5 and Hyprland
+  0.56.2 in the VMs): a starting browser never seen or focused, loading,
+  acting and non-blank screenshots while hidden, focus kept by the user's
+  window. Left: the GNOME extension of this version on the real session
+  (after a log-out), and Hyprland's hyprlang config provider.
 
 ## Optional: remote access
 
