@@ -108,9 +108,10 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("Remote access", "remote", "remote start|stop|status|clients|revoke",
      "Remote access through Tailscale Funnel; `clients` lists the remote apps that hold tokens, "
      "`revoke NAME` or `revoke --all` cuts them off."),
-    ("Browser", "browser", "browser status|show|hide|stop",
+    ("Browser", "browser", "browser status|show|hide|pause|resume|stop",
      "The browser pcbridge runs on its own profile for the browser tools: whether it runs; "
-     "`show` (--focus) and `hide` its window; `stop` closes it cleanly (its sign-ins stay)."),
+     "`show` (--focus) and `hide` its window; `pause` takes it over from the agent and `resume` "
+     "gives it back; `stop` closes it cleanly (its sign-ins stay)."),
     ("Setup", "setup", "setup", "Install or update pcbridge for this user: config, service, extension, clients, aliases."),
 
     ("Setup", "uninstall", "uninstall [--purge]", "Remove pcbridge for this user (--purge also trashes config and state)."),

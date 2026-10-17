@@ -17,10 +17,13 @@ from typing import Annotated, Any, Callable, Literal
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.tools.base import ToolResult
 from mcp.types import ContentBlock, ImageContent, TextContent
 from pydantic import Field
 
 from .. import sessionctx
+from ..desktop import presentation
+from . import control, handoff
 from .cdp import CDPError
 from .manager import BrowserError, BrowserManager, host_of, png_size
 
@@ -33,7 +36,18 @@ TabArg = Annotated[str | None, Field(
 
 
 def register(mcp: FastMCP, manager: BrowserManager, gate: Any, shot_store: Any,
-             transport: str, inline_images: Callable[[], bool]) -> None:
+             transport: str, inline_images: Callable[[], bool], remote_store: Any = None) -> None:
+
+    def user_has_it(what: str) -> ToolResult | None:
+        """USER_HAS_CONTROL while the user has the browser (hand-over): the
+        same shape as the desktop's SCREEN_LOCKED refusal."""
+        record = control.read(manager.dir)
+        if record is None:
+            return None
+        error = control.refusal(record)
+        gate.audit("browser_refused", tool=what, reason="user_has_control")
+        return presentation.desktop_error_result(error, text=error.message,
+                                                 extra={"type": "pcbridge.browser"})
 
     async def run(what: str, coro):
         try:
@@ -139,7 +153,7 @@ def register(mcp: FastMCP, manager: BrowserManager, gate: Any, shot_store: Any,
             return out
         return await run("browser_screenshot", go())
 
-    @mcp.tool(annotations={"title": "Open or move between web pages"})
+    @mcp.tool(output_schema=None, annotations={"title": "Open or move between web pages"})
     async def browser_navigate(
         url: Annotated[str, Field(
             description="Address to open (http or https; a bare host like 192.168.1.1 "
@@ -153,14 +167,19 @@ def register(mcp: FastMCP, manager: BrowserManager, gate: Any, shot_store: Any,
         timeout: Annotated[float, Field(ge=1, le=90, description="Seconds to wait for the page to load.")] = 30,
         max_chars: Annotated[int, Field(ge=0, le=60000,
                                         description="Size of the page outline returned; 0 = none.")] = 6000,
-    ) -> str:
+    ) -> str | ToolResult:
         """Open a page in the pcbridge browser, or go back, forward, reload,
         select or close a tab; then return the resulting page's outline.
 
         Use it to reach a web interface (a router at 192.168.1.1, a signed-in
         site). Starts the pcbridge browser when it is not running; it uses its
         own profile, so the user signs in to a site once there and stays signed
-        in. Needs no desktop control."""
+        in. Needs no desktop control. Refused while the user has the browser
+        (browser_handoff)."""
+        refused = user_has_it("browser_navigate")
+        if refused is not None:
+            return refused
+
         async def go() -> str:
             await manager.connect(start=action == "open")
             if manager.conn is None:
@@ -175,7 +194,7 @@ def register(mcp: FastMCP, manager: BrowserManager, gate: Any, shot_store: Any,
             return f"{done}.\n{page}"
         return await run("browser_navigate", go())
 
-    @mcp.tool(annotations={"title": "Show or hide the browser window"})
+    @mcp.tool(output_schema=None, annotations={"title": "Show or hide the browser window"})
     async def browser_visibility(
         action: Annotated[Literal["show", "hide", "status"], Field(
             description="'show' puts the pcbridge browser's window on screen, 'hide' takes it "
@@ -183,14 +202,19 @@ def register(mcp: FastMCP, manager: BrowserManager, gate: Any, shot_store: Any,
         focus: Annotated[bool, Field(
             description="With 'show': also give the window keyboard focus. Off by default, "
                         "so showing never takes focus from what the user is doing.")] = False,
-    ) -> str:
+    ) -> str | ToolResult:
         """Show or hide the pcbridge browser's window on the user's screen.
 
         The browser works hidden (reads, actions and screenshots do not need
         the window); show it when the user should see or take over a page,
         for example a captcha or a sign-in. Goes through the compositor,
         sends no input and needs no desktop control. Does not start the
-        browser."""
+        browser. Hiding is refused while the user has the browser."""
+        if action == "hide":
+            refused = user_has_it("browser_visibility")
+            if refused is not None:
+                return refused
+
         async def go() -> str:
             view = await asyncio.to_thread(manager.view, action, focus)
             gate.audit("browser_visibility", action=action, focus=focus or None,
@@ -200,7 +224,54 @@ def register(mcp: FastMCP, manager: BrowserManager, gate: Any, shot_store: Any,
             return view.describe()
         return await run("browser_visibility", go())
 
-    @mcp.tool(annotations={"title": "Click, type or choose on a web page"})
+    @mcp.tool(annotations={"title": "Hand the browser to the user"})
+    async def browser_handoff(
+        action: Annotated[Literal["give", "status"], Field(
+            description="'give' the browser to the user now; 'status' says whether the user "
+                        "still has it.")] = "give",
+        reason: Annotated[str, Field(
+            description="For 'give': what the user should do, shown to them, e.g. 'Solve the "
+                        "captcha and sign in, then give it back'.")] = "",
+    ) -> str:
+        """Hand the pcbridge browser to the user, for what an agent should not or
+        cannot do: a captcha, a two-factor step, a first sign-in, or when the
+        user asks to do a part themselves. The window is shown (without taking
+        focus) and the user is told the reason. Until the user gives it back
+        (terminal UI, panel menu, the notification, or `pcbridge browser
+        resume`), browser_navigate, browser_act and hiding are refused with
+        USER_HAS_CONTROL; reading still works, so poll 'status' or
+        browser_read to see when they are done. An agent cannot take it back
+        itself."""
+        async def go() -> str:
+            if action == "status":
+                record = control.read(manager.dir)
+                gate.audit("browser_handoff", action="status", user=record is not None)
+                if record is None:
+                    return "The agent has the browser: the user gave it back (or never had it)."
+                minutes = int((time.time() - float(record.get("since", 0))) // 60)
+                return (f"The user still has the browser, for {minutes} min now"
+                        + (f": {record['reason']}" if record.get("reason") else "") + ".")
+            if not reason.strip():
+                raise BrowserError("Say what the user should do: give a reason.")
+            if manager.status() is None:
+                raise BrowserError("The pcbridge browser is not running; open the page first.")
+            note = await asyncio.to_thread(handoff.give, manager, reason, "agent")
+            gate.audit("browser_handoff", action="give", chars=len(reason))
+            # A phone can take it over through the tunnel; over pure stdio
+            # there is no HTTP server, so no link.
+            if remote_store is not None and transport != "stdio":
+                from .. import filelinks
+
+                note += ("\nIf the user is not at the machine, give them this link to take the "
+                         f"browser over from their phone (until they give it back): "
+                         f"{remote_store.create()}")
+                if filelinks.tunnel_open(getattr(manager.cfg, "port", 0)) is False:
+                    note += ("\nRemote access is closed right now: the link opens only after "
+                             "`pcbridge remote start`.")
+            return note
+        return await run("browser_handoff", go())
+
+    @mcp.tool(output_schema=None, annotations={"title": "Click, type or choose on a web page"})
     async def browser_act(
         action: Annotated[Literal["click", "type", "select", "press", "hover", "scroll"], Field(
             description="'click' an element; 'type' text into a field (replacing what is "
@@ -219,7 +290,7 @@ def register(mcp: FastMCP, manager: BrowserManager, gate: Any, shot_store: Any,
                                         description="Seconds to wait for a page load the action starts.")] = 10,
         max_chars: Annotated[int, Field(ge=0, le=60000,
                                         description="Size of the page outline returned; 0 = none.")] = 6000,
-    ) -> str:
+    ) -> str | ToolResult:
         """Act on an element of a page in the pcbridge browser, by the ref
         browser_read gave it; then return the page as it is now, so the result
         can be checked at once.
@@ -227,7 +298,13 @@ def register(mcp: FastMCP, manager: BrowserManager, gate: Any, shot_store: Any,
         Use it to fill in and submit forms, follow links and press buttons on a
         web interface. It goes through the browser, not the keyboard or mouse,
         so it needs no desktop control and cannot land in another window.
-        Typing into a password field is refused unless the user turned it on."""
+        Typing into a password field is refused unless the user turned it on,
+        and every action is refused while the user has the browser
+        (browser_handoff)."""
+        refused = user_has_it("browser_act")
+        if refused is not None:
+            return refused
+
         async def go() -> str:
             if await manager.connect(start=False) is None:
                 raise BrowserError("The pcbridge browser is not running; browser_navigate starts it.")

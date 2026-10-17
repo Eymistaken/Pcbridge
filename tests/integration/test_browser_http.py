@@ -15,6 +15,7 @@ Skipped when no Chrome, Brave or Chromium is installed.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -32,7 +33,7 @@ from pcbridge.browser.manager import CANDIDATES  # noqa: E402
 from tests.fixtures.browser.router_site import RouterSite  # noqa: E402
 from tests.integration import test_remote_access as remote  # noqa: E402
 
-_HARNESS = ("setUp", "_write_config", "_start_daemon", "_stop_daemon", "_rpc", "_session",
+_HARNESS = ("setUp", "_write_config", "_start_daemon", "_stop_daemon", "_rpc", "_session", "_cli",
             "_oauth", "_socket_tools")
 HAVE_BROWSER = any(shutil.which(n) for names in CANDIDATES.values() for n in names)
 BROWSER = '[browser]\nextra_args = ["--headless=new"]\n'
@@ -189,6 +190,77 @@ class BrowserOverHttp(unittest.TestCase):
         self.assertIn("allow_password_fields", text)
         self.assertNotIn("/login", self.site.posts)
         self.assertIn("Only http and https", self.refused("browser_navigate", {"url": "file:///etc/passwd"}))
+
+    def test_a_two_factor_step_handed_to_a_phone_and_back(self) -> None:
+        self.site.close()
+        site = self.site = RouterSite(two_factor=True)
+        self._daemon(browser=BROWSER + "allow_password_fields = true\n")
+        page = self.ok("browser_navigate", {"url": site.url + "/login.html"})
+        self.ok("browser_act", {"action": "type", "ref": ref(page, "Username"), "text": "admin",
+                                "max_chars": 0})
+        self.ok("browser_act", {"action": "type", "ref": ref(page, "Password"),
+                                "text": site.password, "max_chars": 0})
+        code_page = self.ok("browser_act", {"action": "click", "ref": ref(page, "Sign in")})
+        self.assertIn("Enter the code from your phone", code_page)
+
+        note = self.ok("browser_handoff", {"reason": "Enter the code from your phone"})
+        link = re.search(r"(http\S+/browser/\S+)", note).group(1)
+        self.assertIn("browser_navigate and browser_act are refused", note)
+        # While the user has it: no agent action lands, reading still works.
+        posts_before = list(site.posts)
+        for name, args in (("browser_act", {"action": "type", "ref": ref(code_page, "Code"),
+                                            "text": "000000"}),
+                           ("browser_navigate", {"url": site.url + "/"}),
+                           ("browser_visibility", {"action": "hide"})):
+            res = self.call(name, args)
+            self.assertTrue(res.get("isError"), name)
+            self.assertEqual(res["structuredContent"]["error"]["code"], "USER_HAS_CONTROL", name)
+        self.assertEqual(site.posts, posts_before)
+        self.assertIn("Enter the code", self.ok("browser_read", {"mode": "text"}))
+        self.assertIn("still has the browser", self.ok("browser_handoff", {"action": "status"}))
+
+        # The phone: the page, a frame, then the code typed and sent.
+        path = "/" + link.split("/", 3)[3]
+        phone = self.http.get(self.base + path)
+        self.assertEqual(phone.status_code, 200)
+        self.assertIn("nonce-", phone.headers["content-security-policy"])
+        self.assertIn("Enter the code from your phone", phone.text)
+        with self.http.stream("GET", self.base + path + "/frames", timeout=30) as frames:
+            for line in frames.iter_lines():
+                if line.startswith("data:"):
+                    frame = json.loads(line[5:])
+                    break
+        jpeg = base64.b64decode(frame["img"])
+        self.assertEqual(jpeg[:2], b"\xff\xd8")
+        self.assertGreater(frame["w"], 100)
+        # The code field has the focus (autofocus), as on a real 2FA page; a
+        # tap on the page's blank top edge afterwards exercises the click path.
+        for event in ({"kind": "text", "text": site.code}, {"kind": "key", "key": "Enter"},
+                      {"kind": "click", "x": frame["w"] / 2, "y": 5}):
+            self.assertEqual(self.http.post(self.base + path + "/input", json=event).status_code, 204)
+        time.sleep(1.0)
+        self.assertEqual(self.http.post(self.base + path + "/input",
+                                        json={"kind": "give_back"}).status_code, 204)
+
+        # Back with the agent: signed in, actions land again, the link is dead.
+        self.assertIn("The agent has the browser", self.ok("browser_handoff", {"action": "status"}))
+        status = self.ok("browser_read", {"wait_for_text": "Connected devices", "timeout": 10})
+        self.assertIn("Router - Status", status)
+        self.assertIn("Router - Wireless", self.ok("browser_navigate", {"url": site.url + "/wifi"}))
+        self.assertEqual(self.http.get(self.base + path).status_code, 404)
+        log = self.audit()
+        self.assertNotIn(site.code, log)
+        self.assertNotIn(path.rsplit("/", 1)[-1], log, "the link's token")
+        self.assertIn('"browser_refused"', log)
+
+        # At the machine: the CLI takes it over and gives it back.
+        cli = self._cli("browser", "pause", "--reason", "let me do this part")
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        res = self.call("browser_act", {"action": "scroll"})
+        self.assertEqual(res["structuredContent"]["error"]["code"], "USER_HAS_CONTROL")
+        self.assertIn("let me do this part", self._cli("browser", "status").stdout)
+        self.assertEqual(self._cli("browser", "resume").returncode, 0)
+        self.ok("browser_act", {"action": "scroll", "max_chars": 0})
 
     def test_a_readonly_phone_reads_but_cannot_act(self) -> None:
         self._daemon('profile = "full"\nremote_profile = "readonly"')

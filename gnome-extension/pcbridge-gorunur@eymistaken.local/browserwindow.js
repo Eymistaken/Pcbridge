@@ -86,6 +86,15 @@ export function wantedVisible(dir, readFile = readText) {
     }
 }
 
+/** Whether the user has the browser (hand-over): `control.json`. */
+export function userHasBrowser(dir, readFile = readText) {
+    try {
+        return JSON.parse(readFile(GLib.build_filenamev([dir, 'control.json'])) ?? 'null')?.user === true;
+    } catch {
+        return false;
+    }
+}
+
 function windowPid(window) {
     try {
         return window.get_pid();

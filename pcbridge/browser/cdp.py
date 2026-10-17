@@ -36,6 +36,8 @@ class Connection:
         self.next_id = 1000
         self.pending: dict[int, asyncio.Future] = {}
         self.waiters: list[tuple[str, str | None, asyncio.Future]] = []
+        # Lasting listeners (a screencast's frames): (method, session, queue).
+        self.listeners: list[tuple[str, str | None, asyncio.Queue]] = []
         self.closed = False
         self.task = self.loop.create_task(self._read())
 
@@ -65,6 +67,9 @@ class Connection:
                         fut.set_result(msg)
                     continue
                 method, session = msg.get("method"), msg.get("sessionId")
+                for want, want_session, queue in list(self.listeners):
+                    if want == method and want_session in (None, session):
+                        queue.put_nowait(msg.get("params") or {})
                 for entry in list(self.waiters):
                     want, want_session, fut = entry
                     if want == method and want_session in (None, session) and not fut.done():
@@ -79,6 +84,8 @@ class Connection:
                     fut.set_exception(Disconnected("the browser closed"))
             self.pending.clear()
             self.waiters.clear()
+            for _m, _s, queue in self.listeners:
+                queue.put_nowait(None)
 
     async def call(self, method: str, params: dict | None = None, session: str | None = None,
                    timeout: float = 30.0) -> dict:
@@ -111,6 +118,16 @@ class Connection:
         fut = self.loop.create_future()
         self.waiters.append((method, session, fut))
         return fut
+
+    def subscribe(self, method: str, session: str | None = None) -> asyncio.Queue:
+        """Every `method` event (of `session`) from now on, until unsubscribe.
+        The queue gets None when the browser goes away."""
+        queue: asyncio.Queue = asyncio.Queue()
+        self.listeners.append((method, session, queue))
+        return queue
+
+    def unsubscribe(self, queue: asyncio.Queue) -> None:
+        self.listeners = [entry for entry in self.listeners if entry[2] is not queue]
 
     def forget(self, fut: asyncio.Future) -> None:
         self.waiters = [w for w in self.waiters if w[2] is not fut]

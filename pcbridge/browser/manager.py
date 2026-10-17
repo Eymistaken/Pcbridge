@@ -21,6 +21,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 from dataclasses import dataclass
@@ -28,7 +29,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import paths as pathslib
-from . import snapshot, visibility
+from . import control, snapshot, visibility
 from .cdp import CDPError, Connection, Disconnected
 
 KEEPER = Path(__file__).with_name("keeper.py")
@@ -211,6 +212,9 @@ class BrowserManager:
         # Hidden by default: the GNOME extension minimizes the new window
         # before it is shown when this says so.
         visibility.write_wanted(self.dir, False)
+        control.give_back(self.dir)  # a hand-over ends with the browser it was for
+        backend = visibility.for_session()
+        backend.prepare_launch()
         proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL, env=env, start_new_session=True,
                                 close_fds=True)
@@ -218,6 +222,10 @@ class BrowserManager:
         while time.monotonic() < deadline:
             info = self.status()
             if info is not None:
+                # Hidden by default: on Plasma and Hyprland the first window is
+                # hidden as it appears (GNOME's extension does it by itself).
+                threading.Thread(target=backend.hide_new,
+                                 args=(int(info["browser_pid"]),), daemon=True).start()
                 return info
             if proc.poll() is not None and not self.info_path.exists():
                 break
@@ -620,4 +628,5 @@ class BrowserManager:
                 break
             await asyncio.sleep(0.1)
         self.conn, self.sessions, self.current = None, {}, None
+        control.give_back(self.dir)
         return True

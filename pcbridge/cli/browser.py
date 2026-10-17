@@ -32,6 +32,12 @@ def status(args: argparse.Namespace) -> int:
         inst.say(f"The pcbridge browser is not running. Profile: {m.profile}")
         return 0
     window = m.view("status").describe()
+    from ..browser import control
+
+    held = control.read(m.dir)
+    if held is not None:
+        window += (" The user has it (agents are refused)"
+                   + (f": {held['reason']}" if held.get("reason") else "") + ".")
     since = time.strftime("%Y-%m-%d %H:%M", time.localtime(info.get("started_at", 0)))
     inst.ok(f"The pcbridge browser is running: {info.get('executable')} "
             f"(pid {info.get('browser_pid')}, since {since}). Profile: {m.profile}")
@@ -56,6 +62,24 @@ def view(args: argparse.Namespace) -> int:
     return 0
 
 
+def pause(args: argparse.Namespace) -> int:
+    from ..browser import handoff
+
+    m = _manager()
+    if m.status() is None:
+        inst.fail("The pcbridge browser is not running.")
+        return 1
+    inst.ok(handoff.take(m, args.reason, "pcbridge browser pause"))
+    return 0
+
+
+def resume(args: argparse.Namespace) -> int:
+    from ..browser import handoff
+
+    inst.ok(handoff.give_back(_manager()))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(
         prog="pcbridge browser",
@@ -70,5 +94,9 @@ def main(argv: list[str]) -> int:
     show.add_argument("--focus", action="store_true", help="Also give it keyboard focus.")
     show.set_defaults(func=view)
     sub.add_parser("hide", help="Take its window off screen; it keeps working.").set_defaults(func=view)
+    pz = sub.add_parser("pause", help="Take the browser over: agents cannot act in it until resume.")
+    pz.add_argument("--reason", default="", help="A note, shown in the status.")
+    pz.set_defaults(func=pause)
+    sub.add_parser("resume", help="Give the browser back to the agent.").set_defaults(func=resume)
     args = p.parse_args(argv)
     return args.func(args)

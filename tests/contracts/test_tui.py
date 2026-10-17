@@ -28,6 +28,7 @@ class FakeBackend(Backend):
         self.config_error = config_error
         self.open = False
         self.browser: bool | None = None  # None: the pcbridge browser is not running
+        self.held = False
         self.calls: list[str] = []
         self.cfg = SimpleNamespace(
             desktop=SimpleNamespace(enabled=enabled, unlock_default_minutes=15),
@@ -57,6 +58,14 @@ class FakeBackend(Backend):
 
     def browser_shown(self, cfg):
         return self.browser
+
+    def browser_held(self, cfg):
+        return self.held
+
+    def browser_give_back(self, cfg):
+        self.calls.append("browser give back")
+        self.held = False
+        return "The agent has the browser again."
 
     def browser_view(self, cfg, action):
         self.calls.append(f"browser {action}")
@@ -157,6 +166,14 @@ class FrameTests(unittest.TestCase):
                 self.assertIn("desktop", text_of(app, "#bar-grant").lower(),
                               "the grant text keeps its place")
 
+                backend.held = True  # the agent handed it over
+                await pilot.pause(1.2)
+                self.assertEqual(str(button.label), "Give browser back")
+                await pilot.click("#browser-button")
+                await settle(app, pilot)
+                self.assertEqual(backend.calls[-1], "browser give back")
+                self.assertEqual(str(button.label), "Show browser")
+
         run(go())
 
     def test_the_key_asks_before_it_unlocks_but_locks_at_once(self) -> None:
@@ -221,7 +238,7 @@ class FrameTests(unittest.TestCase):
                 await settle(app, pilot)
                 body = text_of(app, "#overview-body")
                 self.assertIn("pcbridge 9.9, pid 42", body)
-                self.assertIn("core: 30 of 46 tools offered", body)
+                self.assertIn("core: 31 of 47 tools offered", body)
                 self.assertIn("/nowhere/config.toml", body)
 
         run(go())

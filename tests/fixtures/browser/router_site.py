@@ -3,7 +3,9 @@
 It has what real panels have: a sign-in form that sets a persistent session
 cookie, a status table inside a same-origin iframe, and a settings form with
 a text field, a select, a checkbox and radio buttons that saves and reports
-back. The password is chosen by the test; nothing here is a real secret.
+back. With `two_factor=True` the sign-in asks for a one-time code on a
+second page, the step an agent hands to the user. The password and the code
+are chosen by the test; nothing here is a real secret.
 """
 
 from __future__ import annotations
@@ -40,6 +42,13 @@ FRAME = """<!doctype html><title>status</title>
   <tr><th>WAN</th><td>connected</td></tr>
 </table>"""
 
+TWO_FACTOR = """<!doctype html><title>Router - Verification</title>
+<h1>Enter the code from your phone</h1>
+<form method="post" action="/2fa">
+  <label>Code <input name="code" inputmode="numeric" autofocus></label>
+  <button type="submit">Verify</button>
+</form>{error}"""
+
 WIFI = """<!doctype html><title>Router - Wireless</title>
 <h1>Wireless</h1>{saved}
 <form method="post" action="/wifi">
@@ -55,8 +64,11 @@ WIFI = """<!doctype html><title>Router - Wireless</title>
 
 
 class RouterSite:
-    def __init__(self, password: str | None = None) -> None:
+    def __init__(self, password: str | None = None, two_factor: bool = False) -> None:
         self.password = password or secrets.token_urlsafe(12)
+        self.two_factor = two_factor
+        self.code = f"{secrets.randbelow(10**6):06d}"
+        self.pending = secrets.token_hex(16)
         self.session = secrets.token_hex(16)
         self.firmware = "RT-1.4." + secrets.token_hex(3)
         self.state = {"ssid": "home-net", "channel": "6", "enabled": True, "band": "2.4"}
@@ -96,6 +108,8 @@ class RouterSite:
                 path = urllib.parse.urlsplit(self.path).path
                 if path == "/login.html":
                     return self._page(LOGIN.format(error=""))
+                if path == "/2fa":
+                    return self._page(TWO_FACTOR.format(error=""))
                 if path == "/logout":
                     return self._redirect("/login.html", "rsid=; Max-Age=0; Path=/")
                 if not self._signed_in():
@@ -114,8 +128,15 @@ class RouterSite:
                 site.posts.append(path)
                 if path == "/login":
                     if form.get("user") == "admin" and form.get("pass") == site.password:
+                        if site.two_factor:
+                            return self._redirect("/2fa", f"pending={site.pending}; Path=/; HttpOnly")
                         return self._redirect("/", f"rsid={site.session}; Max-Age=86400; Path=/; HttpOnly")
                     return self._page(LOGIN.format(error="<p role=alert>Wrong username or password</p>"))
+                if path == "/2fa":
+                    waiting = f"pending={site.pending}" in self.headers.get("Cookie", "")
+                    if waiting and form.get("code") == site.code:
+                        return self._redirect("/", f"rsid={site.session}; Max-Age=86400; Path=/; HttpOnly")
+                    return self._page(TWO_FACTOR.format(error="<p role=alert>Wrong code</p>"))
                 if not self._signed_in():
                     return self._redirect("/login.html")
                 if path == "/wifi":

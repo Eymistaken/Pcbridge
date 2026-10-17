@@ -378,11 +378,15 @@ class PcbridgeApp(App):
         button = self.query_one("#browser-button", Button)
         try:
             shown = self.backend.browser_shown(self.cfg)
+            held = shown is not None and self.backend.browser_held(self.cfg)
         except Exception:  # noqa: BLE001 - no browser state is "no button"
-            shown = None
-        self.browser_shown = shown
+            shown, held = None, False
+        self.browser_shown, self.browser_held = shown, held
         button.display = shown is not None
-        if shown is not None:
+        if held:
+            button.label = "Give browser back"
+            button.tooltip = "You have the pcbridge browser; give it back to the agent (b)."
+        elif shown is not None:
             button.label = "Hide browser" if shown else "Show browser"
             button.tooltip = ("Take the pcbridge browser's window off screen; it keeps working (b)."
                               if shown else
@@ -395,12 +399,18 @@ class PcbridgeApp(App):
     def action_toggle_browser(self) -> None:
         if self.cfg is None or getattr(self, "browser_shown", None) is None:
             return
-        self._browser_worker("hide" if self.browser_shown else "show")
+        if getattr(self, "browser_held", False):
+            self._browser_worker("give_back")
+        else:
+            self._browser_worker("hide" if self.browser_shown else "show")
 
     @work(thread=True, exclusive=True, group="browser")
     def _browser_worker(self, action: str) -> None:
         try:
-            self.post(self.notify, self.backend.browser_view(self.cfg, action))
+            if action == "give_back":
+                self.post(self.notify, self.backend.browser_give_back(self.cfg))
+            else:
+                self.post(self.notify, self.backend.browser_view(self.cfg, action))
         except Exception as exc:  # noqa: BLE001 - shown to the user, never raised in the UI
             self.post(self.notify, str(exc), severity="error", timeout=10)
         finally:

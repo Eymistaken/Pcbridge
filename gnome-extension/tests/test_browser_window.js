@@ -6,6 +6,7 @@ import {
     BrowserWindows,
     browserPid,
     parentPid,
+    userHasBrowser,
     wantedVisible,
 } from '../pcbridge-gorunur@eymistaken.local/browserwindow.js';
 import {WindowControl} from '../pcbridge-gorunur@eymistaken.local/windowcontrol.js';
@@ -103,6 +104,10 @@ check('a keeper that is not keeper.py does not',
 check('a browser pid that is not the keeper\'s child does not',
     browserPid(DIR, files({parent: 1})) === 0);
 check('no record, no browser', browserPid(DIR, () => null) === 0);
+check('the user has the browser only while control.json says so',
+    userHasBrowser(DIR, p => (p.endsWith('control.json') ? '{"user": true}' : null)) &&
+    !userHasBrowser(DIR, p => (p.endsWith('control.json') ? '{"user": false}' : null)) &&
+    !userHasBrowser(DIR, () => null));
 check('hidden unless view.json says visible',
     !wantedVisible(DIR, files()) && wantedVisible(DIR, files({visible: true})) &&
     !wantedVisible(DIR, files({visible: false})));
