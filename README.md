@@ -25,7 +25,7 @@ keyboard, pointer and screen reader.
 | **Read the screen** | The accessibility tree as text, silent screenshots, or OCR as plain text. GNOME capture uses screen sharing without a flash or sound. |
 | **Use the desktop** | Virtual keyboard and pointer through uinput, absolute and relative motion, and compositor-specific window activation. GNOME's extension raises windows in ~5 ms. |
 | **Click what you see** | Every screenshot has an id; send the pixel you see plus the id, and pcbridge applies the monitor offset and scale. Changed or missing outputs make old shots invalid. |
-| **Run it from a terminal** | `pcbridge` opens a terminal UI: every setting, the desktop grant with one Lock / Unlock button, all 46 tools with a search box, and a switch per MCP client; mouse and keyboard. Every part of it is also a plain command. |
+| **Run it from a terminal** | `pcbridge` opens a terminal UI: every setting, the desktop grant with one Lock / Unlock button, all 47 tools with a search box, and a switch per MCP client; mouse and keyboard. Every part of it is also a plain command. |
 | **Stay safe enough to leave on** | Desktop control is off by default; a time-limited grant closes 90 s after the last action; nothing is sent behind a locked screen. GNOME shows a frame and panel icon, Plasma a lasting notification, and Hyprland a native frame. Each has a kill switch. |
 
 ## Always ready
@@ -128,7 +128,7 @@ grant notification's "Lock now" on Plasma.
   and writes only the changed lines; the password and the token are stored
   as hashes and never shown (a new one is shown once). Its **Panel icon** section changes the GNOME icon immediately,
   without a daemon restart; KDE Plasma explains that it has no pcbridge icon.
-- **Tools** lists all 46 tools, marks what the `[tools] profile` offers
+- **Tools** lists all 47 tools, marks what the `[tools] profile` offers
   and searches names and descriptions as you type.
 
 - **Connections** has a switch for each MCP client pcbridge knows: Claude
@@ -146,7 +146,7 @@ grant notification's "Lock now" on Plasma.
 | | |
 |---|---|
 | [docs/install.md](docs/install.md) | Install, update, remote access |
-| [docs/usage.md](docs/usage.md) | The 46 tools, which need the grant, how to drive the screen; the terminal UI and every command |
+| [docs/usage.md](docs/usage.md) | The 47 tools, which need the grant, how to drive the screen; the terminal UI and every command |
 | [docs/configuration.md](docs/configuration.md) | The config file and `pcbridge set`; the reference is [config.example.toml](config.example.toml) |
 | [docs/security.md](docs/security.md) | What protects the machine, and what does not |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Symptoms and fixes |
