@@ -3812,7 +3812,10 @@ def register(
     # they pass no `_guard()`, so the grant and `[desktop] enabled` do not
     # apply, and they only audit what was done.
     browser_manager = BrowserManager(cfg, lambda: jm.use_scopes)
-    browser_remote = browserremote.RemoteStore(browser_manager, cfg.public_url, gate.audit)
+    # Looked up at call time, as the other tools do: a gate is audited when
+    # something happens, not when the tools are registered.
+    browser_remote = browserremote.RemoteStore(browser_manager, cfg.public_url,
+                                               lambda event, **fields: gate.audit(event, **fields))
     browsermcp.register(mcp, browser_manager, gate, shot_store or shotslib.ShotStore(cfg),
                         transport, _inline_images, browser_remote)
     # app.py serves the take-over page (/browser/<token>) with these.
