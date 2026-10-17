@@ -364,6 +364,7 @@ const out = document.getElementById("out");
 const bar = document.getElementById("bar");
 const button = form.querySelector("button");
 const max = Number(document.body.dataset.max);
+const n = v => Number(v).toLocaleString("en");
 function show(text, cls) { out.textContent = text; out.className = cls || ""; }
 async function localHash(file) {
   if (!(window.crypto && crypto.subtle) || file.size > 200 * 1048576) return null;
@@ -384,9 +385,9 @@ form.addEventListener("submit", async ev => {
   ev.preventDefault();
   const file = input.files[0];
   if (!file) { show("Choose a file first.", "bad"); return; }
-  if (file.size > max) { show("The file is " + file.size + " bytes; the limit is " + max + ".", "bad"); return; }
+  if (file.size > max) { show("The file is " + n(file.size) + " bytes; the limit is " + n(max) + ".", "bad"); return; }
   button.disabled = true;
-  show("Uploading " + file.size + " bytes...");
+  show("Uploading " + n(file.size) + " bytes...");
   try {
     const [x, mine] = await Promise.all([send(file), localHash(file)]);
     let r = {};
@@ -398,7 +399,7 @@ form.addEventListener("submit", async ev => {
     }
     const same = mine === null ? "Compare it with the file's SHA-256 on this device."
       : (mine === r.sha256 ? "It matches the file on this device." : "It does NOT match the file on this device.");
-    show("Stored " + r.bytes + " bytes. SHA-256 " + r.sha256 + ". " + same,
+    show("Stored " + n(r.bytes) + " bytes. SHA-256 " + r.sha256 + ". " + same,
       mine === null || mine === r.sha256 ? "ok" : "bad");
   } catch (e) {
     show(e.message + " Try again while the link is still valid.", "bad");
