@@ -34,8 +34,8 @@ sh install.sh
 
 The checksum only proves the download is the file the release published;
 reading the script is what tells you what it does. The script is a release
-asset from the first release after 2.5.0 on; until then, run `./install.sh`
-from a git checkout (below) or use `--wheel` with a downloaded wheel.
+asset since 2.6.0; for an older release, run `./install.sh` from a git
+checkout (below) or use `--wheel` with a downloaded wheel.
 
 What it does, in order:
 

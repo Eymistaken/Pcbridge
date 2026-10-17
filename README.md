@@ -74,7 +74,7 @@ More numbers, and why things are the way they are:
 ## Install
 
 ```bash
-# recommended, no root (from the first release after 2.5.0):
+# recommended, no root (2.6.0 and later):
 curl -fsSL https://github.com/Eymistaken/Pcbridge/releases/latest/download/install.sh | sh
 # or the package for your release:
 sudo apt install ./pcbridge_<version>_<distro>_amd64.deb && pcbridge setup

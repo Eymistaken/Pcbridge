@@ -17,19 +17,19 @@ measured facts are updated before the next stage starts. Change the order
 here, not by moving sections.
 
 1. **Quick wins.** ~~`fs_read` detects a binary file and refuses it (the
-   minimal part of *Binary file transfer*)~~ (done, Unreleased); ~~*Keep the
-   machine awake while work is running*~~ (done, Unreleased, except the
+   minimal part of *Binary file transfer*)~~ (done, 2.6.0); ~~*Keep the
+   machine awake while work is running*~~ (done, 2.6.0, except the
    optional tunnel part). Small, and they stop silent corruption and frozen
    jobs.
 2. **Remote access safety.** ~~*List and revoke remote clients*~~ (done,
-   Unreleased); ~~*A separate tool profile for remote access*~~ (done,
-   Unreleased). Before the browser: browser tools work
+   2.6.0); ~~*A separate tool profile for remote access*~~ (done,
+   2.6.0). Before the browser: browser tools work
    without the desktop grant, so remote clients gain power, and
    `remote_profile` decides whether a phone gets them at all.
 3. **Installation.** ~~*One install script that finds everything itself*~~
-   (done, Unreleased); ~~*Python: offer the fix, do not just fail*~~ (done,
-   Unreleased); ~~*Optional components as a checklist*~~ (done,
-   Unreleased). Makes trying new machines (Pardus and the like) cheap, which
+   (done, 2.6.0); ~~*Python: offer the fix, do not just fail*~~ (done,
+   2.6.0); ~~*Optional components as a checklist*~~ (done,
+   2.6.0). Makes trying new machines (Pardus and the like) cheap, which
    the later desktop work needs for testing. Left: the checks under each
    item below, mostly on real machines.
 4. **Connecting remote clients.** *From installed to connected without
@@ -37,16 +37,16 @@ here, not by moving sections.
    recommended path, and someone who installs from a release then has no
    way to find the password a remote client needs.
 5. **File tools.** ~~*Paginated and ranged file reads*~~ (done,
-   Unreleased), ~~the rest of *Binary file transfer*~~ (done, Unreleased),
-   ~~*Targeted edits and easier writes*~~ (done, Unreleased), together
+   2.6.0), ~~the rest of *Binary file transfer*~~ (done, 2.6.0),
+   ~~*Targeted edits and easier writes*~~ (done, 2.6.0), together
    because they share the cursor and conflict design, and checked through
    claude.ai (see measured facts). ~~*Download and upload links for large
-   files*~~ (done, Unreleased).
+   files*~~ (done, 2.6.0).
 6. **Browser.** In this order: ~~measure *Attaching to the existing
    session*~~ (done: a dedicated pcbridge profile, see measured facts),
-   ~~*Browser tools for the user's existing session*~~ (done, Unreleased),
-   ~~*Show and hide the browser window on demand*~~ (done, Unreleased),
-   ~~*Taking over the agent's browser*~~ (done, Unreleased). Left: the
+   ~~*Browser tools for the user's existing session*~~ (done, 2.6.0),
+   ~~*Show and hide the browser window on demand*~~ (done, 2.6.0),
+   ~~*Taking over the agent's browser*~~ (done, 2.6.0). Left: the
    checks each item lists.
 7. **More desktops.** *Retire the legacy Python desktop backends* first,
    then *X11, starting with Cinnamon and XFCE*, written straight into the
@@ -117,21 +117,21 @@ at the machine* checks, batched for a session at the machine.
 
 ## Optional: file tools
 
-- ~~**Paginated and ranged file reads.**~~ Done (Unreleased): `fs_read`
+- ~~**Paginated and ranged file reads.**~~ Done (2.6.0): `fs_read`
   starts at the beginning, at `start_line` (negative from the end) or at a
   cursor, ends pages on line boundaries, names the lines covered, the size,
   the SHA-256 and the next cursor, refuses a cursor once the file changed,
   and reads several files with `paths`. Proved over HTTP with OAuth against
   a throwaway daemon (see measured facts). Left: the same check from a real
   remote client (claude.ai, ChatGPT), which the maintainer runs.
-- ~~**Targeted edits and easier writes.**~~ Done (Unreleased): the new
+- ~~**Targeted edits and easier writes.**~~ Done (2.6.0): the new
   `fs_edit` replaces exact text (one match, `replace_all`, or several edits
   written together), explains missing and ambiguous matches, keeps line
   endings and BOM, shows a diff, has `dry_run`, and refuses a stale
   `expected_sha256`; `fs_write` writes atomically with `expected_sha256`
   and `create_only`. Proved over HTTP with OAuth against a throwaway daemon
   (see measured facts). Left: the same from a real remote client.
-- ~~**Binary file transfer.**~~ Done (Unreleased): `fs_read` refuses
+- ~~**Binary file transfer.**~~ Done (2.6.0): `fs_read` refuses
   binary and non-UTF-8 files in its default mode with the format and size,
   returns images as MCP image content (scaled to 1568 px when larger), and
   with `encoding="base64"` returns any file's bytes in cursor chunks of up
@@ -143,7 +143,7 @@ at the machine* checks, batched for a session at the machine.
   "Done when" (a multi-megabyte PDF through a remote client) is not
   reachable this way: every byte passes through the model, which copied a
   character wrong within 75 KB, so it moves to the item below.
-- ~~**Download and upload links for large files.**~~ Done (Unreleased):
+- ~~**Download and upload links for large files.**~~ Done (2.6.0):
   `fs_download_link` and `fs_upload_link`, with the security design in
   [docs/security.md](docs/security.md#file-links). Proved against a
   throwaway daemon over HTTP, with curl and with a real Chrome posing as an
@@ -156,7 +156,7 @@ at the machine* checks, batched for a session at the machine.
 ## Optional: browser control
 
 - ~~**Browser tools for the user's existing session.**~~ Done
-  (Unreleased): `browser_tabs`, `browser_read`, `browser_screenshot`,
+  (2.6.0): `browser_tabs`, `browser_read`, `browser_screenshot`,
   `browser_navigate`, `browser_act` on a dedicated pcbridge profile (the
   "existing session" is that profile's, where the user signs in once; see
   the attach item below for why not the everyday profile). Pages read as an
@@ -179,7 +179,7 @@ at the machine* checks, batched for a session at the machine.
   held by a keeper process that outlives a daemon restart. The extension
   bridge and wrapping chrome-devtools-mcp or Playwright MCP were weighed
   and not taken.
-- ~~**Taking over the agent's browser.**~~ Done (Unreleased):
+- ~~**Taking over the agent's browser.**~~ Done (2.6.0):
   `browser_handoff` (with a reason, shown in a notification that has a
   "Give it back" action) and `pcbridge browser pause` / `resume`; while
   the user has the browser every agent action in it is refused with
@@ -193,7 +193,7 @@ at the machine* checks, batched for a session at the machine.
   button (see measured facts). Left: the GNOME panel menu's items (after a
   log-out loads the new extension), the notification on Plasma, and the
   phone check through Funnel on a real phone.
-- ~~**Show and hide the browser window on demand.**~~ Done (Unreleased):
+- ~~**Show and hide the browser window on demand.**~~ Done (2.6.0):
   hidden by default, shown and hidden by `browser_visibility`, `pcbridge
   browser show|hide` and the terminal UI's button (b), found by the pid of
   the browser pcbridge started; showing takes focus only when asked. GNOME
@@ -209,7 +209,7 @@ at the machine* checks, batched for a session at the machine.
 
 ## Optional: remote access
 
-- **List and revoke remote clients.** Done (Unreleased): `pcbridge remote
+- **List and revoke remote clients.** Done (2.6.0): `pcbridge remote
   clients` lists the remote apps by name, `pcbridge remote revoke NAME` and
   `--all` delete their registrations and tokens, and the terminal UI's
   Remote tab does the same. A new password does not end existing sessions
@@ -225,7 +225,7 @@ at the machine* checks, batched for a session at the machine.
   test entry), and the old file is kept as `oauth.db.bak-2026-10-14`. The
   test registers as "Google", the name Google's real clients use, so
   revoking that name by hand would also sign out a real Gemini.
-- **A separate tool profile for remote access.** Done (Unreleased):
+- **A separate tool profile for remote access.** Done (2.6.0):
   `[tools] remote_profile` (default `same`, following `profile`) decides
   what every HTTP client gets, the static token included; a new `readonly`
   profile offers only tools that change nothing. Hidden tools are refused
@@ -241,12 +241,12 @@ at the machine* checks, batched for a session at the machine.
   (2026-10-14): the password is never stored, only its hash, so it cannot
   be read back from any file or command, and a leaked `config.toml`, backup
   or report gives nothing away. In the order to build it:
-  1. ~~**Store hashes, not secrets.**~~ Done (Unreleased): scrypt for the
+  1. ~~**Store hashes, not secrets.**~~ Done (2.6.0): scrypt for the
      password, SHA-256 for the static token and every token in `oauth.db`,
      migrated in place when the daemon starts (see measured facts). Left:
      the installed daemon still runs the old code, so the maintainer's own
      config and database are converted at the next `pcbridge update`.
-  2. ~~**No password until remote access is wanted.**~~ Done (Unreleased). Local clients on the
+  2. ~~**No password until remote access is wanted.**~~ Done (2.6.0). Local clients on the
      socket never use it, so someone who only uses pcbridge as a local MCP
      server never meets it. Setup stops generating one silently. Remote
      access stays off until a password exists; whenever the user wants it,
@@ -255,7 +255,7 @@ at the machine* checks, batched for a session at the machine.
      `pcbridge set auth.password` creates one, and the tunnel does not open
      without it.
   3. ~~**Choose or generate, shown once, with no time limit.**~~ Done
-     (Unreleased): six EFF words, about 77 bits; a new password works
+     (2.6.0): six EFF words, about 77 bits; a new password works
      without a restart. The user types
      a password or lets pcbridge generate one; the default generator makes
      a word passphrase (for example `table-cloud-pencil-sea-seven`), as
@@ -266,7 +266,7 @@ at the machine* checks, batched for a session at the machine.
      screenshot or a password manager; an optional copy puts it on the
      clipboard. Setup and `docs/install.md` say this too.
   4. ~~**Creating or replacing it needs the login password.**~~ Done
-     (Unreleased): PAM `login` service through ctypes; scripts give it as
+     (2.6.0): PAM `login` service through ctypes; scripts give it as
      the first line of stdin. Checked against the real PAM both ways on
      this machine (see measured facts). Forgotten or
      leaked, it is replaced, never shown. Creating the first one and
@@ -294,7 +294,7 @@ at the machine* checks, batched for a session at the machine.
 
 ## Optional: availability
 
-- **Keep the machine awake while work is running.** Done (Unreleased):
+- **Keep the machine awake while work is running.** Done (2.6.0):
   `[power] keep_awake`, off by default. The terminal UI and `pcbridge
   keep-awake` switch it. While a job runs it holds the inhibitor each
   desktop honors (see measured facts) and releases it after the last job.
@@ -307,7 +307,7 @@ at the machine* checks, batched for a session at the machine.
 
 ## Optional: installation
 
-- **One install script that finds everything itself.** Done (Unreleased):
+- **One install script that finds everything itself.** Done (2.6.0):
   `install.sh` refuses root, downloads the release wheel, checks its sha256
   against `sha256sums.txt` (the release now ships `install.sh` and
   `constraints.txt` too), installs it into the user venv and hands over to
@@ -325,7 +325,7 @@ at the machine* checks, batched for a session at the machine.
   desktop through the script; an interactive sudo password prompt (the VMs
   use NOPASSWD); aarch64 needs a release wheel first. Making it the
   recommended path everywhere (website) comes with *Optional: website*.
-- **Python: offer the fix, do not just fail.** Done (Unreleased): with
+- **Python: offer the fix, do not just fail.** Done (2.6.0): with
   Python < 3.12 the script offers (1, the default and `--yes`) a
   pcbridge-only Python from a pinned, checksummed uv under
   `~/.local/share/pcbridge/`, (2) the distribution's command (deadsnakes on
@@ -333,7 +333,7 @@ at the machine* checks, batched for a session at the machine.
   told there is none), (3) quit. The system `python3` is never repointed.
   Measured on Debian 12 (Python 3.11.2 -> CPython 3.12.14). Left: the
   deadsnakes and Fedora options were not run on a real system.
-- **Optional components as a checklist.** Done (Unreleased): where desktop
+- **Optional components as a checklist.** Done (2.6.0): where desktop
   control is supported, setup offers OCR (tesseract, English and the
   locale's language; names for Debian, Arch and Fedora in `distro.py`) in
   one list, and `pcbridge doctor --fix` offers missing parts again. Setup
