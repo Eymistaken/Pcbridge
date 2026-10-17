@@ -451,10 +451,13 @@ async def _serve(args: argparse.Namespace, bind_socket: bool) -> int:
     from fastmcp.server.context import set_transport
 
     from . import app as applib
-    from .config import load_config
+    from .config import load_config_hardened
     from .desktop import session as sessionlib
 
-    cfg = load_config(args.config)
+    cfg, hashed = load_config_hardened(args.config)
+    if hashed:
+        log.warning("config: stored %s in %s as hashes; they cannot be read back from it",
+                    " and ".join(f"auth.{k}" for k in hashed), cfg.source_path)
     for warning in cfg.warnings:
         log.warning("config: %s", warning)
     fixed = sessionlib.ensure_session_env()

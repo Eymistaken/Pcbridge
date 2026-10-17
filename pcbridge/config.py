@@ -16,6 +16,7 @@ import sys
 import tempfile
 import tomllib
 
+from . import hashing as hashinglib
 from . import paths as pathslib
 
 # The config file format version this code writes and understands. Files
@@ -573,7 +574,13 @@ def _backup(path: Path, now: datetime.datetime | None = None) -> Path:
     while dest.exists():
         dest = path.with_name(f"{path.name}.backup-{ts}-{n}")
         n += 1
-    shutil.copy2(path, dest)
+    # A backup never keeps a plaintext secret: it gets the hashes the file
+    # itself is about to have, or already has.
+    text, _ = hashinglib.harden_text(path.read_text(encoding="utf-8"))
+    fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    shutil.copystat(path, dest)
     os.chmod(dest, 0o600)
     return dest
 
@@ -589,6 +596,9 @@ def migrate_config(source: Path, dest: Path | None = None) -> MigrationResult:
     dest = dest or pathslib.config_file()
     text = source.read_text(encoding="utf-8")
     new_text, start = migrate_text(text)
+    # The copy or upgrade stores the secrets as hashes (`hashing.py`).
+    old_text = dest.read_text(encoding="utf-8") if dest.exists() else None
+    new_text, _ = hashinglib.harden_text(new_text, reuse=old_text)
     backup = None
     if dest.exists():
         if dest.read_text(encoding="utf-8") == new_text:
@@ -741,6 +751,29 @@ def load_config(explicit: str | None = None, *, check_state: bool = True) -> Con
         raise
 
 
+def load_config_hardened(explicit: str | None = None) -> tuple[Config, list[str]]:
+    """`load_config` for the daemon: first store the file's plaintext secrets as hashes.
+
+    Returns the config and the `[auth]` keys that were hashed. A file that
+    cannot be rewritten still loads (plaintext keeps working) and says why in
+    its warnings.
+    """
+    note = None
+    keys: list[str] = []
+    try:
+        path, _ = locate_config(explicit)
+        keys = hashinglib.harden_file(path)
+    except OSError as exc:
+        note = (f"could not store the secrets of the config file as hashes "
+                f"({exc.strerror or exc}); they stay in plaintext until it can be written.")
+    except SystemExit:
+        pass  # load_config says what is wrong with the file
+    cfg = load_config(explicit)
+    if note:
+        cfg.warnings.append(note)
+    return cfg, keys
+
+
 TOOL_PROFILES = ("full", "core", "desktop", "readonly")
 REMOTE_TOOL_PROFILES = ("same",) + TOOL_PROFILES
 
@@ -877,9 +910,18 @@ def _load_config(explicit: str | None = None, *, check_state: bool = True) -> Co
             f"{path}: `public_url` must start with https:// (remote OAuth clients require HTTPS), "
             "or point at localhost."
         )
-    if len(password) < 12:
+    # A stored hash has no length to check; a plaintext one (the environment,
+    # or a file the daemon has not hashed yet) still must be long.
+    if not hashinglib.is_password_hash(password) and len(password) < 12:
         raise SystemExit(
             f"{path}: `auth.password` must be at least 12 characters. Pick a long, unguessable one."
+        )
+    plain = [k for k in hashinglib.SECRET_KEYS
+             if not hashinglib.is_hashed(k, str(auth.get(k, "") or ""))]
+    if plain:
+        warnings.append(
+            f"{path} holds `auth.{'` and `auth.'.join(plain)}` in plaintext; the daemon "
+            "replaces them with hashes when it starts (`pcbridge doctor --fix` does it now)."
         )
 
     agents: dict[str, AgentSpec] = {}

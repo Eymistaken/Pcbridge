@@ -42,6 +42,39 @@ class Check:
 JOBS_WARN_BYTES = 1_000_000_000
 
 
+def _plaintext_leftovers(cfg) -> list[Path]:
+    """Backups and older copies that still hold a plaintext secret or token.
+
+    Config backups next to the file (`config.toml.backup-*`) made before
+    secrets were hashed, the legacy repository config once another file is in
+    use, and copies of oauth.db in the state directory.
+    """
+    from .. import hashing
+    from ..auth import plaintext_token_rows
+
+    found: list[Path] = []
+    candidates: list[Path] = []
+    if cfg.source_path:
+        src = Path(cfg.source_path)
+        candidates += sorted(src.parent.glob(src.name + ".backup-*"))
+        legacy = pathslib.LEGACY_REPO_CONFIG
+        if legacy.exists() and legacy.resolve() != src.resolve():
+            candidates.append(legacy)
+    for p in candidates:
+        try:
+            if hashing.plaintext_keys(p.read_text(encoding="utf-8")):
+                found.append(p)
+        except OSError:
+            pass
+    db = Path(cfg.db_path)
+    for p in sorted(db.parent.glob(db.name + "*")):
+        if p == db or p.name.endswith(("-wal", "-shm", "-journal")) or not p.is_file():
+            continue
+        if plaintext_token_rows(p):
+            found.append(p)
+    return found
+
+
 class Doctor:
     def __init__(self, fix: bool = False) -> None:
         self.fix = fix
@@ -86,9 +119,10 @@ class Doctor:
         self.add(g, "config file", kind, f"{cfg.source_path} ({cfg.source_kind}, config_version {cfg.config_version})",
                  "pcbridge setup  (moves it to ~/.config/pcbridge)" if kind == "warn" else "")
         for w in cfg.warnings:
-            if "readable by other users" in w:
+            if "readable by other users" in w or "in plaintext" in w:
                 continue
             self.add(g, "config warning", "warn", w)
+        self.stored_secrets(g, cfg)
         for path in (cfg.source_path, cfg.db_path):
             if path is None or not Path(path).exists():
                 continue
@@ -106,6 +140,33 @@ class Doctor:
                      f"edit {cfg.source_path}")
         self.add(g, "desktop control", "info",
                  "enabled" if cfg.desktop.enabled else "disabled ([desktop] enabled = false): desktop tools refuse")
+
+    def stored_secrets(self, g: str, cfg) -> None:
+        """The password and tokens are stored as hashes; say which files still hold one."""
+        from .. import hashing
+        from ..auth import plaintext_token_rows
+
+        path = Path(cfg.source_path) if cfg.source_path else None
+        plain = hashing.plaintext_keys(path.read_text(encoding="utf-8")) if path and path.exists() else []
+        if plain:
+            c = self.add(g, "stored secrets", "fail",
+                         f"{path} holds {' and '.join('auth.' + k for k in plain)} in plaintext",
+                         "pcbridge doctor --fix  (the daemon also does it when it starts)")
+            if self.fix:
+                c.fixed = bool(hashing.harden_file(path))
+        else:
+            self.add(g, "stored secrets", "ok", "the password and static token are stored as hashes")
+        rows = plaintext_token_rows(cfg.db_path)
+        if rows:
+            self.add(g, "stored tokens", "warn",
+                     f"{cfg.db_path} holds {rows} token(s) in plaintext from an older pcbridge",
+                     "pcbridge update  (the new daemon hashes them when it starts)")
+        leftovers = _plaintext_leftovers(cfg)
+        if leftovers:
+            self.add(g, "old copies", "warn",
+                     "these files still hold a plaintext password or token: "
+                     + ", ".join(str(p) for p in leftovers),
+                     "read them, then: gio trash " + " ".join(shlex.quote(str(p)) for p in leftovers))
 
     def daemon(self) -> None:
         g = "daemon"

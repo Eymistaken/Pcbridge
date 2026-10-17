@@ -107,6 +107,26 @@
   0.56.2 with real suspends. It was not tested on physical Plasma or
   Hyprland hardware.
 
+### Changed
+
+- **The remote password and the tokens are stored only as hashes.** A
+  leaked `config.toml`, backup or `oauth.db` no longer gives anything away.
+  `[auth] password` is stored as an scrypt hash and `[auth] static_token` as
+  SHA-256. Every access token, refresh token and authorization code in
+  `oauth.db` is keyed by its SHA-256 digest. When the daemon starts it
+  hashes a plaintext password or token in the config file, and converts an
+  older database in place, then vacuums it. Apps that are already connected
+  keep working. `pcbridge set` and the terminal UI write only hashes, and
+  config backups get the same hashes. `pcbridge set auth.static_token
+  --generate` and the Settings tab show a new token once, since it can no
+  longer be read back. `pcbridge doctor` reports a file that still holds a
+  plaintext secret (`--fix` hashes it) and names older copies that do, such
+  as backups made before this change. PCBRIDGE_PASSWORD and
+  PCBRIDGE_STATIC_TOKEN in the environment are used as they are and never
+  written. To run `tests/test_e2e.py` against the installed daemon, take the
+  password and token from a password manager: they cannot be read from the
+  file any more.
+
 ### Fixed
 
 - **`fs_read` refuses binary files.** It used to decode with

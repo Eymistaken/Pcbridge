@@ -24,19 +24,23 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from pcbridge import config as configlib  # noqa: E402
+from pcbridge import hashing as hashinglib  # noqa: E402
 from pcbridge import settings as S  # noqa: E402
 from tests.contracts.test_english_only import _is_turkish  # noqa: E402
 
 PASSWORD = "settings-test-password-1234"
 TOKEN = "settings-test-static-token-5678"
+# A file as the daemon leaves it: the secrets stored as hashes.
+PASSWORD_HASH = hashinglib.hash_password(PASSWORD)
+TOKEN_HASH = hashinglib.hash_token(TOKEN)
 
 
 def example_config(state: Path) -> str:
     """config.example.toml with the fields a real file must have."""
     text = (ROOT / "config.example.toml").read_text(encoding="utf-8")
     text = re.sub(r'(?m)^public_url = .*$', 'public_url = "http://localhost:8765"', text, count=1)
-    text = re.sub(r'(?m)^password = .*$', f'password = "{PASSWORD}"', text, count=1)
-    text = re.sub(r'(?m)^static_token = .*$', f'static_token = "{TOKEN}"', text, count=1)
+    text = re.sub(r'(?m)^password = .*$', f'password = "{PASSWORD_HASH}"', text, count=1)
+    text = re.sub(r'(?m)^static_token = .*$', f'static_token = "{TOKEN_HASH}"', text, count=1)
     text = re.sub(r'(?m)^state_dir = .*$', f'state_dir = "{state}"', text, count=1)
     return text
 

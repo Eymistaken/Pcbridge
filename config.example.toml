@@ -49,11 +49,16 @@ inline_images = true
 
 [auth]
 # The password the /authorize consent page asks for. Make it LONG and unique.
-# Can also come from the environment: PCBRIDGE_PASSWORD=...
+# Only its scrypt hash is stored: a plaintext value written here is replaced
+# by its hash when the daemon starts, so it cannot be read back from this
+# file afterwards. Set it with `pcbridge set auth.password`.
+# Can also come from the environment: PCBRIDGE_PASSWORD=... (never written).
 password = "WRITE-A-VERY-LONG-PASSWORD-HERE"
 
 # Optional: a fixed bearer token for curl, tests and trusted local apps.
 # Empty = disabled. Example: curl -H "Authorization: Bearer <token>" https://.../mcp
+# Stored as a SHA-256 hash like the password; `pcbridge set auth.static_token
+# --generate` makes one and shows it once.
 # Environment: PCBRIDGE_STATIC_TOKEN=...
 static_token = ""
 

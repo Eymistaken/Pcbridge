@@ -15,6 +15,7 @@ import os
 import secrets
 import shutil
 import signal
+import stat
 import socket
 import subprocess
 import sys
@@ -343,6 +344,107 @@ class RemoteAccessTests(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertIn("revoked every remote client", out.stdout)
         self.assertGreaterEqual(self._refresh(a).status_code, 400)
+
+    # -- stored secrets ----------------------------------------------------------
+
+    def _legacy_db(self) -> dict[str, str]:
+        """An oauth.db as pcbridge wrote it before tokens were hashed."""
+        from mcp.server.auth.provider import AccessToken, RefreshToken
+        from mcp.shared.auth import OAuthClientInformationFull
+
+        from pcbridge.auth import SCHEMA
+
+        old = {"access": "pcb_at_" + secrets.token_urlsafe(40),
+               "refresh": "pcb_rt_" + secrets.token_urlsafe(40),
+               "client_id": "legacy-client", "client_secret": "legacy-client-secret"}
+        client = OAuthClientInformationFull(
+            client_id=old["client_id"], client_secret=old["client_secret"], client_name="Legacy App",
+            redirect_uris=[REDIRECT], grant_types=["authorization_code", "refresh_token"],
+            response_types=["code"], token_endpoint_auth_method="client_secret_post")
+        exp = int(time.time()) + 3600
+        at = AccessToken(token=old["access"], client_id=old["client_id"], scopes=[], expires_at=exp)
+        rt = RefreshToken(token=old["refresh"], client_id=old["client_id"], scopes=[], expires_at=None)
+        import sqlite3
+        conn = sqlite3.connect(self.tmp / "state" / "oauth.db")
+        with conn:
+            conn.executescript(SCHEMA)
+            conn.execute("INSERT INTO clients VALUES (?,?,?)",
+                         (old["client_id"], client.model_dump_json(), time.time()))
+            conn.execute("INSERT INTO access_tokens VALUES (?,?,?,?)",
+                         (old["access"], old["client_id"], at.model_dump_json(), exp))
+            conn.execute("INSERT INTO refresh_tokens VALUES (?,?,?,?,?)",
+                         (old["refresh"], old["client_id"], rt.model_dump_json(), None, old["access"]))
+        conn.close()
+        return old
+
+    def _db_bytes(self) -> bytes:
+        state = self.tmp / "state"
+        return b"".join(p.read_bytes() for p in state.glob("oauth.db*") if p.is_file())
+
+    def test_secrets_and_tokens_are_stored_as_hashes(self) -> None:
+        self._write_config('profile = "core"')
+        old = self._legacy_db()
+        self._start_daemon()
+
+        # The daemon replaced the plaintext secrets of the file with hashes.
+        text = self.cfg.read_text()
+        self.assertNotIn(PASSWORD, text)
+        self.assertNotIn(STATIC, text)
+        self.assertIn('password = "scrypt$', text)
+        self.assertIn('static_token = "sha256$', text)
+        self.assertEqual(stat.S_IMODE(self.cfg.stat().st_mode), 0o600)
+        self.assertIn("as hashes", (self.tmp / "daemon.log").read_text())
+
+        # ...and both still work: the static token, and the password on the consent page.
+        self.assertIn("shell_run", self._http_tools(STATIC))
+        r, _ = self._rpc("not-" + STATIC, "initialize", {})
+        self.assertEqual(r.status_code, 401)
+        app = self._oauth("App A")
+        self.assertIn("shell_run", self._http_tools(app["access_token"]))
+
+        # Tokens issued before the change still work: they were hashed in place.
+        self.assertIn("shell_run", self._http_tools(old["access"]))
+        r = self._refresh({**old, "refresh_token": old["refresh"]})
+        self.assertEqual(r.status_code, 200, r.text[:300])
+        renewed = r.json()
+        self.assertEqual(renewed["refresh_token"], old["refresh"])
+        self.assertIn("shell_run", self._http_tools(renewed["access_token"]))
+        # The access token the refresh replaced is gone.
+        r, _ = self._rpc(old["access"], "initialize", {
+            "protocolVersion": "2025-06-18", "capabilities": {},
+            "clientInfo": {"name": "x", "version": "1"}})
+        self.assertEqual(r.status_code, 401)
+
+        # Nothing in the database files is a usable token.
+        raw = self._db_bytes()
+        for token in (old["access"], old["refresh"], app["access_token"], app["refresh_token"],
+                      renewed["access_token"]):
+            self.assertNotIn(token.encode(), raw)
+
+        # A wrong password is still refused.
+        reg = self.http.post(f"{self.base}/register", json={
+            "client_name": "Wrong", "redirect_uris": [REDIRECT],
+            "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"],
+            "token_endpoint_auth_method": "client_secret_post"}).json()
+        r = self.http.get(f"{self.base}/authorize", params={
+            "response_type": "code", "client_id": reg["client_id"], "redirect_uri": REDIRECT,
+            "state": "s", "code_challenge": "x" * 43, "code_challenge_method": "S256"})
+        rid = parse_qs(urlparse(r.headers["location"]).query)["rid"][0]
+        r = self.http.post(f"{self.base}/consent", data={"rid": rid, "password": PASSWORD + "x"})
+        self.assertEqual(r.status_code, 401)
+
+        # Revoking still finds the hashed tokens.
+        out = self._cli("remote", "revoke", "App A", "--yes")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertGreaterEqual(self._refresh(app).status_code, 400)
+
+        # A restart finds nothing left to hash, and the tokens keep working.
+        self._stop_daemon()
+        before = self.cfg.read_text()
+        self._start_daemon()
+        self.assertEqual(self.cfg.read_text(), before)
+        self.assertIn("shell_run", self._http_tools(STATIC))
+        self.assertIn("shell_run", self._http_tools(renewed["access_token"]))
 
 
 if __name__ == "__main__":

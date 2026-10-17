@@ -19,10 +19,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from pcbridge import hashing as hashinglib  # noqa: E402
 from pcbridge.cli import main as mainlib  # noqa: E402
 
 PASSWORD = "cli-settings-secret-password-42"
 TOKEN = "cli-settings-secret-static-token-42"
+# A file as the daemon leaves it: the secrets stored as hashes.
+PASSWORD_HASH = hashinglib.hash_password(PASSWORD)
+TOKEN_HASH = hashinglib.hash_token(TOKEN)
 
 
 class CliSettingsTests(unittest.TestCase):
@@ -38,8 +42,8 @@ class CliSettingsTests(unittest.TestCase):
             p.chmod(0o755)
         text = (ROOT / "config.example.toml").read_text(encoding="utf-8")
         text = re.sub(r'(?m)^public_url = .*$', 'public_url = "http://localhost:8765"', text, count=1)
-        text = re.sub(r'(?m)^password = .*$', f'password = "{PASSWORD}"', text, count=1)
-        text = re.sub(r'(?m)^static_token = .*$', f'static_token = "{TOKEN}"', text, count=1)
+        text = re.sub(r'(?m)^password = .*$', f'password = "{PASSWORD_HASH}"', text, count=1)
+        text = re.sub(r'(?m)^static_token = .*$', f'static_token = "{TOKEN_HASH}"', text, count=1)
         text = re.sub(r'(?m)^state_dir = .*$', f'state_dir = "{self.home / "state"}"', text, count=1)
         self.cfg = self.home / "config.toml"
         self.cfg.write_text(text)
@@ -159,12 +163,23 @@ class CliSettingsTests(unittest.TestCase):
         res = self.cli("set", "auth.password", "--stdin", stdin="another-long-password-99\n")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertNotIn("another-long-password-99", res.stdout + res.stderr)
-        self.assertEqual(tomllib.loads(self.cfg.read_text())["auth"]["password"], "another-long-password-99")
+        stored = tomllib.loads(self.cfg.read_text())["auth"]["password"]
+        self.assertTrue(stored.startswith("scrypt$"), stored)
+        self.assertTrue(hashinglib.verify_password("another-long-password-99", stored))
+        self.assertNotIn("another-long-password-99", self.cfg.read_text())
+        # A generated token is shown once, and only its hash is stored.
         res = self.cli("set", "auth.static_token", "--generate")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        token = tomllib.loads(self.cfg.read_text())["auth"]["static_token"]
-        self.assertGreaterEqual(len(token), 40)
-        self.assertNotIn(token, res.stdout + res.stderr)
+        stored = tomllib.loads(self.cfg.read_text())["auth"]["static_token"]
+        self.assertTrue(stored.startswith("sha256$"), stored)
+        shown = re.search(r"auth\.static_token: (\S+)", res.stdout).group(1)
+        self.assertGreaterEqual(len(shown), 40)
+        self.assertTrue(hashinglib.verify_token(shown, stored))
+        self.assertNotIn(shown, self.cfg.read_text())
+        self.assertIn("only time it is shown", res.stdout + res.stderr)
+        for backup in self.home.glob("config.toml.backup-*"):
+            self.assertNotIn("another-long-password-99", backup.read_text())
+            self.assertNotIn(shown, backup.read_text())
         # A password shorter than the loader allows is refused.
         res = self.cli("set", "auth.password", "--stdin", stdin="short\n")
         self.assertEqual(res.returncode, 1)

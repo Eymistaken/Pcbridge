@@ -137,6 +137,32 @@ not the installed one.
   why `pcbridge remote clients` groups by app name and hides names whose
   every token has expired.
 
+## Stored secrets (2026-10-17)
+
+Measured with unreleased code on this desktop (Zorin OS 18, Python 3.12,
+SQLite 3.45.1) and against a throwaway daemon
+(`tests/integration/test_remote_access.py`), not the installed one.
+
+- **scrypt cost.** `hashlib.scrypt` with n=2^15, r=8, p=1 (32 MiB) takes a
+  median of 61.5 ms per check (10 runs, max 62.2 ms). That is the price of
+  one consent-page submission, which is already limited to 8 tries per IP.
+  argon2 was not chosen: it needs a new dependency (argon2-cffi), and
+  scrypt comes with the standard library.
+- **Tokens issued before the change keep working.** An `oauth.db` written
+  the old way held a plaintext access token and a plaintext refresh token.
+  After a daemon start on the new code, the access token still opened an
+  MCP session and the refresh token still returned 200. Neither token, nor
+  the tokens issued afterwards, appeared anywhere in the bytes of
+  `oauth.db*`. A second start changed nothing, in the config or the
+  database.
+- **Deleted rows and secure_delete.** This Ubuntu build of SQLite is
+  compiled with `SECURE_DELETE` (`PRAGMA secure_delete` is 1 by default).
+  300 deleted or rewritten token rows left no plaintext in the file, with
+  or without the pragma. Builds without that compile option keep deleted
+  content in free pages, so pcbridge sets `PRAGMA secure_delete=ON` on
+  every connection and vacuums once after converting an older database.
+  Not measured on Arch's or Fedora's SQLite.
+
 ## File tools through remote MCP (2026-10-04)
 
 PcBridge 2.5.0 was probed through the remote MCP tools with a closed desktop

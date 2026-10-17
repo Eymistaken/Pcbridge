@@ -12,11 +12,12 @@ was not asked to change. A save:
 1. refuses if the file changed on disk since it was read;
 2. renders the new text and checks it with the real loader, on a temporary
    copy, so a file that would not load is never written;
-3. copies the old file to a timestamped backup next to it;
-4. writes the new text atomically, mode 0600 (it holds secrets).
+3. copies the old file to a timestamped backup next to it, its secrets hashed;
+4. writes the new text atomically, mode 0600.
 
-The password and the static token are secret: nothing here returns their
-value for display, only whether they are set.
+The password and the static token are secret: only their hashes are written
+(`hashing.py`), and nothing here returns a value for display, only whether
+they are set.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from tomlkit.items import AoT, Array, Comment, Table, Whitespace
 
 from . import assets as assetslib
 from . import config as configlib
+from . import hashing as hashinglib
 from .config import AgentSpec, DesktopSpec
 
 # What a change needs before it takes effect.
@@ -539,6 +541,14 @@ class ConfigEditor:
 
     def set(self, key: str, value: Any) -> None:
         s = self.setting(key)
+        if s.secret:
+            value = str(value)
+            if s.key == "auth.password" and value and not hashinglib.is_password_hash(value) \
+                    and len(value) < 12:
+                raise SettingsError("auth.password must be at least 12 characters. "
+                                    "Pick a long, unguessable one.")
+            # Only the hash reaches the file (`hashing.py`).
+            value = hashinglib.hash_secret(s.name, value)
         if s.kind == "choice":
             value = _from_toml(s, value)
             if value not in s.choices:
@@ -641,7 +651,9 @@ class ConfigEditor:
     def save(self) -> SaveResult:
         if not self.changed:
             return SaveResult(self.path, None, [], None)
-        text = self.render()
+        # Any secret still in plaintext (a file the daemon has not hashed yet)
+        # is hashed along with the change.
+        text, _ = hashinglib.harden_text(self.render())
         try:
             on_disk = self.path.read_text(encoding="utf-8")
         except OSError as exc:
@@ -663,6 +675,7 @@ class ConfigEditor:
         os.chmod(self.path, 0o600)
         result = SaveResult(self.path, backup, list(self.changed), self.restart_needed())
         self._text = text
+        self.doc = tomlkit.parse(text)
         self.changed = []
         return result
 

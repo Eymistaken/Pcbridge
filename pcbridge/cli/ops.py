@@ -24,6 +24,7 @@ from pathlib import Path
 from .. import __version__
 from .. import assets as assetslib
 from .. import distro as distrolib
+from .. import hashing as hashinglib
 from .. import paths as pathslib
 from . import connect as connectlib
 from . import install as inst
@@ -515,6 +516,7 @@ def _fresh_config(dest: Path) -> None:
     text = re.sub(r'(?m)^public_url = .*$', 'public_url = "http://localhost:8765"', text, count=1)
     text = re.sub(r'(?m)^password = .*$', f'password = "{secrets.token_urlsafe(24)}"', text, count=1)
     text = re.sub(r'(?m)^static_token = .*$', f'static_token = "{secrets.token_urlsafe(32)}"', text, count=1)
+    text, _ = hashinglib.harden_text(text)
     tomllib.loads(text)
     dest.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(dest.parent, 0o700)

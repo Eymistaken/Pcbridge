@@ -2,7 +2,8 @@
 `set`, `reset`, `tools` and `restart`. They do what the terminal UI does,
 without opening it.
 
-Secrets (the password and the static token) are never printed, and a new
+Secrets (the password and the static token) are stored only as hashes, so
+they cannot be printed; a generated one is shown once, when it is made. A new
 secret is never taken from the command line, where it would land in the
 shell history: `set` prompts for it, reads it from stdin or generates it.
 """
@@ -265,7 +266,9 @@ def set_cmd(argv: list[str]) -> int:
         return 0
     inst.ok(f"{s.key} = {S.format_value(s, S.ConfigEditor(result.path).value(s.key))}")
     if s.secret and args.generate:
-        inst.say(f"          The new value is in {result.path}; it is not printed.")
+        inst.say(f"          {s.key}: {value}")
+        inst.warn("This is the only time it is shown: only its hash is stored, so it cannot "
+                  "be read back, only replaced. Save it now.")
     if s.key == "auth.password":
         _offer_revoke(result.path, args)
     if s.key == "desktop.enabled" and value is True:

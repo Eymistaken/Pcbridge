@@ -8,8 +8,10 @@ default. This page is the map.
 
 pcbridge looks, in order, at: `-c PATH`, `$PCBRIDGE_CONFIG`,
 `~/.config/pcbridge/config.toml`, and (for 1.x checkouts) `<repo>/config.toml`.
-The file holds the password and the static token: keep it mode 0600
-(`pcbridge doctor` warns otherwise, `--fix` repairs it).
+The file holds the hashes of the password and the static token, never the
+secrets themselves: a plaintext value written there is replaced by its hash
+when the daemon starts (or by `pcbridge doctor --fix`). Keep it mode 0600
+anyway (`pcbridge doctor` warns otherwise, `--fix` repairs it).
 
 Unknown keys are ignored with a warning that names them. A file that cannot
 be used (invalid TOML, an unwritable state directory, an invalid value)
@@ -30,7 +32,7 @@ pcbridge set desktop.gui_launch_blocklist "Text Editor, Firefox"
 pcbridge set agents.claude.model_effort '{ opus = "high", sonnet = "medium" }'
 pcbridge reset desktop.pointer_speed
 pcbridge set auth.password          # asks for it; or --stdin
-pcbridge set auth.static_token --generate
+pcbridge set auth.static_token --generate   # shown once; only its hash is stored
 pcbridge restart                    # most settings are read when the daemon starts
 ```
 

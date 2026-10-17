@@ -251,13 +251,11 @@ at the machine* checks, batched for a session at the machine.
   (2026-10-14): the password is never stored, only its hash, so it cannot
   be read back from any file or command, and a leaked `config.toml`, backup
   or report gives nothing away. In the order to build it:
-  1. **Store hashes, not secrets.** `[auth] password` becomes a slow hash
-     (argon2 or scrypt; the consent page only has to verify it). The static
-     token and the access and refresh tokens in `oauth.db` are stored as
-     SHA-256 hashes (they are long and random, so a fast hash is enough):
-     today a copied `oauth.db` hands out live refresh tokens. Existing
-     configs and databases are migrated in place; `pcbridge report` has
-     nothing left to redact.
+  1. ~~**Store hashes, not secrets.**~~ Done (Unreleased): scrypt for the
+     password, SHA-256 for the static token and every token in `oauth.db`,
+     migrated in place when the daemon starts (see measured facts). Left:
+     the installed daemon still runs the old code, so the maintainer's own
+     config and database are converted at the next `pcbridge update`.
   2. **No password until remote access is wanted.** Local clients on the
      socket never use it, so someone who only uses pcbridge as a local MCP
      server never meets it. Setup stops generating one silently. Remote

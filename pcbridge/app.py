@@ -49,7 +49,7 @@ def _tolerate_late_response_after_cancel() -> None:
 _tolerate_late_response_after_cancel()
 from .auth import SqliteOAuthProvider, make_consent_routes
 from .desktop import session as sessionlib
-from .config import Config, ConfigError, exit_on_config_error, load_config
+from .config import Config, ConfigError, exit_on_config_error, load_config, load_config_hardened
 from .jobs import JobManager
 from .shots import ShotStore
 
@@ -488,13 +488,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    transport = "stdio" if args.stdio else "http"
     try:
-        cfg = load_config(args.config)
+        if transport == "http" and not args.check:
+            cfg, hashed = load_config_hardened(args.config)
+            if hashed:
+                log.warning("config: stored %s in %s as hashes; they cannot be read back from it",
+                            " and ".join(f"auth.{k}" for k in hashed), cfg.source_path)
+        else:
+            cfg = load_config(args.config)
     except ConfigError as exc:
         return exit_on_config_error(exc)
     for warning in cfg.warnings:
         log.warning("config: %s", warning)
-    transport = "stdio" if args.stdio else "http"
 
     # Oturum ortamini ONAR. stdio'da sunucuyu istemci baslatiyor ve onun
     # ortamini devraliyoruz; o ortamin dogru olacaginin garantisi yok.

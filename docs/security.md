@@ -45,7 +45,8 @@ The difference is real and was chosen knowingly.
   offer to revoke every remote client after a password change; after a lost
   phone or a leaked password, do both.
 - The static token is not an app and is not listed; anyone who has it can
-  call pcbridge. Replace it with `pcbridge set auth.static_token --generate`.
+  call pcbridge. Replace it with `pcbridge set auth.static_token --generate`,
+  which shows the new one once.
 - `[tools] remote_profile` gives remote clients a smaller tool set than
   local ones, for example `readonly` (job status and output, file reads,
   tmux capture, system status) or `core` (no desktop tools). It covers
@@ -213,6 +214,27 @@ stops half way, and at the latest after `hold_max_seconds` (120 s).
 
 ## Secrets
 
-`config.toml` holds the password and the static token; it is mode 0600, is
-never logged or printed, and is not in the repository. `pcbridge report`
-redacts it (and your home path) from diagnostic bundles.
+pcbridge stores only what it needs to check a secret:
+
+- `[auth] password` as an scrypt hash (about 50-70 ms per check, 32 MiB),
+  `[auth] static_token` as SHA-256. A plaintext value in the file is
+  replaced by its hash when the daemon starts; `pcbridge doctor` reports a
+  file that still holds one and `--fix` hashes it. PCBRIDGE_PASSWORD and
+  PCBRIDGE_STATIC_TOKEN in the environment are used as they are and never
+  written.
+- Every access token, refresh token and authorization code in `oauth.db` is
+  stored under its SHA-256 digest, so a copied database hands out nothing.
+  An older database is converted in place when the daemon starts and then
+  vacuumed, so the old values do not survive in free pages or the WAL.
+- Config backups (`config.toml.backup-*`) get the same hashes. Copies made
+  by an older pcbridge, and `oauth.db` copies made by hand, still hold the
+  plaintext: `pcbridge doctor` names them under "old copies"; read them and
+  move them to the trash.
+- What is not hashed: the client secrets that remote apps registered with
+  (useless without a refresh token or the password), and the authorization
+  code in the audit log's `code_issued` line (single use, five minutes, and
+  useless without the client's PKCE verifier).
+
+`config.toml` stays mode 0600, is never logged or printed, and is not in the
+repository. `pcbridge report` still redacts secrets (and your home path)
+from diagnostic bundles.

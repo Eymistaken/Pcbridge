@@ -43,6 +43,7 @@ from fastmcp.server.auth.auth import (
     RevocationOptions,
 )
 
+from . import hashing
 from .config import Config
 
 logger = logging.getLogger("pcbridge.auth")
@@ -86,6 +87,89 @@ CREATE TABLE IF NOT EXISTS attempts (
 """
 
 
+def _stored(model: Any, field: str) -> str:
+    """The model as JSON with its secret field replaced by that field's digest."""
+    data = json.loads(model.model_dump_json())
+    data[field] = hashing.token_digest(data[field])
+    return json.dumps(data)
+
+
+# (table, key column, secret field inside `data`, other columns holding a token)
+_TOKEN_TABLES = (
+    ("auth_codes", "code", "code", ()),
+    ("access_tokens", "token", "token", ()),
+    ("refresh_tokens", "token", "token", ("access_token",)),
+)
+
+
+def plaintext_token_rows(db_path: Path) -> int:
+    """How many tokens a database holds in plaintext; 0 when it cannot be read.
+
+    Opened read-only, so a database the daemon is using is not touched.
+    """
+    if not Path(db_path).is_file():
+        return 0
+    count = 0
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return 0
+    try:
+        for table, key, _field, _extra in _TOKEN_TABLES:
+            try:
+                rows = conn.execute(f"SELECT {key} FROM {table}").fetchall()
+            except sqlite3.Error:
+                continue
+            count += sum(1 for (value,) in rows if not hashing.is_token_digest(value))
+    finally:
+        conn.close()
+    return count
+
+
+def hash_stored_tokens(db_path: Path) -> int:
+    """Replace every plaintext token in oauth.db with its SHA-256 digest.
+
+    Databases written before tokens were hashed hold them in plaintext, as
+    keys and inside `data`. A row whose key is already a digest is left
+    alone, so this is safe to run on every start. After a change the file is
+    vacuumed, so the old values do not survive in free pages or the WAL.
+    Returns how many rows changed.
+    """
+    if not Path(db_path).exists():
+        return 0
+    changed = 0
+    conn = sqlite3.connect(db_path, timeout=15)
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA secure_delete=ON")
+        with conn:
+            for table, key, field, extra in _TOKEN_TABLES:
+                cols = ", ".join((key, "data", *extra))
+                for row in conn.execute(f"SELECT {cols} FROM {table}").fetchall():
+                    updates: dict[str, str] = {}
+                    if not hashing.is_token_digest(row[key]):
+                        updates[key] = hashing.token_digest(row[key])
+                    data = json.loads(row["data"])
+                    if isinstance(data.get(field), str) and not hashing.is_token_digest(data[field]):
+                        data[field] = hashing.token_digest(data[field])
+                        updates["data"] = json.dumps(data)
+                    for col in extra:
+                        if row[col] and not hashing.is_token_digest(row[col]):
+                            updates[col] = hashing.token_digest(row[col])
+                    if not updates:
+                        continue
+                    sets = ", ".join(f"{c} = ?" for c in updates)
+                    conn.execute(f"UPDATE {table} SET {sets} WHERE {key} = ?",
+                                 (*updates.values(), row[key]))
+                    changed += 1
+        if changed:
+            conn.execute("VACUUM")
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        conn.close()
+    return changed
+
+
 class SqliteOAuthProvider(OAuthProvider):
     """Diske yazan, parola ile onaylanan tek kullanicilik OAuth 2.1 sunucusu."""
 
@@ -106,6 +190,9 @@ class SqliteOAuthProvider(OAuthProvider):
         conn = sqlite3.connect(self.db_path, timeout=15)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
+        # Deleted rows are overwritten, so a revoked token does not linger in
+        # a free page of the file.
+        conn.execute("PRAGMA secure_delete=ON")
         return conn
 
     def _init_db(self) -> None:
@@ -116,6 +203,9 @@ class SqliteOAuthProvider(OAuthProvider):
             self.db_path.chmod(0o600)
         except OSError:
             pass
+        moved = hash_stored_tokens(self.db_path)
+        if moved:
+            self.audit("tokens_hashed", rows=moved)
 
     def _gc(self) -> None:
         now = time.time()
@@ -230,9 +320,9 @@ class SqliteOAuthProvider(OAuthProvider):
             conn.execute(
                 "INSERT INTO auth_codes(code, client_id, data, expires_at) VALUES (?,?,?,?)",
                 (
-                    code,
+                    hashing.token_digest(code),
                     payload["client_id"],
-                    auth_code.model_dump_json(),
+                    _stored(auth_code, "code"),
                     auth_code.expires_at,
                 ),
             )
@@ -263,10 +353,11 @@ class SqliteOAuthProvider(OAuthProvider):
     async def load_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: str
     ) -> AuthorizationCode | None:
+        key = hashing.token_digest(authorization_code)
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT data, client_id, expires_at FROM auth_codes WHERE code = ?",
-                (authorization_code,),
+                (key,),
             ).fetchone()
         if not row:
             return None
@@ -274,11 +365,11 @@ class SqliteOAuthProvider(OAuthProvider):
             return None
         if row["expires_at"] < time.time():
             with self._conn() as conn:
-                conn.execute(
-                    "DELETE FROM auth_codes WHERE code = ?", (authorization_code,)
-                )
+                conn.execute("DELETE FROM auth_codes WHERE code = ?", (key,))
             return None
-        return AuthorizationCode.model_validate_json(row["data"])
+        return AuthorizationCode.model_validate_json(row["data"]).model_copy(
+            update={"code": authorization_code}
+        )
 
     # ------------------------------------------------------------- token uret
     def _new_tokens(
@@ -311,12 +402,13 @@ class SqliteOAuthProvider(OAuthProvider):
         with self._conn() as conn:
             conn.execute(
                 "INSERT INTO access_tokens(token, client_id, data, expires_at) VALUES (?,?,?,?)",
-                (access, client_id, at.model_dump_json(), access_exp),
+                (hashing.token_digest(access), client_id, _stored(at, "token"), access_exp),
             )
             conn.execute(
                 "INSERT INTO refresh_tokens(token, client_id, data, expires_at, access_token)"
                 " VALUES (?,?,?,?,?)",
-                (refresh, client_id, rt.model_dump_json(), refresh_exp, access),
+                (hashing.token_digest(refresh), client_id, _stored(rt, "token"), refresh_exp,
+                 hashing.token_digest(access)),
             )
         self._gc()
         return OAuthToken(
@@ -332,7 +424,8 @@ class SqliteOAuthProvider(OAuthProvider):
     ) -> OAuthToken:
         with self._conn() as conn:
             cur = conn.execute(
-                "DELETE FROM auth_codes WHERE code = ?", (authorization_code.code,)
+                "DELETE FROM auth_codes WHERE code = ?",
+                (hashing.token_digest(authorization_code.code),),
             )
             if cur.rowcount == 0:
                 raise TokenError("invalid_grant", "Code not found or already used.")
@@ -348,13 +441,15 @@ class SqliteOAuthProvider(OAuthProvider):
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT data, client_id, expires_at FROM refresh_tokens WHERE token = ?",
-                (refresh_token,),
+                (hashing.token_digest(refresh_token),),
             ).fetchone()
         if not row or row["client_id"] != client.client_id:
             return None
         if row["expires_at"] is not None and row["expires_at"] < time.time():
             return None
-        return RefreshToken.model_validate_json(row["data"])
+        return RefreshToken.model_validate_json(row["data"]).model_copy(
+            update={"token": refresh_token}
+        )
 
     async def exchange_refresh_token(
         self,
@@ -368,10 +463,11 @@ class SqliteOAuthProvider(OAuthProvider):
 
         # Eski access token'i dusur; refresh token'i DONDURMUYORUZ (rotation yok)
         # -> Spark tarafinda yenileme yarisi yasanirsa baglanti kopmaz.
+        refresh_key = hashing.token_digest(refresh_token.token)
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT access_token FROM refresh_tokens WHERE token = ?",
-                (refresh_token.token,),
+                (refresh_key,),
             ).fetchone()
             if row and row["access_token"]:
                 conn.execute(
@@ -385,10 +481,11 @@ class SqliteOAuthProvider(OAuthProvider):
         with self._conn() as conn:
             conn.execute(
                 "UPDATE refresh_tokens SET access_token = ? WHERE token = ?",
-                (new.access_token, refresh_token.token),
+                (hashing.token_digest(new.access_token), refresh_key),
             )
             conn.execute(
-                "DELETE FROM refresh_tokens WHERE token = ?", (new.refresh_token,)
+                "DELETE FROM refresh_tokens WHERE token = ?",
+                (hashing.token_digest(new.refresh_token),),
             )
         new.refresh_token = refresh_token.token
         self.audit("token_issued", client_id=client.client_id, grant="refresh_token")
@@ -396,34 +493,34 @@ class SqliteOAuthProvider(OAuthProvider):
 
     # ---------------------------------------------------------------- dogrula
     async def load_access_token(self, token: str) -> AccessToken | None:
-        if self.cfg.static_token and secrets.compare_digest(
-            token, self.cfg.static_token
-        ):
+        if hashing.verify_token(token, self.cfg.static_token):
             return AccessToken(
                 token=token,
                 client_id="static",
                 scopes=[],
                 expires_at=None,
             )
+        key = hashing.token_digest(token)
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT data, expires_at FROM access_tokens WHERE token = ?", (token,)
+                "SELECT data, expires_at FROM access_tokens WHERE token = ?", (key,)
             ).fetchone()
         if not row:
             return None
         if row["expires_at"] is not None and row["expires_at"] < time.time():
             with self._conn() as conn:
-                conn.execute("DELETE FROM access_tokens WHERE token = ?", (token,))
+                conn.execute("DELETE FROM access_tokens WHERE token = ?", (key,))
             return None
-        return AccessToken.model_validate_json(row["data"])
+        return AccessToken.model_validate_json(row["data"]).model_copy(update={"token": token})
 
     async def verify_token(self, token: str) -> AccessToken | None:
         return await self.load_access_token(token)
 
     async def revoke_token(self, token: AccessToken | RefreshToken) -> None:
+        key = hashing.token_digest(token.token)
         with self._conn() as conn:
-            conn.execute("DELETE FROM access_tokens WHERE token = ?", (token.token,))
-            conn.execute("DELETE FROM refresh_tokens WHERE token = ?", (token.token,))
+            conn.execute("DELETE FROM access_tokens WHERE token = ?", (key,))
+            conn.execute("DELETE FROM refresh_tokens WHERE token = ?", (key,))
         self.audit("token_revoked", client_id=token.client_id)
 
     # ------------------------------------------------------ brute-force koruma
@@ -465,7 +562,7 @@ class SqliteOAuthProvider(OAuthProvider):
             conn.execute("DELETE FROM attempts WHERE ip = ?", (ip,))
 
     def check_password(self, given: str) -> bool:
-        return secrets.compare_digest(given or "", self.cfg.password)
+        return hashing.verify_password(given or "", self.cfg.password)
 
 
 # ---------------------------------------------------------------------------

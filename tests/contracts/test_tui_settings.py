@@ -311,7 +311,10 @@ class SettingsTabTests(unittest.TestCase):
 
         self.run_app(body)
 
-    def test_a_generated_token_is_saved_but_never_shown(self) -> None:
+    def test_a_generated_token_is_stored_as_a_hash_and_shown_once(self) -> None:
+        from pcbridge import hashing
+        from pcbridge.tui.app import ShowOnce
+
         async def body(app, pilot):
             await self.select(app, pilot, "auth.static_token")
             await pilot.click(".edit-generate")
@@ -321,10 +324,22 @@ class SettingsTabTests(unittest.TestCase):
             self.assertIsInstance(app.screen, Confirm)
             await pilot.click("#confirm-yes")
             await settle(app, pilot)
-            token = tomllib.loads(self.path.read_text())["auth"]["static_token"]
-            self.assertNotEqual(token, TOKEN)
+            stored = tomllib.loads(self.path.read_text())["auth"]["static_token"]
+            self.assertTrue(stored.startswith("sha256$"), stored)
+            # The token is on screen once, until the user says it is saved.
+            self.assertIsInstance(app.screen, ShowOnce)
+            shown = app.screen.secret
+            self.assertTrue(hashing.verify_token(shown, stored))
+            self.assertNotIn(shown, self.path.read_text())
+            await pilot.press("escape")
+            await pilot.pause()
+            self.assertIsInstance(app.screen, ShowOnce)
+            await pilot.click("#once-done")
+            await settle(app, pilot)
+            self.assertNotIsInstance(app.screen, ShowOnce)
             screen = app.export_screenshot()
-            self.assertNotIn(token, screen)
+            self.assertNotIn(shown, screen)
+            self.assertNotIn(stored, screen)
             self.assertNotIn(TOKEN, screen)
 
         self.run_app(body)

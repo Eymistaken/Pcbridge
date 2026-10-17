@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from pcbridge import config as configlib  # noqa: E402
+from pcbridge import hashing as hashinglib  # noqa: E402
 from pcbridge import paths as pathslib  # noqa: E402
 
 V1_SAMPLE = """\
@@ -108,7 +109,14 @@ class ConfigMigrationTests(unittest.TestCase):
         self.assertEqual((result.from_version, result.to_version), (1, configlib.CONFIG_VERSION))
         after = configlib.load_config(str(result.dest))
         self.assertEqual(after.config_version, configlib.CONFIG_VERSION)
-        self.assertEqual(_effective(before), _effective(after))
+        # The secrets are stored as hashes that still match; nothing else moves.
+        self.assertTrue(hashinglib.verify_password(before.password, after.password))
+        self.assertTrue(hashinglib.verify_token(before.static_token, after.static_token))
+        self.assertNotIn(before.password, result.dest.read_text())
+        self.assertNotIn(before.static_token, result.dest.read_text())
+        secrets = ("password", "static_token")
+        self.assertEqual({k: v for k, v in _effective(before).items() if k not in secrets},
+                         {k: v for k, v in _effective(after).items() if k not in secrets})
         # The old OCR default is pinned, not silently changed.
         self.assertEqual(after.desktop.ocr_languages, "tur+eng")
 
@@ -120,6 +128,10 @@ class ConfigMigrationTests(unittest.TestCase):
         self.assertIsNotNone(first.backup)
         self.assertTrue(first.backup.exists())
         self.assertIn("an older hand-written file", first.backup.read_text())
+        # Neither the new file nor the backup of the old one keeps a plaintext secret.
+        for f in (dest, first.backup):
+            self.assertNotIn("correct horse battery staple", f.read_text(), f)
+            self.assertNotIn("sample-static-token-for-tests", f.read_text(), f)
         self.assertEqual(stat.S_IMODE(dest.stat().st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(first.backup.stat().st_mode), 0o600)
         second = configlib.migrate_config(self.legacy)

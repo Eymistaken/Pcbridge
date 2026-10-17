@@ -11,15 +11,12 @@
     kontrol ediyor; gunluk kosumda bayragi ACIK tutmak makul.
 
 Sunucu ayakta olmali. Test parolayi ve statik token'i ORTAMDAN alir; verilmezse
-sahte varsayilanlarla dener ve OAuth adimlari 401 doner. Gercek config'le:
+sahte varsayilanlarla dener ve OAuth adimlari 401 doner. config.toml artik
+yalnizca hash'lerini tutuyor, oradan okunamazlar: parola mudurunden ver.
 
-    export PCBRIDGE_TEST_PASSWORD="$(./.venv/bin/python -c '
-    import sys; sys.path.insert(0,".")
-    from pcbridge.config import load_config; print(load_config().password)')"
-    export PCBRIDGE_TEST_STATIC="$(./.venv/bin/python -c '
-    import sys; sys.path.insert(0,".")
-    from pcbridge.config import load_config; print(load_config().static_token or "")')"
-    ./.venv/bin/python tests/test_e2e.py
+    read -rs PCBRIDGE_TEST_PASSWORD && export PCBRIDGE_TEST_PASSWORD
+    read -rs PCBRIDGE_TEST_STATIC && export PCBRIDGE_TEST_STATIC
+    PCBRIDGE_TEST_NO_AGENT=1 ./.venv/bin/python tests/test_e2e.py
 
 Ajan ayristirma kontrolleri (12. bolum) sabit ciktili bir ajan ister ve gercek
 `claude` ile kosamaz; ATLA sayilirlar. O kapsam `tests/test_models.py` 11.

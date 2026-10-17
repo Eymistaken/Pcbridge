@@ -195,8 +195,9 @@ hold Shift. Piped or run from a script,
   and written together by **Save**, after the same checks as `pcbridge
   set`. Changing `desktop.enabled`, `[auth]`, `host`, `port` or
   `public_url` asks first. **Restart daemon** appears when a saved change
-  needs it. The password and the static token are never shown; they can
-  be replaced, and the token generated. The separate **Panel icon** section
+  needs it. The password and the static token are stored as hashes and
+  never shown; they can be replaced, and the token generated, in which case
+  it is shown once after **Save**. The separate **Panel icon** section
   shows or hides the GNOME icon immediately and does not use **Save** or
   require a daemon restart. On KDE Plasma it explains that there is no
   pcbridge panel icon.

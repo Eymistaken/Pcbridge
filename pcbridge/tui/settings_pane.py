@@ -3,8 +3,9 @@
 Sections on the left, the section's settings in a table on the right, the
 selected setting's editor and description under it. Changes are staged in
 one `ConfigEditor` and written together by Save: one check with the real
-loader, one backup, one atomic write. Secrets are never shown; they can
-only be replaced or, for the token, generated.
+loader, one backup, one atomic write. Secrets are stored as hashes and
+never shown; they can only be replaced or, for the token, generated, and a
+generated token is shown once, after Save.
 """
 
 from __future__ import annotations
@@ -434,8 +435,10 @@ class SettingsPane(Vertical):
 
     @on(Button.Pressed, ".edit-generate")
     def _generate(self) -> None:
-        self._stage(secrets.token_urlsafe(32))
-        self.app.notify("A new static token is staged; Save writes it. It is never shown here.")
+        token = secrets.token_urlsafe(32)
+        self._stage(token)
+        self.generated_token = token
+        self.app.notify("A new static token is staged; it is shown once, after Save.")
 
     @on(Button.Pressed, ".edit-reset")
     def _reset(self) -> None:
@@ -451,6 +454,7 @@ class SettingsPane(Vertical):
     @on(Button.Pressed, "#settings-discard")
     def discard(self) -> None:
         keep = self.current.key if self.current else None
+        self.generated_token = None
         self.load()
         if keep:
             self.fill_table(keep)
@@ -490,6 +494,12 @@ class SettingsPane(Vertical):
         self.app.reload_config()
         self.app.refresh_grant()
         self.app.load_status()
+        token, self.generated_token = getattr(self, "generated_token", None), None
+        if token and "auth.static_token" in result.changed:
+            from .app import ShowOnce
+
+            self.app.push_screen(ShowOnce("The new static token", token,
+                                          "HTTP clients send it as: Authorization: Bearer <token>"))
         if "auth.password" in result.changed:
             self.app.offer_revoke_after_password()
 

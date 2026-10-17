@@ -86,8 +86,14 @@ TabbedContent {
 .hint {
     color: $text-muted;
 }
-Confirm {
+Confirm, ShowOnce {
     align: center middle;
+}
+#once-secret {
+    margin: 1 0;
+    padding: 0 1;
+    border: tall $accent;
+    text-style: bold;
 }
 #confirm-box {
     width: 64;
@@ -131,6 +137,60 @@ class Confirm(ModalScreen[bool]):
 
     def action_no(self) -> None:
         self.dismiss(False)
+
+
+def copy_secret(app: App, text: str) -> str:
+    """Put a secret on the clipboard; say where it went.
+
+    wl-copy reaches the desktop clipboard from any terminal; without it the
+    terminal is asked through OSC 52, which some terminals (GNOME Terminal
+    among them) ignore.
+    """
+    import shutil
+    import subprocess
+
+    if shutil.which("wl-copy"):
+        try:
+            subprocess.run(["wl-copy"], input=text, text=True, timeout=5, check=True)
+            return "Copied to the clipboard."
+        except (OSError, subprocess.SubprocessError):
+            pass
+    app.copy_to_clipboard(text)
+    return "Asked the terminal to copy it; check that it arrived before you close this."
+
+
+class ShowOnce(ModalScreen[None]):
+    """A new secret, shown the only time it can be: until the user says it is saved.
+
+    No timer and no Escape: the screen stays until "I saved it", so there is
+    time for a screenshot or a password manager.
+    """
+
+    def __init__(self, title: str, secret: str, where: str = "") -> None:
+        super().__init__()
+        self.title_text = title
+        self.secret = secret
+        self.where = where
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confirm-box"):
+            yield Static(self.title_text, id="confirm-question")
+            if self.where:
+                yield Static(self.where, classes="hint")
+            yield Static(Text(self.secret), id="once-secret")
+            yield Static("This is the only time it is shown: only its hash is stored, so it "
+                         "cannot be read back, only replaced. Save it now.", classes="hint")
+            with Horizontal(id="confirm-buttons"):
+                yield Button("Copy", id="once-copy", compact=True)
+                yield Button("I saved it", id="once-done", variant="primary", compact=True)
+
+    @on(Button.Pressed, "#once-copy")
+    def _copy(self) -> None:
+        self.app.notify(copy_secret(self.app, self.secret))
+
+    @on(Button.Pressed, "#once-done")
+    def _done(self) -> None:
+        self.dismiss(None)
 
 
 class GrantBar(Horizontal):
