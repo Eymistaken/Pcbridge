@@ -7,22 +7,28 @@
 - **Binary files both ways: base64 chunks checked by SHA-256, images as
   pictures.** `fs_read` with `encoding="base64"` returns the exact bytes of
   any file (a PDF, a picture, an archive, a non-UTF-8 text) in chunks of up
-  to 45,000 bytes (60,000 base64 characters), each with the whole file's
-  SHA-256 and a cursor for the next; a file that changes mid-download
-  refuses the old cursor. `fs_write` takes `content_base64`, for one call or
-  for chunks with `offset`: chunks collect in a staging file next to the
-  target, and the file is replaced, keeping its mode, only when the
-  `final_sha256` sent with the last chunk matches; a wrong hash or a chunk
-  out of order changes nothing. An image (PNG, JPEG, GIF, WebP) read in the
+  to 15,000 bytes (20,000 base64 characters, also the default), each with
+  its own SHA-256 next to the whole file's and a cursor for the next; a
+  file that changes mid-download refuses the old cursor. `fs_write` takes
+  `content_base64`, for one call or for chunks with `offset`. Every chunk
+  carries `chunk_sha256` and is refused, with nothing staged, when it does
+  not match. Chunks collect in a staging file next to the target, and the
+  file is replaced, keeping its mode, only when the `final_sha256` sent
+  with the last chunk matches; a chunk out of order changes nothing. Each
+  staged chunk is audited. An image (PNG, JPEG, GIF, WebP) read in the
   default mode comes back as MCP image content, as it is when it is at most
   1568 px on its longer edge and 3.5 MB, otherwise scaled to 1568 px (the
   file is unchanged, and the reply says so). Other binary files refused in
-  the default mode now say how many base64 calls their bytes take. Measured
-  over HTTP with OAuth against a throwaway daemon: a 2,253,121-byte PDF and
-  a 2,921,482-byte JPEG went down and back up byte for byte, with matching
-  hashes, in 51 and 65 calls each way. Each call carries 60,000 characters
-  through the model's context, so this suits files of a few megabytes at
-  most; whether real remote clients sustain it is not measured yet.
+  the default mode say how many base64 calls their bytes take. Measured
+  through claude.ai (2026-10-17): a 36 KB PNG went down and back up in one
+  chunk each way with matching hashes, and pictures arrived as images. A
+  60,000-character chunk went over claude.ai's limit for one tool result;
+  at 20,000 characters the model copied five chunks but changed one
+  character in the fifth, and the client cut the sixth upload off mid-chunk
+  after part of it had arrived. The per-chunk hash and the 20,000-character
+  cap were added for those two failures. Passing bytes through the model
+  suits files of a few tens of kilobytes; larger ones need the download
+  links in the roadmap.
 - **`fs_edit`: change part of a file without resending it.** An exact text
   replacement: `old_text` must match once, or every match is changed with
   `replace_all`. `edits` applies up to 50 replacements in order and writes
@@ -259,9 +265,11 @@
   and non-UTF-8 files in its default mode; `encoding="base64"` reads any
   file's bytes and images come back as pictures (`fs_read` declares no
   output schema, since it can return image content). `fs_write` gains
-  `expected_sha256`, `create_only`, `content_base64`, `offset` and
-  `final_sha256`, `content` becomes optional, and the reply gives the
-  SHA-256 it wrote. `fs_read` reads from the beginning instead of the end and gains
+  `expected_sha256`, `create_only`, `content_base64`, `offset`,
+  `chunk_sha256` (required with `offset`) and `final_sha256`, `content`
+  becomes optional, and the reply gives the SHA-256 it wrote. `fs_read`'s
+  `max_chars` defaults to 8,000 for text and 20,000 for base64, which is
+  also base64's maximum. `fs_read` reads from the beginning instead of the end and gains
   `start_line`, `cursor`, `max_lines`, `line_numbers` and `paths`; `path`
   is optional when `paths` is given.
 - **Config file**: new `[power] keep_awake` (default `false`); no

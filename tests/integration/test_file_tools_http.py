@@ -103,7 +103,7 @@ class FileToolsOverHttp(unittest.TestCase):
         self.assertNotIn(b"LOST", f.read_bytes())
 
     def download(self, f: Path) -> tuple[bytes, str, int]:
-        got, args, calls = [], {"path": str(f), "encoding": "base64", "max_chars": 60000}, 0
+        got, args, calls = [], {"path": str(f), "encoding": "base64"}, 0
         while True:
             reply = self.text("fs_read", args)
             calls += 1
@@ -115,11 +115,12 @@ class FileToolsOverHttp(unittest.TestCase):
                 return b"".join(got), digest, calls
             args = {**args, "cursor": cur.group(1)}
 
-    def upload(self, f: Path, data: bytes, chunk: int = 45_000) -> tuple[str, int]:
+    def upload(self, f: Path, data: bytes, chunk: int = 15_000) -> tuple[str, int]:
         reply, calls = "", 0
         for start in range(0, len(data), chunk):
-            args = {"path": str(f), "offset": start,
-                    "content_base64": base64.b64encode(data[start:start + chunk]).decode()}
+            part = data[start:start + chunk]
+            args = {"path": str(f), "offset": start, "chunk_sha256": hashlib.sha256(part).hexdigest(),
+                    "content_base64": base64.b64encode(part).decode()}
             if start + chunk >= len(data):
                 args["final_sha256"] = hashlib.sha256(data).hexdigest()
             reply = self.text("fs_write", args)
@@ -150,7 +151,7 @@ class FileToolsOverHttp(unittest.TestCase):
             self.assertIn("sha256 checked", reply)
             self.assertEqual(hashlib.sha256(dest.read_bytes()).hexdigest(), digest)
             self.assertEqual(down, up)
-            self.assertGreaterEqual(down, len(data) // 45_000)
+            self.assertEqual(down, -(-len(data) // 15_000))
         pic = self.call("fs_read", {"path": str(work / "photo.jpg")})["content"]
         self.assertEqual(pic[1]["type"], "image")
         self.assertLessEqual(len(base64.b64decode(pic[1]["data"])), 3_500_000)

@@ -213,7 +213,7 @@ check alone would not have caught it.
 Paged reads (2026-10-17, unreleased code, a throwaway daemon over HTTP with
 an OAuth token, `tests/integration/test_file_tools_http.py`): a
 163,000-character fixture of 1,401 lines, with Turkish letters, emoji,
-backtick runs and lines of 18,000 multibyte characters, came back exactly
+backtick runs and lines of 16,000 multibyte characters, came back exactly
 when the pages' bodies were joined in cursor order at a 60,000-character
 budget; `start_line=701, max_lines=1` returned the middle marker alone and
 `start_line=-1` the last line with "End of file.". The contract tests repeat
@@ -237,8 +237,37 @@ back byte for byte with matching SHA-256, in 51 and 65 calls each way. In
 the default mode the 6144x3340 JPEG came back as one image block scaled to
 1568x852, under 3.5 MB. The contract tests add a 3,000,000-byte PDF-like
 file and a 2400x1600 PNG over 2 MB. Not measured: how many 60,000-character
-chunks a real remote client (claude.ai, ChatGPT) can carry in one
-conversation, which decides whether download links are needed.
+chunks a real remote client can carry in one conversation; measured next.
+
+Through claude.ai (2026-10-17, the installed daemon over the tunnel, a new
+conversation per check; results checked on disk and in the audit log):
+
+- The tool list showed `fs_edit` and the new parameters at once in a new
+  conversation; the connector, added three days earlier and whose tokens
+  had since been hashed, needed no reconnect.
+- Paged reads: a 337,626-byte, 1,401-line file came back in 4 pages of
+  60,000 characters (lines 1-422, 423-795, 796-1167, 1168-1401) with no gap
+  or repeat, then `start_line=-1` gave the last line. claude.ai put pages 2
+  and 3, which hold lines of 16,000 multibyte characters with emoji, into a
+  file in its own sandbox instead of the model's context: they went over
+  its limit for one tool result, which it reported as 25,000 tokens.
+  Mostly ASCII pages of the same length were shown directly.
+- `fs_edit` with `expected_sha256` changed three lines in the middle of a
+  6 MB file; the file then matched the expected bytes exactly. After
+  `shell_run` appended a line, the old hash was refused with "Conflict".
+- `fs_read` returned a 120x100 PNG as it is and a 6144x3340 JPEG scaled to
+  1568x852; the model described both correctly.
+- Base64: a 36,173-byte PNG went down and back up in one chunk each way
+  with matching hashes. A 60,000-character chunk (about 56,000 tokens by
+  claude.ai's count) was put into its sandbox file and the model declined
+  to copy it back into `fs_write`. At 20,000 characters it copied five
+  chunks of a 280,504-byte PDF, but one character of the fifth was wrong
+  (`3` became `7` at character 12,422, byte 69,316), and the client's
+  safety filter cut off the sixth `fs_write`, which still reached the
+  server with 3,948 bytes of valid base64. Only the final hash was checked
+  then, so the slip would have surfaced 14 chunks later. `chunk_sha256` and
+  the 20,000-character cap came out of this. A 2.25 MB PDF was not
+  attempted past its first chunk.
 
 ## Hyprland release scope and limits
 

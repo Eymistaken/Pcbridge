@@ -29,6 +29,9 @@ from pathlib import Path
 
 PAGE_MIN = 200
 PAGE_MAX = 60000
+# A base64 chunk of 60,000 characters is about 56,000 tokens and went over
+# claude.ai's limit for one tool result; 20,000 fit (measured 2026-10-17).
+B64_PAGE_MAX = 20000
 _CHUNK = 1 << 20
 _HEAD = 8192
 _CURSOR_PREFIX = "c1."
@@ -537,7 +540,7 @@ def format_chunk(chunk: Chunk) -> str:
         return f"{head}\nNothing to show here: the file is empty."
     text = base64.b64encode(chunk.data).decode("ascii")
     span = (f"Bytes {chunk.start:,}–{chunk.end - 1:,} of {s.size:,} as base64 "
-            f"({len(text):,} characters)")
+            f"({len(text):,} characters) · chunk sha256 {sha256_of(chunk.data)}")
     if chunk.next_cursor:
         left = s.size - chunk.end
         calls = -(-left // max(1, len(chunk.data)))
@@ -618,13 +621,36 @@ def _file_mode(path: Path) -> int:
         return 0o666 & ~umask
 
 
-def upload_chunk(path: Path, data: bytes, offset: int, *, final_sha256: str | None = None,
-                 expected: str | None = None, create_only: bool = False) -> Upload:
-    """Add one chunk at `offset`; with `final_sha256`, check and put it in place."""
+def _full_hash(value: str, name: str) -> str:
+    want = value.strip().lower()
+    if len(want) != 64 or not set(want) <= _HEX:
+        raise FileToolError(f"{name} must be a SHA-256 of 64 hex digits.")
+    return want
+
+
+def upload_chunk(path: Path, data: bytes, offset: int, *, chunk_sha256: str,
+                 final_sha256: str | None = None, expected: str | None = None,
+                 create_only: bool = False) -> Upload:
+    """Add one chunk at `offset`; with `final_sha256`, check and put it in place.
+
+    The chunk's own hash is checked before anything is staged. Measured with
+    claude.ai (2026-10-17): a model copying base64 changed one character in
+    its fifth 20,000-character chunk, and a call cut off by the client still
+    arrived with valid base64 for part of a chunk. With only the final hash,
+    both would surface one whole upload later, at no known chunk.
+    """
     stage = staging_path(path)
     have = stage.stat().st_size if stage.exists() else None
     if offset < 0:
         raise FileToolError("offset must be 0 or more.")
+    want_chunk = _full_hash(chunk_sha256, "chunk_sha256")
+    got_chunk = sha256_of(data)
+    if got_chunk != want_chunk:
+        raise FileToolError(
+            f"The chunk at offset {offset:,} arrived as {len(data):,} bytes with sha256 "
+            f"{got_chunk}, not {want_chunk}: it was changed or cut short on the way. Nothing "
+            f"was staged; send this chunk again, unchanged, with offset={offset}.")
+    want = _full_hash(final_sha256, "final_sha256") if final_sha256 is not None else None
     if offset > 0 and have != offset:
         got = "nothing is staged" if have is None else f"{have:,} bytes are staged"
         raise FileToolError(
@@ -636,11 +662,8 @@ def upload_chunk(path: Path, data: bytes, offset: int, *, final_sha256: str | No
         fh.flush()
         os.fsync(fh.fileno())
     staged = stage.stat().st_size
-    if final_sha256 is None:
+    if want is None:
         return Upload(path, staged, False, None)
-    want = final_sha256.strip().lower()
-    if len(want) != 64 or not set(want) <= _HEX:
-        raise FileToolError("final_sha256 must be the whole file's SHA-256: 64 hex digits.")
     h = hashlib.sha256()
     with stage.open("rb") as fh:
         while block := fh.read(_CHUNK):

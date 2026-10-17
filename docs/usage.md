@@ -78,8 +78,8 @@ same agent by passing its `session_id` as `resume_session`.
 | `shell_run` | destructive | A short command; output returned |
 | `shell_run_background` | destructive | A long command (build, install) as a job |
 | `fs_list`, `fs_search` | ro | Directory listing, text search (ripgrep if present) |
-| `fs_read` | ro | A text file one page at a time: from the beginning, from `start_line` (negative counts from the end) or from the previous page's `cursor`; several files with `paths`. Images come back as pictures; `encoding="base64"` gives any file's exact bytes in chunks |
-| `fs_write` | destructive | Create, overwrite (atomically) or append to a text file; `expected_sha256` refuses to overwrite a file that changed since it was read. `content_base64` writes bytes, in chunks with `offset` and a `final_sha256` check |
+| `fs_read` | ro | A text file one page at a time: from the beginning, from `start_line` (negative counts from the end) or from the previous page's `cursor`; several files with `paths`. Images come back as pictures; `encoding="base64"` gives any file's exact bytes in chunks of up to 20,000 characters, each with its sha256. Bytes pass through the model, so this suits files of a few tens of kilobytes |
+| `fs_write` | destructive | Create, overwrite (atomically) or append to a text file; `expected_sha256` refuses to overwrite a file that changed since it was read. `content_base64` writes bytes, in chunks with `offset`, each chunk's `chunk_sha256` and a `final_sha256` check |
 | `fs_edit` | destructive | Replace exact text in a file without resending it: one match, every match, or several edits written together; keeps line endings, shows a diff, `dry_run` |
 | `tmux_start` | write | Open a persistent terminal session, optionally with an interactive CLI in it |
 | `tmux_send`, `tmux_keys` | destructive | Type into it, or press raw keys (answer an agent's y/n prompt) |

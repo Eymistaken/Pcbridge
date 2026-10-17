@@ -38,9 +38,9 @@ here, not by moving sections.
    way to find the password a remote client needs.
 5. **File tools.** ~~*Paginated and ranged file reads*~~ (done,
    Unreleased), ~~the rest of *Binary file transfer*~~ (done, Unreleased),
-   ~~*Targeted edits and easier writes*~~ (done, Unreleased). Left: the
-   checks through a real remote client, which the maintainer runs, then
-   *Download and upload links for large files* if they show it is needed. Together, because
+   ~~*Targeted edits and easier writes*~~ (done, Unreleased), checked
+   through claude.ai (see measured facts). Left: *Download and upload links
+   for large files*, which the claude.ai measurements showed is needed. Together, because
    they share the cursor and conflict design.
 6. **Browser.** In this order: measure *Attaching to the existing session*,
    then *Browser tools for the user's existing session*, *Show and hide the
@@ -131,18 +131,19 @@ at the machine* checks, batched for a session at the machine.
 - ~~**Binary file transfer.**~~ Done (Unreleased): `fs_read` refuses
   binary and non-UTF-8 files in its default mode with the format and size,
   returns images as MCP image content (scaled to 1568 px when larger), and
-  with `encoding="base64"` returns any file's bytes in cursor chunks with
-  the file's SHA-256; `fs_write` takes `content_base64` in one call or in
-  `offset` chunks that replace the file only when `final_sha256` matches.
-  Proved over HTTP with OAuth against a throwaway daemon: a 2.25 MB PDF and
-  a 2.9 MB JPEG round-tripped byte for byte (see measured facts). Left: the
-  same from a real remote client. Every chunk passes through the model's
-  context (60,000 characters a call, 51 calls for the PDF), so it is not
-  known yet whether claude.ai or ChatGPT can sustain it; that measurement
-  decides *Download and upload links for large files*.
-- **Download and upload links for large files.** Decided with the
-  maintainer (2026-10-17) as a follow-up, to be built only if the real-client
-  checks above show base64 chunks are not enough. A file tool would return
+  with `encoding="base64"` returns any file's bytes in cursor chunks of up
+  to 20,000 characters with the chunk's and the file's SHA-256; `fs_write`
+  takes `content_base64` in one call or in `offset` chunks, each checked by
+  `chunk_sha256`, that replace the file only when `final_sha256` matches.
+  Proved over HTTP against a throwaway daemon for multi-megabyte files, and
+  through claude.ai for a 36 KB PNG (see measured facts). The original
+  "Done when" (a multi-megabyte PDF through a remote client) is not
+  reachable this way: every byte passes through the model, which copied a
+  character wrong within 75 KB, so it moves to the item below.
+- **Download and upload links for large files.** Needed: measured through
+  claude.ai on 2026-10-17, base64 chunks stop being reliable after a few
+  tens of kilobytes (see measured facts), so a phone cannot take a PDF or
+  a photo off the machine through the model. A file tool would return
   a one-time, short-lived link through the tunnel that the user opens on
   the phone to download a file, or an upload page for one file, so a large
   PDF or video never passes through the model's context. It is a new

@@ -1004,9 +1004,10 @@ def register(
         cursor: Annotated[str | None, Field(
             description="The cursor the previous page returned, to read the next page "
                         "of the same file in order.")] = None,
-        max_chars: Annotated[int, Field(
+        max_chars: Annotated[int | None, Field(
             ge=fileslib.PAGE_MIN, le=fileslib.PAGE_MAX,
-            description="Page budget in file characters, shared between all paths.")] = 8000,
+            description="Page budget in characters, shared between all paths. Default 8000 "
+                        "for text and 20000 for base64, which is also base64's maximum.")] = None,
         max_lines: Annotated[int | None, Field(ge=1, description="Stop the page after this many lines.")] = None,
         line_numbers: Annotated[bool, Field(
             description="Prefix each line with its number (adds about 7 characters per line).")] = False,
@@ -1015,8 +1016,9 @@ def register(
                                        "and each file gets its own cursor.")] = None,
         encoding: Annotated[Literal["auto", "base64"], Field(
             description="auto: text as text, images as a picture. base64: the exact bytes of "
-                        "any file (PDF, image, archive, non-UTF-8 text) in chunks of "
-                        "max_chars base64 characters, each with a cursor for the next.")] = "auto",
+                        "any file (PDF, image, archive, non-UTF-8 text) in chunks of up to "
+                        "20000 base64 characters, each with its own sha256 and a cursor for "
+                        "the next.")] = "auto",
     ) -> str | list[ContentBlock]:
         """Read a UTF-8 text file on the computer (source code, logs, configs,
         notes) one page at a time. Use it instead of shell slicing whenever a
@@ -1028,7 +1030,9 @@ def register(
         Images (PNG, JPEG, GIF, WebP) come back as a picture, scaled when
         large. For the exact bytes of any file, such as a PDF to take off the
         machine, use encoding="base64" and follow the cursors; the header's
-        sha256 checks the joined result. Other binary and non-UTF-8 files
+        sha256 checks the joined result. Each chunk passes through your
+        context, so this suits files of up to a few hundred kilobytes; for a
+        larger file, say so to the user instead of copying it chunk by chunk. Other binary and non-UTF-8 files
         are refused in auto mode with a plain message, never as corrupted
         text."""
         targets = list(paths or []) + ([path] if path else [])
@@ -1036,6 +1040,9 @@ def register(
             return "Give path (one file) or paths (several files)."
         if cursor and len(targets) > 1:
             return "A cursor belongs to one file: pass it with that file's path alone."
+        if encoding == "base64":
+            max_chars = min(max_chars or fileslib.B64_PAGE_MAX, fileslib.B64_PAGE_MAX)
+        max_chars = max_chars or 8000
         budget = max(fileslib.PAGE_MIN, max_chars // len(targets))
         blocks: list[ContentBlock] = []
         texts: list[str] = []
@@ -1109,8 +1116,8 @@ def register(
             if refused and refused.startswith("it is"):
                 return (f"Not read: `{f}` ({snap.size:,} bytes) {refused}. Text mode returns "
                         "UTF-8 text only; for the exact bytes use encoding=\"base64\" "
-                        f"(about {-(-snap.size // fileslib.chunk_bytes(fileslib.PAGE_MAX)):,} "
-                        "call(s) at max_chars=60000).")
+                        f"(about {-(-snap.size // fileslib.chunk_bytes(fileslib.B64_PAGE_MAX)):,} "
+                        "call(s) of 20,000 characters).")
             return f"Not read: {refused}"
         return fileslib.format_page(page, line_numbers=line_numbers)
 
@@ -1133,6 +1140,10 @@ def register(
             ge=0, description="For a file sent in several base64 chunks: the byte offset of "
                               "this chunk (0 starts the upload, then the staged size the "
                               "previous reply gave).")] = None,
+        chunk_sha256: Annotated[str | None, Field(
+            description="Required with offset: this chunk's own SHA-256 (fs_read's "
+                        "base64 header gives it as \"chunk sha256\"). A chunk that does not "
+                        "match is not staged, so a copying slip is caught at once.")] = None,
         final_sha256: Annotated[str | None, Field(
             description="With the last chunk (or a single base64 write): the whole file's "
                         "SHA-256. The file is put in place only if the bytes match.")] = None,
@@ -1144,16 +1155,17 @@ def register(
         replacing a file you read earlier, so a change someone else made in
         the meantime is reported as a conflict instead of being lost. For a
         binary file use content_base64; one too large for one call goes in
-        chunks with offset, and the last chunk carries final_sha256, so the
-        file appears only once every byte arrived intact."""
+        chunks with offset and each chunk's chunk_sha256, and the last chunk
+        carries final_sha256, so the file appears only once every byte
+        arrived intact."""
         f = _resolve_file(cfg, path)
         if content is not None and content_base64 is not None:
             return "Give content (text) or content_base64 (bytes), not both."
         if content_base64 is not None:
-            return _write_base64(f, content_base64, offset, final_sha256, expected_sha256,
-                                 create_only, append)
-        if offset is not None or final_sha256 is not None:
-            return "offset and final_sha256 belong to content_base64 uploads."
+            return _write_base64(f, content_base64, offset, chunk_sha256, final_sha256,
+                                 expected_sha256, create_only, append)
+        if offset is not None or final_sha256 is not None or chunk_sha256 is not None:
+            return "offset, chunk_sha256 and final_sha256 belong to content_base64 uploads."
         data = (content or "").encode("utf-8")
         try:
             before = fileslib._current(f)
@@ -1177,8 +1189,9 @@ def register(
         return (f"{'Appended' if append else 'Written'}: `{f}` ({len(after):,} bytes) · "
                 f"sha256 {fileslib.sha256_of(after)}")
 
-    def _write_base64(f: Path, text: str, offset: int | None, final_sha256: str | None,
-                      expected: str | None, create_only: bool, append: bool) -> str:
+    def _write_base64(f: Path, text: str, offset: int | None, chunk_sha256: str | None,
+                      final_sha256: str | None, expected: str | None, create_only: bool,
+                      append: bool) -> str:
         if append:
             return "append is for text; send binary chunks with offset instead."
         try:
@@ -1196,7 +1209,11 @@ def register(
                                       before=before if expected else None)
                 gate.audit("fs_write", path=str(f)[:200], bytes=len(data), encoding="base64")
                 return f"Written: `{f}` ({len(data):,} bytes) · sha256 {got}"
-            up = fileslib.upload_chunk(f, data, offset, final_sha256=final_sha256,
+            if chunk_sha256 is None:
+                return ("Not written: a chunk sent with offset needs chunk_sha256, the chunk's "
+                        "own SHA-256 (fs_read's base64 header gives it). Nothing was staged.")
+            up = fileslib.upload_chunk(f, data, offset, chunk_sha256=chunk_sha256,
+                                       final_sha256=final_sha256,
                                        expected=expected, create_only=create_only)
         except fileslib.FileToolError as exc:
             return f"Not written: {exc}"
@@ -1206,7 +1223,10 @@ def register(
             gate.audit("fs_write", path=str(f)[:200], bytes=up.staged, encoding="base64",
                        chunked=True)
             return f"Written: `{f}` ({up.staged:,} bytes, sha256 checked) · sha256 {up.sha256}"
-        return (f"Received {len(data):,} bytes at offset {offset:,}; {up.staged:,} bytes staged "
+        gate.audit("fs_write", path=str(f)[:200], bytes=len(data), encoding="base64",
+                   chunk_offset=offset, staged=up.staged)
+        return (f"Received {len(data):,} bytes at offset {offset:,} (chunk sha256 checked); "
+                f"{up.staged:,} bytes staged "
                 f"for `{f}`, which is not changed yet. Send the next chunk with "
                 f"offset={up.staged}, and final_sha256 with the last one.")
 

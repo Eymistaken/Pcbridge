@@ -76,12 +76,13 @@ class BinaryTests(unittest.IsolatedAsyncioTestCase):
     async def text(self, name: str, **args) -> str:
         return (await self.call(name, **args))[0].text
 
-    async def download(self, f: Path, max_chars: int = 60000) -> tuple[bytes, str, int]:
+    async def download(self, f: Path, max_chars: int = 20000) -> tuple[bytes, str, int]:
         got, args, calls = [], {"path": str(f), "encoding": "base64", "max_chars": max_chars}, 0
         while True:
             reply = await self.text("fs_read", **args)
             calls += 1
             got.append(b64_body(reply))
+            self.assertIn(f"chunk sha256 {sha(got[-1])}", reply)
             digest = re.search(r"sha256 ([0-9a-f]{64})", reply).group(1)
             m = re.search(r'cursor="([^"]+)"', reply)
             if not m:
@@ -95,8 +96,9 @@ class BinaryTests(unittest.IsolatedAsyncioTestCase):
         before = f.read_bytes() if f.exists() else None
         for start in range(0, len(data), chunk):
             last = start + chunk >= len(data)
-            args = {"path": str(f), "content_base64": base64.b64encode(
-                data[start:start + chunk]).decode(), "offset": start}
+            part = data[start:start + chunk]
+            args = {"path": str(f), "content_base64": base64.b64encode(part).decode(),
+                    "offset": start, "chunk_sha256": sha(part)}
             if last:
                 args["final_sha256"] = sha(data)
             reply = await self.text("fs_write", **args)
@@ -116,7 +118,7 @@ class BinaryTests(unittest.IsolatedAsyncioTestCase):
         data, digest, calls = await self.download(src)
         self.assertEqual(data, pdf)
         self.assertEqual(digest, sha(pdf))
-        self.assertEqual(calls, -(-len(pdf) // fileslib.chunk_bytes(60000)))
+        self.assertEqual(calls, -(-len(pdf) // fileslib.chunk_bytes(fileslib.B64_PAGE_MAX)))
         dest = self.root / "copy" / "manual.pdf"
         reply = await self.upload(dest, data)
         self.assertIn("sha256 checked", reply)
@@ -172,6 +174,7 @@ class BinaryTests(unittest.IsolatedAsyncioTestCase):
         f = self.root / "grow.bin"
         f.write_bytes(fake_pdf(10_000))
         first = await self.text("fs_read", path=str(f), encoding="base64", max_chars=400)
+        self.assertIn("Bytes 0–299 of", first)
         cur = re.search(r'cursor="([^"]+)"', first).group(1)
         f.write_bytes(fake_pdf(10_000, seed=8))
         again = await self.text("fs_read", path=str(f), encoding="base64", cursor=cur)
@@ -181,17 +184,53 @@ class BinaryTests(unittest.IsolatedAsyncioTestCase):
         f = self.root / "target.bin"
         f.write_bytes(b"original")
         b64 = base64.b64encode(b"abc").decode()
-        skip = await self.text("fs_write", path=str(f), content_base64=b64, offset=3)
+        abc = sha(b"abc")
+        skip = await self.text("fs_write", path=str(f), content_base64=b64, offset=3,
+                               chunk_sha256=abc)
         self.assertIn("must have offset=0", skip)
-        await self.text("fs_write", path=str(f), content_base64=b64, offset=0)
+        await self.text("fs_write", path=str(f), content_base64=b64, offset=0, chunk_sha256=abc)
         wrong = await self.text("fs_write", path=str(f), content_base64=b64, offset=3,
-                                final_sha256="0" * 64)
+                                chunk_sha256=abc, final_sha256="0" * 64)
         self.assertIn("upload was discarded", wrong)
         self.assertEqual(f.read_bytes(), b"original")
         self.assertFalse(fileslib.staging_path(f).exists())
         short = await self.text("fs_write", path=str(f), content_base64=b64, offset=0,
-                                final_sha256="abc")
+                                chunk_sha256=abc, final_sha256="abc")
         self.assertIn("64 hex digits", short)
+
+    async def test_a_miscopied_or_cut_chunk_is_refused_before_staging(self) -> None:
+        # What claude.ai did on 2026-10-17: one base64 character changed in the
+        # fifth chunk, then a call cut off mid-chunk that still decoded.
+        data = fake_pdf(45_000)
+        f = self.root / "up.pdf"
+        first, second = data[:15_000], data[15_000:30_000]
+        ok = await self.text("fs_write", path=str(f), offset=0, chunk_sha256=sha(first),
+                             content_base64=base64.b64encode(first).decode())
+        self.assertIn("chunk sha256 checked", ok)
+        text = base64.b64encode(second).decode()
+        slip = text[:12_422] + ("7" if text[12_422] != "7" else "3") + text[12_423:]
+        bad = await self.text("fs_write", path=str(f), offset=15_000, content_base64=slip,
+                              chunk_sha256=sha(second))
+        self.assertIn("changed or cut short", bad)
+        self.assertIn("offset=15000", bad)
+        cut = await self.text("fs_write", path=str(f), offset=15_000,
+                              content_base64=text[:5_264], chunk_sha256=sha(second))
+        self.assertIn("arrived as 3,948 bytes", cut)
+        self.assertEqual(fileslib.staging_path(f).stat().st_size, 15_000)
+        none = await self.text("fs_write", path=str(f), offset=15_000, content_base64=text)
+        self.assertIn("needs chunk_sha256", none)
+        self.assertEqual(fileslib.staging_path(f).stat().st_size, 15_000)
+        self.assertFalse(f.exists())
+
+    async def test_base64_chunks_are_capped_at_20000_characters(self) -> None:
+        f = self.root / "big.bin"
+        f.write_bytes(fake_pdf(100_000))
+        out = await self.text("fs_read", path=str(f), encoding="base64", max_chars=60000)
+        self.assertIn(f"Bytes 0–14,999 of {f.stat().st_size:,} as base64 (20,000 characters)", out)
+        default = await self.text("fs_read", path=str(f), encoding="base64")
+        self.assertIn("(20,000 characters)", default)
+        text = await self.text("fs_read", path=str(f))
+        self.assertIn("call(s) of 20,000 characters", text)
 
     async def test_single_base64_write_checks_hash_and_conflicts(self) -> None:
         f = self.root / "one.bin"
