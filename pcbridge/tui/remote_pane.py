@@ -41,6 +41,60 @@ RemotePane #remote-actions Button {
 """
 
 
+class LoginScreen(ModalScreen["str | None"]):
+    """The user's login password, checked through PAM before the remote password changes."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def compose(self) -> ComposeResult:
+        from ..loginpw import user
+
+        with Vertical(id="confirm-box"):
+            yield Static(f"First, the login password of {user()}. Whoever sets the remote "
+                         "password gets remote access, so it must be you.", id="confirm-question")
+            yield Input(placeholder="login password", password=True, id="login-pw")
+            yield Static("", id="pw-error")
+            with Horizontal(id="confirm-buttons"):
+                yield Button("Cancel", id="login-cancel", compact=True)
+                yield Button("Continue", id="login-ok", variant="primary", compact=True)
+
+    def on_mount(self) -> None:
+        self.query_one("#login-pw", Input).focus()
+
+    @on(Button.Pressed, "#login-ok")
+    @on(Input.Submitted, "#login-pw")
+    def _submit(self) -> None:
+        given = self.query_one("#login-pw", Input).value
+        if not given:
+            self.query_one("#pw-error", Static).update("Type your login password.")
+            return
+        self.query_one("#login-ok", Button).disabled = True
+        self.query_one("#pw-error", Static).update("Checking...")
+        self._check(given)
+
+    @work(thread=True, exclusive=True, group="login-check")
+    def _check(self, given: str) -> None:
+        try:
+            ok, error = self.app.backend.login_ok(given), ""
+        except Exception as exc:  # noqa: BLE001 - no libpam: shown, nothing changes
+            ok, error = False, str(getattr(exc, "message", exc))
+        self.app.call_from_thread(self._checked, given, ok, error)
+
+    def _checked(self, given: str, ok: bool, error: str) -> None:
+        if ok:
+            self.dismiss(given)
+            return
+        from ..remotepassword import wrong_login
+
+        self.query_one("#pw-error", Static).update(error or wrong_login())
+        self.query_one("#login-pw", Input).value = ""
+        self.query_one("#login-ok", Button).disabled = False
+
+    @on(Button.Pressed, "#login-cancel")
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class PasswordScreen(ModalScreen["tuple[str, bool] | None"]):
     """Create or replace the remote password: generate a passphrase, or type one twice."""
 
@@ -190,17 +244,22 @@ class RemotePane(Vertical):
         if self.busy:
             return
         replacing = self.has_password
-        self.app.push_screen(PasswordScreen(replacing),
-                             lambda picked: self._save_password(picked, replacing) if picked else None)
 
-    def _save_password(self, picked: tuple[str, bool], replacing: bool) -> None:
+        def choose(login: str | None) -> None:
+            if login:
+                self.app.push_screen(PasswordScreen(replacing), lambda picked: self._save_password(
+                    picked, login, replacing) if picked else None)
+
+        self.app.push_screen(LoginScreen(), choose)
+
+    def _save_password(self, picked: tuple[str, bool], login: str, replacing: bool) -> None:
         self.busy = True
-        self._password_worker(picked[0], picked[1], replacing)
+        self._password_worker(picked[0], picked[1], login, replacing)
 
     @work(thread=True, group="remote-password")
-    def _password_worker(self, password: str, generated: bool, replacing: bool) -> None:
+    def _password_worker(self, password: str, generated: bool, login: str, replacing: bool) -> None:
         try:
-            self.app.backend.set_remote_password(self.app.cfg, password)
+            self.app.backend.set_remote_password(self.app.cfg, password, login)
             error = ""
         except Exception as exc:  # noqa: BLE001 - shown to the user
             error = str(getattr(exc, "message", exc))
@@ -217,8 +276,7 @@ class RemotePane(Vertical):
         done = "replaced" if replacing else "created; remote access is on once the tunnel is open"
         self.app.notify(f"Remote password {done}. Only its hash is stored."
                         + ("" if generated else f"\n{address}"), timeout=12)
-        self.app.reload_config()
-        self.reload()
+        self.app.reload_config()  # reads this tab again too
         # The offer to revoke waits until the new password is saved and gone.
         after = self.app.offer_revoke_after_password if replacing else (lambda: None)
         if generated:

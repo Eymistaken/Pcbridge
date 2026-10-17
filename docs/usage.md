@@ -210,7 +210,8 @@ hold Shift. Piped or run from a script,
 - **Remote**: the remote password, the remote apps that hold tokens, each
   with **Revoke**, and **Revoke all**; which profile remote clients get.
   **Turn on remote access** (or **Replace password** once there is one)
-  generates a six-word passphrase or takes one typed twice. A generated one
+  first asks for your login password, then generates a six-word passphrase
+  or takes one typed twice. The Settings tab sends `auth.password` here. A generated one
   is shown once, next to the remote address, and stays on screen until
   **I saved it**; **Copy** puts it on the clipboard. It takes effect at
   once, with no daemon restart. Replacing the password, here or in

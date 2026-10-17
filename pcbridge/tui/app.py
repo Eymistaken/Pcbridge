@@ -86,7 +86,7 @@ TabbedContent {
 .hint {
     color: $text-muted;
 }
-Confirm, ShowOnce, PasswordScreen {
+Confirm, ShowOnce, PasswordScreen, LoginScreen {
     align: center middle;
 }
 #pw-error {
@@ -315,9 +315,14 @@ class PcbridgeApp(App):
             self.cfg = None
             self.cfg_error = str(getattr(exc, "message", exc))
             self.notify(self.cfg_error, title="The config does not load", severity="error", timeout=15)
+        from .remote_pane import RemotePane
         from .tools_pane import ToolsPane
 
         for pane in self.query(ToolsPane):
+            pane.reload()
+        # The Remote tab mounts before the app has loaded the config, so its
+        # first read saw none; it reads again whenever the config does.
+        for pane in self.query(RemotePane):
             pane.reload()
 
     # -- the grant bar --------------------------------------------------------------

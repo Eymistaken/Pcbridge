@@ -275,7 +275,11 @@ at the machine* checks, batched for a session at the machine.
      the user confirms they saved it, with no timer, so there is time for a
      screenshot or a password manager; an optional copy puts it on the
      clipboard. Setup and `docs/install.md` say this too.
-  4. **Creating or replacing it needs the login password.** Forgotten or
+  4. ~~**Creating or replacing it needs the login password.**~~ Done
+     (Unreleased): PAM `login` service through ctypes; scripts give it as
+     the first line of stdin. Left: the success path was checked only with
+     a stand-in for PAM here; one real run with the maintainer's own login
+     password is still to do. Forgotten or
      leaked, it is replaced, never shown. Creating the first one and
      replacing it both ask first for the user's own login password, in
      every path above (the Remote tab, `pcbridge remote start`, setup and

@@ -6,6 +6,7 @@ Secrets (the password and the static token) are stored only as hashes, so
 they cannot be printed; a generated one is shown once, when it is made. A new
 secret is never taken from the command line, where it would land in the
 shell history: `set` prompts for it, reads it from stdin or generates it.
+Changing the remote password asks for the user's login password first.
 """
 
 from __future__ import annotations
@@ -192,6 +193,24 @@ def _read_secret(s: S.Setting, args: argparse.Namespace) -> str:
     return first
 
 
+def _read_login(args: argparse.Namespace) -> str:
+    """The user's login password, asked before the remote password changes.
+
+    In a terminal it is prompted for; without one it is the first line of
+    stdin (with --stdin the new password is the second line).
+    """
+    from .. import loginpw
+
+    if sys.stdin.isatty():
+        return getpass.getpass(f"Login password of {loginpw.user()} (to confirm it is you): ")
+    line = sys.stdin.readline()
+    if not line:
+        raise S.SettingsError(
+            "auth.password needs your login password first: give it as the first line of "
+            "stdin (with --stdin the new password is the second line).")
+    return line.rstrip("\n")
+
+
 def _offer_revoke(path: Any, args: argparse.Namespace) -> None:
     """After a new password: offer to end the remote sessions it does not end.
 
@@ -258,7 +277,9 @@ def set_cmd(argv: list[str]) -> int:
         epilog="Lists: a TOML list or comma-separated words. Tables: TOML, "
                'for example \'{ opus = "high" }\'. Secrets (auth.password, '
                "auth.static_token) are never taken from the command line: they are "
-               "prompted for, read with --stdin, or made with --generate.",
+               "prompted for, read with --stdin, or made with --generate. auth.password "
+               "asks for your login password first; without a terminal it is the first "
+               "line of stdin.",
     )
     p.add_argument("key")
     p.add_argument("value", nargs="?")
@@ -282,6 +303,7 @@ def set_cmd(argv: list[str]) -> int:
                 )
             if s.key == "auth.password" and not (args.stdin or args.generate) and sys.stdin.isatty():
                 return _password_dialog(ed, args)
+            login = _read_login(args) if s.key == "auth.password" else ""
             value: Any = _read_secret(s, args)
         else:
             if args.stdin or args.generate:
@@ -289,8 +311,13 @@ def set_cmd(argv: list[str]) -> int:
             if args.value is None:
                 raise S.SettingsError(f"Give a value: pcbridge set {s.key} VALUE")
             value = S.parse_value(s, args.value)
-        ed.set(s.key, value)
-        result = ed.save()
+        if s.key == "auth.password":
+            from .. import remotepassword
+
+            result = remotepassword.save(value, ed.path, login_password=login)
+        else:
+            ed.set(s.key, value)
+            result = ed.save()
     except S.SettingsError as exc:
         inst.fail(str(exc))
         return 1

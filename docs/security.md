@@ -36,7 +36,19 @@ The difference is real and was chosen knowingly.
   remote start` does not open the tunnel. The password is created when
   remote access is first wanted, generated (six words from the EFF Large
   Wordlist, about 77 bits) or typed, and shown once; a new one takes effect
-  without a restart. Do not reuse a password from elsewhere. After 8 wrong attempts an IP is locked out for 15 minutes
+  without a restart. Do not reuse a password from elsewhere.
+- **Creating or replacing the remote password asks for your login
+  password first**, in every place that does it: the Remote tab, `pcbridge
+  remote start`, setup and `pcbridge set auth.password` (`--generate`
+  included; without a terminal the login password is the first line of
+  stdin). It is checked through PAM's `login` service, not sudo, so a user
+  without sudo rights can still manage their own remote access, and
+  `NOPASSWD` or sudo's cached ticket cannot skip it. A wrong answer goes
+  through the same stack as the login screen: a delay of a few seconds, and
+  on systems with `pam_faillock` (Arch) it counts towards its lockout. This
+  guards pcbridge's own paths. It is not a boundary against someone who
+  already has a shell as you: `config.toml` is your file, and whoever can
+  write it can store a hash of their own choosing. After 8 wrong attempts an IP is locked out for 15 minutes
   (`[auth]`).
 - `pcbridge remote clients` lists the remote apps that hold tokens;
   `pcbridge remote revoke NAME` cuts one off and `pcbridge remote revoke

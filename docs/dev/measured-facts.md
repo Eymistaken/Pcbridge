@@ -168,6 +168,14 @@ SQLite 3.45.1) and against a throwaway daemon
   started with no password approved an app with a password created
   afterwards by `pcbridge set auth.password --generate`, on the same PID,
   because the consent page re-reads the password when the file changes.
+- **The login-password check.** On this machine, PAM's `login` service
+  (pam_faildelay, pam_nologin, common-auth with pam_unix and pam_sss) took
+  2.0 s to refuse a wrong password through ctypes, as user `eymistaken` with
+  no root. An empty password is refused before PAM, since pam_unix's
+  `nullok` would accept it for an account that has no password. There is
+  no pam_faillock here, so a wrong answer locks nothing. On Arch it is in
+  `system-login` and counts wrong answers. The success path needs the real
+  login password and was not run by the agent.
 
 ## File tools through remote MCP (2026-10-04)
 

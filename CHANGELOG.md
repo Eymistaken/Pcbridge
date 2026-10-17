@@ -143,6 +143,15 @@
   passphrase as well. The consent page reads the password from the file
   when it changes, so a new password works at once, without a daemon
   restart.
+- **Creating or replacing the remote password needs the login password.**
+  Every path asks for the user's own login password first and checks it
+  through PAM's `login` service, not sudo: the Remote tab, `pcbridge remote
+  start`, setup, and `pcbridge set auth.password` with `--generate`. A user
+  without sudo rights can manage their own remote access, and neither
+  `NOPASSWD` nor sudo's cached ticket skips the question. Without a
+  terminal, the login password is the first line of stdin, and with
+  `--stdin` the new password is the second. The Settings tab sends
+  `auth.password` to the Remote tab, so that check has no way around it.
 
 ### Fixed
 
@@ -151,6 +160,9 @@
   built from a template whose CSS braces broke `str.format`. They came back
   as an empty 500 response. The lockout still held, but nobody could read
   why. They now show their message, with 400, 403 or 429.
+- **The Remote tab said "the config does not load" until Refresh.** It
+  mounted and read the remote clients before the terminal UI had loaded
+  the config. It now reads again whenever the config is loaded.
 
 - **`fs_read` refuses binary files.** It used to decode with
   `errors="replace"`, so a PDF, an image or an executable came back as

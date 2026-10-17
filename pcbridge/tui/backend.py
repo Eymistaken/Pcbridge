@@ -138,11 +138,18 @@ class Backend:
             "remote_profile_set": remote != "same",
         }
 
-    def set_remote_password(self, cfg: Any, password: str) -> Any:
-        """Store the hash of a new remote password; the SaveResult."""
+    def login_ok(self, password: str) -> bool:
+        """Is this the user's login password (PAM)?"""
         from .. import remotepassword
 
-        return remotepassword.save(password, getattr(cfg, "source_path", None))
+        return remotepassword.login_ok(password)
+
+    def set_remote_password(self, cfg: Any, password: str, login_password: str) -> Any:
+        """Store the hash of a new remote password, after the login check; the SaveResult."""
+        from .. import remotepassword
+
+        return remotepassword.save(password, getattr(cfg, "source_path", None),
+                                   login_password=login_password)
 
     def connected_remote(self, cfg: Any) -> int:
         from .. import remoteclients as rc

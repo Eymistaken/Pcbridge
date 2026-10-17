@@ -27,7 +27,7 @@ from pcbridge.tui.app import Confirm, PcbridgeApp  # noqa: E402
 from pcbridge.tui.backend import Backend  # noqa: E402
 from tests.contracts.test_settings import PASSWORD, TOKEN, example_config  # noqa: E402
 from tests.contracts.test_tui import SIZE, FakeBackend, settle  # noqa: E402
-from textual.widgets import DataTable, Input, OptionList, Switch, TabbedContent, TabPane  # noqa: E402
+from textual.widgets import Button, DataTable, Input, OptionList, Switch, TabbedContent, TabPane  # noqa: E402
 
 
 class EditorBackend(FakeBackend):
@@ -341,6 +341,19 @@ class SettingsTabTests(unittest.TestCase):
             self.assertNotIn(shown, screen)
             self.assertNotIn(stored, screen)
             self.assertNotIn(TOKEN, screen)
+
+        self.run_app(body)
+
+    def test_the_password_is_changed_only_in_the_remote_tab(self) -> None:
+        from textual.widgets import TabbedContent
+
+        async def body(app, pilot):
+            await self.select(app, pilot, "auth.password")
+            self.assertEqual(len(app.query(".edit-input")), 0)
+            self.assertTrue(any("login password" in str(w.render()) for w in app.query(".hint")))
+            app.query_one(".edit-remote", Button).press()
+            await settle(app, pilot)
+            self.assertEqual(app.query_one(TabbedContent).active, "remote")
 
         self.run_app(body)
 

@@ -16,6 +16,22 @@ from .. import settings as S
 from . import install as inst
 
 
+def ask_login(tries: int = 3) -> str | None:
+    """The user's login password, checked; None after `tries` wrong answers or an empty one."""
+    from .. import loginpw
+
+    inst.say(f"  First, the login password of {loginpw.user()}: whoever sets this password "
+             "gets remote access.")
+    for _ in range(tries):
+        given = getpass.getpass("  Login password: ")
+        if not given:
+            return None
+        if rp.login_ok(given):
+            return given
+        inst.warn(rp.wrong_login())
+    return None
+
+
 def ask() -> tuple[str, bool] | None:
     """Ask for a generated or a typed password: (password, generated), or None to cancel."""
     inst.say("  1) Generate a passphrase: six words, easy to type on a phone  [default]")
@@ -77,13 +93,21 @@ def create(path: Path | str, address: str, *, replacing: bool) -> S.SaveResult |
     else:
         inst.say("Remote access needs a password. Remote clients type it on the approval "
                  "page; local clients never use it.")
+    try:
+        login = ask_login()
+    except S.SettingsError as exc:  # no libpam
+        inst.fail(str(exc))
+        return None
+    if login is None:
+        inst.say("  Nothing was changed.")
+        return None
     picked = ask()
     if picked is None:
         inst.say("  Nothing was changed.")
         return None
     password, generated = picked
     try:
-        result = rp.save(password, path)
+        result = rp.save(password, path, login_password=login)
     except S.SettingsError as exc:
         inst.fail(str(exc))
         return None

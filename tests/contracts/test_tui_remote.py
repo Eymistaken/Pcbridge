@@ -15,9 +15,23 @@ sys.path.insert(0, str(ROOT))
 
 from pcbridge import passphrase  # noqa: E402
 from pcbridge.tui.app import Confirm, PcbridgeApp, ShowOnce  # noqa: E402
-from pcbridge.tui.remote_pane import PasswordScreen, row_id  # noqa: E402
+from pcbridge.tui.remote_pane import LoginScreen, PasswordScreen, row_id  # noqa: E402
 from tests.contracts.test_tui import SIZE, FakeBackend, settle  # noqa: E402
 from textual.widgets import Button, Input, TabbedContent  # noqa: E402
+
+
+LOGIN = "the-users-login-password"
+
+
+async def login(app, pilot, password: str = LOGIN) -> None:
+    """Open the remote password dialog and get past the login-password screen."""
+    await pilot.click("#remote-password")
+    await settle(app, pilot)
+    assert isinstance(app.screen, LoginScreen), app.screen
+    app.screen.query_one("#login-pw", Input).value = password
+    app.screen.query_one("#login-ok", Button).press()
+    await settle(app, pilot)
+    await pilot.pause(0.1)
 
 
 class RemoteBackend(FakeBackend):
@@ -27,9 +41,15 @@ class RemoteBackend(FakeBackend):
         self.revoked: list[str | None] = []
         self.has_password = True
         self.saved: list[str] = []
+        self.logins: list[str] = []
         self.cfg.mcp_url = "https://box.example.ts.net/mcp"
 
-    def set_remote_password(self, cfg, password):
+    def login_ok(self, password):
+        self.logins.append(password)
+        return password == LOGIN
+
+    def set_remote_password(self, cfg, password, login_password):
+        assert login_password == LOGIN
         self.saved.append(password)
         self.has_password = True
 
@@ -81,6 +101,25 @@ class RemoteTabTests(unittest.TestCase):
             self.assertFalse(app.query_one("#remote-revoke-all", Button).disabled)
 
         run_app(self, RemoteBackend(), body)
+
+    def test_the_tab_reads_the_config_the_app_loads(self) -> None:
+        # The tab mounts before the app loads the config; it used to show
+        # "the config does not load" until Refresh.
+        backend = RemoteBackend()
+        real = backend.remote_clients
+
+        def strict(cfg):
+            if cfg is None:
+                raise RuntimeError("the config does not load")
+            return real(cfg)
+
+        backend.remote_clients = strict
+
+        async def body(app, pilot):
+            self.assertNotIn("could not be read", status(app))
+            self.assertIn("2 app(s) connected", status(app))
+
+        run_app(self, backend, body)
 
     def test_no_password_says_remote_access_is_off(self) -> None:
         backend = RemoteBackend()
@@ -163,8 +202,7 @@ class RemotePasswordTests(unittest.TestCase):
         async def body(app, pilot):
             button = app.query_one("#remote-password", Button)
             self.assertEqual(str(button.label), "Turn on remote access")
-            await pilot.click("#remote-password")
-            await settle(app, pilot)
+            await login(app, pilot)
             self.assertIsInstance(app.screen, PasswordScreen)
             await pilot.click("#pw-generate")
             await settle(app, pilot)
@@ -195,8 +233,7 @@ class RemotePasswordTests(unittest.TestCase):
         backend.has_password = False
 
         async def body(app, pilot):
-            await pilot.click("#remote-password")
-            await settle(app, pilot)
+            await login(app, pilot)
             screen = app.screen
             screen.query_one("#pw-first", Input).value = "short"
             screen.query_one("#pw-second", Input).value = "short"
@@ -218,13 +255,28 @@ class RemotePasswordTests(unittest.TestCase):
 
         run_app(self, backend, body)
 
+    def test_a_wrong_login_password_stops_at_the_first_screen(self) -> None:
+        backend = RemoteBackend()
+
+        async def body(app, pilot):
+            await login(app, pilot, "not-it")
+            self.assertIsInstance(app.screen, LoginScreen)
+            self.assertIn("not the login password", str(app.screen.query_one("#pw-error").render()))
+            self.assertEqual(app.screen.query_one("#login-pw", Input).value, "")
+            await pilot.press("escape")
+            await settle(app, pilot)
+            self.assertNotIsInstance(app.screen, LoginScreen)
+            self.assertEqual(backend.saved, [])
+            self.assertEqual(backend.logins, ["not-it"])
+
+        run_app(self, backend, body)
+
     def test_cancel_changes_nothing(self) -> None:
         backend = RemoteBackend()
 
         async def body(app, pilot):
             self.assertEqual(str(app.query_one("#remote-password", Button).label), "Replace password")
-            await pilot.click("#remote-password")
-            await settle(app, pilot)
+            await login(app, pilot)
             await pilot.press("escape")
             await settle(app, pilot)
             self.assertNotIsInstance(app.screen, PasswordScreen)
@@ -236,8 +288,7 @@ class RemotePasswordTests(unittest.TestCase):
         backend = RemoteBackend()
 
         async def body(app, pilot):
-            await pilot.click("#remote-password")
-            await settle(app, pilot)
+            await login(app, pilot)
             await pilot.click("#pw-generate")
             await settle(app, pilot)
             self.assertIsInstance(app.screen, ShowOnce)

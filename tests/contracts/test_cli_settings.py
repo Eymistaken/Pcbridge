@@ -24,6 +24,7 @@ from pcbridge.cli import main as mainlib  # noqa: E402
 
 PASSWORD = "cli-settings-secret-password-42"
 TOKEN = "cli-settings-secret-static-token-42"
+LOGIN = "the-users-login-password"
 # A file as the daemon leaves it: the secrets stored as hashes.
 PASSWORD_HASH = hashinglib.hash_password(PASSWORD)
 TOKEN_HASH = hashinglib.hash_token(TOKEN)
@@ -60,6 +61,9 @@ class CliSettingsTests(unittest.TestCase):
             "PCBRIDGE_SOCKET": str(self.home / "run" / "mcp.sock"),
             "PCBRIDGE_CONFIG": str(self.cfg),
             "LANG": "C.UTF-8",
+            # tests/stubs/pam stands in for PAM: this is the "login password".
+            "PYTHONPATH": f"{ROOT / 'tests' / 'stubs' / 'pam'}:{ROOT}",
+            "PCBRIDGE_TEST_LOGIN_PASSWORD": LOGIN,
         }
 
     def cli(self, *args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
@@ -160,7 +164,7 @@ class CliSettingsTests(unittest.TestCase):
         self.assertEqual(self.cfg.read_text(), self.original)
 
     def test_a_secret_from_stdin_or_generated(self) -> None:
-        res = self.cli("set", "auth.password", "--stdin", stdin="another-long-password-99\n")
+        res = self.cli("set", "auth.password", "--stdin", stdin=f"{LOGIN}\nanother-long-password-99\n")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertNotIn("another-long-password-99", res.stdout + res.stderr)
         stored = tomllib.loads(self.cfg.read_text())["auth"]["password"]
@@ -181,9 +185,25 @@ class CliSettingsTests(unittest.TestCase):
             self.assertNotIn("another-long-password-99", backup.read_text())
             self.assertNotIn(shown, backup.read_text())
         # A password shorter than the loader allows is refused.
-        res = self.cli("set", "auth.password", "--stdin", stdin="short\n")
+        res = self.cli("set", "auth.password", "--stdin", stdin=f"{LOGIN}\nshort\n")
         self.assertEqual(res.returncode, 1)
         self.assertIn("at least 12", res.stdout)
+
+    def test_the_password_needs_the_login_password(self) -> None:
+        before = self.cfg.read_text()
+        for stdin in ("wrong-login\na-new-long-password\n", "", "\na-new-long-password\n"):
+            res = self.cli("set", "auth.password", "--stdin", stdin=stdin)
+            self.assertEqual(res.returncode, 1, (stdin, res.stdout + res.stderr))
+            self.assertIn("login password", res.stdout + res.stderr)
+            self.assertNotIn("a-new-long-password", res.stdout + res.stderr)
+        res = self.cli("set", "auth.password", "--generate", stdin="wrong-login\n")
+        self.assertEqual(res.returncode, 1)
+        self.assertNotIn("Password:", res.stdout)
+        self.assertEqual(self.cfg.read_text(), before)
+        self.assertEqual(list(self.home.glob("config.toml.backup-*")), [])
+        # The static token does not ask for it.
+        res = self.cli("set", "auth.static_token", "--generate")
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
 
     def test_reset_goes_back_to_the_default(self) -> None:
         self.cli("set", "desktop.pointer_speed", "3000")

@@ -36,6 +36,7 @@ from tests.integration.test_daemon import Client, _text  # noqa: E402
 
 PASSWORD = "remote-access-test-password"
 STATIC = "remote-access-test-static-token"
+LOGIN = "the-users-login-password"
 REDIRECT = "https://client.example/callback"
 
 # pcbridge.app configures INFO logging on import; httpx would log every request.
@@ -93,6 +94,9 @@ class RemoteAccessTests(unittest.TestCase):
             "PCBRIDGE_SOCKET": str(self.sock),
             "XDG_DATA_HOME": str(self.tmp / "data"),
             "NO_COLOR": "1",
+            # tests/stubs/pam stands in for PAM: LOGIN is the "login password".
+            "PYTHONPATH": f"{ROOT / 'tests' / 'stubs' / 'pam'}:{ROOT}",
+            "PCBRIDGE_TEST_LOGIN_PASSWORD": LOGIN,
         })
         self.daemon: subprocess.Popen | None = None
         self.addCleanup(self._stop_daemon)
@@ -312,7 +316,7 @@ class RemoteAccessTests(unittest.TestCase):
         a = self._oauth("App A")
         b = self._oauth("App B")
 
-        out = self._cli("set", "auth.password", "--stdin", stdin="a-brand-new-password\n")
+        out = self._cli("set", "auth.password", "--stdin", stdin=f"{LOGIN}\na-brand-new-password\n")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertIn("still hold tokens", out.stdout)
         self.assertIn("pcbridge remote revoke --all", out.stdout)
@@ -341,7 +345,7 @@ class RemoteAccessTests(unittest.TestCase):
         self._start_daemon()
         a = self._oauth("App A")
         out = self._cli("set", "auth.password", "--stdin", "--revoke-remote",
-                        stdin="another-new-password\n")
+                        stdin=f"{LOGIN}\nanother-new-password\n")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertIn("revoked every remote client", out.stdout)
         self.assertGreaterEqual(self._refresh(a).status_code, 400)
@@ -475,7 +479,7 @@ class RemoteAccessTests(unittest.TestCase):
         self._write_config('profile = "core"', password="")
         self._start_daemon()
         pid = self.daemon.pid
-        out = self._cli("set", "auth.password", "--generate")
+        out = self._cli("set", "auth.password", "--generate", stdin=f"{LOGIN}\n")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertIn("only time it is shown", out.stdout + out.stderr)
         self.assertIn(f"http://localhost:{self.port}/mcp", out.stdout)

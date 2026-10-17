@@ -361,7 +361,12 @@ class SettingsPane(Vertical):
         meta.update(" · ".join(bits))
         value = self.ed.value(s.key)
         widgets: list[Any] = []
-        if s.secret:
+        if s.key == "auth.password":
+            # One path, with the login-password check: the Remote tab.
+            widgets.append(Static("Created and replaced in the Remote tab, which asks for your "
+                                  "login password first. ", classes="hint"))
+            widgets.append(Button("Open the Remote tab", classes="edit-remote", compact=True))
+        elif s.secret:
             widgets.append(Input(placeholder="type a new value (hidden)", password=True, classes="edit-input"))
             widgets.append(Button("Set", classes="edit-apply", compact=True))
             if s.name == "static_token":
@@ -432,6 +437,12 @@ class SettingsPane(Vertical):
             self.query_one("#editor-error", Static).update(str(exc))
             return
         self._stage(value)
+
+    @on(Button.Pressed, ".edit-remote")
+    def _open_remote(self) -> None:
+        # Focus left inside this tab pulls TabbedContent back to it.
+        self.app.set_focus(None)
+        self.app.action_show_tab("remote")
 
     @on(Button.Pressed, ".edit-generate")
     def _generate(self) -> None:

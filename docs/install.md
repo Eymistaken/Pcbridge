@@ -267,8 +267,9 @@ Remote clients type a password on the approval page; local clients never use
 it, so there is none until you turn remote access on. The first `pcbridge
 remote start` asks for it: press Enter for a generated passphrase of six
 words (easy to type on a phone), or choose 2 and type your own, at least 12
-characters. The terminal UI's **Remote** tab ("Turn on remote access") and
-the last step of `pcbridge setup` do the same.
+characters. It asks for your own login password first, since whoever sets
+this password gets remote access. The terminal UI's **Remote** tab ("Turn
+on remote access") and the last step of `pcbridge setup` do the same.
 
 **The password is shown once.** Only its hash is stored, so no file or
 command can show it again: save it in a password manager or take a
