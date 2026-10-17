@@ -55,6 +55,7 @@ _PASSTHROUGH = {
     "unlock": _lazy(".ops", "unlock"),
     "stop": _lazy(".ops", "stop"),
     "remote": _lazy(".ops", "remote"),
+    "browser": _lazy(".browser", "main"),
     "keep-awake": _lazy(".ops", "keep_awake"),
     "logs": _lazy(".ops", "logs"),
     "report": _lazy(".ops", "report"),
@@ -96,7 +97,8 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("Service", "status", "status", "Daemon, desktop grant, running jobs, remote tunnel (--json)."),
     ("Service", "restart", "restart [--wait S]",
      "Restart the daemon to apply settings, only when no job is running."),
-    ("Service", "stop", "stop [--keep-jobs]", "Stop the daemon and every running job (the socket stays ready)."),
+    ("Service", "stop", "stop [--keep-jobs]",
+     "Stop the daemon, every running job and the pcbridge browser (the socket stays ready)."),
     ("Service", "update", "update", "Load the installed version into the daemon once no job is running."),
     ("Service", "logs", "logs [-f]", "Show the daemon log (-f to follow)."),
     ("Service", "keep-awake", "keep-awake [on|off]",
@@ -106,6 +108,9 @@ COMMANDS: list[tuple[str, str, str, str]] = [
     ("Remote access", "remote", "remote start|stop|status|clients|revoke",
      "Remote access through Tailscale Funnel; `clients` lists the remote apps that hold tokens, "
      "`revoke NAME` or `revoke --all` cuts them off."),
+    ("Browser", "browser", "browser status|stop",
+     "The browser pcbridge runs on its own profile for the browser tools: whether it runs; "
+     "`stop` closes it cleanly (its sign-ins stay)."),
     ("Setup", "setup", "setup", "Install or update pcbridge for this user: config, service, extension, clients, aliases."),
 
     ("Setup", "uninstall", "uninstall [--purge]", "Remove pcbridge for this user (--purge also trashes config and state)."),

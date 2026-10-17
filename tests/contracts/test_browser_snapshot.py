@@ -147,6 +147,16 @@ class OutlineTests(unittest.TestCase):
         t.add("radio", "5 GHz", group, checked="false", focusable=True)
         self.assertEqual(render(S.Frame(t.nodes)), ['group "Band"', '  radio "5 GHz" [e6] unchecked'])
 
+    def test_invisible_text_makes_no_line(self) -> None:
+        # Measured on a real router's sign-in page: icon-font glyphs in the
+        # private-use area gave empty "" lines; zero-width spaces would too.
+        t = Tree()
+        root = t.add("RootWebArea")
+        t.text("", t.add("paragraph", parent=root))
+        t.text("​", t.add("paragraph", parent=root))
+        t.text("Dil​", t.add("paragraph", parent=root))
+        self.assertEqual(render(S.Frame(t.nodes)), ['"Dil"'])
+
     def test_find_and_the_size_cut(self) -> None:
         lines = [f"row {i}" for i in range(100)] + ["textbox \"SSID\" [e9]"]
         text, kept, cut = S.trim(lines, find="ssid")

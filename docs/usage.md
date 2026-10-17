@@ -142,6 +142,39 @@ download links but never upload links. Security details:
 | `computer_batch` | destructive | yes | A whole list of actions in one call, with the result |
 | `computer_task` | destructive | yes | Hand a long graphical task to a local agent that looks at the screen itself |
 
+### Web pages: the pcbridge browser
+
+| Tool | Kind | Grant | What it is for |
+|---|---|---|---|
+| `browser_tabs` | ro | no | The pcbridge browser's tabs: id, title, address |
+| `browser_read` | ro | no | A page as an outline: headings, text, links, form fields with their values, tables, frames; each element to act on has a ref like `e12`. `mode="text"` for the visible text, `find` to keep matching lines, `wait_for_text` for pages that fill in late |
+| `browser_screenshot` | ro | no | A picture of a page, taken by the browser itself (works while the window is hidden or covered) |
+| `browser_navigate` | destructive | no | Open a URL (in a new tab with `new_tab`), back, forward, reload, select or close a tab; starts the browser when needed; returns the new page's outline |
+| `browser_act` | destructive | no | Click, type, select an option, press a key, hover or scroll, on an element by its ref; returns the page as it is afterwards |
+
+The browser is a Google Chrome, Brave or Chromium that pcbridge starts on
+its **own profile** (`<state_dir>/browser/profile`), never your everyday
+one; `[browser] executable` picks which. Sign in to a site (or your
+router's admin page) once in that browser and the sign-in stays, so an
+agent can read a signed-in page later without knowing the password. The
+browser tools are not desktop tools: they go through the browser's own
+debugging pipe, not the keyboard and mouse, so they need no
+`desktop_unlock`, work with `[desktop] enabled = false`, and keep working
+after `desktop_lock` or when the grant expires; they cannot type into
+another window. The browser outlives a pcbridge restart (a small keeper
+process holds it). Typing into a password field is refused unless
+`[browser] allow_password_fields = true`, and a page read never shows a
+password field's value. `remote_profile = "readonly"` gives a phone the
+three reading tools, never navigation or page actions. The audit log
+records the action, the tab, the ref and the host, never what was typed,
+the page's content or the rest of the address.
+
+1. `browser_navigate(url="http://192.168.1.1")` opens the page and returns
+   its outline.
+2. `browser_act(action="type", ref="e12", text="...")`, `select`, `click`:
+   each answer is the page as it is now, so check it before the next step.
+3. A ref from before the page changed is refused ("is gone"); read again.
+
 ## Reading and driving the screen
 
 1. `system_capabilities` once, to see which paths work.
@@ -169,7 +202,7 @@ the cheapest way to find a known label in an app with no accessibility tree.
 context: `full` (default, all 45), `core` (29, no desktop tools), `desktop`
 (23: the desktop tools plus job and status tools) or `readonly` (16: only
 tools that change nothing, such as job status and output, file reads and
-download links, tmux capture and system status). It is read at startup; restart pcbridge and the
+download links, browser reads, tmux capture and system status). It is read at startup; restart pcbridge and the
 client after changing it.
 
 `[tools] remote_profile` sets the profile for remote clients, which is every
@@ -205,7 +238,8 @@ also works without it. `pcbridge list` prints them all by group.
 | `pcbridge remote clients [--all] [--ids] [--json]` | The remote apps that hold tokens, by name |
 | `pcbridge remote revoke NAME` / `--all` | Cut off a remote app (or every one): its registration and tokens are deleted; `--yes` skips the question |
 | `pcbridge logs [-f]` | The daemon's journal |
-| `pcbridge stop [--keep-jobs]` | Stop the daemon (and, unless told otherwise, running jobs) |
+| `pcbridge stop [--keep-jobs]` | Stop the daemon (and, unless told otherwise, running jobs and the pcbridge browser) |
+| `pcbridge browser status` / `stop` | Whether the pcbridge browser runs, which one, its profile; close it cleanly (sign-ins stay) |
 | `pcb-shot`, `pcb-do` | Screenshot and action shells for a local agent's Bash (see `skills/computer-use/SKILL.md`) |
 
 ### The terminal UI

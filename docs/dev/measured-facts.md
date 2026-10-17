@@ -705,6 +705,44 @@ connected to.
   not as the user's everyday profile. `scripts/dev/browser-probe.py`
   repeats the measurements above that need no person at the machine.
 
+## Browser tools (2026-10-17)
+
+Chrome 155, headless on a throwaway profile, through the browser tools.
+
+- **A frame's content is not in its parent's accessibility tree.**
+  `Accessibility.getFullAXTree` of the main frame gave the iframe as an
+  `Iframe` node with no children; its table came only from a second call
+  with the child's `frameId`, placed under the owner found with
+  `DOM.getFrameOwner`. A cross-origin frame cannot be read from the page's
+  session and is named instead.
+- **A password field is a plain `textbox` in the tree** (no property sets
+  it apart). `DOMSnapshot.captureSnapshot`'s `type` attribute is what marks
+  it, so the outline masks its value and `browser_act` refuses to type
+  into it by the DOM node, not by the tree.
+- **An old node can still be described after a navigation.**
+  `DOM.describeNode` on a backend id from the page before a form submit
+  still answered, and a click on it failed with "Node does not have a
+  layout object". Only `isConnected` on the resolved node tells it left the
+  document, so a stale ref is refused as "gone" by that check.
+- **The browser outlived the daemon.** In the integration test the same tab
+  id was listed before and after a daemon restart, still signed in; after
+  `pcbridge browser stop` (Browser.close) and a new start, the fake
+  router's persistent session cookie still signed the browser in.
+- **A real router (Tenda, 192.168.0.1), read only:** its sign-in page came
+  back as a password field and a button with refs, and a non-blank
+  1280x813 screenshot. Its icon font draws the globe and the lock as
+  private-use characters (U+E60F, U+E610) in text nodes, which gave empty
+  lines until characters of categories Co and Cf were dropped. Not signed
+  in: the password is the maintainer's.
+- **Desktop gate independence, over HTTP with OAuth** against a throwaway
+  daemon (`tests/integration/test_browser_http.py`): reads and actions,
+  including a form saved and confirmed by the fake router, worked with
+  `[desktop] enabled = false`, with it true after `desktop_lock`, and with
+  an expired lease in `desktop_unlock.json`; `ui_dump` was refused in each
+  state. The audit log held the host and actions, and none of the typed
+  password or network name, the iframe's firmware string, the device
+  table or the address path.
+
 ## GNOME Shell extension
 
 - **GNOME 45+ caches extension ESM modules.** `disable/enable` does not

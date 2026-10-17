@@ -66,6 +66,7 @@
 | Jobs | `jobs.py` | Background processes and agent output parsers (`plain`, `claude_stream_json`, `agy_json`) |
 | Agent selection | `models.py`, `executables.py` | Pure agent/model/effort resolution; finding agent CLIs (PATH, `~/.local/bin`, npm, bun, nvm) |
 | Desktop | `desktop/` | Below |
+| Browser | `browser/` | The pcbridge browser: `keeper.py` holds its CDP pipe (it outlives the daemon), `cdp.py`, `snapshot.py` (a page as an outline with refs), `manager.py`, the five `browser_*` tools (`mcptools.py`) |
 | Native helper | `rust/`, `native/` | `pcbridge-native`: capture, input, accessibility; framed stdio protocol |
 | Extension | `gnome-extension/` | Frame, indicator, two D-Bus methods |
 
@@ -148,8 +149,8 @@ from any process stops it.
 | What | Where |
 |---|---|
 | Config | `~/.config/pcbridge/config.toml` (0600) |
-| State (grant, jobs, audit log, OAuth DB, shots, status.json) | `~/.local/state/pcbridge/` |
-| Socket | `$XDG_RUNTIME_DIR/pcbridge/mcp.sock` |
+| State (grant, jobs, audit log, OAuth DB, shots, status.json, the browser profile) | `~/.local/state/pcbridge/` |
+| Socket | `$XDG_RUNTIME_DIR/pcbridge/mcp.sock`; the browser keeper's `browser-<id>.sock` |
 | User install | `~/.local/share/pcbridge/venv`, `~/.local/bin/pcbridge` |
 | Package install | `/usr/lib/pcbridge/venv`, `/usr/bin/pcbridge` |
 | Units | `~/.config/systemd/user/` (user install) or `/usr/lib/systemd/user/` |

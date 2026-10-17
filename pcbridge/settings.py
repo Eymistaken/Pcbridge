@@ -172,7 +172,7 @@ _HELP = {
         "  core     no desktop tools: agents, jobs, shell, files, tmux, status\n"
         "  desktop  the desktop tools plus job and status tools\n"
         "  readonly only tools that change nothing: job status and output, file\n"
-        "           reads, tmux capture, system status\n"
+        "           reads, browser reads, tmux capture, system status\n"
         "A smaller set saves the client's context. Restart pcbridge and the "
         "clients after a change: clients cache the tool list."
     ),

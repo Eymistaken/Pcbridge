@@ -206,9 +206,11 @@ def unlock(argv: list[str]) -> int:
 def stop(argv: list[str]) -> int:
     p = argparse.ArgumentParser(
         prog="pcbridge stop",
-        description="Stop everything: close the desktop grant, stop the daemon and end every running job.",
+        description="Stop everything: close the desktop grant, stop the daemon, end every running job "
+                    "and close the pcbridge browser.",
     )
-    p.add_argument("--keep-jobs", action="store_true", help="Leave running jobs alone.")
+    p.add_argument("--keep-jobs", action="store_true",
+                   help="Leave running jobs and the pcbridge browser alone.")
     args = p.parse_args(argv)
     lock([])
     inst.systemctl("stop", "pcbridge.service")
@@ -230,6 +232,15 @@ def stop(argv: list[str]) -> int:
     except SystemExit:
         rest = []
     inst.ok(f"jobs stopped: {len(scopes)} scoped, {len(rest)} other")
+    try:
+        import asyncio
+
+        from ..browser.manager import BrowserManager
+
+        if asyncio.run(BrowserManager(_load_cfg()).stop()):
+            inst.ok("the pcbridge browser is closed (its sign-ins stay)")
+    except SystemExit:
+        pass
     return 0
 
 

@@ -140,6 +140,39 @@ are a new endpoint on the internet, so:
 - **Accepted:** the link is in the model's conversation, and so stored by
   the provider, until it is used or expires. Do not forward it.
 
+## The browser
+
+The browser tools drive a Chrome, Brave or Chromium that pcbridge starts on
+its own profile (`<state_dir>/browser/profile`). What that means:
+
+- **Your everyday browser is never touched.** pcbridge does not attach to
+  your profile: Chrome 155 refuses the debugging flags on it, and the
+  `chrome://inspect` switch that would allow it asks in a dialog for every
+  connection (measured). The pcbridge browser is found by the process
+  pcbridge started, never by name.
+- **No network port.** The browser speaks CDP over a pipe that a small
+  keeper process holds; the daemon reaches the keeper through a Unix socket
+  of mode 0600 in your runtime directory. No other local user, and no web
+  page, can reach it.
+- **Whatever you sign in to there, a client can use.** That is the point (a
+  router panel, a signed-in site), and it is why it is a separate profile:
+  sign in only to what an agent should reach. A remote client with
+  `remote_profile = "readonly"` can read pages and take browser
+  screenshots, but not open pages, click or type.
+- **No desktop grant.** The tools act through the browser, not the keyboard
+  or mouse, so they cannot land in another window; like the file and shell
+  tools they work with `[desktop] enabled = false` and after
+  `desktop_lock`.
+- **Passwords.** A page read never shows a password field's value; typing
+  into one is refused unless `[browser] allow_password_fields = true`.
+  Only http and https pages can be opened (no `file:` or `chrome:`).
+- **The audit log** records the action, the tab, the ref, the host and how
+  many characters were typed, never the text, the page or the rest of the
+  address (a query string can hold a token).
+- `pcbridge browser stop` closes it cleanly (the sign-ins stay);
+  `pcbridge stop` closes it with everything else. To sign out of
+  everything, close it and move the profile directory to the trash.
+
 ## Desktop control: a separate class of risk
 
 With `[desktop] enabled = true` pcbridge can **use** the computer: a virtual
@@ -258,7 +291,7 @@ or retry with another mutating dispatcher is used.
 
 ### What `enabled = false` does NOT turn off
 
-Only the desktop tools. `shell_run`, `agent_run`, `fs_*` and `tmux_*` work
+Only the desktop tools. `shell_run`, `agent_run`, `fs_*`, `tmux_*` and `browser_*` work
 regardless: a remote client could still start an agent that takes a
 screenshot (measured 2026-08-02), or read `config.toml` and with it the
 password. Blocking them would not be real while `shell_run` runs arbitrary
@@ -285,7 +318,8 @@ A client that can see images (Claude Code can) does the same work with
 | Want | Do |
 |---|---|
 | Stop the hands now, keep jobs running | `pcbridge lock` / `bridgekilit` / the panel menu (GNOME) / "Lock now" on the grant notification (Plasma) / `desktop_lock` |
-| Stop the daemon and its jobs | `pcbridge stop` (`--keep-jobs` leaves jobs alone) |
+| Stop the daemon and its jobs | `pcbridge stop` (`--keep-jobs` leaves jobs and the pcbridge browser alone) |
+| Close the pcbridge browser | `pcbridge browser stop` (its sign-ins stay) |
 | Stop the daemon only | `systemctl --user stop pcbridge.service` (jobs live in their own scopes and survive; the socket starts it again on the next client) |
 | Turn desktop control off | `[desktop] enabled = false`, restart pcbridge |
 | Close remote access | `pcbridge remote stop` |

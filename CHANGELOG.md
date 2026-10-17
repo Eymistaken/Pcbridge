@@ -4,6 +4,35 @@
 
 ### Added
 
+- **Browser tools.** `browser_tabs`, `browser_read`, `browser_screenshot`,
+  `browser_navigate` and `browser_act` drive a Chrome, Brave or Chromium
+  that pcbridge starts on its own profile (`[browser] executable`, `auto`
+  by default: Chrome, then Brave, then Chromium). A page is read as an
+  outline of headings, text, links, form fields with their values, tables
+  and same-origin frames, in which every element an agent can act on has a
+  ref; an action names the ref and its answer is the page as it is
+  afterwards, so the result is checked against fresh state, and a ref from
+  a page that has since changed is refused. The user signs in to a site or
+  a router panel once in that browser and the sign-in stays. The everyday
+  profile is never attached to: Chrome 155 ignores the debugging flags on
+  it, and its `chrome://inspect` switch asks in a dialog for every
+  connection (measured). The browser speaks CDP over a pipe held by a
+  small keeper process, so it opens no network port and outlives a daemon
+  restart. The tools are not desktop tools: they need no `desktop_unlock`,
+  work with `[desktop] enabled = false`, after `desktop_lock` and after the
+  grant expires, and cannot type into another window. Password values are
+  never shown, typing into a password field is refused unless `[browser]
+  allow_password_fields = true`, only http and https pages open, and the
+  audit log records the action, tab, ref and host, never typed text, page
+  content or the rest of the address. `remote_profile = "readonly"` offers
+  the three reading tools only. `pcbridge browser status|stop` shows and
+  closes it; `pcbridge stop` closes it too unless `--keep-jobs`. 45 tools;
+  `core` 29, `readonly` 16. Proved against a throwaway daemon over HTTP
+  with OAuth on a fake router panel (sign-in, a status table inside an
+  iframe, a settings form saved and confirmed by the server) and by reading
+  the real router's sign-in page; a signed-in third-party site is not yet
+  checked.
+
 - **Download and upload links for large files.** `fs_download_link` and
   `fs_upload_link` return a one-time link through the tunnel that the user
   opens on the phone, so a PDF, a photo or a video goes between the phone's

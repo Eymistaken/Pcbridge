@@ -44,8 +44,9 @@ here, not by moving sections.
    files* built (Unreleased); left: its phone check.
 6. **Browser.** In this order: ~~measure *Attaching to the existing
    session*~~ (done: a dedicated pcbridge profile, see measured facts),
-   then *Browser tools for the user's existing session*, *Show and hide
-   the browser window on demand*, *Taking over the agent's browser*.
+   ~~*Browser tools for the user's existing session*~~ (done, Unreleased),
+   then *Show and hide the browser window on demand*, *Taking over the
+   agent's browser*.
 7. **More desktops.** *Retire the legacy Python desktop backends* first,
    then *X11, starting with Cinnamon and XFCE*, written straight into the
    native helper instead of added to Python and moved later.
@@ -154,25 +155,20 @@ at the machine* checks, batched for a session at the machine.
 
 ## Optional: browser control
 
-- **Browser tools for the user's existing session.** Connect to the user's
-  existing Chrome/Brave session and preserve its signed-in state. List and
-  select tabs, open URLs and navigate, read DOM/accessibility snapshots
-  including forms and tables, and click, type or select using observed page
-  elements. Read the resulting page state after each action, with screenshots
-  available when needed. Support local web interfaces such as router admin
-  pages so an agent can inspect them without reverse-engineering their login
-  JavaScript and API requests. Browser tools are a non-desktop capability,
-  like file, shell and agent tools: browser reads, page actions and browser
-  screenshots must work without `desktop_unlock`, without an active desktop
-  grant, and independently of `[desktop] enabled`. `desktop_lock` and desktop
-  grant expiry must not stop browser access. Use normal MCP/session
-  authentication and tool availability, and audit action metadata without
-  recording passwords or sensitive page content. Preserve the user's tabs
-  and login sessions when detaching. Done when a local router panel and a
-  signed-in website can be inspected through the existing browser session,
-  actions are verified against fresh state, and browser reads/actions still
-  work with the desktop grant closed, after `desktop_lock`, and after its
-  expiry. This is a requirement for the future browser implementation.
+- ~~**Browser tools for the user's existing session.**~~ Done
+  (Unreleased): `browser_tabs`, `browser_read`, `browser_screenshot`,
+  `browser_navigate`, `browser_act` on a dedicated pcbridge profile (the
+  "existing session" is that profile's, where the user signs in once; see
+  the attach item below for why not the everyday profile). Pages read as an
+  outline with refs, including forms, tables and same-origin frames; every
+  action answers with the fresh page. No desktop gate: proved over HTTP
+  with OAuth against a throwaway daemon with `[desktop] enabled = false`,
+  after `desktop_lock` and with an expired grant, on a fake router panel
+  (`tests/integration/test_browser_http.py`), and by reading the real
+  router's sign-in page. The audit log keeps no typed text or page
+  content; `remote_profile = "readonly"` gets the reads only. Left: a
+  signed-in third-party site and the real router panel after the
+  maintainer signs in once in the pcbridge browser.
 - ~~**Attaching to the existing session: a known constraint.**~~ Measured
   (2026-10-17, Chrome 155 and Brave 155; see measured facts): Chrome
   ignores the CDP flags on its default data directory, Brave honors them,

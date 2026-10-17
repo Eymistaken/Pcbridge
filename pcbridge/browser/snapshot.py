@@ -19,6 +19,7 @@ value is never shown.
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, field
 
 MASK = "••••"
@@ -104,6 +105,15 @@ def is_password(el: Element | None) -> bool:
     return bool(el and el.tag == "input" and el.type == "password")
 
 
+def visible(text: str) -> str:
+    """Whitespace collapsed; invisible format characters (Cf) and
+    private-use characters (Co) dropped. Measured on a real router's
+    sign-in page: icon fonts draw the globe and the lock as private-use
+    glyphs (U+E60F, U+E610), which carry no meaning and made empty lines."""
+    return " ".join("".join(ch for ch in text
+                            if unicodedata.category(ch) not in ("Cf", "Co")).split())
+
+
 def _clip(text: str, limit: int = MAX_NAME) -> str:
     text = " ".join(str(text).split())
     return text if len(text) <= limit else text[: limit - 1] + "…"
@@ -127,7 +137,7 @@ class _Tree:
 
     @staticmethod
     def name(n: dict) -> str:
-        return " ".join(str((n.get("name") or {}).get("value") or "").split())
+        return visible(str((n.get("name") or {}).get("value") or ""))
 
     @staticmethod
     def props(n: dict) -> dict:
