@@ -56,6 +56,11 @@ jobs:
 
       - name: Tests
         working-directory: rust
+        # The runner has no desktop session, so the backend would detect
+        # nothing; name the desktop the production-mode test describes, as
+        # the Python fixtures do (tests/integration/__init__.py).
+        env:
+          XDG_CURRENT_DESKTOP: GNOME
         run: |
           cargo test --workspace --locked --no-fail-fast
           cargo test --workspace --locked --no-fail-fast \
