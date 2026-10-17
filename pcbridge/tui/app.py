@@ -86,8 +86,11 @@ TabbedContent {
 .hint {
     color: $text-muted;
 }
-Confirm, ShowOnce {
+Confirm, ShowOnce, PasswordScreen {
     align: center middle;
+}
+#pw-error {
+    color: $error;
 }
 #once-secret {
     margin: 1 0;
@@ -146,15 +149,10 @@ def copy_secret(app: App, text: str) -> str:
     terminal is asked through OSC 52, which some terminals (GNOME Terminal
     among them) ignore.
     """
-    import shutil
-    import subprocess
+    from ..remotepassword import copy_to_clipboard
 
-    if shutil.which("wl-copy"):
-        try:
-            subprocess.run(["wl-copy"], input=text, text=True, timeout=5, check=True)
-            return "Copied to the clipboard."
-        except (OSError, subprocess.SubprocessError):
-            pass
+    if copy_to_clipboard(text):
+        return "Copied to the clipboard."
     app.copy_to_clipboard(text)
     return "Asked the terminal to copy it; check that it arrived before you close this."
 

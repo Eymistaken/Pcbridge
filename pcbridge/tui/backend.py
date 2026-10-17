@@ -138,6 +138,12 @@ class Backend:
             "remote_profile_set": remote != "same",
         }
 
+    def set_remote_password(self, cfg: Any, password: str) -> Any:
+        """Store the hash of a new remote password; the SaveResult."""
+        from .. import remotepassword
+
+        return remotepassword.save(password, getattr(cfg, "source_path", None))
+
     def connected_remote(self, cfg: Any) -> int:
         from .. import remoteclients as rc
 

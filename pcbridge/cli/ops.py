@@ -275,10 +275,16 @@ def remote(argv: list[str]) -> int:
         return 0
     if args.action == "start":
         if not cfg.has_password:
-            inst.fail("remote access needs a password first, and none is set")
-            inst.say("  Local clients never use it; remote clients type it on the approval page.")
-            inst.say("  Create one with `pcbridge set auth.password`, then run this again.")
-            return 1
+            if not sys.stdin.isatty():
+                inst.fail("remote access needs a password first, and none is set")
+                inst.say("  Local clients never use it; remote clients type it on the approval page.")
+                inst.say("  Create one with `pcbridge set auth.password`, then run this again.")
+                return 1
+            from . import remotepw
+
+            if remotepw.create(cfg.source_path, cfg.mcp_url, replacing=False) is None:
+                inst.fail("remote access stays off without a password")
+                return 1
         inst.systemctl("start", "pcbridge.service")
         for _ in range(25):
             if health():
@@ -731,6 +737,7 @@ def setup(argv: list[str]) -> int:
         inst.ok(f"a fresh client got {n} tools (profile \"{cfg.tools_profile}\") in {(time.monotonic() - t0) * 1000:.0f} ms")
     else:
         inst.fail(f"a fresh client failed: {n}" + (f" (expected {want})" if isinstance(n, int) else ""))
+    _offer_remote_password(args, xdg)
     rb = backup.write_rollback(extra=["Commands that still need you:", *[f"    {n}" for n in notes]] if notes else None)
     if rb:
         inst.say(f"\nBackups and undo instructions: {rb}")
@@ -742,6 +749,36 @@ def setup(argv: list[str]) -> int:
         for n_ in notes:
             inst.say(f"  {n_}")
     return 0 if ready else 1
+
+
+def _offer_remote_password(args, path: Path) -> None:
+    """An optional last step: create the remote password now, or say how to later."""
+    from .. import config as configlib
+
+    try:
+        cfg = configlib.load_config(str(path), check_state=False)
+    except SystemExit:
+        return
+    if cfg.has_password:
+        return
+    if args.yes or not sys.stdin.isatty():
+        inst.say("\nRemote access is off (no password). `pcbridge remote start` turns it on when "
+                 "you want it; local clients do not need it.")
+        return
+    inst.say("\nRemote access (optional)")
+    inst.say("  Phones and web clients reach this computer through a Tailscale tunnel and "
+             "type a password to connect. Local clients never need it.")
+    try:
+        answer = input("  Create the remote password now? [y/N] ").strip().lower()
+    except EOFError:
+        answer = ""
+    if answer not in ("y", "yes"):
+        inst.say("  Later: `pcbridge remote start` asks for it and opens the tunnel.")
+        return
+    from . import remotepw
+
+    if remotepw.create(path, cfg.mcp_url, replacing=False) is not None:
+        inst.say("  `pcbridge remote start` opens the tunnel (see docs/install.md for Tailscale).")
 
 
 # ---------------------------------------------------------------------------

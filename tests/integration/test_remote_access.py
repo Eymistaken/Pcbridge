@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import secrets
 import shutil
 import signal
@@ -469,6 +470,26 @@ class RemoteAccessTests(unittest.TestCase):
         _, local = self._socket_tools()
         self.assertIn("shell_run", local)
         self.assertIn("shell_run", self._http_tools(STATIC))
+
+    def test_a_new_password_works_without_a_restart(self) -> None:
+        self._write_config('profile = "core"', password="")
+        self._start_daemon()
+        pid = self.daemon.pid
+        out = self._cli("set", "auth.password", "--generate")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("only time it is shown", out.stdout + out.stderr)
+        self.assertIn(f"http://localhost:{self.port}/mcp", out.stdout)
+        shown = re.search(r"Password:\s+(\S+)", out.stdout).group(1)
+        self.assertEqual(len(shown.split("-")), 6)
+        self.assertNotIn(shown, self.cfg.read_text())
+        global PASSWORD
+        old, PASSWORD = PASSWORD, shown
+        try:
+            app = self._oauth("Phone")  # the daemon was not restarted
+        finally:
+            PASSWORD = old
+        self.assertEqual(self.daemon.pid, pid)
+        self.assertIn("fs_list", self._http_tools(app["access_token"]))
 
 
 if __name__ == "__main__":

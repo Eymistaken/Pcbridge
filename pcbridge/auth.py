@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import secrets
 import sqlite3
 import time
@@ -44,7 +45,7 @@ from fastmcp.server.auth.auth import (
 )
 
 from . import hashing
-from .config import Config
+from .config import Config, read_password
 
 logger = logging.getLogger("pcbridge.auth")
 
@@ -183,6 +184,8 @@ class SqliteOAuthProvider(OAuthProvider):
         )
         self.cfg = cfg
         self.db_path = cfg.db_path
+        self._password = cfg.password
+        self._password_key: tuple[int, int] | None = None
         self._init_db()
 
     # ---------------------------------------------------------------- sqlite
@@ -561,8 +564,27 @@ class SqliteOAuthProvider(OAuthProvider):
         with self._conn() as conn:
             conn.execute("DELETE FROM attempts WHERE ip = ?", (ip,))
 
+    def current_password(self) -> str:
+        """The stored password in effect, re-read when the file changes.
+
+        Creating or replacing the password (`remotepassword.save`) takes
+        effect on the next consent page without a daemon restart.
+        """
+        path = self.cfg.source_path
+        try:
+            st = os.stat(path) if path else None
+        except OSError:
+            st = None
+        key = (st.st_mtime_ns, st.st_size) if st else None
+        if key != self._password_key or os.environ.get("PCBRIDGE_PASSWORD"):
+            value = read_password(path)
+            if value is not None:
+                self._password = value
+            self._password_key = key
+        return self._password
+
     def check_password(self, given: str) -> bool:
-        return hashing.verify_password(given or "", self.cfg.password)
+        return hashing.verify_password(given or "", self.current_password())
 
 
 # ---------------------------------------------------------------------------
@@ -672,7 +694,7 @@ def make_consent_routes(provider: SqliteOAuthProvider):
         )
 
     async def consent_get(request: Request) -> Response:
-        if not provider.cfg.has_password:
+        if not provider.current_password():
             return no_password()
         rid = request.query_params.get("rid", "")
         pending = provider.peek_pending(rid)
@@ -695,7 +717,7 @@ def make_consent_routes(provider: SqliteOAuthProvider):
         )
 
     async def consent_post(request: Request) -> Response:
-        if not provider.cfg.has_password:
+        if not provider.current_password():
             return no_password()
         form = await request.form()
         rid = str(form.get("rid", ""))

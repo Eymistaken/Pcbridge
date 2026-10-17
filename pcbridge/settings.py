@@ -139,7 +139,7 @@ _DESKTOP_CHOICES = {
 _SECRETS = {"auth.password", "auth.static_token"}
 
 # Settings the running daemon re-reads from the file.
-_LIVE = {"power.keep_awake"}
+_LIVE = {"power.keep_awake", "auth.password"}
 
 # Descriptions for keys config.example.toml documents in a block rather than
 # above the key itself.

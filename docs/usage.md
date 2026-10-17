@@ -207,9 +207,14 @@ hold Shift. Piped or run from a script,
   description, hints and parameters.
 - **Connections**: a switch per client (see above), with **Update** for an
   entry that runs an older command.
-- **Remote**: the remote apps that hold tokens, each with **Revoke**, and
-  **Revoke all**; which profile remote clients get. Saving a new password
-  in Settings offers to revoke every remote app, because the password alone
+- **Remote**: the remote password, the remote apps that hold tokens, each
+  with **Revoke**, and **Revoke all**; which profile remote clients get.
+  **Turn on remote access** (or **Replace password** once there is one)
+  generates a six-word passphrase or takes one typed twice. A generated one
+  is shown once, next to the remote address, and stays on screen until
+  **I saved it**; **Copy** puts it on the clipboard. It takes effect at
+  once, with no daemon restart. Replacing the password, here or in
+  Settings, offers to revoke every remote app, because the password alone
   does not end their sessions.
 - **Commands**: the table `pcbridge list` prints.
 

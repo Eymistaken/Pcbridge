@@ -31,7 +31,7 @@ pcbridge set desktop.pointer_speed 3000
 pcbridge set desktop.gui_launch_blocklist "Text Editor, Firefox"
 pcbridge set agents.claude.model_effort '{ opus = "high", sonnet = "medium" }'
 pcbridge reset desktop.pointer_speed
-pcbridge set auth.password          # asks for it; or --stdin
+pcbridge set auth.password          # generate a passphrase or type one; --stdin, --generate
 pcbridge set auth.static_token --generate   # shown once; only its hash is stored
 pcbridge restart                    # most settings are read when the daemon starts
 ```

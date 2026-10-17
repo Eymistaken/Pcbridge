@@ -162,6 +162,12 @@ SQLite 3.45.1) and against a throwaway daemon
   content in free pages, so pcbridge sets `PRAGMA secure_delete=ON` on
   every connection and vacuums once after converting an older database.
   Not measured on Arch's or Fedora's SQLite.
+- **The passphrase.** The bundled EFF Large Wordlist (sha256
+  `addd3553...903e`) has 7776 words, four of them hyphenated. Without
+  those, 7772 words remain, so six words give 77.5 bits. A daemon that
+  started with no password approved an app with a password created
+  afterwards by `pcbridge set auth.password --generate`, on the same PID,
+  because the consent page re-reads the password when the file changes.
 
 ## File tools through remote MCP (2026-10-04)
 

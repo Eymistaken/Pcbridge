@@ -33,8 +33,10 @@ The difference is real and was chosen knowingly.
   not from nobody knowing the host.
 - Setup creates neither a password nor a static token. Without a password
   remote access is off: the consent page refuses every app and `pcbridge
-  remote start` does not open the tunnel. Do not reuse a password from
-  elsewhere. After 8 wrong attempts an IP is locked out for 15 minutes
+  remote start` does not open the tunnel. The password is created when
+  remote access is first wanted, generated (six words from the EFF Large
+  Wordlist, about 77 bits) or typed, and shown once; a new one takes effect
+  without a restart. Do not reuse a password from elsewhere. After 8 wrong attempts an IP is locked out for 15 minutes
   (`[auth]`).
 - `pcbridge remote clients` lists the remote apps that hold tokens;
   `pcbridge remote revoke NAME` cuts one off and `pcbridge remote revoke

@@ -175,7 +175,11 @@ def get_cmd(argv: list[str]) -> int:
 
 def _read_secret(s: S.Setting, args: argparse.Namespace) -> str:
     if args.generate:
-        return secrets.token_urlsafe(32 if s.name == "static_token" else 24)
+        if s.key == "auth.password":
+            from .. import remotepassword
+
+            return remotepassword.generate()
+        return secrets.token_urlsafe(32)
     if args.stdin:
         return sys.stdin.readline().rstrip("\n")
     if not sys.stdin.isatty():
@@ -219,6 +223,33 @@ def _offer_revoke(path: Any, args: argparse.Namespace) -> None:
                 f"{res.refresh_tokens} refresh token(s)")
 
 
+def _remote_address(path: Any) -> str:
+    from ..config import ConfigError, load_config
+
+    try:
+        return load_config(str(path), check_state=False).mcp_url
+    except (ConfigError, SystemExit):
+        return "(the config does not load; see `pcbridge doctor`)"
+
+
+def _password_dialog(ed: S.ConfigEditor, args: argparse.Namespace) -> int:
+    """`pcbridge set auth.password` in a terminal: choose or generate, show once."""
+    from . import remotepw
+
+    replacing = bool(ed.value("auth.password"))
+    result = remotepw.create(ed.path, _remote_address(ed.path), replacing=replacing)
+    if result is None:
+        return 1
+    if replacing:
+        _offer_revoke(result.path, args)
+    if result.backup:
+        inst.say(_dim(f"          backup: {result.backup}"))
+    advice = S.restart_advice(result.restart)
+    if advice:
+        inst.say(f"          {advice}")
+    return 0
+
+
 def set_cmd(argv: list[str]) -> int:
     p = argparse.ArgumentParser(
         prog="pcbridge set",
@@ -249,6 +280,8 @@ def set_cmd(argv: list[str]) -> int:
                     f"in the shell history). Run `pcbridge set {s.key}` to be asked for it, "
                     "or use --stdin or --generate."
                 )
+            if s.key == "auth.password" and not (args.stdin or args.generate) and sys.stdin.isatty():
+                return _password_dialog(ed, args)
             value: Any = _read_secret(s, args)
         else:
             if args.stdin or args.generate:
@@ -265,7 +298,11 @@ def set_cmd(argv: list[str]) -> int:
         inst.ok(f"{s.key} unchanged")
         return 0
     inst.ok(f"{s.key} = {S.format_value(s, S.ConfigEditor(result.path).value(s.key))}")
-    if s.secret and args.generate:
+    if s.key == "auth.password" and args.generate:
+        from . import remotepw
+
+        remotepw.show_once(value, _remote_address(result.path))
+    elif s.secret and args.generate:
         inst.say(f"          {s.key}: {value}")
         inst.warn("This is the only time it is shown: only its hash is stored, so it cannot "
                   "be read back, only replaced. Save it now.")

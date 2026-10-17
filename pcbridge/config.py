@@ -822,6 +822,27 @@ def read_keep_awake(path: Path | str) -> bool | None:
         return None
 
 
+def read_password(path: Path | str | None) -> str | None:
+    """`[auth] password` as the file holds it now (its hash), for the running daemon.
+
+    PCBRIDGE_PASSWORD wins, as in `load_config`. None when the file cannot be
+    read: the caller keeps what it had rather than guessing.
+    """
+    env = os.environ.get("PCBRIDGE_PASSWORD")
+    if env:
+        return env
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as fh:
+            raw = tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    auth = raw.get("auth") or {}
+    value = auth.get("password", "") if isinstance(auth, dict) else ""
+    return value if isinstance(value, str) else None
+
+
 def _ensure_writable_state(state_dir: Path) -> None:
     """Create the state directory and prove it takes a write, or say why not.
 

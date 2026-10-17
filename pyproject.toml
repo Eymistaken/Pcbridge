@@ -60,4 +60,4 @@ include = ["pcbridge*"]
 
 [tool.setuptools.package-data]
 # The native helper is gitignored and exists only after scripts/build-native.sh.
-pcbridge = ["_native/*/pcbridge-native", "_native/*/build-info.json"]
+pcbridge = ["_native/*/pcbridge-native", "_native/*/build-info.json", "data/*.txt", "data/*.md"]

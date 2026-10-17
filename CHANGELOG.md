@@ -132,6 +132,17 @@
   refuses every app and says how to turn remote access on, and `pcbridge
   remote start` does not open the tunnel. `pcbridge doctor` and the Remote
   tab say so too. An existing password keeps working.
+- **Choose or generate the remote password, shown once.** The first
+  `pcbridge remote start`, the Remote tab's **Turn on remote access**, the
+  last step of `pcbridge setup` and `pcbridge set auth.password` all ask
+  the same question. Press Enter for a generated passphrase, six words from
+  the EFF Large Wordlist (about 77 bits, bundled under CC BY 3.0 US), or
+  type your own twice. A generated one is shown once, next to the remote
+  address, and stays until the user confirms it is saved; it can be copied
+  to the clipboard. `pcbridge set auth.password --generate` makes a
+  passphrase as well. The consent page reads the password from the file
+  when it changes, so a new password works at once, without a daemon
+  restart.
 
 ### Fixed
 

@@ -15,10 +15,13 @@ from typing import Any
 from rich.text import Text
 from textual import on, work
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Button, Static
+from textual.screen import ModalScreen
+from textual.widgets import Button, Input, Static
 
-from .app import Confirm, while_mounted
+from .. import remotepassword as rp
+from .app import Confirm, ShowOnce, while_mounted
 
 CSS = """
 RemotePane .remote-row {
@@ -38,6 +41,56 @@ RemotePane #remote-actions Button {
 """
 
 
+class PasswordScreen(ModalScreen["tuple[str, bool] | None"]):
+    """Create or replace the remote password: generate a passphrase, or type one twice."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, replacing: bool) -> None:
+        super().__init__()
+        self.replacing = replacing
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="confirm-box"):
+            yield Static(
+                ("Replace the remote password. Remote apps that already connected keep their "
+                 "sessions until they are revoked." if self.replacing else
+                 "Turn on remote access. Remote clients type this password on the approval "
+                 "page; local clients never use it."), id="confirm-question")
+            yield Button("Generate a passphrase (six words)", id="pw-generate", variant="primary",
+                         compact=True)
+            yield Static(f"\nOr type your own, at least {rp.MIN_LENGTH} characters:", classes="hint")
+            yield Input(placeholder="new password", password=True, id="pw-first")
+            yield Input(placeholder="again", password=True, id="pw-second")
+            yield Static("", id="pw-error")
+            with Horizontal(id="confirm-buttons"):
+                yield Button("Cancel", id="pw-cancel", compact=True)
+                yield Button("Use this password", id="pw-typed", compact=True)
+
+    @on(Button.Pressed, "#pw-generate")
+    def _generate(self) -> None:
+        self.dismiss((rp.generate(), True))
+
+    @on(Button.Pressed, "#pw-typed")
+    @on(Input.Submitted, "#pw-second")
+    def _typed(self) -> None:
+        first = self.query_one("#pw-first", Input).value
+        second = self.query_one("#pw-second", Input).value
+        why = rp.check(first) or (None if first == second else "The two entries differ.")
+        if why:
+            self.query_one("#pw-error", Static).update(why)
+            return
+        self.dismiss((first, False))
+
+    @on(Input.Submitted, "#pw-first")
+    def _next(self) -> None:
+        self.query_one("#pw-second", Input).focus()
+
+    @on(Button.Pressed, "#pw-cancel")
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 def row_id(name: str) -> str:
     """A widget id for an app name, which may hold any character."""
     return hashlib.sha1(name.encode()).hexdigest()[:12]
@@ -50,6 +103,7 @@ class RemotePane(Vertical):
         super().__init__(**kwargs)
         self.rows: dict[str, dict] = {}   # row id -> client group
         self.busy = False
+        self.has_password = True
 
     def compose(self) -> ComposeResult:
         yield Static(
@@ -58,6 +112,7 @@ class RemotePane(Vertical):
             "again with the password. A new password alone does not do this.", classes="hint")
         yield Static("Reading the remote clients...", id="remote-status", classes="hint")
         with Horizontal(id="remote-actions"):
+            yield Button("Remote password...", id="remote-password", compact=True)
             yield Button("Revoke all", id="remote-revoke-all", variant="error", compact=True,
                          disabled=True)
             yield Button("Refresh", id="remote-refresh", compact=True)
@@ -89,10 +144,13 @@ class RemotePane(Vertical):
         live = sum(g["connected"] for g in groups)
         lines = [f"{len(groups)} app(s) connected ({live} registration(s) with live tokens)"
                  if groups else "No remote app holds a token."]
-        if not info.get("has_password", True):
+        self.has_password = info.get("has_password", True)
+        self.query_one("#remote-password", Button).label = (
+            "Replace password" if self.has_password else "Turn on remote access")
+        if not self.has_password:
             lines.insert(0, "Remote access is off: no password is set, so the approval page "
                             "refuses every app and the tunnel does not open. Local clients do not "
-                            "need one.")
+                            "need one. \"Turn on remote access\" creates it.")
         lines.append(f"Tools for remote clients: {info.get('remote_profile', '?')}"
                      + ("" if info.get("remote_profile_set") else " (follows tools.profile)")
                      + "; change it in Settings > tools.remote_profile.")
@@ -101,6 +159,7 @@ class RemotePane(Vertical):
                          "anyone who has it can call pcbridge. Replace it in Settings.")
         status.update("\n".join(lines))
         self.query_one("#remote-revoke-all", Button).disabled = self.busy or not info.get("registrations")
+        self.query_one("#remote-password", Button).disabled = self.busy
         listing.remove_children()
         self.rows = {}
         for g in groups:
@@ -123,6 +182,50 @@ class RemotePane(Vertical):
         out.append(f"\nlast connected {g['last']}, tokens expire {describe_expiry(g['expires'])}",
                    style="dim")
         return out
+
+    # -- password ----------------------------------------------------------------
+
+    @on(Button.Pressed, "#remote-password")
+    def _password(self) -> None:
+        if self.busy:
+            return
+        replacing = self.has_password
+        self.app.push_screen(PasswordScreen(replacing),
+                             lambda picked: self._save_password(picked, replacing) if picked else None)
+
+    def _save_password(self, picked: tuple[str, bool], replacing: bool) -> None:
+        self.busy = True
+        self._password_worker(picked[0], picked[1], replacing)
+
+    @work(thread=True, group="remote-password")
+    def _password_worker(self, password: str, generated: bool, replacing: bool) -> None:
+        try:
+            self.app.backend.set_remote_password(self.app.cfg, password)
+            error = ""
+        except Exception as exc:  # noqa: BLE001 - shown to the user
+            error = str(getattr(exc, "message", exc))
+        self.app.post(self._password_saved, password, generated, replacing, error)
+
+    @while_mounted
+    def _password_saved(self, password: str, generated: bool, replacing: bool, error: str) -> None:
+        self.busy = False
+        if error:
+            self.app.notify(error, title="The password was not saved", severity="error", timeout=15)
+            return
+        url = getattr(self.app.cfg, "mcp_url", "")
+        address = f"Remote address: {url}" if url else ""
+        done = "replaced" if replacing else "created; remote access is on once the tunnel is open"
+        self.app.notify(f"Remote password {done}. Only its hash is stored."
+                        + ("" if generated else f"\n{address}"), timeout=12)
+        self.app.reload_config()
+        self.reload()
+        # The offer to revoke waits until the new password is saved and gone.
+        after = self.app.offer_revoke_after_password if replacing else (lambda: None)
+        if generated:
+            self.app.push_screen(ShowOnce("The remote password", password, address),
+                                 lambda _: after())
+        else:
+            after()
 
     # -- revoke ------------------------------------------------------------------
 
