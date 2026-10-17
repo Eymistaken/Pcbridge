@@ -53,7 +53,7 @@ impl FrameRecord {
             && self.topology_id.len() <= 2048
             && self.strip_count >= 4
             && self.strip_count <= 64
-            && self.strip_count % 4 == 0
+            && self.strip_count.is_multiple_of(4)
             && self.outputs.len() * 4 == self.strip_count as usize
             && self.outputs.iter().enumerate().all(|(index, name)| {
                 !name.is_empty() && name.len() <= 256 && !self.outputs[..index].contains(name)

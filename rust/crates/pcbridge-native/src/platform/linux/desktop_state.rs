@@ -168,7 +168,8 @@ pub trait DesktopStateProvider: Send + Sync {
 }
 
 enum StateSource {
-    Dbus(DbusDesktopState),
+    // Boxed: the D-Bus provider is about 800 bytes, the Hyprland path 24.
+    Dbus(Box<DbusDesktopState>),
     Hyprland(std::path::PathBuf),
 }
 
@@ -201,7 +202,7 @@ impl SessionDesktopState {
 
     pub fn connect_to(endpoints: StateEndpoints) -> Result<Self, zbus::Error> {
         Ok(Self {
-            source: StateSource::Dbus(DbusDesktopState::connect_to(endpoints)?),
+            source: StateSource::Dbus(Box::new(DbusDesktopState::connect_to(endpoints)?)),
         })
     }
 }

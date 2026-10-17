@@ -455,10 +455,10 @@ impl Dispatch<wl_output::WlOutput, u32> for State {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        if let wl_output::Event::Name { name } = event {
-            if let Some(output) = state.outputs.get_mut(id) {
-                output.1 = name;
-            }
+        if let wl_output::Event::Name { name } = event
+            && let Some(output) = state.outputs.get_mut(id)
+        {
+            output.1 = name;
         }
     }
 }
@@ -492,10 +492,8 @@ impl Dispatch<session::ExtImageCopyCaptureSessionV1, ()> for State {
             }
             session::Event::ShmFormat {
                 format: WEnum::Value(format),
-            } => {
-                if state.formats.len() < 64 {
-                    state.formats.push(format);
-                }
+            } if state.formats.len() < 64 => {
+                state.formats.push(format);
             }
             session::Event::Done => {
                 if state.constraints {
