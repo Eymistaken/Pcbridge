@@ -92,10 +92,19 @@ at the machine* checks, batched for a session at the machine.
   short and clean final screen that names the connected clients and says
   to type `pcbridge` to check and change things, and the sudo commands
   still shown before they run. `--yes` and a run without a terminal keep
-  working without the UI. One design question: the Python choice comes
-  before pcbridge's own Python exists, so either the script gets a small
-  arrow-key prompt of its own, or uv is fetched first and runs the whole
-  installer UI. Not urgent; it should not be squeezed in between the
+  working without the UI. Decided with the maintainer (2026-10-17): the
+  Python choice comes before pcbridge's own Python exists, so `install.sh`
+  gets a small arrow-key prompt of its own for that one question (`stty`
+  on `/dev/tty`, number keys still work, no mouse), falling back to the
+  numbered prompt without a terminal, with `TERM=dumb` or with `--yes`;
+  the wheel download shows `curl --progress-bar`. Everything after the
+  venv exists (the component checklist, progress during installs, the
+  final screen) is a Textual UI in `pcbridge setup`. Not uv first: the
+  question is asked only below Python 3.12, fetching uv and a Python
+  (about 14 s) before it would choose option 1 before the user does and
+  slow down every machine that already has 3.12, and a machine with no uv
+  build for its architecture but a good system Python would stop
+  installing. Not urgent; it should not be squeezed in between the
   stages. Done when a first install on a supported and an unsupported
   desktop needs no typed answers, never looks frozen, and ends on a screen
   that says what to do next.
