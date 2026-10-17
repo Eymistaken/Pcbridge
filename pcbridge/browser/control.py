@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -43,11 +44,39 @@ def give_to_user(directory: Path, reason: str, by: str) -> dict:
     return record
 
 
+def note_notification(directory: Path, notification_id: int) -> None:
+    """Remember the hand-over's notification, so that giving the browser back
+    from anywhere (the CLI, the terminal UI, the phone) closes it."""
+    record = read(directory)
+    if record is None:
+        return
+    record["notification"] = int(notification_id)
+    tmp = directory / (FILE + ".tmp")
+    tmp.write_text(json.dumps(record))
+    tmp.chmod(0o600)
+    os.replace(tmp, directory / FILE)
+
+
+def _close_notification(notification_id: int) -> None:
+    """Measured (2026-10-17): a hand-over's notification outlived the hand-over
+    and its daemon, with a button nobody listened to any more."""
+    try:
+        subprocess.run(["gdbus", "call", "--session", "--dest", "org.freedesktop.Notifications",
+                        "--object-path", "/org/freedesktop/Notifications", "--method",
+                        "org.freedesktop.Notifications.CloseNotification", str(int(notification_id))],
+                       capture_output=True, timeout=3)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        pass
+
+
 def give_back(directory: Path) -> bool:
-    """Return the browser to the agent. False when the user did not have it."""
-    had = read(directory) is not None
+    """Return the browser to the agent and close the hand-over's notification.
+    False when the user did not have it."""
+    record = read(directory)
     (directory / FILE).unlink(missing_ok=True)
-    return had
+    if record is not None and record.get("notification"):
+        _close_notification(record["notification"])
+    return record is not None
 
 
 def refusal(record: dict) -> DesktopError:

@@ -14,6 +14,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import threading
+from pathlib import Path
 from typing import Any
 
 from . import control
@@ -25,17 +26,25 @@ def _notify(manager: Any, reason: str) -> None:
     """A lasting notification with a "Give it back" action; clicking it gives
     the browser back. Runs in the background: notify-send --wait blocks until
     the notification is answered or closed."""
-    exe = shutil.which("notify-send")
-    if exe is None:
-        return
     body = (f"{reason}\n\nWhen you are done, give it back here, in the pcbridge panel menu, "
             "or with: pcbridge browser resume")
+    # notice.py prints the notification's id at once (notify-send -p does not
+    # before it exits); giving back from anywhere closes it by that id.
     try:
         proc = subprocess.Popen(
-            [exe, "-a", "pcbridge", "-u", "critical", "-A", "resume=Give it back to the agent",
-             "--wait", TITLE, body],
+            ["python3", str(Path(__file__).with_name("notice.py")), TITLE, body,
+             "Give it back to the agent"],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
     except OSError:
+        return
+    first = proc.stdout.readline().strip() if proc.stdout else ""
+    if first.isdigit():
+        control.note_notification(manager.dir, int(first))
+    else:  # no python-gobject: a plain notification without the action
+        exe = shutil.which("notify-send")
+        if exe:
+            subprocess.Popen([exe, "-a", "pcbridge", "-u", "critical", TITLE, body],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return
 
     def wait() -> None:
