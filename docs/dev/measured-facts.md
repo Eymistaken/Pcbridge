@@ -174,8 +174,10 @@ SQLite 3.45.1) and against a throwaway daemon
   no root. An empty password is refused before PAM, since pam_unix's
   `nullok` would accept it for an account that has no password. There is
   no pam_faillock here, so a wrong answer locks nothing. On Arch it is in
-  `system-login` and counts wrong answers. The success path needs the real
-  login password and was not run by the agent.
+  `system-login` and counts wrong answers. The success path was run on
+  2026-10-17 by the maintainer, who typed their own login password into
+  `loginpw.verify` in a terminal: it returned True. The agent never sees
+  that password.
 
 ## File tools through remote MCP (2026-10-04)
 
