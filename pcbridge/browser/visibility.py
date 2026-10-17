@@ -34,6 +34,9 @@ from pathlib import Path
 BUS = "io.github.eymistaken.Pcbridge.WindowFocus"
 PATH = "/io/github/eymistaken/Pcbridge/WindowFocus"
 SPECIAL = "special:pcbridge"
+HYPR_RULE = ('hl.window_rule({ name = "pcbridge-browser-starts-hidden", '
+             'match = { class = "^(pcbridge-browser)$" }, '
+             'workspace = "special:pcbridge silent", no_initial_focus = true })')
 
 
 @dataclass
@@ -93,6 +96,13 @@ class Gnome:
     def set(self, pid: int, visible: bool, focus: bool) -> View:
         return self._call("SetBrowserVisible", "bb", str(visible).lower(), str(focus).lower())
 
+    def prepare_launch(self) -> None:
+        pass
+
+    def hide_new(self, pid: int) -> None:
+        """Nothing to do: the extension minimizes a new browser window itself
+        when view.json says hidden, before the window is shown."""
+
 
 class KWin:
     name = "a KWin script"
@@ -112,6 +122,22 @@ class KWin:
 
     def set(self, pid: int, visible: bool, focus: bool) -> View:
         return self._call({"cmd": "browser", "pid": pid, "visible": visible, "focus": focus})
+
+    def prepare_launch(self) -> None:
+        pass
+
+    def hide_new(self, pid: int) -> None:
+        """Wait (up to 12 s) for the starting browser's first window and hide
+        it as KWin adds it."""
+        from ..desktop import apps
+        from ..desktop.uitree import SYSTEM_PYTHON
+
+        try:
+            subprocess.run([SYSTEM_PYTHON, str(apps._KWIN_HELPER)], capture_output=True, text=True,
+                           input=json.dumps({"cmd": "browser", "pid": pid, "visible": False,
+                                             "wait_ms": 12000}), timeout=20)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
 
 class Hyprland:
@@ -149,9 +175,11 @@ class Hyprland:
         if not re.fullmatch(r"0x[0-9a-fA-F]{1,16}", address):
             return False
         if mode == "lua":
+            # A workspace id is a Lua number; a name (special:pcbridge) a string.
+            ws = workspace if re.fullmatch(r"-?\d+", workspace) else f'"{workspace}"'
             call = {
                 "move": f'hl.dsp.window.move({{window="address:{address}", '
-                        f'workspace="{workspace}", follow=false}})',
+                        f'workspace={ws}, follow=false}})',
                 "focus": f'hl.dsp.focus({{window="address:{address}"}})',
             }[action]
             args = ["dispatch", call]
@@ -160,6 +188,34 @@ class Hyprland:
                     "focus": ["dispatch", "focuswindow", f"address:{address}"]}[action]
         proc = self._hyprctl(*args)
         return proc.returncode == 0 and proc.stdout.strip() == "ok"
+
+    def prepare_launch(self) -> None:
+        """Lua config: a window rule that puts a new pcbridge-browser window on
+        the special workspace without focus, before it is first shown. With a
+        hyprlang config (not measured) hide_new moves it once it appears."""
+        from ..desktop import hyprland
+
+        try:
+            _instance, mode = hyprland.focus_context()
+            if mode == "lua":
+                self._hyprctl("eval", HYPR_RULE)
+        except (OSError, subprocess.TimeoutExpired, hyprland.HyprlandIPCError):
+            pass
+
+    def hide_new(self, pid: int) -> None:
+        """Move the starting browser's first window to the special workspace
+        as soon as Hyprland lists it (polled for up to 12 s)."""
+        import time
+
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            try:
+                if self._clients(pid):
+                    self.set(pid, False, False)
+                    return
+            except (OSError, subprocess.TimeoutExpired, ValueError):
+                return
+            time.sleep(0.05)
 
     def set(self, pid: int, visible: bool, focus: bool) -> View:
         from ..desktop import hyprland
@@ -191,6 +247,8 @@ class Unsupported:
                                 f"Hyprland; this session is {self.kind or 'unknown'}.")
 
     set = lambda self, pid, visible, focus: self.state(pid)  # noqa: E731
+    hide_new = lambda self, pid: None  # noqa: E731
+    prepare_launch = lambda self: None  # noqa: E731
 
 
 def for_session():
