@@ -37,8 +37,10 @@ here, not by moving sections.
    recommended path, and someone who installs from a release then has no
    way to find the password a remote client needs.
 5. **File tools.** ~~*Paginated and ranged file reads*~~ (done,
-   Unreleased), the rest of *Binary
-   file transfer*, ~~*Targeted edits and easier writes*~~ (done, Unreleased). Together, because
+   Unreleased), ~~the rest of *Binary file transfer*~~ (done, Unreleased),
+   ~~*Targeted edits and easier writes*~~ (done, Unreleased). Left: the
+   checks through a real remote client, which the maintainer runs, then
+   *Download and upload links for large files* if they show it is needed. Together, because
    they share the cursor and conflict design.
 6. **Browser.** In this order: measure *Attaching to the existing session*,
    then *Browser tools for the user's existing session*, *Show and hide the
@@ -126,18 +128,29 @@ at the machine* checks, batched for a session at the machine.
   `expected_sha256`; `fs_write` writes atomically with `expected_sha256`
   and `create_only`. Proved over HTTP with OAuth against a throwaway daemon
   (see measured facts). Left: the same from a real remote client.
-- **Binary file transfer.** `fs_read` and `fs_write` handle UTF-8 text
-  only. Done: `fs_read` no longer decodes with `errors="replace"`; a binary
-  file (NUL bytes or a known signature such as PDF, PNG, JPEG, ZIP, ELF) or
-  a non-UTF-8 file is refused with a plain message naming the format and
-  size, never returned as replacement characters. Left: a remote client
-  (phone, claude.ai, ChatGPT) still cannot take a PDF or picture off the
-  machine or put one on it, and cannot fall back to `shell_run` with
-  `base64` because of the output cap. Add chunked binary read and write with
-  a hash check at the end (sharing the cursor design of the ranged reads
-  above), and return images as MCP image content. Done when a remote client
-  can download and upload a multi-megabyte PDF and image byte for byte
-  (matching hashes).
+- ~~**Binary file transfer.**~~ Done (Unreleased): `fs_read` refuses
+  binary and non-UTF-8 files in its default mode with the format and size,
+  returns images as MCP image content (scaled to 1568 px when larger), and
+  with `encoding="base64"` returns any file's bytes in cursor chunks with
+  the file's SHA-256; `fs_write` takes `content_base64` in one call or in
+  `offset` chunks that replace the file only when `final_sha256` matches.
+  Proved over HTTP with OAuth against a throwaway daemon: a 2.25 MB PDF and
+  a 2.9 MB JPEG round-tripped byte for byte (see measured facts). Left: the
+  same from a real remote client. Every chunk passes through the model's
+  context (60,000 characters a call, 51 calls for the PDF), so it is not
+  known yet whether claude.ai or ChatGPT can sustain it; that measurement
+  decides *Download and upload links for large files*.
+- **Download and upload links for large files.** Decided with the
+  maintainer (2026-10-17) as a follow-up, to be built only if the real-client
+  checks above show base64 chunks are not enough. A file tool would return
+  a one-time, short-lived link through the tunnel that the user opens on
+  the phone to download a file, or an upload page for one file, so a large
+  PDF or video never passes through the model's context. It is a new
+  endpoint exposed to the internet, so it needs its own security design
+  first: a random single-use token bound to one path, a few minutes of
+  life, the same `[tools] remote_profile` rules, and an audit line. Done
+  when a phone can take a 50 MB file off the machine and put one on it with
+  matching hashes, and a used or expired link returns nothing.
 
 ## Optional: browser control
 

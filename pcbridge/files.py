@@ -20,6 +20,7 @@ import base64
 import codecs
 import difflib
 import hashlib
+import io
 import json
 import os
 import tempfile
@@ -52,11 +53,17 @@ class FileToolError(Exception):
     """A request that cannot be served; the message is for the caller."""
 
 
-def sniff_binary(head: bytes) -> str | None:
-    """Why the start of a file says it is binary, or None."""
+def binary_label(head: bytes) -> str | None:
+    """The known binary format the start of a file names, or None."""
     label = next((name for magic, name in BINARY_SIGNATURES if head.startswith(magic)), None)
     if label is None and head.startswith(b"RIFF") and head[8:12] == b"WEBP":
         label = "WebP image"
+    return label
+
+
+def sniff_binary(head: bytes) -> str | None:
+    """Why the start of a file says it is binary, or None."""
+    label = binary_label(head)
     if label is not None:
         return f"it is a binary file ({label})"
     if b"\x00" in head[:_HEAD]:
@@ -348,12 +355,7 @@ def atomic_write(path: Path, data: bytes, *, expected: str | None = None,
     holds exactly that (or `expected` no longer matches), nothing is written.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        mode = path.stat().st_mode & 0o7777
-    except FileNotFoundError:
-        umask = os.umask(0)
-        os.umask(umask)
-        mode = 0o666 & ~umask
+    mode = _file_mode(path)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".pcbridge-tmp", dir=path.parent)
     try:
         with os.fdopen(fd, "wb") as fh:
@@ -481,3 +483,183 @@ def trim_diff(diff: str, limit: int = 4000) -> str:
         return diff
     cut = diff.rfind("\n", 0, limit)
     return diff[: cut + 1 if cut > 0 else limit] + f"…(diff truncated: {len(diff):,} characters)\n"
+
+
+# ---------------------------------------------------------------- binary
+#
+# Any file, text or not, can be read as base64 chunks and written back the
+# same way; the SHA-256 of the whole file is in every chunk's header, so the
+# receiver can check the reassembled bytes. Chunked uploads collect in a
+# staging file next to the target and replace it only when the hash the
+# sender gives at the end matches.
+
+IMAGE_TYPES = {"PNG image": "image/png", "JPEG image": "image/jpeg",
+               "GIF image": "image/gif", "WebP image": "image/webp"}
+# The Anthropic API scales a longer edge above 1568 px itself and refuses
+# images over 5 MB of base64; stay under both so the picture arrives as sent.
+IMAGE_LONG_EDGE = 1568
+IMAGE_MAX_BYTES = 3_500_000
+
+
+def chunk_bytes(max_chars: int) -> int:
+    """Raw bytes per base64 chunk for a page budget of `max_chars` characters."""
+    return max(3, (max_chars // 4) * 3)
+
+
+@dataclass(frozen=True)
+class Chunk:
+    snap: Snapshot
+    data: bytes
+    start: int
+    next_cursor: str | None
+
+    @property
+    def end(self) -> int:
+        return self.start + len(self.data)
+
+
+def read_chunk(path: Path, *, cursor: str | None = None, max_chars: int = 8000,
+               snap: Snapshot | None = None) -> Chunk:
+    snap = snap or snapshot(path)
+    start = parse_cursor(cursor, snap)[0] if cursor else 0
+    with path.open("rb") as fh:
+        fh.seek(start)
+        data = fh.read(chunk_bytes(max_chars))
+    end = start + len(data)
+    return Chunk(snap, data, start, make_cursor(snap, end, 1) if end < snap.size else None)
+
+
+def format_chunk(chunk: Chunk) -> str:
+    s = chunk.snap
+    kind = binary_label(s.head) or ("binary data" if sniff_binary(s.head) else "text")
+    head = f"`{s.path}` · {plural(s.size, 'byte')} · {kind} · sha256 {s.sha256}"
+    if not s.size:
+        return f"{head}\nNothing to show here: the file is empty."
+    text = base64.b64encode(chunk.data).decode("ascii")
+    span = (f"Bytes {chunk.start:,}–{chunk.end - 1:,} of {s.size:,} as base64 "
+            f"({len(text):,} characters)")
+    if chunk.next_cursor:
+        left = s.size - chunk.end
+        calls = -(-left // max(1, len(chunk.data)))
+        tail = (f"Not the end: {left:,} bytes left (about {calls:,} more call(s) of this size). "
+                f"Next chunk: fs_read with encoding=\"base64\" and cursor=\"{chunk.next_cursor}\". "
+                "The decoded chunks, joined in order, have the sha256 above.")
+    else:
+        tail = "End of file. The decoded chunks, joined in order, have the sha256 above."
+    return f"{head}\n{span}\n```base64\n{text}\n```\n{tail}"
+
+
+@dataclass(frozen=True)
+class Preview:
+    data: bytes
+    mime: str
+    note: str
+
+
+def image_preview(path: Path, snap: Snapshot) -> Preview:
+    """The picture for an image file: as it is when small enough, else scaled."""
+    label = binary_label(snap.head) or ""
+    mime = IMAGE_TYPES[label]
+    raw = path.read_bytes()
+    try:
+        from PIL import Image
+    except ImportError:
+        Image = None
+    if Image is None:
+        if snap.size <= IMAGE_MAX_BYTES:
+            return Preview(raw, mime, "shown as it is")
+        raise FileToolError(
+            f"it is a {label} of {snap.size:,} bytes, too large to show without Pillow "
+            "(install pcbridge's desktop extra); read its exact bytes with encoding=\"base64\"")
+    with Image.open(io.BytesIO(raw)) as im:
+        w, h = im.size
+        if max(w, h) <= IMAGE_LONG_EDGE and snap.size <= IMAGE_MAX_BYTES:
+            return Preview(raw, mime, f"{w}x{h}, shown as it is")
+        im.thumbnail((IMAGE_LONG_EDGE, IMAGE_LONG_EDGE))
+        out = io.BytesIO()
+        alpha = im.mode in ("RGBA", "LA", "P")
+        if alpha:
+            im.save(out, "PNG", optimize=True)
+            mime2 = "image/png"
+        else:
+            im.convert("RGB").save(out, "JPEG", quality=85)
+            mime2 = "image/jpeg"
+        sw, sh = im.size
+    return Preview(out.getvalue(), mime2,
+                   f"{w}x{h}, shown scaled to {sw}x{sh}; the file itself is unchanged, and "
+                   "encoding=\"base64\" gives its exact bytes")
+
+
+def staging_path(path: Path) -> Path:
+    return path.with_name(f".{path.name}.pcbridge-upload")
+
+
+@dataclass(frozen=True)
+class Upload:
+    path: Path
+    staged: int
+    done: bool
+    sha256: str | None
+
+
+def decode_base64(text: str) -> bytes:
+    try:
+        return base64.b64decode("".join(text.split()), validate=True)
+    except (ValueError, TypeError):
+        raise FileToolError("content_base64 is not valid base64.") from None
+
+
+def _file_mode(path: Path) -> int:
+    try:
+        return path.stat().st_mode & 0o7777
+    except FileNotFoundError:
+        umask = os.umask(0)
+        os.umask(umask)
+        return 0o666 & ~umask
+
+
+def upload_chunk(path: Path, data: bytes, offset: int, *, final_sha256: str | None = None,
+                 expected: str | None = None, create_only: bool = False) -> Upload:
+    """Add one chunk at `offset`; with `final_sha256`, check and put it in place."""
+    stage = staging_path(path)
+    have = stage.stat().st_size if stage.exists() else None
+    if offset < 0:
+        raise FileToolError("offset must be 0 or more.")
+    if offset > 0 and have != offset:
+        got = "nothing is staged" if have is None else f"{have:,} bytes are staged"
+        raise FileToolError(
+            f"Chunk out of order: {got} for `{path}`, so the next chunk must have offset="
+            f"{have or 0}. Send offset=0 to start the upload over.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with stage.open("wb" if offset == 0 else "ab") as fh:
+        fh.write(data)
+        fh.flush()
+        os.fsync(fh.fileno())
+    staged = stage.stat().st_size
+    if final_sha256 is None:
+        return Upload(path, staged, False, None)
+    want = final_sha256.strip().lower()
+    if len(want) != 64 or not set(want) <= _HEX:
+        raise FileToolError("final_sha256 must be the whole file's SHA-256: 64 hex digits.")
+    h = hashlib.sha256()
+    with stage.open("rb") as fh:
+        while block := fh.read(_CHUNK):
+            h.update(block)
+    got = h.hexdigest()
+    if got != want:
+        stage.unlink()
+        raise FileToolError(
+            f"The {staged:,} uploaded bytes have sha256 {got}, not {want}; `{path}` was not "
+            "changed and the upload was discarded. Start again with offset=0.")
+    current = _current(path)
+    if create_only and current is not None:
+        stage.unlink()
+        raise FileToolError(f"`{path}` already exists; the upload was discarded.")
+    try:
+        check_expected(path, current, expected)
+    except FileToolError:
+        stage.unlink()
+        raise
+    os.chmod(stage, _file_mode(path))
+    os.replace(stage, path)
+    return Upload(path, staged, True, got)

@@ -4,6 +4,25 @@
 
 ### Added
 
+- **Binary files both ways: base64 chunks checked by SHA-256, images as
+  pictures.** `fs_read` with `encoding="base64"` returns the exact bytes of
+  any file (a PDF, a picture, an archive, a non-UTF-8 text) in chunks of up
+  to 45,000 bytes (60,000 base64 characters), each with the whole file's
+  SHA-256 and a cursor for the next; a file that changes mid-download
+  refuses the old cursor. `fs_write` takes `content_base64`, for one call or
+  for chunks with `offset`: chunks collect in a staging file next to the
+  target, and the file is replaced, keeping its mode, only when the
+  `final_sha256` sent with the last chunk matches; a wrong hash or a chunk
+  out of order changes nothing. An image (PNG, JPEG, GIF, WebP) read in the
+  default mode comes back as MCP image content, as it is when it is at most
+  1568 px on its longer edge and 3.5 MB, otherwise scaled to 1568 px (the
+  file is unchanged, and the reply says so). Other binary files refused in
+  the default mode now say how many base64 calls their bytes take. Measured
+  over HTTP with OAuth against a throwaway daemon: a 2,253,121-byte PDF and
+  a 2,921,482-byte JPEG went down and back up byte for byte, with matching
+  hashes, in 51 and 65 calls each way. Each call carries 60,000 characters
+  through the model's context, so this suits files of a few megabytes at
+  most; whether real remote clients sustain it is not measured yet.
 - **`fs_edit`: change part of a file without resending it.** An exact text
   replacement: `old_text` must match once, or every match is changed with
   `replace_all`. `edits` applies up to 50 replacements in order and writes
@@ -207,7 +226,7 @@
   GIF, WebP, ZIP, gzip, ELF, SQLite) or is not valid UTF-8 is now refused
   with a plain message that names the format and the size. The size in the
   reply now reads "bytes" instead of the Turkish "bayt". Binary transfer
-  itself is still open in the roadmap.
+  itself is under Added.
 - **Setup and doctor over SSH and on unsupported desktops.** Setup used to
   read the desktop from its own environment, so over SSH it saw no desktop
   and skipped the GNOME extension and the Plasma entries. It now uses the
@@ -225,8 +244,12 @@
 ### API
 
 - **Tools**: 38 (new `fs_edit`; `core` offers 22). `fs_read` refuses binary
-  and non-UTF-8 files. `fs_write` gains `expected_sha256` and `create_only`
-  and reports the SHA-256 it wrote. `fs_read` reads from the beginning instead of the end and gains
+  and non-UTF-8 files in its default mode; `encoding="base64"` reads any
+  file's bytes and images come back as pictures (`fs_read` declares no
+  output schema, since it can return image content). `fs_write` gains
+  `expected_sha256`, `create_only`, `content_base64`, `offset` and
+  `final_sha256`, `content` becomes optional, and the reply gives the
+  SHA-256 it wrote. `fs_read` reads from the beginning instead of the end and gains
   `start_line`, `cursor`, `max_lines`, `line_numbers` and `paths`; `path`
   is optional when `paths` is given.
 - **Config file**: new `[power] keep_awake` (default `false`); no

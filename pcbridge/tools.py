@@ -7,6 +7,7 @@ yapiyor. Kullaniciya donen metinler Turkce.
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import shlex
@@ -22,7 +23,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware
 from fastmcp.tools.base import ToolResult
-from mcp.types import ContentBlock, TextContent
+from mcp.types import ContentBlock, ImageContent, TextContent
 from pydantic import BaseModel, Field
 
 from . import __version__
@@ -993,7 +994,7 @@ def register(
             return f"`{d}` is empty."
         return f"`{d}` ({len(entries)} entries)\n```\n" + "\n".join(entries[:400]) + "\n```"
 
-    @mcp.tool(annotations={"title": "Read a file"})
+    @mcp.tool(output_schema=None, annotations={"title": "Read a file"})
     def fs_read(
         path: Annotated[str | None, Field(
             description="Absolute path of the file to read. Use paths instead for several files.")] = None,
@@ -1012,7 +1013,11 @@ def register(
         paths: Annotated[list[str] | None, Field(
             max_length=20, description="Several files at once; max_chars is split evenly "
                                        "and each file gets its own cursor.")] = None,
-    ) -> str:
+        encoding: Annotated[Literal["auto", "base64"], Field(
+            description="auto: text as text, images as a picture. base64: the exact bytes of "
+                        "any file (PDF, image, archive, non-UTF-8 text) in chunks of "
+                        "max_chars base64 characters, each with a cursor for the next.")] = "auto",
+    ) -> str | list[ContentBlock]:
         """Read a UTF-8 text file on the computer (source code, logs, configs,
         notes) one page at a time. Use it instead of shell slicing whenever a
         file is longer than one page: each page names the lines it covers,
@@ -1020,31 +1025,68 @@ def register(
         file." or with a cursor for the next page, so the beginning, middle
         and end are all reachable without gaps or repeats. Use start_line=-N
         for the end of a log, and the sha256 with fs_edit's expected_sha256.
-        Binary files (PDF, images, archives, executables) and non-UTF-8 files
-        are refused with a plain message instead of returning corrupted text."""
+        Images (PNG, JPEG, GIF, WebP) come back as a picture, scaled when
+        large. For the exact bytes of any file, such as a PDF to take off the
+        machine, use encoding="base64" and follow the cursors; the header's
+        sha256 checks the joined result. Other binary and non-UTF-8 files
+        are refused in auto mode with a plain message, never as corrupted
+        text."""
         targets = list(paths or []) + ([path] if path else [])
         if not targets:
             return "Give path (one file) or paths (several files)."
         if cursor and len(targets) > 1:
             return "A cursor belongs to one file: pass it with that file's path alone."
         budget = max(fileslib.PAGE_MIN, max_chars // len(targets))
-        parts = []
+        blocks: list[ContentBlock] = []
+        texts: list[str] = []
         for one in targets:
             f = _resolve_file(cfg, one)
-            parts.append(_read_one(f, start_line, cursor, budget, max_lines, line_numbers))
-        if len(targets) > 1:
-            return (f"{len(targets)} files, up to {budget:,} characters each\n\n"
-                    + "\n\n".join(parts))
-        return parts[0]
+            part = _read_one(f, start_line, cursor, budget, max_lines, line_numbers, encoding)
+            if isinstance(part, list):
+                texts.append(part[0].text)
+                blocks.extend(part[1:])
+            else:
+                texts.append(part)
+        text = texts[0] if len(targets) == 1 else (
+            f"{len(targets)} files, up to {budget:,} characters each\n\n" + "\n\n".join(texts))
+        if blocks:
+            return [TextContent(type="text", text=text), *blocks]
+        return text
 
     def _read_one(f: Path, start_line: int | None, cursor: str | None, budget: int,
-                  max_lines: int | None, line_numbers: bool) -> str:
+                  max_lines: int | None, line_numbers: bool,
+                  encoding: str = "auto") -> str | list[ContentBlock]:
         if not f.is_file():
             return f"File not found: {f}"
         try:
             snap = fileslib.snapshot(f)
         except OSError as exc:
             return f"Could not read `{f}`: {exc}"
+        label = fileslib.binary_label(snap.head)
+        if encoding == "base64":
+            try:
+                chunk = fileslib.read_chunk(f, cursor=cursor, max_chars=budget, snap=snap)
+            except fileslib.FileToolError as exc:
+                return f"Not read: {exc}"
+            except OSError as exc:
+                return f"Could not read `{f}`: {exc}"
+            gate.audit("fs_read", path=str(f)[:200], bytes=snap.size, encoding="base64",
+                       range=f"{chunk.start}-{chunk.end}")
+            return fileslib.format_chunk(chunk)
+        if label in fileslib.IMAGE_TYPES:
+            try:
+                pic = fileslib.image_preview(f, snap)
+            except fileslib.FileToolError as exc:
+                return f"Not read: `{f}` ({snap.size:,} bytes) {exc}."
+            except Exception as exc:  # a damaged image: Pillow raises many kinds
+                return (f"Not read: `{f}` ({snap.size:,} bytes) is a {label} that could not be "
+                        f"decoded ({exc}); its bytes are readable with encoding=\"base64\".")
+            gate.audit("fs_read", path=str(f)[:200], bytes=snap.size, image=pic.mime)
+            head = (f"`{f}` · {fileslib.plural(snap.size, 'byte')} · {label} · sha256 "
+                    f"{snap.sha256}\nThe picture follows ({pic.note}).")
+            return [TextContent(type="text", text=head),
+                    ImageContent(type="image", data=base64.b64encode(pic.data).decode("ascii"),
+                                 mimeType=pic.mime)]
         refused = fileslib.sniff_binary(snap.head)
         page = None
         try:
@@ -1065,15 +1107,17 @@ def register(
                    refused="yes" if refused else None)
         if page is None:
             if refused and refused.startswith("it is"):
-                return (f"Not read: `{f}` ({snap.size:,} bytes) {refused}. fs_read returns "
-                        "UTF-8 text only; binary transfer is not supported yet.")
+                return (f"Not read: `{f}` ({snap.size:,} bytes) {refused}. Text mode returns "
+                        "UTF-8 text only; for the exact bytes use encoding=\"base64\" "
+                        f"(about {-(-snap.size // fileslib.chunk_bytes(fileslib.PAGE_MAX)):,} "
+                        "call(s) at max_chars=60000).")
             return f"Not read: {refused}"
         return fileslib.format_page(page, line_numbers=line_numbers)
 
     @mcp.tool(annotations={"title": "Write a file"})
     def fs_write(
         path: Annotated[str, Field(description="Absolute path of the file to write.")],
-        content: str,
+        content: Annotated[str | None, Field(description="UTF-8 text to write.")] = None,
         append: Annotated[
             bool, Field(description="Append instead of overwriting.")
         ] = False,
@@ -1082,14 +1126,34 @@ def register(
                         "fs_edit); otherwise it is a conflict and nothing is written.")] = None,
         create_only: Annotated[bool, Field(
             description="Write only if the file does not exist yet.")] = False,
+        content_base64: Annotated[str | None, Field(
+            description="Exact bytes as base64 instead of content: a PDF, an image, any "
+                        "binary file.")] = None,
+        offset: Annotated[int | None, Field(
+            ge=0, description="For a file sent in several base64 chunks: the byte offset of "
+                              "this chunk (0 starts the upload, then the staged size the "
+                              "previous reply gave).")] = None,
+        final_sha256: Annotated[str | None, Field(
+            description="With the last chunk (or a single base64 write): the whole file's "
+                        "SHA-256. The file is put in place only if the bytes match.")] = None,
     ) -> str:
         """Create, overwrite or append to a text file on the computer. Use it
         for new files and whole rewrites; for a change to part of an existing
         file use fs_edit, which does not resend the whole file. Overwrites are
         atomic (a reader never sees half a file). Pass expected_sha256 when
         replacing a file you read earlier, so a change someone else made in
-        the meantime is reported as a conflict instead of being lost."""
+        the meantime is reported as a conflict instead of being lost. For a
+        binary file use content_base64; one too large for one call goes in
+        chunks with offset, and the last chunk carries final_sha256, so the
+        file appears only once every byte arrived intact."""
         f = _resolve_file(cfg, path)
+        if content is not None and content_base64 is not None:
+            return "Give content (text) or content_base64 (bytes), not both."
+        if content_base64 is not None:
+            return _write_base64(f, content_base64, offset, final_sha256, expected_sha256,
+                                 create_only, append)
+        if offset is not None or final_sha256 is not None:
+            return "offset and final_sha256 belong to content_base64 uploads."
         data = (content or "").encode("utf-8")
         try:
             before = fileslib._current(f)
@@ -1112,6 +1176,39 @@ def register(
         after = f.read_bytes()
         return (f"{'Appended' if append else 'Written'}: `{f}` ({len(after):,} bytes) · "
                 f"sha256 {fileslib.sha256_of(after)}")
+
+    def _write_base64(f: Path, text: str, offset: int | None, final_sha256: str | None,
+                      expected: str | None, create_only: bool, append: bool) -> str:
+        if append:
+            return "append is for text; send binary chunks with offset instead."
+        try:
+            data = fileslib.decode_base64(text)
+            if offset is None:
+                before = fileslib._current(f)
+                if create_only and before is not None:
+                    return f"Not written: `{f}` already exists ({len(before):,} bytes)."
+                got = fileslib.sha256_of(data)
+                if final_sha256 is not None and got != final_sha256.strip().lower():
+                    return (f"Not written: the {len(data):,} bytes received have sha256 {got}, "
+                            f"not {final_sha256}; `{f}` was not changed.")
+                fileslib.check_expected(f, before, expected)
+                fileslib.atomic_write(f, data, expected=expected,
+                                      before=before if expected else None)
+                gate.audit("fs_write", path=str(f)[:200], bytes=len(data), encoding="base64")
+                return f"Written: `{f}` ({len(data):,} bytes) · sha256 {got}"
+            up = fileslib.upload_chunk(f, data, offset, final_sha256=final_sha256,
+                                       expected=expected, create_only=create_only)
+        except fileslib.FileToolError as exc:
+            return f"Not written: {exc}"
+        except OSError as exc:
+            return f"Could not write it: {exc}"
+        if up.done:
+            gate.audit("fs_write", path=str(f)[:200], bytes=up.staged, encoding="base64",
+                       chunked=True)
+            return f"Written: `{f}` ({up.staged:,} bytes, sha256 checked) · sha256 {up.sha256}"
+        return (f"Received {len(data):,} bytes at offset {offset:,}; {up.staged:,} bytes staged "
+                f"for `{f}`, which is not changed yet. Send the next chunk with "
+                f"offset={up.staged}, and final_sha256 with the last one.")
 
     @mcp.tool(annotations={"title": "Edit part of a file"})
     def fs_edit(

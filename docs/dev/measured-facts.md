@@ -229,6 +229,17 @@ appended a line, `fs_edit` and `fs_write` with the old hash both answered
 "Conflict" and the other writer's line survived. Not yet measured: the
 same through a real remote client.
 
+Binary transfer (2026-10-17, same harness): a 2,253,121-byte PDF written by
+Pillow and the 2,921,482-byte `/usr/share/backgrounds/Zorin.jpg` were read
+with `encoding="base64"` at `max_chars=60000` (45,000 bytes a call) and
+written back with `content_base64` chunks and `final_sha256`. Both came
+back byte for byte with matching SHA-256, in 51 and 65 calls each way. In
+the default mode the 6144x3340 JPEG came back as one image block scaled to
+1568x852, under 3.5 MB. The contract tests add a 3,000,000-byte PDF-like
+file and a 2400x1600 PNG over 2 MB. Not measured: how many 60,000-character
+chunks a real remote client (claude.ai, ChatGPT) can carry in one
+conversation, which decides whether download links are needed.
+
 ## Hyprland release scope and limits
 
 PcBridge 2.5.0 supports Hyprland 0.56.2 on Wayland with the native helper.
