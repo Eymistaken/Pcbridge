@@ -40,8 +40,8 @@ here, not by moving sections.
    Unreleased), ~~the rest of *Binary file transfer*~~ (done, Unreleased),
    ~~*Targeted edits and easier writes*~~ (done, Unreleased), together
    because they share the cursor and conflict design, and checked through
-   claude.ai (see measured facts). *Download and upload links for large
-   files* built (Unreleased); left: its phone check.
+   claude.ai (see measured facts). ~~*Download and upload links for large
+   files*~~ (done, Unreleased).
 6. **Browser.** In this order: measure *Attaching to the existing session*,
    then *Browser tools for the user's existing session*, *Show and hide the
    browser window on demand*, *Taking over the agent's browser*.
@@ -140,16 +140,15 @@ at the machine* checks, batched for a session at the machine.
   "Done when" (a multi-megabyte PDF through a remote client) is not
   reachable this way: every byte passes through the model, which copied a
   character wrong within 75 KB, so it moves to the item below.
-- **Download and upload links for large files.** Built (Unreleased):
+- ~~**Download and upload links for large files.**~~ Done (Unreleased):
   `fs_download_link` and `fs_upload_link`, with the security design in
   [docs/security.md](docs/security.md#file-links). Proved against a
-  throwaway daemon over HTTP and through Funnel's public relay with curl:
-  50 MB each way with matching SHA-256, and a used or expired link returns
-  404 (see measured facts). Left, for the "Done when": the same 50 MB both
-  ways from a real phone browser (download page, upload page with its
-  in-browser SHA-256 comparison), with remote access open; and a claude.ai
-  conversation that asks for a link and hands it to the user. Record the
-  phone's speed in measured facts.
+  throwaway daemon over HTTP, with curl and with a real Chrome posing as an
+  Android phone, both through Funnel's public relay: 50 MB each way with
+  matching SHA-256 (the upload page compared it in the browser), and a used
+  or expired link returns 404 (see measured facts). Left, optional: the
+  same from a physical phone on a mobile network, and a claude.ai
+  conversation that hands a link to the user.
 
 ## Optional: browser control
 

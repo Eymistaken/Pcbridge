@@ -25,9 +25,10 @@
   bytes, SHA-256) and never the token or the content, and the access log
   in the journal no longer shows the token. 40 tools; `core` 24,
   `readonly` 13. Measured against a throwaway daemon over HTTP and through
-  Funnel's public relay: 50 MB each way with matching SHA-256 (192 s down,
-  340 s up through the relay), a second use and an expired link answered
-  404. Not yet checked from a phone. See [security.md](docs/security.md#file-links).
+  Funnel's public relay, with curl and with a real Chrome posing as an
+  Android phone: 50 MB each way with matching SHA-256 (in Chrome 104 s
+  down, 144 s up, the upload page confirming the hash itself), and a second
+  use and an expired link answered 404. Not yet from a physical phone. See [security.md](docs/security.md#file-links).
 - **Binary files both ways: base64 chunks checked by SHA-256, images as
   pictures.** `fs_read` with `encoding="base64"` returns the exact bytes of
   any file (a PDF, a picture, an archive, a non-UTF-8 text) in chunks of up

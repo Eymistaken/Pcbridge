@@ -297,6 +297,21 @@ Download and upload links (2026-10-17, `fs_download_link` /
   upload path is proved by curl and the HTTP tests, not by a browser yet.
   Each browser step there took minutes, so two 5-minute links expired
   before they were opened and answered 404 (`reason: expired` audited).
+- A real Google Chrome 155, headless and driven over the DevTools
+  protocol, posing as an Android phone (Pixel 8 user agent, 412x915 at
+  2.625x, touch) and forced through Funnel's public relay with
+  `--host-resolver-rules` (the daemon logged the relay-forwarded public
+  address, not a tailnet one). The download page showed name, size and
+  SHA-256; tapping Download saved 50 MB in 104 s (95 s on the daemon's
+  side) with matching SHA-256, and the page then answered `not found`. The
+  upload page took the 50 MB file through its file input (a real file
+  from disk, `DOM.setFileInputFiles`): stored in 144 s, and the page itself
+  reported "It matches the file on this device" from the SHA-256 the
+  browser computed; the page then answered `not found`. An earlier run
+  whose test driver died mid-download (its own DevTools socket timed out)
+  left `fs_link_failed reason=disconnected` and a usable link, as designed.
+  Not done: a physical phone on a mobile network, and claude.ai handing out
+  a link in a conversation (the Chrome extension was not connected).
 
 ## Hyprland release scope and limits
 
