@@ -48,12 +48,17 @@ here, not by moving sections.
    ~~*Show and hide the browser window on demand*~~ (done, 2.6.0),
    ~~*Taking over the agent's browser*~~ (done, 2.6.0). Left: the
    checks each item lists.
-7. **More desktops.** *Retire the legacy Python desktop backends* first,
+7. **Browser control as strong as computer use.** See the item of that
+   name under *Optional: browser control*. Stage 8 does not start until
+   this is done: the maintainer's decision (2026-10-17), after the first
+   real router test showed that the browser tools could not pick an
+   option a person picks with one click.
+8. **More desktops.** *Retire the legacy Python desktop backends* first,
    then *X11, starting with Cinnamon and XFCE*, written straight into the
    native helper instead of added to Python and moved later.
-8. **Windows.** After everything above; see *Optional: Windows* for what it
+9. **Windows.** After everything above; see *Optional: Windows* for what it
    involves. Scope to be written before work starts.
-9. **Website.** Last, once the feature set has settled, so the site is not
+10. **Website.** Last, once the feature set has settled, so the site is not
    chasing every new feature; see *Optional: website*. Until then the
    install script is served from a GitHub release URL.
 
@@ -155,6 +160,31 @@ at the machine* checks, batched for a session at the machine.
 
 ## Optional: browser control
 
+- **Browser control as strong as computer use.** The browser tools act
+  only on what `browser_read` recognizes as an element and gives a ref:
+  links, buttons, form fields and standard dropdowns. Anything else a
+  person can click is out of reach. The first real test (2026-10-17, the
+  maintainer's Tenda router at 192.168.0.1) ran into exactly that. The
+  task was to set the download limit of the device "MI9-MI9,Mehmet" on
+  the **Bant Genişliği Kontrolü** page from 64 KB/s to **Limit yok**. The
+  limit is chosen from a custom dropdown whose options are plain list rows
+  that `browser_read` showed only as text, with no ref. Typing "Limit yok"
+  into the box beside it was cut to "Limit" by the field's 5-character
+  limit, the arrow keys and Enter did nothing in that list, and the real
+  mouse needs desktop control, which is off on this machine. The one
+  click had to be handed to the maintainer. The maintainer's requirement:
+  browser use must be as capable as computer use is today. Whatever a
+  person can click in the pcbridge browser, an agent must be able to
+  click too. When the page structure does not help, that means working
+  from the picture alone, by clicking the point it sees in a
+  `browser_screenshot`. When needed it also means OCR: find the words, for
+  example "Limit yok" in that open router dropdown, read their position
+  off the screenshot and click there. This has to work while the window is
+  hidden, and in headless mode too. It goes through the browser itself,
+  not the desktop's mouse, so it still needs no desktop grant and cannot
+  land in another window. The maintainer will do this item later. Done
+  when an agent alone, with the browser window hidden, can make that
+  router change and save it.
 - ~~**Browser tools for the user's existing session.**~~ Done
   (2.6.0): `browser_tabs`, `browser_read`, `browser_screenshot`,
   `browser_navigate`, `browser_act` on a dedicated pcbridge profile (the
