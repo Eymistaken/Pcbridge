@@ -603,6 +603,79 @@ job came from `shell_run_background` through `pcbridge stdio`.
   made every suspend fail with "1 tasks refusing to freeze". That held with
   the daemon stopped too. A VM reset cleared it.
 
+## Browser: attaching to a session (2026-10-17)
+
+Google Chrome 155.0.8059.84 and Brave 155.1.97.59 (Chromium 155.0.8059.85)
+on the reference machine. Every run used a throwaway user data directory,
+and "default profile" means the default *path* under a throwaway `HOME`;
+the maintainer's real Chrome and Brave profiles were neither launched nor
+connected to.
+
+- **Chrome ignores the CDP flags on its default data directory; Brave does
+  not.** Headed, `--remote-debugging-port=0` and `--remote-debugging-pipe`
+  with the default directory gave no CDP in Chrome (stderr: "DevTools remote
+  debugging requires a non-default data directory"), whether the directory
+  was implied or passed explicitly with `--user-data-dir`. Brave honored
+  both flags on its default directory. With any other `--user-data-dir`
+  both browsers gave CDP over the port and over the pipe. Headless runs are
+  not evidence here: without `--user-data-dir`, `--headless=new` uses a
+  temporary profile, so its CDP answered on a directory that was not the
+  default one.
+- **Chrome 144+'s own switch does reach the default profile, with a prompt
+  per connection.** `chrome://inspect/#remote-debugging` stores
+  `devtools.remote_debugging.user-enabled = true` in `Local State`; at the
+  next start the browser listens on 127.0.0.1 (9222, or a random port when
+  that is taken) with no flag on its command line and writes
+  `DevToolsActivePort`. `/json/version` returns 404, so only a client that
+  can read that file finds the WebSocket path. A connection waits at the
+  WebSocket handshake (8 s without an answer: timeout) until a person
+  clicks Allow in a dialog in the browser, and **every** connection asks
+  again: three connections in a row, three dialogs, in Chrome and in Brave
+  alike (the maintainer clicked them; nothing was automated). The
+  maintainer's own Chrome had this switch on (port 9222); pcbridge did not
+  connect to it.
+- **A dedicated profile keeps sign-ins across restarts.** A persistent
+  HttpOnly cookie and a `localStorage` value set before `Browser.close`
+  were there after a relaunch on the same `--user-data-dir`; a session
+  cookie was not (as in a normal profile). Cookie values are stored with
+  the `v11` prefix, the key from the desktop keyring (libsecret), the same
+  as a normal profile. Same results in Chrome and Brave.
+- **The pipe ends the browser.** Closing pcbridge's end of
+  `--remote-debugging-pipe` made Chrome and Brave exit within 0.2 s. A
+  browser whose pipe the daemon holds would therefore die on every daemon
+  restart, taking a half-filled form or an open captcha with it.
+- **Extensions: Chrome 155 ignores `--load-extension`; Brave loads it.**
+  With `--remote-debugging-pipe` plus `--enable-unsafe-extension-debugging`,
+  CDP's `Extensions.loadUnpacked` loaded the unpacked extension in both.
+  That only works in a browser pcbridge launched, where CDP is there anyway;
+  an extension bridge into the user's real profile would have to be
+  installed by hand (developer mode) or through the Chrome Web Store, plus
+  a native-messaging host. Not built or measured end to end.
+- **Wrapping chrome-devtools-mcp 1.11.0** (the copy in the npx cache,
+  attached with `--browserUrl` to a dedicated profile): ready in 0.38 s,
+  32 tools, a 30.8 KB `tools/list`, 171 MiB resident for its Node process.
+  Usage statistics are sent to Google unless `--no-usage-statistics` (and
+  `--no-performance-crux` for trace URLs). Page tools need a `pageId` by
+  default. pcbridge depends on neither Node nor npm. `@playwright/mcp` was
+  not in the cache and was not downloaded; Playwright MCP's own extension
+  mode is the same kind of extension bridge as above.
+- **The chosen path (the maintainer's decision, 2026-10-17): a dedicated
+  pcbridge profile and pcbridge's own CDP layer.** The browser runs on its
+  own `--user-data-dir` under pcbridge's state directory, so the user signs
+  in to a site once there and the sign-in stays. CDP goes over
+  `--remote-debugging-pipe`, which opens no TCP port another local process
+  could use; the pipe is held by a small keeper process in its own systemd
+  scope, so a daemon restart does not end the browser. The window is the
+  keeper's child, found by that PID, never by application name. Chrome is
+  preferred, then Brave, then Chromium (`[browser] executable = "auto"`).
+  The user's real profile through the inspect switch was turned down: a
+  dialog for every connection makes a phone or a restarted daemon unable to
+  continue, the user's own windows share the PID that show and hide would
+  act on, and the agent would work inside the user's own browser. This
+  meets the roadmap's "existing session" as the pcbridge profile's session,
+  not as the user's everyday profile. `scripts/dev/browser-probe.py`
+  repeats the measurements above that need no person at the machine.
+
 ## GNOME Shell extension
 
 - **GNOME 45+ caches extension ESM modules.** `disable/enable` does not

@@ -42,9 +42,10 @@ here, not by moving sections.
    because they share the cursor and conflict design, and checked through
    claude.ai (see measured facts). Left: *Download and upload links for
    large files*, which the claude.ai measurements showed is needed.
-6. **Browser.** In this order: measure *Attaching to the existing session*,
-   then *Browser tools for the user's existing session*, *Show and hide the
-   browser window on demand*, *Taking over the agent's browser*.
+6. **Browser.** In this order: ~~measure *Attaching to the existing
+   session*~~ (done: a dedicated pcbridge profile, see measured facts),
+   then *Browser tools for the user's existing session*, *Show and hide
+   the browser window on demand*, *Taking over the agent's browser*.
 7. **More desktops.** *Retire the legacy Python desktop backends* first,
    then *X11, starting with Cinnamon and XFCE*, written straight into the
    native helper instead of added to Python and moved later.
@@ -174,22 +175,16 @@ at the machine* checks, batched for a session at the machine.
   actions are verified against fresh state, and browser reads/actions still
   work with the desktop grant closed, after `desktop_lock`, and after its
   expiry. This is a requirement for the future browser implementation.
-- **Attaching to the existing session: a known constraint.** Since Chrome
-  136, `--remote-debugging-port` and `--remote-debugging-pipe` are ignored
-  when Chrome runs with its default user data directory, so CDP cannot attach
-  to the user's normal signed-in profile
-  ([Chrome blog](https://developer.chrome.com/blog/remote-debugging-port)).
-  Brave is Chromium-based and probably behaves the same; not measured. If
-  attaching to the default profile turns out to be impossible, two fallbacks
-  keep the requirement above: a dedicated pcbridge profile (its own
-  `--user-data-dir` under pcbridge's state directory) where the user signs in
-  once and the logins persist, or a browser extension that bridges the
-  user's real tabs to the daemon, which keeps the existing session but adds
-  an extension to build and maintain. Wrapping an existing browser MCP
-  server (for example Playwright MCP) behind the daemon is worth weighing
-  against writing the CDP layer from scratch. Done when it is measured which
-  of these the supported Chrome and Brave versions allow, and the chosen
-  path is documented in measured facts.
+- ~~**Attaching to the existing session: a known constraint.**~~ Measured
+  (2026-10-17, Chrome 155 and Brave 155; see measured facts): Chrome
+  ignores the CDP flags on its default data directory, Brave honors them,
+  and both reach the default profile through the `chrome://inspect` switch
+  only with a dialog a person must click for every connection. The chosen
+  path is a dedicated pcbridge profile (signed in once, logins persist)
+  with pcbridge's own CDP layer over `--remote-debugging-pipe`, the pipe
+  held by a keeper process that outlives a daemon restart. The extension
+  bridge and wrapping chrome-devtools-mcp or Playwright MCP were weighed
+  and not taken.
 - **Taking over the agent's browser.** The user must be able to take the
   browser over at any time (captcha, two-factor steps, a first sign-in, or
   "let me do this part"), without a GUI application. Hand-over is an
