@@ -78,5 +78,20 @@ class SetupRestartDecisionTests(unittest.TestCase):
         self.assertTrue(ops.runs_installed_code({"version": __version__, "build": fp}))
 
 
+
+class StampTests(unittest.TestCase):
+    def test_stamp_carries_the_build(self) -> None:
+        from pcbridge import daemon
+        from pcbridge.cli import install
+
+        with tempfile.TemporaryDirectory() as raw, \
+                patch.object(install, "version_stamp_path", return_value=Path(raw) / "s"):
+            install.write_version_stamp()
+            text = (Path(raw) / "s").read_text()
+        self.assertEqual(daemon.stamp_build(text), buildlib.fingerprint())
+        self.assertIsNone(daemon.stamp_build("2.5.0 user 1790799767"))
+        self.assertIsNone(daemon.stamp_build("2.0.0 new"))
+
+
 if __name__ == "__main__":
     unittest.main()

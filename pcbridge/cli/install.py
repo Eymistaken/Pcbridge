@@ -369,12 +369,18 @@ def version_stamp_path() -> Path:
 
 
 def write_version_stamp() -> None:
-    """Tell a running daemon that a newer pcbridge is installed (it restarts when idle)."""
-    import time
+    """Tell a running daemon what is installed now; it restarts when idle if
+    that is not the code it runs.
+
+    The third field is the build fingerprint (`build.py`). It used to be a
+    timestamp, so reinstalling identical code still restarted the daemon.
+    """
+    from .. import build as buildlib
 
     path = version_stamp_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f"{__version__} {install_kind()} {int(time.time())}\n", encoding="utf-8")
+    path.write_text(f"{__version__} {install_kind()} {buildlib.fingerprint()}\n",
+                    encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

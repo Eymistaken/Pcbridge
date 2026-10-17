@@ -366,6 +366,21 @@ class DaemonIntegrationTests(unittest.TestCase):
         res = c.tool("shell_run", {"command": "echo after-update"})
         self.assertIn("after-update", _text(res))
 
+    def test_reinstalling_the_same_code_does_not_restart(self) -> None:
+        from pcbridge import build as buildlib
+
+        stamp = self.tmp / "data" / "pcbridge" / "version-stamp"
+        stamp.parent.mkdir(parents=True)
+        stamp.write_text("2.5.0 user 1790799767\n")
+        self.env["PCBRIDGE_STAMP_POLL_S"] = "0.2"
+        self._start_daemon()
+        stamp.write_text(f"2.5.0 user {buildlib.fingerprint()}\n")
+        time.sleep(1.5)
+        assert self.daemon is not None
+        self.assertIsNone(self.daemon.poll(), "restarted for a reinstall of the same code")
+        stamp.write_text(f"2.5.0 user {'0' * 64}\n")
+        self.assertEqual(self.daemon.wait(timeout=15), 75)
+
 
 if __name__ == "__main__":
     unittest.main()

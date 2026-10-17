@@ -219,7 +219,9 @@
   startup (contents, not modification times, so reinstalling identical
   code still needs no restart) and reports it in the socket handshake;
   setup restarts the daemon, when idle, unless both the version and the
-  fingerprint match.
+  fingerprint match. The version stamp an install writes now carries the
+  same fingerprint instead of a timestamp, so the daemon no longer restarts
+  itself a few seconds after a reinstall of the code it already runs.
 - **The consent page's refusals answered 500.** The page for an expired or
   unknown request, and the lockout after too many wrong passwords, were
   built from a template whose CSS braces broke `str.format`. They came back

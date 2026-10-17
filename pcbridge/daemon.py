@@ -438,6 +438,10 @@ class Daemon:
             current = read()
             if not current or current == initial:
                 continue
+            if stamp_build(current) == BUILD:
+                # Reinstalled, but the same code this daemon runs.
+                initial = current
+                continue
             reason = await anyio.to_thread.run_sync(self._busy_reason)
             if reason:
                 if self.state.restart_pending != reason:
@@ -450,6 +454,15 @@ class Daemon:
 
 
 # ---------------------------------------------------------------------------
+
+
+def stamp_build(stamp: str) -> str | None:
+    """The build fingerprint in a version stamp; None in the older format,
+    whose third field was a timestamp."""
+    parts = stamp.split()
+    if len(parts) >= 3 and len(parts[2]) == 64 and set(parts[2]) <= set("0123456789abcdef"):
+        return parts[2]
+    return None
 
 
 async def _serve(args: argparse.Namespace, bind_socket: bool) -> int:
