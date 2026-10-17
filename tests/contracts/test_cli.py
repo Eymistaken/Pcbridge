@@ -152,6 +152,21 @@ class CliTests(unittest.TestCase):
         self.assertIn("alias bridgekilit=", text)
         self.assertNotIn("/old/remote.sh", text)
 
+    def test_remote_start_needs_a_password_first(self) -> None:
+        cfg = Path(self.env["PCBRIDGE_CONFIG"])
+        cfg.write_text(cfg.read_text().replace('password = "a-very-secret-password-123"',
+                                               'password = ""'))
+        res = self.cli("remote", "start")
+        self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+        self.assertIn("needs a password first", res.stdout + res.stderr)
+        self.assertIn("pcbridge set auth.password", res.stdout + res.stderr)
+        log = self.log.read_text() if self.log.exists() else ""
+        self.assertNotIn("tailscale funnel --bg", log)
+        self.assertNotIn("systemctl --user start", log)
+        res = self.cli("doctor", "--json")
+        rows = {(c["group"], c["name"]): c for c in json.loads(res.stdout)["checks"]}
+        self.assertIn("remote access is off", rows[("remote", "password")]["detail"])
+
     def test_report_redacts_secrets(self) -> None:
         res = self.cli("report", "-o", str(self.home / "r.tar.gz"))
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)

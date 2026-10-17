@@ -31,9 +31,11 @@ The difference is real and was chosen knowingly.
 - **Your address is not secret.** `*.ts.net` names appear in public
   certificate-transparency logs. Protection comes from the password's length,
   not from nobody knowing the host.
-- The password and the static token are generated at setup; do not reuse a
-  password from elsewhere. After 8 wrong attempts an IP is locked out for 15
-  minutes (`[auth]`).
+- Setup creates neither a password nor a static token. Without a password
+  remote access is off: the consent page refuses every app and `pcbridge
+  remote start` does not open the tunnel. Do not reuse a password from
+  elsewhere. After 8 wrong attempts an IP is locked out for 15 minutes
+  (`[auth]`).
 - `pcbridge remote clients` lists the remote apps that hold tokens;
   `pcbridge remote revoke NAME` cuts one off and `pcbridge remote revoke
   --all` cuts off every one (the terminal UI's **Remote** tab does the same).

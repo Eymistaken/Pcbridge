@@ -133,6 +133,7 @@ class Backend:
                         for g in groups],
             "registrations": len(rc.registrations(cfg.db_path)),
             "static_token": bool(getattr(cfg, "static_token", "")),
+            "has_password": bool(getattr(cfg, "password", "")),
             "remote_profile": cfg.tools_profile if remote == "same" else remote,
             "remote_profile_set": remote != "same",
         }

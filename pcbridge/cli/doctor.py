@@ -465,12 +465,23 @@ class Doctor:
 
     def remote(self) -> None:
         g = "remote"
+        has_password = bool(self.cfg and self.cfg.has_password)
+        if self.cfg:
+            self.add(g, "password", "ok" if has_password else "info",
+                     "set (stored as a hash)" if has_password
+                     else "not set: remote access is off (local clients do not need it)",
+                     "" if has_password else "pcbridge set auth.password")
         if not shutil.which("tailscale"):
             self.add(g, "tailscale", "info", "not installed (only needed for remote access)")
             return
         port = self.cfg.port if self.cfg else 8765
         st = inst.run(["tailscale", "funnel", "status"], timeout=10).stdout
-        self.add(g, "funnel", "info", f"open on port {port}" if f":{port}" in st else "closed (`pcbridge remote start` opens it)")
+        is_open = f":{port}" in st
+        self.add(g, "funnel", "info", f"open on port {port}" if is_open else "closed (`pcbridge remote start` opens it)")
+        if is_open and self.cfg and not has_password:
+            self.add(g, "funnel without password", "warn",
+                     "the tunnel is open but no password is set: no remote app can be approved",
+                     "pcbridge set auth.password, or pcbridge remote stop")
 
     def logs(self) -> None:
         g = "logs"

@@ -24,11 +24,13 @@ class RemoteBackend(FakeBackend):
         super().__init__()
         self.apps = {"ChatGPT": 1, "Gemini [phone]": 3}
         self.revoked: list[str | None] = []
+        self.has_password = True
 
     def remote_clients(self, cfg):
         return {"clients": [{"name": n, "connected": c, "registrations": c, "expires": None,
                              "last": "2026-10-14 10:00"} for n, c in self.apps.items()],
                 "registrations": sum(self.apps.values()), "static_token": True,
+                "has_password": self.has_password,
                 "remote_profile": "readonly", "remote_profile_set": True}
 
     def connected_remote(self, cfg):
@@ -72,6 +74,16 @@ class RemoteTabTests(unittest.TestCase):
             self.assertFalse(app.query_one("#remote-revoke-all", Button).disabled)
 
         run_app(self, RemoteBackend(), body)
+
+    def test_no_password_says_remote_access_is_off(self) -> None:
+        backend = RemoteBackend()
+        backend.apps.clear()
+        backend.has_password = False
+
+        async def body(app, pilot):
+            self.assertIn("Remote access is off: no password is set", status(app))
+
+        run_app(self, backend, body)
 
     def test_revoke_asks_first_and_cancel_does_nothing(self) -> None:
         backend = RemoteBackend()

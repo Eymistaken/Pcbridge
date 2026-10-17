@@ -617,9 +617,9 @@ _PAGE = """<!doctype html>
 
 _DONE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>pcbridge</title>
-<style>body{background:#0d1117;color:#e6edf3;font-family:system-ui;display:flex;
-min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px}
-a{color:#58a6ff}</style></head><body><div>
+<style>body{{background:#0d1117;color:#e6edf3;font-family:system-ui;display:flex;
+min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px}}
+a{{color:#58a6ff}}</style></head><body><div>
 <h2>{title}</h2><p>{msg}</p></div></body></html>"""
 
 
@@ -660,7 +660,20 @@ def _err_box(msg: str) -> str:
 def make_consent_routes(provider: SqliteOAuthProvider):
     """FastMCP'ye eklenecek /consent GET ve POST isleyicileri."""
 
+    def no_password() -> Response:
+        return HTMLResponse(
+            _DONE.format(
+                title="Remote access is off",
+                msg="No pcbridge password is set on this computer, so nothing can be "
+                "approved. At the computer, run <b>pcbridge remote start</b> to create one, "
+                "then connect again from the client.",
+            ),
+            status_code=403,
+        )
+
     async def consent_get(request: Request) -> Response:
+        if not provider.cfg.has_password:
+            return no_password()
         rid = request.query_params.get("rid", "")
         pending = provider.peek_pending(rid)
         if not pending:
@@ -682,6 +695,8 @@ def make_consent_routes(provider: SqliteOAuthProvider):
         )
 
     async def consent_post(request: Request) -> Response:
+        if not provider.cfg.has_password:
+            return no_password()
         form = await request.form()
         rid = str(form.get("rid", ""))
         password = str(form.get("password", ""))

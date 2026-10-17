@@ -11,7 +11,6 @@ import io
 import json
 import os
 import re
-import secrets
 import shlex
 import shutil
 import subprocess
@@ -24,7 +23,6 @@ from pathlib import Path
 from .. import __version__
 from .. import assets as assetslib
 from .. import distro as distrolib
-from .. import hashing as hashinglib
 from .. import paths as pathslib
 from . import connect as connectlib
 from . import install as inst
@@ -276,6 +274,11 @@ def remote(argv: list[str]) -> int:
         (inst.ok if funnel_open() else inst.warn)(f"funnel {'open' if funnel_open() else 'closed'}; remote address {cfg.mcp_url}")
         return 0
     if args.action == "start":
+        if not cfg.has_password:
+            inst.fail("remote access needs a password first, and none is set")
+            inst.say("  Local clients never use it; remote clients type it on the approval page.")
+            inst.say("  Create one with `pcbridge set auth.password`, then run this again.")
+            return 1
         inst.systemctl("start", "pcbridge.service")
         for _ in range(25):
             if health():
@@ -514,9 +517,11 @@ def _legacy_config_candidates() -> list[Path]:
 def _fresh_config(dest: Path) -> None:
     text = assetslib.asset_path("config.example.toml").read_text(encoding="utf-8")
     text = re.sub(r'(?m)^public_url = .*$', 'public_url = "http://localhost:8765"', text, count=1)
-    text = re.sub(r'(?m)^password = .*$', f'password = "{secrets.token_urlsafe(24)}"', text, count=1)
-    text = re.sub(r'(?m)^static_token = .*$', f'static_token = "{secrets.token_urlsafe(32)}"', text, count=1)
-    text, _ = hashinglib.harden_text(text)
+    # No password and no static token: local clients use neither, and remote
+    # access stays off until the user creates a password for it
+    # (`pcbridge remote start`, the Remote tab, or the end of setup).
+    text = re.sub(r'(?m)^password = .*$', 'password = ""', text, count=1)
+    text = re.sub(r'(?m)^static_token = .*$', 'static_token = ""', text, count=1)
     tomllib.loads(text)
     dest.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(dest.parent, 0o700)
@@ -655,7 +660,7 @@ def setup(argv: list[str]) -> int:
             inst.ok(f"migrated {cands[0]} -> {xdg} (the old file is left in place)")
         else:
             _fresh_config(xdg)
-            inst.ok(f"created {xdg} with a new password and token; desktop control is OFF until you enable it there")
+            inst.ok(f"created {xdg}; desktop control is OFF and remote access has no password yet")
     for line in planlib.apply_settings(plan, xdg):
         inst.ok(line)
     settings_changed = plan.profile_target is not None

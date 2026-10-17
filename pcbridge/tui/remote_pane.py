@@ -89,6 +89,10 @@ class RemotePane(Vertical):
         live = sum(g["connected"] for g in groups)
         lines = [f"{len(groups)} app(s) connected ({live} registration(s) with live tokens)"
                  if groups else "No remote app holds a token."]
+        if not info.get("has_password", True):
+            lines.insert(0, "Remote access is off: no password is set, so the approval page "
+                            "refuses every app and the tunnel does not open. Local clients do not "
+                            "need one.")
         lines.append(f"Tools for remote clients: {info.get('remote_profile', '?')}"
                      + ("" if info.get("remote_profile_set") else " (follows tools.profile)")
                      + "; change it in Settings > tools.remote_profile.")

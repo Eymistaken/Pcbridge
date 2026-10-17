@@ -126,8 +126,20 @@
   written. To run `tests/test_e2e.py` against the installed daemon, take the
   password and token from a password manager: they cannot be read from the
   file any more.
+- **No password until remote access is wanted.** Setup no longer generates
+  a password or a static token that nobody saw: local clients on the socket
+  use neither. Without a password, remote access is off. The consent page
+  refuses every app and says how to turn remote access on, and `pcbridge
+  remote start` does not open the tunnel. `pcbridge doctor` and the Remote
+  tab say so too. An existing password keeps working.
 
 ### Fixed
+
+- **The consent page's refusals answered 500.** The page for an expired or
+  unknown request, and the lockout after too many wrong passwords, were
+  built from a template whose CSS braces broke `str.format`. They came back
+  as an empty 500 response. The lockout still held, but nobody could read
+  why. They now show their message, with 400, 403 or 429.
 
 - **`fs_read` refuses binary files.** It used to decode with
   `errors="replace"`, so a PDF, an image or an executable came back as

@@ -256,7 +256,8 @@ at the machine* checks, batched for a session at the machine.
      migrated in place when the daemon starts (see measured facts). Left:
      the installed daemon still runs the old code, so the maintainer's own
      config and database are converted at the next `pcbridge update`.
-  2. **No password until remote access is wanted.** Local clients on the
+  2. ~~**No password until remote access is wanted.**~~ Done (Unreleased),
+     except the creation paths, which come with step 3. Local clients on the
      socket never use it, so someone who only uses pcbridge as a local MCP
      server never meets it. Setup stops generating one silently. Remote
      access stays off until a password exists; whenever the user wants it,

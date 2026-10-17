@@ -193,8 +193,9 @@ Then:
    refreshes the package lists once and tries again. Where desktop control
    is supported and `evdev` is missing, it pip-installs `evdev` and
    `Pillow` (after the compiler packages of the plan).
-2. Writes `~/.config/pcbridge/config.toml` (0600) with a new password and
-   static token, or migrates a 1.x `config.toml` (the old file stays where it
+2. Writes `~/.config/pcbridge/config.toml` (0600) with no password and no
+   static token (local clients need neither; remote access stays off until
+   you create a password), or migrates a 1.x `config.toml` (the old file stays where it
    was; `--from-config PATH` picks one explicitly).
 3. Links `~/.local/bin/pcbridge`, `pcb-shot` and `pcb-do`.
 4. Writes and enables `pcbridge.socket` and `pcbridge.service` for your user,
@@ -256,10 +257,12 @@ when `force=true`.
 ## 4. Remote access (optional)
 
 Install Tailscale, enable HTTPS certificates for the tailnet, set
-`public_url` in the config, then:
+`public_url` in the config, then create the password remote clients will
+type (local clients never use it; until it exists remote access stays off):
 
 ```bash
-pcbridge remote start      # opens the Funnel tunnel to 127.0.0.1:8765
+pcbridge set auth.password  # at least 12 characters; only its hash is stored
+pcbridge remote start       # opens the Funnel tunnel to 127.0.0.1:8765
 ```
 
 Give remote clients `<public_url>/mcp`; they authorize with the password.

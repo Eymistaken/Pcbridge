@@ -316,6 +316,12 @@ class Config:
 
     # -- turetilmis ---------------------------------------------------------
     @property
+    def has_password(self) -> bool:
+        """Remote access needs a password; without one the consent page refuses
+        and `pcbridge remote start` does not open the tunnel."""
+        return bool(self.password)
+
+    @property
     def mcp_url(self) -> str:
         return self.public_url.rstrip("/") + self.mcp_path
 
@@ -910,9 +916,10 @@ def _load_config(explicit: str | None = None, *, check_state: bool = True) -> Co
             f"{path}: `public_url` must start with https:// (remote OAuth clients require HTTPS), "
             "or point at localhost."
         )
-    # A stored hash has no length to check; a plaintext one (the environment,
-    # or a file the daemon has not hashed yet) still must be long.
-    if not hashinglib.is_password_hash(password) and len(password) < 12:
+    # No password means no remote access: local clients on the socket never
+    # use it. A stored hash has no length to check; a plaintext one (the
+    # environment, or a file the daemon has not hashed yet) still must be long.
+    if password and not hashinglib.is_password_hash(password) and len(password) < 12:
         raise SystemExit(
             f"{path}: `auth.password` must be at least 12 characters. Pick a long, unguessable one."
         )

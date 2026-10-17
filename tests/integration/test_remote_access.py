@@ -446,6 +446,30 @@ class RemoteAccessTests(unittest.TestCase):
         self.assertIn("shell_run", self._http_tools(STATIC))
         self.assertIn("shell_run", self._http_tools(renewed["access_token"]))
 
+    def test_no_password_means_the_consent_page_refuses(self) -> None:
+        self._write_config('profile = "core"', password="")
+        self._start_daemon()
+        reg = self.http.post(f"{self.base}/register", json={
+            "client_name": "Phone", "redirect_uris": [REDIRECT],
+            "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"],
+            "token_endpoint_auth_method": "client_secret_post"}).json()
+        r = self.http.get(f"{self.base}/authorize", params={
+            "response_type": "code", "client_id": reg["client_id"], "redirect_uri": REDIRECT,
+            "state": "s", "code_challenge": "x" * 43, "code_challenge_method": "S256"})
+        rid = parse_qs(urlparse(r.headers["location"]).query)["rid"][0]
+        r = self.http.get(f"{self.base}/consent", params={"rid": rid})
+        self.assertEqual(r.status_code, 403)
+        self.assertIn("Remote access is off", r.text)
+        self.assertIn("pcbridge remote start", r.text)
+        # An empty password approves nothing either.
+        r = self.http.post(f"{self.base}/consent", data={"rid": rid, "password": ""})
+        self.assertEqual(r.status_code, 403)
+        self.assertNotIn("location", r.headers)
+        # Local clients and the static token do not need it.
+        _, local = self._socket_tools()
+        self.assertIn("shell_run", local)
+        self.assertIn("shell_run", self._http_tools(STATIC))
+
 
 if __name__ == "__main__":
     unittest.main()

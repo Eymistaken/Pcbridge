@@ -103,6 +103,17 @@ class HashTests(unittest.TestCase):
         self.assertIn('static_token = ""', new)
 
 
+class ConsentPageTests(unittest.TestCase):
+    def test_every_page_template_formats(self) -> None:
+        # _DONE carried unescaped CSS braces, so every refusal page (an
+        # expired request, the lockout) answered 500 instead of its message.
+        done = authlib._DONE.format(title="T", msg="M")
+        self.assertIn("<h2>T</h2><p>M</p>", done)
+        self.assertIn("body{background", done)
+        authlib._PAGE.format(rid="r", client_name="c", redirect="u", error="")
+        authlib._MANUAL.format(target="t")
+
+
 class ConfigFileTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="pcb-hash-"))
@@ -137,6 +148,13 @@ class ConfigFileTests(unittest.TestCase):
         # A stored hash has no length to check.
         self.assertEqual(configlib.load_config_hardened(str(self.path))[1], [])
 
+    def test_no_password_loads_and_means_no_remote_access(self) -> None:
+        self.path.write_text(CONFIG.format(password="", token="", state=self.tmp / "state"))
+        cfg = configlib.load_config(str(self.path), check_state=False)
+        self.assertFalse(cfg.has_password)
+        self.assertFalse(any("in plaintext" in w for w in cfg.warnings), cfg.warnings)
+        self.assertFalse(H.verify_password("", cfg.password))
+
     def test_a_short_plaintext_password_is_still_refused(self) -> None:
         self.path.write_text(CONFIG.format(password="short", token="", state=self.tmp / "state"))
         with self.assertRaisesRegex(configlib.ConfigError, "at least 12"):
@@ -168,6 +186,23 @@ class ConfigFileTests(unittest.TestCase):
     def test_the_editor_refuses_a_short_password(self) -> None:
         with self.assertRaisesRegex(S.SettingsError, "at least 12"):
             S.ConfigEditor(self.path).set("auth.password", "short")
+
+
+class SetupTests(unittest.TestCase):
+    def test_a_fresh_config_has_no_password_and_no_token(self) -> None:
+        from pcbridge.cli import ops
+
+        tmp = Path(tempfile.mkdtemp(prefix="pcb-fresh-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        dest = tmp / "pcbridge" / "config.toml"
+        ops._fresh_config(dest)
+        self.assertEqual(stat.S_IMODE(dest.stat().st_mode), 0o600)
+        with mock.patch.dict(os.environ, {}, clear=False):
+            for k in ("PCBRIDGE_PASSWORD", "PCBRIDGE_STATIC_TOKEN"):
+                os.environ.pop(k, None)
+            cfg = configlib.load_config(str(dest), check_state=False)
+        self.assertEqual((cfg.password, cfg.static_token), ("", ""))
+        self.assertFalse(cfg.has_password)
 
 
 class TokenDatabaseTests(unittest.TestCase):
