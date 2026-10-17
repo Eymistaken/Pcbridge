@@ -38,10 +38,10 @@ here, not by moving sections.
    way to find the password a remote client needs.
 5. **File tools.** ~~*Paginated and ranged file reads*~~ (done,
    Unreleased), ~~the rest of *Binary file transfer*~~ (done, Unreleased),
-   ~~*Targeted edits and easier writes*~~ (done, Unreleased), checked
-   through claude.ai (see measured facts). Left: *Download and upload links
-   for large files*, which the claude.ai measurements showed is needed. Together, because
-   they share the cursor and conflict design.
+   ~~*Targeted edits and easier writes*~~ (done, Unreleased), together
+   because they share the cursor and conflict design, and checked through
+   claude.ai (see measured facts). Left: *Download and upload links for
+   large files*, which the claude.ai measurements showed is needed.
 6. **Browser.** In this order: measure *Attaching to the existing session*,
    then *Browser tools for the user's existing session*, *Show and hide the
    browser window on demand*, *Taking over the agent's browser*.
