@@ -222,7 +222,7 @@ class CliSettingsTests(unittest.TestCase):
     def test_tools_lists_searches_and_details(self) -> None:
         res = self.cli("tools")
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertIn("40 of 40 tools offered", res.stdout)
+        self.assertIn("45 of 45 tools offered", res.stdout)
         self.assertIn("[needs desktop]", res.stdout)  # desktop control is off in this config
         res = self.cli("tools", "screenshot")
         self.assertIn("screen_capture", res.stdout)

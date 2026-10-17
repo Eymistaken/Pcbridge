@@ -60,7 +60,7 @@
 | MCP clients | `cli/connect.py` | Registers `pcbridge stdio` with eight local clients, switches it off or removes it, backs up every file it changes |
 | Terminal UI | `tui/` | `pcbridge` alone in a terminal (Textual): the grant bar, Overview, Settings, Tools, Commands; everything through `tui/backend.py` |
 | Authentication | `auth.py` | A small OAuth 2.1 server (DCR, PKCE, refresh) and consent page, SQLite |
-| Tools | `tools.py` | All 40 MCP tools and their hints (`TOOL_HINTS`); `[tools] profile` |
+| Tools | `tools.py` | All 45 MCP tools and their hints (`TOOL_HINTS`); `[tools] profile` |
 | File links | `filelinks.py` | One-time download and upload links: the in-memory link store, `/dl/<token>` and `/ul/<token>`, the access-log filter that hides their tokens |
 | Session context | `sessionctx.py` | Per-session maps and context variables |
 | Jobs | `jobs.py` | Background processes and agent output parsers (`plain`, `claude_stream_json`, `agy_json`) |
