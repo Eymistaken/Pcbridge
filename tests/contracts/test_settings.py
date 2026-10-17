@@ -76,7 +76,7 @@ class RegistryTests(EditorCase):
     def test_every_key_the_loader_reads_is_editable_or_excused(self) -> None:
         keys = {s.key for s in S.registry(["claude"])}
         sections = {"auth", "paths", "limits", "server", "native", "desktop", "agents", "tools",
-                    "power"}
+                    "power", "browser"}
         expected = {k for k in configlib._TOP_KEYS if k not in sections}
         expected.discard("inline_images")  # the legacy top-level spelling of server.inline_images
         for section, names in configlib._SECTION_KEYS.items():
@@ -119,6 +119,8 @@ class RegistryTests(EditorCase):
                     actual = "" if actual is None else str(actual)
             elif s.section == "desktop":
                 actual = getattr(cfg.desktop, s.name)
+            elif s.section == "browser":
+                actual = getattr(cfg.browser, s.name)
             else:
                 actual = getattr(cfg.agents["claude"], s.name)
                 if s.name == "command":

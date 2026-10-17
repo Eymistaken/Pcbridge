@@ -36,6 +36,8 @@ from . import jobs as jobslib
 from . import models as modelslib
 from . import shots as shotslib
 from . import tmuxctl
+from .browser import mcptools as browsermcp
+from .browser.manager import BrowserManager
 from .config import Config
 from .desktop import a11y as a11ylib
 from .desktop import apps as appslib
@@ -336,6 +338,11 @@ TOOL_HINTS: dict[str, tuple[bool, bool, bool, bool]] = {
     "mouse":                (False, True,  False, True),
     "computer_batch":       (False, True,  False, True),
     "computer_task":        (False, True,  False, True),
+    "browser_tabs":         (True,  False, True,  True),
+    "browser_read":         (True,  False, True,  True),
+    "browser_screenshot":   (True,  False, True,  True),
+    "browser_navigate":     (False, True,  False, True),
+    "browser_act":          (False, True,  False, True),
 }
 
 
@@ -3697,6 +3704,13 @@ def register(
         if wait_seconds > 0:
             return "\n".join(head) + "\n\n---\n" + _fmt_job_summary(cfg, jm, job_id)
         return "\n".join(head)
+
+    # ================================================================ BROWSER
+    # pcbridge/browser/: the pcbridge browser over CDP. Not desktop tools:
+    # they pass no `_guard()`, so the grant and `[desktop] enabled` do not
+    # apply, and they only audit what was done.
+    browsermcp.register(mcp, BrowserManager(cfg, lambda: jm.use_scopes), gate,
+                        shot_store or shotslib.ShotStore(cfg), transport, _inline_images)
 
     # ================================================================== SISTEM
     @mcp.tool(annotations={"title": "Computer status"})

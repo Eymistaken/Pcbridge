@@ -248,6 +248,27 @@ class NativeSpec:
 
 
 @dataclass
+class BrowserSpec:
+    """[browser]: the browser pcbridge starts on its own profile.
+
+    Not a desktop capability: the browser tools speak CDP to this browser
+    only, so neither `[desktop] enabled` nor the grant applies to them.
+    """
+
+    # "auto" (Google Chrome, then Brave, then Chromium), one of those names,
+    # or a path to the executable.
+    executable: str = "auto"
+    # The browser's --user-data-dir; empty = <state_dir>/browser/profile.
+    profile_dir: str = ""
+    # Extra command-line arguments for the browser.
+    extra_args: list[str] = field(default_factory=list)
+    # Let browser_act type into password fields. Off by default, like the
+    # desktop's password-field gate: the user signs in once in the pcbridge
+    # browser and the sign-in stays.
+    allow_password_fields: bool = False
+
+
+@dataclass
 class Config:
     public_url: str
     host: str
@@ -287,6 +308,7 @@ class Config:
     default_agent: str = "claude"
     desktop: DesktopSpec = field(default_factory=DesktopSpec)
     native: NativeSpec = field(default_factory=NativeSpec)
+    browser: BrowserSpec = field(default_factory=BrowserSpec)
     # audit.log bu boyutu asinca `.1`'e devredilir. 0 = donderme kapali.
     # Masaustu araclarindan sonra kabuk/ajan/dosya araclari da kayit tuttugu
     # icin dosya artik hizli buyuyor.
@@ -426,7 +448,7 @@ def find_config(explicit: str | None = None) -> Path:
 _TOP_KEYS = {
     "config_version", "public_url", "host", "port", "mcp_path", "default_agent",
     "inline_images", "auth", "paths", "limits", "server", "native", "desktop",
-    "agents", "tools", "power",
+    "agents", "tools", "power", "browser",
 }
 _SECTION_KEYS: dict[str, set[str]] = {
     "auth": {
@@ -439,6 +461,7 @@ _SECTION_KEYS: dict[str, set[str]] = {
     "native": {"capture", "input", "accessibility", "binary_path"},
     "tools": {"profile", "remote_profile"},
     "power": {"keep_awake"},
+    "browser": {"executable", "profile_dir", "extra_args", "allow_password_fields"},
 }
 _HINTS = {
     ("limits", "default_agent"): "`default_agent` belongs at the top of the file, before any [section]",
@@ -796,6 +819,29 @@ def _tools_profile(raw: dict[str, Any], path: Path, key: str = "profile") -> str
             f"{', '.join(choices)}. Use {hint}."
         )
     return value
+
+
+def _browser(raw: dict[str, Any], path: Path | str) -> BrowserSpec:
+    table = raw.get("browser") or {}
+    if not isinstance(table, dict):
+        raise SystemExit(f"[browser] ({path}): must be a table.")
+    spec = BrowserSpec()
+    exe = table.get("executable", spec.executable)
+    if not isinstance(exe, str) or not exe.strip():
+        raise SystemExit(f'[browser] ({path}): `executable = {exe!r}` must be "auto", '
+                         '"chrome", "brave", "chromium" or a path.')
+    profile = table.get("profile_dir", spec.profile_dir)
+    if not isinstance(profile, str):
+        raise SystemExit(f"[browser] ({path}): `profile_dir = {profile!r}` must be a string.")
+    extra = table.get("extra_args", [])
+    if not isinstance(extra, list) or not all(isinstance(a, str) for a in extra):
+        raise SystemExit(f"[browser] ({path}): `extra_args` must be a list of strings.")
+    allow = table.get("allow_password_fields", False)
+    if not isinstance(allow, bool):
+        raise SystemExit(f"[browser] ({path}): `allow_password_fields = {allow!r}` "
+                         "must be true or false.")
+    return BrowserSpec(executable=exe.strip(), profile_dir=profile.strip(),
+                       extra_args=list(extra), allow_password_fields=allow)
 
 
 def _keep_awake(raw: dict[str, Any], path: Path | str) -> bool:
@@ -1201,6 +1247,7 @@ def _load_config(explicit: str | None = None, *, check_state: bool = True) -> Co
         default_agent=default_agent,
         desktop=desktop,
         native=native,
+        browser=_browser(raw, path),
         source_path=path,
         source_kind=source_kind,
         config_version=config_version,
