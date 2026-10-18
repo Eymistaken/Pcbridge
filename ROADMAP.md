@@ -119,6 +119,22 @@ at the machine* checks, batched for a session at the machine.
   stages. Done when a first install on a supported and an unsupported
   desktop needs no typed answers, never looks frozen, and ends on a screen
   that says what to do next.
+- **Offer to put `~/.local/bin` on PATH.** To be done together with the
+  installer UI above. On Arch (and any system whose profile does not add
+  `~/.local/bin`) setup finishes, then `pcbridge` is "command not found":
+  the only hint is one line under "Still to do by hand" at the very end
+  (seen again on an Arch/GNOME VM in GNOME Boxes, 2026-10-18). Setup leaves
+  the shell's files alone on purpose (`path_note()` in
+  `pcbridge/cli/install.py`), which is right without consent but wrong as
+  the only option. Instead setup should say why in plain words ("on Arch
+  Linux `~/.local/bin` is not on PATH, so typing `pcbridge` finds
+  nothing") and offer to fix it: add the line to the file of the user's
+  login shell (`~/.bashrc`, `~/.zshrc`, or `fish_add_path` for fish), back
+  the file up into the setup backup and list it in `ROLLBACK.md`, and say
+  that the current terminal needs a new window or `source`. Without a
+  terminal or with `--yes` it is not done silently; the line is printed as
+  today. Done when a first install on Arch ends with `pcbridge` working in
+  a new terminal after one yes, and a no leaves every shell file untouched.
 
 ## Optional: file tools
 
