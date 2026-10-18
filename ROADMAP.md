@@ -165,8 +165,8 @@ at the machine* checks, batched for a session at the machine.
   links, buttons, form fields and standard dropdowns. Anything else a
   person can click is out of reach. The first real test (2026-10-17, the
   maintainer's Tenda router at 192.168.0.1) ran into exactly that. The
-  task was to set the download limit of the device "MI9-MI9,Mehmet" on
-  the **Bant Genişliği Kontrolü** page from 64 KB/s to **Limit yok**. The
+  task was to set the download limit of one device on the
+  **Bant Genişliği Kontrolü** page from 64 KB/s to **Limit yok**. The
   limit is chosen from a custom dropdown whose options are plain list rows
   that `browser_read` showed only as text, with no ref. Typing "Limit yok"
   into the box beside it was cut to "Limit" by the field's 5-character
