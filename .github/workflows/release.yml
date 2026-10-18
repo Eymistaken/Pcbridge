@@ -61,10 +61,21 @@ jobs:
           sha256sum * > sha256sums.txt
           cat sha256sums.txt
 
+      # The install commands open every release body, above the generated
+      # notes. When the draft's notes are replaced by the written ones, keep
+      # this block at the top: it is the only place on the release page that
+      # says how to install.
+      - name: Install block for the release notes
+        run: |
+          sed "s/{{VERSION}}/${GITHUB_REF_NAME}/g" .github/release-install.md \
+            > "$RUNNER_TEMP/release-install.md"
+          cat "$RUNNER_TEMP/release-install.md"
+
       - uses: softprops/action-gh-release@v3
         with:
           draft: true
           name: pcbridge ${{ github.ref_name }}
           files: dist/*
           fail_on_unmatched_files: true
+          body_path: ${{ runner.temp }}/release-install.md
           generate_release_notes: true
