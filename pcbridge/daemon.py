@@ -465,6 +465,30 @@ def stamp_build(stamp: str) -> str | None:
     return None
 
 
+def close_retired_browser(state_dir: Path) -> bool:
+    """Close a browser that pcbridge 2.6.0 left running; True if one was.
+
+    2.6.0's browser tools ran the browser under a keeper process in its own
+    systemd scope, so it outlives the daemon that started it. 2.7.0 removed
+    them, so nothing would close it any more. Its profile, with the user's
+    sign-ins, stays in <state_dir>/browser; deleting it is the user's call.
+    """
+    record = state_dir / "browser" / "keeper.json"
+    try:
+        pid = int(json.loads(record.read_text())["keeper_pid"])
+        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    if b"pcbridge" not in cmdline or b"keeper" not in cmdline:
+        return False
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return False
+    record.unlink(missing_ok=True)
+    return True
+
+
 async def _serve(args: argparse.Namespace, bind_socket: bool) -> int:
     global STATE, BUILD
     BUILD = buildlib.fingerprint()
@@ -483,6 +507,9 @@ async def _serve(args: argparse.Namespace, bind_socket: bool) -> int:
     fixed = sessionlib.ensure_session_env()
     if fixed:
         log.warning("Session environment was incomplete; repaired: %s", ", ".join(fixed))
+    if close_retired_browser(Path(cfg.state_dir)):
+        log.warning("closed the browser pcbridge 2.6.0 left running; its profile stays in %s",
+                    Path(cfg.state_dir) / "browser")
 
     mcp, _provider = applib.build_app(cfg, transport="http")
     runtime = mcp._pcbridge_desktop_runtime
