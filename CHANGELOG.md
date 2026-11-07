@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`computer_task` failed on every install from a release wheel.** The
+  2.6.0 and 2.7.0 wheels carried no `skills/`, so `computer_task` stopped at
+  once with "The computer-use instructions are missing". `python -m build`
+  builds the wheel from the sdist, `MANIFEST.in` did not list `skills/`, and
+  the build skipped the missing source without a word. `MANIFEST.in` now
+  lists it, a build with any asset missing fails and names it, and CI
+  checks every built wheel against the assets in the checkout
+  (`packaging/check-wheel.py`). The `.deb` and Arch packages were not
+  affected: they build the wheel from the source tree.
+
 ## 2.7.0 - 2026-11-07
 
 ### Removed

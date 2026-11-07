@@ -442,16 +442,6 @@ at the machine* checks, batched for a session at the machine.
 - **Plasma's grant notification can be dismissed.** Closing it by hand
   does not end the grant (only "Lock now" does); ending the grant on dismiss
   needs a check that it was not closed by pcbridge itself.
-- **The release wheel ships without `skills/`.** pcbridge 2.6.0 has no
-  `pcbridge/_assets/skills/`, so `computer_task` fails at once with "The
-  computer-use instructions are missing". `python -m build` builds the wheel
-  from the sdist, and `MANIFEST.in` has no `recursive-include skills *`, so
-  `skills/` never reaches the sdist; `build_py` in `setup.py` then skips the
-  missing source without a word. Fix: add the line to `MANIFEST.in`, make
-  `build_py` fail when an `ASSETS` source is missing, and have CI check the
-  built wheel for `pcbridge/_assets/skills/computer-use/SKILL.md`. Done when
-  a wheel from `python -m build` carries the skill and `computer_task` starts
-  from a clean install.
 
 ## Decided against
 

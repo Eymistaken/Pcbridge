@@ -79,6 +79,22 @@ jobs:
             .venv/bin/python tests/readiness/check.py \
             --command "$PWD/.venv/bin/python -m pcbridge stdio"
 
+  wheel:
+    name: wheel carries its assets
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      # The wheel is built from the sdist, so a file MANIFEST.in leaves out
+      # is missing from it (2.6.0 and 2.7.0 shipped without skills/).
+      - name: Build and check
+        run: |
+          python -m pip install build
+          python -m build --outdir dist
+          python packaging/check-wheel.py dist/*.whl
+
   extension:
     name: gnome extension (gjs)
     runs-on: ubuntu-24.04

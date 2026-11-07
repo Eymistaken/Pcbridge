@@ -44,6 +44,13 @@ class build_py(_build_py):
         for logical, rel in ASSETS.items():
             src = ROOT / rel
             dst = target / logical
+            # `python -m build` builds the wheel from the sdist, so an asset
+            # that MANIFEST.in leaves out is simply not there. Skipping it
+            # shipped 2.6.0 and 2.7.0 without skills/, and computer_task
+            # failed on every install.
+            if not src.exists():
+                raise SystemExit(f"pcbridge build: the asset {rel!r} is missing; "
+                                 "is it listed in MANIFEST.in?")
             if src.is_dir():
                 shutil.copytree(src, dst, dirs_exist_ok=True,
                                 ignore=shutil.ignore_patterns("__pycache__", "gschemas.compiled"))

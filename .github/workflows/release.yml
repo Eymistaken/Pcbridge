@@ -35,6 +35,7 @@ jobs:
           chmod +x pcbridge/_native/*/pcbridge-native
           python -m pip install build
           python -m build --outdir dist
+          python packaging/check-wheel.py dist/*.whl
 
       - uses: actions/download-artifact@v8
         with:
