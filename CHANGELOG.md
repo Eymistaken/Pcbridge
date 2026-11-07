@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.7.2 - 2026-11-07
+
+### Added
+
+- **The computer-use skill comes with the server.** Every MCP client can
+  list and read it as the resource `skill://computer-use/SKILL.md`, with a
+  manifest at `skill://computer-use/_manifest`. Until now the server
+  advertised resources but listed none, so a client that looked for
+  pcbridge's skill found an empty list. The tools are unchanged: still 40.
+
+### Fixed
+
+- **`pcbridge setup` links the skill into Claude Code again.** Before 2.0,
+  `install.sh` linked `~/.claude/skills/computer-use` to the skill; the 2.0
+  setup dropped that step, so a fresh install gave Claude Code no
+  computer-use skill. Setup now makes the link when `~/.claude` exists,
+  leaves a link that already leads to a skill as it is, and replaces a
+  broken one; `pcbridge uninstall` removes only a link into its own
+  installation.
+
 ## 2.7.1 - 2026-11-07
 
 ### Fixed
