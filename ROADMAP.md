@@ -23,9 +23,7 @@ here, not by moving sections.
    jobs.
 2. **Remote access safety.** ~~*List and revoke remote clients*~~ (done,
    2.6.0); ~~*A separate tool profile for remote access*~~ (done,
-   2.6.0). Before the browser: browser tools work
-   without the desktop grant, so remote clients gain power, and
-   `remote_profile` decides whether a phone gets them at all.
+   2.6.0).
 3. **Installation.** ~~*One install script that finds everything itself*~~
    (done, 2.6.0); ~~*Python: offer the fix, do not just fail*~~ (done,
    2.6.0); ~~*Optional components as a checklist*~~ (done,
@@ -42,23 +40,14 @@ here, not by moving sections.
    because they share the cursor and conflict design, and checked through
    claude.ai (see measured facts). ~~*Download and upload links for large
    files*~~ (done, 2.6.0).
-6. **Browser.** In this order: ~~measure *Attaching to the existing
-   session*~~ (done: a dedicated pcbridge profile, see measured facts),
-   ~~*Browser tools for the user's existing session*~~ (done, 2.6.0),
-   ~~*Show and hide the browser window on demand*~~ (done, 2.6.0),
-   ~~*Taking over the agent's browser*~~ (done, 2.6.0). Left: the
-   checks each item lists.
-7. **Browser control as strong as computer use.** See the item of that
-   name under *Optional: browser control*. Stage 8 does not start until
-   this is done: the maintainer's decision (2026-10-17), after the first
-   real router test showed that the browser tools could not pick an
-   option a person picks with one click.
-8. **More desktops.** *Retire the legacy Python desktop backends* first,
+6. ~~**Browser.**~~ Shipped in 2.6.0, removed in 2.7.0; see *Decided
+   against*.
+7. **More desktops.** *Retire the legacy Python desktop backends* first,
    then *X11, starting with Cinnamon and XFCE*, written straight into the
    native helper instead of added to Python and moved later.
-9. **Windows.** After everything above; see *Optional: Windows* for what it
+8. **Windows.** After everything above; see *Optional: Windows* for what it
    involves. Scope to be written before work starts.
-10. **Website.** Last, once the feature set has settled, so the site is not
+9. **Website.** Last, once the feature set has settled, so the site is not
    chasing every new feature; see *Optional: website*. Until then the
    install script is served from a GitHub release URL.
 
@@ -173,85 +162,6 @@ at the machine* checks, batched for a session at the machine.
   or expired link returns 404 (see measured facts). Left, optional: the
   same from a physical phone on a mobile network, and a claude.ai
   conversation that hands a link to the user.
-
-## Optional: browser control
-
-- **Browser control as strong as computer use.** The browser tools act
-  only on what `browser_read` recognizes as an element and gives a ref:
-  links, buttons, form fields and standard dropdowns. Anything else a
-  person can click is out of reach. The first real test (2026-10-17, the
-  maintainer's Tenda router at 192.168.0.1) ran into exactly that. The
-  task was to set the download limit of one device on the
-  **Bant Genişliği Kontrolü** page from 64 KB/s to **Limit yok**. The
-  limit is chosen from a custom dropdown whose options are plain list rows
-  that `browser_read` showed only as text, with no ref. Typing "Limit yok"
-  into the box beside it was cut to "Limit" by the field's 5-character
-  limit, the arrow keys and Enter did nothing in that list, and the real
-  mouse needs desktop control, which is off on this machine. The one
-  click had to be handed to the maintainer. The maintainer's requirement:
-  browser use must be as capable as computer use is today. Whatever a
-  person can click in the pcbridge browser, an agent must be able to
-  click too. When the page structure does not help, that means working
-  from the picture alone, by clicking the point it sees in a
-  `browser_screenshot`. When needed it also means OCR: find the words, for
-  example "Limit yok" in that open router dropdown, read their position
-  off the screenshot and click there. This has to work while the window is
-  hidden, and in headless mode too. It goes through the browser itself,
-  not the desktop's mouse, so it still needs no desktop grant and cannot
-  land in another window. The maintainer will do this item later. Done
-  when an agent alone, with the browser window hidden, can make that
-  router change and save it.
-- ~~**Browser tools for the user's existing session.**~~ Done
-  (2.6.0): `browser_tabs`, `browser_read`, `browser_screenshot`,
-  `browser_navigate`, `browser_act` on a dedicated pcbridge profile (the
-  "existing session" is that profile's, where the user signs in once; see
-  the attach item below for why not the everyday profile). Pages read as an
-  outline with refs, including forms, tables and same-origin frames; every
-  action answers with the fresh page. No desktop gate: proved over HTTP
-  with OAuth against a throwaway daemon with `[desktop] enabled = false`,
-  after `desktop_lock` and with an expired grant, on a fake router panel
-  (`tests/integration/test_browser_http.py`), and by reading the real
-  router's sign-in page. The audit log keeps no typed text or page
-  content; `remote_profile = "readonly"` gets the reads only. Left: a
-  signed-in third-party site and the real router panel after the
-  maintainer signs in once in the pcbridge browser.
-- ~~**Attaching to the existing session: a known constraint.**~~ Measured
-  (2026-10-17, Chrome 155 and Brave 155; see measured facts): Chrome
-  ignores the CDP flags on its default data directory, Brave honors them,
-  and both reach the default profile through the `chrome://inspect` switch
-  only with a dialog a person must click for every connection. The chosen
-  path is a dedicated pcbridge profile (signed in once, logins persist)
-  with pcbridge's own CDP layer over `--remote-debugging-pipe`, the pipe
-  held by a keeper process that outlives a daemon restart. The extension
-  bridge and wrapping chrome-devtools-mcp or Playwright MCP were weighed
-  and not taken.
-- ~~**Taking over the agent's browser.**~~ Done (2.6.0):
-  `browser_handoff` (with a reason, shown in a notification that has a
-  "Give it back" action) and `pcbridge browser pause` / `resume`; while
-  the user has the browser every agent action in it is refused with
-  `USER_HAS_CONTROL` and reads still work; control goes back from the
-  notification, the GNOME panel menu, the terminal UI's top bar, the CLI or
-  the phone page. From a phone: a `/browser/<token>` page behind the
-  tunnel, bound to the one hand-over, with CDP screencast frames and taps,
-  text and keys sent through `Input.dispatch*`. Proved with a two-factor
-  step over HTTP against a throwaway daemon and through a real browser at
-  phone size, and at the machine on GNOME through the notification's
-  button (see measured facts). Left: the GNOME panel menu's items (after a
-  log-out loads the new extension), the notification on Plasma, and the
-  phone check through Funnel on a real phone.
-- ~~**Show and hide the browser window on demand.**~~ Done (2.6.0):
-  hidden by default, shown and hidden by `browser_visibility`, `pcbridge
-  browser show|hide` and the terminal UI's button (b), found by the pid of
-  the browser pcbridge started; showing takes focus only when asked. GNOME
-  through the extension (minimized; Mutter 14 cannot take another
-  client's window off the task list, so it stays there as
-  "pcbridge-browser"), Plasma through a KWin script (also off the task bar
-  and the switcher), Hyprland through `special:pcbridge` and a Lua window
-  rule. Measured on all three (nested GNOME 46, Plasma 6.7.5 and Hyprland
-  0.56.2 in the VMs): a starting browser never seen or focused, loading,
-  acting and non-blank screenshots while hidden, focus kept by the user's
-  window. Left: the GNOME extension of this version on the real session
-  (after a log-out), and Hyprland's hyprlang config provider.
 
 ## Optional: remote access
 
@@ -542,6 +452,24 @@ at the machine* checks, batched for a session at the machine.
   built wheel for `pcbridge/_assets/skills/computer-use/SKILL.md`. Done when
   a wheel from `python -m build` carries the skill and `computer_task` starts
   from a clean install.
+
+## Decided against
+
+Kept so the same idea is not proposed again without a new reason.
+
+- **A browser of pcbridge's own** (2026-11-07). 2.6.0 shipped seven
+  `browser_*` tools that drove Chrome, Brave or Chromium on a dedicated
+  profile over CDP, with window hiding and a take-over page for a phone;
+  stage 7 was to make them as capable as computer use. 2.7.0 removed them.
+  The clients pcbridge serves either have a browser of their own (Claude
+  Code, Claude Desktop) or can add one in a line (Playwright MCP,
+  chrome-devtools-mcp), so an agent saw several browsers that do the same
+  job and picked among them badly. What only pcbridge's browser could do,
+  reaching the home network (a router panel) from a remote client, did not
+  outweigh carrying and extending its own CDP layer, keeper, extension
+  methods and phone page. What is left for that case: `shell_run` with
+  `curl` against the device, or the desktop tools on a real browser window.
+  The code and its measurements are at tag `v2.6.0`.
 
 ## New ideas
 

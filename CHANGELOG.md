@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.7.0 - 2026-11-07
+
+### Removed
+
+- **The browser tools.** `browser_tabs`, `browser_read`,
+  `browser_screenshot`, `browser_navigate`, `browser_act`,
+  `browser_visibility` and `browser_handoff` are gone, together with the
+  `pcbridge browser` command, the terminal UI's browser button, the GNOME
+  panel menu's take-over items, the extension's three browser D-Bus
+  methods, the KWin helper's `browser` command, the phone take-over page
+  (`/browser/<token>`) and the `USER_HAS_CONTROL` error code. The clients
+  pcbridge serves already have a browser of their own or can add one in a
+  line, and with several browsers that do the same job in front of it an
+  agent picked among them badly; the reasoning is in ROADMAP's *Decided
+  against*. The code is at tag `v2.6.0`.
+- **Upgrading from 2.6.0.** The daemon closes a pcbridge browser that 2.6.0
+  left running once, when it starts. Its profile, with every sign-in made
+  in it, stays in `~/.local/state/pcbridge/browser/`; move that directory
+  to the trash to sign out of everything. A config file that still has a
+  `[browser]` section loads as before, with a warning that the section can
+  go. The GNOME extension drops its browser methods after the next log-in.
+
+### API
+
+- **Tools**: 40, down from 47: the seven `browser_*` tools are removed.
+  The `core` profile offers 24, `readonly` 13, and `desktop` stays at 23.
+- **Errors**: `USER_HAS_CONTROL` is no longer an error code.
+- **Config**: `[browser]` (`executable`, `profile_dir`, `extra_args`,
+  `allow_password_fields`) is no longer read.
+
 ## 2.6.0 - 2026-10-17
 
 ### Added
