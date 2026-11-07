@@ -22,6 +22,7 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware
+from fastmcp.server.providers.skills import SkillProvider
 from fastmcp.tools.base import ToolResult
 from mcp.types import ContentBlock, ImageContent, TextContent
 from pydantic import BaseModel, Field
@@ -73,11 +74,12 @@ _DESC_MODEL = "Model to run with."
 _DESC_EFFORT = "Reasoning effort level."
 
 
-# Gorsel ajan yonergesi. TEK KAYNAK: depodaki dosya. `install.sh` bunu
-# `~/.claude/skills/computer-use`'a symlink'liyor (kullanici Claude Code'u elle
-# surerken lazim), ama `computer_task` symlink'e GUVENMIYOR ve metni dogrudan
-# okuyup prompt'a koyuyor: varsayilan surucu `agy` ve onda Claude-skill
-# kavrami yok. Tek dosya, tek kod yolu, ajandan bagimsiz.
+# Gorsel ajan yonergesi. TEK KAYNAK: depodaki dosya. `pcbridge setup` bunu
+# `~/.claude/skills/computer-use`'a symlink'liyor (cli/install.py) ve sunucu
+# onu MCP kaynagi olarak sunuyor (`skill://computer-use/SKILL.md`), ama
+# `computer_task` ikisine de GUVENMIYOR ve metni dogrudan okuyup prompt'a
+# koyuyor: varsayilan surucu `agy` ve onda Claude-skill kavrami yok. Tek
+# dosya, tek kod yolu, ajandan bagimsiz.
 def _default_skill_path() -> Path:
     """The computer-use skill, from an installed package or a git checkout."""
     try:
@@ -493,6 +495,11 @@ def register(
     link_store.audit = lambda event, **fields: gate.audit(event, **fields)
     if remote != local_profile:
         mcp.add_middleware(ProfileFilter(local_profile, remote, transport, gate))
+    # The computer-use skill comes with the server: every client can list and
+    # read it as `skill://computer-use/SKILL.md`. A broken install without it
+    # still serves the tools; `computer_task` says what is missing.
+    if _SKILL_PATH.is_file():
+        mcp.add_provider(SkillProvider(_SKILL_PATH.parent))
 
     def _inline_images() -> bool:
         # Per call: the daemon serves local (socket) and HTTP sessions at once.

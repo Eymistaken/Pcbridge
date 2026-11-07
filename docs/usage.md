@@ -142,6 +142,12 @@ download links but never upload links. Security details:
 | `computer_batch` | destructive | yes | A whole list of actions in one call, with the result |
 | `computer_task` | destructive | yes | Hand a long graphical task to a local agent that looks at the screen itself |
 
+The computer-use skill, the instructions that agent follows, comes with the
+server: every client can list and read it as the MCP resource
+`skill://computer-use/SKILL.md`, and `pcbridge setup` links it into Claude
+Code's `~/.claude/skills/`. It drives the screen through `pcb-shot` and
+`pcb-do` in a shell on this machine.
+
 ## Reading and driving the screen
 
 1. `system_capabilities` once, to see which paths work.

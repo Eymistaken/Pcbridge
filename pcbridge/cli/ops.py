@@ -694,6 +694,7 @@ def setup(argv: list[str]) -> int:
     for n in inst.install_launchers(backup):
         inst.ok(n)
     inst.ok(f"launcher: {inst.launcher_path()}")
+    inst.ok(inst.install_skill_link(backup))
     path_note = inst.path_note()
     if path_note:
         inst.warn(path_note)
@@ -828,7 +829,7 @@ def uninstall(argv: list[str]) -> int:
     p.add_argument("--yes", action="store_true")
     args = p.parse_args(argv)
     if not args.yes:
-        inst.say("This stops pcbridge and removes its units, commands, extension, aliases and client registrations.")
+        inst.say("This stops pcbridge and removes its units, commands, extension, aliases, skill link and client registrations.")
         if input("Continue? [y/N] ").strip().lower() not in ("y", "yes"):
             return 1
     backup = inst.Backup()
@@ -847,6 +848,7 @@ def uninstall(argv: list[str]) -> int:
         backup.move(ext)
     inst.remove_kde_entries(backup)
     inst.remove_aliases(backup)
+    inst.remove_skill_link(backup)
     for client in connectlib.ALL_CLIENTS:
         if not connectlib.current(client).present:
             continue

@@ -197,7 +197,10 @@ Then:
    static token (local clients need neither; remote access stays off until
    you create a password), or migrates a 1.x `config.toml` (the old file stays where it
    was; `--from-config PATH` picks one explicitly).
-3. Links `~/.local/bin/pcbridge`, `pcb-shot` and `pcb-do`.
+3. Links `~/.local/bin/pcbridge`, `pcb-shot` and `pcb-do`, and, when Claude
+   Code's `~/.claude` exists, `~/.claude/skills/computer-use` to the
+   installed computer-use skill. A link there that already leads to a skill
+   stays as it is; a broken one is replaced.
 4. Writes and enables `pcbridge.socket` and `pcbridge.service` for your user,
    then starts the daemon (only when no job is running and no grant is open).
 5. On GNOME, copies the extension; it becomes active at your next login.

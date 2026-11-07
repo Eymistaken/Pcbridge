@@ -261,6 +261,45 @@ def install_launchers(backup: Backup) -> list[str]:
     return notes
 
 
+def skill_source() -> Path:
+    """The computer-use skill directory of this installation."""
+    return assetslib.asset_path("skills/computer-use")
+
+
+def install_skill_link(backup: Backup, claude_dir: Path | None = None) -> str:
+    """~/.claude/skills/computer-use -> this installation's skill.
+
+    Claude Code finds skills only there; before 2.0 install.sh made this
+    link, and the 2.0 setup dropped it. Only when Claude Code's directory
+    exists. A link that already leads to a skill is the user's choice (the
+    maintainer's points at a git checkout) and stays; a broken one, such as
+    one into a venv that was replaced, is moved to the backup and made again.
+    """
+    claude = claude_dir if claude_dir is not None else HOME / ".claude"
+    if not claude.is_dir():
+        return "Claude Code's ~/.claude does not exist; no skill link needed"
+    link = claude / "skills" / "computer-use"
+    target = skill_source()
+    if link.is_symlink():
+        if (link / "SKILL.md").is_file():
+            return f"skill: {link} -> {os.readlink(link)}"
+        backup.move(link)
+    elif link.exists():
+        return f"skill: {link} is a directory of its own; left as it is"
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(target, target_is_directory=True)
+    return f"skill: {link} -> {target}"
+
+
+def remove_skill_link(backup: Backup, claude_dir: Path | None = None) -> bool:
+    """Undo install_skill_link: only a link that leads into this installation."""
+    link = (claude_dir if claude_dir is not None else HOME / ".claude") / "skills" / "computer-use"
+    if not link.is_symlink() or Path(os.readlink(link)) != skill_source():
+        return False
+    backup.move(link)
+    return True
+
+
 def path_note(path: str | None = None) -> str:
     """What to do when ~/.local/bin is not on PATH, "" when it is.
 
