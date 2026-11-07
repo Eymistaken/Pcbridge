@@ -53,7 +53,8 @@ here, not by moving sections.
 
 Alongside, when there is time: the terminal UI logo, *An installer with
 its own terminal UI*, *Push notification
-when a job ends*, the remaining engineering items, and the *needs a person
+when a job ends*, *Review the skill and every text an agent reads*, the
+remaining engineering items, and the *needs a person
 at the machine* checks, batched for a session at the machine.
 
 ## Optional: terminal UI / product polish
@@ -394,6 +395,28 @@ at the machine* checks, batched for a session at the machine.
 
 ## Optional: engineering
 
+- **Review the skill and every text an agent reads.** Go through
+  `skills/computer-use/SKILL.md`, every tool description and `Field`
+  description, and every refusal and error text (`Decision` messages,
+  `suggested_action`, the structured errors), and make each one say when to
+  do what, in words that lead an agent to the right next step. The first
+  case to fix is the activity guard. Today, when the maintainer asks an
+  agent to do something on the desktop, the agent opens the grant, its
+  first mouse or keyboard action is refused with `USER_ACTIVE` ("Someone is
+  at the machine (keyboard/pointer used N seconds ago) ... pass
+  force=true."), and the agent stops and reports that the desktop is
+  locked. The guard is working as built: `[desktop] idle_guard_seconds`
+  (60 by default) counts from the user's last keystroke, and that keystroke
+  was the request itself. The text should explain exactly that: right after
+  the user has typed a request, this refusal is expected; when the user
+  asked for this desktop work, the agent may pass `force=true` (it is a
+  parameter of each write tool, not of `desktop_unlock`) for the actions of
+  that first minute, and when the user did not ask, it waits. The same
+  explanation goes into the `force` parameter descriptions (today "Go ahead
+  even if the user just used the machine.") and the skill. Done when an
+  agent asked for desktop work right after a typed request goes ahead with
+  `force=true` instead of stopping, and an agent that was not asked still
+  waits for the user to be idle.
 - **Hyprland frame proof under saturated load.** One three-worker VM run
   refused capture with `BACKEND_UNAVAILABLE` while the grant was active;
   four follow-up runs passed. The cause of that transient proof loss is
