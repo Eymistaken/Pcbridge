@@ -51,8 +51,7 @@ here, not by moving sections.
    install script is served from a GitHub release URL.
 
 Alongside, when there is time: the terminal UI logo, *An installer with
-its own terminal UI*, *Push notification
-when a job ends*, *Review the skill and every text an agent reads*, the
+its own terminal UI*, *Review the skill and every text an agent reads*, the
 remaining engineering items, and the *needs a person
 at the machine* checks, batched for a session at the machine.
 
@@ -242,12 +241,6 @@ at the machine* checks, batched for a session at the machine.
   client without reading a file by hand, no file pcbridge writes contains
   the password or a usable token, and the password is never created or
   replaced without the login-password check.
-- **Push notification when a job ends.** A remote client has to poll
-  `job_status` to learn that a long job finished. An optional notifier (for
-  example ntfy) could send the job id, status and a one-line summary to the
-  phone, without page content or command output. Smaller than the items
-  above; nice to have. Done when a finished, failed or cancelled job sends
-  one notification and no secret ever appears in it.
 
 ## Optional: availability
 
