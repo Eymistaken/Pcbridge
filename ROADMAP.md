@@ -30,10 +30,9 @@ here, not by moving sections.
    2.6.0). Makes trying new machines (Pardus and the like) cheap, which
    the later desktop work needs for testing. Left: the checks under each
    item below, mostly on real machines.
-4. **Connecting remote clients.** *From installed to connected without
-   reading a file*. Before the next release: it makes `install.sh` the
-   recommended path, and someone who installs from a release then has no
-   way to find the password a remote client needs.
+4. ~~**Connecting remote clients.** *From installed to connected without
+   reading a file*~~ (done, 2.6.0; the maintainer's own config and
+   `oauth.db` were converted to hashes on 2026-10-17).
 5. **File tools.** ~~*Paginated and ranged file reads*~~ (done,
    2.6.0), ~~the rest of *Binary file transfer*~~ (done, 2.6.0),
    ~~*Targeted edits and easier writes*~~ (done, 2.6.0), together
@@ -188,7 +187,8 @@ at the machine* checks, batched for a session at the machine.
   profile offers only tools that change nothing. Hidden tools are refused
   by name too, and the refusal is audited. Left: the same real-tunnel check
   as above.
-- **From installed to connected without reading a file.** To connect
+- **From installed to connected without reading a file.** Done (2.6.0):
+  all four steps below. To connect
   claude.ai or another remote client, the maintainer opens `config.toml`
   and copies the password from it. Someone who installed from a GitHub
   release has the same need but no repository: the file is
@@ -200,9 +200,9 @@ at the machine* checks, batched for a session at the machine.
   or report gives nothing away. In the order to build it:
   1. ~~**Store hashes, not secrets.**~~ Done (2.6.0): scrypt for the
      password, SHA-256 for the static token and every token in `oauth.db`,
-     migrated in place when the daemon starts (see measured facts). Left:
-     the installed daemon still runs the old code, so the maintainer's own
-     config and database are converted at the next `pcbridge update`.
+     migrated in place when the daemon starts (see measured facts). The
+     maintainer's own config and database were converted on 2026-10-17,
+     and every plaintext copy went to the trash.
   2. ~~**No password until remote access is wanted.**~~ Done (2.6.0). Local clients on the
      socket never use it, so someone who only uses pcbridge as a local MCP
      server never meets it. Setup stops generating one silently. Remote
