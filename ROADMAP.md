@@ -50,14 +50,26 @@ here, not by moving sections.
    chasing every new feature; see *Optional: website*. Until then the
    install script is served from a GitHub release URL.
 
-Alongside, when there is time: the terminal UI logo, *An installer with
+Alongside, when there is time: *Update every screen of the terminal UI*
+(the Overview logo included), *An installer with
 its own terminal UI*, *Review the skill and every text an agent reads*, the
 remaining engineering items, and the *needs a person
 at the machine* checks, batched for a session at the machine.
 
 ## Optional: terminal UI / product polish
 
-- **Responsive Overview with a live Pcbridge logo.** Redesign the terminal
+- **Update every screen of the terminal UI, not only the Overview.**
+  Decided with the maintainer (2026-11-09): the update covers every tab
+  (Overview, Settings, Tools, Connections, Remote, Commands) and every
+  dialog (the confirmation, the shown-once secret, the login password and
+  the remote password dialogs). The maintainer found many gaps across them;
+  they are not written down yet. Before work starts, go through each screen
+  with the maintainer and list its gaps here, one line each, so the work has
+  a checklist and nothing is fixed on a guess. The Overview's logo below is
+  one part of this update. Done when every listed gap is fixed and each
+  screen is checked at a normal and a narrow terminal width.
+- **Responsive Overview with a live Pcbridge logo.** Part of the update
+  above. Redesign the terminal
   UI's Overview around a centered Pcbridge logo at the top. At normal widths,
   show the terminal icon plus the Pcbridge wordmark; when the terminal becomes
   narrow, collapse it to the terminal icon only instead of squeezing the
