@@ -128,6 +128,12 @@ Desktop rules — these are not preferences:
     execution path; do not silently request broader desktop access.
   * `ui_click` does not move the mouse pointer — it asks the application
     directly. That is intended; do not "fix" it with the `mouse` tool.
+  * A write refused with `USER_ACTIVE` ("The keyboard or pointer was used N
+    seconds ago") is not a locked desktop. Right after the user types a
+    request on this machine, their keystroke trips it, and so does your own
+    previous action. If the user asked you for this desktop work, call the
+    same tool again with force=true and keep passing it for that work; if
+    nobody asked, wait for the machine to be idle.
   * After `desktop_unlock`, call `desktop_lock` when the graphical work is
     done. The permission also expires on its own, but leaving it open keeps
     the on-screen indicator running and worries the user.

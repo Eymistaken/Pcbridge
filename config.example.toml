@@ -296,7 +296,9 @@ gui_launch_blocklist = []
 # WRITE actions are refused unless this many seconds passed since the user's
 # last keyboard/pointer input: when you are at the machine, remote input and
 # your own mouse should not fight. A tool call can pass force = true on
-# purpose. 0 = no check.
+# purpose; agents are told to do that when you asked them for the desktop
+# work (the keystroke that sent your request trips this check) and to wait
+# otherwise. 0 = no check.
 idle_guard_seconds = 60
 
 # At most this many actions per second, so an agent stuck in a loop cannot

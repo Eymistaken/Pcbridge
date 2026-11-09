@@ -225,6 +225,47 @@ def screen_lock_decision(observation: ScreenLockObservation) -> Decision:
     return Decision(True)
 
 
+def _seconds(n: int) -> str:
+    return f"{n} second" if n == 1 else f"{n} seconds"
+
+
+def _user_active_decision(idle: int, guard: int) -> Decision:
+    """`USER_ACTIVE`, worded so an agent picks the right next step.
+
+    The common case is not a person fighting the agent: the user typed the
+    request on this machine a few seconds ago, and that keystroke is the
+    input the guard sees. pcbridge's own input counts as well (a uinput event
+    resets the idle time, measured 104227 ms -> 151 ms), so the agent's
+    second separate call is refused for its first one. The old text only
+    said "pass force=true", and agents read it as a locked desktop and
+    stopped. This one says when forcing is right and when waiting is.
+    """
+    used = "just now" if idle < 1000 else f"{_seconds(idle // 1000)} ago"
+    wait = max(1, -(-(guard - idle) // 1000))
+    return Decision(
+        False,
+        f"The keyboard or pointer was used {used}. Write actions wait until "
+        f"nobody has used them for {_seconds(guard // 1000)} "
+        "([desktop] idle_guard_seconds), so an agent and a person at the machine "
+        "do not fight over them. Right after the user types a request on this "
+        "machine this refusal is expected: that keystroke was the request. "
+        "pcbridge's own keyboard and pointer actions count too. If the user "
+        "asked you for this desktop work, call the same tool again with "
+        "force=true (a parameter of this tool, not of desktop_unlock; pcb-do "
+        "takes --force) and keep passing it for the rest of that work. If "
+        "nobody asked you, or someone else may be using the machine, do not "
+        f"force: retry in about {_seconds(wait)} or ask the user.",
+        code=ErrorCode.USER_ACTIVE,
+        permission_scope="pcbridge.desktop",
+        retryable=True,
+        suggested_action=(
+            "If the user asked for this desktop work, retry the same call with "
+            f"force=true; otherwise wait about {_seconds(wait)} for the machine "
+            "to be idle, or ask the user."
+        ),
+    )
+
+
 class SafetyGate:
     def __init__(
         self,
@@ -615,19 +656,7 @@ class SafetyGate:
             assert idle is not None
             guard = self.spec.idle_guard_seconds * 1000
             if not force and idle < guard:
-                return Decision(
-                    False,
-                    f"Someone is at the machine (keyboard/pointer used {idle // 1000} "
-                    "seconds ago). Refused so that remote actions and the user's own "
-                    "mouse do not fight. To send it anyway, "
-                    "pass force=true.",
-                    code=ErrorCode.USER_ACTIVE,
-                    permission_scope="pcbridge.desktop",
-                    retryable=True,
-                    suggested_action=(
-                        "Wait for the user to become idle or retry with explicit force."
-                    ),
-                )
+                return _user_active_decision(idle, guard)
 
         if not self._rate_ok():
             return Decision(

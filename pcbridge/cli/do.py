@@ -72,9 +72,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true",
                    help="Only parse and print the plan; run NOTHING.")
     p.add_argument("--force", action="store_true",
-                   help="Send even if the user is at the machine. "
-                        "Skips ONLY the idle check; screen lock, the grant "
-                        "window and the rate limit still apply.")
+                   help="Send even if the keyboard or pointer was just used. "
+                        "Use it when the user asked for this desktop work: "
+                        "their own keystroke and your earlier pcb-do trip "
+                        "the idle check. Skips ONLY that check; screen lock, "
+                        "the grant window and the rate limit still apply.")
     p.add_argument("--max-shot-age", type=int, default=-1,
                    help="When a coordinate action is sent, the newest screenshot "
                         "may be at most this many seconds old. "

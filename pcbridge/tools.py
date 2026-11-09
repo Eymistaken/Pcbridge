@@ -91,6 +91,26 @@ def _default_skill_path() -> Path:
 _SKILL_PATH = _default_skill_path()
 
 
+# Every write tool's `force`, one text (ROADMAP: review the texts an agent
+# reads, first case USER_ACTIVE). "Go ahead even if the user just used the
+# machine." told an agent what the flag does, not when to set it, and the
+# common case -- the user's own request tripping the guard -- went unsaid.
+# The same explanation is in the refusal (`safety._user_active_decision`),
+# the skill and the server instructions.
+FORCE_DESCRIPTION = (
+    "Skip only the check that refuses input while the machine is in use "
+    "(USER_ACTIVE: keyboard or pointer used within [desktop] "
+    "idle_guard_seconds, 60 s by default). Set it when the user asked you for "
+    "this desktop work: right after they type the request on this machine, "
+    "their own keystroke trips that check, and so does your previous action, "
+    "so keep it for the rest of that work. Do not set it on your own "
+    "initiative or when someone else may be using the machine; wait for the "
+    "machine to be idle instead. The screen lock, the grant and the rate "
+    "limit still apply."
+)
+_FORCE = Annotated[bool, Field(description=FORCE_DESCRIPTION)]
+
+
 # `find_text` / `wait_for_text` parametreleri (Adim 8.6). Modul duzeyinde,
 # cunku `from __future__ import annotations` altinda FastMCP tip ipuclarini
 # modulun globallerinden cozuyor; `register()` icindeki bir ad bulunamaz.
@@ -1974,13 +1994,7 @@ def register(
                 "a screenshot, because a screenshot may be scaled down."
             ),
         ] = None,
-        force: Annotated[
-            bool,
-            Field(
-                description="Send even if the user was recently active at the machine. "
-                "Only set this when the user explicitly asked you to take over."
-            ),
-        ] = False,
+        force: _FORCE = False,
     ) -> str | ToolResult:
         """Move the mouse pointer, click, drag, scroll or hold a button down on the
         user's Linux desktop. Requires desktop_unlock first. Use when the user asks
@@ -2193,10 +2207,7 @@ def register(
                 "intent; it is not a retry flag."
             ),
         ] = False,
-        force: Annotated[
-            bool,
-            Field(description="Send even if the user was recently active at the machine."),
-        ] = False,
+        force: _FORCE = False,
     ) -> str | ToolResult:
         """Type text or press key combinations on the user's Linux desktop.
         Requires desktop_unlock first. Use when the user asks you to fill in a
@@ -3066,10 +3077,7 @@ def register(
             str,
             Field(description="Id of the item from `ui_dump`, e.g. '#90e6'."),
         ],
-        force: Annotated[
-            bool,
-            Field(description="Go ahead even if the user just used the machine."),
-        ] = False,
+        force: _FORCE = False,
     ) -> str | ToolResult:
         """Click a button, menu item or link by the id `ui_dump` gave it. This asks
         the application to activate that item directly, so it works regardless of
@@ -3129,10 +3137,7 @@ def register(
             Field(description="Id of the text box from `ui_dump`, e.g. '#1b72'."),
         ],
         text: Annotated[str, Field(description="The text to put in the box.")],
-        force: Annotated[
-            bool,
-            Field(description="Go ahead even if the user just used the machine."),
-        ] = False,
+        force: _FORCE = False,
     ) -> str | ToolResult:
         """Replace the contents of a text box directly, by the id `ui_dump` gave it.
         Prefer this over the `keyboard` tool for filling in fields: it writes into
@@ -3221,10 +3226,7 @@ def register(
                 "Shell extension; without it, give the installed application's name."
             ),
         ],
-        force: Annotated[
-            bool,
-            Field(description="Go ahead even if the user just used the machine."),
-        ] = False,
+        force: _FORCE = False,
     ) -> str | ToolResult:
         """Bring an application's window to the front, launching the application
         first if it is not running. Nothing is typed when the target is already
@@ -3370,10 +3372,7 @@ def register(
                 "because the following keystrokes would land somewhere unintended."
             ),
         ] = "",
-        force: Annotated[
-            bool,
-            Field(description="Go ahead even if the user just used the machine."),
-        ] = False,
+        force: _FORCE = False,
     ) -> list[ContentBlock] | ToolResult:
         """Run a whole sequence of desktop actions in a single call, then show you
         the result. Use this instead of calling `mouse`, `keyboard`, `ui_click` one
@@ -3639,10 +3638,7 @@ def register(
             int | None,
             Field(description="Kill the agent after this many seconds."),
         ] = None,
-        force: Annotated[
-            bool,
-            Field(description="Go ahead even if the user just used the machine."),
-        ] = False,
+        force: _FORCE = False,
     ) -> str | ToolResult:
         """Hand a long-running graphical task to an agent on the user's own machine
         and get a job id back, so you are not blocked while it works. The local

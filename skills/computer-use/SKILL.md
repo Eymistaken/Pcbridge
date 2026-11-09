@@ -153,7 +153,7 @@ the window it went to — learn from it and try again.
 |---|---|---|
 | 0 | everything done | go on |
 | 2 | **partly** done | look with `pcb-shot`, see where it stopped |
-| 3 | the safety gate refused | stop and tell the user |
+| 3 | the safety gate refused | stop and tell the user — unless it says the keyboard or pointer was used, see below |
 | 4 | malformed JSON | fix it, check with `--dry-run` |
 
 `pcb-do --dry-run '<json>'` parses your list without running anything. Use it
@@ -162,6 +162,22 @@ when unsure.
 After code 3 do not retry. The user may have closed the grant, the screen may
 be locked or the time may be up; getting past that is not your job and you
 cannot.
+
+One code 3 is different: **"The keyboard or pointer was used N seconds
+ago"** (`USER_ACTIVE`). Input waits until nobody has touched the machine for
+`[desktop] idle_guard_seconds` (60 s by default), so you and a person at the
+machine do not fight over the mouse. Right after the user types a request on
+this machine, that keystroke was the request itself, and your own earlier
+`pcb-do` counts as well. So:
+
+- **The user asked you for this desktop work:** run the same command again
+  with `--force` (MCP tools: `force=true` on the write tool, not on
+  `desktop_unlock`) and keep it for the rest of that work.
+- **Nobody asked you, or someone else may be using the machine:** do not
+  force. Wait the time the message names and retry, or ask the user.
+
+`--force` skips only this check. The grant, the screen lock and the rate
+limit still stop you.
 
 ## When one execution path is closed
 

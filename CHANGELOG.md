@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **A `USER_ACTIVE` refusal now tells the agent what to do next.** The
+  activity guard refuses desktop input until nobody has used the keyboard
+  or pointer for `[desktop] idle_guard_seconds` (60 s by default). Right
+  after the user types a request on this machine, the keystroke that sent
+  it trips the guard, and pcbridge's own input does too, so a second
+  separate call is refused for the first one. The old text said only "pass
+  force=true", and agents read it as a locked desktop and stopped. The
+  refusal now explains this: if the user asked for the desktop work, call
+  the same tool again with `force=true` (a parameter of the write tool, not
+  of `desktop_unlock`; `pcb-do --force`) and keep passing it for that work;
+  if nobody asked, wait the time it names or ask the user. The same
+  guidance is now in the `force` description of all seven write tools (one
+  shared text), the `pcb-do --force` help, the computer-use skill, the
+  server instructions and `docs/security.md`. The guard itself is
+  unchanged.
+
 ## 2.7.2 - 2026-11-07
 
 ### Added

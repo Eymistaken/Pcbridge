@@ -186,6 +186,13 @@ lock and rechecks the grant **before every action**: a `desktop_lock` from
 anywhere stops the next action. The grant slides: it closes 90 s after the
 last desktop action, and never later than its hard ceiling.
 
+`force=true` lifts only the "user is at the machine" guard. The refusal, the
+`force` descriptions, the skill and the server instructions tell an agent to
+pass it when the user asked it for that desktop work (the keystroke that sent
+the request, and the agent's own previous input, both trip the guard) and to
+wait otherwise. That choice is the agent's: the guard stops an agent acting on
+its own, not one the user told to go ahead.
+
 A genuine MCP cancellation notification stops a desktop worker at the next
 shared checkpoint. Batch waits, rate waits, and pointer settling check every
 50 ms without extending the lease. Escaping failures and canceled final

@@ -399,24 +399,24 @@ at the machine* checks, batched for a session at the machine.
   `skills/computer-use/SKILL.md`, every tool description and `Field`
   description, and every refusal and error text (`Decision` messages,
   `suggested_action`, the structured errors), and make each one say when to
-  do what, in words that lead an agent to the right next step. The first
-  case to fix is the activity guard. Today, when the maintainer asks an
-  agent to do something on the desktop, the agent opens the grant, its
-  first mouse or keyboard action is refused with `USER_ACTIVE` ("Someone is
-  at the machine (keyboard/pointer used N seconds ago) ... pass
-  force=true."), and the agent stops and reports that the desktop is
-  locked. The guard is working as built: `[desktop] idle_guard_seconds`
-  (60 by default) counts from the user's last keystroke, and that keystroke
-  was the request itself. The text should explain exactly that: right after
-  the user has typed a request, this refusal is expected; when the user
-  asked for this desktop work, the agent may pass `force=true` (it is a
-  parameter of each write tool, not of `desktop_unlock`) for the actions of
-  that first minute, and when the user did not ask, it waits. The same
-  explanation goes into the `force` parameter descriptions (today "Go ahead
-  even if the user just used the machine.") and the skill. Done when an
-  agent asked for desktop work right after a typed request goes ahead with
-  `force=true` instead of stopping, and an agent that was not asked still
-  waits for the user to be idle.
+  do what, in words that lead an agent to the right next step.
+  ~~The first case, the activity guard (`USER_ACTIVE`)~~, is done
+  (unreleased, see CHANGELOG): an agent asked for desktop work had its
+  first action refused because the user's own request keystroke tripped
+  the guard, read "pass force=true" as a locked desktop, and stopped. The
+  refusal, the shared `force` description of the seven write tools, the
+  `pcb-do --force` help, the skill and the server instructions now say:
+  asked, retry with `force=true` on the write tool and keep it for that
+  work; not asked, wait the time named. One fact changed the plan: the
+  roadmap said "for the actions of that first minute", but pcbridge's own
+  input resets the idle time too (measured 104227 ms -> 151 ms), so every
+  later separate call of the same work is refused for the previous one; the
+  text says to keep passing `force` instead. Contract tests pin the wording
+  (`tests/contracts/test_activity_guard_text.py`). Left for this case: the
+  behavior check with a real agent (asked right after a typed request, it
+  goes ahead with `force=true`; not asked, it waits), which needs a
+  session at the machine. Left for the item: the rest of the skill, every
+  other tool and `Field` description, and every other refusal text.
 - **Hyprland frame proof under saturated load.** One three-worker VM run
   refused capture with `BACKEND_UNAVAILABLE` while the grant was active;
   four follow-up runs passed. The cause of that transient proof loss is
