@@ -105,6 +105,79 @@ script, aarch64 (there is no release wheel for it), and the
 `releases/latest/download/install.sh` URL, which exists only from the next
 release.
 
+## The native helper below glibc 2.39 (2026-11-12)
+
+Measured with the helper at 49fd301 and Rust 1.95.0, in rootless podman
+containers (`ubuntu:22.04`, `debian:12`) and the Debian 12 VM. Nothing ran
+on the reference desktop.
+
+- **Why the release helper needed 2.39.** Only two imports carry
+  `GLIBC_2.39`: `pidfd_spawnp` and `pidfd_getpid`, both weak references
+  from Rust std's process spawning. The linker (`.comment`: LLD 22.1.2 from
+  Rust's own build) writes their version need without the weak flag
+  (`readelf -V`: `GLIBC_2.39 Flags: none`), so the dynamic linker refuses
+  the whole binary: on the Debian 12 VM (glibc 2.36) it exited 1 with
+  ``version `GLIBC_2.39' not found``. The next newest import is
+  `hypot@GLIBC_2.35` (libm, the pointer path).
+- **Ubuntu 22.04 cannot build it.** Against PipeWire 0.3.48's headers,
+  `libspa` 0.10.1 does not compile (7 errors, none in pcbridge's code). It
+  wraps `spa_meta_first` and `spa_meta_region_is_valid` as inline
+  functions, which 0.3.48 defines as macros, and it expects
+  `spa_video_info_raw` to have `flags` and a `uint64_t modifier` (0.3.48:
+  no `flags`, `int64_t modifier`). The headers of 0.3.65 (Debian 12) and
+  1.0.5 (Ubuntu 24.04) have all four.
+- **Debian 12 builds it, and the result needs only glibc 2.35.** In
+  `debian:12` (glibc 2.36, PipeWire 0.3.65, clang 14, gcc 12), `cargo fmt`,
+  clippy and the tests in both feature sets (66 test binaries, none failed)
+  and `scripts/build-native.sh` passed. The newest symbol version is
+  `GLIBC_2.35` (`hypot`); `pidfd_spawnp` and `pidfd_getpid` are weak
+  references without a version, because glibc 2.36 has neither. It links
+  the same five libraries.
+- **That binary runs on Ubuntu 22.04.** In `ubuntu:22.04` (glibc 2.35,
+  `libpipewire-0.3-0` 0.3.48), `--version` and `--build-info` exited 0 and
+  `ldd` resolved every library. pcbridge's native diagnostics, run with
+  CPython 3.12.14 fetched by uv 0.12.21 as `install.sh` does, completed
+  the handshake and `capabilities`; every capability was unavailable,
+  because a container has no desktop, uinput or session bus. The 20 `pw_*`
+  functions the helper imports all exist in libpipewire 0.3.48.
+  `glibc_shortfall()` passes it on 2.35 and on 2.36.
+- **libpipewire on these systems.** The Debian 12 VM with `cinnamon-core`
+  has `libpipewire-0.3-0` 0.3.65 installed (pulled in by
+  `xdg-desktop-portal`, `libmutter-11-0` and `wireplumber`), and
+  `pipewire.service` runs in its session. On Ubuntu 22.04,
+  `xdg-desktop-portal` depends on `libpipewire-0.3-0`. Linux Mint 21 itself
+  was not measured.
+- **Setup no longer skips it on Debian 12.** A wheel carrying the Debian 12
+  build, installed with `install.sh --wheel … --yes` over SSH on a fresh
+  disk of the Debian 12 VM (158 s): the plan has no glibc line, and
+  `pcbridge doctor` completed the handshake with the installed helper
+  (accessibility read and action supported; capture unavailable, X11).
+  That desktop has no `readelf` (binutils is not installed), so doctor's
+  library line says the list "could not be read"; the handshake shows the
+  libraries loaded.
+- **The supported desktops still pass with it.** GNOME 46 on the reference
+  machine, only in a headless shell on its own session bus with two
+  1920x1080 virtual monitors, nothing sent to the real session:
+  `capture.monitor` was supported (`linux.mutter.pipewire`, libpipewire
+  1.0.5), and `test_capture_parity` (11 tests), `test_capture_region` (2),
+  `test_capture_default` (3), the packaging test (5) and the accessibility
+  reads (5) passed. `test_mcp_capture_delivery` failed on its own pattern,
+  which still expects the Turkish `(birincil)` after the primary monitor;
+  the images were delivered. With one 1280x800 virtual monitor the region
+  and default tests fail for both backends, as they assume bigger and more
+  monitors. KDE Plasma 6.7.5 (Arch VM, glibc 2.44, libpipewire 1.6.9):
+  after the old package was replaced by the wheel through `install.sh`
+  (72 s), doctor reported `capture.monitor` supported
+  (`linux.kwin.screenshot2`), and `tests/live/kde/check_mcp.py` passed with
+  0 failures (capture, a click and typing into Kate, OCR, lock); the audit
+  log shows the captures went through the helper. Hyprland 0.56.2 (its
+  VM): `capture.monitor` supported (`linux.hyprland.image-copy`), and
+  `check_native_capture.py` with this binary passed on two outputs,
+  including a rotated fractional one, with no input sent.
+- **`PCBRIDGE_MAX_GLIBC` in `build-native.sh`.** On the Debian 12 build it
+  printed `Needs glibc 2.35`, accepted `2.35`, refused `2.34` and refused
+  the malformed `2`; without the variable the script behaves as before.
+
 ## Remote clients, revocation and the password (2026-10-14)
 
 Measured with unreleased code against a throwaway daemon (temp config, state
@@ -1278,7 +1351,10 @@ the client's own listing).
 - **`cargo test` stops after the first failing target**; later test
   binaries do not run and do not show up. Use `--no-fail-fast`.
 - **PipeWire build headers**: `libpipewire-0.3-dev` 1.0.5 and `libclang-dev`
-  (bindgen). Runtime: `libpipewire-0.3-0t64`, `libc6` >= 2.39, `libgcc-s1`.
+  (bindgen); `libspa` 0.10.1 needs 0.3.65 or newer (0.3.48 fails, see
+  [the native helper below glibc 2.39](#the-native-helper-below-glibc-239-2026-11-12)).
+  Runtime: `libpipewire-0.3-0t64`, `libc6` >= 2.35 for the release helper
+  built on Debian 12 (a build on Ubuntu 24.04 needs 2.39), `libgcc-s1`.
 - **In a GTK4 test window do not use `Gtk.EventControllerLegacy`**: PyGObject
   passes `None` as its event and GTK swallows the exception.
 - **The non-live suites used to read the machine they ran on** (screen lock,

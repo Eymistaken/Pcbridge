@@ -7,6 +7,10 @@
 # Why release: in a debug build PNG encoding is ~9 times slower
 # (measured 2026-09-13: ~1755 ms against ~200 ms per monitor).
 #
+# PCBRIDGE_MAX_GLIBC=2.35 refuses a binary that needs a newer glibc. CI sets
+# it: the release helper is built on Debian 12 and has to run on Ubuntu 22.04
+# too (docs/native/packaging.md).
+#
 # Does NOT restart the running service. Running processes keep using the old
 # binary (replacing a running file is safe on Linux); the new binary is picked
 # up on the next start.
@@ -61,12 +65,26 @@ export PCBRIDGE_BUILD_ID="$BUILD_ID"
 BUILT="$DIR/rust/target/$TARGET/release/pcbridge-native"
 
 # Check the binary before installing it: no debug, test-harness or
-# wrong-target build gets in here.
+# wrong-target build gets in here, and with PCBRIDGE_MAX_GLIBC no build that
+# needs a newer glibc. The glibc need is read the way setup reads it
+# (pcbridge/native/discovery.py), so the two agree on the number.
 INFO="$("$BUILT" --build-info)"
-python3 - "$INFO" "$TARGET" "$BUILD_ID" <<'PY'
-import json, sys
+python3 - "$INFO" "$TARGET" "$BUILD_ID" "$BUILT" "${PCBRIDGE_MAX_GLIBC:-}" <<'PY'
+import json, re, sys
 info, target, build_id = json.loads(sys.argv[1]), sys.argv[2], sys.argv[3]
+built, max_glibc = sys.argv[4], sys.argv[5]
 problems = []
+with open(built, "rb") as binary:
+    found = [int(m) for m in re.findall(rb"GLIBC_2\.(\d+)", binary.read())]
+need = max(found, default=0)
+if found:
+    print(f"Needs glibc 2.{need}")
+if max_glibc:
+    limit = re.fullmatch(r"2\.(\d+)", max_glibc)
+    if limit is None:
+        problems.append(f"PCBRIDGE_MAX_GLIBC={max_glibc!r} is not a 2.N version")
+    elif need > int(limit[1]):
+        problems.append(f"needs glibc 2.{need}, newer than PCBRIDGE_MAX_GLIBC={max_glibc}")
 if info.get("profile") != "release":
     problems.append(f"profile {info.get('profile')!r}, expected release")
 if info.get("test_harness") is not False:

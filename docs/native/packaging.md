@@ -10,20 +10,34 @@ and how an installation is diagnosed.
 | | To build | To run |
 |---|---|---|
 | Rust | 1.95.0 (`rust/rust-toolchain.toml`), rustup | none |
-| System packages | `libpipewire-0.3-dev`, `libspa-0.2-dev`, `libclang-dev`, `pkg-config` (Arch: `pipewire`, `clang`, `pkgconf`) | `libpipewire-0.3-0t64`, `libc6` (>= 2.39), `libgcc-s1` (Arch: `libpipewire`, `glibc`, `gcc-libs`) |
+| System packages | `libpipewire-0.3-dev`, `libspa-0.2-dev`, `libclang-dev`, `pkg-config` (Arch: `pipewire`, `clang`, `pkgconf`); PipeWire headers 0.3.65 or newer | `libpipewire-0.3-0t64`, `libc6` (>= 2.35), `libgcc-s1` (Arch: `libpipewire`, `glibc`, `gcc-libs`) |
 | Session | none | GNOME: PipeWire and Mutter ScreenCast. KDE Plasma: KWin ScreenShot2 and an authorizing `.desktop` entry. Hyprland: selected Wayland/IPC instance, image-copy protocols, session-bound idle observation, and a visible grant frame. |
 | `python3-gi`, GStreamer, `pipewiresrc` | none | **not needed** |
 
 Runtime libraries, measured with `readelf -d` on a release build:
 `libpipewire-0.3.so.0`, `libgcc_s.so.1`, `libc.so.6`, `libm.so.6` (only
-`hypot`, for pointer paths), `ld-linux-x86-64.so.2`. The highest glibc symbol
-version is `GLIBC_2.39` (`objdump -T`): a helper built on Ubuntu 24.04 does
-**not** run on an older glibc (22.04). The only target is
-`x86_64-unknown-linux-gnu`; Ubuntu 24.04/26.04 and Debian 13 all qualify, so
-CI builds the helper once and every `.deb` shares it. The Arch package
-builds its own from source (`packaging/arch/PKGBUILD`); `build-native.sh`
-finds Arch's libclang under `/usr/lib` and prints a `pacman` line when
-something is missing.
+`hypot`, for pointer paths), `ld-linux-x86-64.so.2`.
+
+The release helper is built on Debian 12 (glibc 2.36, PipeWire 0.3.65).
+Its highest glibc symbol version is `GLIBC_2.35` (`hypot`, `objdump -T`),
+so it runs on Ubuntu 22.04 and Debian 12 (the bases of Linux Mint 21
+and Pardus 23) and everything newer, and CI builds it once for every
+`.deb` and the wheel.
+Two measurements set that base
+([measured facts](../dev/measured-facts.md#the-native-helper-below-glibc-239-2026-11-12)):
+Ubuntu 22.04 cannot build it, because `libspa` 0.10.1 does not compile
+against PipeWire 0.3.48's headers; and a build on Ubuntu 24.04 needs glibc
+2.39, because two weak imports of Rust's standard library (`pidfd_spawnp`,
+`pidfd_getpid`) get a hard version need there. With `PCBRIDGE_MAX_GLIBC`
+set (CI: `2.35`), `build-native.sh` refuses a helper that needs more. A
+helper built anywhere else needs the glibc of the machine that built it;
+setup reads that from the binary and skips a helper this system cannot
+start.
+
+The only target is `x86_64-unknown-linux-gnu`. The Arch package builds its
+own from source (`packaging/arch/PKGBUILD`); `build-native.sh` finds Arch's
+libclang under `/usr/lib` and prints a `pacman` line when something is
+missing.
 
 The Python fallbacks for accessibility and screen sharing still need
 `python3-gi`; `pcbridge doctor` reports that separately.
@@ -47,7 +61,9 @@ The script does exactly this:
    `rust-toolchain.toml` is selected by the working directory; cargo called
    from the repository root with `--manifest-path` does not see it.
 4. Asks the result for `--build-info` and **refuses** it unless the profile
-   is `release`, `test_harness` is off, and target and build id match.
+   is `release`, `test_harness` is off, and target and build id match. It
+   prints the newest glibc the binary needs and, with `PCBRIDGE_MAX_GLIBC`
+   (for example `2.35`), refuses a binary that needs a newer one.
 5. Installs it as `pcbridge/_native/x86_64-unknown-linux-gnu/pcbridge-native`
    (temporary file + `mv`, so a running process keeps the old file) with a
    `build-info.json` next to it.
@@ -119,11 +135,14 @@ probe answered a fixed "supported" even when capture could never work.
 
 ## CI
 
-`native.yml` (Ubuntu 24.04): build dependencies, fmt, clippy with
-`-D warnings` and tests in both feature sets, `scripts/build-native.sh`, the
-packaging test with `PCBRIDGE_TEST_REQUIRE_RELEASE=1`, and the helper as an
-artifact. `package.yml` builds it once for all `.deb` builds. Live capture
-and input tests never run in CI.
+`native.yml`: in a `debian:12` container, build dependencies, fmt, clippy
+with `-D warnings` and tests in both feature sets, and
+`scripts/build-native.sh` with `PCBRIDGE_MAX_GLIBC=2.35`, which leaves the
+helper as an artifact; then, on Ubuntu 24.04 with only
+`libpipewire-0.3-0t64` installed, the packaging test with
+`PCBRIDGE_TEST_REQUIRE_RELEASE=1` against that artifact. `package.yml`
+builds the release helper the same way, once for all `.deb` builds and the
+wheel. Live capture and input tests never run in CI.
 
 ## Not planned
 

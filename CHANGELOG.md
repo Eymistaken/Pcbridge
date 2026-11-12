@@ -19,6 +19,19 @@
   shared text), the `pcb-do --force` help, the computer-use skill, the
   server instructions and `docs/security.md`. The guard itself is
   unchanged.
+- **The native helper now runs on Ubuntu 22.04 and Debian 12.** The
+  release helper was built on Ubuntu 24.04 and needed glibc 2.39, only
+  because two process functions that Rust's standard library looks for
+  are new there. Setup skipped it below 2.39, so Ubuntu 22.04 (Linux Mint
+  21) and Debian 12 (Pardus 23) used the Python paths. CI now builds it on
+  Debian 12, where it needs glibc 2.35, and refuses a build that needs
+  more (`PCBRIDGE_MAX_GLIBC` in `scripts/build-native.sh`). Ubuntu 22.04
+  could not be the build base: its PipeWire 0.3.48 headers are too old
+  for the `libspa` crate. The same binary starts on Ubuntu 22.04 with its
+  libpipewire 0.3.48, setup no longer skips it on Debian 12, and it passed
+  the capture checks on GNOME 46, KDE Plasma 6.7.5 and Hyprland 0.56.2.
+  Desktop control on those older systems still waits for X11 support. The
+  `.deb` now declares `libc6 (>= 2.35)`.
 
 ## 2.7.2 - 2026-11-07
 

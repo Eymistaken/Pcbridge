@@ -41,7 +41,8 @@ here, not by moving sections.
    files*~~ (done, 2.6.0).
 6. ~~**Browser.**~~ Shipped in 2.6.0, removed in 2.7.0; see *Decided
    against*.
-7. **More desktops.** *A native helper that runs below glibc 2.39* first,
+7. **More desktops.** ~~*A native helper that runs below glibc 2.39*~~
+   (done, unreleased) first,
    then *Retire the legacy Python desktop backends*, then *X11, starting
    with Cinnamon and XFCE*, written straight into the native helper
    instead of added to Python and moved later. Decided with the maintainer
@@ -309,20 +310,28 @@ at the machine* checks, batched for a session at the machine.
 
 ## Optional: more desktops
 
-- **A native helper that runs below glibc 2.39.** The release helper is
-  built on Ubuntu 24.04 and needs glibc 2.39 (see
-  [docs/native/packaging.md](docs/native/packaging.md)), so setup skips it
-  on older systems: the Debian 12 VM that stands in for Pardus 23 has 2.36
-  (see measured facts), and Ubuntu 22.04, the base of Linux Mint 21, has
-  2.35. Decided with the maintainer (2026-11-12): X11 support covers these
-  systems too, and X11 goes only into the helper, so the helper has to run
-  there first. Not measured yet: whether it builds against glibc 2.35 and
-  the older PipeWire there (it links `libpipewire-0.3.so.0`, although X11
-  capture would not use it), and whether one build can still serve every
-  package (today CI builds it once, every `.deb` shares it, and the `.deb`
-  declares `libc6 (>= 2.39)`). Done when a release helper runs on Ubuntu
-  22.04 and Debian 12 without setup skipping it, and the supported
-  desktops still pass their desktop checks with it.
+- **A native helper that runs below glibc 2.39.** Done (unreleased, see
+  CHANGELOG). The release helper was built on Ubuntu 24.04 and needed
+  glibc 2.39, so setup skipped it on the Debian 12 VM that stands in for
+  Pardus 23 (2.36) and on Ubuntu 22.04, the base of Linux Mint 21 (2.35).
+  Decided with the maintainer (2026-11-12): X11 support covers these
+  systems too, and X11 goes only into the helper, so the helper had to run
+  there first. Ubuntu 22.04 itself cannot build it: its PipeWire 0.3.48
+  headers are too old for `libspa` 0.10.1. Decided with the maintainer
+  after that measurement: CI builds the release helper on Debian 12
+  (glibc 2.36, PipeWire 0.3.65), where it needs only glibc 2.35, and
+  `build-native.sh` refuses one that needs more (`PCBRIDGE_MAX_GLIBC`);
+  one build still serves every `.deb` and the wheel, and the `.deb`
+  declares `libc6 (>= 2.35)`. Measured (see measured facts): it starts on
+  Ubuntu 22.04 with libpipewire 0.3.48; `install.sh` on the Debian 12 VM
+  no longer skips it and doctor completes its handshake there; it passes
+  GNOME 46 in a headless shell (capture and accessibility reads), the
+  Plasma 6.7.5 MCP check after a wheel install, and the Hyprland 0.56.2
+  native capture check. It still links `libpipewire-0.3.so.0`, although
+  X11 capture would not use it. Left: the first CI run of the container
+  jobs; input with this binary on GNOME and Hyprland (it ran only in the
+  Plasma check; on this GNOME desktop uinput would reach the real
+  session); and Linux Mint 21 itself.
 - **X11, starting with Cinnamon and XFCE.** Both run on X11 in practice
   (Linux Mint and Pardus Cinnamon start X11 by default; their Wayland
   sessions are still experimental), and pcbridge refuses desktop tools on
@@ -342,7 +351,10 @@ at the machine* checks, batched for a session at the machine.
   backend also brings MATE and similar desktops most of the way. Publishing
   the Cinnamon applet on Cinnamon Spices needs a PR to their repository;
   the source stays in this repository. This covers systems below glibc
-  2.39 too, which needs the first item of this section. Done when Cinnamon
+  2.39 too, where the release helper now runs (the first item of this
+  section). It still links `libpipewire-0.3.so.0`: the Debian 12 Cinnamon
+  VM has it, and so does Ubuntu 22.04 wherever `xdg-desktop-portal` is
+  installed; Linux Mint 21 and XFCE were not measured. Done when Cinnamon
   and XFCE on X11 pass the desktop checks (capture, input, window focus,
   lock, idle, grant indicator and kill switch) on a system with glibc 2.39
   or later and on one below it (Linux Mint 21, or Pardus 23 or its Debian
@@ -468,9 +480,9 @@ at the machine* checks, batched for a session at the machine.
   default for capture, input and accessibility; the Python paths remain as
   the fallback when no helper is packaged. Retiring them needs the helper on
   every supported platform build and a release with the fallback unused.
-  Today a release install below glibc 2.39 gets no helper (the first item
-  of *Optional: more desktops*), and neither does a git install without a
-  Rust toolchain (see *Optional components as a checklist*).
+  Today a release install below glibc 2.35 gets no helper, and neither
+  does a git install without a Rust toolchain (see *Optional components as
+  a checklist*).
 - **The pixel-area cap and the Anthropic API.** Whether the API itself
   shrinks a 1536x864 picture (about 1.33 MP) was not measured. If it does,
   `shot=` coordinates carry a small systematic error on the right edge, and

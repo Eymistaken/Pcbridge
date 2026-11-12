@@ -11,7 +11,8 @@
 #   scripts/dev/debian-vm.sh stop        power off
 #
 # Why Debian 12: Python 3.11 exercises the install script's uv path, glibc
-# 2.36 the skipped native helper, and Cinnamon on X11 an unsupported desktop.
+# 2.36 a release native helper below glibc 2.39, and Cinnamon on X11 an
+# unsupported desktop.
 # Pardus 23 is based on Debian 12 and has no cloud image, so this stands in
 # for it. Provisioning installs the desktop and nothing pcbridge needs, so an
 # install from here shows exactly which packages pcbridge adds.

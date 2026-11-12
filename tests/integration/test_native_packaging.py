@@ -103,7 +103,10 @@ class PackagedHelper(unittest.TestCase):
         self.assertTrue(info["build_id"])
         if self.from_package or os.environ.get("PCBRIDGE_TEST_REQUIRE_RELEASE") == "1":
             self.assertEqual(info["profile"], "release")
-            self.assertNotEqual(info["build_id"], "dev", "a packaged build names its commit")
+            # "unknown": build-native.sh could not read the commit, for
+            # example because git refused a checkout another user owns.
+            self.assertNotIn(info["build_id"], ("dev", "unknown"),
+                             "a packaged build names its commit")
         sidecar = PACKAGED.with_name("build-info.json")
         if self.from_package and sidecar.is_file():
             self.assertEqual(json.loads(sidecar.read_text(encoding="utf-8")), info)

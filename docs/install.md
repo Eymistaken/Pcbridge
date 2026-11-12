@@ -132,7 +132,6 @@ First it detects the machine and shows the plan, once:
 Found: Debian GNU/Linux 12 · Cinnamon 5.6.8 · X11 · x86_64
 ✓ Terminal, files, tmux, coding agents
 ✗ Desktop control: Cinnamon on X11 is not supported yet
-  The packaged native helper needs glibc 2.39 and this system has 2.36, so it was skipped and the Python paths are used
 System packages: tmux libnotify-bin  (needs sudo)
 Tool profile: "core": desktop tools are left out, they would only refuse here
 Runs: sudo apt-get install -y tmux libnotify-bin
@@ -178,8 +177,10 @@ Runs: sudo pacman -S --needed --noconfirm tmux wl-clipboard tesseract-data-tur
   a profile you chose stays. When the desktop becomes supported, setup
   returns its own `core` to `full`.
 - **The native helper** is skipped when the system's glibc is older than
-  the one the packaged helper was built against (2.39 for the release
-  helper); the Python paths are used, and the plan says so.
+  the packaged helper needs; the Python paths are used, and the plan says
+  so. The release helper needs glibc 2.35, so it runs on Ubuntu 22.04
+  and Debian 12 (the bases of Linux Mint 21 and Pardus 23) and newer; a
+  helper built on another machine needs that machine's glibc.
 
 One confirmation covers the plan: Enter goes ahead, `n` stops with nothing
 changed. `--yes` skips it; without a terminal and without `--yes`, nothing

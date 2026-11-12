@@ -2,9 +2,10 @@
 # each in a clean container.
 #
 # The venv inside a package is bound to the release's python3, so every
-# release builds its own package. For the .deb the native helper is built
-# once (it needs glibc >= 2.39, which all of these have) and shared; the Arch
-# package builds its own from source, as makepkg does anywhere.
+# release builds its own package. The native helper is built once, on Debian
+# 12, and shared by every .deb and the wheel: it needs only glibc 2.35, so it
+# runs down to Ubuntu 22.04. The Arch package builds its own from source, as
+# makepkg does anywhere.
 name: package
 
 on:
@@ -35,17 +36,32 @@ permissions:
   contents: read
 
 jobs:
+  # Debian 12, not Ubuntu 22.04: libspa 0.10.1 does not compile against
+  # Ubuntu 22.04's PipeWire 0.3.48 headers, and a helper built on Debian 12
+  # needs glibc 2.35 (docs/dev/measured-facts.md). build-native.sh refuses
+  # one that needs more, so a later change cannot raise it unnoticed.
   native:
     runs-on: ubuntu-24.04
+    container: debian:12
+    env:
+      PCBRIDGE_MAX_GLIBC: "2.35"
     steps:
-      - uses: actions/checkout@v7
       - name: Build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates curl git python3 build-essential \
             libpipewire-0.3-dev libspa-0.2-dev libclang-dev pkg-config
+      - uses: actions/checkout@v7
       - name: Release helper
         run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain none
+          export PATH="$HOME/.cargo/bin:$PATH"
+          # git refuses a repository another user owns, and in a container
+          # the checkout may belong to the runner's user, not root: the
+          # build id would then be "unknown".
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           (cd rust && rustup toolchain install)
           scripts/build-native.sh
       - uses: actions/upload-artifact@v7
