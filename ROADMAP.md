@@ -41,9 +41,12 @@ here, not by moving sections.
    files*~~ (done, 2.6.0).
 6. ~~**Browser.**~~ Shipped in 2.6.0, removed in 2.7.0; see *Decided
    against*.
-7. **More desktops.** *Retire the legacy Python desktop backends* first,
-   then *X11, starting with Cinnamon and XFCE*, written straight into the
-   native helper instead of added to Python and moved later.
+7. **More desktops.** *A native helper that runs below glibc 2.39* first,
+   then *Retire the legacy Python desktop backends*, then *X11, starting
+   with Cinnamon and XFCE*, written straight into the native helper
+   instead of added to Python and moved later. Decided with the maintainer
+   (2026-11-12): X11 support also covers systems below glibc 2.39 (Linux
+   Mint 21, Pardus 23), so the helper has to run there before X11 can.
 8. **Windows.** After everything above; see *Optional: Windows* for what it
    involves. Scope to be written before work starts.
 9. **Website.** Last, once the feature set has settled, so the site is not
@@ -306,6 +309,20 @@ at the machine* checks, batched for a session at the machine.
 
 ## Optional: more desktops
 
+- **A native helper that runs below glibc 2.39.** The release helper is
+  built on Ubuntu 24.04 and needs glibc 2.39 (see
+  [docs/native/packaging.md](docs/native/packaging.md)), so setup skips it
+  on older systems: the Debian 12 VM that stands in for Pardus 23 has 2.36
+  (see measured facts), and Ubuntu 22.04, the base of Linux Mint 21, has
+  2.35. Decided with the maintainer (2026-11-12): X11 support covers these
+  systems too, and X11 goes only into the helper, so the helper has to run
+  there first. Not measured yet: whether it builds against glibc 2.35 and
+  the older PipeWire there (it links `libpipewire-0.3.so.0`, although X11
+  capture would not use it), and whether one build can still serve every
+  package (today CI builds it once, every `.deb` shares it, and the `.deb`
+  declares `libc6 (>= 2.39)`). Done when a release helper runs on Ubuntu
+  22.04 and Debian 12 without setup skipping it, and the supported
+  desktops still pass their desktop checks with it.
 - **X11, starting with Cinnamon and XFCE.** Both run on X11 in practice
   (Linux Mint and Pardus Cinnamon start X11 by default; their Wayland
   sessions are still experimental), and pcbridge refuses desktop tools on
@@ -324,9 +341,12 @@ at the machine* checks, batched for a session at the machine.
   frame proof exists), and `docs/security.md` must say so. A shared X11
   backend also brings MATE and similar desktops most of the way. Publishing
   the Cinnamon applet on Cinnamon Spices needs a PR to their repository;
-  the source stays in this repository. Done when Cinnamon and XFCE on X11
-  pass the desktop checks (capture, input, window focus, lock, idle, grant
-  indicator and kill switch) and `system_capabilities` reports them.
+  the source stays in this repository. This covers systems below glibc
+  2.39 too, which needs the first item of this section. Done when Cinnamon
+  and XFCE on X11 pass the desktop checks (capture, input, window focus,
+  lock, idle, grant indicator and kill switch) on a system with glibc 2.39
+  or later and on one below it (Linux Mint 21, or Pardus 23 or its Debian
+  12 stand-in), and `system_capabilities` reports them.
 
 ## Optional: Windows
 
@@ -448,6 +468,9 @@ at the machine* checks, batched for a session at the machine.
   default for capture, input and accessibility; the Python paths remain as
   the fallback when no helper is packaged. Retiring them needs the helper on
   every supported platform build and a release with the fallback unused.
+  Today a release install below glibc 2.39 gets no helper (the first item
+  of *Optional: more desktops*), and neither does a git install without a
+  Rust toolchain (see *Optional components as a checklist*).
 - **The pixel-area cap and the Anthropic API.** Whether the API itself
   shrinks a 1536x864 picture (about 1.33 MP) was not measured. If it does,
   `shot=` coordinates carry a small systematic error on the right edge, and
