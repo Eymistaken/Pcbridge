@@ -328,10 +328,10 @@ at the machine* checks, batched for a session at the machine.
   GNOME 46 in a headless shell (capture and accessibility reads), the
   Plasma 6.7.5 MCP check after a wheel install, and the Hyprland 0.56.2
   native capture check. It still links `libpipewire-0.3.so.0`, although
-  X11 capture would not use it. Left: the first CI run of the container
-  jobs; input with this binary on GNOME and Hyprland (it ran only in the
-  Plasma check; on this GNOME desktop uinput would reach the real
-  session); and Linux Mint 21 itself.
+  X11 capture would not use it. The first CI run of the container jobs
+  passed (2026-11-12). Left: input with this binary on GNOME and Hyprland
+  (it ran only in the Plasma check; on this GNOME desktop uinput would
+  reach the real session), and Linux Mint 21 itself.
 - **X11, starting with Cinnamon and XFCE.** Both run on X11 in practice
   (Linux Mint and Pardus Cinnamon start X11 by default; their Wayland
   sessions are still experimental), and pcbridge refuses desktop tools on

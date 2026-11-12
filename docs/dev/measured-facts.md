@@ -177,6 +177,14 @@ on the reference desktop.
 - **`PCBRIDGE_MAX_GLIBC` in `build-native.sh`.** On the Debian 12 build it
   printed `Needs glibc 2.35`, accepted `2.35`, refused `2.34` and refused
   the malformed `2`; without the variable the script behaves as before.
+- **The first CI run of the container jobs** (commit 1c6a284): both
+  `debian:12` jobs printed `Needs glibc 2.35` and build `1c6a284419ce`, so
+  git read the commit inside the container. The packaging test passed on
+  Ubuntu 24.04 against the artifact with only `libpipewire-0.3-0t64`
+  installed (the handshake skipped: no session bus), and the three `.deb`
+  builds (Ubuntu 24.04, Ubuntu 26.04, Debian 13) installed and passed their
+  suites with that helper. The experimental headless KWin smoke failed, as
+  it did on the five `main` commits before it.
 
 ## Remote clients, revocation and the password (2026-10-14)
 
