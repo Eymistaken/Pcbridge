@@ -42,9 +42,9 @@ here, not by moving sections.
 6. ~~**Browser.**~~ Shipped in 2.6.0, removed in 2.7.0; see *Decided
    against*.
 7. **More desktops.** ~~*A native helper that runs below glibc 2.39*~~
-   (done, unreleased) first,
-   then *Retire the legacy Python desktop backends* (its gaps closed,
-   unreleased; the removal follows the release that ships them), then *X11, starting
+   (done, 2.8.0) first,
+   then *Retire the legacy Python desktop backends* (its gaps closed in
+   2.8.0; the removal follows), then *X11, starting
    with Cinnamon and XFCE*, written straight into the native helper
    instead of added to Python and moved later. Decided with the maintainer
    (2026-11-12): X11 support also covers systems below glibc 2.39 (Linux
@@ -308,10 +308,10 @@ at the machine* checks, batched for a session at the machine.
   compiler packages join the plan when missing). An installation without a
   native helper (a git checkout without Rust) now downloads the release's
   prebuilt one, checked against `sha256sums.txt`, its `--build-info` and a
-  handshake (unreleased; measured against a local copy of a release and
-  the real GitHub API, see measured facts). Left: Fedora's names are
-  untested, and the download itself waits for the first release that
-  publishes `pcbridge-native-<target>`.
+  handshake (2.8.0; measured against a local copy of a release and the
+  real GitHub API, see measured facts). Left: Fedora's names are untested,
+  and a real download, which needs 2.8.0 published, the first release
+  with `pcbridge-native-<target>`.
 - **An aarch64 build of the native helper.** Decided with the maintainer
   (2026-11-13): ARM has no desktop control until this exists, and the
   decision is in `docs/install.md` (Architectures) and the README. Today
@@ -327,7 +327,7 @@ at the machine* checks, batched for a session at the machine.
 
 ## Optional: more desktops
 
-- **A native helper that runs below glibc 2.39.** Done (unreleased, see
+- **A native helper that runs below glibc 2.39.** Done (2.8.0, see
   CHANGELOG). The release helper was built on Ubuntu 24.04 and needed
   glibc 2.39, so setup skipped it on the Debian 12 VM that stands in for
   Pardus 23 (2.36) and on Ubuntu 22.04, the base of Linux Mint 21 (2.35).
@@ -455,7 +455,7 @@ at the machine* checks, batched for a session at the machine.
   `suggested_action`, the structured errors), and make each one say when to
   do what, in words that lead an agent to the right next step.
   ~~The first case, the activity guard (`USER_ACTIVE`)~~, is done
-  (unreleased, see CHANGELOG): an agent asked for desktop work had its
+  (2.8.0, see CHANGELOG): an agent asked for desktop work had its
   first action refused because the user's own request keystroke tripped
   the guard, read "pass force=true" as a locked desktop, and stopped. The
   refusal, the shared `force` description of the seven write tools, the
@@ -501,7 +501,7 @@ at the machine* checks, batched for a session at the machine.
   them in a release of their own, then remove the Python paths, the
   `"python"` values and `[desktop] capture_backend` in the next one (an old
   config gets a warning and a doctor message, never a crash). The gaps are
-  closed (unreleased): an installation without a helper downloads the
+  closed (2.8.0): an installation without a helper downloads the
   release's (see *Optional components as a checklist*); ARM has no desktop
   control until *An aarch64 build of the native helper*; GNOME window
   capture is a region of the native frame through the extension's
