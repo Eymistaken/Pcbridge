@@ -26,9 +26,10 @@ def _unavailable(code: ErrorCode = ErrorCode.BACKEND_UNAVAILABLE) -> DesktopErro
 
 
 def _backend() -> str:
-    from . import compositor, session
+    # From the environment alone: an error path must not start processes.
+    from . import session
 
-    return "linux.x11.frame" if compositor.current().kind in session.X11_KINDS else "linux.hyprland.glow"
+    return "linux.x11.frame" if session.x11_session() else "linux.hyprland.glow"
 
 
 class FrameOwner:

@@ -249,10 +249,14 @@ def refresh_session_env() -> None:
     if now < _x11_retry_at:
         return
     _x11_retry_at = now + 2.0
-    fixed = ensure_session_env()
-    if fixed:
-        import logging
+    import logging
 
+    try:
+        fixed = ensure_session_env()
+    except Exception as exc:  # noqa: BLE001 - a repair attempt never breaks a call
+        logging.getLogger("pcbridge").debug("session environment repair failed: %s", exc)
+        return
+    if fixed:
         logging.getLogger("pcbridge").warning(
             "Session environment found after startup; repaired: %s", ", ".join(fixed))
 
