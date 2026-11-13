@@ -209,7 +209,9 @@ the desktop session: the handshake runs in a throwaway state directory.
   release (v2.7.2) publishes pcbridge-native-x86_64-unknown-linux-gnu yet;
   install Rust and run scripts/build-native.sh instead". Nothing was
   written. So until a release publishes the asset, setup on a checkout
-  without Rust warns and leaves the Python paths in use.
+  without Rust warns and leaves the Python paths in use (2.8.0); after
+  their removal such a checkout has no desktop control until it gets a
+  helper.
 
 ## GNOME window capture from the native frame (2026-11-13)
 
@@ -237,6 +239,59 @@ and no input was sent.
   activation token never gets the focus on its own (`focus_window` stayed
   null); `ActivateWindow` through the extension, as `window_focus` does,
   gave it the focus at once.
+
+## The Python desktop paths removed (2026-11-13)
+
+Measured after the removal (`87b3d64`), with the native helper as the only
+desktop backend. The real desktop got no input: GNOME ran in a headless
+shell on its own session bus, Plasma and Hyprland in their VMs.
+
+- **The suites.** Contracts 982 (2 skipped), integration 60 (1 live test
+  skipped), desktop 522, models 104, extension JS 115, `cargo test` 201,
+  and `test_e2e` against a throwaway daemon 264 with 8 skipped and the one
+  failure 2.8.0 had as well (`job_list` finds no job in a fresh state with
+  `PCBRIDGE_TEST_NO_AGENT=1`).
+- **GNOME 46, headless, two 1920x1080 virtual monitors**, this checkout's
+  extension, the release helper (`053cb3650344`): the window capture (1
+  test), the native capture gate (11), regions (2), the shipped default (3,
+  one of them a process without a helper: `system_capabilities` says
+  unavailable with the path, `desktop_unlock` says capture is not ready and
+  `screen_capture` refuses with the reason) and accessibility reads and
+  actions on the test's own window (13) all passed. Warm capture of one
+  monitor at 1536: p50 133.2 ms, p95 139.9 ms (30 calls); a raw frame p50
+  62.9 ms, p95 71.8 ms; a new session plus its first frame p50 82.9 ms, p95
+  85.4 ms (5); the same static screen gave 100 % identical pixels twice at
+  full size and at 1536; 12 of 12 frames followed their request; a revoked
+  and an expired grant got `GRANT_REQUIRED` (safety) and no PNG. A region
+  matched the whole-monitor frame 100 %. Accessibility: a dump of the test
+  window 11-30 ms (321 ms for the first, the helper starting), a click
+  9.6 ms, a text write 3.5 ms, the window list 2.1 ms.
+- **KDE Plasma 6.7.5, Arch VM, two 1280x800 outputs**, a throwaway daemon
+  from this checkout with its own config, state and socket, and a release
+  helper built in the VM: `tests/live/kde/check_mcp.py` passed all 19 steps
+  (capture through `linux.kwin.screenshot2`, the window as a region,
+  `ui_dump` of Kate, a click, typing through the native clipboard, OCR of
+  the typed text, the lock and Qt accessibility restored), as did
+  `check_input.py` (the pointer at exactly (1946, 416), the text in Kate)
+  and the headless KWin smoke. `pcbridge doctor` found the AT-SPI bus, the
+  system python's GObject for the KWin scripts, and the helper with every
+  capability. Three things the run itself needed, none of them from the
+  removal: a helper in a checkout needs its own KWin `.desktop` entry
+  (`kwin.install_helper_entry`), or KWin refuses its screenshots; two
+  daemons of one user collide on `idle.json.tmp`, so the VM's installed one
+  was stopped for the run; and a daemon that has just started refuses the
+  first write for `idle_guard_seconds` (`USER_ACTIVE`, "used N seconds
+  ago", N the time since it started), because its idle watcher counts the
+  user active until the first idle notification.
+- **Hyprland 0.56.2 VM (two outputs).** The scoped acceptance cohort
+  (`tests/live/hyprland/run_acceptance.sh` with
+  `PCBRIDGE_TEST_HYPRLAND_MATRIX=1`), run from this checkout synced into
+  the VM, passed all 17 cases: the pointer lock, touch, the accessibility
+  policy, the lock and activity stops, cancellation, expiry, revocation,
+  replacement and failure of a sequence, the six topologies (rotated,
+  negative, swapped, vertical, hotplug, mirror) and capture performance
+  (median 220.5 ms, p95 237.4 ms). Every case closed its grant and
+  runtime and left the screen unlocked.
 
 ## Remote clients, revocation and the password (2026-10-14)
 
@@ -616,8 +671,11 @@ for optional physical-hardware and engineering follow-ups.
   locked; it does not reopen by itself.
 - **Screen sharing is opened by `desktop_unlock`** and shows GNOME's sharing
   indicator the whole time; it is visible in captures too. Closing it needs
-  the process that opened it; `screencast.kill_helpers()` finds the helpers
-  of this user by their full path (the `bridgekilit` case, 2026-09-06).
+  the process that opened it: the Python share's helpers were found by
+  their full path (`screencast.kill_helpers()`, the `bridgekilit` case,
+  2026-09-06); the native helper ends its own session within 250 ms of a
+  revoke (`native_revoke.rs`), so `pcbridge lock` needs no search since the
+  Python share was removed after 2.8.
 - **`screenshot_scale_long_edge = 1536`**: at 1280 small Turkish diacritics
   blur and words get guessed. The Anthropic API scales images above 1568 on
   its own, which would put a 1.22x error into `shot=` coordinates, so

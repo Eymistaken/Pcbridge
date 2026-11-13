@@ -43,8 +43,8 @@ here, not by moving sections.
    against*.
 7. **More desktops.** ~~*A native helper that runs below glibc 2.39*~~
    (done, 2.8.0) first,
-   then *Retire the legacy Python desktop backends* (its gaps closed in
-   2.8.0; the removal follows), then *X11, starting
+   then ~~*Retire the legacy Python desktop backends*~~ (gaps closed in
+   2.8.0; removed, unreleased), then *X11, starting
    with Cinnamon and XFCE*, written straight into the native helper
    instead of added to Python and moved later. Decided with the maintainer
    (2026-11-12): X11 support also covers systems below glibc 2.39 (Linux
@@ -493,37 +493,24 @@ at the machine* checks, batched for a session at the machine.
   `desktop_unlock` and the capability report can be wrong while locked. The
   fix asks the native helper for its session state (a `capture.session_state`
   protocol method), and needs a real lock and unlock to verify.
-- **Retire the legacy Python desktop backends.** The native helper is the
-  default for capture, input and accessibility; the Python paths remain as
-  the fallback when no helper is packaged. Retiring them needs the helper on
-  every supported platform build and a release with the fallback unused.
-  Decided with the maintainer (2026-11-13): close the gaps first and ship
-  them in a release of their own, then remove the Python paths, the
-  `"python"` values and `[desktop] capture_backend` in the next one (an old
-  config gets a warning and a doctor message, never a crash). The gaps are
-  closed (2.8.0): an installation without a helper downloads the
-  release's (see *Optional components as a checklist*); ARM has no desktop
-  control until *An aarch64 build of the native helper*; GNOME window
-  capture is a region of the native frame through the extension's
-  `FocusedWindowFrame` instead of gnome-screenshot; and a config that still
-  selects a Python path is warned. Below glibc 2.35 no supported desktop
-  runs. The map of what goes (2026-11-13): `screencast.py` and
-  `screencast_helper.py` (GStreamer), the evdev devices in `input.py`,
-  `atspi_helper.py` and the helper calls in `uitree.py`, the Python
-  providers' OS parts, gnome-screenshot (the monitor fallback when the
-  native share is not open, and the window path for a pre-2.8 extension),
-  and their packages (the GStreamer and AT-SPI introspection packages, and
-  the `[desktop]` extra's `evdev`, which setup compiles). Shared code
-  stays: shots, `to_global`, typing orchestration, `uitree`'s ids and dump
-  text, and the password rule. With the native helper present, only
-  `screen_info`'s window list before a grant still uses the Python AT-SPI
-  helper (decided: it lists none until `desktop_unlock`). `find_text` and
-  `wait_for_text` refuse `monitor="window"` because a window shot had no
-  place on the screen; with gnome-screenshot gone every window shot has
-  one, so that refusal goes too. Done when no Python capture, input or
-  accessibility backend is left, a machine without the helper gets a
-  refusal or doctor message that says how to get it, the suites pass, and
-  GNOME (headless), Plasma and Hyprland (VMs) pass the desktop checks.
+- **Retire the legacy Python desktop backends.** Done (unreleased, see
+  CHANGELOG). Decided with the maintainer (2026-11-13): close the gaps
+  first and ship them in a release of their own (2.8.0: the release's
+  helper for installations without one, ARM documented without desktop
+  control until *An aarch64 build of the native helper*, GNOME window
+  capture as a region of the native frame, and a warning for configs that
+  still select a Python path), then remove the Python paths, the
+  `"python"` values and `[desktop] capture_backend`. Removed: the
+  GStreamer screen share, the python-evdev devices and the Python
+  clipboard runner, the system-python AT-SPI helper, gnome-screenshot, the
+  Python providers and their packages; an old config is read with a
+  warning and a doctor message, never a crash. Without a helper every
+  desktop tool refuses with the fix for that installation. `screen_info`
+  lists no windows before `desktop_unlock`, and `find_text` /
+  `wait_for_text` accept `monitor="window"`. Measured (see measured facts):
+  the suites pass, and GNOME 46 in a headless shell, KDE Plasma 6.7.5 and
+  Hyprland in their VMs pass the desktop checks. `kwin_helper.py` stays
+  (*Move KWin scripting into the native helper*).
 - **Move KWin scripting into the native helper.** `kwin_helper.py` runs in
   the system python3 with PyGObject (Gio) to load KWin's one-shot scripts:
   window focus, the focused window, and its frame for window capture on

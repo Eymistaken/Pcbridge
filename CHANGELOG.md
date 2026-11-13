@@ -1,5 +1,51 @@
 # Changelog
 
+## Unreleased
+
+### Removed
+
+- **The Python desktop paths.** The native helper is now the only backend
+  for screen capture, input and accessibility, as 2.8 announced. Gone: the
+  GStreamer screen share (`screencast.py` and its system-python helper),
+  the python-evdev keyboard and pointer, the Python runner of the
+  clipboard programs, the system-python AT-SPI helper, and gnome-screenshot
+  (the monitor fallback when the native share was not open, and the window
+  picture of an extension from before 2.8). What stays in Python is
+  everything after the operating system: shots and `to_global`, the typing
+  orchestration, the short ids and text of `ui_dump`, the password rule
+  and the safety gate. The `[desktop]` extra is Pillow alone, so setup no
+  longer compiles evdev, and the packages drop the GStreamer and AT-SPI
+  introspection packages. The accessibility bus the helper reads
+  (`at-spi2-core`) is now a dependency of the `.deb` and part of the setup
+  plan, and on KDE Plasma setup also plans the system python's GObject
+  bindings the KWin window scripts need.
+- **`[native] capture/input/accessibility = "python"` and `[desktop]
+  capture_backend`.** An old config still loads: `"python"` is read as
+  `"auto"` with a warning in `pcbridge doctor`, and `capture_backend` is
+  ignored with a hint.
+- **The `degraded` field of `pcb-shot --json`**, which named the Python
+  fallback.
+
+### Changed
+
+- **Without a helper, the desktop tools say how to get one.** The refusal,
+  "The pcbridge native helper was not found. Desktop control needs it.",
+  ends with the fix for this installation: `pcbridge doctor --fix`
+  downloads the release's helper, a git checkout with Rust can run
+  `scripts/build-native.sh` instead, and a distribution package is
+  reinstalled. `pcbridge doctor` reports a missing helper as a failure
+  while desktop control is on. ARM keeps no desktop control until an
+  aarch64 helper exists (decided 2026-11-13).
+- **`screen_info` lists no windows before `desktop_unlock`.** The list came
+  from the Python AT-SPI helper while no grant was open; the native reader
+  reads nothing without a grant.
+- **`find_text` and `wait_for_text` accept `monitor="window"`.** A window
+  capture is a region of its monitor's frame with a shot id, so the text
+  found in it converts to coordinates like any other.
+- **`pcbridge lock` no longer looks for screen-share processes.** Each
+  native helper ends its own share within 250 ms of the revoke, whichever
+  process opened it.
+
 ## 2.8.0 - 2026-11-13
 
 ### Added
