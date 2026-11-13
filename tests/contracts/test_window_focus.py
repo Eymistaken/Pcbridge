@@ -231,5 +231,71 @@ class ExtensionFocusSourceTests(unittest.TestCase):
         self.assertIn("the shell extension could not tell", refused.detail)
 
 
+
+INTROSPECT_NEW = """NAME                 TYPE      SIGNATURE RESULT/VALUE FLAGS
+.ActivateWindow      method    s         b            -
+.FocusedWindow       method    -         bsss         -
+.FocusedWindowFrame  method    -         bsssiiii     -
+.Version             property  s         "2.8.0"      emits-change
+"""
+INTROSPECT_OLD = INTROSPECT_NEW.replace(".FocusedWindowFrame  method    -         bsssiiii     -\n", "")
+
+
+class FocusedFrameTests(unittest.TestCase):
+    """`FocusedWindowFrame` (2.8): the focused window with its frame, for window capture."""
+
+    def reply(self, stdout: str = "", returncode: int = 0):
+        return SimpleNamespace(stdout=stdout, returncode=returncode, stderr="")
+
+    def test_support_is_read_from_introspection_without_reading_a_window(self) -> None:
+        for stdout, code, expected in ((INTROSPECT_NEW, 0, True), (INTROSPECT_OLD, 0, False),
+                                       ("", 1, None)):
+            with self.subTest(expected=expected), mock.patch.object(
+                apps.subprocess, "run", return_value=self.reply(stdout, code)
+            ) as run:
+                self.assertIs(apps.extension_frame_support(), expected)
+            argv = run.call_args.args[0]
+            self.assertIn("introspect", argv)
+            self.assertNotIn("call", argv)
+        with mock.patch.object(apps.subprocess, "run", side_effect=FileNotFoundError):
+            self.assertIsNone(apps.extension_frame_support())
+
+    def test_a_found_window_comes_with_its_box(self) -> None:
+        stdout = ('{"type":"bsssiiii","data":[true,"org.gnome.TextEditor",'
+                  '"org.gnome.TextEditor","Notes",-1920,40,800,600]}')
+        with mock.patch.object(apps.subprocess, "run", return_value=self.reply(stdout)) as run:
+            frame = apps.extension_focused_frame()
+        self.assertEqual(frame, apps.ShellWindowFrame(
+            "org.gnome.TextEditor", "Notes", (-1920, 40, 800, 600)))
+        self.assertIn("FocusedWindowFrame", run.call_args.args[0])
+
+    def test_no_focus_is_none_and_never_a_guess(self) -> None:
+        for stdout in ('{"type":"bsssiiii","data":[false,"","","",0,0,0,0]}',
+                       '{"type":"bsssiiii","data":[true,"a","","t",0,0,0,10]}'):
+            with self.subTest(stdout=stdout), mock.patch.object(
+                apps.subprocess, "run", return_value=self.reply(stdout)
+            ):
+                self.assertIsNone(apps.extension_focused_frame())
+
+    def test_an_extension_that_cannot_answer_says_what_fixes_it(self) -> None:
+        cases = (
+            (INTROSPECT_OLD, 0, True, "log out and back in"),
+            ("", 1, False, "pcbridge setup"),
+        )
+        for introspect, code, loaded, words in cases:
+            replies = [self.reply("", 1), self.reply(introspect, code)]
+            with self.subTest(loaded=loaded), mock.patch.object(
+                apps.subprocess, "run", side_effect=replies
+            ), self.assertRaises(apps.ExtensionFrameUnavailable) as raised:
+                apps.extension_focused_frame()
+            self.assertIs(raised.exception.loaded, loaded)
+            self.assertIn(words, str(raised.exception))
+        for broken in ("not json", '{"type":"bsss","data":[true,"a","b","c"]}'):
+            with self.subTest(broken=broken), mock.patch.object(
+                apps.subprocess, "run", return_value=self.reply(broken)
+            ), self.assertRaises(apps.ExtensionFrameUnavailable):
+                apps.extension_focused_frame()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -68,6 +68,8 @@ from .python import (
     _capability,
     _clipboard_capabilities,
     _desktop_error,
+    _gnome_frame_support,
+    _gnome_window_capability,
 )
 from ...config import Config
 from ...native import NativeClient, discover_native_binary
@@ -610,6 +612,7 @@ class RustCaptureProvider(PythonCaptureProvider):
             ready,
             self.screencast.is_open(),
             topology,
+            _gnome_frame_support(),
         )
 
     def available(self) -> tuple[bool, str]:
@@ -703,10 +706,11 @@ class RustCaptureProvider(PythonCaptureProvider):
                 reason_code=ErrorCode.DISPLAY_MAPPING_UNKNOWN,
             )
 
-        # Window capture is not a native capability and is not claimed as one:
-        # the legacy screenshot path still owns it on GNOME. On Plasma it is a
-        # region of the monitor frame (KWin names the focused window), so it
-        # stands or falls with monitor capture.
+        # A window capture is a region of the monitor frame: KWin, Hyprland
+        # and, since 2.8, the GNOME extension name the focused window and its
+        # frame, so it stands or falls with monitor capture. On GNOME an
+        # extension from before 2.8 leaves the old gnome-screenshot path,
+        # shown as degraded with what fixes it.
         if kind in ("kde", "hyprland"):
             window = _capability(
                 "capture.window",
@@ -717,8 +721,8 @@ class RustCaptureProvider(PythonCaptureProvider):
                 limitations=monitor.limitations,
             )
         else:
-            window = PythonCaptureProvider._screenshot_capability(
-                "capture.window",
+            window = _gnome_window_capability(
+                monitor,
                 pillow_ok and bool(shutil.which(capturelib.GNOME_SCREENSHOT)),
             )
         return {"capture.monitor": monitor, "capture.window": window}

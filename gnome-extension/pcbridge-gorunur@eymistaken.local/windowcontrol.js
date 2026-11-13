@@ -1,9 +1,10 @@
 /* Narrow GNOME Shell window surface for pcbridge.
  *
- * The exported D-Bus interface intentionally has two custom methods: one
- * activates an already-open window, the other names the window that has
- * focus (step 8.1). It never lists, moves, resizes, or closes windows. Every
- * call rereads the desktop grant before touching the compositor.
+ * The exported D-Bus interface intentionally has three custom methods: one
+ * activates an already-open window, one names the window that has focus
+ * (step 8.1), and one names it together with its frame, for window capture
+ * (2.8). It never lists, moves, resizes, or closes windows. Every call
+ * rereads the desktop grant before touching the compositor.
  */
 
 import Gio from 'gi://Gio';
@@ -27,6 +28,16 @@ const INTERFACE_XML = `
       <arg name="wm_class" type="s" direction="out"/>
       <arg name="app_id" type="s" direction="out"/>
       <arg name="title" type="s" direction="out"/>
+    </method>
+    <method name="FocusedWindowFrame">
+      <arg name="found" type="b" direction="out"/>
+      <arg name="wm_class" type="s" direction="out"/>
+      <arg name="app_id" type="s" direction="out"/>
+      <arg name="title" type="s" direction="out"/>
+      <arg name="x" type="i" direction="out"/>
+      <arg name="y" type="i" direction="out"/>
+      <arg name="width" type="i" direction="out"/>
+      <arg name="height" type="i" direction="out"/>
     </method>
     <property name="Version" type="s" access="read"/>
   </interface>
@@ -226,6 +237,43 @@ export class WindowControl {
             ];
         } catch (error) {
             console.warn(`[pcbridge-gorunur] cannot read the focused window: ${error}`);
+            return none;
+        }
+    }
+
+    /** The focused window and its frame, while the grant is current (2.8).
+     *
+     * Window capture on GNOME takes this box out of the native monitor frame,
+     * as on KDE Plasma and Hyprland, instead of running gnome-screenshot (a
+     * white flash and a sound on every capture, and a picture with no place
+     * on the screen). The frame is `Meta.Window.get_frame_rect()`, in the
+     * stage coordinates DisplayConfig lays the monitors out in. Returns
+     * `[found, wm_class, app_id, title, x, y, width, height]`; `found` is
+     * false with the grant closed, with no focused window, or with a frame
+     * of no size. `FocusedWindow` above stays as it was for older servers.
+     */
+    FocusedWindowFrame() {
+        const none = [false, '', '', '', 0, 0, 0, 0];
+        try {
+            this._state.refresh();
+            if (!this._state.active)
+                return none;
+            const window = this._focusedWindow();
+            if (!window)
+                return none;
+            const rect = window.get_frame_rect();
+            const box = [rect?.x, rect?.y, rect?.width, rect?.height].map(Number);
+            if (!box.every(Number.isInteger) || box[2] <= 0 || box[3] <= 0)
+                return none;
+            return [
+                true,
+                rawField(window, 'get_wm_class'),
+                rawField(window, 'get_gtk_application_id'),
+                rawField(window, 'get_title'),
+                ...box,
+            ];
+        } catch (error) {
+            console.warn(`[pcbridge-gorunur] cannot read the focused window frame: ${error}`);
             return none;
         }
     }

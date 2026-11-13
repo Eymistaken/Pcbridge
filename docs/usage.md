@@ -285,6 +285,10 @@ The tools and their arguments are the same; a few answers differ:
   back to KRunner (`alt+space`) instead of GNOME search.
 - `screen_capture(monitor="window")` crops the focused window out of its
   monitor's frame, and needs the native helper, as all capture there does.
+  GNOME does the same since 2.8, with the window's frame from the
+  extension; an extension loaded before the update (until the next login)
+  leaves the older `gnome-screenshot` window picture, which flashes the
+  screen and has no `shot` id.
 - `desktop_unlock` turns on Qt accessibility for the grant, so `ui_dump`
   reads Qt applications (Kate, Konsole, Dolphin, System Settings); an
   application that was already running appears within about 2 s.

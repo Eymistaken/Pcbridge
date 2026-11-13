@@ -75,7 +75,7 @@ from typing import Any
 from .. import distro as distrolib
 from . import compositor as compositorlib
 from . import monitors as monitorslib
-from .errors import DesktopError
+from .errors import DesktopError, ErrorCategory, ErrorCode
 
 try:  # Pillow olmadan kirpma/olcekleme yapilamaz; yalnizca bu araclar kapanir
     from PIL import Image
@@ -1260,6 +1260,57 @@ def _kwin_window_region() -> tuple[tuple[int, int, int, int], monitorslib.Monito
     return (x1, y1, x2 - x1, y2 - y1), home
 
 
+def _gnome_window_region() -> tuple[
+    tuple[tuple[int, int, int, int], monitorslib.Monitor], Callable[[], None]
+]:
+    """The focused window on GNOME as a region of its monitor, plus a check.
+
+    The extension names the window and its frame (`FocusedWindowFrame`) in
+    Mutter's stage coordinates, the monitor table's platform coordinates, so
+    the table's origin is applied as on KDE Plasma and Hyprland. The box is
+    clipped to the monitor holding the window's center. The check runs after
+    the frames arrived: the same window, at the same place, still has the
+    focus, or the picture is withdrawn (a window that moved in between would
+    give a shot of something else). Raises `apps.ExtensionFrameUnavailable`
+    when the extension in this session cannot report frames.
+    """
+    from . import apps as appslib
+
+    frame = appslib.extension_focused_frame()
+    if frame is None:
+        raise CaptureError(
+            "No focused window to capture: the GNOME extension named none (the overview "
+            "or an empty desktop has the focus, or the grant is closed).")
+    mons = monitorslib.list_monitors()
+    left, top = monitorslib.platform_origin(mons)
+    px, py, pw, ph = frame.box
+    x0, y0 = px - left, py - top
+    home = monitorslib.find_monitor(x0 + pw // 2, y0 + ph // 2, mons)
+    if home is None:
+        raise CaptureError("The focused window is not on any monitor.")
+    x1, y1 = max(home.x, x0), max(home.y, y0)
+    x2, y2 = min(home.x + home.width, x0 + pw), min(home.y + home.height, y0 + ph)
+    if x2 - x1 < REGION_MIN_EDGE or y2 - y1 < REGION_MIN_EDGE:
+        raise CaptureError("The focused window is too small to capture.")
+
+    def verify() -> None:
+        try:
+            again = appslib.extension_focused_frame()
+        except appslib.ExtensionFrameUnavailable as exc:
+            again = None
+            reason = str(exc)
+        else:
+            reason = "the focused window changed or moved during the capture"
+        if again != frame:
+            raise DesktopError(
+                code=ErrorCode.TARGET_MISMATCH, category=ErrorCategory.SAFETY,
+                message=f"No window picture: {reason}.", retryable=True,
+                suggested_action="Bring the window forward and capture it again.",
+                backend=compositorlib.current().focus_backend)
+
+    return ((x1, y1, x2 - x1, y2 - y1), home), verify
+
+
 def _render(
     monitor: int | str | None,
     staging: Path,
@@ -1291,6 +1342,20 @@ def _render(
         region = _kwin_window_region()
         want_window = False
         monitor = None  # the region names its monitor
+    if want_window and region is None and compositorlib.current().kind == "gnome":
+        # The same on GNOME since 2.8, when the extension reports the frame:
+        # silent, and the shot gets a global offset for `shot=` clicks.
+        from .apps import ExtensionFrameUnavailable
+
+        try:
+            region, verify_window = _gnome_window_region()
+            want_window = False
+            monitor = None
+        except ExtensionFrameUnavailable:
+            # An extension from before 2.8 (until the next login) or none:
+            # gnome-screenshot below, the old way, reported as degraded.
+            # The next release removes this path.
+            pass
     if want_window and region is not None:
         raise CaptureError(
             "A `window` capture cannot take a region: where the window sits on "
@@ -1412,6 +1477,8 @@ def _render(
                     (gw, gh), origin,
                 )
             )
+    if verify_window:
+        verify_window()
     return pending
 
 

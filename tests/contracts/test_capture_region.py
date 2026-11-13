@@ -183,6 +183,103 @@ class RegionCaptureTests(unittest.TestCase):
                 include_pointer=False, screencast=None, region=region,
             )
 
+    # ------------------------------------------- GNOME window capture (2.8)
+    def window_shot(self, screencast, frames, grab_window=None):
+        """`monitor="window"` on GNOME with the extension's answers queued."""
+        from pcbridge.desktop import apps as appslib
+
+        answers = list(frames)
+
+        def focused_frame():
+            answer = answers.pop(0) if len(answers) > 1 else answers[0]
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        with mock.patch.object(appslib, "extension_focused_frame", side_effect=focused_frame), \
+                mock.patch.object(capturelib, "_grab_window",
+                                  grab_window or mock.Mock(side_effect=AssertionError(
+                                      "gnome-screenshot ran"))), \
+                mock.patch.object(capturelib, "_grab_canvas", self.canvas), \
+                mock.patch.object(capturelib, "available", return_value=(True, "")):
+            return capturelib.capture(
+                "window", out_dir=self.out, scale_long_edge=1536,
+                include_pointer=False, screencast=screencast,
+            )
+
+    def test_a_gnome_window_is_a_region_of_its_monitor_frame(self) -> None:
+        from pcbridge.desktop.apps import ShellWindowFrame
+
+        editor = ShellWindowFrame("org.gnome.TextEditor", "Notes", (2020, 150, 400, 300))
+        for name, screencast in self.handles():
+            with self.subTest(backend=name):
+                shot = self.window_shot(screencast, [editor])[0]
+                self.assertTrue(shot.region)
+                self.assertEqual(shot.offset, (2020, 150))
+                self.assertEqual(shot.desktop_units, (400, 300))
+                self.assertTrue(shot.id.startswith("m2-"), shot.id)
+                with Image.open(shot.path) as image:
+                    self.assertEqual(image.getpixel((0, 0)), pattern(100, 150))
+                # Unlike a gnome-screenshot window shot, it converts.
+                self.assertEqual(
+                    capturelib.to_global(10, 20, shot=shot.id, dirs=[self.out]), (2030, 170))
+
+    def test_the_stage_origin_is_applied_and_the_window_clipped_to_its_monitor(self) -> None:
+        from pcbridge.desktop.apps import ShellWindowFrame
+
+        # Mutter's stage starts at x=-1920 here: the left monitor is at -1920.
+        shifted = [
+            monitorslib.Monitor(index=1, connector="DP-4", x=0, y=0, width=1920, height=1080,
+                                scale=1.0, primary=False, name="left",
+                                platform_x=-1920, platform_y=0),
+            monitorslib.Monitor(index=2, connector="DP-3", x=1920, y=0, width=1920, height=1080,
+                                scale=1.0, primary=True, name="right",
+                                platform_x=0, platform_y=0),
+        ]
+        # Centered on the right monitor, hanging 100 px over its left edge.
+        hanging = ShellWindowFrame("app", "t", (-100, 50, 800, 400))
+        with mock.patch.object(monitorslib, "list_monitors", return_value=shifted):
+            shot = self.window_shot(FakeLegacyScreenCast(self.frames), [hanging])[0]
+        self.assertEqual(shot.offset, (1920, 50))
+        self.assertEqual(shot.desktop_units, (700, 400))
+
+    def test_a_window_that_moved_during_the_capture_is_withdrawn(self) -> None:
+        from pcbridge.desktop.apps import ExtensionFrameUnavailable, ShellWindowFrame
+        from pcbridge.desktop.errors import DesktopError, ErrorCode
+
+        before = ShellWindowFrame("app", "t", (2020, 150, 400, 300))
+        for after in (ShellWindowFrame("app", "t", (2040, 150, 400, 300)),
+                      ShellWindowFrame("other", "t", (2020, 150, 400, 300)),
+                      None,
+                      ExtensionFrameUnavailable("gone", loaded=False)):
+            for name, screencast in self.handles():
+                with self.subTest(after=after, backend=name):
+                    with self.assertRaises(DesktopError) as raised:
+                        self.window_shot(screencast, [before, after])
+                    self.assertEqual(raised.exception.code, ErrorCode.TARGET_MISMATCH)
+                    self.assertEqual(sorted(self.out.iterdir()), [], "a shot was kept")
+
+    def test_no_focused_window_is_said_plainly(self) -> None:
+        with self.assertRaises(capturelib.CaptureError) as raised:
+            self.window_shot(FakeLegacyScreenCast(self.frames), [None])
+        self.assertIn("No focused window", str(raised.exception))
+
+    def test_an_extension_from_before_2_8_keeps_the_screenshot_path(self) -> None:
+        from pcbridge.desktop.apps import ExtensionFrameUnavailable
+
+        def grab(tmpdir: Path, include_pointer: bool) -> Path:
+            path = Path(tmpdir) / "window.png"
+            Image.new("RGB", (640, 480), (1, 2, 3)).save(path)
+            return path
+
+        for loaded in (True, False):
+            with self.subTest(loaded=loaded):
+                old = ExtensionFrameUnavailable("old", loaded=loaded)
+                shot = self.window_shot(FakeLegacyScreenCast(self.frames), [old],
+                                        grab_window=grab)[0]
+                self.assertTrue(shot.id.startswith("win-"), shot.id)
+                self.assertEqual(shot.size, (640, 480))
+
     def test_a_layout_change_between_resolve_and_capture_is_refused(self) -> None:
         region = capturelib.resolve_region(2020, 150, 400, 300)
         moved = [MONITORS[0], monitorslib.Monitor(

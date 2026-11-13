@@ -29,6 +29,8 @@ def main() -> int:
     parser.add_argument("--app-id", required=True)
     parser.add_argument("--title", required=True)
     parser.add_argument("--timeout", type=float, default=60.0)
+    parser.add_argument("--color", default="",
+                        help="paint the window in this CSS color (window capture checks)")
     args = parser.parse_args()
 
     GLib.set_prgname(args.app_id)
@@ -42,6 +44,11 @@ def main() -> int:
         window = Gtk.ApplicationWindow(application=app, title=args.title)
         window.set_default_size(420, 160)
         window.set_child(Gtk.Label(label=args.title))
+        if args.color:
+            css = Gtk.CssProvider()
+            css.load_from_string(f"window, window > * {{ background: {args.color}; }}")
+            Gtk.StyleContext.add_provider_for_display(
+                window.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         windows.append(window)
         window.present()
 

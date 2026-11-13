@@ -20,6 +20,19 @@
 
 ### Changed
 
+- **A window capture on GNOME is a region of the native frame.**
+  `screen_capture(monitor="window")` on GNOME ran `gnome-screenshot -w`
+  even with the native helper: a white flash and a sound on every capture,
+  and a picture with no place on the screen, so its pixels could not be
+  turned into coordinates. The extension now names the focused window with
+  its frame (`FocusedWindowFrame`), and pcbridge cuts that box out of the
+  monitor's frame, as on KDE Plasma and Hyprland: silent, and the shot has
+  a global offset, so `shot=` clicks on it land where they should. A window
+  that moves, changes or loses the focus while it is captured withdraws the
+  picture (`TARGET_MISMATCH`). The real session loads the new extension at
+  the next login; until then window capture uses gnome-screenshot as
+  before, and `system_capabilities` shows `capture.window` as degraded with
+  that reason. The next release removes the gnome-screenshot path.
 - **A `USER_ACTIVE` refusal now tells the agent what to do next.** The
   activity guard refuses desktop input until nobody has used the keyboard
   or pointer for `[desktop] idle_guard_seconds` (60 s by default). Right

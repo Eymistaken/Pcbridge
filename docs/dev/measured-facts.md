@@ -211,6 +211,33 @@ the desktop session: the handshake runs in a throwaway state directory.
   written. So until a release publishes the asset, setup on a checkout
   without Rust warns and leaves the Python paths in use.
 
+## GNOME window capture from the native frame (2026-11-13)
+
+Measured in a headless GNOME 46 shell on its own session bus with two
+1920x1080 virtual monitors, with this checkout's extension loaded from a
+private `XDG_DATA_HOME`, enabled in a private dconf, and reading a scratch
+grant through `PCBRIDGE_GORUNUR_STATE`. Nothing reached the real session,
+and no input was sent.
+
+- **The extension answers with the frame.** `FocusedWindowFrame` returned
+  `[true, "io.pcbridge.Probecolor", "io.pcbridge.Probecolor", "probe color",
+  750, 476, 420, 160]` for a 420x160 GTK4 window; `busctl introspect` lists
+  the method (`bsssiiii`), which is how pcbridge tells a new extension from
+  the 2.7.2 one still loaded in the real session.
+- **The window shot is exactly that box.** `tests/live/test_window_capture.py`:
+  frame (750, 476, 420, 160) became shot `m1-…` with offset (750, 476) and
+  size 420x160 on the native helper and on the Python screencast, the
+  window's color at its center, `to_global` mapping its center back to the
+  window's center, and gnome-screenshot never ran (27 s, most of it the
+  shell starting). `test_capture_region` and `test_capture_default` still
+  pass in the same shell (5 tests).
+- **Two things a test window needs there.** A GTK4 window started before
+  `xdg-desktop-portal` is up waited about 25 s for it before mapping
+  (`GDK_DEBUG=no-portals` skips that), and a window started without an
+  activation token never gets the focus on its own (`focus_window` stayed
+  null); `ActivateWindow` through the extension, as `window_focus` does,
+  gave it the focus at once.
+
 ## Remote clients, revocation and the password (2026-10-14)
 
 Measured with unreleased code against a throwaway daemon (temp config, state

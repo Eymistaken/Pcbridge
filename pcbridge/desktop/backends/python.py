@@ -329,6 +329,62 @@ def _clipboard_capabilities(backend: str) -> dict[str, Capability]:
     return values
 
 
+def _gnome_frame_support() -> bool | None:
+    """Whether GNOME's extension reports window frames; None elsewhere or without one."""
+    if compositorlib.current().kind != "gnome":
+        return None
+    from .. import apps as appslib
+
+    return appslib.extension_frame_support()
+
+
+def _gnome_window_capability(monitor: Capability, screenshot_ok: bool) -> Capability:
+    """`capture.window` on GNOME (2.8): a region of the monitor frame.
+
+    The extension names the focused window's frame, so a window capture
+    stands or falls with monitor capture, as on KDE Plasma and Hyprland. An
+    extension from before 2.8 (until the next login) or none leaves the old
+    gnome-screenshot path, which is shown as degraded with what fixes it;
+    the next release removes that path.
+    """
+    support = _gnome_frame_support()
+    if support:
+        return _capability(
+            "capture.window",
+            monitor.state,
+            backend=compositorlib.current().focus_backend,
+            scope="os.capture",
+            reason_code=monitor.reason_code,
+            limitations=monitor.limitations,
+        )
+    why = (
+        "the GNOME extension loaded in this session cannot report window frames; log out "
+        "and back in to load the new one"
+        if support is False
+        else "the pcbridge GNOME extension is not running; `pcbridge setup` installs it"
+    )
+    if not screenshot_ok:
+        return _capability(
+            "capture.window",
+            CapabilityState.UNAVAILABLE,
+            backend=compositorlib.current().focus_backend,
+            scope="os.capture",
+            reason_code=ErrorCode.DEPENDENCY_MISSING,
+            limitations=(why[0].upper() + why[1:] + ".",),
+        )
+    return _capability(
+        "capture.window",
+        CapabilityState.DEGRADED,
+        backend="linux.gnome-screenshot",
+        scope="os.capture",
+        reason_code=ErrorCode.BACKEND_UNAVAILABLE,
+        limitations=(
+            why[0].upper() + why[1:] + "; until then window captures use gnome-screenshot, "
+            "which flashes the screen and gives the picture no global position.",
+        ),
+    )
+
+
 class PythonCaptureProvider:
     """Own the legacy ScreenCast handle and expose capture as one provider."""
 
@@ -377,6 +433,7 @@ class PythonCaptureProvider:
             screencastlib.available()[0],
             self.screencast.is_open(),
             topology,
+            _gnome_frame_support(),
         )
 
     def probe_capabilities(self) -> dict[str, Capability]:
@@ -459,9 +516,10 @@ class PythonCaptureProvider:
                 limitations=tuple(monitor.limitations) + (self.degraded_reason,),
             )
 
-        window = self._screenshot_capability(
-            "capture.window",
-            pillow_ok and screenshot_ok,
+        window = (
+            _gnome_window_capability(monitor, pillow_ok and screenshot_ok)
+            if compositorlib.current().kind == "gnome"
+            else self._screenshot_capability("capture.window", pillow_ok and screenshot_ok)
         )
         if compositorlib.is_kde():
             # Mutter's ScreenCast and gnome-screenshot are GNOME's; KWin gives

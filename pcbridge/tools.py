@@ -2397,7 +2397,9 @@ def register(
                     "Which screen to capture: 'all' (default, one image per "
                     "monitor), a monitor number like '1' or '2', a connector name "
                     "like 'DP-1', 'primary', or 'window' for just the focused "
-                    "window. 'window' images cannot be turned back into "
+                    "window, cut out of its monitor's picture. Use a 'window' "
+                    "image's shot id for coordinates like any other; an image "
+                    "that comes without one cannot be turned back into "
                     "coordinates."
                 )
             ),

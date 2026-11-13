@@ -227,6 +227,91 @@ def extension_focused_window() -> tuple[str, str] | None:
     return app, str(title or "")
 
 
+class ExtensionFrameUnavailable(RuntimeError):
+    """The GNOME extension in this session cannot report window frames.
+
+    `loaded` is False when no extension owns the bus name (not installed,
+    not enabled, or the shell has not started it) and True when one is
+    running but predates `FocusedWindowFrame` (new files load at the next
+    login).
+    """
+
+    def __init__(self, message: str, *, loaded: bool) -> None:
+        super().__init__(message)
+        self.loaded = loaded
+
+
+@dataclass(frozen=True)
+class ShellWindowFrame:
+    """The focused window as the GNOME extension names it, with its frame."""
+
+    app: str
+    title: str
+    # `Meta.Window.get_frame_rect()`: x, y, width, height in Mutter's stage
+    # coordinates, the platform coordinates of the monitor table.
+    box: tuple[int, int, int, int]
+
+
+def extension_frame_support() -> bool | None:
+    """Does the running extension have `FocusedWindowFrame`? None: no extension.
+
+    Introspection only: no window is read, so this works without a grant and
+    reveals nothing about what is on the screen.
+    """
+    try:
+        proc = subprocess.run(
+            ["busctl", "--user", "--timeout=500ms", "introspect",
+             _FOCUS_BUS_NAME, _FOCUS_OBJECT_PATH, _FOCUS_INTERFACE],
+            capture_output=True, text=True, timeout=1.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    return any(line.split()[:2] == [".FocusedWindowFrame", "method"]
+               for line in proc.stdout.splitlines() if line.strip())
+
+
+def extension_focused_frame() -> ShellWindowFrame | None:
+    """The focused window and its frame, from the GNOME extension.
+
+    None: the grant is closed or no window has the focus (the overview, an
+    empty desktop). Raises `ExtensionFrameUnavailable` when the extension in
+    this session cannot answer at all, so the caller can say what fixes it.
+    """
+    try:
+        proc = subprocess.run(
+            ["busctl", "--user", "--json=short", "--timeout=500ms", "call",
+             _FOCUS_BUS_NAME, _FOCUS_OBJECT_PATH, _FOCUS_INTERFACE, "FocusedWindowFrame"],
+            capture_output=True, text=True, timeout=1.0,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ExtensionFrameUnavailable(
+            f"the GNOME extension did not answer: {exc}", loaded=False) from exc
+    if proc.returncode != 0:
+        support = extension_frame_support()
+        if support is None:
+            raise ExtensionFrameUnavailable(
+                "the pcbridge GNOME extension is not running in this session; "
+                "`pcbridge setup` installs and enables it", loaded=False)
+        raise ExtensionFrameUnavailable(
+            "the GNOME extension loaded in this session is older than this pcbridge "
+            "and cannot report window frames; log out and back in to load the new one",
+            loaded=True)
+    try:
+        reply = json.loads(proc.stdout)
+        found, wm_class, app_id, title, x, y, width, height = reply["data"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise ExtensionFrameUnavailable(
+            "the GNOME extension gave an unreadable window frame", loaded=True) from exc
+    if reply.get("type") != "bsssiiii" or found is not True:
+        return None
+    box = (int(x), int(y), int(width), int(height))
+    if box[2] <= 0 or box[3] <= 0:
+        return None
+    return ShellWindowFrame(str(app_id or wm_class or "").strip() or "?", str(title or ""), box)
+
+
 def _extension_activate(window: str) -> bool:
     """Kurulu GNOME eklentisinden acik pencereyi etkinlestirmesini iste.
 

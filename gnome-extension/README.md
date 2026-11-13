@@ -13,11 +13,13 @@ window operations GNOME does not offer from outside.
   while desktop control is closed (2.2, below).
 - **An optional kill-switch shortcut** (2.0), off by default.
 - **The agent's pointer** (OFF by default, below).
-- **Two D-Bus methods**: `ActivateWindow(target) -> bool` raises the one,
+- **Three D-Bus methods**: `ActivateWindow(target) -> bool` raises the one,
   unambiguous, already open window that matches; `FocusedWindow() -> (bool,
   wm_class, app_id, title)` names the window with keyboard focus, for when
-  AT-SPI cannot (games, many Java/Electron windows). Nothing lists, moves,
-  closes or resizes windows. Both reread
+  AT-SPI cannot (games, many Java/Electron windows); and
+  `FocusedWindowFrame()` (2.8) adds that window's frame, so a window capture
+  is a region of the native monitor frame. Nothing lists, moves, closes or
+  resizes windows. All three reread
   `~/.local/state/pcbridge/desktop_unlock.json` on every call and return
   `false` without doing anything when the grant is closed.
 
@@ -92,6 +94,8 @@ io.github.eymistaken.Pcbridge.WindowFocus
 /io/github/eymistaken/Pcbridge/WindowFocus
 io.github.eymistaken.Pcbridge.WindowFocus.ActivateWindow(s) -> b
 io.github.eymistaken.Pcbridge.WindowFocus.FocusedWindow() -> (b, s, s, s)
+io.github.eymistaken.Pcbridge.WindowFocus.FocusedWindowFrame() -> (b, s, s, s, i, i, i, i)
+                           (2.8; FocusedWindow's answer plus x, y, width, height)
 property Version: s        (2.0; a 1.x extension has none)
 ```
 
@@ -106,9 +110,24 @@ with a closed grant or nothing focused (overview, empty desktop). pcbridge
 asks it only when AT-SPI cannot read the focus. Measured in a nested shell:
 4.8-11 ms per call including `busctl`.
 
+`FocusedWindowFrame` returns the same four fields plus the window's
+`Meta.Window.get_frame_rect()` in stage coordinates, the platform
+coordinates of DisplayConfig's monitor layout. pcbridge applies the
+layout's origin, keeps the part on the monitor that holds the window's
+center, captures that region of the native frame, and asks again after the
+frame arrived: a window that moved, changed or lost the focus in between
+withdraws the picture (`TARGET_MISMATCH`). `found` is also false for a
+frame of no size. pcbridge learns whether the running extension has the
+method by introspection, which reads no window. Measured in a headless
+GNOME 46 shell: a 420x160 window at (750, 476) became a shot of exactly
+that box with that offset, on the native helper and on the Python
+screencast, and gnome-screenshot never ran.
+
 `pcbridge doctor` reads `Version` from the running shell and says whether
 the new extension is loaded yet. Either extension version works with either
-server version.
+server version; with one from before 2.8, window capture on GNOME falls
+back to gnome-screenshot until the next login, which the next release
+removes.
 
 ## The agent's pointer (off by default)
 

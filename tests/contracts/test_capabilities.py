@@ -424,9 +424,7 @@ class CapabilityContractTests(unittest.TestCase):
         self.assertEqual(error.backend, "linux.python.capture")
         self.assertEqual(error.to_dict()["code"], "BACKEND_UNAVAILABLE")
 
-    def test_capture_probe_keeps_window_capture_when_topology_is_unavailable(
-        self,
-    ) -> None:
+    def _probe_without_topology(self, frame_support: bool | None) -> dict:
         with tempfile.TemporaryDirectory() as raw:
             provider = PythonCaptureProvider(make_config(Path(raw)))
             with (
@@ -444,17 +442,43 @@ class CapabilityContractTests(unittest.TestCase):
                     "list_monitors",
                     side_effect=monitorslib.MonitorError("synthetic topology error"),
                 ),
+                mock.patch(
+                    "pcbridge.desktop.backends.python._gnome_frame_support",
+                    return_value=frame_support,
+                ),
             ):
-                values = provider.probe_capabilities()
+                return provider.probe_capabilities()
 
-        self.assertEqual(
-            values["capture.monitor"].reason_code,
-            ErrorCode.DISPLAY_MAPPING_UNKNOWN,
-        )
-        self.assertEqual(
-            values["capture.window"].state,
-            CapabilityState.SUPPORTED,
-        )
+    def test_capture_probe_keeps_screenshot_window_capture_without_topology(
+        self,
+    ) -> None:
+        # An extension from before 2.8: gnome-screenshot needs no monitor table.
+        for support in (False, None):
+            with self.subTest(frame_support=support):
+                values = self._probe_without_topology(support)
+                self.assertEqual(
+                    values["capture.monitor"].reason_code,
+                    ErrorCode.DISPLAY_MAPPING_UNKNOWN,
+                )
+                window = values["capture.window"]
+                self.assertEqual(window.state, CapabilityState.DEGRADED)
+                self.assertEqual(window.backend, "linux.gnome-screenshot")
+                self.assertTrue(window.usable_now)
+                self.assertIn(
+                    "log out and back in" if support is False else "pcbridge setup",
+                    window.limitations[0],
+                )
+
+    def test_a_window_region_needs_the_monitor_table_like_monitor_capture(
+        self,
+    ) -> None:
+        # Since 2.8 a window is a region of its monitor's frame.
+        values = self._probe_without_topology(True)
+        window = values["capture.window"]
+        self.assertEqual(window.state, values["capture.monitor"].state)
+        self.assertEqual(window.reason_code, ErrorCode.DISPLAY_MAPPING_UNKNOWN)
+        self.assertEqual(window.backend, "linux.gnome-shell-extension")
+        self.assertFalse(window.usable_now)
 
     def test_provider_maps_legacy_input_errors_without_message_parsing(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

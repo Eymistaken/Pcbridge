@@ -180,6 +180,57 @@ const brokenFocus = new WindowControl(
 check('errors return not-found instead of escaping over D-Bus',
     brokenFocus.FocusedWindow()[0] === false);
 
+print('\nFocusedWindowFrame');
+
+function framedWindow(rect, fields = {}) {
+    return {...focusWindow(fields), get_frame_rect: () => rect};
+}
+
+const NO_FRAME = JSON.stringify([false, '', '', '', 0, 0, 0, 0]);
+const editor = framedWindow({x: 1950, y: 40, width: 800, height: 600},
+    {title: 'Notes', wmClass: 'org.gnome.TextEditor', appId: 'org.gnome.TextEditor'});
+const frameState = new FakeState(true);
+const frameControl = new WindowControl(frameState, {
+    listWindows: () => {
+        throw new Error('FocusedWindowFrame must not list windows');
+    },
+    focusedWindow: () => editor,
+});
+check('the focused window comes with its frame while the grant is current',
+    JSON.stringify(frameControl.FocusedWindowFrame()) === JSON.stringify(
+        [true, 'org.gnome.TextEditor', 'org.gnome.TextEditor', 'Notes', 1950, 40, 800, 600]));
+check('the grant is reread for every frame read', frameState.refreshes === 1);
+check('the old FocusedWindow answer is unchanged',
+    JSON.stringify(frameControl.FocusedWindow()) ===
+        JSON.stringify([true, 'org.gnome.TextEditor', 'org.gnome.TextEditor', 'Notes']));
+check('a negative origin is passed on as it is',
+    new WindowControl(new FakeState(true), {
+        focusedWindow: () => framedWindow({x: -1920, y: -10, width: 300, height: 200}),
+    }).FocusedWindowFrame().slice(4).join() === '-1920,-10,300,200');
+check('a closed grant gives no frame',
+    JSON.stringify(new WindowControl(new FakeState(false), {focusedWindow: () => editor})
+        .FocusedWindowFrame()) === NO_FRAME);
+check('no focused window gives no frame',
+    JSON.stringify(new WindowControl(new FakeState(true), {focusedWindow: () => null})
+        .FocusedWindowFrame()) === NO_FRAME);
+for (const [name, rect] of [
+    ['an empty frame', {x: 0, y: 0, width: 0, height: 0}],
+    ['a fractional frame', {x: 0.5, y: 0, width: 10, height: 10}],
+    ['a frame without a size', {x: 1, y: 2}],
+    ['no frame at all', null],
+]) {
+    check(`${name} is not found`,
+        JSON.stringify(new WindowControl(new FakeState(true), {
+            focusedWindow: () => framedWindow(rect),
+        }).FocusedWindowFrame()) === NO_FRAME);
+}
+check('a frame that throws is not found instead of escaping over D-Bus',
+    JSON.stringify(new WindowControl(new FakeState(true), {
+        focusedWindow: () => ({...focusWindow(), get_frame_rect: () => {
+            throw new Error('unmanaged');
+        }}),
+    }).FocusedWindowFrame()) === NO_FRAME);
+
 print(`\n${passed} geçti, ${failed} kaldı`);
 if (failed)
     imports.system.exit(1);

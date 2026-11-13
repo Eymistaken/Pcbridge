@@ -1,7 +1,7 @@
 {
   "uuid": "pcbridge-gorunur@eymistaken.local",
   "name": "pcbridge — agent visible",
-  "description": "Shows pcbridge in the panel: server up or down, desktop grant and time left, running jobs, remote access, and a \"Lock desktop control now\" kill switch. While the grant is open it draws a visible frame at the screen edges. Offers two narrow D-Bus methods: raise an open window while the grant is open, and name the focused window.",
+  "description": "Shows pcbridge in the panel: server up or down, desktop grant and time left, running jobs, remote access, and a \"Lock desktop control now\" kill switch. While the grant is open it draws a visible frame at the screen edges. Offers three narrow D-Bus methods, all only while the grant is open: raise an open window, name the focused window, and name it with its frame for window capture.",
   "shell-version": [
     "46",
     "50"
