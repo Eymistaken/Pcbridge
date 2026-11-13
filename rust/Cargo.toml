@@ -22,4 +22,6 @@ thiserror = "2"
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 wayland-protocols-wlr = { version = "0.3.12", features = ["client"] }
+# Pure Rust X11 client (RustConnection): no libxcb or libX11 link.
+x11rb = { version = "0.13.2", default-features = false, features = ["randr", "screensaver", "shape", "xfixes"] }
 zbus = "5.13"

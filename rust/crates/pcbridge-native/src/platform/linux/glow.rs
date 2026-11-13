@@ -5,6 +5,7 @@
 //! bound, and every surface has an explicit empty input region.
 
 mod appearance;
+mod x11;
 
 pub use appearance::{
     BREATH_HALF_MS, EDGE_ALPHA, FADE_IN_MS, FADE_OUT_MS, FALLOFF, breath, depth, fade_in, fade_out,
@@ -28,6 +29,69 @@ use wayland_client::protocol::{
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle};
 use wayland_protocols::wp::presentation_time::client::{wp_presentation, wp_presentation_feedback};
 use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1};
+
+/// The grant frame on this session's display server: layer-shell strips on
+/// Hyprland, override-redirect windows on X11 (Cinnamon, Xfce).
+pub enum Overlay {
+    Wayland(WaylandOverlay),
+    X11(Box<x11::X11Overlay>),
+}
+
+impl Overlay {
+    pub fn connect(monitors: &[Monitor]) -> Result<Self, String> {
+        if super::desktop::DesktopKind::detect().is_x11() {
+            x11::X11Overlay::connect(monitors).map(|overlay| Self::X11(Box::new(overlay)))
+        } else {
+            WaylandOverlay::connect(monitors).map(Self::Wayland)
+        }
+    }
+
+    pub fn draw(&mut self, opacity: f64, breathing: f64) -> Result<(), String> {
+        match self {
+            Self::Wayland(overlay) => overlay.draw(opacity, breathing),
+            Self::X11(overlay) => overlay.draw(opacity, breathing),
+        }
+    }
+
+    pub fn poll(&mut self, timeout: Duration) -> Result<(), String> {
+        match self {
+            Self::Wayland(overlay) => overlay.poll(timeout),
+            Self::X11(overlay) => overlay.poll(timeout),
+        }
+    }
+
+    #[must_use]
+    pub fn presented(&self) -> bool {
+        match self {
+            Self::Wayland(overlay) => overlay.presented(),
+            Self::X11(overlay) => overlay.presented(),
+        }
+    }
+
+    #[must_use]
+    pub fn strip_count(&self) -> usize {
+        match self {
+            Self::Wayland(overlay) => overlay.strip_count(),
+            Self::X11(overlay) => overlay.strip_count(),
+        }
+    }
+
+    #[must_use]
+    pub fn presentation_age(&self) -> Option<Duration> {
+        match self {
+            Self::Wayland(overlay) => overlay.presentation_age(),
+            Self::X11(overlay) => overlay.presentation_age(),
+        }
+    }
+
+    #[must_use]
+    pub fn presentation_serial(&self) -> u64 {
+        match self {
+            Self::Wayland(overlay) => overlay.presentation_serial(),
+            Self::X11(overlay) => overlay.presentation_serial(),
+        }
+    }
+}
 
 const MAX_POOL_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
@@ -87,7 +151,7 @@ struct State {
     presentation_serial: u64,
 }
 
-pub struct Overlay {
+pub struct WaylandOverlay {
     connection: Connection,
     queue: EventQueue<State>,
     readiness: Async<OwnedFd>,
@@ -111,7 +175,7 @@ fn shared_file(index: usize) -> Result<File, String> {
     Ok(file)
 }
 
-impl Overlay {
+impl WaylandOverlay {
     pub fn connect(monitors: &[Monitor]) -> Result<Self, String> {
         if monitors.is_empty() || super::desktop::hyprland_socket().is_none() {
             return Err("No selected Hyprland output table".into());
@@ -379,7 +443,7 @@ impl Overlay {
     }
 }
 
-impl Drop for Overlay {
+impl Drop for WaylandOverlay {
     fn drop(&mut self) {
         for strip in &self.state.strips {
             strip.layer.destroy();

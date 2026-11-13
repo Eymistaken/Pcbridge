@@ -73,6 +73,38 @@ fn frame_records_match_the_shared_refusal_fixture() {
 }
 
 #[test]
+fn x11_frame_records_match_the_shared_fixture() {
+    use pcbridge_native::platform::linux::glow_state::FrameSession;
+    let data: Value = serde_json::from_str(include_str!(
+        "../../../../tests/fixtures/native/glow_health_cases.json"
+    ))
+    .unwrap();
+    let token = LeaseToken::new(
+        data["token"]["grant_id"].as_str().unwrap(),
+        data["token"]["revoke_epoch"].as_u64().unwrap(),
+    );
+    let x11 = &data["x11"];
+    let session = FrameSession::X11 {
+        display: x11["display"].as_str().unwrap().to_owned(),
+    };
+    for case in x11["cases"].as_array().unwrap() {
+        let mut raw = data["base"].clone();
+        let object = raw.as_object_mut().unwrap();
+        object.extend(x11["patch"].as_object().unwrap().clone());
+        object.extend(case["patch"].as_object().unwrap().clone());
+        let record: FrameRecord = serde_json::from_value(raw).unwrap();
+        assert_eq!(
+            record.matches_session(&token, &session, case["now_ms"].as_u64().unwrap()),
+            case["expected"].as_bool().unwrap(),
+            "{}",
+            case["name"]
+        );
+    }
+    let base: FrameRecord = serde_json::from_value(data["base"].clone()).unwrap();
+    assert!(!base.matches_session(&token, &session, 10500));
+}
+
+#[test]
 fn a_delayed_old_observer_cannot_overwrite_replacement_health() {
     use pcbridge_core::{LEASE_LOCK_FILE, LEASE_STATE_FILE};
     use std::fs::{File, OpenOptions};

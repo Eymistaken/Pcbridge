@@ -254,5 +254,59 @@
       "now_ms": 10500,
       "expected": false
     }
-  ]
+  ],
+  "x11": {
+    "display": ":0",
+    "patch": {
+      "wayland_display": "",
+      "hyprland_instance": "",
+      "x11_display": ":0"
+    },
+    "cases": [
+      {
+        "name": "x11 frame on its display",
+        "patch": {},
+        "now_ms": 10500,
+        "expected": true
+      },
+      {
+        "name": "x11 frame on another display",
+        "patch": {
+          "x11_display": ":1"
+        },
+        "now_ms": 10500,
+        "expected": false
+      },
+      {
+        "name": "x11 frame without a display",
+        "patch": {
+          "x11_display": ""
+        },
+        "now_ms": 10500,
+        "expected": false
+      },
+      {
+        "name": "x11 frame naming a Wayland socket too",
+        "patch": {
+          "wayland_display": "wayland-1"
+        },
+        "now_ms": 10500,
+        "expected": false
+      },
+      {
+        "name": "x11 frame naming a Hyprland instance",
+        "patch": {
+          "hyprland_instance": "fixture-session"
+        },
+        "now_ms": 10500,
+        "expected": false
+      },
+      {
+        "name": "stale x11 frame",
+        "patch": {},
+        "now_ms": 11500,
+        "expected": false
+      }
+    ]
+  }
 }

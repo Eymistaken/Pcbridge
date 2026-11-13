@@ -6,6 +6,14 @@
 //! `idle-watch` record (see `idle.rs` and docs/dev/measured-facts.md).
 //! Hyprland answers lock state on its selected IPC socket; idle observations
 //! use the same session-bound Wayland record as Plasma.
+//!
+//! On X11 (Cinnamon, XFCE) the lock is two observations: the desktop's
+//! locker (`org.cinnamon.ScreenSaver`, xfce4-screensaver's
+//! `org.xfce.ScreenSaver`, or light-locker on the freedesktop name) and
+//! logind's view of the user's graphical session. Measured on Debian 12:
+//! light-locker locks by switching to the greeter, and its `GetActive` stays
+//! false while it does; only logind's `Active=no` shows that input would
+//! reach the greeter. Idle time is the X server's own (MIT-SCREEN-SAVER).
 
 use std::sync::Mutex;
 use std::thread;
@@ -66,7 +74,10 @@ impl StateEndpoints {
         match kind {
             DesktopKind::Gnome => Some(GNOME_ENDPOINTS),
             DesktopKind::Kde => Some(KDE_ENDPOINTS),
-            DesktopKind::Hyprland | DesktopKind::Unknown => None,
+            DesktopKind::Hyprland
+            | DesktopKind::Cinnamon
+            | DesktopKind::Xfce
+            | DesktopKind::Unknown => None,
         }
     }
 }
@@ -171,6 +182,7 @@ enum StateSource {
     // Boxed: the D-Bus provider is about 800 bytes, the Hyprland path 24.
     Dbus(Box<DbusDesktopState>),
     Hyprland(std::path::PathBuf),
+    X11(Box<X11DesktopState>),
 }
 
 pub struct SessionDesktopState {
@@ -193,6 +205,11 @@ impl SessionDesktopState {
             })?;
             return Ok(Self {
                 source: StateSource::Hyprland(socket),
+            });
+        }
+        if kind.is_x11() {
+            return Ok(Self {
+                source: StateSource::X11(Box::new(X11DesktopState::connect(kind)?)),
             });
         }
         let endpoints = StateEndpoints::for_desktop(kind)
@@ -339,6 +356,7 @@ impl DesktopStateProvider for SessionDesktopState {
                 |_| ScreenLockObservation::unknown(),
                 |data| lock_from_hyprland_reply(&data),
             ),
+            StateSource::X11(provider) => provider.screen_lock(),
         }
     }
 
@@ -350,17 +368,175 @@ impl DesktopStateProvider for SessionDesktopState {
                 .map_or_else(ActivityObservation::unknown, |ms| {
                     ActivityObservation::new(ActivityState::Known, Some(ms))
                 }),
+            StateSource::X11(provider) => provider.user_activity(),
         }
     }
 
     fn wait_for_lock_change(&self, timeout: Duration) -> ScreenLockObservation {
         match &self.source {
             StateSource::Dbus(provider) => provider.wait_for_lock_change(timeout),
-            StateSource::Hyprland(_) => {
+            StateSource::Hyprland(_) | StateSource::X11(_) => {
                 thread::sleep(timeout.min(Duration::from_millis(100)));
                 self.screen_lock()
             }
         }
+    }
+}
+
+/// The X11 desktops' lockers, in the order they are asked for.
+const CINNAMON_LOCKERS: &[(&str, &str, &str)] = &[(
+    "org.cinnamon.ScreenSaver",
+    "/org/cinnamon/ScreenSaver",
+    "org.cinnamon.ScreenSaver",
+)];
+const XFCE_LOCKERS: &[(&str, &str, &str)] = &[
+    (
+        "org.xfce.ScreenSaver",
+        "/org/xfce/ScreenSaver",
+        "org.xfce.ScreenSaver",
+    ),
+    (
+        "org.freedesktop.ScreenSaver",
+        "/org/freedesktop/ScreenSaver",
+        "org.freedesktop.ScreenSaver",
+    ),
+];
+
+/// Combine the locker's answer with logind's. Locked when either says so;
+/// unknown when logind cannot be read or a running locker does not answer.
+#[must_use]
+pub fn x11_lock_state(
+    locker: Option<Option<bool>>,
+    session_active: Option<bool>,
+    locked_hint: Option<bool>,
+) -> ScreenLockState {
+    if locker == Some(Some(true)) || session_active == Some(false) || locked_hint == Some(true) {
+        return ScreenLockState::KnownLocked;
+    }
+    match (locker, session_active, locked_hint) {
+        (None | Some(Some(false)), Some(true), Some(false)) => ScreenLockState::KnownUnlocked,
+        _ => ScreenLockState::Unknown,
+    }
+}
+
+pub struct X11DesktopState {
+    session: Connection,
+    system: Connection,
+    lockers: &'static [(&'static str, &'static str, &'static str)],
+    x11: super::x11::X11,
+}
+
+impl X11DesktopState {
+    fn connect(kind: DesktopKind) -> Result<Self, zbus::Error> {
+        let session = zbus::block_on(
+            Builder::session()?
+                .method_timeout(DBUS_METHOD_TIMEOUT)
+                .build(),
+        )?;
+        let system = zbus::block_on(
+            Builder::system()?
+                .method_timeout(DBUS_METHOD_TIMEOUT)
+                .build(),
+        )?;
+        let x11 =
+            super::x11::X11::connect().map_err(|error| zbus::Error::Failure(error.to_string()))?;
+        Ok(Self {
+            session,
+            system,
+            lockers: if kind == DesktopKind::Cinnamon {
+                CINNAMON_LOCKERS
+            } else {
+                XFCE_LOCKERS
+            },
+            x11,
+        })
+    }
+
+    /// None: no locker runs. Some(None): one runs and did not answer.
+    fn locker(&self) -> Option<Option<bool>> {
+        zbus::block_on(async {
+            let bus = zbus::fdo::DBusProxy::new(&self.session).await.ok()?;
+            for (destination, path, interface) in self.lockers {
+                let name = zbus::names::BusName::try_from(*destination).ok()?;
+                if !bus.name_has_owner(name).await.unwrap_or(false) {
+                    continue;
+                }
+                let answer: Option<bool> = async {
+                    let proxy = Proxy::new(&self.session, *destination, *path, *interface)
+                        .await
+                        .ok()?;
+                    proxy.call("GetActive", &()).await.ok()
+                }
+                .await;
+                return Some(answer);
+            }
+            None
+        })
+    }
+
+    /// logind's (Active, LockedHint) for the user's graphical session.
+    fn logind(&self) -> (Option<bool>, Option<bool>) {
+        use std::os::unix::fs::MetadataExt;
+        let Ok(uid) = std::fs::metadata("/proc/self").map(|meta| meta.uid()) else {
+            return (None, None);
+        };
+        zbus::block_on(async {
+            let session_path: Option<zbus::zvariant::OwnedObjectPath> = async {
+                let manager = Proxy::new(
+                    &self.system,
+                    "org.freedesktop.login1",
+                    "/org/freedesktop/login1",
+                    "org.freedesktop.login1.Manager",
+                )
+                .await
+                .ok()?;
+                let user: zbus::zvariant::OwnedObjectPath =
+                    manager.call("GetUser", &(uid,)).await.ok()?;
+                let user = Proxy::new(
+                    &self.system,
+                    "org.freedesktop.login1",
+                    user,
+                    "org.freedesktop.login1.User",
+                )
+                .await
+                .ok()?;
+                let (_, path): (String, zbus::zvariant::OwnedObjectPath) =
+                    user.get_property("Display").await.ok()?;
+                (path.as_str() != "/").then_some(path)
+            }
+            .await;
+            let Some(path) = session_path else {
+                return (None, None);
+            };
+            let Ok(session) = Proxy::new(
+                &self.system,
+                "org.freedesktop.login1",
+                path,
+                "org.freedesktop.login1.Session",
+            )
+            .await
+            else {
+                return (None, None);
+            };
+            (
+                session.get_property::<bool>("Active").await.ok(),
+                session.get_property::<bool>("LockedHint").await.ok(),
+            )
+        })
+    }
+}
+
+impl DesktopStateProvider for X11DesktopState {
+    fn screen_lock(&self) -> ScreenLockObservation {
+        let (active, hint) = self.logind();
+        ScreenLockObservation::new(x11_lock_state(self.locker(), active, hint))
+    }
+
+    fn user_activity(&self) -> ActivityObservation {
+        self.x11.idle_ms().map_or_else(
+            |_| ActivityObservation::unknown(),
+            |ms| ActivityObservation::new(ActivityState::Known, Some(ms)),
+        )
     }
 }
 

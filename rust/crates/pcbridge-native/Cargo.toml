@@ -20,6 +20,7 @@ thiserror.workspace = true
 wayland-client.workspace = true
 wayland-protocols.workspace = true
 wayland-protocols-wlr.workspace = true
+x11rb.workspace = true
 zbus.workspace = true
 
 [dev-dependencies]

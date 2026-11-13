@@ -20,6 +20,13 @@
 //!   be byte-exact.
 //!
 //! Clipboard bytes never appear in a log line or an error message.
+//!
+//! On X11 (Cinnamon, XFCE) the same three operations run `xclip`, which
+//! likewise stays in the background as the selection's owner. Its listing
+//! starts with the selection protocol's own targets (`TIMESTAMP`,
+//! `TARGETS`, ...), which are skipped; it adds no newline, and it has no
+//! clear, so the helper clears the X selection itself
+//! (`x11::X11::clear_clipboard`).
 
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
@@ -51,7 +58,7 @@ pub struct Saved {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClipboardError {
-    #[error("{program} was not found; install wl-clipboard")]
+    #[error("{program} was not found; install {}", package_of(program))]
     Missing { program: &'static str },
     #[error("{program} did not finish within {} ms", timeout.as_millis())]
     Timeout {
@@ -71,6 +78,40 @@ pub enum ClipboardError {
         source: io::Error,
     },
 }
+
+/// The package that ships `program`.
+#[must_use]
+pub fn package_of(program: &str) -> &'static str {
+    if program == "xclip" {
+        "xclip"
+    } else {
+        "wl-clipboard"
+    }
+}
+
+/// Which clipboard programs, and so which arguments, a session uses.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Dialect {
+    /// `wl-paste` and `wl-copy` (Wayland).
+    #[default]
+    WlClipboard,
+    /// `xclip` for both directions (X11).
+    Xclip,
+}
+
+/// The X selection protocol's own targets: what a clipboard offers about
+/// itself, never content.
+const XCLIP_META_TARGETS: &[&str] = &[
+    "TIMESTAMP",
+    "TARGETS",
+    "MULTIPLE",
+    "SAVE_TARGETS",
+    "DELETE",
+    "INSERT_PROPERTY",
+    "INSERT_SELECTION",
+    "LENGTH",
+    "TARGET_SIZES",
+];
 
 /// What a `wl-paste` run printed, and whether it succeeded.
 #[derive(Debug)]
@@ -100,6 +141,7 @@ pub trait Programs {
 pub struct Clipboard<P> {
     programs: P,
     max_content: usize,
+    dialect: Dialect,
 }
 
 impl<P: Programs> Clipboard<P> {
@@ -111,6 +153,29 @@ impl<P: Programs> Clipboard<P> {
         Self {
             programs,
             max_content,
+            dialect: Dialect::WlClipboard,
+        }
+    }
+
+    /// The same clipboard driven through `xclip` (X11).
+    #[must_use]
+    pub const fn xclip(programs: P) -> Self {
+        Self {
+            programs,
+            max_content: MAX_CONTENT_BYTES,
+            dialect: Dialect::Xclip,
+        }
+    }
+
+    #[must_use]
+    pub const fn dialect(&self) -> Dialect {
+        self.dialect
+    }
+
+    fn copy_program(&self) -> &'static str {
+        match self.dialect {
+            Dialect::WlClipboard => "wl-copy",
+            Dialect::Xclip => "xclip",
         }
     }
 
@@ -120,6 +185,9 @@ impl<P: Programs> Clipboard<P> {
     /// # Errors
     /// A program is missing or times out, or the content exceeds the limit.
     pub fn save(&self) -> Result<Option<Saved>, ClipboardError> {
+        if self.dialect == Dialect::Xclip {
+            return self.save_xclip();
+        }
         let listing = self.programs.paste(&["--list-types"], MAX_LISTING_BYTES)?;
         if !listing.success || listing.stdout.iter().all(u8::is_ascii_whitespace) {
             return Ok(None);
@@ -141,16 +209,56 @@ impl<P: Programs> Clipboard<P> {
         }))
     }
 
+    fn save_xclip(&self) -> Result<Option<Saved>, ClipboardError> {
+        let listing = self.programs.paste(
+            &["-selection", "clipboard", "-o", "-t", "TARGETS"],
+            MAX_LISTING_BYTES,
+        )?;
+        if !listing.success {
+            return Ok(None);
+        }
+        let text = String::from_utf8_lossy(&listing.stdout);
+        let Some(mime) = text
+            .lines()
+            .map(str::trim)
+            .find(|target| !target.is_empty() && !XCLIP_META_TARGETS.contains(target))
+            .map(str::to_owned)
+        else {
+            return Ok(None);
+        };
+        if validate_mime(&mime).is_err() {
+            return Ok(None);
+        }
+        let content = self.programs.paste(
+            &["-selection", "clipboard", "-o", "-t", mime.as_str()],
+            self.max_content,
+        )?;
+        if !content.success {
+            return Ok(None);
+        }
+        Ok(Some(Saved {
+            mime,
+            data: content.stdout,
+        }))
+    }
+
     /// Offer `data` as `mime`.
     ///
     /// # Errors
-    /// The MIME type is invalid, or `wl-copy` is missing, times out or fails.
+    /// The MIME type is invalid, or the copy program is missing, times out
+    /// or fails.
     pub fn put(&self, mime: &str, data: &[u8]) -> Result<(), ClipboardError> {
         validate_mime(mime)?;
-        if self.programs.copy(&["--type", mime], Some(data))? {
+        let args: &[&str] = match self.dialect {
+            Dialect::WlClipboard => &["--type", mime],
+            Dialect::Xclip => &["-selection", "clipboard", "-t", mime, "-i"],
+        };
+        if self.programs.copy(args, Some(data))? {
             Ok(())
         } else {
-            Err(ClipboardError::Failed { program: "wl-copy" })
+            Err(ClipboardError::Failed {
+                program: self.copy_program(),
+            })
         }
     }
 
@@ -159,6 +267,10 @@ impl<P: Programs> Clipboard<P> {
     /// # Errors
     /// `wl-copy` is missing, times out or fails.
     pub fn clear(&self) -> Result<(), ClipboardError> {
+        if self.dialect == Dialect::Xclip {
+            // xclip has no clear; the dispatcher clears the X selection.
+            return Err(ClipboardError::Failed { program: "xclip" });
+        }
         if self.programs.copy(&["--clear"], None)? {
             Ok(())
         } else {
@@ -189,6 +301,8 @@ pub struct SystemPrograms {
     paste: OsString,
     copy: OsString,
     timeout: Duration,
+    paste_name: &'static str,
+    copy_name: &'static str,
 }
 
 impl Default for SystemPrograms {
@@ -207,20 +321,34 @@ impl SystemPrograms {
             paste: paste.into(),
             copy: copy.into(),
             timeout,
+            paste_name: "wl-paste",
+            copy_name: "wl-copy",
+        }
+    }
+
+    /// `xclip` for both directions (X11), found on `PATH` unless given.
+    pub fn xclip(program: impl Into<OsString>, timeout: Duration) -> Self {
+        let program = program.into();
+        Self {
+            paste: program.clone(),
+            copy: program,
+            timeout,
+            paste_name: "xclip",
+            copy_name: "xclip",
         }
     }
 }
 
 impl Programs for SystemPrograms {
     fn paste(&self, args: &[&str], limit: usize) -> Result<Pasted, ClipboardError> {
-        const PROGRAM: &str = "wl-paste";
+        let program = self.paste_name;
         let mut child = Command::new(&self.paste)
             .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|source| spawn_error(PROGRAM, source))?;
+            .map_err(|source| spawn_error(program, source))?;
         let stdout = child.stdout.take().expect("stdout is piped");
         // Read one byte past the limit, then drop the pipe: a program still
         // writing gets EPIPE and exits instead of blocking until the timeout.
@@ -231,13 +359,10 @@ impl Programs for SystemPrograms {
                 .read_to_end(&mut data)
                 .map(|_| data)
         });
-        let status = wait_until(&mut child, self.timeout, PROGRAM);
+        let status = wait_until(&mut child, self.timeout, program);
         let data = reader.join().expect("the reader thread does not panic");
         let status = status?;
-        let data = data.map_err(|source| ClipboardError::Io {
-            program: PROGRAM,
-            source,
-        })?;
+        let data = data.map_err(|source| ClipboardError::Io { program, source })?;
         if data.len() > limit {
             return Err(ClipboardError::TooLarge { limit });
         }
@@ -248,7 +373,7 @@ impl Programs for SystemPrograms {
     }
 
     fn copy(&self, args: &[&str], stdin: Option<&[u8]>) -> Result<bool, ClipboardError> {
-        const PROGRAM: &str = "wl-copy";
+        let program = self.copy_name;
         let mut child = Command::new(&self.copy)
             .args(args)
             .stdin(if stdin.is_some() {
@@ -259,27 +384,24 @@ impl Programs for SystemPrograms {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|source| spawn_error(PROGRAM, source))?;
+            .map_err(|source| spawn_error(program, source))?;
         let status = match (stdin, child.stdin.take()) {
             (Some(data), Some(mut pipe)) => thread::scope(|scope| {
                 // A writer thread, so a program that stops reading cannot
                 // block past the deadline; killing it ends the write too.
                 let writer = scope.spawn(move || pipe.write_all(data));
-                let status = wait_until(&mut child, self.timeout, PROGRAM);
+                let status = wait_until(&mut child, self.timeout, program);
                 let written = writer.join().expect("the writer thread does not panic");
                 let status = status?;
                 // After a clean exit every byte must have gone in, or the
                 // clipboard holds a truncated copy. A failed exit is
                 // reported by the status instead.
                 if status.success() {
-                    written.map_err(|source| ClipboardError::Io {
-                        program: PROGRAM,
-                        source,
-                    })?;
+                    written.map_err(|source| ClipboardError::Io { program, source })?;
                 }
                 Ok(status)
             }),
-            _ => wait_until(&mut child, self.timeout, PROGRAM),
+            _ => wait_until(&mut child, self.timeout, program),
         }?;
         Ok(status.success())
     }
@@ -332,6 +454,8 @@ mod tests {
             assert!(validate_mime(good).is_ok(), "{good}");
         }
         let long = "a".repeat(257);
+        assert_eq!(package_of("xclip"), "xclip");
+        assert_eq!(package_of("wl-copy"), "wl-clipboard");
         for bad in ["", "text/plain\n", "--clear\0", "a\tb", long.as_str()] {
             assert!(validate_mime(bad).is_err(), "{bad:?}");
         }

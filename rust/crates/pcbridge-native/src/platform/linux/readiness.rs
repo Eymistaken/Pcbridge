@@ -19,6 +19,26 @@ use zbus::names::BusName;
 
 pub const SCREENCAST_SERVICE: &str = "org.gnome.Mutter.ScreenCast";
 
+/// X11 capture: the display answers and has RandR. Probed with one short
+/// connection, never a frame.
+pub fn probe_x11() -> Result<(), String> {
+    let x11 = super::x11::X11::connect().map_err(|error| error.to_string())?;
+    let extensions = x11.extensions().map_err(|error| error.to_string())?;
+    match extensions
+        .iter()
+        .find(|(name, present)| *name == "RANDR" && !present)
+    {
+        Some(_) => Err("the X server has no RandR extension".into()),
+        None => Ok(()),
+    }
+}
+
+/// The same verdict shape as Hyprland's.
+#[must_use]
+pub fn capture_monitor_x11(probe: &Result<(), String>) -> Value {
+    capture_monitor_hyprland(probe)
+}
+
 #[must_use]
 pub fn capture_monitor_hyprland(probe: &Result<(), String>) -> Value {
     match probe {
@@ -282,10 +302,23 @@ pub fn clipboard(name: &str, program: &str) -> Value {
             "status": "unavailable",
             "permission_scope": "os.clipboard",
             "reason_code": "DEPENDENCY_MISSING",
-            "reason": format!("{program} is not on PATH; install wl-clipboard"),
+            "reason": format!(
+                "{program} is not on PATH; install {}",
+                super::clipboard::package_of(program)
+            ),
         });
     }
-    if wayland_socket().is_none() {
+    if program == "xclip" {
+        if std::env::var_os("DISPLAY").is_none_or(|display| display.is_empty()) {
+            return json!({
+                "name": name,
+                "status": "unavailable",
+                "permission_scope": "os.clipboard",
+                "reason_code": "BACKEND_UNAVAILABLE",
+                "reason": "this session has no X display",
+            });
+        }
+    } else if wayland_socket().is_none() {
         return json!({
             "name": name,
             "status": "unavailable",

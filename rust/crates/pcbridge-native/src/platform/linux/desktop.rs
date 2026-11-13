@@ -4,6 +4,12 @@
 //! `XDG_CURRENT_DESKTOP` the parent passes through decides when it is set;
 //! otherwise the compositor's name on the session bus does. Unknown sessions
 //! remain unknown; a helper must never silently select Mutter for them.
+//!
+//! Cinnamon and XFCE are X11 desktops here: they count only in an X11
+//! session (`XDG_SESSION_TYPE=x11`, or no type with `DISPLAY` and no
+//! `WAYLAND_DISPLAY`). Cinnamon's experimental Wayland session, and GNOME or
+//! Plasma on X11, stay unsupported; the GNOME, Plasma and Hyprland backends
+//! speak Wayland compositor interfaces.
 
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::PathBuf;
@@ -17,6 +23,10 @@ pub enum DesktopKind {
     Gnome,
     Kde,
     Hyprland,
+    /// Cinnamon (Muffin) on X11.
+    Cinnamon,
+    /// XFCE (xfwm4) on X11.
+    Xfce,
     Unknown,
 }
 
@@ -30,6 +40,16 @@ impl DesktopKind {
             .collect();
         if tokens.is_empty() {
             return None;
+        }
+        // Before GNOME: a Cinnamon session may list GNOME as well.
+        if tokens
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case("x-cinnamon") || t.eq_ignore_ascii_case("cinnamon"))
+        {
+            return Some(Self::Cinnamon);
+        }
+        if tokens.iter().any(|t| t.eq_ignore_ascii_case("xfce")) {
+            return Some(Self::Xfce);
         }
         if tokens
             .iter()
@@ -46,9 +66,51 @@ impl DesktopKind {
         Some(Self::Unknown)
     }
 
+    /// Whether this desktop is served by the X11 backend.
+    #[must_use]
+    pub const fn is_x11(self) -> bool {
+        matches!(self, Self::Cinnamon | Self::Xfce)
+    }
+
+    /// `kind` as it applies in a session of `session_type` (`x11`,
+    /// `wayland`, or empty when unknown): an X11 desktop outside X11, or a
+    /// Wayland one on X11, is unknown.
+    #[must_use]
+    pub fn in_session(self, session_type: &str, display: bool, wayland_display: bool) -> Self {
+        let x11 = match session_type.trim().to_ascii_lowercase().as_str() {
+            "x11" => true,
+            "" => display && !wayland_display,
+            _ => false,
+        };
+        match (self, x11) {
+            (Self::Unknown, _) | (Self::Cinnamon | Self::Xfce, true) => self,
+            (Self::Cinnamon | Self::Xfce, false) => Self::Unknown,
+            (Self::Gnome | Self::Kde | Self::Hyprland, true) => Self::Unknown,
+            (Self::Gnome | Self::Kde | Self::Hyprland, false) => self,
+        }
+    }
+
     /// The desktop of this session (environment first, then the bus).
     #[must_use]
     pub fn detect() -> Self {
+        let kind = Self::detect_desktop();
+        if kind == Self::Unknown {
+            return kind;
+        }
+        let session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
+        if session_type.is_empty() && !kind.is_x11() {
+            // Unchanged for the Wayland desktops: before X11 support an empty
+            // type never refused GNOME, Plasma or Hyprland.
+            return kind;
+        }
+        kind.in_session(
+            &session_type,
+            std::env::var_os("DISPLAY").is_some_and(|value| !value.is_empty()),
+            std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty()),
+        )
+    }
+
+    fn detect_desktop() -> Self {
         if std::env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
             return Self::Hyprland;
         }
@@ -192,6 +254,46 @@ mod tests {
         assert_eq!(
             DesktopKind::from_current_desktop("Hyprland"),
             Some(DesktopKind::Hyprland)
+        );
+        assert_eq!(
+            DesktopKind::from_current_desktop("X-Cinnamon"),
+            Some(DesktopKind::Cinnamon)
+        );
+        assert_eq!(
+            DesktopKind::from_current_desktop("XFCE"),
+            Some(DesktopKind::Xfce)
+        );
+        assert_eq!(
+            DesktopKind::from_current_desktop("MATE"),
+            Some(DesktopKind::Unknown)
+        );
+    }
+
+    #[test]
+    fn x11_desktops_count_only_in_an_x11_session() {
+        assert_eq!(
+            DesktopKind::Cinnamon.in_session("x11", true, false),
+            DesktopKind::Cinnamon
+        );
+        assert_eq!(
+            DesktopKind::Cinnamon.in_session("wayland", false, true),
+            DesktopKind::Unknown
+        );
+        assert_eq!(
+            DesktopKind::Xfce.in_session("", true, false),
+            DesktopKind::Xfce
+        );
+        assert_eq!(
+            DesktopKind::Xfce.in_session("", true, true),
+            DesktopKind::Unknown
+        );
+        assert_eq!(
+            DesktopKind::Gnome.in_session("x11", true, false),
+            DesktopKind::Unknown
+        );
+        assert_eq!(
+            DesktopKind::Kde.in_session("wayland", false, true),
+            DesktopKind::Kde
         );
     }
 

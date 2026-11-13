@@ -68,7 +68,9 @@ pub trait FrameVisibilityProvider: Send + Sync {
 
 struct NativeFrameVisibility {
     directory: PathBuf,
+    /// Hyprland's IPC socket; None on X11, which reads RandR instead.
     socket: Option<PathBuf>,
+    x11: bool,
 }
 
 impl FrameVisibilityProvider for NativeFrameVisibility {
@@ -77,11 +79,15 @@ impl FrameVisibilityProvider for NativeFrameVisibility {
     }
 
     fn visible_on_current_outputs(&self, token: &LeaseToken) -> bool {
-        let Some(socket) = &self.socket else {
+        if !self.x11 && self.socket.is_none() {
             return false;
-        };
-        crate::platform::linux::glow_state::read_on_current_outputs(&self.directory, token, socket)
-            .is_some()
+        }
+        crate::platform::linux::glow_state::read_on_current_outputs(
+            &self.directory,
+            token,
+            self.socket.as_deref(),
+        )
+        .is_some()
     }
 }
 
@@ -155,17 +161,23 @@ impl fmt::Debug for Lifecycle {
 
 impl Lifecycle {
     pub fn start(state_dir: &Path) -> Result<Self, io::Error> {
-        // A persisted lease alone cannot open invisible Hyprland control.
-        let visibility = if crate::platform::linux::desktop::DesktopKind::detect()
-            == crate::platform::linux::desktop::DesktopKind::Hyprland
-        {
-            Some(Arc::new(NativeFrameVisibility {
-                directory: state_dir.canonicalize()?,
-                socket: crate::platform::linux::desktop::hyprland_socket(),
-            }) as Arc<dyn FrameVisibilityProvider>)
-        } else {
-            None
-        };
+        // A persisted lease alone cannot open invisible control on the
+        // desktops whose frame the helper draws: Hyprland and X11.
+        let kind = crate::platform::linux::desktop::DesktopKind::detect();
+        let visibility =
+            if kind == crate::platform::linux::desktop::DesktopKind::Hyprland || kind.is_x11() {
+                Some(Arc::new(NativeFrameVisibility {
+                    directory: state_dir.canonicalize()?,
+                    socket: if kind.is_x11() {
+                        None
+                    } else {
+                        crate::platform::linux::desktop::hyprland_socket()
+                    },
+                    x11: kind.is_x11(),
+                }) as Arc<dyn FrameVisibilityProvider>)
+            } else {
+                None
+            };
         let desktop_state: Arc<dyn DesktopStateProvider> = SessionDesktopState::connect()
             .map_or_else(
                 |_| Arc::new(UnknownDesktopState) as Arc<dyn DesktopStateProvider>,

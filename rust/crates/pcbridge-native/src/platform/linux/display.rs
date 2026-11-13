@@ -69,6 +69,8 @@ pub enum SnapshotError {
     KScreen(String),
     #[error("Hyprland display IPC unavailable: {0}")]
     Hyprland(String),
+    #[error("X11 display unavailable: {0}")]
+    X11(String),
     #[error(transparent)]
     Mapping(#[from] DisplayError),
 }
@@ -354,6 +356,9 @@ enum Source {
     },
     KScreen,
     Hyprland(PathBuf),
+    /// RandR, read fresh on every snapshot: one round trip of about a
+    /// millisecond, so no layout change can hide behind a cache.
+    X11(Box<super::x11::X11>),
 }
 
 /// Reads the display table and keeps it fresh (GNOME: `MonitorsChanged`;
@@ -391,6 +396,13 @@ impl DisplayReader {
                 })?),
                 cached: Mutex::new(None),
             }),
+            DesktopKind::Cinnamon | DesktopKind::Xfce => Ok(Self {
+                source: Source::X11(Box::new(
+                    super::x11::X11::connect()
+                        .map_err(|error| zbus::Error::Failure(error.to_string()))?,
+                )),
+                cached: Mutex::new(None),
+            }),
             DesktopKind::Unknown => Err(zbus::Error::Failure(
                 "desktop display backend unavailable".into(),
             )),
@@ -416,6 +428,7 @@ impl DisplayReader {
     fn layout_changed(&self) -> bool {
         let changes = match &self.source {
             Source::Mutter { changes, .. } => changes,
+            Source::X11(_) => return true,
             Source::KScreen | Source::Hyprland(_) => {
                 return self
                     .cached
@@ -467,6 +480,9 @@ impl DisplayReader {
             }
             Source::KScreen => read_kscreen()?,
             Source::Hyprland(socket) => read_hyprland(socket)?,
+            Source::X11(x11) => x11
+                .display_state()
+                .map_err(|error| SnapshotError::X11(error.to_string()))?,
         };
 
         let monitors = resolve(&state)?;

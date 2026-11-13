@@ -28,15 +28,82 @@ pub struct FrameRecord {
     pub revoke_epoch: u64,
     pub wayland_display: String,
     pub hyprland_instance: String,
+    /// The X display of an X11 frame (Cinnamon, Xfce); empty on Wayland.
+    #[serde(default)]
+    pub x11_display: String,
     pub topology_id: String,
     pub outputs: Vec<String>,
     pub strip_count: u32,
     pub presented_unix_ms: u64,
 }
 
+/// The display session a frame record belongs to.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FrameSession {
+    /// Hyprland: its Wayland socket and instance signature.
+    Wayland { display: String, signature: String },
+    /// Cinnamon or Xfce: the X display.
+    X11 { display: String },
+}
+
+impl FrameSession {
+    /// This process's session, from the environment the daemon passed.
+    #[must_use]
+    pub fn current() -> Option<Self> {
+        if super::desktop::DesktopKind::detect().is_x11() {
+            let display = std::env::var("DISPLAY").ok().filter(|d| !d.is_empty())?;
+            Some(Self::X11 { display })
+        } else {
+            Some(Self::Wayland {
+                display: std::env::var("WAYLAND_DISPLAY").ok()?,
+                signature: std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok()?,
+            })
+        }
+    }
+
+    /// The environment entries a frame writer for this session must carry.
+    fn environment(&self) -> Vec<String> {
+        match self {
+            Self::Wayland { display, signature } => vec![
+                format!("WAYLAND_DISPLAY={display}"),
+                format!("HYPRLAND_INSTANCE_SIGNATURE={signature}"),
+            ],
+            Self::X11 { display } => vec![format!("DISPLAY={display}")],
+        }
+    }
+}
+
 impl FrameRecord {
+    /// The Hyprland form of `matches_session`.
     #[must_use]
     pub fn matches(&self, token: &LeaseToken, display: &str, signature: &str, now: u64) -> bool {
+        self.matches_session(
+            token,
+            &FrameSession::Wayland {
+                display: display.to_owned(),
+                signature: signature.to_owned(),
+            },
+            now,
+        )
+    }
+
+    #[must_use]
+    pub fn matches_session(&self, token: &LeaseToken, session: &FrameSession, now: u64) -> bool {
+        let session_matches = match session {
+            FrameSession::Wayland { display, signature } => {
+                !display.is_empty()
+                    && self.wayland_display == *display
+                    && !signature.is_empty()
+                    && self.hyprland_instance == *signature
+                    && self.x11_display.is_empty()
+            }
+            FrameSession::X11 { display } => {
+                !display.is_empty()
+                    && self.x11_display == *display
+                    && self.wayland_display.is_empty()
+                    && self.hyprland_instance.is_empty()
+            }
+        };
         self.version == 2
             && self.ready
             && self.pid > 0
@@ -45,10 +112,7 @@ impl FrameRecord {
             && self.owner_start_ticks > 0
             && self.grant_id == token.grant_id()
             && self.revoke_epoch == token.revoke_epoch()
-            && !display.is_empty()
-            && self.wayland_display == display
-            && !signature.is_empty()
-            && self.hyprland_instance == signature
+            && session_matches
             && self.topology_id.starts_with("v1|")
             && self.topology_id.len() <= 2048
             && self.strip_count >= 4
@@ -129,8 +193,7 @@ fn writer_matches_binary(
     pid: u32,
     directory: &Path,
     token: &LeaseToken,
-    display: &str,
-    signature: &str,
+    session: &FrameSession,
 ) -> bool {
     let Ok(raw) = std::fs::read(format!("/proc/{pid}/cmdline")) else {
         return false;
@@ -153,8 +216,10 @@ fn writer_matches_binary(
         }
         let entries: Vec<_> = raw.split(|byte| *byte == 0).collect();
         Some(
-            entries.contains(&format!("WAYLAND_DISPLAY={display}").as_bytes())
-                && entries.contains(&format!("HYPRLAND_INSTANCE_SIGNATURE={signature}").as_bytes()),
+            session
+                .environment()
+                .iter()
+                .all(|entry| entries.contains(&entry.as_bytes())),
         )
     };
     if environment() != Some(true) {
@@ -190,10 +255,16 @@ pub(crate) fn parent_pid(pid: u32) -> Option<u32> {
 pub fn read_on_current_outputs(
     directory: &Path,
     token: &LeaseToken,
-    socket: &Path,
+    socket: Option<&Path>,
 ) -> Option<FrameRecord> {
-    let data = super::hyprland::query(socket, super::hyprland::ReadQuery::Monitors).ok()?;
-    let state = super::display::hyprland_state(&data).ok()?;
+    let state = match socket {
+        Some(socket) => {
+            let data = super::hyprland::query(socket, super::hyprland::ReadQuery::Monitors).ok()?;
+            super::display::hyprland_state(&data).ok()?
+        }
+        // X11: a fresh RandR read on its own connection.
+        None => super::x11::X11::connect().ok()?.display_state().ok()?,
+    };
     let monitors = pcbridge_core::display::resolve(&state).ok()?;
     let record = read(directory, token)?;
     record.covers_outputs(&monitors).then_some(record)
@@ -224,9 +295,8 @@ pub fn read(directory: &Path, token: &LeaseToken) -> Option<FrameRecord> {
         return None;
     }
     let record: FrameRecord = serde_json::from_slice(&raw).ok()?;
-    let display = std::env::var("WAYLAND_DISPLAY").ok()?;
-    let signature = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").ok()?;
-    if !record.matches(token, &display, &signature, unix_ms(SystemTime::now()))
+    let session = FrameSession::current()?;
+    if !record.matches_session(token, &session, unix_ms(SystemTime::now()))
         || writer_start_ticks(record.pid) != Some(record.writer_start_ticks)
         || writer_start_ticks(record.owner_pid) != Some(record.owner_start_ticks)
         || parent_pid(record.pid) != Some(record.owner_pid)
@@ -238,7 +308,7 @@ pub fn read(directory: &Path, token: &LeaseToken) -> Option<FrameRecord> {
             .ok()?
             .uid()
             != uid
-        || !writer_matches_binary(record.pid, directory, token, &display, &signature)
+        || !writer_matches_binary(record.pid, directory, token, &session)
     {
         return None;
     }

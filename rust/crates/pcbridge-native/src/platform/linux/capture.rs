@@ -220,6 +220,8 @@ enum CaptureBackend {
     },
     KWin(KWinScreenShot),
     Hyprland(Arc<ImageCopy>),
+    /// One `GetImage` of the monitor's rectangle per frame; nothing stays open.
+    X11(Box<super::x11::X11>),
 }
 
 impl NativeCapture {
@@ -235,6 +237,13 @@ impl NativeCapture {
                 lifecycle.register_fail_closed(capture.clone());
                 return Ok(Self {
                     backend: CaptureBackend::Hyprland(capture),
+                });
+            }
+            DesktopKind::Cinnamon | DesktopKind::Xfce => {
+                let x11 = super::x11::X11::connect()
+                    .map_err(|error| CaptureError::Unavailable(error.to_string()))?;
+                return Ok(Self {
+                    backend: CaptureBackend::X11(Box::new(x11)),
                 });
             }
             DesktopKind::Unknown => {
@@ -264,6 +273,7 @@ impl NativeCapture {
             CaptureBackend::Mutter { .. } => MUTTER_BACKEND,
             CaptureBackend::KWin(_) => KWIN_BACKEND,
             CaptureBackend::Hyprland(_) => HYPRLAND_BACKEND,
+            CaptureBackend::X11(_) => X11_BACKEND,
         }
     }
 
@@ -274,6 +284,7 @@ impl NativeCapture {
             CaptureBackend::Mutter { .. } => "mutter",
             CaptureBackend::KWin(_) => "kwin",
             CaptureBackend::Hyprland(_) => "hyprland",
+            CaptureBackend::X11(_) => "x11",
         }
     }
 
@@ -361,6 +372,12 @@ impl NativeCapture {
             CaptureBackend::KWin(kwin) => {
                 capture_kwin(kwin, connector, include_pointer, lifecycle)?
             }
+            CaptureBackend::X11(x11) => capture_x11(
+                x11,
+                (monitor.x, monitor.y, monitor.width, monitor.height),
+                include_pointer,
+                lifecycle,
+            )?,
             CaptureBackend::Hyprland(capture) => {
                 let started = Instant::now();
                 let source = capture.capture(connector, include_pointer, timeout, lifecycle)?;
@@ -394,6 +411,35 @@ impl NativeCapture {
 pub const MUTTER_BACKEND: &str = "linux.mutter.pipewire";
 pub const KWIN_BACKEND: &str = "linux.kwin.screenshot2";
 pub const HYPRLAND_BACKEND: &str = "linux.hyprland.image-copy";
+pub const X11_BACKEND: &str = "linux.x11.getimage";
+
+/// One X11 frame under the grant, checked before the request and again
+/// before the pixels become a PNG.
+fn capture_x11(
+    x11: &super::x11::X11,
+    rect: (i32, i32, u32, u32),
+    include_pointer: bool,
+    guard: &dyn SessionGuard,
+) -> Result<CapturedPng, CaptureError> {
+    let requested_at = Instant::now();
+    guard.check().map_err(CaptureError::Guard)?;
+    let (frame, received_at) = x11
+        .capture(rect, include_pointer)
+        .map_err(|error| CaptureError::Stream(format!("X11 GetImage: {error}")))?;
+    guard.check().map_err(CaptureError::Guard)?;
+    let started = Instant::now();
+    let png = frame.to_png()?;
+    Ok(CapturedPng {
+        png,
+        width: frame.width,
+        height: frame.height,
+        id: frame.id,
+        identity_source: FrameIdentitySource::SourceMonotonicClock,
+        stale_frames: 0,
+        waited: received_at.saturating_duration_since(requested_at),
+        encoded_in: started.elapsed(),
+    })
+}
 
 /// One `ScreenShot2` frame under the grant: checked before the call and
 /// again before it becomes a PNG, like the PipeWire worker.

@@ -23,9 +23,10 @@ use crate::platform::linux::accessibility::{
     self, AccessibilityError, DumpRecord, DumpRequest, NodeRecord, Tree,
 };
 use crate::platform::linux::capture::{
-    CaptureError, HYPRLAND_BACKEND, KWIN_BACKEND, MUTTER_BACKEND, NativeCapture, NativeCaptureError,
+    CaptureError, HYPRLAND_BACKEND, KWIN_BACKEND, MUTTER_BACKEND, NativeCapture,
+    NativeCaptureError, X11_BACKEND,
 };
-use crate::platform::linux::clipboard::{self, Clipboard, ClipboardError, SystemPrograms};
+use crate::platform::linux::clipboard::{self, Clipboard, ClipboardError, Dialect, SystemPrograms};
 use crate::platform::linux::desktop::DesktopKind;
 #[cfg(feature = "test-harness")]
 use crate::platform::linux::desktop_state::DeterministicDesktopState;
@@ -44,6 +45,7 @@ use crate::platform::linux::input::{
 };
 use crate::platform::linux::readiness;
 use crate::platform::linux::session::{OpenOutcome, SessionFailure};
+use crate::platform::linux::x11::{WindowInfo, X11};
 
 #[derive(Debug)]
 pub enum BackendMode {
@@ -96,6 +98,8 @@ impl BackendMode {
                 "clipboard",
                 "accessibility.read",
                 "accessibility.action",
+                "window.focused",
+                "window.activate",
             ],
             #[cfg(feature = "test-harness")]
             Self::DeterministicTest => vec![
@@ -119,7 +123,17 @@ impl BackendMode {
             Self::Production { .. } => {
                 let [read, windows, act] =
                     readiness::accessibility(&readiness::accessibility_bus_owned());
-                let (backend, capture) = match DesktopKind::detect() {
+                let kind = DesktopKind::detect();
+                let (paste, copy) = if kind.is_x11() {
+                    ("xclip", "xclip")
+                } else {
+                    ("wl-paste", "wl-copy")
+                };
+                let (backend, capture) = match kind {
+                    DesktopKind::Cinnamon | DesktopKind::Xfce => (
+                        X11_BACKEND,
+                        readiness::capture_monitor_x11(&readiness::probe_x11()),
+                    ),
                     DesktopKind::Kde => (
                         KWIN_BACKEND,
                         readiness::capture_monitor_kwin(&readiness::probe_kwin()),
@@ -153,8 +167,8 @@ impl BackendMode {
                         readiness::input_keyboard(),
                         readiness::input_pointer(),
                         readiness::input_pointer_relative(),
-                        readiness::clipboard("clipboard.read", "wl-paste"),
-                        readiness::clipboard("clipboard.write", "wl-copy"),
+                        readiness::clipboard("clipboard.read", paste),
+                        readiness::clipboard("clipboard.write", copy),
                         read,
                         windows,
                         act,
@@ -385,6 +399,9 @@ pub struct Dispatcher {
     accessibility: Option<AccessibilitySource>,
     /// What the dumps listed, for the actions that name them.
     accessibility_dumps: DumpRegistry,
+    /// The X11 connection for window requests and the clipboard clear,
+    /// opened by the first of them (Cinnamon and XFCE only).
+    x11: Option<X11>,
     state_dir: Option<PathBuf>,
 }
 
@@ -403,6 +420,7 @@ impl Dispatcher {
             relative: None,
             accessibility: None,
             accessibility_dumps: DumpRegistry::default(),
+            x11: None,
             state_dir: None,
         }
     }
@@ -515,6 +533,8 @@ impl Dispatcher {
                     accessibility::focused(tree)
                 })
             }
+            "window.focused" => self.window_focused(request.id, request.params),
+            "window.activate" => self.window_activate(request.id, request.params),
             "accessibility.act" => self.accessibility_act(request.id, request.params),
             "accessibility.set_text" => {
                 self.accessibility_set_text(request.id, request.params, frame.binary)
@@ -1226,7 +1246,11 @@ impl Dispatcher {
     /// programs a test names, and refuses when none are named.
     fn clipboard(&self) -> Result<Clipboard<SystemPrograms>, ErrorBody> {
         match &self.mode {
-            BackendMode::Production { .. } => Ok(Clipboard::new(SystemPrograms::default())),
+            BackendMode::Production { .. } => Ok(if DesktopKind::detect().is_x11() {
+                Clipboard::xclip(SystemPrograms::xclip("xclip", clipboard::PROGRAM_TIMEOUT))
+            } else {
+                Clipboard::new(SystemPrograms::default())
+            }),
             #[cfg(feature = "test-harness")]
             BackendMode::DeterministicTest => {
                 match (
@@ -1288,12 +1312,12 @@ impl Dispatcher {
         match saved {
             Ok(Some(saved)) => self.success_binary(
                 id,
-                json!({"empty": false, "mime": saved.mime, "backend": CLIPBOARD_BACKEND}),
+                json!({"empty": false, "mime": saved.mime, "backend": clipboard_backend(clipboard.dialect())}),
                 saved.data,
             ),
             Ok(None) => self.success(
                 id,
-                json!({"empty": true, "mime": null, "backend": CLIPBOARD_BACKEND}),
+                json!({"empty": true, "mime": null, "backend": clipboard_backend(clipboard.dialect())}),
                 None,
             ),
             Err(error) => self.clipboard_error(id, error),
@@ -1308,25 +1332,138 @@ impl Dispatcher {
         match clipboard.put(&params.mime, &data) {
             Ok(()) => self.success(
                 id,
-                json!({"written": data.len(), "backend": CLIPBOARD_BACKEND}),
+                json!({"written": data.len(), "backend": clipboard_backend(clipboard.dialect())}),
                 None,
             ),
             Err(error) => self.clipboard_error(id, error),
         }
     }
 
-    fn clipboard_clear(&self, id: String, params: Value) -> DispatchOutcome {
+    fn clipboard_clear(&mut self, id: String, params: Value) -> DispatchOutcome {
         let (_params, clipboard) = match self.clipboard_grant::<ClipboardGrantParams>(&id, params) {
             Ok(ready) => ready,
             Err(outcome) => return *outcome,
         };
+        if clipboard.dialect() == Dialect::Xclip {
+            let cleared = self
+                .x11_connection()
+                .and_then(|x11| x11.clear_clipboard().map_err(|error| error.to_string()));
+            return match cleared {
+                Ok(()) => self.success(
+                    id,
+                    json!({"cleared": true, "backend": clipboard_backend(Dialect::Xclip)}),
+                    None,
+                ),
+                Err(message) => self.typed_error(
+                    id,
+                    ErrorBody {
+                        code: "EXECUTION_UNKNOWN".to_owned(),
+                        message: format!("the X clipboard could not be cleared: {message}"),
+                        retryable: false,
+                        category: "execution".to_owned(),
+                    },
+                ),
+            };
+        }
         match clipboard.clear() {
             Ok(()) => self.success(
                 id,
-                json!({"cleared": true, "backend": CLIPBOARD_BACKEND}),
+                json!({"cleared": true, "backend": clipboard_backend(clipboard.dialect())}),
                 None,
             ),
             Err(error) => self.clipboard_error(id, error),
+        }
+    }
+
+    /// The X11 connection, opened on first use; an error outside X11.
+    fn x11_connection(&mut self) -> Result<&X11, String> {
+        if !matches!(self.mode, BackendMode::Production { .. }) || !DesktopKind::detect().is_x11() {
+            return Err("window requests need an X11 desktop (Cinnamon or XFCE)".into());
+        }
+        if self.x11.is_none() {
+            self.x11 = Some(X11::connect().map_err(|error| error.to_string())?);
+        }
+        Ok(self
+            .x11
+            .as_ref()
+            .expect("the X11 connection was just opened"))
+    }
+
+    fn window_unavailable(&self, id: String, message: String) -> DispatchOutcome {
+        self.typed_error(
+            id,
+            ErrorBody {
+                code: "BACKEND_UNAVAILABLE".to_owned(),
+                message,
+                retryable: true,
+                category: "capability".to_owned(),
+            },
+        )
+    }
+
+    /// The focused window with its frame, under the grant: a title is
+    /// screen content.
+    fn window_focused(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match serde_json::from_value::<ClipboardGrantParams>(params) {
+            Ok(params) => params,
+            Err(error) => {
+                return self.error(
+                    id,
+                    "INVALID_PARAMS",
+                    format!("invalid window parameters: {error}"),
+                    None,
+                );
+            }
+        };
+        if let Err(failure) = self.validate_grant_token(&params.grant_id, params.revoke_epoch) {
+            return self.keyboard_lifecycle_error(id, failure);
+        }
+        let read = self.x11_connection().and_then(|x11| {
+            let Some(active) = x11.active_window().map_err(|error| error.to_string())? else {
+                return Ok(describe_window(None, None));
+            };
+            let window = x11.window_info(active).map_err(|error| error.to_string())?;
+            let frame = x11.frame(active).ok();
+            Ok(describe_window(Some(&window), frame))
+        });
+        match read {
+            Ok(mut result) => {
+                result["backend"] = json!("linux.x11.ewmh");
+                self.success(id, result, None)
+            }
+            Err(message) => self.window_unavailable(id, message),
+        }
+    }
+
+    /// Activate the one window `target` names (the KWin script's rules).
+    fn window_activate(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match serde_json::from_value::<WindowActivateParams>(params) {
+            Ok(params) => params,
+            Err(error) => {
+                return self.error(
+                    id,
+                    "INVALID_PARAMS",
+                    format!("invalid window parameters: {error}"),
+                    None,
+                );
+            }
+        };
+        if let Err(failure) = self.validate_grant_token(&params.grant_id, params.revoke_epoch) {
+            return self.keyboard_lifecycle_error(id, failure);
+        }
+        let done = self.x11_connection().and_then(|x11| {
+            let activation = x11
+                .activate(&params.target)
+                .map_err(|error| error.to_string())?;
+            let mut result = describe_window(activation.active.as_ref(), None);
+            result["activated"] = json!(activation.activated);
+            result["ambiguous"] = json!(activation.ambiguous);
+            result["backend"] = json!("linux.x11.ewmh");
+            Ok(result)
+        });
+        match done {
+            Ok(result) => self.success(id, result, None),
+            Err(message) => self.window_unavailable(id, message),
         }
     }
 
@@ -2749,6 +2886,38 @@ impl AccessibilityGrant for AccessibilityDumpParams {
 }
 
 const CLIPBOARD_BACKEND: &str = "linux.wl-clipboard.native";
+const XCLIP_BACKEND: &str = "linux.xclip.native";
+
+const fn clipboard_backend(dialect: Dialect) -> &'static str {
+    match dialect {
+        Dialect::WlClipboard => CLIPBOARD_BACKEND,
+        Dialect::Xclip => XCLIP_BACKEND,
+    }
+}
+
+/// `window.activate`: the grant and the window to bring to the front.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WindowActivateParams {
+    grant_id: String,
+    revoke_epoch: u64,
+    target: String,
+}
+
+fn describe_window(
+    window: Option<&WindowInfo>,
+    frame: Option<crate::platform::linux::x11::Frame>,
+) -> Value {
+    match window {
+        Some(window) => json!({
+            "found": true,
+            "app": window.app(),
+            "title": window.title,
+            "geometry": frame.map(|(x, y, width, height)| json!([x, y, width, height])),
+        }),
+        None => json!({"found": false, "app": "", "title": "", "geometry": null}),
+    }
+}
 
 trait ClipboardGrant {
     fn grant_id(&self) -> &str;
@@ -3068,7 +3237,9 @@ mod tests {
                 "input.pointer_relative",
                 "clipboard",
                 "accessibility.read",
-                "accessibility.action"
+                "accessibility.action",
+                "window.focused",
+                "window.activate"
             ]
         );
         let monitor = &capabilities["capabilities"][0];

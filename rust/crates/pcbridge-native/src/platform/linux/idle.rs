@@ -13,6 +13,11 @@
 //! it is known to be below the timeout and reported as 0, which is the
 //! safe side for a check that refuses writes while someone is at the
 //! machine. A record whose writer is gone is not trusted.
+//!
+//! On X11 (Cinnamon, XFCE) the X server knows the idle time itself
+//! (MIT-SCREEN-SAVER); the watcher polls it and writes the same record, with
+//! the X display in place of the Wayland one, so the daemon reads one kind
+//! of record on every desktop. There the time is exact while idle.
 
 use std::fs;
 use std::io::Write;
@@ -33,7 +38,9 @@ use wayland_protocols::ext::idle_notify::v1::client::{
 
 pub const IDLE_STATE_FILE: &str = "idle.json";
 pub const NOTIFY_TIMEOUT_MS: u32 = 1000;
-const RECORD_VERSION: u32 = 2;
+const RECORD_VERSION: u32 = 3;
+/// How often the X11 watcher asks the X server.
+const X11_POLL: Duration = Duration::from_millis(100);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_millis(500);
 const MAX_RECORD_AGE_MS: u64 = 3000;
 /// The word in the writer's command line that proves it is the watcher.
@@ -50,17 +57,40 @@ pub struct IdleRecord {
     pub writer_start_ticks: u64,
     pub wayland_display: String,
     pub hyprland_instance: String,
+    /// The X display an X11 watcher asked; empty for a Wayland one.
+    #[serde(default)]
+    pub x11_display: String,
+}
+
+/// Which display a record must name to belong to this session.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SessionDisplay<'a> {
+    Wayland(&'a str),
+    X11(&'a str),
 }
 
 impl IdleRecord {
-    fn matches_session(&self, now: u64, display: &str, signature: &str, start: u64) -> bool {
+    fn matches_session(
+        &self,
+        now: u64,
+        display: SessionDisplay<'_>,
+        signature: &str,
+        start: u64,
+    ) -> bool {
+        let display_matches = match display {
+            SessionDisplay::Wayland(name) => {
+                !name.is_empty() && self.wayland_display == name && self.x11_display.is_empty()
+            }
+            SessionDisplay::X11(name) => {
+                !name.is_empty() && self.x11_display == name && self.wayland_display.is_empty()
+            }
+        };
         self.version == RECORD_VERSION
             && self.timeout_ms == NOTIFY_TIMEOUT_MS
             && self.pid > 0
             && start > 0
             && self.writer_start_ticks == start
-            && !display.is_empty()
-            && self.wayland_display == display
+            && display_matches
             && self.hyprland_instance == signature
             && self.confirmed_unix_ms <= now
             && now - self.confirmed_unix_ms <= MAX_RECORD_AGE_MS
@@ -113,12 +143,17 @@ pub(crate) fn writer_start_ticks(pid: u32) -> Option<u64> {
 #[must_use]
 pub fn read_idle_ms(path: &Path, now_unix_ms: u64) -> Option<u64> {
     let record: IdleRecord = serde_json::from_slice(&fs::read(path).ok()?).ok()?;
-    let display = std::env::var("WAYLAND_DISPLAY").ok()?;
+    let x11 = super::desktop::DesktopKind::detect().is_x11();
+    let display = std::env::var(if x11 { "DISPLAY" } else { "WAYLAND_DISPLAY" }).ok()?;
     let signature = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").unwrap_or_default();
     if !writer_alive(record.pid)
         || !record.matches_session(
             now_unix_ms,
-            &display,
+            if x11 {
+                SessionDisplay::X11(&display)
+            } else {
+                SessionDisplay::Wayland(&display)
+            },
             &signature,
             writer_start_ticks(record.pid)?,
         )
@@ -236,6 +271,9 @@ impl Dispatch<ext_idle_notification_v1::ExtIdleNotificationV1, ()> for Watcher {
 /// Hold an idle notification open and record every change until the
 /// compositor goes away. Returns why it stopped.
 pub fn watch(path: &Path) -> String {
+    if super::desktop::DesktopKind::detect().is_x11() {
+        return watch_x11(path);
+    }
     let display = match std::env::var("WAYLAND_DISPLAY") {
         Ok(display) if !display.is_empty() => display,
         _ => return "WAYLAND_DISPLAY is not set".into(),
@@ -291,6 +329,7 @@ pub fn watch(path: &Path) -> String {
             writer_start_ticks: writer_start_ticks(std::process::id()).unwrap_or(0),
             wayland_display: display,
             hyprland_instance: std::env::var("HYPRLAND_INSTANCE_SIGNATURE").unwrap_or_default(),
+            x11_display: String::new(),
         },
     };
     // Until the first event, assume someone is at the machine.
@@ -332,13 +371,71 @@ pub fn watch(path: &Path) -> String {
     }
 }
 
+/// The X11 watcher: ask the X server every `X11_POLL` and write the record
+/// when the state changes, and at least every heartbeat. Each answer is the
+/// proof the display is still there; a failed one ends the watcher.
+fn watch_x11(path: &Path) -> String {
+    let display = match std::env::var("DISPLAY") {
+        Ok(display) if !display.is_empty() => display,
+        _ => return "DISPLAY is not set".into(),
+    };
+    if let Some(parent) = path.parent()
+        && let Err(error) = fs::create_dir_all(parent)
+    {
+        return format!("cannot create {}: {error}", parent.display());
+    }
+    let x11 = match super::x11::X11::connect() {
+        Ok(x11) => x11,
+        Err(error) => return error.to_string(),
+    };
+    let mut record = IdleRecord {
+        version: RECORD_VERSION,
+        pid: std::process::id(),
+        timeout_ms: NOTIFY_TIMEOUT_MS,
+        idle: false,
+        since_unix_ms: unix_ms(SystemTime::now()),
+        confirmed_unix_ms: 0,
+        writer_start_ticks: writer_start_ticks(std::process::id()).unwrap_or(0),
+        wayland_display: String::new(),
+        hyprland_instance: String::new(),
+        x11_display: display,
+    };
+    let mut last_written: Option<(bool, Instant)> = None;
+    loop {
+        let idle_ms = match x11.idle_ms() {
+            Ok(idle_ms) => idle_ms,
+            Err(error) => return format!("the X server stopped answering: {error}"),
+        };
+        let now = unix_ms(SystemTime::now());
+        let idle = idle_ms >= u64::from(NOTIFY_TIMEOUT_MS);
+        let due = last_written
+            .is_none_or(|(was_idle, at)| was_idle != idle || at.elapsed() >= HEARTBEAT_INTERVAL);
+        if due {
+            record.idle = idle;
+            // Exact while idle; while active the record says "now", which
+            // reads as 0 like the Wayland watcher's.
+            record.since_unix_ms = if idle {
+                now.saturating_sub(idle_ms)
+            } else {
+                now
+            };
+            record.confirmed_unix_ms = now;
+            if let Err(error) = write_record(path, &record) {
+                return format!("cannot write {}: {error}", path.display());
+            }
+            last_written = Some((idle, Instant::now()));
+        }
+        std::thread::sleep(X11_POLL);
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{IdleRecord, read_idle_ms, write_record};
+    use super::{IdleRecord, SessionDisplay, read_idle_ms, write_record};
 
     fn record(pid: u32, idle: bool, since: u64) -> IdleRecord {
         IdleRecord {
-            version: 2,
+            version: 3,
             pid,
             timeout_ms: 1000,
             idle,
@@ -347,6 +444,7 @@ mod tests {
             writer_start_ticks: 123,
             wayland_display: "wayland-1".into(),
             hyprland_instance: "session".into(),
+            x11_display: String::new(),
         }
     }
 
@@ -374,11 +472,28 @@ mod tests {
     #[test]
     fn stale_future_foreign_session_and_reused_pid_records_are_not_trusted() {
         let good = record(1, true, 10_000);
-        assert!(good.matches_session(71_000, "wayland-1", "session", 123));
-        assert!(!good.matches_session(74_000, "wayland-1", "session", 123));
-        assert!(!good.matches_session(69_000, "wayland-1", "session", 123));
-        assert!(!good.matches_session(71_000, "wayland-2", "session", 123));
-        assert!(!good.matches_session(71_000, "wayland-1", "other", 123));
-        assert!(!good.matches_session(71_000, "wayland-1", "session", 124));
+        let wayland = |name| SessionDisplay::Wayland(name);
+        assert!(good.matches_session(71_000, wayland("wayland-1"), "session", 123));
+        assert!(!good.matches_session(74_000, wayland("wayland-1"), "session", 123));
+        assert!(!good.matches_session(69_000, wayland("wayland-1"), "session", 123));
+        assert!(!good.matches_session(71_000, wayland("wayland-2"), "session", 123));
+        assert!(!good.matches_session(71_000, wayland("wayland-1"), "other", 123));
+        assert!(!good.matches_session(71_000, wayland("wayland-1"), "session", 124));
+        assert!(!good.matches_session(71_000, SessionDisplay::X11("wayland-1"), "session", 123));
+    }
+
+    #[test]
+    fn an_x11_record_belongs_only_to_its_x_display() {
+        let mut x11 = record(1, true, 10_000);
+        x11.wayland_display = String::new();
+        x11.hyprland_instance = String::new();
+        x11.x11_display = ":0".into();
+        assert!(x11.matches_session(71_000, SessionDisplay::X11(":0"), "", 123));
+        assert!(!x11.matches_session(71_000, SessionDisplay::X11(":1"), "", 123));
+        assert!(!x11.matches_session(71_000, SessionDisplay::Wayland(":0"), "", 123));
+        assert!(!x11.matches_session(71_000, SessionDisplay::X11(""), "", 123));
+        let mut old = x11.clone();
+        old.version = 2;
+        assert!(!old.matches_session(71_000, SessionDisplay::X11(":0"), "", 123));
     }
 }

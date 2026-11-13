@@ -8,7 +8,7 @@ use pcbridge_core::{DesktopLease, LEASE_STATE_FILE, LeaseToken};
 use super::desktop_state::{DesktopStateProvider, ScreenLockState, SessionDesktopState};
 use super::display::{DisplayReader, DisplaySnapshot};
 use super::glow::{Overlay, breath, fade_in, fade_out};
-use super::glow_state::{FrameRecord, parent_pid};
+use super::glow_state::{FrameRecord, FrameSession, parent_pid};
 use super::idle::{unix_ms, writer_start_ticks};
 
 fn lease_valid(directory: &Path, token: &LeaseToken) -> bool {
@@ -70,6 +70,12 @@ pub fn watch(directory: &Path, token: LeaseToken) -> Result<(), String> {
     if provider.screen_lock().state != ScreenLockState::KnownUnlocked {
         return Err("The selected session is not known unlocked".into());
     }
+    let session =
+        FrameSession::current().ok_or(if super::desktop::DesktopKind::detect().is_x11() {
+            "No X display"
+        } else {
+            "No Wayland display or Hyprland instance"
+        })?;
     let reader = DisplayReader::connect().map_err(|e| e.to_string())?;
     let snapshot = reader.snapshot().map_err(|e| e.to_string())?;
     let mut overlay = Overlay::connect(&snapshot.monitors)?;
@@ -84,9 +90,18 @@ pub fn watch(directory: &Path, token: LeaseToken) -> Result<(), String> {
         owner_start_ticks: writer_start_ticks(owner_pid).ok_or("No owner process identity")?,
         grant_id: token.grant_id().into(),
         revoke_epoch: token.revoke_epoch(),
-        wayland_display: std::env::var("WAYLAND_DISPLAY").map_err(|_| "No Wayland display")?,
-        hyprland_instance: std::env::var("HYPRLAND_INSTANCE_SIGNATURE")
-            .map_err(|_| "No Hyprland instance")?,
+        wayland_display: match &session {
+            FrameSession::Wayland { display, .. } => display.clone(),
+            FrameSession::X11 { .. } => String::new(),
+        },
+        hyprland_instance: match &session {
+            FrameSession::Wayland { signature, .. } => signature.clone(),
+            FrameSession::X11 { .. } => String::new(),
+        },
+        x11_display: match &session {
+            FrameSession::X11 { display } => display.clone(),
+            FrameSession::Wayland { .. } => String::new(),
+        },
         topology_id: snapshot.topology_id.clone(),
         outputs: snapshot
             .monitors

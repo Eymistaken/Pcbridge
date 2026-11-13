@@ -15,3 +15,4 @@ pub mod kwin_screenshot;
 pub mod pipewire_source;
 pub mod readiness;
 pub mod session;
+pub mod x11;
