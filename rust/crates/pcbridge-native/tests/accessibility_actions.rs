@@ -30,6 +30,7 @@ fn tree_from(fixture: &Value, desktop: &str) -> FixtureTree {
 
 fn request(value: &Value) -> DumpRequest {
     DumpRequest {
+        focus: None,
         target: value["target"].as_str().unwrap_or("focused").to_owned(),
         interactive_only: value["interactive_only"].as_bool().unwrap_or(true),
         max_nodes: value["max_nodes"]

@@ -489,6 +489,11 @@ pub fn quoted(text: &str) -> String {
 #[derive(Clone, Debug)]
 pub struct DumpRequest {
     pub target: String,
+    /// What the window manager calls focused, where it can say (X11): the
+    /// active window's process and title. AT-SPI's ACTIVE state can sit on
+    /// a stale window (measured on Xfce 4.20: xfwm4 kept one while Mousepad
+    /// had the focus), so this wins when an application matches it.
+    pub focus: Option<FocusHint>,
     pub interactive_only: bool,
     pub max_nodes: usize,
     pub deadline: Option<Instant>,
@@ -711,6 +716,41 @@ fn dedup(nodes: Vec<Kept>) -> Vec<Kept> {
         .collect()
 }
 
+/// The window manager's focused window: its process and title.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct FocusHint {
+    pub pid: u32,
+    pub title: String,
+}
+
+/// The focused application and window: the one `hint` names when an
+/// application of that process exists (its window of that title, else its
+/// ACTIVE one, else its first), otherwise the first window AT-SPI marks
+/// ACTIVE.
+fn focused_window<'a, T: Tree + ?Sized>(
+    apps: &'a [App],
+    tree: &T,
+    hint: Option<&FocusHint>,
+) -> Option<(&'a App, &'a (usize, ObjectRef, NodeInfo))> {
+    if let Some(hint) = hint.filter(|hint| hint.pid > 0)
+        && let Some(app) = apps
+            .iter()
+            .find(|app| !app.windows.is_empty() && tree.pid(&app.reference.bus) == hint.pid)
+    {
+        let window = app
+            .windows
+            .iter()
+            .find(|(_, _, info)| !hint.title.is_empty() && info.name == hint.title)
+            .or_else(|| app.active())
+            .or_else(|| app.windows.first());
+        if let Some(window) = window {
+            return Some((app, window));
+        }
+    }
+    apps.iter()
+        .find_map(|app| app.active().map(|window| (app, window)))
+}
+
 /// One application with its name and windows, read once.
 struct App {
     reference: ObjectRef,
@@ -776,9 +816,7 @@ pub fn read_dump<T: Tree + ?Sized>(
 
     let (app, root, root_info, base, scope, window_ref, window_name, same_name) =
         if ["focused", "odak", "aktif"].contains(&target.to_lowercase().as_str()) {
-            let found = apps
-                .iter()
-                .find_map(|app| app.active().map(|window| (app, window)));
+            let found = focused_window(&apps, tree, request.focus.as_ref());
             let Some((app, (index, window, info))) = found else {
                 return Err(AccessibilityError::new(
                     "TARGET_MISMATCH",
@@ -941,11 +979,16 @@ pub fn windows<T: Tree + ?Sized>(tree: &T) -> Result<Value, AccessibilityError> 
 
 /// The focused window, without walking anything below it.
 pub fn focused<T: Tree + ?Sized>(tree: &T) -> Result<Value, AccessibilityError> {
+    focused_hinted(tree, None)
+}
+
+/// `focused`, preferring the window manager's focused window (X11).
+pub fn focused_hinted<T: Tree + ?Sized>(
+    tree: &T,
+    hint: Option<&FocusHint>,
+) -> Result<Value, AccessibilityError> {
     let apps = read_apps(tree)?;
-    let Some((app, (_, window, info))) = apps
-        .iter()
-        .find_map(|app| app.active().map(|window| (app, window)))
-    else {
+    let Some((app, (_, window, info))) = focused_window(&apps, tree, hint) else {
         return Err(AccessibilityError::new(
             "TARGET_MISMATCH",
             "No window has the focus (AT-SPI marks no window ACTIVE).",

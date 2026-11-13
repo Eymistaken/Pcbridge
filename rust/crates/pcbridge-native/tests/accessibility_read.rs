@@ -25,6 +25,7 @@ fn tree(desktop: &str) -> FixtureTree {
 
 fn request(value: &Value) -> DumpRequest {
     DumpRequest {
+        focus: None,
         target: value["target"].as_str().unwrap_or("focused").to_owned(),
         interactive_only: value["interactive_only"].as_bool().unwrap_or(true),
         max_nodes: value["max_nodes"]
@@ -209,6 +210,7 @@ fn depth_and_visit_limits_hold() {
     let got = accessibility::dump(
         &Deep,
         &DumpRequest {
+            focus: None,
             target: "n0".to_owned(),
             interactive_only: true,
             max_nodes: 400,
@@ -228,6 +230,7 @@ fn depth_and_visit_limits_hold() {
     let got = accessibility::dump(
         &Deep,
         &DumpRequest {
+            focus: None,
             target: "n0".to_owned(),
             interactive_only: true,
             max_nodes: 2,
@@ -282,4 +285,32 @@ fn gactions_are_not_element_actions() {
     ] {
         assert!(!is_real_action(noise), "{noise:?}");
     }
+}
+
+#[test]
+fn the_window_managers_focus_wins_over_a_stale_active_state() {
+    use pcbridge_native::platform::linux::accessibility::FocusHint;
+    // In `editor` the editor's window is ACTIVE; the hint names the other
+    // application's process, as xfwm4 kept an ACTIVE window on Xfce 4.20
+    // while the window manager had given the focus to Mousepad.
+    let desktop = tree("editor");
+    let plain = accessibility::focused(&desktop).expect("focused");
+    assert_eq!(plain["app"], "pcbridge-editor");
+    let hint = FocusHint {
+        pid: 4591,
+        title: String::new(),
+    };
+    let hinted = accessibility::focused_hinted(&desktop, Some(&hint)).expect("hinted");
+    assert_eq!(hinted["app"], "gnome-shell");
+    let mut dump_request = request(&serde_json::json!({}));
+    dump_request.focus = Some(hint);
+    let dump = accessibility::dump(&desktop, &dump_request).expect("dump");
+    assert_eq!(dump["app"], "gnome-shell");
+    // A process no application belongs to falls back to the ACTIVE state.
+    let unknown = FocusHint {
+        pid: 9999,
+        title: String::new(),
+    };
+    let fallback = accessibility::focused_hinted(&desktop, Some(&unknown)).expect("fallback");
+    assert_eq!(fallback["app"], "pcbridge-editor");
 }

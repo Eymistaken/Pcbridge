@@ -77,6 +77,7 @@ struct Atoms {
     net_wm_window_type_normal: Atom,
     net_wm_window_type_dialog: Atom,
     net_frame_extents: Atom,
+    net_wm_pid: Atom,
     gtk_application_id: Atom,
     utf8_string: Atom,
     edid: Atom,
@@ -457,6 +458,15 @@ impl X11 {
         Ok(Some(String::from_utf8_lossy(&reply.value).into_owned()))
     }
 
+    /// `_NET_WM_PID` of `id`: the process the client says it is, or None.
+    pub fn window_pid(&self, id: Window) -> Result<Option<u32>, X11Error> {
+        let reply = self
+            .connection
+            .get_property(false, id, self.atoms.net_wm_pid, AtomEnum::CARDINAL, 0, 1)?
+            .reply()?;
+        Ok(reply.value32().and_then(|mut values| values.next()))
+    }
+
     /// The window's frame (decorations included) in root coordinates.
     pub fn frame(&self, id: Window) -> Result<Frame, X11Error> {
         let geometry = self.connection.get_geometry(id)?.reply()?;
@@ -601,43 +611,48 @@ impl X11 {
 }
 
 fn intern_atoms(connection: &RustConnection) -> Result<Atoms, X11Error> {
-    let names: [&[u8]; 13] = [
-        b"_NET_CLIENT_LIST",
-        b"_NET_ACTIVE_WINDOW",
-        b"_NET_WM_NAME",
-        b"_NET_WM_STATE",
-        b"_NET_WM_STATE_SKIP_TASKBAR",
-        b"_NET_WM_STATE_HIDDEN",
-        b"_NET_WM_WINDOW_TYPE",
-        b"_NET_WM_WINDOW_TYPE_NORMAL",
-        b"_NET_WM_WINDOW_TYPE_DIALOG",
-        b"_NET_FRAME_EXTENTS",
-        b"_GTK_APPLICATION_ID",
-        b"UTF8_STRING",
-        b"EDID",
+    const NAMES: [&str; 14] = [
+        "_NET_CLIENT_LIST",
+        "_NET_ACTIVE_WINDOW",
+        "_NET_WM_NAME",
+        "_NET_WM_STATE",
+        "_NET_WM_STATE_SKIP_TASKBAR",
+        "_NET_WM_STATE_HIDDEN",
+        "_NET_WM_WINDOW_TYPE",
+        "_NET_WM_WINDOW_TYPE_NORMAL",
+        "_NET_WM_WINDOW_TYPE_DIALOG",
+        "_NET_FRAME_EXTENTS",
+        "_NET_WM_PID",
+        "_GTK_APPLICATION_ID",
+        "UTF8_STRING",
+        "EDID",
     ];
-    let cookies = names
+    let cookies = NAMES
         .iter()
-        .map(|name| connection.intern_atom(false, name))
+        .map(|name| connection.intern_atom(false, name.as_bytes()))
         .collect::<Result<Vec<_>, _>>()?;
-    let mut atoms = Vec::with_capacity(cookies.len());
-    for cookie in cookies {
-        atoms.push(cookie.reply()?.atom);
+    let mut interned = std::collections::HashMap::new();
+    for (name, cookie) in NAMES.iter().zip(cookies) {
+        interned.insert(*name, cookie.reply()?.atom);
     }
+    // By name, never by position: a name added in the middle of the list
+    // once shifted every atom after it.
+    let atom = |name: &str| interned[name];
     Ok(Atoms {
-        net_client_list: atoms[0],
-        net_active_window: atoms[1],
-        net_wm_name: atoms[2],
-        net_wm_state: atoms[3],
-        net_wm_state_skip_taskbar: atoms[4],
-        net_wm_state_hidden: atoms[5],
-        net_wm_window_type: atoms[6],
-        net_wm_window_type_normal: atoms[7],
-        net_wm_window_type_dialog: atoms[8],
-        net_frame_extents: atoms[9],
-        gtk_application_id: atoms[10],
-        utf8_string: atoms[11],
-        edid: atoms[12],
+        net_client_list: atom("_NET_CLIENT_LIST"),
+        net_active_window: atom("_NET_ACTIVE_WINDOW"),
+        net_wm_name: atom("_NET_WM_NAME"),
+        net_wm_state: atom("_NET_WM_STATE"),
+        net_wm_state_skip_taskbar: atom("_NET_WM_STATE_SKIP_TASKBAR"),
+        net_wm_state_hidden: atom("_NET_WM_STATE_HIDDEN"),
+        net_wm_window_type: atom("_NET_WM_WINDOW_TYPE"),
+        net_wm_window_type_normal: atom("_NET_WM_WINDOW_TYPE_NORMAL"),
+        net_wm_window_type_dialog: atom("_NET_WM_WINDOW_TYPE_DIALOG"),
+        net_frame_extents: atom("_NET_FRAME_EXTENTS"),
+        net_wm_pid: atom("_NET_WM_PID"),
+        gtk_application_id: atom("_GTK_APPLICATION_ID"),
+        utf8_string: atom("UTF8_STRING"),
+        edid: atom("EDID"),
     })
 }
 

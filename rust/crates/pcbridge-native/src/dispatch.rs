@@ -524,13 +524,14 @@ impl Dispatcher {
             "clipboard.clear" => self.clipboard_clear(request.id, request.params),
             "accessibility.dump" => self.accessibility_dump(request.id, request.params),
             "accessibility.windows" => {
-                self.accessibility_read(request.id, request.params, |tree| {
+                self.accessibility_read(request.id, request.params, &|tree| {
                     accessibility::windows(tree)
                 })
             }
             "accessibility.focused" => {
-                self.accessibility_read(request.id, request.params, |tree| {
-                    accessibility::focused(tree)
+                let hint = self.x11_focus_hint();
+                self.accessibility_read(request.id, request.params, &|tree| {
+                    accessibility::focused_hinted(tree, hint.as_ref())
                 })
             }
             "window.focused" => self.window_focused(request.id, request.params),
@@ -1389,6 +1390,18 @@ impl Dispatcher {
             .expect("the X11 connection was just opened"))
     }
 
+    /// X11 only: the active window's process and title, for `focused`.
+    fn x11_focus_hint(&mut self) -> Option<accessibility::FocusHint> {
+        let x11 = self.x11_connection().ok()?;
+        let active = x11.active_window().ok()??;
+        let pid = x11.window_pid(active).ok()??;
+        let title = x11
+            .window_info(active)
+            .map(|info| info.title)
+            .unwrap_or_default();
+        Some(accessibility::FocusHint { pid, title })
+    }
+
     fn window_unavailable(&self, id: String, message: String) -> DispatchOutcome {
         self.typed_error(
             id,
@@ -1562,7 +1575,9 @@ impl Dispatcher {
             0 => DUMP_DEADLINE_MS,
             value => value.min(DUMP_DEADLINE_MS_MAX),
         };
+        let focus = self.x11_focus_hint();
         let request = DumpRequest {
+            focus,
             target: match params.target.trim() {
                 "" => "focused".to_owned(),
                 target => target.to_owned(),
@@ -1680,7 +1695,7 @@ impl Dispatcher {
         &mut self,
         id: String,
         params: Value,
-        read: fn(&dyn Tree) -> Result<Value, AccessibilityError>,
+        read: &dyn Fn(&dyn Tree) -> Result<Value, AccessibilityError>,
     ) -> DispatchOutcome {
         let params = match self.accessibility_grant::<AccessibilityGrantParams>(&id, params) {
             Ok(params) => params,
