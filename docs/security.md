@@ -263,6 +263,45 @@ be followed by matching fresh compositor focus. Runtime config provider
 selection controls Lua versus hyprlang syntax; no guessed desktop shortcut
 or retry with another mutating dispatcher is used.
 
+### X11 (Cinnamon and Xfce): a weaker model
+
+On Cinnamon and Xfce pcbridge runs on X11, and **X11 has no permission
+model between the programs of a session**. That is not something pcbridge
+can fix, and it changes what the grant means:
+
+- **Any program of your session can already read the screen, every window
+  title and the clipboard, and send keys and clicks** (XTEST), with no
+  prompt and no indicator. pcbridge's own capture is just such a read
+  (`GetImage` on the root window); there is no compositor or portal that
+  could show a sharing indicator or refuse it. The grant, the frame and the
+  kill switch limit what **pcbridge** does; they cannot limit another
+  program, and on X11 a malicious program does not need pcbridge.
+- **The grant frame is not proof the way Hyprland's is.** The native helper
+  draws it as override-redirect windows on every monitor and reads them
+  back as mapped and in place before an action is admitted, and control
+  pauses when it cannot (the frame owner exits, as on Hyprland). But any
+  client can cover those windows, or unmap them (which ends the frame owner
+  and with it control), and X11 has no presentation feedback that would say
+  they were actually shown. Without a compositing manager the frame is a
+  thin opaque bar instead of the soft glow.
+- **The screen lock** is the desktop's locker (`org.cinnamon.ScreenSaver`,
+  xfce4-screensaver) **or** logind: light-locker locks by switching to the
+  greeter and keeps saying it is not active (measured on Debian 12), so a
+  session logind no longer counts as active is treated as locked too.
+  Nothing is sent while either says so.
+- **Idle time** is the X server's own (MIT-SCREEN-SAVER). pcbridge's uinput
+  input resets it, as on the other desktops.
+- **The kill switch** is the panel applet's "Lock desktop control now" on
+  Cinnamon, "Lock now" on the lasting grant notification (Cinnamon and
+  Xfce), `pcbridge lock`, and a launcher entry setup installs that a
+  keyboard shortcut can be bound to.
+
+Setup, `pcbridge doctor` and `system_capabilities` say this in one line on
+these desktops. If that model is not acceptable on a machine, keep
+`[desktop] enabled = false` there, or use a Wayland desktop. GNOME and
+Plasma on X11 stay unsupported: their backends speak Wayland compositor
+interfaces.
+
 ### What `enabled = false` does NOT turn off
 
 Only the desktop tools. `shell_run`, `agent_run`, `fs_*` and `tmux_*` work
@@ -291,7 +330,7 @@ A client that can see images (Claude Code can) does the same work with
 
 | Want | Do |
 |---|---|
-| Stop the hands now, keep jobs running | `pcbridge lock` / `bridgekilit` / the panel menu (GNOME) / "Lock now" on the grant notification (Plasma) / `desktop_lock` |
+| Stop the hands now, keep jobs running | `pcbridge lock` / `bridgekilit` / the panel menu (GNOME, Cinnamon) / "Lock now" on the grant notification (Plasma, Cinnamon, Xfce) / `desktop_lock` |
 | Stop the daemon and its jobs | `pcbridge stop` (`--keep-jobs` leaves jobs alone) |
 | Stop the daemon only | `systemctl --user stop pcbridge.service` (jobs live in their own scopes and survive; the socket starts it again on the next client) |
 | Turn desktop control off | `[desktop] enabled = false`, restart pcbridge |

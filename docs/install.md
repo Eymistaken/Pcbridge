@@ -1,17 +1,21 @@
 # Installing pcbridge
 
-Supported: GNOME Shell 46 or 50, KDE Plasma 6, or Hyprland 0.56.2 on Wayland.
-Hyprland validation is from an isolated Arch VM; physical hardware remains
-untested. Distributions:
-the Debian family (Ubuntu 24.04, Zorin OS 18, Debian 13; Ubuntu 26.04 builds
-and installs in CI) and Arch Linux. Python 3.12 or newer (the install
-script offers one when the system's is older). GNOME 47-49 are
-expected to work and are untested; `system_capabilities` says so when it
-sees one. X11, Plasma 5 and other desktops are not supported for the
-desktop tools (they refuse and say why); the shell, file, tmux and agent
-tools work anywhere, and the install script sets them up there too (it
-was measured on Debian 12 with Cinnamon on X11, which stands in for
-Pardus 23).
+Supported: GNOME Shell 46 or 50, KDE Plasma 6, or Hyprland 0.56.2 on
+Wayland, and Cinnamon or Xfce on X11. Hyprland validation is from an
+isolated Arch VM; physical hardware remains untested. Cinnamon and Xfce
+were checked in VMs: Debian 13 (Cinnamon 6.4, Xfce 4.20) and Debian 12
+(Cinnamon 5.6, Xfce 4.18, standing in for Pardus 23), and Cinnamon 6.0 in
+a Linux Mint 21.3 live session. X11 is a weaker security model; read
+[security.md](security.md) before turning desktop control on there.
+Distributions: the Debian family (Ubuntu 24.04, Zorin OS 18, Debian 12 and
+13, Linux Mint 21; Ubuntu 26.04 builds and installs in CI) and Arch Linux.
+Python 3.12 or newer (the install script offers one when the system's is
+older). GNOME 47-49 are expected to work and are untested;
+`system_capabilities` says so when it sees one. GNOME or Plasma on X11,
+Cinnamon's experimental Wayland session, Plasma 5 and other desktops are
+not supported for the desktop tools (they refuse and say why); the shell,
+file, tmux and agent tools work anywhere, and the install script sets them
+up there too.
 
 ## 1. Install
 
@@ -131,14 +135,23 @@ daemon when idle.
 First it detects the machine and shows the plan, once:
 
 ```
-Found: Debian GNU/Linux 12 · Cinnamon 5.6.8 · X11 · x86_64
+Found: Linux Mint 21.3 (Debian family) · Cinnamon 6.0.4 · X11 · x86_64
 ✓ Terminal, files, tmux, coding agents
-✗ Desktop control: Cinnamon on X11 is not supported yet
-System packages: tmux libnotify-bin  (needs sudo)
-Tool profile: "core": desktop tools are left out, they would only refuse here
-Runs: sudo apt-get install -y tmux libnotify-bin
+✓ Desktop control (off until you turn it on: pcbridge set desktop.enabled true)
+System packages: nothing to install
+Optional components:
+  [x] 1. OCR for find_text / wait_for_text (eng): installed
+Tool profile: "full"
 Enter to go ahead, n to stop:
 ```
+
+That is a second run; the first one in that live session installed `tmux`,
+`xclip` (the clipboard program on X11) and `tesseract-ocr`. On Xfce, which
+does not pull in `libpipewire-0.3-0`, setup adds it too: the native helper
+links it although X11 capture does not use it (measured on Debian 12 and 13).
+On an unsupported desktop the second line says why, for example
+`✗ Desktop control: Cinnamon on Wayland is not supported; log in to the
+Cinnamon X11 session`, and the tool profile becomes `core`.
 
 On a supported desktop (Arch Linux, KDE Plasma, Turkish locale) the same
 part reads:
@@ -227,6 +240,12 @@ Then:
    helper (and only to it), and `pcbridge-lock.desktop`, the kill switch, to
    which System Settings > Shortcuts can bind a key. A package installs the
    first one under `/usr/share/applications/` already.
+   On Cinnamon, copies the pcbridge applet to
+   `~/.local/share/cinnamon/applets/pcbridge@eymistaken/` and adds it to the
+   panel (`org.cinnamon enabled-applets`), where Cinnamon loads it at once.
+   On Cinnamon and Xfce, writes the same `pcbridge-lock.desktop` for a
+   keyboard shortcut. The grant frame needs nothing installed there: the
+   native helper draws it.
 6. Registers Claude Code (user scope), Codex and Claude Desktop, keeping
    other entries and Codex's per-tool approval settings.
 7. Writes the shell aliases (`bridgekilit`, `bridgeac`, `bridgekapat`,

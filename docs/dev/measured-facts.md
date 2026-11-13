@@ -240,6 +240,84 @@ and no input was sent.
   null); `ActivateWindow` through the extension, as `window_focus` does,
   gave it the focus at once.
 
+## Cinnamon and Xfce on X11 (2026-11-13)
+
+Measured with the X11 backend of the native helper (built on Debian 12,
+needs glibc 2.35) and wheels from this checkout installed with
+`install.sh --wheel`, in VMs only: Debian 12 (glibc 2.36, Cinnamon 5.6.8,
+Xfce 4.18 with light-locker 1.8.0) and Debian 13 (glibc 2.41, Cinnamon
+6.4.10, Xfce 4.20.1 with xfce4-screensaver 4.18.4) from
+`scripts/dev/debian-vm.sh`, and a Linux Mint 21.3 Cinnamon live session
+(glibc 2.35, Cinnamon 6.0.4, libnotify 0.7.9, systemd 249) from
+`scripts/dev/mint-live-vm.sh`. Every VM had one 1280x800 virtio output. No
+input went to the reference desktop.
+
+- **The checks pass.** `tests/live/x11/check_mcp.py` (capture of the
+  screen and of a window, `ui_dump`, a click into an editor, typing Turkish
+  text through the clipboard and saving it, idle time, the screen lock and
+  its refusal, the grant frame on every monitor, the lasting notification,
+  the kill switch) ended with 0 failures on all five: Debian 13 Cinnamon
+  and Xfce, Debian 12 Cinnamon and Xfce, Mint 21.3 Cinnamon. The kill
+  switch was also clicked inside the VMs: the Cinnamon applet's menu item
+  (Debian 12), Xfce's "Lock now" (Debian 12, notify-send) and Cinnamon's
+  "Lock now" (Mint 21.3, the `busctl` path below). Each closed the grant,
+  removed the frame windows and closed the notification.
+- **libpipewire.** `cinnamon-core` pulls `libpipewire-0.3-0` in on Debian
+  12 (0.3.65) and 13 (1.4.2, `t64`); `xfce4` alone, or with light-locker or
+  xfce4-screensaver, does not (apt simulations in `debian:12` and
+  `debian:13`: 539 and 676 packages, none of them libpipewire). The Mint
+  21.3 Cinnamon ISO's `casper/filesystem.manifest` has `libpipewire-0.3-0`
+  0.3.48. Mint 21 Xfce was not measured (no ISO was downloaded for it).
+  Setup installs the library where it is missing.
+- **The session's variables.** LightDM sessions import `DISPLAY`,
+  `XAUTHORITY` and `XDG_CURRENT_DESKTOP` into the user manager, Cinnamon
+  also `XDG_SESSION_TYPE`; Xfce on Debian 12 did not. The daemon, started
+  by the user manager in the same second as the session, had none of them,
+  so the desktop showed as unknown; it now takes them from logind
+  (`Display`, `Type`, `Desktop`) and the user manager, again at most every
+  2 s while it has no display.
+- **The X server.** Both desktops have Composite, MIT-SCREEN-SAVER,
+  MIT-SHM, RANDR (1.5 monitors), SHAPE, XFIXES and XTEST, with a 24-bit
+  root; Muffin and xfwm4 composite by default, so the frame is the ARGB
+  glow. The connector was `Virtual-1` on one boot and `Virtual-2` on the
+  next with nothing changed, as on Mutter.
+- **The lock.** `org.cinnamon.ScreenSaver.GetActive` says true while
+  Cinnamon is locked; logind's `LockedHint` stays false and the session
+  stays active. light-locker locks by switching to the greeter: its
+  `GetActive` stays false and `LockedHint` false, and only logind's
+  `Active=no` for the session shows it; `loginctl unlock-session` followed a
+  second later by `loginctl activate` brings the session back (activated at
+  once, it was locked again). xfce4-screensaver answers on
+  `org.xfce.ScreenSaver`. After a session switch without a reboot the
+  previous desktop's services kept their bus names (`org.cinnamon.ScreenSaver`
+  in an Xfce session), so the desktop is never guessed from bus names.
+- **Idle time** from MIT-SCREEN-SAVER grew by 2.5 s in 2.5 s without input
+  on all five, and uinput input resets it.
+- **Timings through MCP** (one monitor): a screen capture 200-250 ms; a
+  window capture about 430 ms (two one-shot helper calls for the frame and
+  its check); `window_focus` 550-610 ms; the first click and the first
+  typing about 2 s each (the uinput devices are created on first use).
+- **The frame after an unlock** proved itself again 0.27 s after logind
+  reported the session unlocked (Xfce 4.20); an action in between is
+  refused as retryable.
+- **AT-SPI's ACTIVE state can be stale.** On Xfce 4.20 xfwm4 kept a window
+  marked ACTIVE while Mousepad had the focus, and `ui_dump` of the focused
+  window read xfwm4. `_NET_ACTIVE_WINDOW` (xfwm4 lists two values; the
+  first is the window) and its `_NET_WM_PID` named Mousepad, so the helper
+  prefers that process's application.
+- **Notifications.** libnotify 0.8.1 (Debian 12) keeps the id that
+  `notify-send -p` prints in its stdout buffer until it exits when stdout
+  is a pipe: no line within 3 s, with `stdbuf -oL` 10 ms. libnotify 0.7.9
+  (Mint 21) has no `--action`, `--wait` or `--print-id`; there pcbridge
+  sends the notification with `busctl` and reads `ActionInvoked` from
+  `busctl --user monitor --json=short`, which needs no privilege on the
+  user's own bus. Cinnamon keeps a critical notification until it is
+  closed. xfce4-notifyd and Cinnamon ignored a synthetic click on "Lock
+  now" that came with no pointer motion over the button first; a press
+  after moving onto it worked.
+- **The applet** loads as soon as `org.cinnamon enabled-applets` names it;
+  no new login was needed.
+
 ## The Python desktop paths removed (2026-11-13)
 
 Measured after the removal (`87b3d64`), with the native helper as the only
@@ -538,8 +616,11 @@ for optional physical-hardware and engineering follow-ups.
 
 ## Platform and session
 
-- **X11 is not an option.** The targets are GNOME, KDE Plasma, and Hyprland
-  on Wayland; desktop tools use their compositor interfaces plus AT-SPI.
+- **X11 only for Cinnamon and Xfce.** GNOME, KDE Plasma and Hyprland are
+  driven on Wayland through their compositor interfaces plus AT-SPI;
+  Cinnamon and Xfce on X11 through the native helper's X11 backend (see
+  [Cinnamon and Xfce on X11](#cinnamon-and-xfce-on-x11-2026-11-13)).
+  Switching the reference machine to X11 is still not a solution.
 - **Mutter runs the PHYSICAL layout mode by default** (`GetCurrentState`
   property `layout-mode` = 2, measured 2026-09-23; the logical mode needs the
   `scale-monitor-framebuffer` experimental feature). In that mode positions

@@ -67,8 +67,9 @@ More numbers, and why things are the way they are:
 | Arch Linux, GNOME 50 (Wayland) | the extension and screen capture tested in a headless shell |
 | Debian 13, Ubuntu 26.04 | the `.deb` builds, installs and passes the suites in CI |
 | GNOME 47-49 on Wayland | expected to work, untested; `system_capabilities` reports it |
-| Debian 12 (standing in for Pardus 23), Cinnamon on X11 | the install script measured in a VM: Python 3.12 through uv, profile `core`, only tmux and libnotify-bin installed |
-| X11, Plasma 5, other desktops | desktop tools refuse and say why; everything else works |
+| Debian 13 and Debian 12 (standing in for Pardus 23), Cinnamon and Xfce on X11 | the desktop checks (capture, input, window focus, lock, idle, grant frame, kill switch) pass through MCP in VMs; X11 is a weaker security model, see [security](docs/security.md) |
+| Linux Mint 21.3, Cinnamon 6.0 on X11 (glibc 2.35) | the same checks pass in the live session |
+| GNOME or Plasma on X11, Plasma 5, other desktops | desktop tools refuse and say why; everything else works |
 | ARM (aarch64) | from a git checkout only; no desktop control, since the native helper is built for x86_64 alone |
 | Python | 3.12, 3.13, 3.14 |
 

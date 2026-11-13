@@ -74,7 +74,9 @@ screenshots) are filled in with their 1.x values.
 
 On KDE Plasma no new setting is needed. One existing one matters there:
 `[desktop] unlock_notification` is the grant's only visible signal, so it
-should stay `true`.
+should stay `true`. On Cinnamon and Xfce (X11) no new setting is needed
+either; the same notification carries "Lock now" there, beside the frame
+the native helper draws, so it should stay `true` as well.
 
 `[power] keep_awake` picks the inhibitor each desktop honors: GNOME a
 gnome-session suspend inhibitor, KDE Plasma PowerDevil through

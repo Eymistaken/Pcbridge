@@ -19,6 +19,10 @@
                            the grant notification, idle-watch
           on Hyprland instead: image-copy capture, exact IPC window focus,
                            native grant frame, idle-watch
+          on Cinnamon / Xfce (X11) instead: the helper's X11 backend
+                           (RandR, GetImage, EWMH), native grant frame,
+                           idle-watch, the grant notification; on Cinnamon
+                           also the pcbridge panel applet
 ```
 
 - **One resident daemon** (`pcbridge serve`, `pcbridge.service`) serves
@@ -76,17 +80,18 @@ monitors.py    the monitor table: THE source of the coordinate space
 capture.py     screenshots, shot records, THE coordinate conversion (to_global)
 screencast.py  the Python screen-sharing helper's lifecycle
 input.py       uinput keyboard + absolute/relative pointer; text via clipboard
-clipboard.py   wl-paste / wl-copy
+clipboard.py   wl-paste / wl-copy (xclip on X11, run by the helper)
 uitree.py      the accessibility tree as text, stable ids
 apps.py        launching and raising windows
-compositor.py  explicit GNOME, KWin, Hyprland, and UNKNOWN transports
+compositor.py  explicit GNOME, KWin, Hyprland, Cinnamon, Xfce, and UNKNOWN transports
 hyprland.py    selected-session runtime context and guarded exact focus
 hyprland_windows.py compositor window identities, focus, and window capture regions
 kwin.py        the KWin screenshot authorization entry
 kwin_helper.py a one-shot KWin script (system python): raise / read windows
-idlewatch.py   Plasma/Hyprland idle time, from the session-bound native idle-watch
+x11native.py   Cinnamon/Xfce: monitor table and window focus asked of the helper
+idlewatch.py   Plasma/Hyprland/X11 idle time, from the session-bound native idle-watch
 a11y.py        Qt accessibility, switched on for a Plasma grant
-grantnotice.py the grant notification (Plasma: the grant's signal)
+grantnotice.py the grant notification (Plasma, Cinnamon, Xfce: lasting, with Lock now)
 batch.py       the action-list engine; knows nothing about devices (Ops protocol)
 ops.py         Ops bound to the real devices
 safety.py      THE GATE: every desktop tool passes here
@@ -97,23 +102,25 @@ session.py     repairing the session environment; desktop detection; the platfor
 backends/      python.py and rust.py providers behind one runtime
 ```
 
-### GNOME, KDE Plasma, and Hyprland
+### GNOME, KDE Plasma, Hyprland, Cinnamon and Xfce
 
 `session.desktop_kind()` uses the desktop environment when known, the
 selected Hyprland instance and matching Wayland socket, or the GNOME/KWin
-session-bus owner. Ambiguous or invalid sessions stay UNKNOWN and refuse
-desktop actions. `compositor.py` selects the backend behind each question.
+session-bus owner. Cinnamon and Xfce count only in an X11 session, the
+others only on Wayland. Ambiguous or invalid sessions stay UNKNOWN and
+refuse desktop actions. `compositor.py` selects the backend behind each
+question.
 
-| Question | GNOME | KDE Plasma | Hyprland |
-|---|---|---|---|
-| Screen locked? | `org.gnome.ScreenSaver` | `org.freedesktop.ScreenSaver` (KWin) | selected-instance `hyprctl -j locked` |
-| Idle time | `Mutter.IdleMonitor` | native `idle-watch` | session-bound native `idle-watch` |
-| Monitor table | Mutter `DisplayConfig` | `kscreen-doctor -j` | selected-instance monitor IPC |
-| Screenshots | Mutter ScreenCast over PipeWire | KWin `ScreenShot2` | native image-copy capture |
-| Raise / name a window | extension D-Bus | one-shot KWin script | exact compositor identity, with focus verification |
-| The grant on screen | frame + panel indicator | lasting notification with "Lock now" | native white frame with fresh presentation proof |
+| Question | GNOME | KDE Plasma | Hyprland | Cinnamon / Xfce (X11) |
+|---|---|---|---|---|
+| Screen locked? | `org.gnome.ScreenSaver` | `org.freedesktop.ScreenSaver` (KWin) | selected-instance `hyprctl -j locked` | the locker's `GetActive`, or logind no longer counting the session active |
+| Idle time | `Mutter.IdleMonitor` | native `idle-watch` | session-bound native `idle-watch` | native `idle-watch` (MIT-SCREEN-SAVER) |
+| Monitor table | Mutter `DisplayConfig` | `kscreen-doctor -j` | selected-instance monitor IPC | the helper's RandR 1.5 table |
+| Screenshots | Mutter ScreenCast over PipeWire | KWin `ScreenShot2` | native image-copy capture | the helper's `GetImage` |
+| Raise / name a window | extension D-Bus | one-shot KWin script | exact compositor identity, with focus verification | the helper's EWMH `_NET_ACTIVE_WINDOW`, read back |
+| The grant on screen | frame + panel indicator | lasting notification with "Lock now" | native white frame with fresh presentation proof | native frame (override-redirect windows, read back), lasting notification, and the Cinnamon applet |
 
-All three feed the same neutral display state (`monitors.resolve_state` in
+All of them feed the same neutral display state (`monitors.resolve_state` in
 Python, `DisplayState` in Rust), so coordinates, scale and rotation follow
 one set of rules. A shot records output identity as well as geometry; a shot
 from an output that was swapped or removed is refused.
@@ -132,11 +139,13 @@ from an output that was swapped or removed is refused.
 
 `pcbridge-native` is a separate Rust process, one per grant, speaking a
 framed JSON protocol over stdio ([native/protocol-v1.md](native/protocol-v1.md)).
-It captures through Mutter ScreenCast/PipeWire, KWin ScreenShot2, or
-Hyprland image-copy, drives uinput, and reads and acts on AT-SPI over raw
-D-Bus. On Plasma and Hyprland the daemon also runs
-`pcbridge-native idle-watch`, which holds a Wayland idle notification open
-and writes the idle state to
+It captures through Mutter ScreenCast/PipeWire, KWin ScreenShot2,
+Hyprland image-copy, or on X11 one pure Rust X connection (x11rb: RandR,
+GetImage, XFixes, EWMH; no libX11 link), drives uinput, and reads and acts
+on AT-SPI over raw D-Bus. On Plasma, Hyprland and the X11 desktops the
+daemon also runs `pcbridge-native idle-watch`, which holds a Wayland idle
+notification open (on X11: polls the X server's idle time) and writes the
+idle state to
 `$XDG_RUNTIME_DIR/pcbridge/idle.json`. It is the only desktop backend:
 the Python paths that once stood in for it (a GStreamer screen share,
 python-evdev devices, a system-python AT-SPI helper and gnome-screenshot)

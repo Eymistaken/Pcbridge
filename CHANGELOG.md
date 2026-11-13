@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### Added
+
+- **Cinnamon and Xfce on X11.** Desktop control now works on these two
+  desktops in their X11 sessions, the default on Linux Mint and Pardus,
+  including systems below glibc 2.39 such as Linux Mint 21 and Debian 12.
+  The native helper does all of the X11 work over one connection of its
+  own, linking no X11 library: the monitor table from RandR, screenshots
+  with the pointer drawn in, idle time from the X server, and window focus
+  through EWMH, confirmed by reading the active window back. Input stays on
+  uinput and accessibility on AT-SPI, and text is typed through the
+  clipboard with `xclip`. The screen lock is the desktop's locker or
+  logind: light-locker locks by switching to the greeter and still reports
+  itself inactive, so a session logind no longer counts as active is
+  treated as locked. Checked in VMs on Debian 13 (Cinnamon 6.4, Xfce 4.20),
+  Debian 12 (Cinnamon 5.6, Xfce 4.18) and a Linux Mint 21.3 live session
+  (Cinnamon 6.0).
+- **The grant on screen on X11.** The helper draws the same soft frame
+  around every monitor as on GNOME and Hyprland, as windows that take no
+  input, and control is open only while it reads them back as shown. A
+  lasting notification offers "Lock now" on both desktops, and Cinnamon gets
+  a panel applet (`cinnamon-applet/`) with the minutes left and "Lock
+  desktop control now"; setup adds it to the panel, where Cinnamon loads it
+  at once. Setup also installs the kill switch's launcher entry for a
+  keyboard shortcut.
+- **X11's weaker security model is stated.** On X11 every program of the
+  session can read the screen and send input; pcbridge's grant, frame and
+  kill switch only limit pcbridge. `docs/security.md` explains it, and
+  setup, `pcbridge doctor` and `system_capabilities` say it in one line.
+- **`tests/live/x11/check_mcp.py`** runs the desktop checks through MCP in
+  a Cinnamon or Xfce test VM; `scripts/dev/debian-vm.sh` provisions Debian
+  12 or 13 with both desktops, and `scripts/dev/mint-live-vm.sh` boots a
+  Linux Mint 21.3 live session.
+
+### Fixed
+
+- **The grant notification closes again on Debian 12.** libnotify 0.8.1
+  held back the notification's id until `notify-send` exited, so the
+  notification could not be closed when the grant ended; it now runs
+  line-buffered. Where `notify-send` has no buttons at all (libnotify 0.7.9,
+  Ubuntu 22.04), pcbridge sends the notification over D-Bus itself.
+
 ### Removed
 
 - **The Python desktop paths.** The native helper is now the only backend

@@ -294,6 +294,21 @@ The tools and their arguments are the same; a few answers differ:
 - `system_capabilities` names the KWin backends (`linux.kwin.screenshot2`,
   `linux.kwin-script`, `linux.freedesktop-screen-saver`).
 
+## On Cinnamon and Xfce (X11)
+
+Cinnamon and Xfce are driven through X11 by the native helper; read the
+X11 part of [security.md](security.md) first: on X11 every program of the
+session can read the screen and send input, so pcbridge's gate is the only
+protection. While the grant is open the helper draws the frame around the
+screens, a lasting notification offers "Lock now", and on Cinnamon the
+pcbridge applet in the panel shows the minutes left and "Lock desktop
+control now". Capture is silent (no flash, no sharing indicator: X11 has
+none). Text is typed through the clipboard with `xclip`, which setup
+installs. `window_focus` raises open windows through EWMH and checks that
+the window manager really made them active. `system_capabilities` names the
+X11 backends (`linux.x11.getimage`, `linux.x11.ewmh`, `linux.xclip.native`,
+`linux.x11-screensaver`).
+
 ## On Hyprland
 
 Hyprland 0.56.2 has two-output VM acceptance evidence. The native helper

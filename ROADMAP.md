@@ -349,33 +349,21 @@ at the machine* checks, batched for a session at the machine.
   passed (2026-11-12). Left: input with this binary on GNOME and Hyprland
   (it ran only in the Plasma check; on this GNOME desktop uinput would
   reach the real session), and Linux Mint 21 itself.
-- **X11, starting with Cinnamon and XFCE.** Both run on X11 in practice
-  (Linux Mint and Pardus Cinnamon start X11 by default; their Wayland
-  sessions are still experimental), and pcbridge refuses desktop tools on
-  X11 today. Adding them means one shared X11 backend first, then the
-  per-desktop indicators. X11 is easier in most parts: capture with
-  XShm/XGetImage, input through the existing uinput path (XTEST as an
-  option), window activation with EWMH `_NET_ACTIVE_WINDOW`, AT-SPI as is,
-  idle time from the XScreenSaver extension, and the lock from the
-  `org.cinnamon.ScreenSaver` and xfce4-screensaver / light-locker D-Bus
-  interfaces. The hard part is the grant indicator: Cinnamon's shell is a
-  GNOME Shell fork with Muffin (a Mutter fork), so the GNOME extension's
-  frame and panel icon can likely be ported as a Cinnamon extension/applet;
-  XFCE has no such mechanism and needs a panel plugin or a lasting
-  notification plus a frame window. The security model is weaker on X11
-  (any client can read the screen and send keys; nothing like Hyprland's
-  frame proof exists), and `docs/security.md` must say so. A shared X11
-  backend also brings MATE and similar desktops most of the way. Publishing
-  the Cinnamon applet on Cinnamon Spices needs a PR to their repository;
-  the source stays in this repository. This covers systems below glibc
-  2.39 too, where the release helper now runs (the first item of this
-  section). It still links `libpipewire-0.3.so.0`: the Debian 12 Cinnamon
-  VM has it, and so does Ubuntu 22.04 wherever `xdg-desktop-portal` is
-  installed; Linux Mint 21 and XFCE were not measured. Done when Cinnamon
-  and XFCE on X11 pass the desktop checks (capture, input, window focus,
-  lock, idle, grant indicator and kill switch) on a system with glibc 2.39
-  or later and on one below it (Linux Mint 21, or Pardus 23 or its Debian
-  12 stand-in), and `system_capabilities` reports them.
+- **X11, starting with Cinnamon and XFCE.** Done (Unreleased, see
+  CHANGELOG). The native helper has an X11 backend (RandR, GetImage,
+  MIT-SCREEN-SAVER idle time, EWMH window focus, xclip; no libX11 link)
+  and draws the grant frame; Python asks the helper and adds no X11 code.
+  Cinnamon gets a panel applet (`cinnamon-applet/`), both desktops the
+  lasting notification with Lock now, and `docs/security.md` states the
+  weaker X11 model. `tests/live/x11/check_mcp.py` passed (capture, input,
+  window focus, lock, idle, grant indicator, kill switch) on Debian 13
+  (glibc 2.41) with Cinnamon 6.4 and Xfce 4.20, on Debian 12 (glibc 2.36,
+  the Pardus 23 stand-in) with Cinnamon 5.6 and Xfce 4.18, and in a Linux
+  Mint 21.3 live session (glibc 2.35, Cinnamon 6.0); details in measured
+  facts. Left: publishing the applet on Cinnamon Spices (a PR to their
+  repository, the maintainer's decision); Mint 21 Xfce, MATE and other X11
+  desktops (unmeasured; MATE would need its locker and a detection entry);
+  more than one monitor on X11 (every VM had one); and physical hardware.
 
 ## Optional: Windows
 
