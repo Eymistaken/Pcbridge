@@ -72,6 +72,9 @@ def show(title: str, body: str) -> None:
             pass
         return
     close()
+    if not _notify_send_has_actions():
+        _show_through_bus(title, body)
+        return
     # Line-buffered: libnotify 0.8.1 (Debian 12) keeps the printed id in its
     # stdout buffer until it exits when stdout is a pipe (measured: no line
     # within 3 s; with `stdbuf -oL` 10 ms), and without the id the
@@ -108,6 +111,84 @@ def show(title: str, body: str) -> None:
     threading.Thread(target=watch, name="grant-notice", daemon=True).start()
 
 
+_ACTIONS_SUPPORT: bool | None = None
+
+
+def _notify_send_has_actions() -> bool:
+    """Can `notify-send` wait for a button? libnotify 0.7.9 (Ubuntu 22.04,
+    Linux Mint 21) has no --action, --wait or --print-id (measured)."""
+    global _ACTIONS_SUPPORT
+    if _ACTIONS_SUPPORT is None:
+        try:
+            out = subprocess.run(["notify-send", "--help"], capture_output=True, text=True,
+                                 timeout=5).stdout
+        except (OSError, subprocess.SubprocessError):
+            out = ""
+        _ACTIONS_SUPPORT = "--action" in out
+    return _ACTIONS_SUPPORT
+
+
+_NOTIFICATIONS = ("org.freedesktop.Notifications", "/org/freedesktop/Notifications",
+                  "org.freedesktop.Notifications")
+
+
+def _show_through_bus(title: str, body: str) -> None:
+    """The same lasting notification without notify-send: `busctl` asks the
+    notification server and a `busctl monitor` waits for its button.
+
+    The monitor starts first, so a click cannot come before anyone listens.
+    Measured on Linux Mint 21.3 (systemd 249): the monitor needs no privilege
+    on the user's own bus and prints the signals as JSON lines.
+    """
+    try:
+        monitor = subprocess.Popen(
+            ["busctl", "--user", "monitor", "--json=short", "--match",
+             "type=signal,interface=org.freedesktop.Notifications"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, start_new_session=True)
+        sent = subprocess.run(
+            ["busctl", "--user", "call", *_NOTIFICATIONS, "Notify", "susssasa{sv}i",
+             "pcbridge", "0", "", title, body, "2", LOCK_ACTION, "Lock now",
+             "1", "urgency", "y", "2", "0"],
+            capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("grant notification not shown: %s", exc)
+        return
+    parts = sent.stdout.split()
+    if sent.returncode != 0 or len(parts) != 2 or not parts[1].isdigit():
+        monitor.terminate()
+        log.warning("grant notification not shown: %s", sent.stderr.strip()[:200])
+        return
+    notice_id = int(parts[1])
+    path = _state_path()
+    if path is not None:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"id": notice_id, "pid": monitor.pid}), encoding="utf-8")
+        except OSError:
+            pass
+
+    def watch() -> None:
+        assert monitor.stdout is not None
+        for line in monitor.stdout:
+            try:
+                message = json.loads(line)
+                data = message["payload"]["data"]
+            except (ValueError, KeyError, TypeError):
+                continue
+            if not data or data[0] != notice_id:
+                continue
+            if message.get("member") == "ActionInvoked" and data[1:] == [LOCK_ACTION]:
+                log.info("grant notification: Lock now")
+                _lock_now()
+            elif message.get("member") == "NotificationClosed":
+                break
+        monitor.terminate()
+        monitor.wait()
+
+    threading.Thread(target=watch, name="grant-notice", daemon=True).start()
+
+
 def close() -> bool:
     """Close the grant notification, from any process. True when one was open."""
     path = _state_path()
@@ -130,7 +211,7 @@ def close() -> bool:
     if isinstance(pid, int):
         try:
             cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
-            if cmdline.split(b"\0")[0].endswith(b"notify-send"):
+            if cmdline.split(b"\0")[0].endswith((b"notify-send", b"busctl")):
                 os.kill(pid, signal.SIGTERM)
         except (OSError, ValueError):
             pass

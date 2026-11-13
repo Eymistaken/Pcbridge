@@ -1,4 +1,4 @@
-"""The grant notification: a courtesy on GNOME, the grant's signal on Plasma."""
+"""The grant notification: a courtesy on GNOME, the grant's signal on Plasma and X11."""
 
 from __future__ import annotations
 
@@ -22,9 +22,13 @@ class FakeProc:
     def __init__(self, lines: str) -> None:
         self.stdout = io.StringIO(lines)
         self.pid = 4242
+        self.terminated = False
 
     def wait(self) -> int:
         return 0
+
+    def terminate(self) -> None:
+        self.terminated = True
 
 
 class GrantNoticeTests(unittest.TestCase):
@@ -49,6 +53,7 @@ class GrantNoticeTests(unittest.TestCase):
     def test_plasma_keeps_it_open_with_a_lock_button_that_runs_the_kill_switch(self) -> None:
         locked = []
         with mock.patch.object(compositor, "is_kde", return_value=True), \
+                mock.patch.object(grantnotice, "_notify_send_has_actions", return_value=True), \
                 mock.patch.object(grantnotice, "_lock_now", side_effect=lambda: locked.append(1)), \
                 mock.patch.object(grantnotice.subprocess, "Popen",
                                   return_value=FakeProc("7\nlock\n")) as popen:
@@ -61,6 +66,36 @@ class GrantNoticeTests(unittest.TestCase):
         self.assertIn("-w", argv)
         self.assertIn("lock=Lock now", argv)
         self.assertEqual(locked, [1])
+        self.assertEqual(json.loads(self.state.read_text()), {"id": 7, "pid": 4242})
+
+    def test_without_notify_send_buttons_the_bus_carries_the_lock_button(self) -> None:
+        """libnotify 0.7.9 (Ubuntu 22.04, Mint 21) has no --action: busctl
+        sends the notification and a busctl monitor waits for the button."""
+        locked = []
+        signals = "\n".join(json.dumps(line) for line in (
+            {"member": "ActionInvoked", "payload": {"type": "us", "data": [8, "lock"]}},
+            {"member": "ActionInvoked", "payload": {"type": "us", "data": [7, "lock"]}},
+            {"member": "NotificationClosed", "payload": {"type": "uu", "data": [7, 2]}},
+        )) + "\n"
+        monitor = FakeProc(signals)
+        sent = subprocess.CompletedProcess([], 0, "u 7\n", "")
+        with mock.patch.object(compositor, "is_kde", return_value=True), \
+                mock.patch.object(grantnotice, "_notify_send_has_actions", return_value=False), \
+                mock.patch.object(grantnotice, "_lock_now", side_effect=lambda: locked.append(1)), \
+                mock.patch.object(grantnotice.subprocess, "Popen", return_value=monitor) as popen, \
+                mock.patch.object(grantnotice.subprocess, "run", return_value=sent) as run:
+            grantnotice.show("Desktop control granted", "10 min")
+            for _ in range(100):
+                if monitor.terminated:
+                    break
+                time.sleep(0.01)
+        self.assertEqual(popen.call_args.args[0][:3], ["busctl", "--user", "monitor"])
+        notify = run.call_args.args[0]
+        self.assertIn("Notify", notify)
+        self.assertIn("Lock now", notify)
+        # Only this notification's button counts, and only once.
+        self.assertEqual(locked, [1])
+        self.assertTrue(monitor.terminated)
         self.assertEqual(json.loads(self.state.read_text()), {"id": 7, "pid": 4242})
 
     def test_close_closes_the_notification_by_id_from_any_process(self) -> None:

@@ -464,8 +464,10 @@ def support_note(env: dict[str, str] | None = None) -> str:
 TESTED_SHELL_MAJORS = frozenset({"46", "50"})
 TESTED_PLASMA_MAJORS = frozenset({"6"})
 TESTED_HYPRLAND_VERSIONS: frozenset[str] = frozenset({"0.56.2"})
-# Cinnamon and Xfce majors measured in the Debian VMs (filled in as they pass).
-TESTED_X11_MAJORS: dict[str, frozenset[str]] = {CINNAMON: frozenset(), XFCE: frozenset()}
+# Cinnamon 5.6, 6.0 and 6.4 and Xfce 4.18 and 4.20 passed the X11 checks
+# (Debian 12 and 13 VMs, a Linux Mint 21.3 live session).
+TESTED_X11_MAJORS: dict[str, frozenset[str]] = {CINNAMON: frozenset({"5", "6"}),
+                                                 XFCE: frozenset({"4"})}
 _PLATFORM_TTL = 60.0
 _platform_cache: tuple[float, dict] | None = None
 _kind_cache: tuple[float, tuple[str, str, str], str] | None = None

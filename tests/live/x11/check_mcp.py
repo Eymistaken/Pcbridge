@@ -152,9 +152,10 @@ async def main() -> int:
             applets = subprocess.run(["gsettings", "get", "org.cinnamon", "enabled-applets"],
                                      capture_output=True, text=True).stdout
             check("Cinnamon applet in the panel", "pcbridge@eymistaken" in applets, "")
-        notices = subprocess.run(["pgrep", "-a", "notify-send"], capture_output=True,
-                                 text=True).stdout
-        check("lasting grant notification with Lock now", "lock=Lock now" in notices, notices)
+        notices = subprocess.run(["pgrep", "-af", "notify-send|busctl --user monitor"],
+                                 capture_output=True, text=True).stdout
+        check("lasting grant notification with Lock now",
+              "lock=Lock now" in notices or "org.freedesktop.Notifications" in notices, notices)
 
         focus = text_of(await call("window_focus", window=doc.stem, force=True))
         check("window_focus", "raised by" in focus, focus)
@@ -205,7 +206,8 @@ async def main() -> int:
         check("frame gone", wait_for(lambda: frame_windows() in (0, None), 5),
               f"{frame_windows()} strip window(s)")
         check("grant notification closed", wait_for(lambda: not subprocess.run(
-            ["pgrep", "-x", "notify-send"], capture_output=True).stdout.strip(), 5), "")
+            ["pgrep", "-f", "notify-send|busctl --user monitor"], capture_output=True
+        ).stdout.strip(), 5), "")
         after = text_of(await call("screen_capture"))
         check("capture refused after the kill switch", "desktop_unlock" in after, after)
 
