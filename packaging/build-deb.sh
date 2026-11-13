@@ -59,7 +59,7 @@ Homepage: https://github.com/Eymistaken/Pcbridge
 Depends: python3 (>= @PYVER@), python3 (<< @PYNEXT@), tmux, wl-clipboard, libnotify-bin, python3-gi, at-spi2-core, libpipewire-0.3-0t64 | libpipewire-0.3-0, libc6 (>= 2.35), libgcc-s1
 Recommends: tesseract-ocr
 Suggests: tailscale
-Description: MCP server that lets coding agents drive a Wayland desktop
+Description: MCP server that lets coding agents drive a Linux desktop
  pcbridge gives Claude Code, Codex, Claude Desktop and remote MCP clients
  background jobs, tmux, shell and file tools, and (off by default)
  time-limited control of GNOME, KDE Plasma or Hyprland on Wayland through

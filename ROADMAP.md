@@ -349,7 +349,7 @@ at the machine* checks, batched for a session at the machine.
   passed (2026-11-12). Left: input with this binary on GNOME and Hyprland
   (it ran only in the Plasma check; on this GNOME desktop uinput would
   reach the real session), and Linux Mint 21 itself.
-- **X11, starting with Cinnamon and XFCE.** Done (Unreleased, see
+- **X11, starting with Cinnamon and XFCE.** Done (2.9.0, see
   CHANGELOG). The native helper has an X11 backend (RandR, GetImage,
   MIT-SCREEN-SAVER idle time, EWMH window focus, xclip; no libX11 link)
   and draws the grant frame; Python asks the helper and adds no X11 code.

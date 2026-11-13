@@ -1,3 +1,3 @@
-"""pcbridge: an MCP server that lets coding agents drive a Wayland desktop."""
+"""pcbridge: an MCP server that lets coding agents drive a Linux desktop."""
 
-__version__ = "2.8.0"
+__version__ = "2.9.0"
