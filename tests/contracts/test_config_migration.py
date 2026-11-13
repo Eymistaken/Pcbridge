@@ -166,6 +166,21 @@ class ConfigMigrationTests(unittest.TestCase):
         self.assertTrue(any("[desktop] `enabeld`" in w for w in cfg.warnings))
         self.assertFalse(cfg.desktop.enabled)
 
+    def test_the_python_desktop_paths_are_announced_as_going(self) -> None:
+        """2.8 warns; the next release removes them (stage 7 of the roadmap)."""
+        text = self.legacy.read_text()
+        self.assertFalse([w for w in configlib.load_config(str(self.legacy)).warnings
+                          if "deprecated" in w])
+        self.legacy.write_text(text + '\n[native]\ncapture = "python"\naccessibility = "python"\n')
+        cfg = configlib.load_config(str(self.legacy))
+        deprecated = [w for w in cfg.warnings if "deprecated" in w]
+        self.assertEqual(len(deprecated), 2, deprecated)
+        self.assertTrue(all('set it to "auto"' in w for w in deprecated))
+        self.assertEqual(cfg.native.capture, "python", "the setting still works in 2.8")
+        self.legacy.write_text(text.replace("[desktop]\n", '[desktop]\ncapture_backend = "gnome-screenshot"\n', 1))
+        cfg = configlib.load_config(str(self.legacy))
+        self.assertTrue(any("capture_backend" in w and "deprecated" in w for w in cfg.warnings))
+
     def test_loose_mode_warns(self) -> None:
         os.chmod(self.legacy, 0o644)
         cfg = configlib.load_config(str(self.legacy))

@@ -1198,6 +1198,18 @@ def _load_config(explicit: str | None = None, *, check_state: bool = True) -> Co
         accessibility=native_accessibility,
         binary_path=_expand(native_binary) if native_binary else None,
     )
+    # Deprecated in 2.8, removed in the next release: say so now, while the
+    # setting still works, so nobody meets it first as a changed desktop.
+    for key, value in (("capture", native_capture), ("input", native_input),
+                       ("accessibility", native_accessibility)):
+        if value == "python":
+            warnings.append(
+                f'[native] {key} = "python" is deprecated: the next release removes the '
+                'Python desktop paths and uses the native helper only; set it to "auto"')
+    if desktop.capture_backend != "auto":
+        warnings.append(
+            f'[desktop] capture_backend = "{desktop.capture_backend}" is deprecated: the next '
+            "release removes it and captures through the native helper only; set it to \"auto\"")
 
     state_dir = (
         _expand(paths["state_dir"]) if paths.get("state_dir") else pathslib.state_home()

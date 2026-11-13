@@ -62,6 +62,21 @@
   Desktop control on those older systems still waits for X11 support. The
   `.deb` now declares `libc6 (>= 2.35)`.
 
+### Deprecated
+
+- **The Python desktop paths go in the next release.** Since 2.0 the native
+  helper captures the screen, drives the keyboard and pointer and reads the
+  accessibility tree wherever it is installed, and the Python paths (the
+  GStreamer screen share, python-evdev, the system-python AT-SPI helper and
+  gnome-screenshot) only filled in where it was not. With this release
+  every supported install path brings the helper, so the next one removes
+  them, with `[native] capture / input / accessibility = "python"` and
+  `[desktop] capture_backend`. A config that still sets one of them now
+  gets a warning in `pcbridge doctor` and the daemon's log that says to set
+  it to `"auto"`; the settings still work in this release. ARM (aarch64)
+  has no native helper, so desktop control there ends with that release
+  (see `docs/install.md`, Architectures).
+
 ## 2.7.2 - 2026-11-07
 
 ### Added

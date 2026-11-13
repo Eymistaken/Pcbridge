@@ -43,7 +43,8 @@ here, not by moving sections.
    against*.
 7. **More desktops.** ~~*A native helper that runs below glibc 2.39*~~
    (done, unreleased) first,
-   then *Retire the legacy Python desktop backends*, then *X11, starting
+   then *Retire the legacy Python desktop backends* (its gaps closed,
+   unreleased; the removal follows the release that ships them), then *X11, starting
    with Cinnamon and XFCE*, written straight into the native helper
    instead of added to Python and moved later. Decided with the maintainer
    (2026-11-12): X11 support also covers systems below glibc 2.39 (Linux
@@ -496,9 +497,41 @@ at the machine* checks, batched for a session at the machine.
   default for capture, input and accessibility; the Python paths remain as
   the fallback when no helper is packaged. Retiring them needs the helper on
   every supported platform build and a release with the fallback unused.
-  Today a release install below glibc 2.35 gets no helper, and neither
-  does a git install without a Rust toolchain (see *Optional components as
-  a checklist*).
+  Decided with the maintainer (2026-11-13): close the gaps first and ship
+  them in a release of their own, then remove the Python paths, the
+  `"python"` values and `[desktop] capture_backend` in the next one (an old
+  config gets a warning and a doctor message, never a crash). The gaps are
+  closed (unreleased): an installation without a helper downloads the
+  release's (see *Optional components as a checklist*); ARM has no desktop
+  control until *An aarch64 build of the native helper*; GNOME window
+  capture is a region of the native frame through the extension's
+  `FocusedWindowFrame` instead of gnome-screenshot; and a config that still
+  selects a Python path is warned. Below glibc 2.35 no supported desktop
+  runs. The map of what goes (2026-11-13): `screencast.py` and
+  `screencast_helper.py` (GStreamer), the evdev devices in `input.py`,
+  `atspi_helper.py` and the helper calls in `uitree.py`, the Python
+  providers' OS parts, gnome-screenshot (the monitor fallback when the
+  native share is not open, and the window path for a pre-2.8 extension),
+  and their packages (the GStreamer and AT-SPI introspection packages, and
+  the `[desktop]` extra's `evdev`, which setup compiles). Shared code
+  stays: shots, `to_global`, typing orchestration, `uitree`'s ids and dump
+  text, and the password rule. With the native helper present, only
+  `screen_info`'s window list before a grant still uses the Python AT-SPI
+  helper (decided: it lists none until `desktop_unlock`). `find_text` and
+  `wait_for_text` refuse `monitor="window"` because a window shot had no
+  place on the screen; with gnome-screenshot gone every window shot has
+  one, so that refusal goes too. Done when no Python capture, input or
+  accessibility backend is left, a machine without the helper gets a
+  refusal or doctor message that says how to get it, the suites pass, and
+  GNOME (headless), Plasma and Hyprland (VMs) pass the desktop checks.
+- **Move KWin scripting into the native helper.** `kwin_helper.py` runs in
+  the system python3 with PyGObject (Gio) to load KWin's one-shot scripts:
+  window focus, the focused window, and its frame for window capture on
+  Plasma. It is not a fallback but the only path there, so retiring the
+  Python backends keeps it, and `python3-gi` / `python-gobject` stay
+  dependencies for it alone. Done when the helper loads the scripts over
+  D-Bus itself, `kwin_helper.py` is gone, and `python3-gi` leaves the
+  packages.
 - **The pixel-area cap and the Anthropic API.** Whether the API itself
   shrinks a 1536x864 picture (about 1.33 MP) was not measured. If it does,
   `shot=` coordinates carry a small systematic error on the right edge, and

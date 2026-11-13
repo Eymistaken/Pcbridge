@@ -151,6 +151,9 @@ keep_awake = false
 #             stays.
 #   "python"  the older path: Mutter ScreenCast + GStreamer in
 #             `screencast_helper.py`, run by the system python3.
+#             DEPRECATED in 2.8: the next release removes it (and the
+#             fallback under "auto"); pcbridge then uses the native helper
+#             only.
 #   "rust"    REQUIRE the native helper. Without it, or when it cannot get a
 #             frame, the call FAILS; it never falls back silently.
 #
@@ -174,6 +177,7 @@ capture = "auto"
 #             input.keyboard and input.pointer as `degraded` with the reason.
 #   "rust"    native required: no helper, no silent fallback, the call fails.
 #   "python"  the older path: Python evdev keyboard/pointer and wl-clipboard.
+#             DEPRECATED in 2.8, removed in the next release, like capture.
 #
 # On both paths the order of typing text (save the clipboard -> put the text
 # -> Ctrl+V -> restore) is Python's; on the native path wl-paste/wl-copy run
@@ -190,7 +194,8 @@ input = "auto"
 #             system_capabilities shows accessibility.read as `degraded`). An
 #             old helper (built before Task 6.3) fails in ui_dump/ui_click;
 #             `pcbridge doctor` says so; rebuild with scripts/build-native.sh.
-#   "python"  atspi_helper.py in the system python3.
+#   "python"  atspi_helper.py in the system python3. DEPRECATED in 2.8,
+#             removed in the next release, like capture.
 #   "rust"    native required; no helper means the call fails.
 #
 # Without a grant (desktop_unlock), screen_info's window list always comes from
@@ -407,7 +412,9 @@ shot_keep_hours = 24
 # that the pointer really went where it was sent.
 include_pointer = true
 
-# How the screen is captured:
+# How the screen is captured. DEPRECATED in 2.8: the next release removes
+# this setting and gnome-screenshot, and captures through the native helper
+# only ([native] capture); keep "auto".
 #   "auto"             screen sharing when available, else gnome-screenshot (default)
 #   "screencast"       screen sharing only; if it cannot start, NO picture
 #   "gnome-screenshot" the old path
