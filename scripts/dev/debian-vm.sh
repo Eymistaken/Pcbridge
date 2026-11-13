@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
-# A Debian 12 test VM with Cinnamon on X11: the "unsupported desktop" install path.
+# A Debian test VM with Cinnamon and XFCE on X11.
 #
 #   scripts/dev/debian-vm.sh create      download + verify the cloud image, make the disk and seed
 #   scripts/dev/debian-vm.sh start       boot headless (VNC on 127.0.0.1:5907, SSH on 127.0.0.1:2224)
-#   scripts/dev/debian-vm.sh provision   install Cinnamon and LightDM only; log in to Cinnamon (X11) at boot
+#   scripts/dev/debian-vm.sh provision   install the desktops and LightDM only; log in to the first at boot
+#   scripts/dev/debian-vm.sh session D   log in to D (cinnamon or xfce) now and at every boot
 #   scripts/dev/debian-vm.sh fresh       a throwaway disk over the provisioned one (start it with PCBRIDGE_VM_DISK)
 #   scripts/dev/debian-vm.sh put FILE..  copy files to the test user's home
 #   scripts/dev/debian-vm.sh ssh [cmd]   a shell (or one command) as the test user
 #   scripts/dev/debian-vm.sh screenshot  write the VM's screen to <dir>/screen.png
 #   scripts/dev/debian-vm.sh stop        power off
 #
+# PCBRIDGE_DEBIAN_RELEASE picks the release: 12 (the default) or 13. Each
+# has its own directory, ports and disks, so both can run at once.
 # Why Debian 12: Python 3.11 exercises the install script's uv path, glibc
-# 2.36 a release native helper below glibc 2.39, and Cinnamon on X11 an
-# unsupported desktop.
-# Pardus 23 is based on Debian 12 and has no cloud image, so this stands in
-# for it. Provisioning installs the desktop and nothing pcbridge needs, so an
+# 2.36 a release native helper below glibc 2.39, and Cinnamon and XFCE on
+# X11 the desktops below it. Pardus 23 is based on Debian 12 and has no cloud
+# image, so this stands in for it. Debian 13 (glibc 2.41) is the same pair of
+# desktops above glibc 2.39.
+# PCBRIDGE_DEBIAN_DESKTOPS lists the desktops to provision (default
+# "cinnamon xfce"); the first logs in at boot. Provisioning installs the desktop and nothing pcbridge needs, so an
 # install from here shows exactly which packages pcbridge adds.
 #
 # The "generic" image, not "genericcloud": the cloud kernel leaves out
@@ -27,9 +32,15 @@
 # access (the kvm group). No sudo on the host.
 set -euo pipefail
 
-DIR="${PCBRIDGE_DEBIAN_DEV_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/pcbridge-debian-dev}"
-IMAGE_DIR="https://cloud.debian.org/images/cloud/bookworm/latest"
-IMAGE_NAME="debian-12-generic-amd64.qcow2"
+RELEASE="${PCBRIDGE_DEBIAN_RELEASE:-12}"
+case "$RELEASE" in
+    12) CODENAME=bookworm; SUFFIX=""; PORT_DEFAULT=2224; VNC_DEFAULT=7 ;;
+    13) CODENAME=trixie; SUFFIX=13; PORT_DEFAULT=2225; VNC_DEFAULT=8 ;;
+    *) printf 'debian-vm: release %s is not 12 or 13\n' "$RELEASE" >&2; exit 2 ;;
+esac
+DIR="${PCBRIDGE_DEBIAN_DEV_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/pcbridge-debian${SUFFIX}-dev}"
+IMAGE_DIR="https://cloud.debian.org/images/cloud/$CODENAME/latest"
+IMAGE_NAME="debian-$RELEASE-generic-amd64.qcow2"
 BASE="$DIR/$IMAGE_NAME"
 PROVISIONED="$DIR/debian.qcow2"
 DISK="${PCBRIDGE_VM_DISK:-$PROVISIONED}"
@@ -37,13 +48,33 @@ SEED="$DIR/seed.iso"
 KEY="$DIR/id_ed25519"
 PIDFILE="$DIR/qemu.pid"
 QMP="$DIR/qmp.sock"
-SSH_PORT="${PCBRIDGE_DEBIAN_VM_SSH_PORT:-2224}"
-VNC_DISPLAY="${PCBRIDGE_DEBIAN_VM_VNC_DISPLAY:-7}"
+SSH_PORT="${PCBRIDGE_DEBIAN_VM_SSH_PORT:-$PORT_DEFAULT}"
+VNC_DISPLAY="${PCBRIDGE_DEBIAN_VM_VNC_DISPLAY:-$VNC_DEFAULT}"
 VM_USER=tester
+DESKTOPS="${PCBRIDGE_DEBIAN_DESKTOPS:-cinnamon xfce}"
 
-# The desktop only. tmux, libnotify-bin, tesseract and python3-venv are left
-# out on purpose: the install must bring what it needs.
-PACKAGES=(cinnamon-core lightdm lightdm-gtk-greeter xserver-xorg locales)
+# The desktops only. tmux, libnotify-bin, tesseract and python3-venv are left
+# out on purpose: the install must bring what it needs. XFCE gets the locker
+# Debian's XFCE task recommends, light-locker (Debian 12 has no
+# xfce4-screensaver); PCBRIDGE_DEBIAN_XFCE_LOCKER=xfce4-screensaver picks the
+# other one on 13.
+PACKAGES=(lightdm lightdm-gtk-greeter xserver-xorg locales)
+for desktop in $DESKTOPS; do
+    case "$desktop" in
+        cinnamon) PACKAGES+=(cinnamon-core) ;;
+        xfce) PACKAGES+=(xfce4 "${PCBRIDGE_DEBIAN_XFCE_LOCKER:-light-locker}") ;;
+        *) printf 'debian-vm: unknown desktop %s\n' "$desktop" >&2; exit 2 ;;
+    esac
+done
+FIRST_DESKTOP="${DESKTOPS%% *}"
+
+session_name() {
+    case "$1" in
+        cinnamon) echo cinnamon ;;
+        xfce) echo xfce ;;
+        *) die "session cinnamon|xfce" ;;
+    esac
+}
 
 die() { printf 'debian-vm: %s\n' "$*" >&2; exit 1; }
 
@@ -108,7 +139,7 @@ cmd_start() {
     [ -f "$DISK" ] || die "no disk $DISK; run: $0 create"
     running && { echo "already running"; return; }
     qemu-system-x86_64 \
-        -name pcbridge-debian -enable-kvm -cpu host -smp 4 -m 6G \
+        -name "pcbridge-debian$SUFFIX" -enable-kvm -cpu host -smp 4 -m 6G \
         -drive file="$DISK",if=virtio,discard=unmap \
         -drive file="$SEED",media=cdrom,readonly=on \
         -nic user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:"$SSH_PORT"-:22 \
@@ -131,15 +162,34 @@ cmd_provision() {
     vm_ssh 'sudo sed -i "s/^# *tr_TR.UTF-8/tr_TR.UTF-8/" /etc/locale.gen && sudo locale-gen >/dev/null
             sudo update-locale LANG=tr_TR.UTF-8
             sudo install -d /etc/lightdm/lightdm.conf.d
-            printf "[Seat:*]\nautologin-user='"$VM_USER"'\nautologin-session=cinnamon\n" | sudo tee /etc/lightdm/lightdm.conf.d/50-autologin.conf >/dev/null
-            sudo systemctl enable lightdm && sudo systemctl set-default graphical.target'
+            printf "[Seat:*]\nautologin-user='"$VM_USER"'\nautologin-session='"$(session_name "$FIRST_DESKTOP")"'\n" | sudo tee /etc/lightdm/lightdm.conf.d/50-autologin.conf >/dev/null
+            sudo systemctl enable lightdm && sudo systemctl set-default graphical.target
+            sudo systemctl disable --now unattended-upgrades.service apt-daily.timer apt-daily-upgrade.timer 2>/dev/null || true'
+    # Unattended upgrades held a reboot for minutes (measured on 12) and
+    # change packages under a test run, so the VM has none.
     vm_ssh 'sudo reboot' || true
     sleep 5
     for _ in $(seq 1 90); do
-        vm_ssh true 2>/dev/null && { echo "provisioned; Cinnamon logs in at boot"; return; }
+        vm_ssh true 2>/dev/null && { echo "provisioned; $FIRST_DESKTOP logs in at boot"; return; }
         sleep 2
     done
     die "no SSH after the reboot"
+}
+
+cmd_session() {
+    local name
+    name="$(session_name "${1:-}")"
+    vm_ssh "printf '[Seat:*]\nautologin-user=$VM_USER\nautologin-session=$name\n' | sudo tee /etc/lightdm/lightdm.conf.d/50-autologin.conf >/dev/null
+            sudo reboot" || true
+    # A reboot, not a lightdm restart: the user manager outlives a new login,
+    # so the old desktop's services and XDG_SESSION_DESKTOP would linger
+    # (measured: org.cinnamon.ScreenSaver stayed owned in the XFCE session).
+    sleep 5
+    for _ in $(seq 1 90); do
+        vm_ssh "loginctl list-sessions --no-legend | grep -q seat0 && loginctl show-session \$(loginctl list-sessions --no-legend | awk '/seat0/{print \$1; exit}') -p Desktop --value" 2>/dev/null | grep -qi "$name" && { echo "logged in to $name"; return; }
+        sleep 2
+    done
+    die "no $name session after 180 s"
 }
 
 cmd_fresh() {
@@ -174,10 +224,11 @@ case "${1:-}" in
     create) cmd_create ;;
     start) cmd_start ;;
     provision) cmd_provision ;;
+    session) shift; cmd_session "$@" ;;
     fresh) cmd_fresh ;;
     put) shift; cmd_put "$@" ;;
     ssh) shift; vm_ssh "$@" ;;
     screenshot) shift; cmd_screenshot "$@" ;;
     stop) cmd_stop ;;
-    *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+    *) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
