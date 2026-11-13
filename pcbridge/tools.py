@@ -1501,6 +1501,11 @@ def register(
             return f"⚠️ Screen capture is not ready: {exc}"
         if compositorlib.current().kind == "hyprland":
             return "📷 Screen capture is ready."
+        if compositorlib.is_x11():
+            # X11 needs no share: any client may read the screen. The frame
+            # the native helper draws around the screens is the indicator.
+            return ("📷 Screenshots come from the X server: silent, no flash. The frame "
+                    "around the screens shows the grant until it closes.")
         if compositorlib.is_kde():
             # KWin gives one frame per call; there is no share to open and no
             # panel indicator, only the grant and the layout to confirm.

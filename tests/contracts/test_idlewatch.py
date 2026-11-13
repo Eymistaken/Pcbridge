@@ -35,7 +35,7 @@ class IdleRecordTests(unittest.TestCase):
         self.dir.cleanup()
 
     def write(self, **fields) -> None:
-        record = {"version": 2, "pid": self.writer.pid, "timeout_ms": 1000,
+        record = {"version": 3, "pid": self.writer.pid, "timeout_ms": 1000,
                   "idle": True, "since_unix_ms": 10_000, "confirmed_unix_ms": 74_000,
                   "writer_start_ticks": idlewatch._writer_start_ticks(self.writer.pid),
                   "wayland_display": "wayland-test", "hyprland_instance": "test-session"}
@@ -64,7 +64,7 @@ class IdleRecordTests(unittest.TestCase):
         self.assertIsNone(idlewatch.read_idle_ms(self.path, now_ms=1))
         self.path.write_text("not json", encoding="utf-8")
         self.assertIsNone(idlewatch.read_idle_ms(self.path, now_ms=1))
-        self.write(version=1)
+        self.write(version=2)
         self.assertIsNone(idlewatch.read_idle_ms(self.path, now_ms=1))
         self.write(since_unix_ms="10")
         self.assertIsNone(idlewatch.read_idle_ms(self.path, now_ms=1))
@@ -74,11 +74,26 @@ class IdleRecordTests(unittest.TestCase):
             {"confirmed_unix_ms": 70_000}, {"confirmed_unix_ms": 76_000},
             {"writer_start_ticks": 1}, {"wayland_display": "wayland-other"},
             {"hyprland_instance": "previous"}, {"idle": "true"}, {"pid": True},
-            {"since_unix_ms": 76_000}, {"timeout_ms": 0},
+            {"since_unix_ms": 76_000}, {"timeout_ms": 0}, {"x11_display": ":0"},
         ):
             with self.subTest(fields=fields):
                 self.write(**fields)
                 self.assertIsNone(idlewatch.read_idle_ms(self.path, now_ms=75_000))
+
+
+    def test_an_x11_record_names_the_x_display_only(self) -> None:
+        x11 = {"XDG_SESSION_TYPE": "x11", "XDG_CURRENT_DESKTOP": "XFCE", "DISPLAY": ":0"}
+        with mock.patch.dict(os.environ, x11):
+            os.environ.pop("WAYLAND_DISPLAY", None)
+            os.environ.pop("HYPRLAND_INSTANCE_SIGNATURE", None)
+            self.write(wayland_display="", hyprland_instance="", x11_display=":0")
+            self.assertEqual(idlewatch.read_idle_ms(self.path, now_ms=75_000), 65_000)
+            for fields in ({"x11_display": ":1"}, {"x11_display": ""},
+                           {"wayland_display": "wayland-test"}):
+                with self.subTest(fields=fields):
+                    self.write(**{"wayland_display": "", "hyprland_instance": "",
+                                  "x11_display": ":0", **fields})
+                    self.assertIsNone(idlewatch.read_idle_ms(self.path, now_ms=75_000))
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ from pathlib import Path
 
 from .. import distro as distrolib
 from .. import paths as pathslib
-from ..desktop.session import KDE
+from ..desktop.session import KDE, X11_KINDS
 from ..platforminfo import Platform
 from . import install as inst
 
@@ -38,6 +38,15 @@ DBUS_SERVICE_DIRS = (Path("/usr/share/dbus-1/services"), Path("/usr/local/share/
 
 def _has_a11y_bus() -> bool:
     return any((d / "org.a11y.Bus.service").is_file() for d in DBUS_SERVICE_DIRS)
+
+
+def _has_library(name: str) -> bool:
+    """A shared library the dynamic linker would find (the helper's libpipewire)."""
+    probe = inst.run([shutil.which("ldconfig") or "/sbin/ldconfig", "-p"])
+    if probe.returncode == 0:
+        return any(line.strip().startswith(name + " ") for line in probe.stdout.splitlines())
+    return any(Path(d, name).exists() for d in ("/usr/lib/x86_64-linux-gnu", "/usr/lib64",
+                                                 "/usr/lib", "/lib/x86_64-linux-gnu"))
 
 
 def _has_system_gi() -> bool:
@@ -93,6 +102,7 @@ class Probes:
     which: Callable[[str], str | None] = shutil.which
     a11y_bus: Callable[[], bool] = _has_a11y_bus
     system_gi: Callable[[], bool] = _has_system_gi
+    library: Callable[[str], bool] = _has_library
     ocr_languages: Callable[[], set[str]] = _tesseract_languages
     desktop_extras: Callable[[], bool] = _has_desktop_extras
     # Only a venv pcbridge owns can take the extras; a package's venv has them.
@@ -221,7 +231,14 @@ def build(platform: Platform, *, profile_now: str = "full", recorded_profile: st
         needs.append("notify-send")  # notifications need a desktop to show them on
     components: list[Component] = []
     if platform.desktop_supported:
-        if not probes.which("wl-copy"):
+        if platform.desktop_kind in X11_KINDS:
+            # X11: xclip is the clipboard program, and the helper still links
+            # libpipewire, which Xfce does not install (measured).
+            if not probes.which("xclip"):
+                needs.append("xclip")
+            if not probes.library("libpipewire-0.3.so.0"):
+                needs.append("libpipewire")
+        elif not probes.which("wl-copy"):
             needs.append("wl-clipboard")
         # The native helper reads the accessibility tree off the AT-SPI bus.
         if not probes.a11y_bus():

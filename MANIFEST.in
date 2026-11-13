@@ -1,5 +1,6 @@
 include LICENSE README.md config.example.toml requirements.txt
 recursive-include gnome-extension *.js *.json *.sh *.md *.xml
+recursive-include cinnamon-applet *.js *.json *.md
 recursive-include systemd *
 recursive-include packaging *
 recursive-include skills *

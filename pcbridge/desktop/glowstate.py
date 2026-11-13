@@ -16,7 +16,23 @@ MAX_AGE_MS = 1000
 MAX_RECORD_BYTES = 8192
 
 
-def matches(record: dict, token: LeaseToken, *, display: str, signature: str, now_ms: int) -> bool:
+def frame_session() -> tuple[str, str, str]:
+    """(wayland_display, hyprland_instance, x11_display) a frame here must name.
+
+    Hyprland's frame names its Wayland socket and instance; the X11 frame
+    (Cinnamon, Xfce) names the X display, and the other two are empty.
+    """
+    from . import session
+
+    if session.x11_session():
+        return "", "", os.environ.get("DISPLAY", "")
+    return (os.environ.get("WAYLAND_DISPLAY", ""),
+            os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", ""), "")
+
+
+def matches(record: dict, token: LeaseToken, *, display: str, signature: str, now_ms: int,
+            x11_display: str = "") -> bool:
+    """`x11_display` set: an X11 frame record; otherwise Hyprland's."""
     numbers = ("version", "pid", "writer_start_ticks", "owner_pid", "owner_start_ticks",
                "revoke_epoch", "strip_count", "presented_unix_ms")
     if any(type(record.get(name)) is not int or record[name] < 0 for name in numbers):
@@ -29,8 +45,14 @@ def matches(record: dict, token: LeaseToken, *, display: str, signature: str, no
     return (record["version"] == 2 and record.get("ready") is True
             and all(record[name] > 0 for name in ("pid", "writer_start_ticks", "owner_pid", "owner_start_ticks"))
             and record.get("grant_id") == token.grant_id and record["revoke_epoch"] == token.revoke_epoch
-            and bool(display) and record.get("wayland_display") == display
-            and bool(signature) and record.get("hyprland_instance") == signature
+            and (
+                (bool(x11_display) and record.get("x11_display") == x11_display
+                 and record.get("wayland_display") == "" and record.get("hyprland_instance") == "")
+                if x11_display else
+                (bool(display) and record.get("wayland_display") == display
+                 and bool(signature) and record.get("hyprland_instance") == signature
+                 and record.get("x11_display", "") == "")
+            )
             and isinstance(record.get("topology_id"), str) and record["topology_id"].startswith("v1|")
             and len(record["topology_id"]) <= 2048
             and 4 <= record["strip_count"] <= 64 and record["strip_count"] % 4 == 0
@@ -69,12 +91,14 @@ def _writer_matches_binary(pid: int, directory: Path, binary: Path, token: Lease
         if len(environment) > 65536:
             return False
         entries = environment.split(b"\0")
+        display, signature, x11_display = frame_session()
+        session_entries = ([f"DISPLAY={x11_display}"] if x11_display else
+                           [f"WAYLAND_DISPLAY={display}", f"HYPRLAND_INSTANCE_SIGNATURE={signature}"])
         return (len(arguments) >= 5 and arguments[1] == b"glow-watch"
                 and arguments[2] == os.fsencode(directory)
                 and arguments[3] == token.grant_id.encode()
                 and arguments[4] == str(token.revoke_epoch).encode()
-                and os.fsencode("WAYLAND_DISPLAY=" + os.environ.get("WAYLAND_DISPLAY", "")) in entries
-                and os.fsencode("HYPRLAND_INSTANCE_SIGNATURE=" + os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")) in entries
+                and all(os.fsencode(entry) in entries for entry in session_entries)
                 and (actual.st_dev, actual.st_ino, actual.st_uid) == (expected.st_dev, expected.st_ino, expected.st_uid))
     except OSError:
         return False
@@ -100,9 +124,9 @@ def read(directory: Path, token: LeaseToken, *, binary: Path, now_ms: int | None
         if len(raw) > MAX_RECORD_BYTES:
             return None
         record = json.loads(raw)
+        display, signature, x11_display = frame_session()
         if not isinstance(record, dict) or not matches(record, token,
-                display=os.environ.get("WAYLAND_DISPLAY", ""),
-                signature=os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", ""),
+                display=display, signature=signature, x11_display=x11_display,
                 now_ms=int(time.time() * 1000) if now_ms is None else now_ms):
             return None
         if (_writer_start_ticks(record["pid"]) != record["writer_start_ticks"]

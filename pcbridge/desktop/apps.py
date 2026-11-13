@@ -156,6 +156,16 @@ def extension_focus_available() -> bool:
         except hyprland.HyprlandIPCError:
             return False
         return True
+    if compositorlib.is_x11():
+        # The native helper activates through EWMH; it needs only the helper.
+        from ..native import discover_native_binary
+        from .x11native import _cfg
+
+        try:
+            discover_native_binary(_cfg().native)
+        except Exception:  # noqa: BLE001 - no helper, no fast focus
+            return False
+        return True
     if compositorlib.is_kde():
         return _busctl_bool(
             "org.freedesktop.DBus",
@@ -196,8 +206,13 @@ def extension_focused_window() -> tuple[str, str] | None:
     verdigi addan FARKLI olabilir; ayni dizi icinde iki kaynagin karismasi
     "odak degisti" sayilir, yani yanlis yonde degil guvenli yonde hata.
     """
-    if compositorlib.is_kde():
-        reply = _kwin({"cmd": "focused"})
+    if compositorlib.is_kde() or compositorlib.is_x11():
+        if compositorlib.is_x11():
+            from . import x11native
+
+            reply = x11native.focused()
+        else:
+            reply = _kwin({"cmd": "focused"})
         if not reply or reply.get("found") is not True:
             return None
         return str(reply.get("app") or "").strip() or "?", str(reply.get("title") or "")
@@ -324,6 +339,13 @@ def _extension_activate(window: str) -> bool:
     """
     if compositorlib.is_kde():
         reply = _kwin({"cmd": "activate", "target": window})
+        return bool(reply and reply.get("activated") is True)
+    if compositorlib.is_x11():
+        # Cinnamon and Xfce: the native helper, with the same matching rules
+        # (`x11.rs`), confirmed by reading `_NET_ACTIVE_WINDOW` back.
+        from . import x11native
+
+        reply = x11native.activate(window)
         return bool(reply and reply.get("activated") is True)
     if compositorlib.current().kind != "gnome":
         return False
@@ -816,12 +838,18 @@ def _not_an_app(target: Application) -> DesktopError:
             "Nothing was started or searched.",
             "Give the full application name; window_list shows the open windows.",
         )
+    comp = compositorlib.current()
+    if comp.kind == "gnome":
+        why = ("No key was sent: a name typed into GNOME search that is not an application "
+               "can open a file, a chat or a web search. Raising a window by its title needs "
+               "the GNOME Shell extension.")
+    else:
+        why = (f"No key was sent: {comp.focus_path} found no single open window by that "
+               "name, and a name typed into a desktop search could open a file or a web search.")
     return _refused(
         ErrorCode.TARGET_MISMATCH,
         f"{target.text!r} is neither the name of an installed application nor one "
-        "open window that can be raised. No key was sent: a name typed into GNOME "
-        "search that is not an application can open a file, a chat or a web search. "
-        "Raising a window by its title needs the GNOME Shell extension.",
+        f"open window that can be raised. {why}",
         "Look at the open windows with window_list and give the name as shown there; "
         "for a closed application give its installed name.",
     )

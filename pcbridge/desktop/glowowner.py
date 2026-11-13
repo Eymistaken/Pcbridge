@@ -22,7 +22,13 @@ def _unavailable(code: ErrorCode = ErrorCode.BACKEND_UNAVAILABLE) -> DesktopErro
         message="The desktop grant could not obtain a visible native frame; control remains closed.",
         category=ErrorCategory.SAFETY, retryable=True,
         suggested_action="Run pcbridge doctor and restore the visible grant frame before granting access again.",
-        permission_scope="pcbridge.desktop", backend="linux.hyprland.glow")
+        permission_scope="pcbridge.desktop", backend=_backend())
+
+
+def _backend() -> str:
+    from . import compositor, session
+
+    return "linux.x11.frame" if compositor.current().kind in session.X11_KINDS else "linux.hyprland.glow"
 
 
 class FrameOwner:

@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parent
 # Must match pcbridge/assets.py ASSETS.
 ASSETS = {
     "gnome-extension": "gnome-extension/pcbridge-gorunur@eymistaken.local",
+    "cinnamon-applet": "cinnamon-applet/pcbridge@eymistaken",
     "systemd": "systemd",
     "udev": "packaging/udev",
     "modules-load": "packaging/modules-load",

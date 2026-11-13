@@ -12,6 +12,12 @@ pcbridge keeps that notify-send running for the grant; the button runs the
 kill switch (`pcbridge lock`), and every end of the grant closes the
 notification. Its id and the notify-send pid are kept in the runtime
 directory, so the kill switch, run as another process, can close it too.
+
+Xfce and Cinnamon get the same lasting notification. Xfce has no pcbridge
+panel item, so the button is its kill switch beside the native grant frame;
+Cinnamon has the pcbridge applet too, but keeps a critical notification on
+screen until it is closed (measured on Cinnamon 5.6.8), so a one-off one
+would still say "granted" after the grant ended.
 """
 
 from __future__ import annotations
@@ -19,6 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -48,9 +55,16 @@ def _lock_now() -> None:
                      stderr=subprocess.DEVNULL, start_new_session=True)
 
 
+def lasting() -> bool:
+    """Does the grant notification stay, with its "Lock now" button?"""
+    from . import session
+
+    return compositorlib.is_kde() or compositorlib.current().kind in session.X11_KINDS
+
+
 def show(title: str, body: str) -> None:
-    """Show the grant. On GNOME a plain notification; on Plasma a lasting one."""
-    if not compositorlib.is_kde():
+    """Show the grant. A plain notification, or on Plasma, Xfce and Cinnamon a lasting one."""
+    if not lasting():
         try:
             subprocess.run(["notify-send", "-a", "pcbridge", "-u", "critical", title, body],
                            capture_output=True, timeout=10)
@@ -58,9 +72,14 @@ def show(title: str, body: str) -> None:
             pass
         return
     close()
+    # Line-buffered: libnotify 0.8.1 (Debian 12) keeps the printed id in its
+    # stdout buffer until it exits when stdout is a pipe (measured: no line
+    # within 3 s; with `stdbuf -oL` 10 ms), and without the id the
+    # notification could not be closed when the grant ends.
+    prefix = ["stdbuf", "-oL"] if shutil.which("stdbuf") else []
     try:
         proc = subprocess.Popen(
-            ["notify-send", "-a", "pcbridge", "-u", "critical", "-p", "-w",
+            [*prefix, "notify-send", "-a", "pcbridge", "-u", "critical", "-p", "-w",
              "-A", f"{LOCK_ACTION}=Lock now", title, body],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             text=True, start_new_session=True,

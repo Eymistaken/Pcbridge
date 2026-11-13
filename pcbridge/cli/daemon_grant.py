@@ -42,7 +42,11 @@ def unlock(cfg, minutes: int | None, reason: str, granted_by: str) -> str:
     from .grant import GrantError
 
     expected = session.grant_context(cfg.state_dir)
-    if not expected["hyprland_instance"] or not expected["wayland_display"]:
+    if "x11_display" in expected:
+        # Cinnamon or Xfce: the X display identifies the session.
+        if not expected["x11_display"]:
+            raise GrantError("No X display is available for desktop control.")
+    elif not expected["hyprland_instance"] or not expected["wayland_display"]:
         raise GrantError("No unambiguous Hyprland session is available for desktop control.")
     backend = None
     try:

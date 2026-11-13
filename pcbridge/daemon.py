@@ -617,15 +617,16 @@ async def _serve(args: argparse.Namespace, bind_socket: bool) -> int:
 def idle_watch_binary(cfg: Any) -> Path | None:
     """The native helper that watches idle time, when this session needs one.
 
-    Plasma and Hyprland expose input idle notifications to Wayland clients.
-    Start the observer only with desktop control enabled.
+    Plasma and Hyprland expose input idle notifications to Wayland clients;
+    on Cinnamon and Xfce the helper polls the X server's idle time. Start the
+    observer only with desktop control enabled.
     """
     if not cfg.desktop.enabled:
         return None
-    from .desktop.session import HYPRLAND, KDE, desktop_kind
+    from .desktop.session import HYPRLAND, KDE, X11_KINDS, desktop_kind
 
     kind = desktop_kind()
-    if kind not in (KDE, HYPRLAND):
+    if kind not in (KDE, HYPRLAND, *X11_KINDS):
         return None
     from .desktop.errors import DesktopError
     from .native import discover_native_binary

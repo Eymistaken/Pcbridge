@@ -36,6 +36,8 @@ OS_RELEASE = Path("/etc/os-release")
 PACKAGES: dict[str, tuple[str, str, str]] = {
     "tmux": ("tmux", "tmux", "tmux"),
     "wl-clipboard": ("wl-clipboard", "wl-clipboard", "wl-clipboard"),
+    # The X11 desktops' clipboard program (the native helper runs it).
+    "xclip": ("xclip", "xclip", "xclip"),
     "notify-send": ("libnotify-bin", "libnotify", "libnotify"),
     "script": ("bsdutils", "util-linux", "util-linux"),
     "gtk-launch": ("libgtk-3-bin", "gtk3", "gtk3"),
@@ -47,7 +49,11 @@ PACKAGES: dict[str, tuple[str, str, str]] = {
     # English data comes with the engine on Debian and Fedora; Arch makes
     # every language a choice, English included.
     "tesseract": ("tesseract-ocr", "tesseract tesseract-data-eng", "tesseract"),
-    "libpipewire": ("libpipewire-0.3-0t64", "libpipewire", "pipewire-libs"),
+    # The native helper links libpipewire-0.3.so.0 even on X11, where it does
+    # not capture through it, and Xfce does not pull it in (measured on
+    # Debian 12 and 13). `a|b`: the first name the package manager knows;
+    # Debian 13 and Ubuntu 24.04 renamed it in the t64 transition.
+    "libpipewire": ("libpipewire-0.3-0t64|libpipewire-0.3-0", "libpipewire", "pipewire-libs"),
     "python-venv": ("python3-venv", "python", "python3"),
     "native-build": (
         "libpipewire-0.3-dev libspa-0.2-dev libclang-dev pkg-config",
@@ -130,9 +136,26 @@ def packages(*needs: str, fam: str | None = None) -> list[str]:
     for need in needs:
         names = PACKAGES[need][column] if need in PACKAGES else need
         for name in names.split():
+            if "|" in name:
+                name = _first_known(name.split("|"))
             if name not in out:
                 out.append(name)
     return out
+
+
+def _first_known(names: list[str]) -> str:
+    """The first of `names` apt knows; the last one when none can be asked."""
+    import subprocess
+
+    for name in names[:-1]:
+        try:
+            known = subprocess.run(["apt-cache", "show", "--no-all-versions", name],
+                                   capture_output=True, timeout=10).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            known = False
+        if known:
+            return name
+    return names[-1]
 
 
 def tesseract_language_package(lang: str, fam: str | None = None) -> str:

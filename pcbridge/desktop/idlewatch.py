@@ -6,8 +6,10 @@ KWin does not answer `GetSessionIdleTime` on Wayland (measured on Plasma
 The native helper has a mode for exactly that. The daemon runs it on Plasma
 and Hyprland (`supervise`), keeping `$XDG_RUNTIME_DIR/pcbridge/idle.json` current.
 
-The version-2 record includes the Wayland display, Hyprland instance when
-applicable, process start ticks, and a compositor-confirmed heartbeat.
+The version-3 record includes the Wayland display, Hyprland instance when
+applicable, process start ticks, and a compositor-confirmed heartbeat. On
+the X11 desktops (Cinnamon, Xfce) the same helper mode polls the X server's
+idle time and names the X display instead of a Wayland one.
 
 While idle, `since_unix_ms` conservatively approximates the last input.
 While active the last input is known to be under a second ago, and the idle
@@ -29,7 +31,7 @@ from .. import paths as pathslib
 log = logging.getLogger("pcbridge")
 
 STATE_FILE = "idle.json"
-RECORD_VERSION = 2
+RECORD_VERSION = 3
 MAX_RECORD_AGE_MS = 3000
 # The helper's argument; also how a record's writer is recognized.
 WATCH_ARGUMENT = "idle-watch"
@@ -72,15 +74,25 @@ def read_idle_ms(path: Path | None = None, now_ms: int | None = None) -> int | N
         start = record["writer_start_ticks"]
         display = record["wayland_display"]
         signature = record["hyprland_instance"]
-    except (OSError, ValueError, KeyError, TypeError):
+        x11_display = record.get("x11_display", "")
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
+    from . import session as sessionlib
+
+    x11 = sessionlib.x11_session()
+    if x11:
+        session_ok = (isinstance(x11_display, str) and bool(x11_display)
+                      and x11_display == os.environ.get("DISPLAY", "") and display == "")
+    else:
+        session_ok = (isinstance(display, str) and bool(display)
+                      and display == os.environ.get("WAYLAND_DISPLAY", "")
+                      and x11_display == "")
     now = int(time.time() * 1000) if now_ms is None else now_ms
     if (type(version) is not int or version != RECORD_VERSION
             or any(type(value) is not int or value < 0 for value in (pid, since, heartbeat, start))
             or pid == 0 or start == 0 or type(idle) is not bool
             or type(record.get("timeout_ms")) is not int or record["timeout_ms"] != 1000
-            or not isinstance(display, str) or not display
-            or display != os.environ.get("WAYLAND_DISPLAY", "")
+            or not session_ok
             or not isinstance(signature, str)
             or signature != os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
             or not 0 <= now - heartbeat <= MAX_RECORD_AGE_MS

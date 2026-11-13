@@ -25,7 +25,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import distro as distrolib
-from .desktop.session import GNOME, HYPRLAND, KDE, UNKNOWN, _kind_from_tokens
+from .desktop.session import (
+    CINNAMON, GNOME, HYPRLAND, KDE, UNKNOWN, XFCE, X11_KINDS, _kind_from_tokens,
+    session_type_fits,
+)
 
 MIN_PYTHON = (3, 12)
 
@@ -56,7 +59,7 @@ VERSION_COMMANDS = {
     "Sway": ["sway", "--version"],
 }
 
-SUPPORTED_KINDS = (GNOME, KDE, HYPRLAND)
+SUPPORTED_KINDS = (GNOME, KDE, HYPRLAND, CINNAMON, XFCE)
 # Desktop control needs the native helper, and releases build it for x86_64
 # only (decided with the maintainer, 2026-11-13: ARM waits for an aarch64
 # build; docs/install.md, Architectures).
@@ -227,7 +230,9 @@ class Platform:
 
     @property
     def desktop_supported(self) -> bool:
-        return (self.desktop_kind in SUPPORTED_KINDS and self.session_type == "wayland"
+        return (self.desktop_kind in SUPPORTED_KINDS
+                and self.session_type in ("wayland", "x11")
+                and session_type_fits(self.desktop_kind, self.session_type)
                 and self.arch.lower() in HELPER_ARCHES)
 
     def unsupported_reason(self) -> str:
@@ -243,9 +248,16 @@ class Platform:
                     "once, then run `pcbridge setup` again)")
         session = {"x11": "X11", "wayland": "Wayland"}.get(self.session_type, self.session_type)
         name = self.desktop or "this desktop"
+        if self.desktop_kind in X11_KINDS:
+            return f"{name} on {session} is not supported; log in to the {name} X11 session"
         if self.desktop_kind in SUPPORTED_KINDS:
             return f"{name} on {session} is not supported; log in to the {name} Wayland session"
         return f"{name} on {session} is not supported yet"
+
+    @property
+    def x11(self) -> bool:
+        """Desktop control through X11 (Cinnamon, Xfce): the weaker security model."""
+        return self.desktop_supported and self.desktop_kind in X11_KINDS
 
     def found_line(self) -> str:
         """"Found: Pardus 25 (Debian family) · Cinnamon 6.4 · X11 · x86_64"."""

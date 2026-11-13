@@ -203,6 +203,10 @@ def capabilities_result(snapshot: CapabilitySnapshot) -> ToolResult:
         if plat["environment"] == "hyprland"
         else f"GNOME Shell {plat['gnome_shell'] or '(version unknown)'}"
         if plat["environment"] == "gnome"
+        else f"Cinnamon {plat.get('x11_desktop') or '(version unknown)'} on X11"
+        if plat["environment"] == "cinnamon"
+        else f"Xfce {plat.get('x11_desktop') or '(version unknown)'} on X11"
+        if plat["environment"] == "xfce"
         else "unknown or unsupported desktop"
     )
     yes = {True: "available", False: "missing"}
@@ -212,9 +216,15 @@ def capabilities_result(snapshot: CapabilitySnapshot) -> ToolResult:
         "- desktop: " + desktop_name,
         f"- session: {plat['session_type'] or 'unknown'}"
         + (f" ({plat['desktop']})" if plat["desktop"] else ""),
-        f"- Mutter ScreenCast: {yes[plat['screencast']]}"
-        f" · RemoteDesktop: {yes[plat['remote_desktop']]}",
     ]
+    if plat["environment"] in ("cinnamon", "xfce"):
+        lines.append(
+            "- security: X11 lets every program of the session read the screen and send "
+            "input; pcbridge's grant, frame and kill switch are the only protection "
+            "(docs/security.md)")
+    else:
+        lines.append(f"- Mutter ScreenCast: {yes[plat['screencast']]}"
+                     f" · RemoteDesktop: {yes[plat['remote_desktop']]}")
     hyprland_bindings = None
     if plat["environment"] == "hyprland":
         from .hyprland import bindings_snapshot

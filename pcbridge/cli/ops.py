@@ -858,6 +858,7 @@ def uninstall(argv: list[str]) -> int:
         inst.run(["gnome-extensions", "disable", assetslib.EXTENSION_UUID])
         backup.move(ext)
     inst.remove_kde_entries(backup)
+    inst.remove_cinnamon_applet(backup)
     inst.remove_aliases(backup)
     inst.remove_skill_link(backup)
     for client in connectlib.ALL_CLIENTS:
@@ -886,10 +887,21 @@ def setup_desktop(native, backup, *, no_extension: bool = False, kind: str | Non
     """
     if no_extension:
         return
-    from ..desktop.session import GNOME, KDE, HYPRLAND, desktop_kind
+    from ..desktop.session import CINNAMON, GNOME, KDE, HYPRLAND, XFCE, desktop_kind
 
     kind = kind or desktop_kind()
-    if kind == KDE:
+    if kind == CINNAMON:
+        inst.say("\n5. Cinnamon")
+        inst.ok("panel applet: " + inst.install_cinnamon_applet(backup))
+        inst.ok(inst.install_lock_entry("System Settings > Keyboard > Shortcuts"))
+        inst.ok("grant frame: drawn by the native helper; X11 gives it no protection "
+                "from other programs (docs/security.md)")
+    elif kind == XFCE:
+        inst.say("\n5. Xfce")
+        inst.ok(inst.install_lock_entry("Settings > Keyboard > Application Shortcuts"))
+        inst.ok("grant frame and a lasting notification with Lock now; X11 gives them no "
+                "protection from other programs (docs/security.md)")
+    elif kind == KDE:
         inst.say("\n5. KDE Plasma")
         for line in inst.install_kde_entries(native):
             (inst.warn if line.startswith("native helper not found") else inst.ok)(line)

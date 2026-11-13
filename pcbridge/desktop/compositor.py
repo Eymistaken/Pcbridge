@@ -1,9 +1,10 @@
 """Which compositor pcbridge is talking to, and what differs between them.
 
 pcbridge's desktop tools run on GNOME (Mutter and GNOME Shell), KDE Plasma
-(KWin), and Hyprland, all on Wayland. Most of the stack does not
-care which: uinput input, AT-SPI, wl-clipboard and the PipeWire consumer are
-the same on both. What differs is a handful of transports, each one
+(KWin), and Hyprland, all on Wayland, and on Cinnamon (Muffin) and Xfce
+(xfwm4) on X11, where the native helper speaks X11 for all of them. Most of
+the stack does not care which: uinput input and AT-SPI are the same
+everywhere. What differs is a handful of transports, each one
 function in the module that owns it (the lock and idle readers in
 `safety`, the monitor table in `monitors`, window focus in `apps`); those
 functions branch on `current()`. This module holds the names that go with
@@ -71,6 +72,30 @@ HYPRLAND = Compositor(
     search_path="Hyprland IPC",
 )
 
+CINNAMON = Compositor(
+    kind=session.CINNAMON,
+    name="Cinnamon",
+    lock_backend="linux.cinnamon-screensaver+logind",
+    idle_backend="linux.x11-screensaver",
+    display_backend="linux.x11.randr",
+    focus_backend="linux.x11.ewmh",
+    search_backend="linux.x11.ewmh",
+    focus_path="EWMH window activation",
+    search_path="EWMH window activation",
+)
+
+XFCE = Compositor(
+    kind=session.XFCE,
+    name="Xfce",
+    lock_backend="linux.xfce-screensaver+logind",
+    idle_backend="linux.x11-screensaver",
+    display_backend="linux.x11.randr",
+    focus_backend="linux.x11.ewmh",
+    search_backend="linux.x11.ewmh",
+    focus_path="EWMH window activation",
+    search_path="EWMH window activation",
+)
+
 UNKNOWN = Compositor(
     kind=session.UNKNOWN,
     name="Unknown desktop",
@@ -89,13 +114,21 @@ def for_kind(kind: str) -> Compositor:
         session.GNOME: GNOME_SHELL,
         session.KDE: KWIN,
         session.HYPRLAND: HYPRLAND,
+        session.CINNAMON: CINNAMON,
+        session.XFCE: XFCE,
     }.get(kind, UNKNOWN)
 
 
 def current() -> Compositor:
     """The detected compositor, or an explicit unsupported descriptor."""
+    session.refresh_session_env()
     return for_kind(session.desktop_kind())
 
 
 def is_kde() -> bool:
     return current().kind == session.KDE
+
+
+def is_x11() -> bool:
+    """Cinnamon or Xfce: the native helper's X11 backend."""
+    return current().kind in session.X11_KINDS

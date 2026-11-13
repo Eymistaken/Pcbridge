@@ -329,7 +329,7 @@ class Doctor:
                      "" if have else distrolib.install_command(pkg))
 
     def desktop(self) -> None:
-        from ..desktop.session import GNOME, KDE, HYPRLAND, UNKNOWN, desktop_kind
+        from ..desktop.session import GNOME, KDE, HYPRLAND, UNKNOWN, X11_KINDS, desktop_kind
         from ..platforminfo import detect
 
         g = "desktop"
@@ -345,10 +345,16 @@ class Doctor:
             kind = found.desktop_kind  # over SSH: the session logind reports
         where = "this process" if found.session_source == "environment" else "logind (this shell is not in the session)"
         self.add(g, "session", "ok", f"{found.session_type} session of {found.desktop}, read from {where}")
-        if kind in (KDE, GNOME):
-            name = "KDE Plasma" if kind == KDE else "GNOME Shell"
+        if kind in (KDE, GNOME, *X11_KINDS):
+            name = ("KDE Plasma" if kind == KDE else "GNOME Shell" if kind == GNOME
+                    else found.desktop)
             self.add(g, name, "ok" if found.desktop_version else "warn",
                      found.desktop_version or "did not report its version")
+        if kind in X11_KINDS:
+            self.add(g, "security model", "info",
+                     "X11: every program of this session can read the screen and send input; "
+                     "pcbridge's grant, frame and kill switch are the only protection "
+                     "(docs/security.md)")
         dev = Path("/dev/uinput")
         if not dev.exists():
             self.add(g, "/dev/uinput", "fail", "missing (uinput module not loaded)", udev_hint())
@@ -361,7 +367,8 @@ class Doctor:
             self.add(g, "python Pillow", "ok", "importable")
         except ImportError:
             self.add(g, "python Pillow", "fail", "missing", "pcbridge setup  (reinstalls the [desktop] extra)")
-        for tool, pkg, level in (("wl-copy", "wl-clipboard", "fail"), ("tesseract", "tesseract", "warn")):
+        clipboard = ("xclip", "xclip", "fail") if kind in X11_KINDS else ("wl-copy", "wl-clipboard", "fail")
+        for tool, pkg, level in (clipboard, ("tesseract", "tesseract", "warn")):
             have = shutil.which(tool)
             self.add(g, tool, "ok" if have else level, have or "missing",
                      "" if have else distrolib.install_command(pkg))
@@ -380,6 +387,8 @@ class Doctor:
             from .hyprland import doctor
 
             doctor(self, g)
+        elif kind in X11_KINDS:
+            self.x11(g, kind)
         if self.cfg is not None:
             try:
                 from ..desktop import monitors
@@ -389,6 +398,37 @@ class Doctor:
                 self.add(g, "monitors", "ok" if mons else "warn", f"{len(mons)} monitor(s), canvas {w}x{h}")
             except Exception as exc:  # noqa: BLE001
                 self.add(g, "monitors", "warn", f"monitor table unreadable: {exc}"[:200])
+
+    def x11(self, g: str, kind: str) -> None:
+        """Cinnamon and Xfce: the helper's libraries, the idle watcher, the kill switch."""
+        from ..desktop import idlewatch
+        from ..desktop.session import CINNAMON
+        from .plan import _has_library
+
+        lib = _has_library("libpipewire-0.3.so.0")
+        self.add(g, "libpipewire", "ok" if lib else "fail",
+                 "installed (the native helper links it, though X11 capture does not use it)"
+                 if lib else "missing: the native helper does not start without it",
+                 "" if lib else distrolib.install_command("libpipewire"))
+        idle = idlewatch.read_idle_ms()
+        self.add(g, "idle time", "ok" if idle is not None else "warn",
+                 f"the idle watcher answers ({idle} ms since the last input)" if idle is not None
+                 else "no idle watcher: desktop writes need force=true",
+                 "" if idle is not None
+                 else "the daemon starts it when [desktop] enabled = true; see pcbridge logs")
+        if kind == CINNAMON:
+            target = inst.applet_target()
+            system = inst.SYSTEM_APPLETS_DIR / inst.assetslib.CINNAMON_APPLET_UUID
+            panel = inst.assetslib.CINNAMON_APPLET_UUID in inst.run(
+                ["gsettings", "get", "org.cinnamon", "enabled-applets"]).stdout
+            present = target.exists() or system.exists()
+            self.add(g, "panel applet", "ok" if present and panel else "warn",
+                     ("in the panel" if panel else "installed, not in the panel") if present
+                     else "not installed (the frame still shows the grant)",
+                     "" if present and panel else "pcbridge setup")
+        lock = inst.applications_dir() / inst.LOCK_ENTRY
+        self.add(g, "lock entry", "ok" if lock.exists() else "info",
+                 str(lock) if lock.exists() else "not installed", "" if lock.exists() else "pcbridge setup")
 
     def plasma(self, g: str) -> None:
         """KDE Plasma's pieces: KWin screenshots, scripting, idle time, a11y."""

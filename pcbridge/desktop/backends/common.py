@@ -243,19 +243,24 @@ def _wayland_socket() -> str | None:
 
 
 def _clipboard_capabilities(backend: str) -> dict[str, Capability]:
-    """`clipboard.read` and `clipboard.write` for the wl-clipboard programs.
+    """`clipboard.read` and `clipboard.write` for the clipboard programs.
 
     The helper runs the programs; nothing is run here: the program on `PATH`
-    and the Wayland socket are enough. The one limitation belongs to the
-    write, since it is the restore that loses the other representations.
+    and the display are enough (wl-clipboard and the Wayland socket, or on
+    X11 `xclip` and `DISPLAY`). The one limitation belongs to the write,
+    since it is the restore that loses the other representations.
     """
+    import os
+
+    x11 = backend == "linux.xclip.native"
     values: dict[str, Capability] = {}
     for name, command in (
-        ("clipboard.read", "wl-paste"),
-        ("clipboard.write", "wl-copy"),
+        ("clipboard.read", "xclip" if x11 else "wl-paste"),
+        ("clipboard.write", "xclip" if x11 else "wl-copy"),
     ):
         command_path = shutil.which(command)
-        available = bool(command_path and _wayland_socket())
+        display = bool(os.environ.get("DISPLAY")) if x11 else _wayland_socket()
+        available = bool(command_path and display)
         values[name] = _capability(
             name,
             CapabilityState.SUPPORTED if available else CapabilityState.UNAVAILABLE,

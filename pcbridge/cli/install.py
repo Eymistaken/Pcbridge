@@ -475,6 +475,80 @@ def install_extension(backup: Backup) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Cinnamon applet
+# ---------------------------------------------------------------------------
+
+SYSTEM_APPLETS_DIR = Path("/usr/share/cinnamon/applets")
+
+
+def applet_target() -> Path:
+    data = Path(os.environ.get("XDG_DATA_HOME") or HOME / ".local" / "share")
+    return data / "cinnamon" / "applets" / assetslib.CINNAMON_APPLET_UUID
+
+
+def enabled_applets_with(current: str, uuid: str) -> str | None:
+    """`org.cinnamon enabled-applets` with `uuid` added to the panel's right
+    end, or None when it is already there or the value is unreadable.
+
+    Entries read `panel1:right:0:uuid:instance`; the new instance id is one
+    above the highest in use, as Cinnamon numbers them.
+    """
+    import ast
+
+    text = current.strip()
+    if text.startswith("@as "):
+        text = text[4:]
+    try:
+        entries = ast.literal_eval(text)
+    except (ValueError, SyntaxError):
+        return None
+    if not isinstance(entries, list) or not all(isinstance(e, str) for e in entries):
+        return None
+    if any(e.split(":")[3:4] == [uuid] for e in entries):
+        return None
+    ids = [int(e.split(":")[4]) for e in entries
+           if len(e.split(":")) > 4 and e.split(":")[4].isdigit()]
+    panel = next((e.split(":")[0] for e in entries if e.count(":") >= 4), "panel1")
+    entries.append(f"{panel}:right:0:{uuid}:{max(ids, default=0) + 1}")
+    return "[" + ", ".join(repr(e) for e in entries) + "]"
+
+
+def install_cinnamon_applet(backup: Backup) -> str:
+    """Copy the applet into the user's Cinnamon applets and add it to the panel.
+
+    Cinnamon loads an applet as soon as `enabled-applets` names it: no new
+    login is needed, unlike the GNOME extension.
+    """
+    uuid = assetslib.CINNAMON_APPLET_UUID
+    if is_system_package() and (SYSTEM_APPLETS_DIR / uuid).exists():
+        state = "provided by the package"
+    else:
+        src = assetslib.asset_path("cinnamon-applet")
+        dst = applet_target()
+        same = dst.is_dir() and all(
+            (dst / f.relative_to(src)).is_file()
+            and (dst / f.relative_to(src)).read_bytes() == f.read_bytes()
+            for f in src.rglob("*") if f.is_file() and "__pycache__" not in f.parts)
+        if same:
+            state = "up to date"
+        else:
+            if dst.exists() or dst.is_symlink():
+                backup.move(dst)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__"))
+            state = "installed"
+    current = run(["gsettings", "get", "org.cinnamon", "enabled-applets"])
+    value = enabled_applets_with(current.stdout if current.returncode == 0 else "", uuid)
+    if value is None:
+        return f"{state}; in the panel" if current.returncode == 0 else \
+            f"{state}; add it to the panel with Applets > pcbridge"
+    done = run(["gsettings", "set", "org.cinnamon", "enabled-applets", value])
+    if done.returncode != 0:
+        return f"{state}; add it to the panel with Applets > pcbridge"
+    return f"{state}; added to the panel"
+
+
+# ---------------------------------------------------------------------------
 # KDE Plasma entries
 # ---------------------------------------------------------------------------
 
@@ -518,6 +592,12 @@ def install_kde_entries(native_spec: object) -> list[str]:
         path, changed = kwin.install_helper_entry(binary, dest_dir=applications_dir())
         notes.append(f"{path.name}: {'installed' if changed else 'up to date'} "
                      "(KWin screenshots for the native helper)")
+    notes.append(install_lock_entry("System Settings > Shortcuts"))
+    return notes
+
+
+def install_lock_entry(where: str) -> str:
+    """The kill switch's launcher entry; `where` names the shortcut settings."""
     lock_path = applications_dir() / LOCK_ENTRY
     text = lock_entry(launcher_path())
     try:
@@ -527,9 +607,29 @@ def install_kde_entries(native_spec: object) -> list[str]:
     if current != text:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         lock_path.write_text(text, encoding="utf-8")
-    notes.append(f"{LOCK_ENTRY}: {'up to date' if current == text else 'installed'} "
-                 "(bind a shortcut to it in System Settings > Shortcuts)")
-    return notes
+    return (f"{LOCK_ENTRY}: {'up to date' if current == text else 'installed'} "
+            f"(bind a shortcut to it in {where})")
+
+
+def remove_cinnamon_applet(backup: Backup) -> None:
+    """Take the applet off the panel and move its files to the backup."""
+    uuid = assetslib.CINNAMON_APPLET_UUID
+    current = run(["gsettings", "get", "org.cinnamon", "enabled-applets"])
+    if current.returncode == 0 and uuid in current.stdout:
+        import ast
+
+        text = current.stdout.strip()
+        text = text[4:] if text.startswith("@as ") else text
+        try:
+            entries = [e for e in ast.literal_eval(text) if e.split(":")[3:4] != [uuid]]
+        except (ValueError, SyntaxError, AttributeError):
+            entries = None
+        if entries is not None:
+            run(["gsettings", "set", "org.cinnamon", "enabled-applets",
+                 "[" + ", ".join(repr(e) for e in entries) + "]"])
+    target = applet_target()
+    if target.exists() or target.is_symlink():
+        backup.move(target)
 
 
 def remove_kde_entries(backup: Backup) -> None:

@@ -16,6 +16,7 @@ _REPO = _PACKAGE.parent
 # logical name -> location in a git checkout. Must match setup.py ASSETS.
 ASSETS = {
     "gnome-extension": "gnome-extension/pcbridge-gorunur@eymistaken.local",
+    "cinnamon-applet": "cinnamon-applet/pcbridge@eymistaken",
     "systemd": "systemd",
     "udev": "packaging/udev",
     "modules-load": "packaging/modules-load",
@@ -24,6 +25,7 @@ ASSETS = {
 }
 
 EXTENSION_UUID = "pcbridge-gorunur@eymistaken.local"
+CINNAMON_APPLET_UUID = "pcbridge@eymistaken"
 
 
 def installed_layout() -> bool:

@@ -20,6 +20,23 @@ FIXTURE = Path(__file__).resolve().parents[1] / "fixtures/native/glow_health_cas
 
 
 class GlowHealthTests(unittest.TestCase):
+    def test_x11_frame_records_match_the_shared_fixture(self):
+        data = json.loads(FIXTURE.read_text())
+        token = LeaseToken(data["token"]["grant_id"], data["token"]["revoke_epoch"])
+        x11 = data["x11"]
+        for case in x11["cases"]:
+            record = {**data["base"], **x11["patch"], **case["patch"]}
+            with self.subTest(case["name"]):
+                self.assertEqual(glowstate.matches(record, token, display="", signature="",
+                                                   x11_display=x11["display"],
+                                                   now_ms=case["now_ms"]), case["expected"])
+        # A Hyprland reader never takes an X11 record, and the other way round.
+        record = {**data["base"], **x11["patch"]}
+        self.assertFalse(glowstate.matches(record, token, display=data["display"],
+                                           signature=data["signature"], now_ms=10500))
+        self.assertFalse(glowstate.matches(data["base"], token, display="", signature="",
+                                           x11_display=":0", now_ms=10500))
+
     def test_output_identity_and_geometry_must_cover_the_current_table(self):
         table = monitors.resolve_state(monitors._hyprland_state([output("Virtual-1", 0, 0)]))
         record = {"topology_id": monitors.topology_id(table), "outputs": ["Virtual-1"], "strip_count": 4}

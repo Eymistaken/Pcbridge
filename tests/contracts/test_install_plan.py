@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from pcbridge import distro, platforminfo  # noqa: E402
 from pcbridge.cli import plan as planlib  # noqa: E402
+from pcbridge.desktop.session import CINNAMON as CINNAMON_KIND, XFCE as XFCE_KIND  # noqa: E402
 from pcbridge.desktop.session import GNOME, HYPRLAND, KDE, UNKNOWN  # noqa: E402
 from pcbridge.native import discovery  # noqa: E402
 
@@ -124,9 +125,27 @@ class DetectTests(unittest.TestCase):
         p = self.detect(PARDUS, {"XDG_SESSION_TYPE": "x11", "XDG_CURRENT_DESKTOP": "X-Cinnamon"})
         self.assertEqual(p.family, distro.DEBIAN)
         self.assertEqual(p.desktop, "Cinnamon")
-        self.assertFalse(p.desktop_supported)
+        self.assertEqual(p.desktop_kind, CINNAMON_KIND)
         self.assertEqual(p.found_line(), f"Found: Pardus 25.0 (Debian family) · Cinnamon 1.0 · X11 · {p.arch}")
-        self.assertEqual(p.unsupported_reason(), "Cinnamon on X11 is not supported yet")
+        if p.arch.lower() in platforminfo.HELPER_ARCHES:
+            self.assertTrue(p.desktop_supported)
+            self.assertTrue(p.x11)
+            self.assertEqual(p.unsupported_reason(), "")
+
+    def test_x11_desktops_need_x11_and_others_stay_unsupported(self) -> None:
+        for desktop, session_type, kind in (("X-Cinnamon", "x11", CINNAMON_KIND),
+                                            ("XFCE", "x11", XFCE_KIND)):
+            with self.subTest(desktop=desktop):
+                p = self.detect(DEBIAN12, {"XDG_SESSION_TYPE": session_type,
+                                           "XDG_CURRENT_DESKTOP": desktop})
+                self.assertEqual(p.desktop_kind, kind)
+        p = self.detect(DEBIAN12, {"XDG_SESSION_TYPE": "wayland", "XDG_CURRENT_DESKTOP": "X-Cinnamon"})
+        self.assertFalse(p.desktop_supported)
+        self.assertEqual(p.unsupported_reason(),
+                         "Cinnamon on Wayland is not supported; log in to the Cinnamon X11 session")
+        p = self.detect(DEBIAN12, {"XDG_SESSION_TYPE": "x11", "XDG_CURRENT_DESKTOP": "MATE"})
+        self.assertFalse(p.desktop_supported)
+        self.assertEqual(p.unsupported_reason(), "MATE on X11 is not supported yet")
 
     def test_the_family_is_not_repeated_for_its_own_distribution(self) -> None:
         p = self.detect(DEBIAN12, {"XDG_SESSION_TYPE": "x11", "XDG_CURRENT_DESKTOP": "X-Cinnamon"})

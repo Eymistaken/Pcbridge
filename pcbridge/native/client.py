@@ -41,6 +41,8 @@ _ALLOWED_ENVIRONMENT = {
     "PIPEWIRE_REMOTE",
     "USER",
     "WAYLAND_DISPLAY",
+    # The X11 desktops: the helper connects to DISPLAY with this cookie file.
+    "XAUTHORITY",
     "XDG_CONFIG_DIRS",
     "XDG_CURRENT_DESKTOP",
     "XDG_DATA_DIRS",

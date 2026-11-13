@@ -75,6 +75,7 @@ from ...native import NativeClient, discover_native_binary
 #: GNOME, `kwin:` on KDE Plasma (the helper refuses the other one).
 DISPLAY_SCHEME = "mutter"
 KWIN_DISPLAY_SCHEME = "kwin"
+X11_DISPLAY_SCHEME = "x11"
 
 #: Matches the native side's own ceiling. A frame that has not arrived in eight
 #: seconds is not coming, and one MCP call may not block for 110.
@@ -86,17 +87,20 @@ CLIPBOARD_TIMEOUT_SECONDS = 25.0
 BACKEND_NAME = "linux.mutter.pipewire"
 KWIN_BACKEND_NAME = "linux.kwin.screenshot2"
 HYPRLAND_BACKEND_NAME = "linux.hyprland.image-copy"
+X11_BACKEND_NAME = "linux.x11.getimage"
 
 
 def _display_scheme() -> str:
     kind = compositorlib.current().kind
-    return {"kde": KWIN_DISPLAY_SCHEME, "gnome": DISPLAY_SCHEME}.get(kind, kind)
+    return {"kde": KWIN_DISPLAY_SCHEME, "gnome": DISPLAY_SCHEME,
+            "cinnamon": X11_DISPLAY_SCHEME, "xfce": X11_DISPLAY_SCHEME}.get(kind, kind)
 
 
 def _backend_name() -> str:
     kind = compositorlib.current().kind
     return {"kde": KWIN_BACKEND_NAME, "gnome": BACKEND_NAME,
-            "hyprland": HYPRLAND_BACKEND_NAME}.get(kind, "unavailable")
+            "hyprland": HYPRLAND_BACKEND_NAME, "cinnamon": X11_BACKEND_NAME,
+            "xfce": X11_BACKEND_NAME}.get(kind, "unavailable")
 
 logger = logging.getLogger(__name__)
 
@@ -585,7 +589,7 @@ class RustCaptureProvider:
     def probe_capabilities(self) -> dict[str, Capability]:
         """Report monitor capture from the native path without opening a session."""
         kind = compositorlib.current().kind
-        if kind not in ("gnome", "kde", "hyprland"):
+        if kind not in ("gnome", "kde", "hyprland", "cinnamon", "xfce"):
             return {
                 name: _capability(
                     name, CapabilityState.UNAVAILABLE, backend="unavailable",
@@ -653,8 +657,9 @@ class RustCaptureProvider:
 
         # A window capture is a region of the monitor frame: KWin, Hyprland
         # and, since 2.8, the GNOME extension name the focused window and its
-        # frame, so it stands or falls with monitor capture.
-        if kind in ("kde", "hyprland"):
+        # frame, so it stands or falls with monitor capture. On X11 the
+        # helper reads the focused window's frame through EWMH.
+        if kind in ("kde", "hyprland", "cinnamon", "xfce"):
             window = _capability(
                 "capture.window",
                 monitor.state,
@@ -1372,7 +1377,9 @@ class RustInputProvider(inputlib.InputBackend):
             os.access(inputlib.UINPUT_NODE, os.W_OK),
             shutil.which("wl-copy"),
             shutil.which("wl-paste"),
+            shutil.which("xclip"),
             _wayland_socket(),
+            os.environ.get("DISPLAY", ""),
         )
 
     def available(self) -> tuple[bool, str]:
@@ -1425,14 +1432,16 @@ class RustInputProvider(inputlib.InputBackend):
                     backend="linux.uinput.native",
                     scope=scope,
                 )
+        clipboard_backend = ("linux.xclip.native" if compositorlib.is_x11()
+                             else "linux.wl-clipboard.native")
         if ready:
-            values.update(_clipboard_capabilities("linux.wl-clipboard.native"))
+            values.update(_clipboard_capabilities(clipboard_backend))
         else:
             for name in ("clipboard.read", "clipboard.write"):
                 values[name] = _capability(
                     name,
                     CapabilityState.UNAVAILABLE,
-                    backend="linux.wl-clipboard.native",
+                    backend=clipboard_backend,
                     scope="os.clipboard",
                     reason_code=ErrorCode.DEPENDENCY_MISSING,
                     limitations=(reason,) if reason else (),

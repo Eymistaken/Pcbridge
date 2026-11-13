@@ -532,12 +532,43 @@ def _ordered(mons: list[Monitor]) -> list[Monitor]:
     ]
 
 
+def _from_native() -> list[Monitor]:
+    """X11 (Cinnamon, Xfce): the native helper's RandR table, as it numbers it.
+
+    The helper resolves the table with the same rules (pinned by the shared
+    fixtures), so its order and fields are taken over unchanged; pcbridge
+    reads no X11 itself.
+    """
+    from . import x11native
+
+    reply = x11native.display_snapshot()
+    if not reply or not isinstance(reply.get("monitors"), list) or not reply["monitors"]:
+        raise MonitorError("The native helper did not report the X11 monitor table.")
+    mons = []
+    for raw in reply["monitors"]:
+        try:
+            mons.append(Monitor(
+                index=int(raw["index"]), connector=str(raw["connector"]),
+                x=int(raw["x"]), y=int(raw["y"]),
+                width=int(raw["width"]), height=int(raw["height"]),
+                scale=float(raw["scale"]), primary=bool(raw["primary"]),
+                name=str(raw.get("name") or ""), transform=int(raw.get("transform") or 0),
+                serial=str(raw.get("serial") or ""),
+                platform_x=int(raw["x"]), platform_y=int(raw["y"]),
+                physical_layout=float(raw.get("pixel_ratio") or 0) == 1.0,
+                primary_is_focus=bool(raw.get("primary_is_focus")),
+            ))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise MonitorError(f"The native helper's monitor table is unreadable: {exc}") from exc
+    return mons
+
+
 # ------------------------------------------------------------------- genel API
 def list_monitors(use_cache: bool = True) -> list[Monitor]:
     """Mantiksal monitorler, soldan saga sirali ve 1'den numarali."""
     global _cache
     kind = compositorlib.current().kind
-    if kind not in (session.GNOME, session.KDE, session.HYPRLAND):
+    if kind not in (session.GNOME, session.KDE, session.HYPRLAND, *session.X11_KINDS):
         raise MonitorError(f"Monitor discovery is unavailable for {kind}.")
     now = time.monotonic()
     cache_key = (kind, os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", ""),
@@ -546,6 +577,10 @@ def list_monitors(use_cache: bool = True) -> list[Monitor]:
         return _cache[2]
     if kind == session.HYPRLAND:
         mons = _from_hyprland()
+        _cache = (now, cache_key, mons)
+        return mons
+    if kind in session.X11_KINDS:
+        mons = _from_native()
         _cache = (now, cache_key, mons)
         return mons
     kde = compositorlib.is_kde()

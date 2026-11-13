@@ -22,6 +22,7 @@ acilmis hesaplara, parola yoneticisine -- erisim ekleniyor. Bu yuzden bes kat:
 from __future__ import annotations
 
 import json
+import os
 import logging
 import subprocess
 import threading
@@ -135,15 +136,95 @@ def screen_locked() -> bool | None:
         from . import hyprland
 
         return hyprland.screen_locked()
+    elif kind in session.X11_KINDS:
+        return _x11_screen_locked(kind)
     else:
         return None
     return bool(val) if isinstance(val, bool) else None
 
 
+# The X11 desktops' lockers, asked in this order (the native helper's
+# `desktop_state.rs` asks the same ones).
+_X11_LOCKERS = {
+    session.CINNAMON: (("org.cinnamon.ScreenSaver", "/org/cinnamon/ScreenSaver",
+                        "org.cinnamon.ScreenSaver"),),
+    session.XFCE: (("org.xfce.ScreenSaver", "/org/xfce/ScreenSaver", "org.xfce.ScreenSaver"),
+                   ("org.freedesktop.ScreenSaver", "/org/freedesktop/ScreenSaver",
+                    "org.freedesktop.ScreenSaver")),
+}
+
+
+def _logind_graphical_session() -> tuple[bool | None, bool | None]:
+    """(Active, LockedHint) of this user's graphical session, from logind."""
+    def system(*args: str) -> Any:
+        try:
+            proc = subprocess.run(["busctl", "--system", "--json=short", *args],
+                                  capture_output=True, text=True, timeout=5)
+            if proc.returncode != 0:
+                return None
+            return json.loads(proc.stdout).get("data")
+        except Exception:  # noqa: BLE001 - unknown, never a guess
+            return None
+
+    user = system("call", "org.freedesktop.login1", "/org/freedesktop/login1",
+                  "org.freedesktop.login1.Manager", "GetUser", "u", str(os.getuid()))
+    user_path = user[0] if isinstance(user, list) and user else None
+    if not isinstance(user_path, str):
+        return None, None
+    display = system("get-property", "org.freedesktop.login1", user_path,
+                     "org.freedesktop.login1.User", "Display")
+    session_path = display[1] if isinstance(display, list) and len(display) == 2 else None
+    if not isinstance(session_path, str) or session_path == "/":
+        return None, None
+    values = []
+    for name in ("Active", "LockedHint"):
+        value = system("get-property", "org.freedesktop.login1", session_path,
+                       "org.freedesktop.login1.Session", name)
+        values.append(value if isinstance(value, bool) else None)
+    return values[0], values[1]
+
+
+def _x11_screen_locked(kind: str) -> bool | None:
+    """Cinnamon or Xfce: the locker, or logind seeing the session left.
+
+    Measured on Debian 12: light-locker locks by switching to the greeter,
+    and its `GetActive` stays false meanwhile; logind's `Active=no` is what
+    shows that input would reach the greeter. Locked when either says so;
+    unknown when logind cannot be read or a running locker does not answer.
+    """
+    locker: bool | None | str = "absent"
+    names = _session_bus_names()
+    for destination, path, interface in _X11_LOCKERS.get(kind, ()):
+        if names is not None and destination not in names:
+            continue
+        value = _busctl_json(destination, path, interface, "GetActive")
+        locker = value if isinstance(value, bool) else None
+        break
+    active, hint = _logind_graphical_session()
+    if locker is True or active is False or hint is True:
+        return True
+    if locker in ("absent", False) and active is True and hint is False:
+        return False
+    return None
+
+
+def _session_bus_names() -> set[str] | None:
+    try:
+        proc = subprocess.run(
+            ["busctl", "--user", "--json=short", "call", "org.freedesktop.DBus",
+             "/org/freedesktop/DBus", "org.freedesktop.DBus", "ListNames"],
+            capture_output=True, text=True, timeout=5)
+        if proc.returncode != 0:
+            return None
+        return set(json.loads(proc.stdout)["data"][0])
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def idle_ms() -> int | None:
     """Kullanicinin son girdisinden bu yana gecen ms. Ogrenilemezse None."""
     kind = compositorlib.current().kind
-    if kind in (session.KDE, session.HYPRLAND):
+    if kind in (session.KDE, session.HYPRLAND, *session.X11_KINDS):
         from . import idlewatch
 
         val = idlewatch.read_idle_ms()
@@ -293,7 +374,11 @@ class SafetyGate:
 
     @property
     def requires_frame(self) -> bool:
-        return compositorlib.current().kind == session.HYPRLAND
+        """The desktops whose grant frame the native helper draws, and on which
+        control is open only while that frame is proven visible: Hyprland,
+        and the X11 desktops (Cinnamon, Xfce)."""
+        kind = compositorlib.current().kind
+        return kind == session.HYPRLAND or kind in session.X11_KINDS
 
     def visible_frame(self, token: LeaseToken | None, *, current_outputs: bool = False) -> bool:
         if not self.requires_frame:
@@ -325,7 +410,8 @@ class SafetyGate:
 
     def _activity_unknown_decision(self) -> Decision:
         return Decision(False,
-            "User activity could not be read. Hyprland actions require a reliable idle observer, including with force=true.",
+            f"User activity could not be read. {compositorlib.current().name} actions require "
+            "a reliable idle observer, including with force=true.",
             code=ErrorCode.ACTIVITY_UNKNOWN, permission_scope="pcbridge.desktop", retryable=True,
             suggested_action="Restore the native idle watcher and run pcbridge doctor.")
 

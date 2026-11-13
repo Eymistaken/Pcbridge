@@ -1196,6 +1196,55 @@ def _gnome_window_region() -> tuple[
     return ((x1, y1, x2 - x1, y2 - y1), home), verify
 
 
+def _x11_window_region() -> tuple[
+    tuple[tuple[int, int, int, int], monitorslib.Monitor], Callable[[], None]
+]:
+    """The focused window on Cinnamon or Xfce as a region of its monitor.
+
+    The native helper reads the active window and its frame (decorations
+    included) in root coordinates, which are the canvas on X11. The box is
+    clipped to the monitor holding the window's center, and the check after
+    the frames arrived withdraws the picture if the focus or the frame moved
+    in between, as on GNOME.
+    """
+    from . import x11native
+
+    def read() -> tuple[str, str, tuple[int, int, int, int]] | None:
+        reply = x11native.focused()
+        geometry = (reply or {}).get("geometry")
+        if not reply or reply.get("found") is not True or not geometry:
+            return None
+        return (str(reply.get("app") or ""), str(reply.get("title") or ""),
+                tuple(int(v) for v in geometry))
+
+    frame = read()
+    if frame is None:
+        raise CaptureError("No focused window to capture (the window manager named none, "
+                           "or the grant is closed).")
+    mons = monitorslib.list_monitors()
+    left, top = monitorslib.platform_origin(mons)
+    px, py, pw, ph = frame[2]
+    x0, y0 = px - left, py - top
+    home = monitorslib.find_monitor(x0 + pw // 2, y0 + ph // 2, mons)
+    if home is None:
+        raise CaptureError("The focused window is not on any monitor.")
+    x1, y1 = max(home.x, x0), max(home.y, y0)
+    x2, y2 = min(home.x + home.width, x0 + pw), min(home.y + home.height, y0 + ph)
+    if x2 - x1 < REGION_MIN_EDGE or y2 - y1 < REGION_MIN_EDGE:
+        raise CaptureError("The focused window is too small to capture.")
+
+    def verify() -> None:
+        if read() != frame:
+            raise DesktopError(
+                code=ErrorCode.TARGET_MISMATCH, category=ErrorCategory.SAFETY,
+                message="No window picture: the focused window changed or moved during the capture.",
+                retryable=True,
+                suggested_action="Bring the window forward and capture it again.",
+                backend=compositorlib.current().focus_backend)
+
+    return ((x1, y1, x2 - x1, y2 - y1), home), verify
+
+
 def _render(
     monitor: int | str | None,
     staging: Path,
@@ -1232,6 +1281,11 @@ def _render(
         region = _kwin_window_region()
         want_window = False
         monitor = None  # the region names its monitor
+    if want_window and compositorlib.is_x11():
+        # Cinnamon and Xfce: the frame from the native helper (EWMH).
+        region, verify_window = _x11_window_region()
+        want_window = False
+        monitor = None
     if want_window and compositorlib.current().kind == "gnome":
         # The same on GNOME, with the frame from the extension (2.8).
         from .apps import ExtensionFrameUnavailable

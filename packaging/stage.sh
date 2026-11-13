@@ -95,6 +95,10 @@ rm -f "$EXT/schemas/gschemas.compiled"
 if command -v glib-compile-schemas >/dev/null; then
     glib-compile-schemas "$EXT/schemas"
 fi
+# Cinnamon: the panel applet (the frame comes from the native helper).
+APPLET="$STAGE/usr/share/cinnamon/applets/pcbridge@eymistaken"
+install -d "$APPLET"
+cp -r "$ROOT/cinnamon-applet/pcbridge@eymistaken/." "$APPLET/"
 # KDE Plasma: KWin gives screenshots only to programs a .desktop file names
 # (pcbridge.desktop.kwin), and the kill switch gets a launcher entry that a
 # shortcut can be bound to. Written by pcbridge itself, so the text is one.

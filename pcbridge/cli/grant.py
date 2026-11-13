@@ -67,7 +67,7 @@ def read_state(cfg: Any, now: float | None = None) -> GrantState:
     if active:
         from ..desktop import compositor, session
 
-        if compositor.current().kind == session.HYPRLAND:
+        if compositor.current().kind in (session.HYPRLAND, *session.X11_KINDS):
             from ..desktop import glowstate
             from ..desktop.errors import DesktopError
             from ..native.discovery import discover_native_binary
@@ -109,7 +109,8 @@ def unlock(cfg: Any, minutes: int | None = None, reason: str = "",
         )
     from ..desktop import compositor, session
 
-    if compositor.current().kind == session.HYPRLAND:
+    if compositor.current().kind in (session.HYPRLAND, *session.X11_KINDS):
+        # The frame owner must be the resident daemon, never this process.
         from . import daemon_grant
 
         return daemon_grant.unlock(cfg, minutes, reason, granted_by)
