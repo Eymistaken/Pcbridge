@@ -1,9 +1,9 @@
 //! AT-SPI accessibility reads without GI (Task 6.2).
 //!
-//! The Python helper (`pcbridge/desktop/atspi_helper.py`) reads the tree
-//! through libatspi. This module reads the same tree straight off the
-//! accessibility bus and must list exactly what the helper lists: the same
-//! nodes, in the same order, with the same filters. Both are held to
+//! The Python helper (`pcbridge/desktop/atspi_helper.py`, removed after 2.8)
+//! read the tree through libatspi. This module reads the same tree straight
+//! off the accessibility bus and lists exactly what that helper listed: the
+//! same nodes, in the same order, with the same filters, held to
 //! `tests/fixtures/native/accessibility_cases.json`.
 //!
 //! Two measured differences between the raw bus and libatspi decide how the

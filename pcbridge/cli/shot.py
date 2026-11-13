@@ -180,7 +180,6 @@ def main(argv: list[str] | None = None) -> int:
 
     capturelib.set_max_pixels(cfg.desktop.screenshot_max_pixels)
     from ..desktop import monitors as monitorslib
-    from ..desktop import screencast as screencastlib
 
     runtime = runtime_of(cfg)
     gate = runtime.gate
@@ -191,18 +190,15 @@ def main(argv: list[str] | None = None) -> int:
         check_gate(runtime, "pcb_shot", write=False, needs_input=False)
 
         # MCP sunucusu yayini izin suresince acik tutuyor; burasi kisa omurlu
-        # bir surec, o yuzden runtime kendi yayinini finally'de kapatiyor.
-        if cfg.desktop.capture_backend != "gnome-screenshot":
-            try:
-                runtime.start_capture(
-                    cursor=not args.no_pointer and cfg.desktop.include_pointer
-                )
-            except (
-                screencastlib.ScreenCastError,
-                monitorslib.MonitorError,
-                DesktopError,
-            ):
-                runtime.stop_capture()
+        # bir surec, o yuzden runtime kendi yayinini finally'de kapatiyor. A
+        # share that does not open here is opened again by the capture below,
+        # which then reports why it cannot.
+        try:
+            runtime.start_capture(
+                cursor=not args.no_pointer and cfg.desktop.include_pointer
+            )
+        except (monitorslib.MonitorError, DesktopError):
+            runtime.stop_capture()
 
         ok, why = capture_provider.available()
         if not ok:
@@ -265,9 +261,8 @@ def main(argv: list[str] | None = None) -> int:
                     }
                     for s in shots
                 ],
-                # Hangi yolun kareyi aldigi: `auto` geri dustuyse burada gorunur.
+                # Which backend took the frames.
                 "backend": capture_provider.backend_name(),
-                "degraded": getattr(capture_provider, "degraded_reason", "") or None,
                 "primary_monitor": next(
                     (m.index for m in mons if m.primary), None
                 ),

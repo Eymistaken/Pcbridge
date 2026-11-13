@@ -469,7 +469,6 @@ def test_want_inline() -> None:
     # fiilen okunur. Bu bir kere atlandi (alanlar tanimliydi, config'e yazilan
     # deger hicbir sey yapmiyordu), o yuzden ikisi de test ediliyor.
     for anahtar, deger in (
-        ("capture_backend", '"auto"'),
         ("pointer_speed", "5000"),
         ("pointer_move_max_ms", "500"),
         ("hold_max_seconds", "120"),
@@ -479,7 +478,6 @@ def test_want_inline() -> None:
               f"ornek dosyada `{anahtar} = {deger}` satiri yok")
 
     gecersizler = [
-        ('capture_backend = "auto"', 'capture_backend = "sihir"', "capture_backend"),
         ("pointer_speed = 5000", "pointer_speed = 7", "pointer_speed"),
         ("pointer_move_max_ms = 500", "pointer_move_max_ms = 99999",
          "pointer_move_max_ms"),

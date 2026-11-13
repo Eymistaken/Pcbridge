@@ -140,7 +140,7 @@ jobs:
         run: |
           pacman -Syu --noconfirm --needed base-devel git python rust clang pkgconf \
             libpipewire glib2 glib2-devel tmux wl-clipboard libnotify util-linux \
-            python-gobject at-spi2-core gst-plugin-pipewire gst-plugins-base gst-plugins-good
+            python-gobject at-spi2-core
       - uses: actions/checkout@v7
       # makepkg refuses to run as root.
       - name: Build the package

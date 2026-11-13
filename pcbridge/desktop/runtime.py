@@ -14,12 +14,7 @@ from ..config import Config
 from . import apps as appslib
 from . import compositor as compositorlib
 from . import execution as executionlib
-from .backends.python import (
-    PythonAccessibilityProvider,
-    PythonCaptureProvider,
-    PythonDesktopStateProvider,
-    PythonInputProvider,
-)
+from .backends.common import SessionStateProvider
 from .contracts import (
     AccessibilityProvider,
     CaptureProvider,
@@ -84,7 +79,7 @@ class DesktopRuntime:
         self.accessibility_provider = accessibility_provider
         self.window_provider = window_provider if window_provider is not None else accessibility_provider
         self.gate = gate
-        self.desktop_state_provider = desktop_state_provider or PythonDesktopStateProvider(
+        self.desktop_state_provider = desktop_state_provider or SessionStateProvider(
             screen_lock_probe=screen_lock_probe,
             user_activity_probe=user_activity_probe,
         )
@@ -475,7 +470,7 @@ class DesktopRuntime:
                 self._timer.cancel()
                 self._timer = None
         # The native accessibility reader is a helper bound to the grant that
-        # just ended; the Python reader has nothing to close.
+        # just ended; a provider without `close` has nothing to release.
         close_accessibility = getattr(self.accessibility_provider, "close", None)
         for name, close in (
             ("input", self.input_provider.close),
@@ -509,86 +504,33 @@ class DesktopRuntime:
 
 
 def select_capture_provider(cfg: Config, gate: GrantProvider) -> CaptureProvider:
-    """Apply the backend table once, here, and nowhere else.
+    """The native helper captures; there is no other backend to choose.
 
-    The choice is made when a runtime is built and never revisited inside it:
-    swapping acquisition backends mid-session would let one `all` capture be
-    assembled from two different sources, and `PLAN.md` (1.x, in git history) forbids exactly that.
+    Made once when a runtime is built: one `all` capture is never assembled
+    from two sources. Without a helper the provider is still this one, and
+    every call says why it cannot capture and how to get the helper.
     """
-    from .backends.rust import (  # yerel import: native yol istege bagli
-        RustCaptureProvider,
-        native_binary_ready,
-        select_capture_backend,
-    )
+    from .backends.rust import RustCaptureProvider  # yerel import: Config yuklemesini hafif tutar
 
-    requested = cfg.native.capture
-    if requested == "auto" and cfg.desktop.capture_backend == "gnome-screenshot":
-        # An explicitly chosen screenshot program is kept: `auto` must not
-        # quietly open a screen share the user configured away (Task 4.3).
-        requested = "python"
-    ready, reason = native_binary_ready(cfg)
-    selection = select_capture_backend(
-        requested=requested,
-        native_ready=ready,
-        native_reason=reason,
-    )
-    if selection.backend == "rust":
-        return RustCaptureProvider(cfg, gate=gate)
-    return PythonCaptureProvider(cfg, degraded_reason=selection.reason if selection.degraded else "")
+    return RustCaptureProvider(cfg, gate=gate)
 
 
 def select_input_provider(cfg: Config, gate: GrantProvider) -> InputProvider:
-    """Choose input injection once, the way capture is chosen.
+    """Keyboard, pointer and clipboard through the native helper, like capture."""
+    from .backends.rust import RustInputProvider
 
-    `auto`, the default since Gate 5, takes the native helper when it is
-    packaged and otherwise the Python provider -- visibly: the keyboard and
-    pointer capabilities come back degraded with the reason. `rust` never
-    falls back; `python` never reaches for the helper.
-    """
-    choice = cfg.native.input
-    if choice == "python":
-        return PythonInputProvider(cfg)
-    from .backends.rust import RustInputProvider, native_binary_ready
-
-    if choice == "rust":
-        return RustInputProvider(cfg, gate=gate)
-    ready, reason = native_binary_ready(cfg)
-    if ready:
-        return RustInputProvider(cfg, gate=gate)
-    return PythonInputProvider(
-        cfg,
-        degraded_reason=(
-            "The native input helper is unavailable; using the Python path: "
-            + (reason or "helper not found")
-        ),
-    )
+    return RustInputProvider(cfg, gate=gate)
 
 
 def select_accessibility_provider(cfg: Config, gate: GrantProvider) -> AccessibilityProvider:
-    """Choose who reads the accessibility tree, once, like capture and input.
+    """Who reads the accessibility tree: the native helper, like capture and input.
 
-    `auto` is the default since Task 6.3: the native helper when it is
-    packaged, the Python helper otherwise, and it says so. `rust` never falls
-    back; `python` keeps the old path.
     The provider chosen here also acts: a click or a text write goes to the
     helper that made the dump it names (Task 6.3).
     """
-    choice = cfg.native.accessibility
-    if choice == "python":
-        return PythonAccessibilityProvider()
-    from .backends.rust import RustAccessibilityProvider, native_binary_ready
+    from .backends.rust import RustAccessibilityProvider
 
-    if choice == "rust":
-        return RustAccessibilityProvider(cfg, gate=gate)
-    ready, reason = native_binary_ready(cfg)
-    if ready:
-        return RustAccessibilityProvider(cfg, gate=gate)
-    return PythonAccessibilityProvider(
-        degraded_reason=(
-            "The native accessibility helper is unavailable; using the Python "
-            "path: " + (reason or "helper not found")
-        ),
-    )
+    return RustAccessibilityProvider(cfg, gate=gate)
 
 
 def create_runtime(
@@ -602,7 +544,7 @@ def create_runtime(
     window_provider: WindowProvider | None = None,
 ) -> DesktopRuntime:
     """Build an isolated, lazy runtime for one MCP or CLI process."""
-    state_provider = desktop_state_provider or PythonDesktopStateProvider()
+    state_provider = desktop_state_provider or SessionStateProvider()
     resolved_gate = (
         gate if gate is not None else SafetyGate(cfg, state_provider=state_provider)
     )

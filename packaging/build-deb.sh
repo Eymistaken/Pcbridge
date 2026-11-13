@@ -56,8 +56,8 @@ Installed-Size: @SIZE@
 Section: utils
 Priority: optional
 Homepage: https://github.com/Eymistaken/Pcbridge
-Depends: python3 (>= @PYVER@), python3 (<< @PYNEXT@), tmux, wl-clipboard, libnotify-bin, python3-gi, gir1.2-atspi-2.0, gstreamer1.0-pipewire, gir1.2-gst-plugins-base-1.0, libpipewire-0.3-0t64 | libpipewire-0.3-0, libc6 (>= 2.35), libgcc-s1
-Recommends: tesseract-ocr, gnome-screenshot
+Depends: python3 (>= @PYVER@), python3 (<< @PYNEXT@), tmux, wl-clipboard, libnotify-bin, python3-gi, at-spi2-core, libpipewire-0.3-0t64 | libpipewire-0.3-0, libc6 (>= 2.35), libgcc-s1
+Recommends: tesseract-ocr
 Suggests: tailscale
 Description: MCP server that lets coding agents drive a Wayland desktop
  pcbridge gives Claude Code, Codex, Claude Desktop and remote MCP clients

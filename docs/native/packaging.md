@@ -39,8 +39,11 @@ own from source (`packaging/arch/PKGBUILD`); `build-native.sh` finds Arch's
 libclang under `/usr/lib` and prints a `pacman` line when something is
 missing.
 
-The Python fallbacks for accessibility and screen sharing still need
-`python3-gi`; `pcbridge doctor` reports that separately.
+The helper is the only desktop backend: the Python fallbacks for screen
+sharing, input and accessibility were removed after 2.8. `python3-gi` is
+still a dependency of the packages, for KDE Plasma's KWin window scripts
+(`kwin_helper.py`, the one Python helper left), and `at-spi2-core` for the
+accessibility bus the helper reads.
 
 ## Build
 
@@ -96,9 +99,13 @@ Neither starts the protocol or touches the session bus or PipeWire. The
 2. `[native] binary_path` in the config
 3. the package: `pcbridge/_native/<target>/pcbridge-native`
 
-If none exists: `NATIVE_NOT_FOUND`. `python` for a subsystem ignores the
-helper; `auto` falls back to Python and reports `degraded` in
-`system_capabilities`; `rust` stays selected and fails loudly.
+If none exists: `NATIVE_NOT_FOUND`, and its message ends with how this
+installation gets one (`pcbridge doctor --fix`, `scripts/build-native.sh`
+or reinstalling the package, from `fetch.remedy()`). There is no other
+backend to fall back on: every desktop tool refuses with that message, and
+`system_capabilities` reports the desktop capabilities unavailable with it.
+`auto` and `rust` both mean the helper; an old `"python"` is read as
+`auto`, with a warning.
 
 ## The release asset for installations without one
 
@@ -128,15 +135,15 @@ only way the helper is found.
 pcbridge.native.diagnostics`) asks for no grant, opens no screen sharing and
 touches no real grant file. It reports:
 
-- the `[native]` choices and where the helper was found; if missing, the
-  level depends on the choice (`python` info, `auto` warning, `rust` error);
+- where the helper was found; if missing, an error when desktop control is
+  on and a warning when it is off, with the fix for this installation;
 - `--build-info`: version, build, protocol, target, profile. Not release is a
   warning; a test-harness build or a protocol/target mismatch is an error;
 - runtime libraries: an unresolved one is an error, an undocumented one a
   warning;
 - a handshake and `capabilities` in a temporary state directory: each
-  capability's state and, when not supported, why;
-- that the Python fallbacks still need `python3-gi`.
+  capability's state and, when not supported, why; a helper without the
+  accessibility methods is an error, since it is the only reader.
 
 The helper computes `capabilities` at run time. On GNOME it checks that
 `org.gnome.Mutter.ScreenCast` has an owner and that the PipeWire socket exists,
@@ -153,7 +160,7 @@ probe answered a fixed "supported" even when capture could never work.
 - `tests/integration/test_native_packaging.py`: the packaged helper, copied
   to an unrelated directory, describes itself, depends only on PipeWire and
   the C runtime, and reports the same build id in the handshake; without the
-  helper the Python install keeps working.
+  helper capture refuses and says how to get one.
 
 ## CI
 
@@ -172,8 +179,9 @@ wheel. Live capture and input tests never run in CI.
 - Unsigned automatic updates.
 - A GUI package.
 
-## Rolling back
+## No rolling back
 
-Set `capture`, `input` or `accessibility` under `[native]` to `"python"` and
-run `pcbridge update`. Removing the helper is not needed: with `python`
-selected it is not used.
+Until 2.8, `[native] capture`, `input` or `accessibility` set to `"python"`
+switched back to the Python paths. Those paths were removed after 2.8; the
+way back from a broken helper is the previous release, which still has
+them.

@@ -168,18 +168,11 @@ class HyprlandGateTests(unittest.TestCase):
         consumer.close()
         self.assertEqual(self.gate.current_token(), token)
 
-    def test_python_capture_and_native_legacy_fallback_cannot_cross_the_hyprland_boundary(self):
-        from pcbridge.desktop.backends.python import PythonCaptureProvider
+    def test_native_capture_that_cannot_start_never_reaches_a_frame(self):
         from pcbridge.desktop.backends.rust import RustCaptureProvider
 
-        cfg = SimpleNamespace(desktop=DesktopSpec(enabled=True))
-        python = PythonCaptureProvider(cfg, screencast=mock.Mock())
-        self.assertFalse(python.available()[0])
+        cfg = SimpleNamespace(desktop=DesktopSpec(enabled=True), native=NativeSpec())
         with mock.patch("pcbridge.desktop.capture.capture") as capture:
-            with self.assertRaises(DesktopError):
-                python.start()
-            with self.assertRaises(DesktopError):
-                python.capture("all", out_dir=self.root, scale_long_edge=1280, include_pointer=True)
             native = RustCaptureProvider(cfg)
             with mock.patch.object(native, "start", side_effect=DesktopError(code=ErrorCode.BACKEND_UNAVAILABLE,
                     message="Native capture pending", category=ErrorCategory.CAPABILITY,

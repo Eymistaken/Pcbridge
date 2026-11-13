@@ -244,12 +244,11 @@ pip_install() {  # VENV CONSTRAINTS TARGET [-e]: TARGET, then TARGET[desktop]
     [ -n "$2" ] && c="-c $2"
     # shellcheck disable=SC2086
     "$1/bin/python" -m pip install -q $c ${4:-} "$3"
-    # evdev (the [desktop] extra) is built from source and needs a C compiler;
-    # without one pcbridge still works, and `pcbridge setup` offers the parts
-    # when this desktop can be driven.
+    # The [desktop] extra (Pillow) has wheels; without it pcbridge still
+    # works, and `pcbridge setup` offers it again where desktop control can.
     # shellcheck disable=SC2086
     if ! "$1/bin/python" -m pip install -q $c ${4:-} "$3[desktop]" 2>"$TMP/pip.err"; then
-        warn "the desktop extras (evdev, Pillow) were not installed: evdev is built from source and needs a C compiler and the kernel headers. Only desktop control uses them; pcbridge setup installs what they need where it can work."
+        warn "the desktop extra (Pillow) was not installed; only desktop control uses it, and pcbridge setup tries again where it can work."
     fi
 }
 

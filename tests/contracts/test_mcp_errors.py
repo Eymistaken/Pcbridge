@@ -182,9 +182,6 @@ class FakeCapture:
     def describe_monitors(self) -> str:
         return "1 monitor"
 
-    def kill_helpers(self) -> int:
-        return 0
-
     def capture(self, *args, **kwargs):
         raise AssertionError("capture must not run when unavailable")
 

@@ -22,10 +22,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from pcbridge.desktop import monitors as monitorslib  # noqa: E402
-from pcbridge.desktop.backends.python import (  # noqa: E402
-    PythonCaptureProvider,
-    _display_mapping_error,
-)
+from pcbridge.desktop.backends.common import _display_mapping_error  # noqa: E402
+from pcbridge.desktop.backends.rust import RustCaptureProvider  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCode  # noqa: E402
 
 FIXTURE = ROOT / "tests" / "fixtures" / "native" / "display_state_cases.json"
@@ -127,7 +125,7 @@ class ProviderSeamTests(unittest.TestCase):
     """`topology_id` is on the provider contract, so 3.2/3.4 have one seam."""
 
     def test_provider_returns_the_same_string_as_the_module(self) -> None:
-        provider = PythonCaptureProvider.__new__(PythonCaptureProvider)
+        provider = RustCaptureProvider.__new__(RustCaptureProvider)
         resolved = monitorslib.resolve_state(CASES["cases"][0]["state"])
         with mock.patch.object(monitorslib, "list_monitors", return_value=resolved):
             self.assertEqual(
@@ -135,7 +133,7 @@ class ProviderSeamTests(unittest.TestCase):
             )
 
     def test_provider_reports_an_unreadable_layout_as_the_stable_code(self) -> None:
-        provider = PythonCaptureProvider.__new__(PythonCaptureProvider)
+        provider = RustCaptureProvider.__new__(RustCaptureProvider)
         with mock.patch.object(
             monitorslib,
             "list_monitors",

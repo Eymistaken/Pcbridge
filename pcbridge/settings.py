@@ -128,17 +128,17 @@ _FIXED: dict[str, tuple[str, Any, tuple[str, ...]]] = {
     "files.link_ttl_seconds": ("int", 300, ()),
     "files.upload_max_mb": ("int", 512, ()),
     "files.download_max_mb": ("int", 2048, ()),
-    "native.capture": ("choice", "auto", ("auto", "python", "rust")),
-    "native.input": ("choice", "auto", ("auto", "python", "rust")),
-    "native.accessibility": ("choice", "auto", ("auto", "python", "rust")),
+    "native.capture": ("choice", "auto", ("auto", "rust")),
+    "native.input": ("choice", "auto", ("auto", "rust")),
+    "native.accessibility": ("choice", "auto", ("auto", "rust")),
     "native.binary_path": ("str", "", ()),
     "tools.profile": ("choice", "full", configlib.TOOL_PROFILES),
     "tools.remote_profile": ("choice", "same", configlib.REMOTE_TOOL_PROFILES),
 }
 
-_DESKTOP_CHOICES = {
-    "capture_backend": ("auto", "screencast", "gnome-screenshot"),
-}
+# [desktop] keys whose value is one of a fixed list; none since
+# `capture_backend` went with the Python capture paths after 2.8.
+_DESKTOP_CHOICES: dict[str, tuple[str, ...]] = {}
 
 _SECRETS = {"auth.password", "auth.static_token"}
 

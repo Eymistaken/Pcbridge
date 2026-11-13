@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The native clipboard behind `[native] input = "rust"` (Task 5.4, step 3).
+"""The native clipboard under text input (Task 5.4, step 3).
 
 Typing keeps its Python orchestration -- save, put, paste, restore -- and the
 clipboard programs run in the helper. What this pins, without a helper, a
@@ -23,7 +23,6 @@ sys.path.insert(0, str(ROOT))
 from pcbridge.config import load_config  # noqa: E402
 from pcbridge.desktop import clipboard as clipboardlib  # noqa: E402
 from pcbridge.desktop import input as inputlib  # noqa: E402
-from pcbridge.desktop.backends.python import PythonInputProvider  # noqa: E402
 from pcbridge.desktop.backends.rust import NativeClipboard, RustInputProvider  # noqa: E402
 from pcbridge.desktop.capabilities import CapabilityState  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCategory, ErrorCode  # noqa: E402
@@ -135,7 +134,6 @@ class NativeClipboardTests(unittest.TestCase):
 
     def test_the_rust_provider_uses_the_native_clipboard(self) -> None:
         self.assertIsInstance(self.provider(ClipboardHelper([])).clipboard, NativeClipboard)
-        self.assertIsInstance(PythonInputProvider(self.cfg).clipboard, clipboardlib.WlClipboard)
 
     def test_every_fixture_case_types_and_restores_through_the_helper(self) -> None:
         for case in self.cases:
@@ -243,26 +241,20 @@ class NativeClipboardTests(unittest.TestCase):
         self.assertIs(raised.exception.code, ErrorCode.GRANT_REQUIRED)
         self.assertEqual(helper.requests, [])
 
-    def test_both_providers_report_the_single_type_restore_on_the_write(self) -> None:
-        with mock.patch("pcbridge.desktop.backends.python.shutil.which", return_value="/usr/bin/wl-copy"), \
-                mock.patch("pcbridge.desktop.backends.python._wayland_socket", return_value="/run/wayland-0"), \
+    def test_the_write_reports_the_single_type_restore(self) -> None:
+        with mock.patch("pcbridge.desktop.backends.common.shutil.which", return_value="/usr/bin/wl-copy"), \
+                mock.patch("pcbridge.desktop.backends.common._wayland_socket", return_value="/run/wayland-0"), \
                 mock.patch("pcbridge.desktop.backends.rust.native_binary_ready", return_value=(True, "")):
-            native = self.provider(ClipboardHelper([])).probe_capabilities()
-            python = PythonInputProvider(self.cfg).probe_capabilities()
-        for values, backend in (
-            (native, "linux.wl-clipboard.native"),
-            (python, "linux.wl-clipboard"),
-        ):
-            with self.subTest(backend=backend):
-                self.assertEqual(values["clipboard.write"].backend, backend)
-                self.assertIs(values["clipboard.write"].state, CapabilityState.SUPPORTED)
-                self.assertEqual(
-                    values["clipboard.write"].limitations,
-                    (clipboardlib.SINGLE_MIME_LIMITATION,),
-                )
-                self.assertEqual(values["clipboard.read"].limitations, ())
+            values = self.provider(ClipboardHelper([])).probe_capabilities()
+        self.assertEqual(values["clipboard.write"].backend, "linux.wl-clipboard.native")
+        self.assertIs(values["clipboard.write"].state, CapabilityState.SUPPORTED)
+        self.assertEqual(
+            values["clipboard.write"].limitations,
+            (clipboardlib.SINGLE_MIME_LIMITATION,),
+        )
+        self.assertEqual(values["clipboard.read"].limitations, ())
 
-    def test_without_the_helper_the_native_clipboard_is_unavailable_not_python(self) -> None:
+    def test_without_the_helper_the_clipboard_is_unavailable(self) -> None:
         with mock.patch(
             "pcbridge.desktop.backends.rust.native_binary_ready",
             return_value=(False, "pcbridge-native bulunamadi"),

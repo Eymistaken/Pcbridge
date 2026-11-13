@@ -75,7 +75,8 @@ def glibc_shortfall(path: Path, have: tuple[int, ...] | None = None) -> str:
     if not have or need == (0, 0) or tuple(have[:2]) >= need:
         return ""
     return (f"the packaged native helper needs glibc {need[0]}.{need[1]} and this system has "
-            f"{have[0]}.{have[1]}, so it was skipped and the Python paths are used")
+            f"{have[0]}.{have[1]}, so desktop control cannot use it; a helper built on this "
+            "machine (scripts/build-native.sh) can be named in [native] binary_path")
 
 
 def discover_native_binary(
@@ -109,14 +110,19 @@ def discover_native_binary(
                     message=why[0].upper() + why[1:] + ".",
                     category=ErrorCategory.IPC,
                     retryable=False,
-                    suggested_action="build_native_helper_or_use_python",
+                    suggested_action="build_native_helper",
                     backend="pcbridge-native",
                 )
             return packaged.resolve()
 
+    # The helper is the only desktop backend, so the refusal says how this
+    # installation gets one (`fetch` imports this module: resolved late).
+    from .fetch import remedy
+
     raise DesktopError(
         code=ErrorCode.NATIVE_NOT_FOUND,
-        message="The pcbridge native helper was not found.",
+        message=("The pcbridge native helper was not found. Desktop control needs it. "
+                 f"Fix: {remedy()}."),
         category=ErrorCategory.IPC,
         retryable=False,
         suggested_action="configure_native_binary",

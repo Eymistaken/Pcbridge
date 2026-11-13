@@ -55,14 +55,14 @@ What it does, in order:
    3. quit.
 
    It never repoints the system `python3` (apt and system tools depend on
-   it) and never offers the PPA outside Ubuntu. The AT-SPI helper keeps
-   running under the system `python3` in its own process.
+   it) and never offers the PPA outside Ubuntu. On KDE Plasma the KWin
+   window scripts keep running under the system `python3` in their own
+   process.
 3. Downloads the release wheel and `sha256sums.txt`, checks the wheel's
    sha256 (and `constraints.txt`, the tested dependency versions), and
-   installs it into `~/.local/share/pcbridge/venv`. The desktop extras
-   (`evdev`, `Pillow`) are tried too; `evdev` is built from source, so
-   without a C compiler they are skipped and `pcbridge setup` offers what
-   they need where desktop control can work.
+   installs it into `~/.local/share/pcbridge/venv`. The desktop extra
+   (`Pillow`, which crops and scales the frames) is installed too; it comes
+   as a wheel, so nothing is compiled.
 4. Hands over to `pcbridge setup` (next section), which detects the machine
    and shows the plan.
 
@@ -161,9 +161,11 @@ Runs: sudo pacman -S --needed --noconfirm tmux wl-clipboard tesseract-data-tur
   user's graphical session through `loginctl` and the user manager's
   environment.
 - **System packages** only for what will work here: tmux and `script`
-  everywhere, `notify-send` where there is a desktop, and the clipboard,
-  AT-SPI and (on GNOME) `gnome-screenshot` packages only where desktop
-  control is supported. The package names come from one table
+  everywhere, `notify-send` where there is a desktop, and, only where
+  desktop control is supported, the clipboard programs, the AT-SPI bus
+  (`at-spi2-core`, which the native helper reads the accessibility tree
+  from) and, on KDE Plasma, the system python's GObject bindings for the
+  KWin window scripts. The package names come from one table
   (`pcbridge/distro.py`) for the Debian, Arch and Fedora families
   (Fedora is untested).
 - **Optional components**, a checklist shown only where desktop control is
@@ -179,10 +181,12 @@ Runs: sudo pacman -S --needed --noconfirm tmux wl-clipboard tesseract-data-tur
   a profile you chose stays. When the desktop becomes supported, setup
   returns its own `core` to `full`.
 - **The native helper** is skipped when the system's glibc is older than
-  the packaged helper needs; the Python paths are used, and the plan says
-  so. The release helper needs glibc 2.35, so it runs on Ubuntu 22.04
-  and Debian 12 (the bases of Linux Mint 21 and Pardus 23) and newer; a
-  helper built on another machine needs that machine's glibc.
+  the packaged helper needs, and the plan says so: desktop control needs
+  the helper, so it is not available there until a helper built on that
+  machine (`scripts/build-native.sh`) is named in `[native] binary_path`.
+  The release helper needs glibc 2.35, so it runs on Ubuntu 22.04 and
+  Debian 12 (the bases of Linux Mint 21 and Pardus 23) and newer; a helper
+  built on another machine needs that machine's glibc.
 - **A missing native helper is downloaded** where desktop control is
   supported and the installation has none (a git checkout without Rust, or
   a venv that lost it): the plan says "Native helper: downloaded from the
@@ -206,8 +210,7 @@ Then:
 
 1. Installs the system packages of the plan; on Debian a failed install
    refreshes the package lists once and tries again. Where desktop control
-   is supported and `evdev` is missing, it pip-installs `evdev` and
-   `Pillow` (after the compiler packages of the plan).
+   is supported and `Pillow` is missing, it pip-installs `Pillow`.
 2. Writes `~/.config/pcbridge/config.toml` (0600) with no password and no
    static token (local clients need neither; remote access stays off until
    you create a password), or migrates a 1.x `config.toml` (the old file stays where it
@@ -310,8 +313,8 @@ Releases are built for x86_64 only: the wheel is tagged `linux_x86_64`,
 the packages are `amd64` and `x86_64`, and so is the native helper. On ARM
 (aarch64) the install script stops and points to a git checkout, which
 installs and runs everything except desktop control. Desktop control needs
-the native helper, and none is built for aarch64; until the next release
-removes them, the older Python paths still drive the desktop there.
+the native helper, and none is built for aarch64, so ARM has no desktop
+control; the Python paths that drove it there until 2.8 were removed.
 Decided with the maintainer (2026-11-13): ARM has no desktop control
 until an aarch64 build of the helper exists, which is an item of its own
 in [ROADMAP.md](../ROADMAP.md). A helper you build yourself can be named

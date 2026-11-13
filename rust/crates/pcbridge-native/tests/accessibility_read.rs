@@ -1,9 +1,9 @@
 //! Accessibility reads against the shared fixture (Task 6.2).
 //!
-//! `tests/fixtures/native/accessibility_cases.json` is the file the Python
-//! helper's contract test reads too: the same desktops, the same expected
-//! dumps. A case passes only when the native walk lists exactly what the
-//! helper lists -- node for node, field for field.
+//! `tests/fixtures/native/accessibility_cases.json` holds the desktops and
+//! the expected dumps; they were written for the Python AT-SPI helper
+//! (removed after 2.8), and a case passes only when the native walk lists
+//! exactly what that helper listed -- node for node, field for field.
 
 use std::time::{Duration, Instant};
 

@@ -1,9 +1,9 @@
 //! Clipboard access through the wl-clipboard programs (Task 5.4).
 //!
-//! The same `wl-paste` and `wl-copy` invocations the Python input path has
-//! always made, with the same arguments, so one fixture
-//! (`tests/fixtures/native/clipboard_cases.json`) pins both sides. GNOME does
-//! not offer `wlr-data-control`, and no library speaking another protocol has
+//! The same `wl-paste` and `wl-copy` invocations the Python input path made
+//! until it was removed after 2.8, with the same arguments, pinned by one
+//! fixture (`tests/fixtures/native/clipboard_cases.json`). GNOME does not
+//! offer `wlr-data-control`, and no library speaking another protocol has
 //! been verified on this machine, so the programs stay.
 //!
 //! Three rules carried over from the Python side:

@@ -31,22 +31,19 @@ _COLUMN = {DEBIAN: 0, ARCH: 1, FEDORA: 2}
 OS_RELEASE = Path("/etc/os-release")
 
 # logical name -> (Debian packages, Arch packages, Fedora packages). A
-# logical name is what pcbridge needs, not a package: "atspi" is the GObject
-# bindings plus the AT-SPI typelib, whatever the distribution calls them.
+# logical name is what pcbridge needs, not a package: "python3-gi" is the
+# system python's GObject bindings, whatever the distribution calls them.
 PACKAGES: dict[str, tuple[str, str, str]] = {
     "tmux": ("tmux", "tmux", "tmux"),
     "wl-clipboard": ("wl-clipboard", "wl-clipboard", "wl-clipboard"),
     "notify-send": ("libnotify-bin", "libnotify", "libnotify"),
     "script": ("bsdutils", "util-linux", "util-linux"),
-    "gnome-screenshot": ("gnome-screenshot", "gnome-screenshot", "gnome-screenshot"),
     "gtk-launch": ("libgtk-3-bin", "gtk3", "gtk3"),
-    "atspi": ("python3-gi gir1.2-atspi-2.0", "python-gobject at-spi2-core",
-              "python3-gobject at-spi2-core"),
-    "screencast": (
-        "gstreamer1.0-pipewire gstreamer1.0-plugins-good gir1.2-gst-plugins-base-1.0 python3-gi",
-        "gst-plugin-pipewire gst-plugins-good gst-plugins-base python-gobject",
-        "pipewire-gstreamer gstreamer1-plugins-good gstreamer1-plugins-base python3-gobject",
-    ),
+    # KDE Plasma's window scripts run in the system python3 (`kwin_helper.py`).
+    "python3-gi": ("python3-gi", "python-gobject", "python3-gobject"),
+    # The accessibility bus (`org.a11y.Bus`) the native helper reads the
+    # tree from; at-spi2-core starts it on every distribution.
+    "atspi-bus": ("at-spi2-core", "at-spi2-core", "at-spi2-core"),
     # English data comes with the engine on Debian and Fedora; Arch makes
     # every language a choice, English included.
     "tesseract": ("tesseract-ocr", "tesseract tesseract-data-eng", "tesseract"),
@@ -58,9 +55,6 @@ PACKAGES: dict[str, tuple[str, str, str]] = {
         "pipewire-devel clang-devel pkgconf-pkg-config",
     ),
     "readelf": ("binutils", "binutils", "binutils"),
-    # evdev (the [desktop] extra) has no wheels on PyPI: pip builds it.
-    "c-compiler": ("gcc libc6-dev", "gcc", "gcc glibc-devel"),
-    "kernel-headers": ("linux-libc-dev", "linux-api-headers", "kernel-headers"),
 }
 
 # ISO 639-1 (the locale's language) -> tesseract's language code. English
@@ -155,16 +149,6 @@ def tesseract_language_package(lang: str, fam: str | None = None) -> str:
 def tesseract_language(locale_language: str) -> str:
     """The tesseract code for a locale's language (`tr` -> `tur`), or ""."""
     return TESSERACT_LANGUAGES.get(locale_language.lower(), "")
-
-
-def python_headers_package(version: str, fam: str | None = None) -> str:
-    """The package with Python.h for this Python minor ("3.12")."""
-    fam = fam or family()
-    if fam == ARCH:
-        return "python"
-    if fam == FEDORA:
-        return "python3-devel"
-    return f"python{version}-dev"
 
 
 def install_argv(names: list[str], fam: str | None = None) -> list[str]:

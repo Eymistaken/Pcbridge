@@ -6,16 +6,21 @@ TEST VM ONLY (scripts/dev/arch-vm.sh): it moves the pointer, CLICKS into a
 Kate window and TYPES a line into it. It opens that Kate window itself
 (`kate --new` on an empty document) and checks, through a KWin script and
 AT-SPI, that the pointer landed where it was sent and that the text arrived.
+Input goes through the native helper (the only input backend since the
+Python one was removed after 2.8), under a grant in a scratch state
+directory.
 
     .venv/bin/python tests/live/kde/check_input.py
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -26,7 +31,9 @@ if os.environ.get("XDG_CURRENT_DESKTOP", "").upper() != "KDE":
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-from pcbridge.desktop.input import InputBackend  # noqa: E402
+from pcbridge.config import load_config  # noqa: E402
+from pcbridge.desktop.backends.rust import RustInputProvider  # noqa: E402
+from pcbridge.desktop.safety import SafetyGate  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 TEXT = "pcbridge on KWin 42"
@@ -76,7 +83,12 @@ def main() -> int:
                   if doc.name in w["caption"])
     x, y, w, h = window["geometry"]
     target = (int(x + w / 2), int(y + h / 2))
-    backend = InputBackend()
+    scratch = tempfile.TemporaryDirectory(prefix="pcb-kde-input-")
+    cfg = dataclasses.replace(load_config(str(ROOT / "config.example.toml")),
+                              state_dir=Path(scratch.name))
+    gate = SafetyGate(cfg)
+    gate.unlock(5, reason="kde input check")
+    backend = RustInputProvider(cfg, gate=gate)
     try:
         backend.move(*target)
         time.sleep(0.2)
@@ -88,6 +100,8 @@ def main() -> int:
         time.sleep(1.0)
     finally:
         backend.close()
+        gate.lock()
+        scratch.cleanup()
     text = kate_text(doc.name)
     print(json.dumps({"kate_text": text, "ok": TEXT in text}), flush=True)
     return 0

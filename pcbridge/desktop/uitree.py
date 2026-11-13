@@ -7,11 +7,12 @@ NEDEN
     yayinliyor: her dugumun rolu, etiketi, durumu var. Burada model yok,
     prompt yok, tahmin yok -- uygulamanin kendi beyani.
 
-AYRI SUREC
-    `gi` venv'de yok ve AT-SPI cevap vermeyen bir uygulamada bloklayabiliyor.
-    Bu yuzden butun okuma/eylem `atspi_helper.py`'ye devrediliyor: sistem
-    python3'u, JSON protokolu, sert zaman asimi. Ayrintili gerekce yardimcinin
-    kendi dosyasinda.
+THE READER IS THE NATIVE HELPER
+    The tree is read and acted on by the grant-bound native helper over raw
+    AT-SPI D-Bus (`backends/rust.py`, `RustAccessibilityProvider`). What
+    stays here is everything after the read: the short ids, the last dump
+    per session, resolving an id back to a node, and the text the model
+    sees. The system-python AT-SPI helper that once did the reading is gone.
 
 KOORDINAT KULLANILMIYOR
     OLCULDU (2026-08-02): `get_extents(SCREEN)` guvenilmez. "Desktop Icons 1"
@@ -25,28 +26,18 @@ IKI KIMLIK
     kacinci kez gectigi). Eylemin gittigi yer ise dugumun kendisi: uygulamanin
     veriyolu adi + dugumun D-Bus nesne yolu (`Node.ref`). Kisa kimlik yalnizca
     son dokumde bir dugum SECER; dogrulamayi yardimci bu nesne kimligiyle
-    yapar. Ayrinti `atspi_helper.py`de.
+    yapar.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 import secrets
-import shutil
-import subprocess
 from dataclasses import dataclass, field
-from pathlib import Path
 
-from .. import distro as distrolib
 from .. import sessionctx
 from .errors import ErrorCode
 
-HELPER = Path(__file__).resolve().parent / "atspi_helper.py"
-# Sistem python3 -- venv'inki DEGIL. Ayrimin sebebi modul docstring'inde.
-SYSTEM_PYTHON = "python3"
-DUMP_TIMEOUT = 20
-ACT_TIMEOUT = 25
 # Kisa kimligin en az uzunlugu. Ayni dokumde iki dugumun ozeti bu kadar
 # karakterde cakisirsa ikisi de ayrisana kadar uzatilir (`_short_ids`).
 MIN_ID = 4
@@ -63,13 +54,6 @@ class UiTreeError(RuntimeError):
     def __init__(self, message: str, code: ErrorCode | None = None) -> None:
         super().__init__(message)
         self.code = code
-
-
-def _code(raw: object) -> ErrorCode | None:
-    try:
-        return ErrorCode(str(raw)) if raw else None
-    except ValueError:
-        return None
 
 
 @dataclass(frozen=True)
@@ -138,63 +122,6 @@ class Window:
     @property
     def label(self) -> str:
         return f"{self.app} — {self.title}" if self.title else self.app
-
-
-def available() -> tuple[bool, str]:
-    """(kullanilabilir mi, degilse Turkce gerekce)."""
-    if not HELPER.exists():
-        return False, f"AT-SPI helper not found: {HELPER}"
-    if not shutil.which(SYSTEM_PYTHON):
-        return False, f"`{SYSTEM_PYTHON}` not found (the system python is required)."
-    try:
-        proc = subprocess.run(
-            [SYSTEM_PYTHON, "-c", "import gi; gi.require_version('Atspi','2.0')"],
-            capture_output=True,
-            timeout=10,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        return False, "The AT-SPI check timed out."
-    if proc.returncode != 0:
-        return False, (
-            "AT-SPI bindings are missing. Install them: "
-            + distrolib.install_command("atspi")
-        )
-    return True, ""
-
-
-def _call(payload: dict, timeout: int) -> dict:
-    """Yardimciyi calistir ve JSON cevabini dondur."""
-    try:
-        proc = subprocess.run(
-            [SYSTEM_PYTHON, str(HELPER)],
-            input=json.dumps(payload, ensure_ascii=False),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        # Zaman asimi SESSIZCE yutulmaz: AT-SPI cevap vermeyen bir uygulamada
-        # bloklayabiliyor ve kullanicinin bunu bilmesi lazim. Bir eylemde
-        # eylem gitmis de olabilir, gitmemis de: TEKRARLANMAZ. Okuma ise
-        # yalnizca zaman asimi.
-        acting = payload.get("cmd") in ("act", "settext")
-        raise UiTreeError(
-            f"The application did not answer within {timeout} seconds. It may be hung; "
-            "look with a screenshot (screen_capture).",
-            ErrorCode.EXECUTION_UNKNOWN if acting else ErrorCode.TIMEOUT,
-        ) from exc
-    if not proc.stdout.strip():
-        # Yardimci stdout'a her zaman JSON yazar. Bos ise gercekten cokmustur;
-        # stderr'deki GLib gurultusunun son satiri en faydali ipucu.
-        tail = (proc.stderr or "").strip().splitlines()
-        hint = tail[-1] if tail else "no output"
-        raise UiTreeError(f"The AT-SPI helper did not answer ({hint}).")
-    try:
-        return json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        raise UiTreeError(f"the AT-SPI helper's answer could not be read: {exc}") from exc
 
 
 def _digest(role: str, name: str, occurrence: int) -> str:
@@ -274,13 +201,12 @@ def _to_nodes(raw: list[dict]) -> list[Node]:
 
 
 def dump_from_response(resp: dict, backend: str = BACKEND) -> Dump:
-    """Bir okuyucunun `dump` cevabini `Dump`a cevir.
+    """Turn the native helper's `dump` answer into a `Dump`.
 
-    Python yardimcisi da native yardimci da ayni bicimde cevap veriyor; kisa
-    kimlikler HER IKISINDE burada, tek yerde uretiliyor. Snapshot native
-    yardimcininki: eylem o dokumu bu kimlikle anar ve yardimci yalnizca
-    kendi listeledigi dugume dokunur (Task 6.3). Python yardimcisi dokum
-    saklamadigi icin kimligi burada uretilir.
+    The short ids are made here, in one place. The snapshot is the helper's
+    own: an action names that dump by it, and the helper only touches a node
+    it listed itself (Task 6.3). An answer without one (a test, an older
+    build) gets a random id, so two dumps are never confused.
     """
     nodes = _to_nodes(resp.get("nodes") or [])
     return Dump(
@@ -342,58 +268,23 @@ class UiTree:
     def _last(self, dump: Dump | None) -> None:
         self._dumps.set(dump)
 
-    # ------------------------------------------------------------------ okuma
+    # ------------------------------------------- read by the native helper
     def dump(
         self,
         target: str = "focused",
         interactive_only: bool = True,
         max_nodes: int = 400,
     ) -> Dump:
-        resp = _call(
-            {
-                "cmd": "dump",
-                "target": target,
-                "interactive_only": interactive_only,
-                "max_nodes": max_nodes,
-            },
-            DUMP_TIMEOUT,
-        )
-        if not resp.get("ok"):
-            raise UiTreeError(resp.get("error") or "The tree could not be read.", _code(resp.get("code")))
-        dump = dump_from_response(resp)
-        self._last = dump
-        return dump
+        """Read the tree and remember it as this session's last dump."""
+        raise NotImplementedError
 
     def focused_window(self) -> tuple[str, str]:
-        """(uygulama, pencere basligi) — ONBELLEGI BOZMADAN.
-
-        `screen_info` bunu cagiriyor; normal `dump()` kullansaydi son dokumu
-        ezer ve modelin elindeki kimlikler gecersizlesirdi. `max_nodes=1` ile
-        yardimci agaci erken kesiyor, yani ucuz.
-        """
-        resp = _call(
-            {"cmd": "dump", "target": "focused", "interactive_only": True,
-             "max_nodes": 1},
-            DUMP_TIMEOUT,
-        )
-        if not resp.get("ok"):
-            raise UiTreeError(
-                resp.get("error") or "The focused window could not be read.", _code(resp.get("code"))
-            )
-        return resp.get("app") or "?", resp.get("window") or ""
+        """(application, window title), without replacing the last dump."""
+        raise NotImplementedError
 
     def windows(self) -> list[Window]:
-        """Acik pencereler. Onbellegi bozmaz, agaci gezmez (olculdu: 42 ms).
-
-        Penceresi olmayan arka plan servisleri (gsd-*, ibus-*) ve isimsiz
-        yardimci pencereler elenir: model icin gurultu, kullanici icin anlamsiz.
-        """
-        resp = _call({"cmd": "windows"}, DUMP_TIMEOUT)
-        if not resp.get("ok"):
-            raise UiTreeError(
-                resp.get("error") or "The window list could not be read.", _code(resp.get("code"))
-            )
-        return windows_from_response(resp)
+        """The open windows; the last dump is left as it is."""
+        raise NotImplementedError
 
     def resolve(self, node_id: str) -> Node:
         """Kisa kimligi SON dokumdeki dugume cevir.
@@ -445,11 +336,8 @@ class UiTree:
         }
 
     def _act(self, payload: dict, fallback: str) -> dict:
-        resp = _call(payload, ACT_TIMEOUT)
-        if not resp.get("ok"):
-            raise UiTreeError(resp.get("error") or fallback, _code(resp.get("code")))
-        resp["snapshot"] = self._last.snapshot if self._last else ""
-        return resp
+        """Perform `payload` on the node it names; the provider sends it."""
+        raise NotImplementedError
 
     def click(self, node_id: str, action: str = "click") -> dict:
         node = self.resolve(node_id)

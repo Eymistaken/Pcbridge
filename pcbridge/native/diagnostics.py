@@ -61,7 +61,7 @@ def _source(spec: NativeSpec, environ: Mapping[str, str]) -> str:
         return "PCBRIDGE_NATIVE_BIN"
     if spec.binary_path is not None:
         return "config: [native] binary_path"
-    return "paket: pcbridge/_native"
+    return "package: pcbridge/_native"
 
 
 def read_build_info(binary: Path, run: Runner = subprocess.run) -> dict[str, Any] | str:
@@ -135,15 +135,6 @@ def handshake_capabilities(binary: Path) -> tuple[str, dict[str, Any]] | str:
     return (handshake.build_id if handshake is not None else ""), result
 
 
-def _legacy_note() -> Finding:
-    return Finding(
-        "info",
-        "native capture and accessibility need neither python3-gi, GStreamer nor "
-        "pipewiresrc; the window list before a grant (screen_info), the Python "
-        "accessibility path and the Python screen share still need python3-gi",
-    )
-
-
 # What a helper must offer for `[native] accessibility`: reads since Task 6.2,
 # clicks and text since Task 6.3. An older build answers neither.
 ACCESSIBILITY_CAPABILITIES = ("accessibility.read", "accessibility.action")
@@ -158,46 +149,7 @@ def diagnose(
     package_root: Path = PACKAGE_ROOT,
 ) -> list[Finding]:
     environment = os.environ if environ is None else environ
-    capture = cfg.native.capture
-    typing = cfg.native.input
-    reading = cfg.native.accessibility
-    # The helper is needed as much as the strictest setting says.
-    choices = (capture, typing, reading)
-    selected = (
-        "rust" if "rust" in choices
-        else "auto" if "auto" in choices
-        else "python"
-    )
-    findings = [
-        Finding(
-            "info",
-            f"[native] capture = {capture}"
-            + {
-                "python": " (frames come from the Python helper)",
-                "rust": " (native helper REQUIRED)",
-                "auto": " (default: native when available, otherwise Python)",
-            }.get(capture, ""),
-        ),
-        Finding(
-            "info",
-            f"[native] input = {typing}"
-            + {
-                "python": " (keyboard, pointer and clipboard on the Python path)",
-                "rust": " (native helper REQUIRED)",
-                "auto": " (default: native when available, otherwise Python)",
-            }.get(typing, ""),
-        ),
-        Finding(
-            "info",
-            f"[native] accessibility = {reading}"
-            + {
-                "python": " (ui_dump/ui_click in the Python helper)",
-                "rust": " (native helper REQUIRED)",
-                "auto": " (default: native when available, otherwise Python)",
-            }.get(reading, ""),
-        ),
-    ]
-
+    findings: list[Finding] = []
     try:
         binary = discover_native_binary(
             cfg.native, environ=environment, package_root=package_root
@@ -205,9 +157,14 @@ def diagnose(
     except DesktopError as exc:
         from .fetch import remedy
 
-        level = {"rust": "fail", "auto": "warn"}.get(selected, "info")
-        findings.append(Finding(level, f"no native helper: {exc.message} Fix: {remedy()}."))
-        findings.append(_legacy_note())
+        # The helper is the only desktop backend: with desktop control on,
+        # nothing on the desktop works without it. Discovery's own refusal
+        # already says how to get one; a named path that is wrong does not.
+        level = "fail" if cfg.desktop.enabled else "warn"
+        fix = remedy()
+        text = (exc.message if fix in exc.message
+                else f"{exc.message} Desktop control needs it. Fix: {fix}.")
+        findings.append(Finding(level, f"no native helper: {text}"))
         return findings
     findings.append(Finding("pass", f"found: {binary} ({_source(cfg.native, environment)})"))
 
@@ -294,23 +251,13 @@ def diagnose(
             ))
         offered = {capability.get("name") for capability in result.get("capabilities", [])}
         lacking = [name for name in ACCESSIBILITY_CAPABILITIES if name not in offered]
-        if reading in ("auto", "rust") and lacking:
-            # `auto` takes the helper whenever it is there, old or new: an old
-            # one then fails every ui_dump instead of falling back.
+        if lacking:
+            # The helper is the only reader: an old one fails every ui_dump.
             findings.append(Finding(
-                "fail" if reading == "rust" else "warn",
+                "fail",
                 "the helper is an older build: " + ", ".join(lacking) + " missing; "
-                "ui_dump/ui_click fail on the native path. Rebuild it: "
-                "scripts/build-native.sh",
+                "ui_dump/ui_click fail. Rebuild it: scripts/build-native.sh",
             ))
-
-    if selected == "python":
-        findings.append(Finding(
-            "info",
-            "the helper is ready but unused; to use it set [native] capture, "
-            'input and accessibility to "auto" or "rust"',
-        ))
-    findings.append(_legacy_note())
     return findings
 
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -225,38 +226,6 @@ def test_monitor_parsers() -> None:
 
 
 # ====================================================================== KLAVYE
-def test_key_names() -> None:
-    section("5. Tus adi cozumleme")
-    check("harf", I.key_code("a") > 0)
-    check("buyuk harf ayni kod", I.key_code("A") == I.key_code("a"))
-    check("rakam", I.key_code("5") > 0)
-    check("fonksiyon tusu", I.key_code("f12") > 0)
-    check("bosluk toleransi", I.key_code("  Return ") == I.key_code("return"))
-    check("enter == return", I.key_code("enter") == I.key_code("return"))
-    check("esc == escape", I.key_code("esc") == I.key_code("escape"))
-    check("super == meta == win", I.key_code("super") == I.key_code("win") == I.key_code("meta"))
-
-    combo = I.parse_combo("ctrl+shift+t")
-    check("kombinasyon sirali cozuluyor", combo == [
-        I.key_code("ctrl"), I.key_code("shift"), I.key_code("t")], str(combo))
-    check("bosluklu kombinasyon", I.parse_combo("ctrl + v") == I.parse_combo("ctrl+v"))
-    check("tek tus kombinasyon", len(I.parse_combo("super")) == 1)
-
-    for bad in ("flurb", "", "ctrl+nope"):
-        try:
-            I.parse_combo(bad)
-            check(f"bilinmeyen tus reddedilir: {bad!r}", False, "hata firlatmadi")
-        except I.InputError:
-            check(f"bilinmeyen tus reddedilir: {bad!r}", True)
-
-    check(
-        "tus tablosu ile cihaz yetenekleri ayni kaynaktan",
-        all(v.startswith("KEY_") for v in I.KEY_NAMES.values()),
-    )
-    check("duzenden bagimsiz tuslar tabloda", all(
-        k in I.KEY_NAMES for k in ("return", "escape", "tab", "up", "down", "left", "right")))
-
-
 def test_raw_ascii_table() -> None:
     section("6. Ham yazma tablosu (raw=True)")
     check("kucuk harf shift'siz", I._RAW_ASCII["a"] == ("a", False))
@@ -269,10 +238,22 @@ def test_raw_ascii_table() -> None:
         "Turkce karakterler ham tabloda YOK (pano yolu sart)",
         not any(c in I._RAW_ASCII for c in "ışğüöçİŞĞÜÖÇ"),
     )
-    check(
-        "ham tablodaki her tus, tus tablosunda tanimli",
-        all(name in I.KEY_NAMES for name, _ in I._RAW_ASCII.values()),
-    )
+    # The names go to the native helper, which resolves them in its own
+    # table; a name it lacks would fail half-way through a text.
+    known = _helper_key_names()
+    if known is None:
+        skip("every raw key is in the helper's key table", "no Rust sources here")
+    else:
+        missing = sorted({name for name, _ in I._RAW_ASCII.values()} - known)
+        check("every raw key is in the helper's key table", not missing, str(missing))
+
+
+def _helper_key_names() -> set[str] | None:
+    """The key names the native helper resolves (`KEY_TABLE`), from its source."""
+    source = ROOT / "rust" / "crates" / "pcbridge-native" / "src" / "platform" / "linux" / "input.rs"
+    if not source.is_file():
+        return None
+    return set(re.findall(r'\("([a-z0-9]+)", KeyCode::', source.read_text(encoding="utf-8")))
 
 
 # =============================================================== GUVENLIK KAPI
@@ -591,24 +572,6 @@ def test_config_defaults() -> None:
 
 
 # ============================================================ EKRAN GORUNTUSU
-def _synthetic_canvas(path: Path) -> None:
-    """3840x1080 tuval: sol yari kirmizi, sag yari mavi, koselerde isaretci.
-
-    Kirpmanin DOGRU kutudan geldigini renk bakarak anlayabilmek icin.
-    """
-    from PIL import Image
-
-    img = Image.new("RGB", (3840, 1080), (255, 0, 0))
-    for x in range(1920, 3840):
-        for y in (0, 1079):
-            img.putpixel((x, y), (0, 0, 255))
-    img.paste(Image.new("RGB", (1920, 1080), (0, 0, 255)), (1920, 0))
-    # her monitorun sol ust kosesine benzersiz bir isaretci
-    img.putpixel((0, 0), (0, 255, 0))  # monitor 1
-    img.putpixel((1920, 0), (255, 255, 0))  # monitor 2
-    img.save(path, format="PNG")
-
-
 def test_capture_scaling() -> None:
     """Olcekleme KIRPMADAN SONRA yapilmali."""
     section("13. Ekran goruntusu — olcekleme")
@@ -630,22 +593,54 @@ def test_capture_scaling() -> None:
           str(C._scaled_size(1080, 1920, 1280)))
 
 
+class _PaintedShare:
+    """Stands in for the native share: one frame per connector, painted so a
+    picture shows which monitor it came from. Opens no real share.
+
+    `size` forces every frame to one size (a wrong one must be refused).
+    """
+
+    COLORS = {"DP-2": (255, 0, 0), "DP-1": (0, 0, 255)}
+    MARKERS = {"DP-2": (0, 255, 0), "DP-1": (255, 255, 0)}
+
+    def __init__(self, mons, size=None) -> None:
+        self.mons = mons
+        self.size = size
+        self.calls: list[str] = []
+
+    def is_open(self) -> bool:
+        return True
+
+    def ensure_cursor(self, cursor: bool) -> bool:
+        return False
+
+    def capture(self, connector, path):
+        from PIL import Image
+
+        mon = next(m for m in self.mons if m.connector == connector)
+        img = Image.new("RGB", self.size or mon.source_pixel_size,
+                        self.COLORS.get(connector, (9, 9, 9)))
+        img.putpixel((0, 0), self.MARKERS.get(connector, (1, 1, 1)))
+        img.save(path, format="PNG")
+        self.calls.append(connector)
+        return {"ok": True, "taken_at": time.time()}
+
+
 def test_capture_crop_offsets() -> None:
-    """Her kirpma dogru kutudan gelmeli ve global ofsetini tasimali."""
+    """Every picture comes from its own monitor's frame and carries its global offset."""
     section("14. Ekran goruntusu — kirpma ve ofset")
     from PIL import Image
 
     from pcbridge.desktop import capture as C
 
     mons = M._ordered(TWO_SCREENS)
-    real_list, real_avail, real_grab = M.list_monitors, C.available, C._grab_canvas
+    real_list = M.list_monitors
     tmp = Path(tempfile.mkdtemp(prefix="pcb-cap-"))
+    share = _PaintedShare(mons)
     try:
         M.list_monitors = lambda *a, **k: mons
-        C.available = lambda *a, **k: (True, "")
-        C._grab_canvas = lambda td, ptr: (_synthetic_canvas(td / "c.png") or (td / "c.png"))
 
-        shots = C.capture("all", out_dir=tmp, scale_long_edge=0)
+        shots = C.capture("all", out_dir=tmp, scale_long_edge=0, screencast=share)
         check("monitor=all her ekran icin bir goruntu", len(shots) == 2, str(len(shots)))
         by_idx = {s.monitor.index: s for s in shots}
         check("1 numara solda, ofset (0,0)", by_idx[1].offset == (0, 0), str(by_idx[1].offset))
@@ -654,7 +649,7 @@ def test_capture_crop_offsets() -> None:
         check("kirpilmis boyut monitor boyutu", by_idx[1].size == (1920, 1080),
               str(by_idx[1].size))
 
-        # Renk isaretcisi: kirpma gercekten dogru kutudan mi geldi?
+        # The color marker: did each picture come from its own monitor's frame?
         with Image.open(by_idx[1].path) as im:
             check("1 numaranin sol ust kosesi kendi isaretcisi",
                   im.getpixel((0, 0)) == (0, 255, 0), str(im.getpixel((0, 0))))
@@ -669,38 +664,34 @@ def test_capture_crop_offsets() -> None:
         # Ayni saniyede iki yakalama BIRBIRINI EZMEMELI. Bu bir kez oldu:
         # dosya adi saniye cozunurluklu damgadan uretiliyordu ve yayimlanmis
         # eski bir /shot baglantisi daha yeni goruntuyu gostermeye basliyordu.
-        a = C.capture(1, out_dir=tmp, scale_long_edge=0)[0]
-        b = C.capture(1, out_dir=tmp, scale_long_edge=0)[0]
+        a = C.capture(1, out_dir=tmp, scale_long_edge=0, screencast=share)[0]
+        b = C.capture(1, out_dir=tmp, scale_long_edge=0, screencast=share)[0]
         check("ayni saniyedeki iki yakalama ayri dosya", a.path != b.path,
               f"{a.path.name} == {b.path.name}")
 
         # Ofset + olcek zinciri: goruntudeki nokta -> global koordinat
-        s2 = C.capture(2, out_dir=tmp, scale_long_edge=1280)[0]
+        s2 = C.capture(2, out_dir=tmp, scale_long_edge=1280, screencast=share)[0]
         check("olcek 1280/1920", abs(s2.scale - 1280 / 1920) < 1e-9, str(s2.scale))
         check("olcekli goruntude (0,0) -> monitorun sol ustu",
               s2.to_global(0, 0) == (1920, 0), str(s2.to_global(0, 0)))
         check("olcekli goruntude (640,360) -> tuval ortasi civari",
               s2.to_global(640, 360) == (2880, 540), str(s2.to_global(640, 360)))
         check("tek monitor istenince tek goruntu",
-              len(C.capture("DP-2", out_dir=tmp, scale_long_edge=0)) == 1)
+              len(C.capture("DP-2", out_dir=tmp, scale_long_edge=0, screencast=share)) == 1)
 
-        # Tuval boyutu monitor tablosuyla uyusmazsa sessizce yanlis yerden
-        # kirpmak yerine patlamali. ODD_SCREENS'te olcekler farkli (1.0 ve
-        # 2.0), yani gerekce Task 7.1'den beri "hangi piksel hangi monitorun
-        # bilinemez"; olcut ikisinin de soylenmesi.
-        M.list_monitors = lambda *a, **k: M._ordered(ODD_SCREENS)
+        # A frame that fits the monitor neither in desktop units nor in pixels
+        # is refused, never scaled into place: a silent scale would move every
+        # later click by a proportional distance.
         try:
-            C.capture("all", out_dir=tmp, scale_long_edge=0)
-            check("tuval/tablo uyusmazligi yakalaniyor", False, "hata firlatilmadi")
+            C.capture(1, out_dir=tmp, scale_long_edge=0,
+                      screencast=_PaintedShare(mons, size=(1280, 720)))
+            check("a frame of the wrong size is refused", False, "no error")
         except C.CaptureError as exc:
-            check("tuval/tablo uyusmazligi yakalaniyor",
-                  "3840x1080" in str(exc) and "3840x1440" in str(exc),
-                  str(exc)[:120])
+            check("a frame of the wrong size is refused",
+                  "1280x720" in str(exc) and "1920x1080" in str(exc), str(exc)[:160])
     finally:
-        M.list_monitors, C.available, C._grab_canvas = real_list, real_avail, real_grab
-        import shutil as _sh
-
-        _sh.rmtree(tmp, ignore_errors=True)
+        M.list_monitors = real_list
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def test_shot_lookup() -> None:
@@ -716,14 +707,13 @@ def test_shot_lookup() -> None:
     from pcbridge.desktop import capture as C
 
     mons = M._ordered(TWO_SCREENS)
-    real_list, real_avail, real_grab = M.list_monitors, C.available, C._grab_canvas
+    real_list = M.list_monitors
     tmp = Path(tempfile.mkdtemp(prefix="pcb-shotid-"))
     try:
         M.list_monitors = lambda *a, **k: mons
-        C.available = lambda *a, **k: (True, "")
-        C._grab_canvas = lambda td, ptr: (_synthetic_canvas(td / "c.png") or (td / "c.png"))
 
-        shots = C.capture("all", out_dir=tmp, scale_long_edge=1280)
+        shots = C.capture("all", out_dir=tmp, scale_long_edge=1280,
+                          screencast=_PaintedShare(mons))
         by_idx = {s.monitor.index: s for s in shots}
         s2 = by_idx[2]
 
@@ -797,7 +787,8 @@ def test_shot_lookup() -> None:
             check("gerekce ne yapilacagini soyluyor", "FRESH" in str(exc).upper(),
                   str(exc)[:160])
 
-        # Pencere cekiminin ekranda NEREDE oldugu bilinmiyor.
+        # A record from 2.8 or earlier (gnome-screenshot's window pictures, no
+        # offset): it still loads, and no coordinate comes out of it.
         win = C.Shot(path=tmp / "w.png", monitor=None, offset=None,
                      size=(800, 600), scaled=(800, 600), scale=1.0,
                      id="win-aabbcc", taken_at=time.time())
@@ -828,10 +819,8 @@ def test_shot_lookup() -> None:
 
             _sh2.rmtree(other, ignore_errors=True)
     finally:
-        M.list_monitors, C.available, C._grab_canvas = real_list, real_avail, real_grab
-        import shutil as _sh
-
-        _sh.rmtree(tmp, ignore_errors=True)
+        M.list_monitors = real_list
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def test_ambiguous_guard() -> None:
@@ -1102,6 +1091,7 @@ def test_capture_sweeps() -> None:
     from pcbridge.config import load_config
     from pcbridge.desktop import capture as C
     from pcbridge.desktop import safety as safetylib
+    from pcbridge.desktop.runtime import create_runtime
     from pcbridge.shots import ShotStore
 
     from fastmcp import FastMCP
@@ -1145,10 +1135,6 @@ def test_capture_sweeps() -> None:
 
         safetylib.SafetyGate = OpenGate
         toolslib.capturelib.capture = fake_capture
-        # This measures the sweep, not whether this machine can capture (a
-        # CI runner cannot): the Python capture path reports itself ready.
-        real_available = toolslib.capturelib.available
-        toolslib.capturelib.available = lambda *a, **k: (True, "")
 
         for transport in ("stdio", "http"):
             store = ShotStore(cfg)
@@ -1160,8 +1146,11 @@ def test_capture_sweeps() -> None:
                 os.utime(f, (0, 0))
 
             mcp = FastMCP("test")
+            # This measures the sweep, not whether this machine can capture
+            # (a CI runner cannot): the capture provider reports itself ready.
+            runtime = create_runtime(cfg, gate=OpenGate(), capture_provider=ReadyCapture(cfg))
             toolslib.register(mcp, cfg, jobslib.JobManager(cfg.jobs_dir), store,
-                              transport=transport)
+                              transport=transport, runtime=runtime)
             fn = asyncio.run(mcp.get_tool("screen_capture")).fn
             fn()
 
@@ -1173,8 +1162,6 @@ def test_capture_sweeps() -> None:
     finally:
         safetylib.SafetyGate = real_gate
         toolslib.capturelib.capture = real_capture
-        if "real_available" in locals():
-            toolslib.capturelib.available = real_available
         import shutil as _sh
 
         _sh.rmtree(tmp, ignore_errors=True)
@@ -1198,38 +1185,58 @@ def test_capture_config_defaults() -> None:
 
 
 def test_real_capture() -> None:
-    """Gercek gnome-screenshot. Varsayilan olarak KOSMAZ.
+    """A real capture through the native helper. Off by default.
 
-    Grafik oturum gerektirdigi icin (ve kullanicinin ekranini diske yazdigi
-    icin) yalnizca PCBRIDGE_TEST_CAPTURE=1 verilince kosar.
+    It needs a graphical session and an open desktop grant (`desktop_unlock`
+    or `pcbridge` UI), writes the user's screen to disk and shows the sharing
+    indicator for a moment, so it runs only with PCBRIDGE_TEST_CAPTURE=1.
     """
-    import os
-
     if os.environ.get("PCBRIDGE_TEST_CAPTURE") != "1":
         return
     section("17. Ekran goruntusu — GERCEK yakalama")
-    from pcbridge.desktop import capture as C
-
-    ok, why = C.available()
+    provider, why = _live_provider("capture")
+    if provider is None:
+        skip("real capture", why)
+        return
+    ok, why = provider.available()
     check("yakalama hazir", ok, why)
     if not ok:
         return
     tmp = Path(tempfile.mkdtemp(prefix="pcb-real-"))
     try:
-        shots = C.capture("all", out_dir=tmp)
+        shots = provider.capture("all", out_dir=tmp, scale_long_edge=1536,
+                                 include_pointer=False)
         check("en az bir goruntu", len(shots) >= 1, str(len(shots)))
         for s in shots:
             check(f"{s.label}: dosya yazildi", s.path.exists() and s.path.stat().st_size > 0)
             check(f"{s.label}: ofset var", s.offset is not None)
     finally:
-        import shutil as _sh
+        provider.close()
+        shutil.rmtree(tmp, ignore_errors=True)
+    check("the share closes with the provider", not provider.is_open())
 
-        _sh.rmtree(tmp, ignore_errors=True)
+
+def _live_provider(kind: str):
+    """The native provider of the real config under its real grant, or why not.
+
+    The helper is the only backend and it acts only under a grant, so a live
+    section skips instead of opening one on the user's desktop.
+    """
+    from pcbridge.config import load_config
+    from pcbridge.desktop.backends.rust import RustAccessibilityProvider, RustCaptureProvider
+
+    cfg = load_config()
+    gate = S.SafetyGate(cfg)
+    if gate.current_token() is None:
+        return None, "no open desktop grant (desktop_unlock opens one)"
+    if kind == "capture":
+        return RustCaptureProvider(cfg, gate=gate), ""
+    return RustAccessibilityProvider(cfg, gate=gate), ""
 
 
 # ====================================================== ERISILEBILIRLIK AGACI
-# Yardimcinin JSON ciktisi sabit orneklerden verilir: gercek masaustu, acik
-# uygulama ve X/Wayland oturumu gerekmez.
+# The helper's answer is a fixed sample: no real desktop, no open application
+# and no Wayland session is needed.
 HELPER_DUMP = {
     "ok": True,
     "app": "gnome-text-editor",
@@ -1250,239 +1257,139 @@ HELPER_DUMP = {
 }
 
 
-class FakeCall:
-    """`uitree._call`'in yerine gecer; ne istendigini de kaydeder."""
-
-    def __init__(self, *responses):
-        self.responses = list(responses)
-        self.seen: list[dict] = []
-
-    def __call__(self, payload, timeout):
-        self.seen.append(payload)
-        return self.responses.pop(0) if len(self.responses) > 1 else self.responses[0]
-
-
 def test_uitree_describe() -> None:
     section("18. Erisilebilirlik agaci — metne cevirme")
     from pcbridge.desktop import uitree as U
 
-    real = U._call
-    try:
-        U._call = FakeCall(HELPER_DUMP)
-        t = U.UiTree()
-        d = t.dump("gnome-text-editor")
-        check("dugumler okundu", len(d.nodes) == 5, str(len(d.nodes)))
-        check("uygulama adi", d.app == "gnome-text-editor", d.app)
+    d = U.dump_from_response(HELPER_DUMP)
+    check("dugumler okundu", len(d.nodes) == 5, str(len(d.nodes)))
+    check("uygulama adi", d.app == "gnome-text-editor", d.app)
 
-        txt = U.describe(d)
-        check("basligda uygulama ve pencere var",
-              "gnome-text-editor" in txt and "Metin Duzenleyici" in txt, txt[:80])
-        check("dugme etiketi ve kimligi listede",
-              '"Kaydet"' in txt and "#" in txt, txt[:200])
-        check("sayim dogru", "5 node(s) · 3 clickable · 1 editable" in txt,
-              [l for l in txt.splitlines() if "node(s) ·" in l])
-        check("eylemsiz dugum isaretleniyor", "eylemsiz" in txt, txt[:400])
+    txt = U.describe(d)
+    check("basligda uygulama ve pencere var",
+          "gnome-text-editor" in txt and "Metin Duzenleyici" in txt, txt[:80])
+    check("dugme etiketi ve kimligi listede",
+          '"Kaydet"' in txt and "#" in txt, txt[:200])
+    check("sayim dogru", "5 node(s) · 3 clickable · 1 editable" in txt,
+          [l for l in txt.splitlines() if "node(s) ·" in l])
+    check("eylemsiz dugum isaretleniyor", "eylemsiz" in txt, txt[:400])
 
-        bos = U.Dump(app="claude-desktop", window="Claude", nodes=[])
-        btxt = U.describe(bos)
-        check("bos agac Electron uyarisi veriyor",
-              "Electron" in btxt and "screen_capture" in btxt, btxt[:160])
+    bos = U.Dump(app="claude-desktop", window="Claude", nodes=[])
+    btxt = U.describe(bos)
+    check("bos agac Electron uyarisi veriyor",
+          "Electron" in btxt and "screen_capture" in btxt, btxt[:160])
 
-        kirpik = U.Dump(app="x", window="", nodes=d.nodes, truncated=True)
-        check("kirpilma bildiriliyor", "cut short" in U.describe(kirpik))
-    finally:
-        U._call = real
+    kirpik = U.Dump(app="x", window="", nodes=d.nodes, truncated=True)
+    check("kirpilma bildiriliyor", "cut short" in U.describe(kirpik))
 
 
 def test_uitree_stable_ids() -> None:
     section("19. Erisilebilirlik agaci — kararli kimlikler")
     from pcbridge.desktop import uitree as U
 
-    real = U._call
-    try:
-        U._call = FakeCall(HELPER_DUMP)
-        t = U.UiTree()
-        first = {n.name: n.node_id for n in t.dump("x").nodes if n.name}
-        second = {n.name: n.node_id for n in t.dump("x").nodes if n.name}
-        check("ayni agac -> ayni kimlikler", first == second, str(first))
+    first = {n.name: n.node_id for n in U.dump_from_response(HELPER_DUMP).nodes if n.name}
+    second = {n.name: n.node_id for n in U.dump_from_response(HELPER_DUMP).nodes if n.name}
+    check("ayni agac -> ayni kimlikler", first == second, str(first))
 
-        # Ayni rol+etiketli iki dugum AYRISMALI: ikisi de "Kapat".
-        ids = [n.node_id for n in t.dump("x").nodes if n.name == "Kapat"]
-        check("ayni etiketli iki dugum ayri kimlik", len(set(ids)) == 2, str(ids))
+    # Ayni rol+etiketli iki dugum AYRISMALI: ikisi de "Kapat".
+    ids = [n.node_id for n in U.dump_from_response(HELPER_DUMP).nodes if n.name == "Kapat"]
+    check("ayni etiketli iki dugum ayri kimlik", len(set(ids)) == 2, str(ids))
 
-        # ASIL SART: alakasiz bir yere dugum eklenince kimlikler DEGISMEMELI.
-        # Yol karisima girseydi burasi patlardi (her sekme acilisinda oluyor).
-        shifted = json.loads(json.dumps(HELPER_DUMP))
-        shifted["nodes"].insert(0, {
-            "path": [0, 0], "role": "push button", "name": "Yeni",
-            "states": [], "actions": ["click"], "editable": False, "depth": 15,
-        })
-        for n in shifted["nodes"][1:]:
-            n["path"] = [0, n["path"][1] + 1]  # yollar kaydi
-        U._call = FakeCall(shifted)
-        t2 = U.UiTree()
-        after = {n.name: n.node_id for n in t2.dump("x").nodes if n.name}
-        check("araya dugum eklenince kimlikler korunuyor",
-              all(after.get(k) == v for k, v in first.items()),
-              f"once={first} sonra={after}")
-        check("yeni dugum de kimlik aldi", "Yeni" in after, str(after))
-    finally:
-        U._call = real
+    # ASIL SART: alakasiz bir yere dugum eklenince kimlikler DEGISMEMELI.
+    # Yol karisima girseydi burasi patlardi (her sekme acilisinda oluyor).
+    shifted = json.loads(json.dumps(HELPER_DUMP))
+    shifted["nodes"].insert(0, {
+        "path": [0, 0], "role": "push button", "name": "Yeni",
+        "states": [], "actions": ["click"], "editable": False, "depth": 15,
+    })
+    for n in shifted["nodes"][1:]:
+        n["path"] = [0, n["path"][1] + 1]  # yollar kaydi
+    after = {n.name: n.node_id for n in U.dump_from_response(shifted).nodes if n.name}
+    check("araya dugum eklenince kimlikler korunuyor",
+          all(after.get(k) == v for k, v in first.items()),
+          f"once={first} sonra={after}")
+    check("yeni dugum de kimlik aldi", "Yeni" in after, str(after))
 
 
 def test_uitree_actions() -> None:
     section("20. Erisilebilirlik agaci — eylemler ve hatalar")
     from pcbridge.desktop import uitree as U
 
-    real = U._call
+    class Recording(U.UiTree):
+        """`UiTree` with the transport recorded: the native provider sends
+        what `click` and `set_text` hand to `_act`."""
+
+        def __init__(self, answer: dict) -> None:
+            super().__init__()
+            self.answer = answer
+            self.sent: list[dict] = []
+
+        def _act(self, payload, fallback):
+            self.sent.append(payload)
+            return dict(self.answer)
+
+    t = Recording({"ok": True, "role": "push button", "name": "Kaydet",
+                   "action": "click", "resolved_by": "path"})
+    t._last = d = U.dump_from_response(HELPER_DUMP)
+    kaydet = next(n for n in d.nodes if n.name == "Kaydet")
+    metin = next(n for n in d.nodes if n.editable)
+
+    res = t.click(kaydet.node_id)
+    check("tiklama basarili", res["name"] == "Kaydet", str(res))
+    check("bastaki diyez kabul ediliyor",
+          t.click("#" + kaydet.node_id)["name"] == "Kaydet")
+    check("the click names the node by its object path",
+          t.sent[0]["ref"] == kaydet.ref and t.sent[0]["cmd"] == "act", str(t.sent[0]))
+
+    # Eylemi olmayan dugumde KOORDINATA DUSULMEMELI: olculen AT-SPI
+    # koordinatlari yanlis, sessizce yanlis yere tiklamak en kotu sonuc.
+    etiket = next(n for n in d.nodes if n.name == "Hazir")
+    sent = len(t.sent)
     try:
-        fake = FakeCall(HELPER_DUMP)
-        U._call = fake
-        t = U.UiTree()
-        d = t.dump("x")
-        kaydet = next(n for n in d.nodes if n.name == "Kaydet")
-        metin = next(n for n in d.nodes if n.editable)
+        t.click(etiket.node_id)
+        check("eylemsiz dugum reddediliyor", False, "hata firlatilmadi")
+    except U.UiTreeError as exc:
+        check("eylemsiz dugum reddediliyor", "offers no action" in str(exc), str(exc))
+        check("koordinat yolu onerilmiyor ama alternatif veriliyor",
+              "screen_capture" in str(exc), str(exc))
+    check("nothing was sent for it", len(t.sent) == sent)
 
-        U._call = FakeCall({"ok": True, "role": "push button", "name": "Kaydet",
-                            "action": "click", "resolved_by": "path"})
-        res = t.click(kaydet.node_id)
-        check("tiklama basarili", res["name"] == "Kaydet", str(res))
-        check("bastaki diyez kabul ediliyor",
-              t.click("#" + kaydet.node_id)["name"] == "Kaydet")
-
-        # Eylemi olmayan dugumde KOORDINATA DUSULMEMELI: olculen AT-SPI
-        # koordinatlari yanlis, sessizce yanlis yere tiklamak en kotu sonuc.
-        etiket = next(n for n in d.nodes if n.name == "Hazir")
-        try:
-            t.click(etiket.node_id)
-            check("eylemsiz dugum reddediliyor", False, "hata firlatilmadi")
-        except U.UiTreeError as exc:
-            check("eylemsiz dugum reddediliyor", "offers no action" in str(exc), str(exc))
-            check("koordinat yolu onerilmiyor ama alternatif veriliyor",
-                  "screen_capture" in str(exc), str(exc))
-
-        # Taninmayan kimlik
-        try:
-            t.click("ffff")
-            check("taninmayan kimlik reddediliyor", False, "hata firlatilmadi")
-        except U.UiTreeError as exc:
-            check("taninmayan kimlik reddediliyor", "is not known" in str(exc), str(exc))
-            check("hata mesajinda cift diyez yok", "##" not in str(exc), str(exc))
-
-        # Metin yazma: metnin kendisi cagriya girer ama yol/parmak izi de gider
-        fake2 = FakeCall({"ok": True, "role": "text", "name": "",
-                          "replaced_chars": 3, "now_chars": 5, "resolved_by": "path"})
-        U._call = fake2
-        t.set_text(metin.node_id, "merhaba")
-        sent = fake2.seen[0]
-        check("settext yolu gonderiyor", sent["path"] == metin.path, str(sent))
-        check("settext parmak izi gonderiyor",
-              sent["role"] == "text" and "name" in sent, str(sent))
-        check("settext metni gonderiyor", sent["text"] == "merhaba", str(sent))
-
-        # Yardimci ok=false donerse Turkce hataya cevrilmeli
-        U._call = FakeCall({"ok": False, "error": "is not editable"})
-        try:
-            t.set_text(metin.node_id, "x")
-            check("yardimci hatasi yukari tasiniyor", False, "hata firlatilmadi")
-        except U.UiTreeError as exc:
-            check("yardimci hatasi yukari tasiniyor",
-                  "is not editable" in str(exc), str(exc))
-    finally:
-        U._call = real
-
-
-def test_uitree_timeout() -> None:
-    """Zaman asimi SESSIZCE yutulmamali."""
-    section("21. Erisilebilirlik agaci — zaman asimi")
-    import subprocess as sp
-
-    from pcbridge.desktop import uitree as U
-
-    real_run = U.subprocess.run
+    # Taninmayan kimlik
     try:
-        def boom(*a, **kw):
-            raise sp.TimeoutExpired(cmd="atspi_helper", timeout=kw.get("timeout", 20))
+        t.click("ffff")
+        check("taninmayan kimlik reddediliyor", False, "hata firlatilmadi")
+    except U.UiTreeError as exc:
+        check("taninmayan kimlik reddediliyor", "is not known" in str(exc), str(exc))
+        check("hata mesajinda cift diyez yok", "##" not in str(exc), str(exc))
 
-        U.subprocess.run = boom
-        try:
-            U._call({"cmd": "dump"}, 20)
-            check("zaman asimi hataya cevriliyor", False, "hata firlatilmadi")
-        except U.UiTreeError as exc:
-            check("zaman asimi hataya cevriliyor", "did not answer" in str(exc), str(exc))
-            check("kullaniciya ne yapacagi soyleniyor",
-                  "screen_capture" in str(exc), str(exc))
-
-        # Bos cikti da sessizce gecilmemeli
-        class Empty:
-            stdout = ""
-            stderr = "dbind-WARNING: bir sey"
-
-        U.subprocess.run = lambda *a, **kw: Empty()
-        try:
-            U._call({"cmd": "dump"}, 20)
-            check("bos cikti hataya cevriliyor", False, "hata firlatilmadi")
-        except U.UiTreeError as exc:
-            check("bos cikti hataya cevriliyor", "did not answer" in str(exc), str(exc))
-    finally:
-        U.subprocess.run = real_run
-
-
-def test_uitree_helper_filters() -> None:
-    """Yardimcinin GAction ve kapsayici filtreleri — saf fonksiyonlar."""
-    section("22. Erisilebilirlik agaci — yardimci filtreleri")
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(
-        "atspi_helper_probe", importlib.util.find_spec("pcbridge.desktop.atspi_helper").origin
-    )
-    mod = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(mod)
-    except Exception as exc:
-        # `gi` venv'de yok; yardimci yine de ice aktarilabilmeli, yoksa saf
-        # filtre kurallari hic test edilemez.
-        check("yardimci gi olmadan ice aktarilabiliyor", False, f"{type(exc).__name__}: {exc}")
-        return
-    check("yardimci gi olmadan ice aktarilabiliyor", True)
-
-    # GAction gurultusu: gnome-text-editor'de olculen gercek adlar
-    for real in ("click", "press", "activate", "doDefault"):
-        check(f"gercek eylem taniniyor: {real}", mod.is_real_action(real))
-    for noise in ("page.save-as", "clipboard.copy", "win.open", "window.minimize"):
-        check(f"GAction eleniyor: {noise}", not mod.is_real_action(noise))
-    check("bos ad eleniyor", not mod.is_real_action("   "))
-    dedup = mod._dedup([
-        {"path": [0], "role": "push button", "name": "Ac", "actions": [], "editable": False},
-        {"path": [0, 0], "role": "toggle button", "name": "Ac", "actions": ["click"],
-         "editable": False},
-        {"path": [1], "role": "push button", "name": "Baska", "actions": ["click"],
-         "editable": False},
-    ])
-    names = [(n["role"], n["name"]) for n in dedup]
-    check("GTK4 sarmalayici dugumu eleniyor",
-          ("push button", "Ac") not in names, str(names))
-    check("eylemli ic dugum kaliyor", ("toggle button", "Ac") in names, str(names))
-    check("alakasiz dugum korunuyor", ("push button", "Baska") in names, str(names))
-    check("kapsayici roller tanimli",
-          {"application", "frame", "panel"} <= mod.CONTAINER_ROLES,
-          str(sorted(mod.CONTAINER_ROLES))[:120])
+    # Metin yazma: metnin kendisi cagriya girer ama yol/parmak izi de gider
+    t.set_text(metin.node_id, "merhaba")
+    sent = t.sent[-1]
+    check("settext yolu gonderiyor", sent["path"] == metin.path, str(sent))
+    check("settext parmak izi gonderiyor",
+          sent["role"] == "text" and "name" in sent, str(sent))
+    check("settext metni gonderiyor", sent["text"] == "merhaba", str(sent))
 
 
 def test_real_atspi() -> None:
-    """Gercek AT-SPI. Varsayilan olarak KOSMAZ (grafik oturum ister)."""
-    import os
+    """A real accessibility read through the native helper. Off by default.
 
+    It needs a graphical session and an open desktop grant, so it runs only
+    with PCBRIDGE_TEST_ATSPI=1 and skips without a grant.
+    """
     if os.environ.get("PCBRIDGE_TEST_ATSPI") != "1":
         return
     section("23. Erisilebilirlik agaci — GERCEK okuma")
-    from pcbridge.desktop import uitree as U
+    from pcbridge.desktop.errors import DesktopError
 
-    ok, why = U.available()
+    t, why = _live_provider("accessibility")
+    if t is None:
+        skip("real accessibility read", why)
+        return
+    ok, why = t.available()
     check("AT-SPI hazir", ok, why)
     if not ok:
         return
-    t = U.UiTree()
     try:
         app, win = t.focused_window()
         check("odaktaki pencere okundu", bool(app), f"{app} - {win}")
@@ -1490,8 +1397,10 @@ def test_real_atspi() -> None:
         check("odaktaki pencerenin agaci geldi", d.app != "", d.app)
         check("kimlikler benzersiz",
               len({n.node_id for n in d.nodes}) == len(d.nodes), str(len(d.nodes)))
-    except U.UiTreeError as exc:
-        check("gercek okuma calisti", False, str(exc)[:120])
+    except DesktopError as exc:
+        check("gercek okuma calisti", False, exc.message[:120])
+    finally:
+        t.close()
 
 
 # ------------------------------------------------------------- toplu eylem
@@ -2003,13 +1912,7 @@ def test_window_list() -> None:
              "active": True, "children": 5},
         ],
     }
-    t = U.UiTree()
-    orig = U._call
-    U._call = lambda payload, timeout: raw
-    try:
-        wins = t.windows()
-    finally:
-        U._call = orig
+    wins = U.windows_from_response(raw)
     check("isimsiz pencere elendi", len(wins) == 2, str([w.label for w in wins]))
     check("odaktaki isaretli", [w.app for w in wins if w.active] == ["editor"])
     text = U.describe_windows(wins)
@@ -2668,302 +2571,21 @@ def test_computer_task_prompt() -> None:
     check("hazirlik yoksa satir da yok", "hazirlandi" not in p2)
 
 
-def test_move_path() -> None:
-    """Yumusak fare hareketinin yol hesabi (`input.move_path`).
+class ReadyCapture:
+    """Built lazily: the native capture provider with its share open and its
+    helper found, for tool tests whose `capturelib.capture` is patched."""
 
-    Fonksiyon SAF: cihaz gormez, uyumaz. Bu yuzden burada gercek klavye/fare
-    olmadan kosuyor -- `models.py`'nin saf tutulmasiyla ayni gerekce.
-    """
-    from pcbridge.desktop.input import (
-        DEFAULT_POINTER_MAX_MS,
-        DEFAULT_POINTER_SPEED,
-        MOVE_MIN_MS,
-        MOVE_STEP_SECONDS,
-        move_path,
-    )
+    def __new__(cls, cfg):
+        from pcbridge.desktop.backends.rust import RustCaptureProvider
 
-    section("38. Yumusak fare hareketi — yol hesabi")
+        class _Ready(RustCaptureProvider):
+            def available(self):
+                return True, ""
 
-    step_ms = MOVE_STEP_SECONDS * 1000
+            def start(self, *, cursor=None):
+                return {"already": True}
 
-    # 1) Hedef her zaman TAM tutturulur. Bir piksel sapma ikinci monitorde
-    #    yanlis widget'a tiklamak demek.
-    for (x1, y1, x2, y2) in [(0, 0, 1920, 0), (37, 11, 3839, 1079),
-                             (3000, 900, 5, 5), (100, 100, 101, 100)]:
-        path = move_path(x1, y1, x2, y2)
-        check(f"son nokta tam hedef ({x2}, {y2})", path[-1] == (x2, y2), str(path[-1]))
-
-    # 2) Baslangic noktasi YOK: oradan zaten geliyoruz, tekrar yazmak bedava degil.
-    path = move_path(0, 0, 1920, 0)
-    check("baslangic noktasi yolda degil", path[0] != (0, 0), str(path[0]))
-
-    # 3) Sure = mesafe / hiz, taban ve tavanla sinirli.
-    uzun = move_path(0, 0, 1920, 0, speed=5000, max_ms=500)
-    beklenen = round(1920 / 5000 * 1000 / step_ms)
-    check("1920 px -> beklenen adim sayisi", len(uzun) == beklenen,
-          f"{len(uzun)} nokta, beklenen {beklenen}")
-
-    kisa = move_path(0, 0, 20, 0, speed=5000)
-    check("cok kisa mesafe TABAN suresine cikiyor",
-          len(kisa) == round(MOVE_MIN_MS / step_ms), f"{len(kisa)} nokta")
-
-    kosegen = move_path(0, 0, 3839, 1079, speed=5000, max_ms=500)
-    check("cok uzun mesafe TAVANA takiliyor",
-          len(kosegen) <= round(500 / step_ms) + 1, f"{len(kosegen)} nokta")
-
-    check("mesafe artinca nokta sayisi artiyor",
-          len(move_path(0, 0, 200, 0)) < len(move_path(0, 0, 1500, 0)))
-
-    # 4) speed = 0 -> isinlama (eski davranis geri geliyor).
-    check("speed=0 tek nokta (isinlama)",
-          move_path(0, 0, 1920, 0, speed=0) == [(1920, 0)])
-    check("ayni noktaya hareket tek nokta",
-          move_path(500, 500, 500, 500) == [(500, 500)])
-
-    # 5) `drag` ayardan BAGIMSIZ ara nokta uretmeli: sicrayan bir hareketi
-    #    cogu uygulama surukleme saymiyor.
-    surukle = move_path(0, 0, 900, 0, speed=0, min_steps=10)
-    check("min_steps speed=0'i eziyor (drag yolu)", len(surukle) == 10,
-          f"{len(surukle)} nokta")
-
-    # 6) Yol monoton: geri donen bir imlec titriyor demektir.
-    yol = move_path(100, 100, 1000, 800)
-    xs = [p[0] for p in yol]
-    ys = [p[1] for p in yol]
-    check("x monoton artiyor", all(b >= a for a, b in zip(xs, xs[1:])))
-    check("y monoton artiyor", all(b >= a for a, b in zip(ys, ys[1:])))
-    geri = move_path(1000, 800, 100, 100)
-    gxs = [p[0] for p in geri]
-    check("ters yonde monoton azaliyor", all(b <= a for a, b in zip(gxs, gxs[1:])))
-
-    # 7) Ayni piksel iki kez yazilmaz (her nokta bir syn() maliyeti).
-    tekrar = move_path(0, 0, 3, 0, speed=200, max_ms=500)
-    check("ardisik ayni nokta elenmis", len(tekrar) == len(set(tekrar)), str(tekrar))
-
-    # 8) Smoothstep: ortada hizli, uclarda yavas. Ilk adim mesafesi ortadaki
-    #    adim mesafesinden KUCUK olmali, yoksa egri duz demektir.
-    yol = move_path(0, 0, 2000, 0, speed=5000)
-    ilk = yol[0][0]
-    orta = yol[len(yol) // 2][0] - yol[len(yol) // 2 - 1][0]
-    check("hiz egrisi var (ilk adim ortadakinden kucuk)", ilk < orta,
-          f"ilk={ilk} px, orta={orta} px")
-
-    # 9) Varsayilanlar config'le ayni hikayeyi anlatiyor mu.
-    check("varsayilan hiz 5000 px/s", DEFAULT_POINTER_SPEED == 5000)
-    check("varsayilan tavan 500 ms", DEFAULT_POINTER_MAX_MS == 500)
-
-
-def test_relative_chunks() -> None:
-    """Goreli hareketin parcalanmasi -- SAF, cihaz acmaz (Adim 7)."""
-    from pcbridge.desktop.input import (
-        MOVE_BY_MAX, MOVE_BY_MAX_CHUNKS, relative_chunks,
-    )
-
-    section("24b. Goreli hareket — parcalama")
-
-    # 1) TOPLAM KORUNUR. Parcalama bir yuvarlatma degil, bir zamanlama karari:
-    #    olculdu 2026-09-20, 200 birim kac parcaya bolunurse bolunsun 92 piksel.
-    for dx, dy in ((40, -16), (200, 0), (0, 300), (-137, 59), (1, 1),
-                   (MOVE_BY_MAX, -MOVE_BY_MAX)):
-        parcalar = relative_chunks(dx, dy)
-        toplam = (sum(a for a, _ in parcalar), sum(b for _, b in parcalar))
-        check(f"toplam korunuyor ({dx}, {dy})", toplam == (dx, dy), str(toplam))
-
-    # 2) Hicbir sey gonderilmeyecekse hic parca yok.
-    check("sifir delta hic parca uretmiyor", relative_chunks(0, 0) == [])
-
-    # 3) Kucuk delta tek atista gider; buyuk delta bolunur.
-    check("10 birim tek parca", len(relative_chunks(10, 0)) == 1)
-    check("40 birim uc parca", len(relative_chunks(40, -16)) == 3)
-
-    # 4) TAVANLAR. Sinirsiz delta kullanicinin kendi masaustune DoS olurdu;
-    #    parca sayisi tavani en kotu sureyi ~512 ms'de tutuyor.
-    kirpik = relative_chunks(99_999, -99_999)
-    check("delta tavani kirpiyor",
-          sum(a for a, _ in kirpik) == MOVE_BY_MAX
-          and sum(b for _, b in kirpik) == -MOVE_BY_MAX)
-    check("parca sayisi tavani", len(kirpik) <= MOVE_BY_MAX_CHUNKS,
-          f"{len(kirpik)} parca")
-
-    # 5) Bir eksen sifirsa o eksende hicbir parca deger tasimaz.
-    check("tek eksende digeri hep sifir",
-          all(b == 0 for _, b in relative_chunks(200, 0)))
-
-
-def test_hold_tracking() -> None:
-    """Basili tutma takibi -- CIHAZSIZ kisim.
-
-    Gercek cihazli tur `test_real_hold()` icinde ve varsayilan olarak atlanir.
-    """
-    from pcbridge.desktop import input as I
-
-    section("39. Basili tutma — takip ve cozumleme")
-
-    b = I.InputBackend(hold_max_seconds=0)
-    check("cihaz acilmadan held() bos", b.held() == [])
-    check("cihaz acilmadan release_all() bos", b.release_all() == [])
-    check("otomatik birakma bildirimi bos", b.take_auto_released() == [])
-
-    # Ad <-> kod donusumu: `held()` ciktisi kullaniciya gosteriliyor.
-    check("key_name(ctrl kodu) = ctrl", I.key_name(I.key_code("ctrl")) == "ctrl")
-    check("key_name bilinmeyen kodu ham dondurur", I.key_name(999999) == "999999")
-    check("button_code(middle) calisiyor", isinstance(I.button_code("middle"), int))
-    for bad in ("ucuncu", "", "sol"):
-        try:
-            I.button_code(bad)
-            check(f"gecersiz dugme reddedildi: {bad!r}", False, "kabul edildi")
-        except I.InputError as exc:
-            check(f"gecersiz dugme reddedildi: {bad!r}", "left, right, middle" in str(exc))
-
-    # Kac tus olursa olsun: sanal cihazda ghosting yok.
-    check("6 tuslu kombinasyon cozuluyor",
-          len(I.parse_combo("ctrl+shift+alt+super+a+b")) == 6)
-    check("bos kombinasyon reddediliyor",
-          _raises(lambda: I.parse_combo("+++"), I.InputError))
-
-    # Ayarlar backend'e GERCEKTEN geciyor mu (bir kere atlanmisti: alanlar
-    # tanimliydi, config'e yazilan deger hicbir sey yapmiyordu).
-    b2 = I.InputBackend(pointer_speed=1234, pointer_max_ms=321, hold_max_seconds=7)
-    check("pointer_speed backend'e gecti", b2._speed == 1234.0)
-    check("pointer_max_ms backend'e gecti", b2._max_ms == 321.0)
-    check("hold_max_seconds backend'e gecti", b2._hold_max == 7.0)
-
-    # Son konum SURECLER ARASI paylasiliyor. Olmazsa `pcb-do`'nun her cagrisi
-    # (yeni surec) baslangici bilmez ve hareket ISINLANIR -- kullanici bunu
-    # fark etti, bu kontrol o hatanin geri gelmemesi icin.
-    tmpdir = Path(tempfile.mkdtemp(prefix="pcb-pos-"))
-    try:
-        pos_file = tmpdir / "pointer.json"
-        yazan = I.InputBackend(pos_file=pos_file)
-        check("kayit yokken konum bos", yazan._pos is None)
-
-        yazan._pos = (1234, 567)
-        yazan._write_pos()
-        check("konum diske yazildi", pos_file.exists())
-
-        okuyan = I.InputBackend(pos_file=pos_file)
-        check("baska bir ornek konumu okudu", okuyan._pos == (1234, 567),
-              str(okuyan._pos))
-
-        # Cok eski kayit guvenilmez: kullanici arada fareyi eliyle oynatmis
-        # olabilir ve Wayland'de bunu ogrenmenin yolu yok.
-        pos_file.write_text(json.dumps({
-            "x": 10, "y": 20, "t": time.time() - I.POS_MAX_AGE_SECONDS - 30,
-        }), encoding="utf-8")
-        check("bayat kayit yok sayiliyor",
-              I.InputBackend(pos_file=pos_file)._pos is None)
-
-        # Bozuk dosya hareketi bozmamali.
-        pos_file.write_text("{bozuk", encoding="utf-8")
-        check("bozuk kayit yok sayiliyor",
-              I.InputBackend(pos_file=pos_file)._pos is None)
-
-        # pos_file verilmezse dosya sistemine hic dokunulmamali.
-        dosyasiz = I.InputBackend()
-        dosyasiz._pos = (5, 5)
-        dosyasiz._write_pos()          # patlamamali
-        check("pos_file yoksa sessizce gecilir", dosyasiz._pos_file is None)
-    finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
-
-
-def _raises(fn, exc_type) -> bool:
-    try:
-        fn()
-    except exc_type:
-        return True
-    except Exception:
-        return False
-    return False
-
-
-def test_real_hold() -> None:
-    """GERCEK cihazla basili tutma turu. PCBRIDGE_TEST_INPUT=1 ile acilir.
-
-    Ctrl'yi kisa sureligine basili tutar; hicbir sey YAZMAZ, TIKLAMAZ.
-    Dogrulama cihazin KENDI event node'undan `active_keys()` ile yapiliyor --
-    "hata vermedi" bu projede kanit sayilmiyor.
-    """
-    if os.environ.get("PCBRIDGE_TEST_INPUT") != "1":
-        return
-    section("40. Basili tutma — gercek cihaz")
-
-    from pcbridge.desktop import input as I
-
-    try:
-        from evdev import InputDevice
-    except Exception as exc:  # noqa: BLE001
-        check("evdev var", False, str(exc)[:80])
-        return
-
-    b = I.InputBackend(hold_max_seconds=2.0)
-    ok, why = b.available()
-    check("uinput hazir", ok, why[:100])
-    if not ok:
-        return
-
-    try:
-        b.ensure(keyboard=True, pointer=True)
-        watch = InputDevice(b._kbd.device.path)
-        ctrl = I.key_code("ctrl")
-
-        # Cihaz yaratilirken diskteki konum SILINMEMELI. Silinirse `pcb-do`nun
-        # her cagrisi (yeni surec -> yeni cihaz) hareketi isinlatir. GERCEKTEN
-        # OLDU: ilk duzeltme ise yaramadi cunku `_pointer()` cihazi actiktan
-        # sonra `_pos = None` yapiyordu ve `move()` ilk is cihazi aciyor.
-        posdir = Path(tempfile.mkdtemp(prefix="pcb-posdev-"))
-        try:
-            pos_file = posdir / "pointer.json"
-            once = I.InputBackend(pos_file=pos_file)
-            once.ensure(pointer=True)
-            once.move(1000, 500)
-            once.close()
-            check("hareket diske yazildi", pos_file.exists())
-
-            sonra = I.InputBackend(pos_file=pos_file)
-            check("yeni ornek konumu okudu (cihaz ACILMADAN)",
-                  sonra._pos == (1000, 500), str(sonra._pos))
-            sonra.ensure(pointer=True)
-            check("cihaz acilinca konum KORUNUYOR",
-                  sonra._pos == (1000, 500), str(sonra._pos))
-            sonra._pointer()
-            check("_pointer() konumu silmiyor", sonra._pos == (1000, 500),
-                  str(sonra._pos))
-            sonra.close()
-        finally:
-            shutil.rmtree(posdir, ignore_errors=True)
-
-        b.key_down("ctrl")
-        time.sleep(0.2)
-        check("held() ctrl diyor", b.held() == ["ctrl"], str(b.held()))
-        check("cihazda GERCEKTEN basili", ctrl in watch.active_keys(),
-              str(watch.active_keys()))
-
-        # `key()` basili tutulani DUSURMEMELI, yoksa held() yalan soylerdi.
-        b.key("ctrl+a")
-        time.sleep(0.2)
-        check("key() basili tusu dusurmedi", ctrl in watch.active_keys(),
-              str(watch.active_keys()))
-
-        b.key_up("ctrl")
-        time.sleep(0.2)
-        check("elle birakma calisti", ctrl not in watch.active_keys(),
-              str(watch.active_keys()))
-
-        # Zamanlayici: kimse `release` cagirmazsa sunucu kendisi birakmali.
-        b.key_down("ctrl")
-        b.mouse_down("left")
-        time.sleep(0.3)
-        check("ikisi de basili", set(b.held()) == {"ctrl", "left"}, str(b.held()))
-        time.sleep(2.4)
-        check("zamanlayici birakti", b.held() == [], str(b.held()))
-        check("cihazda da birakildi", ctrl not in watch.active_keys(),
-              str(watch.active_keys()))
-        freed = b.take_auto_released()
-        check("otomatik birakma bildirildi", set(freed) == {"ctrl", "left"}, str(freed))
-        check("bildirim bir kez okunuyor", b.take_auto_released() == [])
-    finally:
-        b.close()
+        return _Ready(cfg, screencast=FakeScreenCast(True))
 
 
 class FakeScreenCast:
@@ -3002,48 +2624,29 @@ def _synthetic_monitor_png(dest: Path) -> None:
 
 
 def test_screencast_backend() -> None:
-    """Ekran yayini yolu — CIHAZSIZ kisim.
+    """The screen share path with a fake share: no share opens, no PipeWire.
 
-    Gercek yayin `test_real_screencast()` icinde ve varsayilan olarak atlanir.
+    The real share is `test_real_capture()`, off by default.
     """
     from pcbridge.desktop import capture as C
-    from pcbridge.desktop import screencast as SC
 
     section("41. Ekran yayini — yol secimi")
 
-    # 1) backend_name / available yayin DURUMUNU okumali, tahmin etmemeli.
-    acik, kapali = FakeScreenCast(True), FakeScreenCast(False)
-    check("yayin acikken backend adi yayin", C.backend_name(acik) == C.SCREENCAST_NAME,
-          C.backend_name(acik))
-    check("yayin kapaliyken backend adi gnome-screenshot",
-          C.backend_name(kapali) == C.GNOME_SCREENSHOT, C.backend_name(kapali))
-    check("yayin verilmezse gnome-screenshot",
-          C.backend_name(None) == C.GNOME_SCREENSHOT)
+    # 1) Without an open share there is no picture: no second path.
+    ok_open, _ = C.available(FakeScreenCast(True))
+    ok_closed, why_closed = C.available(FakeScreenCast(False))
+    check("an open share is ready", ok_open is True)
+    check("a closed share is not", ok_closed is False)
+    check("the reason says what opens it", "desktop_unlock" in why_closed, why_closed[:80])
+    check("no share at all is not ready", C.available(None)[0] is False)
 
-    # 2) Acik yayin varken gnome-screenshot ARANMAMALI: kurulu olmadigi bir
-    #    makinede sessiz yol calisirken "kurulu degil" demek yanlis olurdu.
-    gercek_which = C.shutil.which
-    try:
-        C.shutil.which = lambda name: None      # hicbir sey kurulu degil
-        ok_acik, _ = C.available(acik)
-        ok_kapali, why_kapali = C.available(kapali)
-        check("yayin acikken gnome-screenshot aranmiyor", ok_acik is True)
-        check("yayin kapaliyken eksiklik bildiriliyor", ok_kapali is False)
-        check("gerekce kurulum komutu veriyor", "sudo " in why_kapali,
-              why_kapali[:80])
-    finally:
-        C.shutil.which = gercek_which
-
-    # 3) Yayin acikken KIRPMA YOK: her monitor kendi akisindan geliyor.
+    # 2) Yayin acikken KIRPMA YOK: her monitor kendi akisindan geliyor.
     mons = M._ordered(TWO_SCREENS)
-    real_list, real_avail, real_grab = M.list_monitors, C.available, C._grab_canvas
+    real_list = M.list_monitors
     tmp = Path(tempfile.mkdtemp(prefix="pcb-sc-"))
     sahte = FakeScreenCast(True)
     try:
         M.list_monitors = lambda *a, **k: mons
-        C.available = lambda *a, **k: (True, "")
-        C._grab_canvas = lambda td, ptr: (_ for _ in ()).throw(
-            AssertionError("yayin acikken gnome-screenshot CAGRILMAMALI"))
 
         shots = C.capture("all", out_dir=tmp, scale_long_edge=0, screencast=sahte)
         check("yayindan iki monitor geldi", len(shots) == 2, str(len(shots)))
@@ -3059,7 +2662,7 @@ def test_screencast_backend() -> None:
               {c[1] for c in cagrilar} == {"DP-2", "DP-1"},
               str({c[1] for c in cagrilar}))
 
-        # 4) Imlec kipi cekim basina degil YAYIN kurulurken belirleniyor;
+        # 3) Imlec kipi cekim basina degil YAYIN kurulurken belirleniyor;
         #    istek farkliysa yayin yeniden kurulmali.
         sahte2 = FakeScreenCast(True)
         sahte2.cursor = True
@@ -3068,185 +2671,27 @@ def test_screencast_backend() -> None:
         check("imlec kipi yayina bildirildi",
               ("ensure_cursor", False) in sahte2.calls, str(sahte2.calls[:2]))
 
-        # 5) Yayin kapaliysa yedege dusmeli (gnome-screenshot cagrilir).
-        cagrildi = {"n": 0}
+        # 4) A closed share refuses; nothing falls back to another program.
+        try:
+            C.capture("all", out_dir=tmp, scale_long_edge=0,
+                      screencast=FakeScreenCast(False))
+            check("a closed share refuses", False, "no error")
+        except C.CaptureError as exc:
+            check("a closed share refuses", "desktop_unlock" in str(exc), str(exc)[:120])
 
-        def sahte_grab(td, ptr):
-            cagrildi["n"] += 1
-            dest = Path(td) / "c.png"
-            _synthetic_canvas(dest)
-            return dest
-
-        C._grab_canvas = sahte_grab
-        C.capture("all", out_dir=tmp, scale_long_edge=0,
-                  screencast=FakeScreenCast(False))
-        check("yayin kapaliyken gnome-screenshot'a dusuldu", cagrildi["n"] == 1,
-              str(cagrildi))
-
-        # 6) Yayin dusen bir cekim SESSIZCE bos donmemeli.
+        # 5) Yayin dusen bir cekim SESSIZCE bos donmemeli.
         try:
             C.capture("all", out_dir=tmp, scale_long_edge=0,
                       screencast=FakeScreenCast(True, fail=True))
             check("dusen yayin hata veriyor", False, "hata vermedi")
         except C.CaptureError as exc:
-            check("dusen yayin hata veriyor", "yayin" in str(exc).lower(),
+            check("dusen yayin hata veriyor", "screen share" in str(exc).lower(),
                   str(exc)[:90])
             check("gerekce ne yapilacagini soyluyor", "desktop_unlock" in str(exc),
                   str(exc)[:120])
     finally:
         M.list_monitors = real_list
-        C.available, C._grab_canvas = real_avail, real_grab
         shutil.rmtree(tmp, ignore_errors=True)
-
-    # 7) `available()` yardimcisi yoksa duzgun gerekce vermeli.
-    ok, why = SC.available()
-    if ok:
-        check("bu makinede ekran yayini kullanilabilir", True)
-    else:
-        check("kullanilamiyorsa gerekce kurulum komutu veriyor",
-              "sudo " in why or "python" in why, why[:90])
-
-
-def test_kill_helpers() -> None:
-    """Ayri surecte yasayan yayin, `bridgekilit` ile gercekten oluyor mu.
-
-    BULUNAN BOSLUK (2026-09-06, kullanici fark etti): yardimci sureci ACAN
-    surec onun tutamagini kendi belleginde tutuyor, yani `ScreenCast.close()`
-    yalnizca kendi yayinini kapatabiliyor. `cli.lock` ayri bir surec: izin
-    dosyasini kapatiyordu ama baska bir surecin acik yayinina dokunamiyordu.
-    Belirti: izin kapali ama ust cubuktaki PAYLASIM GOSTERGESI duruyor.
-
-    Tarama /proc uzerinden yapiliyor, o yuzden testte sahte bir /proc agaci
-    kuruluyor: gercek surec oldurmeden secim mantigi sinaniyor.
-    """
-    section("51. Ekran yayini — baska surecin yayinini durdurma")
-    import os as _os
-
-    from pcbridge.desktop import screencast as SC
-
-    tmp = Path(tempfile.mkdtemp(prefix="pcb-proc-"))
-    oldurulen: list[int] = []
-    real_kill = _os.kill
-    try:
-        def sahte_proc(pid: int, cmdline: list[str]) -> None:
-            d = tmp / str(pid)
-            d.mkdir(parents=True, exist_ok=True)
-            (d / "cmdline").write_bytes(b"\0".join(c.encode() for c in cmdline))
-
-        helper = str(SC.HELPER)
-        sahte_proc(1001, ["python3", helper])                 # hedef
-        sahte_proc(1002, ["python3", helper, "--x"])          # hedef
-        sahte_proc(1003, ["python3", "/baska/betik.py"])      # HEDEF DEGIL
-        sahte_proc(1004, ["/usr/bin/gnome-shell"])            # HEDEF DEGIL
-        # Ad benzerligi yetmez: TAM yol eslesmeli, yoksa baskasinin
-        # "screencast_helper.py" adli baska bir betik de vurulurdu.
-        sahte_proc(1005, ["python3", "/tmp/screencast_helper.py"])
-        (tmp / "self").mkdir()                                # sayi degil, atlanmali
-        (tmp / "sys").mkdir()
-
-        _os.kill = lambda pid, sig: oldurulen.append(pid)
-        n = SC.kill_helpers(proc_root=tmp)
-        check("yalnizca HELPER'i calistiranlar sonlandirildi",
-              sorted(oldurulen) == [1001, 1002], str(sorted(oldurulen)))
-        check("sayi dogru donuyor", n == 2, str(n))
-        check("baska betik dokunulmadi", 1003 not in oldurulen)
-        check("gnome-shell dokunulmadi", 1004 not in oldurulen)
-        check("ayni ADLI baska yol dokunulmadi", 1005 not in oldurulen,
-              "tam yol eslesmesi sart")
-
-        # Baskasinin sureci: uid uyusmuyorsa atlanmali. (chown yapamayiz, o
-        # yuzden stat'i tasliyoruz.)
-        oldurulen.clear()
-        real_stat = Path.stat
-
-        def sahte_stat(self, *a, **k):
-            st = real_stat(self, *a, **k)
-            if self.name == "1001":
-                class Fake:
-                    st_uid = 65534  # nobody
-                return Fake()
-            return st
-
-        Path.stat = sahte_stat
-        try:
-            SC.kill_helpers(proc_root=tmp)
-        finally:
-            Path.stat = real_stat
-        check("baska kullanicinin sureci dokunulmadi",
-              oldurulen == [1002], str(oldurulen))
-
-        # Okunamayan /proc: patlamak yerine 0 donmeli
-        check("olmayan /proc 0 donuyor",
-              SC.kill_helpers(proc_root=tmp / "yok") == 0)
-    finally:
-        _os.kill = real_kill
-        import shutil as _sh
-
-        _sh.rmtree(tmp, ignore_errors=True)
-
-
-def test_real_screencast() -> None:
-    """GERCEK ekran yayini. PCBRIDGE_TEST_CAPTURE=1 ile acilir.
-
-    Kullanicinin ekranini diske yazar ve ust cubukta kisa sureligine paylasim
-    gostergesi cikarir; bu yuzden varsayilan olarak atlaniyor.
-    """
-    if os.environ.get("PCBRIDGE_TEST_CAPTURE") != "1":
-        return
-    section("42. Ekran yayini — gercek yakalama")
-
-    from pcbridge.desktop import monitors as M
-    from pcbridge.desktop import screencast as SC
-
-    ok, why = SC.available()
-    check("yayin altyapisi hazir", ok, why[:110])
-    if not ok:
-        return
-
-    sc = SC.ScreenCast()
-    tmp = Path(tempfile.mkdtemp(prefix="pcb-scr-"))
-    try:
-        check("acilmadan once kapali", not sc.is_open())
-        try:
-            sc.capture("DP-1", tmp / "olmaz.png")
-            check("kapali yayindan cekim reddediliyor", False, "kabul edildi")
-        except SC.ScreenCastError as exc:
-            check("kapali yayindan cekim reddediliyor", "is not on" in str(exc),
-                  str(exc)[:80])
-
-        connectors = [m.connector for m in M.list_monitors()]
-        sc.start(connectors, cursor=True)
-        check("yayin acildi", sc.is_open())
-        check("butun monitorler yayinda", set(sc.monitors()) == set(connectors),
-              f"{sc.monitors()} vs {connectors}")
-        check("ikinci start ayni yayini donduruyor",
-              sc.start(connectors).get("already") is True)
-
-        for conn in connectors:
-            dest = tmp / f"{conn}.png"
-            res = sc.capture(conn, dest)
-            check(f"{conn} karesi alindi", dest.exists() and dest.stat().st_size > 0,
-                  str(res))
-            from PIL import Image
-            with Image.open(dest) as im:
-                mon = next(m for m in M.list_monitors() if m.connector == conn)
-                check(f"{conn} cozunurlugu monitorle ayni",
-                      im.size == mon.source_pixel_size,
-                      f"{im.size} vs {mon.source_pixel_size}")
-
-        try:
-            sc.capture("YOK-9", tmp / "x.png")
-            check("olmayan monitor reddediliyor", False, "kabul edildi")
-        except SC.ScreenCastError as exc:
-            check("olmayan monitor reddediliyor", "is not being shared" in str(exc),
-                  str(exc)[:80])
-
-        sc.stop()
-        check("stop sonrasi kapali", not sc.is_open())
-    finally:
-        sc.close()
-        shutil.rmtree(tmp, ignore_errors=True)
-    check("close sonrasi kapali", not sc.is_open())
 
 
 def test_session_env() -> None:
@@ -3401,16 +2846,14 @@ def test_real_batch() -> None:
         return
     section("31. Toplu eylem — GERCEK calisma")
     from pcbridge.desktop import batch as B
-    from pcbridge.desktop import uitree as U
 
-    ok, why = U.available()
-    check("AT-SPI hazir", ok, why)
-    if not ok:
+    t, why = _live_provider("accessibility")
+    if t is None:
+        skip("real batch", why)
         return
 
     # Girdi GONDERMEYEN eylemlerle gercek motoru surelim: ui_dump zaten
     # readOnly, `wait` zararsiz. Tiklama gondermek elle dogrulamaya birakildi.
-    t = U.UiTree()
 
     class RealishOps(FakeOps):
         def focused(self):
@@ -3429,7 +2872,6 @@ def main() -> int:
     test_monitor_resolve()
     test_coordinate_offset()
     test_monitor_parsers()
-    test_key_names()
     test_raw_ascii_table()
     test_gate_disabled()
     test_gate_permission_window()
@@ -3450,8 +2892,6 @@ def main() -> int:
     test_uitree_describe()
     test_uitree_stable_ids()
     test_uitree_actions()
-    test_uitree_timeout()
-    test_uitree_helper_filters()
     test_real_atspi()
     test_batch_parse()
     test_batch_budget()
@@ -3470,13 +2910,7 @@ def main() -> int:
     test_cli_stale_shot()
     test_computer_task_prompt()
     test_session_env()
-    test_move_path()
-    test_relative_chunks()
-    test_hold_tracking()
-    test_real_hold()
     test_screencast_backend()
-    test_kill_helpers()
-    test_real_screencast()
     test_real_batch()
     print(f"\n\033[1m{ok_count} gecti, {fail_count} kaldi\033[0m")
     return 1 if fail_count else 0

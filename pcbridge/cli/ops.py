@@ -656,10 +656,10 @@ def setup(argv: list[str]) -> int:
         notes.append(command)
     if plan.extras:
         if planlib.install_extras():
-            inst.ok("Python packages for desktop control: evdev, Pillow")
+            inst.ok("Python package for desktop control: Pillow")
         else:
-            inst.warn("evdev and Pillow were not installed; desktop control needs them")
-            notes.append("pcbridge setup   # tries evdev and Pillow again")
+            inst.warn("Pillow was not installed; desktop control needs it")
+            notes.append("pcbridge setup   # tries Pillow again")
     if plan.native_fetch:
         # A download of an executable waits for the same yes as the packages:
         # --yes, or the plan confirmed on a terminal (a "no" returned above).

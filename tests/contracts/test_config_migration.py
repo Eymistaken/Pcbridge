@@ -166,20 +166,24 @@ class ConfigMigrationTests(unittest.TestCase):
         self.assertTrue(any("[desktop] `enabeld`" in w for w in cfg.warnings))
         self.assertFalse(cfg.desktop.enabled)
 
-    def test_the_python_desktop_paths_are_announced_as_going(self) -> None:
-        """2.8 warns; the next release removes them (stage 7 of the roadmap)."""
+    def test_a_config_from_before_the_removal_still_loads_and_is_told(self) -> None:
+        """The Python desktop paths went after 2.8: an old value warns, never refuses."""
         text = self.legacy.read_text()
         self.assertFalse([w for w in configlib.load_config(str(self.legacy)).warnings
-                          if "deprecated" in w])
+                          if "no longer supported" in w])
         self.legacy.write_text(text + '\n[native]\ncapture = "python"\naccessibility = "python"\n')
         cfg = configlib.load_config(str(self.legacy))
-        deprecated = [w for w in cfg.warnings if "deprecated" in w]
-        self.assertEqual(len(deprecated), 2, deprecated)
-        self.assertTrue(all('set it to "auto"' in w for w in deprecated))
-        self.assertEqual(cfg.native.capture, "python", "the setting still works in 2.8")
+        gone = [w for w in cfg.warnings if "no longer supported" in w]
+        self.assertEqual(len(gone), 2, gone)
+        self.assertTrue(all('set it to "auto"' in w for w in gone))
+        self.assertEqual((cfg.native.capture, cfg.native.accessibility), ("auto", "auto"))
         self.legacy.write_text(text.replace("[desktop]\n", '[desktop]\ncapture_backend = "gnome-screenshot"\n', 1))
         cfg = configlib.load_config(str(self.legacy))
-        self.assertTrue(any("capture_backend" in w and "deprecated" in w for w in cfg.warnings))
+        hint = [w for w in cfg.warnings if "capture_backend" in w]
+        self.assertEqual(len(hint), 1, cfg.warnings)
+        self.assertIn("is ignored", hint[0])
+        self.assertIn("native helper", hint[0])
+        self.assertFalse(hasattr(cfg.desktop, "capture_backend"))
 
     def test_loose_mode_warns(self) -> None:
         os.chmod(self.legacy, 0o644)

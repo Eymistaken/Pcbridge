@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Task 4.2: the Rust capture backend against the legacy one, on the real desktop.
+"""Task 4.2: the native capture backend on the real desktop.
 
 Skipped unless `PCBRIDGE_TEST_CAPTURE=1`. It opens screen shares and covers
 every monitor with a static test pattern for a few minutes. It sends no input:
@@ -7,13 +7,19 @@ nothing is clicked, typed or moved. Every grant lives in a scratch state
 directory, so the user's real desktop grant is never read or written, and the
 captured images stay in a scratch directory that is removed at the end.
 
-The evidence is what Gate 4 asks for (`PLAN.md` (1.x, in git history) Task 4.2): monitor identity,
-offset, size and mapping parity; static pixel parity at full size and at 1536;
-pointer modes; freshness after a request; warm latency p95 against the legacy
-path; session startups; revoke and expiry; the Python host dying; the native
-helper crashing; delivery to an HTTP MCP client while `shell_run` keeps
-working. The numbers are printed as JSON on stderr at the end, and written to
+This was Gate 4's parity run against the legacy Python screen share
+(`PLAN.md` (1.x, in git history) Task 4.2; the numbers are in
+docs/dev/measured-facts.md). That path was removed after 2.8, so what stays
+is the native side of every check: monitor identity, offset, size and
+mapping against the monitor table; the same pixels from a static screen;
+pointer modes; freshness after a request; warm latency; session startups;
+revoke and expiry; the Python host dying; the native helper crashing;
+delivery to an HTTP MCP client while `shell_run` keeps working. The numbers
+are printed as JSON on stderr at the end, and written to
 `$PCBRIDGE_PARITY_REPORT` when that is set.
+
+The helpers here are shared by the other live checks (`tests/live/`,
+`tests/live/hyprland/`), which is why the file keeps its name.
 
 Not covered here, because they need a person: locking the screen (unlocking
 takes the user's password) and seeing the sharing indicator disappear.
@@ -54,8 +60,6 @@ from PIL import Image, ImageChops  # noqa: E402
 
 from pcbridge.config import load_config  # noqa: E402
 from pcbridge.desktop import monitors as monitorslib  # noqa: E402
-from pcbridge.desktop import screencast as screencastlib  # noqa: E402
-from pcbridge.desktop.backends.python import PythonCaptureProvider  # noqa: E402
 from pcbridge.desktop.backends.rust import NativeScreenCast, RustCaptureProvider  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCategory  # noqa: E402
 from pcbridge.desktop.lease import LeaseStore  # noqa: E402
@@ -78,7 +82,6 @@ BITS = 16
 WARM_CAPTURES = 30
 STARTUPS = 5
 PARITY_FLOOR = 99.5
-P95_RATIO = 1.5
 
 
 # ------------------------------------------------------------------ helpers
@@ -151,13 +154,6 @@ def processes(match, *, parent: int | None = None) -> set[int]:
 
 def native_pids(binary: Path, **kwargs) -> set[int]:
     return processes(lambda argv: argv[0] == str(binary), **kwargs)
-
-
-def legacy_helpers() -> set[int]:
-    return processes(
-        lambda argv: Path(argv[0]).name.startswith("python")
-        and any(Path(part).name == "screencast_helper.py" for part in argv[1:3])
-    )
 
 
 def wait_until(predicate, timeout: float, interval: float = 0.1) -> bool:
@@ -322,7 +318,7 @@ HOST_PROGRAM = textwrap.dedent(
 @unittest.skipUnless(
     LIVE, "set PCBRIDGE_TEST_CAPTURE=1: opens screen shares and covers the monitors"
 )
-class CaptureParityGate(unittest.TestCase):
+class NativeCaptureGate(unittest.TestCase):
     report: dict[str, Any] = {}
 
     @classmethod
@@ -332,12 +328,9 @@ class CaptureParityGate(unittest.TestCase):
             raise unittest.SkipTest(why)
         if screen_locked():
             raise unittest.SkipTest("the screen is locked")
-        if legacy_helpers():
-            raise unittest.SkipTest("a Python screencast helper is running (a real grant)")
         cls.binary = binary
         cls.root = Path(tempfile.mkdtemp(prefix="pcb-parity-"))
         cls.pattern = None
-        cls.legacy = None
         cls.native = None
         cls.report = {"binary": read_build_info(binary)}
         try:
@@ -352,8 +345,6 @@ class CaptureParityGate(unittest.TestCase):
             cls.report["monitors"] = [
                 [m.index, m.connector, m.x, m.y, m.width, m.height] for m in cls.monitors
             ]
-            cls.legacy = PythonCaptureProvider(cls.cfg, screencastlib.ScreenCast())
-            cls.legacy.start(cursor=False)
             cls.native = RustCaptureProvider(cls.cfg, gate=cls.gate)
             cls.native.start(cursor=False)
         except BaseException:
@@ -367,7 +358,7 @@ class CaptureParityGate(unittest.TestCase):
     @classmethod
     def _cleanup(cls, *, raise_problems: bool) -> None:
         problems = []
-        for provider in (cls.native, cls.legacy):
+        for provider in (cls.native,):
             if provider is not None:
                 try:
                     provider.close()
@@ -387,11 +378,9 @@ class CaptureParityGate(unittest.TestCase):
             leftover = native_pids(cls.binary) - cls.natives_before
             if not wait_until(lambda: not (native_pids(cls.binary) - cls.natives_before), 10):
                 problems.append(f"native helpers left: {sorted(leftover)}")
-            if legacy_helpers():
-                problems.append(f"legacy helpers left: {sorted(legacy_helpers())}")
         cls.report["cleanup_problems"] = problems
         rendered = json.dumps(cls.report, indent=2, ensure_ascii=False, default=str)
-        print("\ncapture parity report:\n" + rendered, file=sys.stderr)
+        print("\nnative capture report:\n" + rendered, file=sys.stderr)
         target = os.environ.get("PCBRIDGE_PARITY_REPORT")
         if target:
             Path(target).write_text(rendered + "\n", encoding="utf-8")
@@ -401,7 +390,7 @@ class CaptureParityGate(unittest.TestCase):
 
     # ---------------------------------------------------------------- utils
     def providers(self):
-        return (("legacy", type(self).legacy), ("native", type(self).native))
+        return (("native", type(self).native),)
 
     def capture(self, provider, spec, *, scale: int, pointer: bool, label: str):
         out = self.root / label
@@ -429,7 +418,7 @@ class CaptureParityGate(unittest.TestCase):
         return provider
 
     # ---------------------------------------------------------------- tests
-    def test_01_the_pattern_is_on_every_monitor_for_both_backends(self) -> None:
+    def test_01_the_pattern_is_on_every_monitor(self) -> None:
         for name, provider in self.providers():
             shots = self.capture(provider, "all", scale=0, pointer=False, label=f"t01-{name}")
             self.assertEqual(len(shots), len(self.monitors))
@@ -442,51 +431,56 @@ class CaptureParityGate(unittest.TestCase):
                     f"{expected} -- pattern missing, or a frame from the wrong monitor",
                 )
 
-    def test_02_identity_offset_size_and_mapping_match(self) -> None:
+    def test_02_identity_offset_size_and_mapping_follow_the_monitor_table(self) -> None:
         specs = [1, 2, "all"] if len(self.monitors) > 1 else [1, "all"]
         for spec in specs:
             for scale in (1536, 0):
-                legacy = self.describe(self.capture(
-                    self.legacy, spec, scale=scale, pointer=False, label=f"t02-l-{spec}-{scale}"))
-                native = self.describe(self.capture(
-                    self.native, spec, scale=scale, pointer=False, label=f"t02-n-{spec}-{scale}"))
-                self.assertEqual(legacy, native, f"spec={spec} scale={scale}")
+                for shot in self.capture(self.native, spec, scale=scale, pointer=False,
+                                         label=f"t02-{spec}-{scale}"):
+                    monitor = next(m for m in self.monitors
+                                   if m.connector == shot.monitor.connector)
+                    where = f"spec={spec} scale={scale} {monitor.connector}"
+                    self.assertTrue(shot.id.startswith(f"m{monitor.index}-"), where)
+                    self.assertEqual(shot.offset, (monitor.x, monitor.y), where)
+                    self.assertIn(shot.size, ((monitor.width, monitor.height),
+                                              monitor.source_pixel_size), where)
+                    width, height = shot.scaled
+                    self.assertEqual(shot.to_global(0, 0), (monitor.x, monitor.y), where)
+                    last_x, last_y = shot.to_global(width - 1, height - 1)
+                    self.assertTrue(
+                        monitor.x <= last_x < monitor.x + monitor.width
+                        and monitor.y <= last_y < monitor.y + monitor.height,
+                        f"{where}: the last pixel maps to {(last_x, last_y)}",
+                    )
         self.report["mapping_cases"] = [f"{spec}@{scale}" for spec in specs for scale in (1536, 0)]
 
-    def test_03_static_pixels_agree_at_full_size_and_1536(self) -> None:
+    def test_03_a_static_screen_gives_the_same_pixels_twice(self) -> None:
         results = {}
         for scale in (0, 1536):
-            legacy = {s.monitor.connector: rgb(s.path) for s in self.capture(
-                self.legacy, "all", scale=scale, pointer=False, label=f"t03-l-{scale}")}
-            native = {s.monitor.connector: rgb(s.path) for s in self.capture(
-                self.native, "all", scale=scale, pointer=False, label=f"t03-n-{scale}")}
-            for connector, image in legacy.items():
-                key = f"{connector}@{scale or 'full'}"
-                results[key] = round(agreement(image, native[connector]), 3)
-        self.report["pixel_parity_percent"] = results
+            first, second = (
+                {s.monitor.connector: rgb(s.path) for s in self.capture(
+                    self.native, "all", scale=scale, pointer=False, label=f"t03-{scale}-{n}")}
+                for n in (1, 2)
+            )
+            for connector, image in first.items():
+                results[f"{connector}@{scale or 'full'}"] = round(
+                    agreement(image, second[connector]), 3)
+        self.report["static_repeat_percent"] = results
         for key, value in results.items():
             self.assertGreaterEqual(value, PARITY_FLOOR, f"{key}: {value}%")
 
-    def test_04_pointer_modes_keep_sizes_and_parity(self) -> None:
-        with_pointer = {}
-        for name, provider in self.providers():
-            with_pointer[name] = {s.monitor.connector: s for s in self.capture(
-                provider, "all", scale=0, pointer=True, label=f"t04-{name}-pointer")}
+    def test_04_pointer_modes_keep_sizes(self) -> None:
+        with_pointer = {s.monitor.connector: s for s in self.capture(
+            self.native, "all", scale=0, pointer=True, label="t04-pointer")}
         plain = {s.monitor.connector: s for s in self.capture(
-            self.native, "all", scale=0, pointer=False, label="t04-native-plain")}
-        parity, cursor_effect = {}, {}
-        for connector, legacy_shot in with_pointer["legacy"].items():
-            native_shot = with_pointer["native"][connector]
-            self.assertEqual(legacy_shot.size, native_shot.size)
-            self.assertEqual(legacy_shot.scaled, native_shot.scaled)
-            parity[connector] = round(
-                agreement(rgb(legacy_shot.path), rgb(native_shot.path)), 3)
+            self.native, "all", scale=0, pointer=False, label="t04-plain")}
+        cursor_effect = {}
+        for connector, shot in with_pointer.items():
+            self.assertEqual(shot.size, plain[connector].size)
+            self.assertEqual(shot.scaled, plain[connector].scaled)
             cursor_effect[connector] = round(
-                agreement(rgb(native_shot.path), rgb(plain[connector].path)), 3)
-        self.report["pointer_parity_percent"] = parity
+                agreement(rgb(shot.path), rgb(plain[connector].path)), 3)
         self.report["native_pointer_vs_plain_percent"] = cursor_effect
-        for connector, value in parity.items():
-            self.assertGreaterEqual(value, PARITY_FLOOR, f"{connector} with pointer: {value}%")
 
     def test_05_every_native_frame_follows_its_request(self) -> None:
         results = {}
@@ -506,69 +500,54 @@ class CaptureParityGate(unittest.TestCase):
         self.report["freshness"] = results
         self.assertEqual(results["native"]["stale"], [], "a native frame older than its request")
 
-    def test_06_warm_latency_p95_stays_within_1_5x_of_legacy(self) -> None:
-        samples: dict[str, list[float]] = {"legacy": [], "native": []}
+    def test_06_warm_latency_is_measured(self) -> None:
+        samples: list[float] = []
         errors = []
-        for name, provider in self.providers():
-            self.capture(provider, 1, scale=1536, pointer=False, label=f"t06-warmup-{name}")
+        self.capture(self.native, 1, scale=1536, pointer=False, label="t06-warmup")
         for iteration in range(WARM_CAPTURES):
-            for name, provider in self.providers():
-                started = time.perf_counter()
-                try:
-                    self.capture(provider, 1, scale=1536, pointer=False,
-                                 label=f"t06-{name}-{iteration}")
-                except Exception as exc:  # noqa: BLE001 - counted, not hidden
-                    errors.append(f"{name}#{iteration}: {exc}")
-                    continue
-                samples[name].append(1000 * (time.perf_counter() - started))
-        raw: dict[str, list[float]] = {"legacy": [], "native": []}
+            started = time.perf_counter()
+            try:
+                self.capture(self.native, 1, scale=1536, pointer=False,
+                             label=f"t06-{iteration}")
+            except Exception as exc:  # noqa: BLE001 - counted, not hidden
+                errors.append(f"#{iteration}: {exc}")
+                continue
+            samples.append(1000 * (time.perf_counter() - started))
+        raw: list[float] = []
         connector = self.monitors[0].connector
         for iteration in range(WARM_CAPTURES):
-            for name, provider in self.providers():
-                path = self.root / f"t06-raw-{name}-{iteration}.png"
-                started = time.perf_counter()
-                try:
-                    provider.screencast.capture(connector, path)
-                except Exception as exc:  # noqa: BLE001
-                    errors.append(f"raw {name}#{iteration}: {exc}")
-                    continue
-                raw[name].append(1000 * (time.perf_counter() - started))
-        stats = {name: summarize(values) for name, values in samples.items()}
-        self.report["warm_capture_ms"] = stats
-        self.report["raw_frame_ms"] = {name: summarize(values) for name, values in raw.items()}
+            path = self.root / f"t06-raw-{iteration}.png"
+            started = time.perf_counter()
+            try:
+                self.native.screencast.capture(connector, path)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"raw #{iteration}: {exc}")
+                continue
+            raw.append(1000 * (time.perf_counter() - started))
+        self.report["warm_capture_ms"] = {"native": summarize(samples)}
+        self.report["raw_frame_ms"] = {"native": summarize(raw)}
         self.report["capture_errors"] = errors
         self.report["load_average"] = Path("/proc/loadavg").read_text().split()[:3]
         self.assertEqual(errors, [])
-        self.assertLessEqual(
-            stats["native"]["p95"], P95_RATIO * stats["legacy"]["p95"],
-            f"native p95 {stats['native']['p95']} ms > {P95_RATIO} x legacy "
-            f"{stats['legacy']['p95']} ms",
-        )
 
     def test_07_session_startups(self) -> None:
         connector = self.monitors[0].connector
         connectors = [monitor.connector for monitor in self.monitors]
-        startups: dict[str, list[float]] = {"legacy": [], "native": []}
+        startups: list[float] = []
         errors = []
         for iteration in range(STARTUPS):
-            for name in ("legacy", "native"):
-                handle = (
-                    screencastlib.ScreenCast() if name == "legacy"
-                    else NativeScreenCast(self.cfg, gate=self.gate)
-                )
-                path = self.root / f"t07-{name}-{iteration}.png"
-                started = time.perf_counter()
-                try:
-                    handle.start(connectors, cursor=False)
-                    handle.capture(connector, path)
-                    startups[name].append(1000 * (time.perf_counter() - started))
-                except Exception as exc:  # noqa: BLE001
-                    errors.append(f"{name}#{iteration}: {exc}")
-                finally:
-                    handle.close()
-        self.report["session_startup_ms"] = {
-            name: summarize(values) for name, values in startups.items()
-        }
+            handle = NativeScreenCast(self.cfg, gate=self.gate)
+            path = self.root / f"t07-{iteration}.png"
+            started = time.perf_counter()
+            try:
+                handle.start(connectors, cursor=False)
+                handle.capture(connector, path)
+                startups.append(1000 * (time.perf_counter() - started))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"#{iteration}: {exc}")
+            finally:
+                handle.close()
+        self.report["session_startup_ms"] = {"native": summarize(startups)}
         self.assertEqual(errors, [])
 
     def test_08_revoke_and_expiry_deliver_no_frame(self) -> None:

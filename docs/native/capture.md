@@ -2,14 +2,16 @@
 
 How `pcbridge-native` captures the screen through a Mutter ScreenCast
 session (`rust/crates/pcbridge-native/src/platform/linux/session.rs`,
-`capture.rs`, `pipewire_source.rs`; rules in `pcbridge-core::frame`). The
-Python counterpart is `pcbridge/desktop/screencast.py` +
-`screencast_helper.py`. Whichever takes the frame, the shot and coordinate
-contract in `capture.py` is the same.
+`capture.rs`, `pipewire_source.rs`; rules in `pcbridge-core::frame`). It is
+the only capture path: the Python counterpart (`screencast.py` with its
+GStreamer helper) and gnome-screenshot were removed after 2.8. The shot and
+coordinate contract stays in `capture.py`.
 
 The session opens with `capture.session_open` when `desktop_unlock` runs (so
 GNOME's sharing indicator appears with the grant), or at the first
-`capture.frame`.
+`screen_capture` when it could not open then. A window capture is a region
+of its monitor's frame: GNOME's extension (`FocusedWindowFrame`, since 2.8),
+KWin or Hyprland names the window and its box.
 
 On KDE Plasma there is no session: each `capture.frame` is one call to
 KWin's `org.kde.KWin.ScreenShot2.CaptureScreen` (`kwin_screenshot.rs`),
@@ -125,6 +127,9 @@ that holds the lock.
 
 ## Differences from the Python helper
 
+Kept as the record of why the session is built this way; `screencast.py`
+was removed after 2.8.
+
 | | `screencast.py` | here |
 |---|---|---|
 | A different monitor set requested | answers `already: True` and **keeps the old set** | rebuilds |
@@ -201,27 +206,22 @@ frame call from 525 ms to 98 ms (445 ms -> 17.5 ms encoding).
 
 ## The Python side
 
-Where the frame comes from changed; nothing else did. Cropping, scaling, the
-PNG sent to the client, shot ids, both search directories, the shot record and
-every coordinate conversion stay in `capture.py`: a shot id is how a later
-`mouse(shot=…)` finds the offset and scale, and keeping that ledger in two
-languages is how clicks end up on the wrong screen. `NativeScreenCast` has the
-old handle's shape (`is_open`, `start`, `ensure_cursor`, `capture(connector,
-path)`, `close`), so `capture.py` cannot tell them apart.
+Where the frame comes from moved into the helper; nothing else did.
+Cropping, scaling, the PNG sent to the client, shot ids, both search
+directories, the shot record and every coordinate conversion stay in
+`capture.py`: a shot id is how a later `mouse(shot=…)` finds the offset and
+scale, and keeping that ledger in two languages is how clicks end up on the
+wrong screen. `NativeScreenCast` is the handle `capture.py` takes frames
+from (`is_open`, `start`, `ensure_cursor`, `capture(connector, path)`,
+`close`).
 
-Backend selection (`select_capture_backend`, pure, done once when the runtime
-is built, so an `all` capture never mixes two sources):
-
-| `[native] capture` | helper present | helper missing |
-|---|---|---|
-| `python` | Python | Python |
-| `rust` | Rust | **Rust, failing visibly** |
-| `auto` (default) | Rust | Python + `degraded` with the reason |
-
-`auto` keeps an explicit `[desktop] capture_backend = "gnome-screenshot"` on
-the Python path, so sharing the user turned off is not opened silently. A
-fallback is visible in `system_capabilities`, in the `screen_capture` result,
-in the audit log, and in `pcb-shot --json`.
+There is one capture provider (`RustCaptureProvider`), built once with the
+runtime. Without a helper it is still that provider, and every capture
+refuses with the reason and the fix (`NATIVE_NOT_FOUND`, see
+[packaging.md](packaging.md#discovery)). `[native] capture` takes `auto` or
+`rust`, both the helper; an old `"python"` is read as `auto` with a
+warning, and an old `[desktop] capture_backend` line is ignored with a
+warning.
 
 - **`taken_at` is each frame's own arrival time**: in an `all` capture the
   monitors are read in turn, hundreds of milliseconds apart, and the stamp
@@ -299,7 +299,8 @@ window is enough).
   checks that a refusal carries no payload and that the helper still delivers
   afterwards; breaking `matches_token` turned it red.
 - MCP over real stdio with `rust` forced, Python GI blocked and
-  `gnome-screenshot` unusable: two 1536x864 images decoded by the client, the
+  `gnome-screenshot` unusable (measured while the Python paths still
+  existed): two 1536x864 images decoded by the client, the
   two monitors 26.24 % alike (different screens), records matching the
   decoded size; after `desktop_lock` a safety error and no image; nothing
   left afterwards (no helper, no Mutter session, no staging directory).
@@ -343,7 +344,8 @@ window is enough).
   used; mode 2 (pointer as metadata) needs a door this helper does not open.
 - Portal persistence; buffered (continuous) capture.
 
-## Rolling back
+## No rolling back
 
-`capture = "python"` under `[native]`, then `pcbridge update`. With `python`
-selected the Python pipeline never calls the native capture methods.
+Until 2.8, `capture = "python"` under `[native]` switched back to the
+GStreamer screen share. That path was removed after 2.8; the previous
+release still has it.

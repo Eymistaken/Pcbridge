@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Measure how KWin maps pcbridge's absolute uinput pointer.
 
-Run with pcbridge's venv python (it needs python-evdev) inside a KDE Plasma
-Wayland session, as a user who can write /dev/uinput. It MOVES THE POINTER
+Run with a python that has python-evdev inside a KDE Plasma Wayland
+session, as a user who can write /dev/uinput. pcbridge no longer installs
+python-evdev (its Python input path was removed after 2.8), so add it to the
+VM's venv first: `.venv/bin/pip install evdev`. It MOVES THE POINTER
 (no clicks, no keys): only run it in the test VM (scripts/dev/arch-vm.sh).
 
 It creates an absolute pointer the same way pcbridge does (ABS range

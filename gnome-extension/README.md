@@ -121,13 +121,14 @@ frame of no size. pcbridge learns whether the running extension has the
 method by introspection, which reads no window. Measured in a headless
 GNOME 46 shell: a 420x160 window at (750, 476) became a shot of exactly
 that box with that offset, on the native helper and on the Python
-screencast, and gnome-screenshot never ran.
+screencast (removed after 2.8), and gnome-screenshot never ran.
 
 `pcbridge doctor` reads `Version` from the running shell and says whether
-the new extension is loaded yet. Either extension version works with either
-server version; with one from before 2.8, window capture on GNOME falls
-back to gnome-screenshot until the next login, which the next release
-removes.
+the new extension is loaded yet. Either extension version works with
+either server version, except window capture: with an extension from
+before 2.8, GNOME has no window capture until the next login loads the new
+one, and `screen_capture(monitor="window")` says so. (2.8 fell back to
+gnome-screenshot there; that path was removed after 2.8.)
 
 ## The agent's pointer (off by default)
 

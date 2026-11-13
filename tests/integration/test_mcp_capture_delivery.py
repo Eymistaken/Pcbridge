@@ -12,8 +12,9 @@ frames; cropping, scaling, staging, publishing, the tool result and FastMCP's
 serialization are production code. `LiveNativeDelivery` needs
 `PCBRIDGE_TEST_CAPTURE=1` and a built native helper: it starts the real server
 over real stdio with the Rust backend, Python GI made unimportable and
-`gnome-screenshot` replaced by a program that refuses to run. It briefly opens
-a screen share; it sends no input.
+`gnome-screenshot` replaced by a program that refuses to run, so nothing can
+reach for the Python paths removed after 2.8. It briefly opens a screen share;
+it sends no input.
 """
 
 from __future__ import annotations
@@ -121,23 +122,6 @@ class InMemoryDelivery(DeliveryChecks, unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(
                     Path(record["png"]).read_bytes(), base64.b64decode(block.data)
                 )
-
-    async def test_a_python_fallback_says_so_in_the_result_and_the_audit(self) -> None:
-        """Task 4.3: `auto` without a helper captures through Python, visibly."""
-        with tempfile.TemporaryDirectory() as raw:
-            server = fixture.build(
-                Path(raw), degraded_reason="The pcbridge native helper was not found."
-            )
-            async with Client(server.mcp) as client:
-                result = await client.call_tool("screen_capture", {"monitor": "all"})
-
-            self.assert_fixture_images(result)
-            text = text_of(result)
-            self.assertIn("Native capture was unavailable", text)
-            self.assertIn("not found", text)
-            audited = [fields for event, fields in server.gate.events if event == "screen_capture"]
-            self.assertEqual(len(audited), 1)
-            self.assertEqual(audited[0]["backend"], "screencast (PipeWire)")
 
     async def test_stdio_never_hands_out_a_link_that_nothing_serves(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -458,11 +442,6 @@ class LiveNativeDelivery(unittest.TestCase):
         binary, why = real_native_binary()
         if binary is None:
             self.skipTest(why)
-        helpers_before = processes("screencast_helper.py")
-        if helpers_before:
-            # `desktop_lock` stops every helper of this user; one running now
-            # belongs to a real grant, and this test must not close it.
-            self.skipTest("a Python screencast helper is running (a real grant is open)")
         natives_before = processes(str(binary))
         sessions_before = screencast_sessions()
 
@@ -581,7 +560,6 @@ class LiveNativeDelivery(unittest.TestCase):
             processes(str(binary)) - natives_before, set(),
             "the native helper outlived its server",
         )
-        self.assertEqual(processes("screencast_helper.py"), set())
         self.assertLessEqual(screencast_sessions(), sessions_before)
         print(
             f"\nlive delivery: {len(ids)} shots · first call {elapsed * 1000:.0f} ms "

@@ -1,13 +1,11 @@
-"""Concrete desktop provider implementations."""
+"""The desktop providers: the native helper (`rust.py`) and what they share (`common.py`)."""
 
-from .python import (
-    PythonAccessibilityProvider,
-    PythonCaptureProvider,
-    PythonInputProvider,
-)
+from .common import SessionStateProvider
+from .rust import RustAccessibilityProvider, RustCaptureProvider, RustInputProvider
 
 __all__ = [
-    "PythonAccessibilityProvider",
-    "PythonCaptureProvider",
-    "PythonInputProvider",
+    "SessionStateProvider",
+    "RustAccessibilityProvider",
+    "RustCaptureProvider",
+    "RustInputProvider",
 ]

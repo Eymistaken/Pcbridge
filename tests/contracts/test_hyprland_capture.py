@@ -45,8 +45,7 @@ class HyprlandCaptureTests(unittest.TestCase):
             "at": [67, 4], "size": [20, 24]}
         for patch in (mock.patch.object(compositor, "current", return_value=compositor.HYPRLAND),
                       mock.patch.object(monitors, "list_monitors", side_effect=lambda **kwargs: self.table),
-                      mock.patch.object(hyprland, "_query", side_effect=lambda *args, **kwargs: self.window.copy()),
-                      mock.patch.object(capture, "_run_grab", side_effect=AssertionError("External capture is forbidden"))):
+                      mock.patch.object(hyprland, "_query", side_effect=lambda *args, **kwargs: self.window.copy())):
             patch.start()
             self.addCleanup(patch.stop)
 

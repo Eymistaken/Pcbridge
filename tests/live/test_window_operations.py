@@ -16,8 +16,9 @@ the fallback does, while one of the test's own windows has focus.
 
 The GNOME Shell extension is left out: `activate_window` answers False, so
 the paths behind it run. The extension's own path was measured on the real
-session on 2026-09-12 (3-6 ms). Every test runs with the Python accessibility
-reader and once more with the native helper when one is found.
+session on 2026-09-12 (3-6 ms). Every test reads through the native helper,
+the only accessibility reader since the Python one was removed after 2.8;
+without a helper the tests skip.
 """
 
 from __future__ import annotations
@@ -41,12 +42,9 @@ sys.path.insert(0, str(ROOT))
 
 from pcbridge.config import load_config  # noqa: E402
 from pcbridge.desktop import apps  # noqa: E402
-from pcbridge.desktop import uitree as uitreelib  # noqa: E402
-from pcbridge.desktop.backends.python import (  # noqa: E402
-    PythonAccessibilityProvider,
-    PythonInputProvider,
-)
+from pcbridge.desktop.backends.rust import RustInputProvider  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCode  # noqa: E402
+from pcbridge.desktop.safety import SafetyGate  # noqa: E402
 from tests.live.test_accessibility_parity import native_provider  # noqa: E402
 
 SYSTEM_PYTHON = "/usr/bin/python3"
@@ -145,12 +143,9 @@ def cgroup(pid: int) -> str:
 @unittest.skipUnless(READ, "set PCBRIDGE_TEST_ATSPI=1: opens small test windows")
 class WindowOperationsLive(unittest.TestCase):
     #: Timings are kept per accessibility reader.
-    label = "python"
+    label = "native"
 
     def setUp(self) -> None:
-        ok, why = uitreelib.available()
-        if not ok:
-            self.skipTest(why)
         if screen_locked():
             self.skipTest("the screen is locked")
         self.tree = self.provider()
@@ -160,7 +155,7 @@ class WindowOperationsLive(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def provider(self):
-        return PythonAccessibilityProvider()
+        return native_provider(self, "accessibility.read")
 
     def _no_extension(self, window: str) -> bool:
         self.activations.append(window)
@@ -225,13 +220,6 @@ class WindowOperationsLive(unittest.TestCase):
         self.assertEqual(len(app.pids()), 1)
 
 
-class NativeWindowOperationsLive(WindowOperationsLive):
-    label = "native"
-
-    def provider(self):
-        return native_provider(self, "accessibility.read")
-
-
 @unittest.skipUnless(
     INPUT,
     "set PCBRIDGE_TEST_ATSPI=1 and PCBRIDGE_TEST_INPUT=1: presses Super, types "
@@ -263,7 +251,10 @@ class SearchFallbackLive(WindowOperationsLive):
         cfg = dataclasses.replace(
             load_config(str(ROOT / "config.example.toml")), state_dir=Path(scratch.name)
         )
-        keyboard = PythonInputProvider(cfg)
+        gate = SafetyGate(cfg)
+        gate.unlock(5, reason="live search fallback")
+        self.addCleanup(gate.lock)
+        keyboard = RustInputProvider(cfg, gate=gate)
         self.addCleanup(keyboard.close)
         keyboard.ensure(keyboard=True)
 

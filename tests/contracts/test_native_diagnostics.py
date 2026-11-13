@@ -93,31 +93,20 @@ class NativeDiagnostics(unittest.TestCase):
         self.binary.chmod(0o755)
         self.cfg = load_config(str(ROOT / "config.example.toml"))
 
-    def config(
-        self,
-        capture: str,
-        binary: Path | None,
-        typing: str | None = None,
-        reading: str | None = None,
-    ):
-        # One selection for all three unless a test sets one on its own.
+    def config(self, choice: str, binary: Path | None, enabled: bool):
         return replace(
             self.cfg,
             native=NativeSpec(
-                capture=capture,
-                input=typing or capture,
-                accessibility=reading or capture,
-                binary_path=binary,
+                capture=choice, input=choice, accessibility=choice, binary_path=binary
             ),
+            desktop=replace(self.cfg.desktop, enabled=enabled),
         )
 
-    def run_diagnose(
-        self, capture="auto", binary="present", typing=None, reading=None, **kwargs
-    ):
+    def run_diagnose(self, choice="auto", binary="present", enabled=True, **kwargs):
         runner = kwargs.pop("runner", FakeRunner())
         probe = kwargs.pop("probe", lambda _path: SUPPORTED)
         return diagnostics.diagnose(
-            self.config(capture, self.binary if binary == "present" else None, typing, reading),
+            self.config(choice, self.binary if binary == "present" else None, enabled),
             environ={},
             run=runner,
             probe=probe,
@@ -128,50 +117,34 @@ class NativeDiagnostics(unittest.TestCase):
     def levels(findings, level):
         return [finding.message for finding in findings if finding.level == level]
 
-    def test_a_missing_helper_is_as_serious_as_the_selection_makes_it(self) -> None:
-        for capture, level in (("python", "info"), ("auto", "warn"), ("rust", "fail")):
-            with self.subTest(capture=capture):
-                findings = self.run_diagnose(capture, binary=None)
-                missing = [f for f in findings if "no native helper" in f.message]
-                self.assertEqual([f.level for f in missing], [level])
-                self.assertIn(f"Fix: {fetch.remedy()}.", missing[0].message)
-                self.assertIn("python3-gi", findings[-1].message, "legacy GI note last")
+    def test_a_missing_helper_fails_where_desktop_control_is_on(self) -> None:
+        # The helper is the only desktop backend: no setting falls back.
+        for choice in ("auto", "rust"):
+            for enabled, level in ((True, "fail"), (False, "warn")):
+                with self.subTest(choice=choice, enabled=enabled):
+                    findings = self.run_diagnose(choice, binary=None, enabled=enabled)
+                    self.assertEqual([f.level for f in findings], [level])
+                    message = findings[0].message
+                    self.assertIn("no native helper", message)
+                    self.assertIn("Desktop control needs it", message)
+                    self.assertIn(f"Fix: {fetch.remedy()}.", message)
+                    self.assertNotIn("python", message.lower())
 
-    def test_the_input_setting_needs_the_helper_as_much_as_capture(self) -> None:
-        """Since Gate 5 input is `auto` too: a missing helper is not just info."""
-        for typing, level in (("python", "info"), ("auto", "warn"), ("rust", "fail")):
-            with self.subTest(input=typing):
-                findings = self.run_diagnose("python", binary=None, typing=typing)
-                missing = [f for f in findings if "no native helper" in f.message]
-                self.assertEqual([f.level for f in missing], [level])
-                infos = " | ".join(self.levels(findings, "info"))
-                self.assertIn(f"[native] input = {typing}", infos)
-
-    def test_the_accessibility_setting_needs_the_helper_too(self) -> None:
-        """Since Task 6.3 accessibility is `auto` as well."""
-        for reading, level in (("python", "info"), ("auto", "warn"), ("rust", "fail")):
-            with self.subTest(accessibility=reading):
-                findings = self.run_diagnose("python", binary=None, reading=reading)
-                missing = [f for f in findings if "no native helper" in f.message]
-                self.assertEqual([f.level for f in missing], [level])
-                infos = " | ".join(self.levels(findings, "info"))
-                self.assertIn(f"[native] accessibility = {reading}", infos)
+    def test_no_line_names_a_selection_or_a_python_path(self) -> None:
+        for binary in ("present", None):
+            with self.subTest(binary=binary):
+                text = " | ".join(f.message for f in self.run_diagnose(binary=binary))
+                for key in ("capture", "input", "accessibility"):
+                    self.assertNotIn(f"[native] {key}", text)
+                self.assertNotIn("python3-gi", text)
 
     def test_a_helper_older_than_the_accessibility_methods_is_called_out(self) -> None:
-        # `auto` takes any helper it finds, so an old one breaks ui_dump.
-        for reading, level in (("auto", "warn"), ("rust", "fail")):
-            with self.subTest(accessibility=reading):
-                findings = self.run_diagnose(
-                    "auto", reading=reading, probe=lambda _path: BEFORE_ACCESSIBILITY
-                )
-                stale = [f for f in findings if "older build" in f.message]
-                self.assertEqual([f.level for f in stale], [level])
-                self.assertIn("accessibility.action", stale[0].message)
-                self.assertIn("scripts/build-native.sh", stale[0].message)
-        quiet = self.run_diagnose(
-            "auto", reading="python", probe=lambda _path: BEFORE_ACCESSIBILITY
-        )
-        self.assertFalse([f for f in quiet if "older build" in f.message])
+        # It is the only reader, so an old one breaks every ui_dump.
+        findings = self.run_diagnose(probe=lambda _path: BEFORE_ACCESSIBILITY)
+        stale = [f for f in findings if "older build" in f.message]
+        self.assertEqual([f.level for f in stale], ["fail"])
+        self.assertIn("accessibility.action", stale[0].message)
+        self.assertIn("scripts/build-native.sh", stale[0].message)
 
     def test_a_healthy_release_build_raises_nothing(self) -> None:
         findings = self.run_diagnose("auto")

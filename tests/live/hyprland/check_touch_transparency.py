@@ -1,4 +1,9 @@
-"""Measure whether native glow strips pass real touchscreen input to a client."""
+"""Measure whether native glow strips pass real touchscreen input to a client.
+
+The emulated touchscreen comes from python-evdev, a test-side dependency:
+pcbridge no longer installs it (its Python input path was removed after
+2.8), so the VM's venv needs `.venv/bin/pip install evdev`.
+"""
 from __future__ import annotations
 
 import os

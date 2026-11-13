@@ -41,6 +41,7 @@ sys.path.insert(0, str(ROOT))
 
 from pcbridge.cli import shot as shot_cli  # noqa: E402
 from pcbridge.desktop import capture as capturelib  # noqa: E402
+from pcbridge.desktop import compositor as compositorlib  # noqa: E402
 from pcbridge.desktop import monitors as monitorslib  # noqa: E402
 from pcbridge.desktop import presentation as presentationlib  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCategory, ErrorCode  # noqa: E402
@@ -106,16 +107,6 @@ def entries(directory: Path) -> list[str]:
     return sorted(path.name for path in directory.iterdir())
 
 
-def canvas(directory: Path, _include_pointer: bool) -> Path:
-    """A gnome-screenshot style full canvas for the fixture layout."""
-    path = Path(directory) / "canvas.png"
-    image = Image.new("RGB", (320, 100))
-    for monitor in MONITORS:
-        image.paste(COLORS[monitor.connector], monitor.bbox)
-    image.save(path, format="PNG")
-    return path
-
-
 class PublishWhole(unittest.TestCase):
     def test_a_complete_capture_publishes_every_image_and_record(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -145,7 +136,7 @@ class PublishWhole(unittest.TestCase):
             self.assertEqual(handle.calls, ["DP-4", "DP-3"])
             self.assertEqual(entries(out), [])
 
-    def test_a_write_failure_in_the_screenshot_path_leaves_nothing_behind(self) -> None:
+    def test_a_write_failure_on_a_later_monitor_leaves_nothing_behind(self) -> None:
         real_write = capturelib._write_crop
         calls = {"count": 0}
 
@@ -157,38 +148,38 @@ class PublishWhole(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as raw:
             out = Path(raw) / "shots"
-
-            class Closed:
-                def is_open(self) -> bool:
-                    return False
-
             with (
-                mock.patch.object(capturelib, "available", return_value=(True, "")),
-                mock.patch.object(capturelib, "_grab_canvas", side_effect=canvas),
                 mock.patch.object(capturelib, "_write_crop", side_effect=failing_write),
                 self.assertRaises(capturelib.CaptureError),
             ):
-                run_capture(out, screencast=Closed())
+                run_capture(out)
 
             self.assertEqual(calls["count"], 2)
             self.assertEqual(entries(out), [])
 
     def test_a_window_capture_is_published_the_same_way(self) -> None:
-        def window(directory: Path, _include_pointer: bool) -> Path:
-            path = Path(directory) / "window.png"
-            Image.new("RGB", (120, 90), (10, 200, 10)).save(path, format="PNG")
-            return path
-
+        # A window is a region of its monitor's frame (GNOME's extension
+        # names it), so it gets a monitor id and a record like any region.
+        home = MONITORS[1]
+        box = (home.x + 20, 10, 120, 90)
+        checked: list[bool] = []
         with tempfile.TemporaryDirectory() as raw:
             out = Path(raw) / "shots"
             with (
-                mock.patch.object(capturelib, "available", return_value=(True, "")),
-                mock.patch.object(capturelib, "_grab_window", side_effect=window),
+                mock.patch.object(compositorlib, "current", return_value=compositorlib.GNOME_SHELL),
+                mock.patch.object(compositorlib, "is_kde", return_value=False),
+                mock.patch.object(
+                    capturelib, "_gnome_window_region",
+                    return_value=((box, home), lambda: checked.append(True)),
+                ),
             ):
                 shots = run_capture(out, spec="window")
 
             self.assertEqual(len(shots), 1)
-            self.assertRegex(shots[0].id, r"^win-[0-9a-f]{6}$")
+            self.assertRegex(shots[0].id, rf"^m{home.index}-[0-9a-f]{{6}}$")
+            self.assertEqual(shots[0].offset, (box[0], box[1]))
+            self.assertIn("-region", shots[0].path.name)
+            self.assertEqual(checked, [True], "the window is checked again after the frame")
             self.assertEqual(
                 entries(out), sorted([shots[0].path.name, f"{shots[0].id}.json"])
             )

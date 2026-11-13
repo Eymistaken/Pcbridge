@@ -136,6 +136,29 @@ class NativeConfigContractTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, ErrorCode.NATIVE_NOT_FOUND)
 
+    def test_no_helper_anywhere_is_refused_with_how_to_get_one(self) -> None:
+        # The helper is the only desktop backend: the refusal every desktop
+        # tool passes on says how this installation gets one.
+        from pcbridge.native import fetch
+
+        for kind, fix in (
+            ("user", "`pcbridge doctor --fix` downloads"),
+            ("deb", "reinstall the pcbridge package"),
+        ):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as raw, \
+                    mock.patch("pcbridge.native.discovery._target_triple",
+                               return_value="x86_64-unknown-linux-gnu"), \
+                    mock.patch("pcbridge.native.fetch._target_triple",
+                               return_value="x86_64-unknown-linux-gnu"), \
+                    mock.patch("pcbridge.cli.install.install_kind", return_value=kind):
+                with self.assertRaises(DesktopError) as raised:
+                    discover_native_binary(NativeSpec(), environ={}, package_root=Path(raw))
+                message = raised.exception.message
+                self.assertEqual(raised.exception.code, ErrorCode.NATIVE_NOT_FOUND)
+                self.assertIn("Desktop control needs it", message)
+                self.assertIn(fix, message)
+                self.assertTrue(message.endswith(f"Fix: {fetch.remedy(kind)}."), message)
+
     def test_native_toml_values_are_parsed_and_validated(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
@@ -165,11 +188,11 @@ class NativeConfigContractTests(unittest.TestCase):
             )
 
             path.write_text(swap(text, 'capture = "rust"', 'capture = "magic"'))
-            with self.assertRaisesRegex(SystemExit, "python, rust or auto"):
+            with self.assertRaisesRegex(SystemExit, "must be auto or rust"):
                 load_config(str(path))
 
             path.write_text(swap(text, 'input = "rust"', 'input = "magic"'))
-            with self.assertRaisesRegex(SystemExit, "python, rust or auto"):
+            with self.assertRaisesRegex(SystemExit, "must be auto or rust"):
                 load_config(str(path))
 
 

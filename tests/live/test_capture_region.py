@@ -5,7 +5,8 @@ Skipped unless `PCBRIDGE_TEST_CAPTURE=1`. Like `test_capture_parity.py` it
 covers every monitor with a static pattern, opens screen shares under a
 scratch grant, and sends no input.
 
-What it shows, on the Python screencast and on the native helper:
+What it shows, on the native helper (the Python screen share it was first
+compared with was removed after 2.8):
 
 * a region cut from the live frame is pixel for pixel the same part of a
   whole-monitor capture taken right before it;
@@ -34,8 +35,6 @@ sys.path.insert(0, str(ROOT))
 
 from pcbridge.config import load_config  # noqa: E402
 from pcbridge.desktop import monitors as monitorslib  # noqa: E402
-from pcbridge.desktop import screencast as screencastlib  # noqa: E402
-from pcbridge.desktop.backends.python import PythonCaptureProvider  # noqa: E402
 from pcbridge.desktop.backends.rust import RustCaptureProvider  # noqa: E402
 from pcbridge.desktop.safety import SafetyGate  # noqa: E402
 from tests.live.test_capture_parity import (  # noqa: E402
@@ -44,7 +43,6 @@ from tests.live.test_capture_parity import (  # noqa: E402
     PatternWindow,
     agreement,
     close_to,
-    legacy_helpers,
     release_binary,
     rgb,
     scratch_config,
@@ -66,8 +64,6 @@ class RegionOnTheDesktop(unittest.TestCase):
             raise unittest.SkipTest(why)
         if screen_locked():
             raise unittest.SkipTest("the screen is locked")
-        if legacy_helpers():
-            raise unittest.SkipTest("a Python screencast helper is running (a real grant)")
         cls.root = Path(tempfile.mkdtemp(prefix="pcb-region-"))
         cls.pattern = None
         cls.providers = []
@@ -77,11 +73,9 @@ class RegionOnTheDesktop(unittest.TestCase):
             cls.gate.unlock(10, reason="live region capture")
             cls.pattern = PatternWindow()
             cls.monitors = monitorslib.list_monitors(use_cache=False)
-            legacy = PythonCaptureProvider(cls.cfg, screencastlib.ScreenCast())
-            legacy.start(cursor=False)
             native = RustCaptureProvider(cls.cfg, gate=cls.gate)
             native.start(cursor=False)
-            cls.providers = [("python", legacy), ("native", native)]
+            cls.providers = [("native", native)]
         except BaseException:
             cls.tearDownClass()
             raise

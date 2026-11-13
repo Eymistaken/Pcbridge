@@ -134,72 +134,24 @@ keep_awake = false
 # ---------------------------------------------------------------------------
 # NATIVE DESKTOP HELPER
 #
-# pcbridge-native is an optional compiled helper for capture, input and
-# accessibility. It is never downloaded or built at run time; the package
-# ships it, or `scripts/build-native.sh` builds it in a git checkout.
+# pcbridge-native is the compiled helper that captures the screen, drives the
+# virtual keyboard and pointer, and reads and acts on the accessibility tree.
+# It is the only desktop backend: without it the desktop tools refuse and say
+# how to get it. The daemon never downloads or builds it; the wheel and the
+# packages ship it, `scripts/build-native.sh` builds it in a git checkout,
+# and `pcbridge setup` / `pcbridge doctor --fix` fetch the release's prebuilt
+# one where neither is there. It talks to Mutter ScreenCast/PipeWire, KWin
+# ScreenShot2 or Hyprland image-copy, /dev/uinput and AT-SPI over D-Bus, and
+# it is bound to the desktop grant: a revoke from any process stops it.
 # ---------------------------------------------------------------------------
 
 [native]
-# Who grabs the RAW FRAME of a screenshot. Cropping, scaling, the shot id, the
-# record file and every coordinate conversion stay in Python either way --
-# only the source of the frame changes.
-#
-#   "auto"    DEFAULT: the packaged native helper when present, otherwise the
-#             Python path. A fallback shows as `degraded` in
-#             `system_capabilities` and in the `screen_capture` result. With
-#             `[desktop] capture_backend = "gnome-screenshot"` the Python path
-#             stays.
-#   "python"  the older path: Mutter ScreenCast + GStreamer in
-#             `screencast_helper.py`, run by the system python3.
-#             DEPRECATED in 2.8: the next release removes it (and the
-#             fallback under "auto"); pcbridge then uses the native helper
-#             only.
-#   "rust"    REQUIRE the native helper. Without it, or when it cannot get a
-#             frame, the call FAILS; it never falls back silently.
-#
-# On KDE Plasma only the native helper can capture (KWin's ScreenShot2, which
-# KWin grants to the helper alone); "python" leaves capture unavailable there.
-#
-# The choice is made ONCE when a runtime starts; the backend never changes in
-# the middle of an open session.
-#
-# Either way, screen sharing starts with `desktop_unlock`: the sharing
-# indicator appears with the grant and disappears when it closes
-# (`desktop_lock`, expiry). Measurements: docs/native/verification-linux.md.
+# `capture`, `input` and `accessibility` once chose between the helper and
+# the Python paths. pcbridge removed the Python paths after 2.8, so "auto"
+# (the default) and "rust" both mean the native helper; an older config's
+# "python" is read as "auto" with a warning in `pcbridge doctor`.
 capture = "auto"
-
-# Which path keyboard, pointer and clipboard take. Default `auto` since Gate 5
-# (2026-09-19, 8/8 on a real desktop: 0 px error on two monitors, Turkish text
-# exact, held input released 67 ms after a revoke).
-#
-#   "auto"    DEFAULT: native when the helper is packaged, otherwise Python.
-#             The fallback is visible: system_capabilities shows
-#             input.keyboard and input.pointer as `degraded` with the reason.
-#   "rust"    native required: no helper, no silent fallback, the call fails.
-#   "python"  the older path: Python evdev keyboard/pointer and wl-clipboard.
-#             DEPRECATED in 2.8, removed in the next release, like capture.
-#
-# On both paths the order of typing text (save the clipboard -> put the text
-# -> Ctrl+V -> restore) is Python's; on the native path wl-paste/wl-copy run
-# in the helper.
 input = "auto"
-
-# Who reads the accessibility tree (ui_dump, window_list, the focused window)
-# and performs ui_click / ui_set_text. The native helper talks to AT-SPI
-# directly over D-Bus (no GI, no GTK) and gives the same list and the same
-# errors as the Python helper on the same fixture. An action goes to the helper
-# that made the dump.
-#
-#   "auto"    DEFAULT: native when packaged, otherwise Python (visibly:
-#             system_capabilities shows accessibility.read as `degraded`). An
-#             old helper (built before Task 6.3) fails in ui_dump/ui_click;
-#             `pcbridge doctor` says so; rebuild with scripts/build-native.sh.
-#   "python"  atspi_helper.py in the system python3. DEPRECATED in 2.8,
-#             removed in the next release, like capture.
-#   "rust"    native required; no helper means the call fails.
-#
-# Without a grant (desktop_unlock), screen_info's window list always comes from
-# the Python helper: the native helper only runs bound to a grant.
 accessibility = "auto"
 
 # Optional absolute path of pcbridge-native. The PCBRIDGE_NATIVE_BIN
@@ -411,33 +363,6 @@ shot_keep_hours = 24
 # Draw the pointer into screenshots. Default true: it is the only way to check
 # that the pointer really went where it was sent.
 include_pointer = true
-
-# How the screen is captured. DEPRECATED in 2.8: the next release removes
-# this setting and gnome-screenshot, and captures through the native helper
-# only ([native] capture); keep "auto".
-#   "auto"             screen sharing when available, else gnome-screenshot (default)
-#   "screencast"       screen sharing only; if it cannot start, NO picture
-#   "gnome-screenshot" the old path
-#
-# Why sharing: `gnome-screenshot` flashes the screen WHITE and plays a sound on
-# every capture (it draws the flash itself). The XDG portal does the same.
-# GNOME's screenshot D-Bus interface cannot be called from outside ("Access
-# denied", GNOME 46). The screen SHARING path has no flash: the system treats
-# it as video, not a photo. Measured 2026-08-03, no loss either: the same
-# region is 99.8% identical in both.
-#
-# Sharing starts with `desktop_unlock` and stops with `desktop_lock` or expiry.
-# While it runs the panel shows a sharing indicator -- WANTED: it tells you the
-# agent can reach the desktop right now. The indicator is visible in captured
-# frames too.
-#
-# Needs python3-gi, gstreamer1.0-pipewire and gstreamer1.0-plugins-good for the
-# Python path; otherwise it falls back to gnome-screenshot.
-#
-# GNOME only. On KDE Plasma keep "auto": capture there works only through the
-# native helper, and KWin's screenshots show no indicator (see
-# `unlock_notification`).
-capture_backend = "auto"
 
 # `find_text` / `wait_for_text` read on-screen text with tesseract. Languages
 # joined with `+`; every language is a separate package. `pcbridge setup`

@@ -10,13 +10,15 @@ the test skips instead of capturing anything there. It sends no input: it
 opens one painted GTK4 window, which takes the focus on its own, and
 captures it.
 
-What it shows, on the native helper and on the Python screencast:
+What it shows, on the native helper:
 
 * the extension names the window with its frame (`FocusedWindowFrame`);
 * `screen_capture(monitor="window")` gives a region shot of exactly that
   box, made of the window's own color, with a global offset, so its record
-  maps the window's pixels back to the right global points;
-* no gnome-screenshot runs.
+  maps the window's pixels back to the right global points.
+
+(The gnome-screenshot path that once took monitor-less window pictures and
+the Python screen share were removed after 2.8.)
 """
 
 from __future__ import annotations
@@ -29,7 +31,6 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -39,8 +40,6 @@ from pcbridge.config import load_config  # noqa: E402
 from pcbridge.desktop import apps as appslib  # noqa: E402
 from pcbridge.desktop import capture as capturelib  # noqa: E402
 from pcbridge.desktop import monitors as monitorslib  # noqa: E402
-from pcbridge.desktop import screencast as screencastlib  # noqa: E402
-from pcbridge.desktop.backends.python import PythonCaptureProvider  # noqa: E402
 from pcbridge.desktop.backends.rust import RustCaptureProvider  # noqa: E402
 from pcbridge.desktop.safety import SafetyGate  # noqa: E402
 from tests.live.test_capture_parity import (  # noqa: E402
@@ -122,9 +121,6 @@ class WindowCaptureInGnome(unittest.TestCase):
 
     def providers(self):
         yield "native", RustCaptureProvider(self.cfg, gate=self.gate)
-        ok, _why = screencastlib.available()
-        if ok:
-            yield "python", PythonCaptureProvider(self.cfg, screencastlib.ScreenCast())
 
     def test_the_window_is_its_own_box_of_the_monitor_frame(self) -> None:
         mons = monitorslib.list_monitors(use_cache=False)
@@ -136,10 +132,8 @@ class WindowCaptureInGnome(unittest.TestCase):
                 out = Path(tempfile.mkdtemp(prefix=f"win-{name}-", dir=self.root))
                 provider.start(cursor=False)
                 try:
-                    with mock.patch.object(capturelib, "_grab_window",
-                                           side_effect=AssertionError("gnome-screenshot ran")):
-                        shots = provider.capture("window", out_dir=out, scale_long_edge=0,
-                                                 include_pointer=False)
+                    shots = provider.capture("window", out_dir=out, scale_long_edge=0,
+                                             include_pointer=False)
                 finally:
                     provider.close()
                 self.assertEqual(len(shots), 1)

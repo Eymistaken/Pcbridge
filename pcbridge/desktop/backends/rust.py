@@ -1,42 +1,38 @@
-"""Native capture and keyboard providers with narrow Python adapters.
+"""The desktop providers: capture, input and accessibility through the native helper.
 
-WHAT MOVES AND WHAT DOES NOT
-    Only the acquisition of the raw frame changes. Cropping, scaling, the PNG
-    that reaches the client, the shot id, the two lookup directories, the
-    metadata record and every coordinate conversion stay exactly where they
-    were, in `capture.py`. That is deliberate: the shot id is how a later
-    `mouse(shot=...)` call finds the offset and scale of an image, and moving
-    that bookkeeping into a second language is how the two copies drift and a
-    click lands on the wrong screen.
+The native helper (`pcbridge-native`, Rust) is the only desktop backend: it
+captures the screen, drives uinput and reads and acts on AT-SPI. The Python
+paths that once filled in where it was missing (the GStreamer screen share,
+python-evdev, the system-python AT-SPI helper and gnome-screenshot) are gone;
+without the helper, desktop control is refused with what fixes it.
 
-    So this module is small on purpose. `NativeScreenCast` has the same shape
-    the legacy `ScreenCast` handle has -- `is_open`, `start`, `ensure_cursor`,
-    `capture(connector, path)`, `close` -- and `capture.py` cannot tell them
-    apart. `RustCaptureProvider` is the Python provider with that handle
-    injected, overriding only what genuinely differs: availability, the
-    capability report and the backend name.
+WHAT STAYS IN PYTHON
+    Only the acquisition of the raw frame happens in the helper. Cropping,
+    scaling, the PNG that reaches the client, the shot id, the two lookup
+    directories, the metadata record and every coordinate conversion stay in
+    `capture.py`. That is deliberate: the shot id is how a later
+    `mouse(shot=...)` call finds the offset and scale of an image, and
+    moving that bookkeeping into a second language is how two copies drift
+    and a click lands on the wrong screen. `NativeScreenCast` is the handle
+    `capture.py` takes frames from.
 
 KEYBOARD, POINTER AND CLIPBOARD
-    Tasks 5.2 to 5.4 add `RustInputProvider`, selected only by the explicit
-    `[native] input = "rust"` setting. Keyboard and already-resolved global
-    pointer coordinates go to the helper; shot and monitor identities never
-    cross that boundary. The clipboard programs run in the helper too
-    (`NativeClipboard`), but the typing orchestration -- save, put, paste,
-    restore -- stays in `InputBackend._type_clipboard`. Since Gate 5
-    (2026-09-19) the shipped default is `auto`: this provider whenever the
-    helper is packaged, the Python one otherwise, and the fallback is shown.
+    Keyboard and already-resolved global pointer coordinates go to the
+    helper; shot and monitor identities never cross that boundary. The
+    clipboard programs run in the helper too (`NativeClipboard`), but the
+    typing orchestration -- save, put, paste, restore -- stays in
+    `InputBackend._type_clipboard`.
+
+ACCESSIBILITY
+    The dump, the window list and the focused window come from the helper,
+    which reads AT-SPI over D-Bus with no GI and no GTK. Short ids, the
+    last-dump record and the text shown to the model stay in `uitree`.
 
 THE SHARING INDICATOR APPEARS WITH THE GRANT
-    On the Python path the screen share opens at `desktop_unlock`, so GNOME's
-    top-bar indicator appears the moment the grant does. Until Task 4.3 the
-    native session opened on the first `capture.frame` instead, which left a
-    stretch with a grant and no indicator. Before `auto` became the default
-    that difference was closed rather than only written down: `start()` asks
-    the helper for `capture.session_open`, which opens the Mutter session
-    without reading a frame, and the session stays open until revoke, lock or
-    expiry. The indicator is the user's evidence that an agent can see the
-    screen, so both paths now show it at the same moment. A helper from before
-    Task 4.3 answers UNKNOWN_METHOD and keeps opening on demand.
+    `start()` asks the helper for `capture.session_open`, which opens the
+    Mutter session without reading a frame, at `desktop_unlock`; the session
+    stays open until revoke, lock or expiry. The indicator is the user's
+    evidence that an agent can see the screen.
 """
 
 from __future__ import annotations
@@ -59,17 +55,17 @@ from .. import compositor as compositorlib
 from .. import clipboard as clipboardlib
 from .. import input as inputlib
 from .. import monitors as monitorslib
+from .. import policy
 from .. import uitree as uitreelib
-from .python import (
-    PythonAccessibilityProvider,
-    PythonCaptureProvider,
-    PythonInputProvider,
+from .common import (
     _accessibility_error,
     _capability,
     _clipboard_capabilities,
     _desktop_error,
+    _display_mapping_error,
     _gnome_frame_support,
     _gnome_window_capability,
+    _wayland_socket,
 )
 from ...config import Config
 from ...native import NativeClient, discover_native_binary
@@ -111,65 +107,6 @@ class NativeCaptureError(RuntimeError):
     def __init__(self, message: str, *, cause: DesktopError | None = None) -> None:
         super().__init__(message)
         self.desktop_error = cause
-
-
-class BackendSelection:
-    """Which acquisition path was chosen, and whether the user should be told."""
-
-    __slots__ = ("backend", "degraded", "reason")
-
-    def __init__(self, *, backend: str, degraded: bool = False, reason: str = "") -> None:
-        self.backend = backend
-        self.degraded = degraded
-        self.reason = reason
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, BackendSelection):
-            return NotImplemented
-        return (self.backend, self.degraded, self.reason) == (
-            other.backend,
-            other.degraded,
-            other.reason,
-        )
-
-    def __repr__(self) -> str:  # pragma: no cover - diagnostics only
-        return (
-            f"BackendSelection(backend={self.backend!r}, "
-            f"degraded={self.degraded!r}, reason={self.reason!r})"
-        )
-
-
-def select_capture_backend(
-    *,
-    requested: str,
-    native_ready: bool,
-    native_reason: str = "",
-) -> "BackendSelection":
-    """Decide once, at runtime construction, which acquisition path is used.
-
-    Pure on purpose: the table in `PLAN.md` (1.x, in git history) is the contract, and a table that
-    lives in one function can be read and tested without a compositor.
-
-    The rule that matters is the one for `rust`: a forced native backend that
-    cannot start does **not** quietly become a Python screencast. It stays
-    selected and fails visibly, because the whole point of forcing it is to
-    find out whether it works.
-    """
-    choice = (requested or "python").strip().lower()
-    if choice == "python":
-        return BackendSelection(backend="python")
-    if choice == "rust":
-        return BackendSelection(backend="rust", reason="" if native_ready else native_reason)
-    if choice == "auto":
-        if native_ready:
-            return BackendSelection(backend="rust")
-        return BackendSelection(backend="python", degraded=True, reason=native_reason)
-    # config.py validates this field, so an unknown value means the two drifted.
-    return BackendSelection(
-        backend="python",
-        degraded=True,
-        reason=f"unknown `[native] capture` value: {requested!r}",
-    )
 
 
 def runtime_dir() -> Path:
@@ -271,11 +208,11 @@ class GrantBoundHelper:
 
 
 class NativeScreenCast:
-    """The legacy `ScreenCast` surface, answered by the native helper.
+    """The screen-share handle `capture.py` takes frames from, served by the helper.
 
-    Deliberately not a `ScreenCast` subclass: nothing here drives GStreamer or
-    the system Python, and inheriting would invite a method that silently falls
-    through to the helper process we are trying to retire.
+    `is_open`, `start`, `ensure_cursor`, `capture(connector, path)` and
+    `close` are all `capture.py` needs; the frames come from the grant-bound
+    native helper.
     """
 
     def __init__(
@@ -384,10 +321,9 @@ class NativeScreenCast:
         Until Task 4.3 this only marked the handle usable and the session
         opened at the first capture, which left a stretch after
         `desktop_unlock` with a grant and no sharing indicator. The indicator
-        is the user's evidence that an agent can see the screen, so the native
-        path now shows it exactly when the Python path does. No frame is read.
-        A helper from before Task 4.3 answers UNKNOWN_METHOD and keeps opening
-        on demand.
+        is the user's evidence that an agent can see the screen, so it now
+        appears with the grant. No frame is read. A helper from before Task
+        4.3 answers UNKNOWN_METHOD and keeps opening on demand.
         """
         self._monitors = [str(name) for name in monitors]
         self._cursor = bool(cursor)
@@ -552,15 +488,14 @@ def _error_from_response(error: dict[str, Any]) -> DesktopError:
     )
 
 
-class RustCaptureProvider(PythonCaptureProvider):
-    """The Python capture provider with the native handle injected.
+class RustCaptureProvider:
+    """Screen capture through the native helper, with the shot bookkeeping in Python.
 
-    Everything inherited is the part that must not change: shot ids, metadata,
-    `to_global`, the two lookup directories. What is overridden is only what
-    would otherwise answer for the wrong backend.
+    The helper delivers raw frames (`NativeScreenCast`); everything else is
+    `capture.py`: shot ids, metadata, `to_global`, the two lookup
+    directories. There is no other capture path: a share that cannot open,
+    or a helper that is missing, fails the call with what fixes it.
     """
-
-    _grant_bound_native = True
 
     def __init__(
         self,
@@ -569,13 +504,12 @@ class RustCaptureProvider(PythonCaptureProvider):
         gate: Any | None = None,
         screencast: Any | None = None,
     ) -> None:
-        super().__init__(
-            cfg,
-            screencast=screencast
-            if screencast is not None
-            else NativeScreenCast(cfg, gate=gate),
+        self.cfg = cfg
+        self.screencast = (
+            screencast if screencast is not None else NativeScreenCast(cfg, gate=gate)
         )
 
+    # ------------------------------------------------------------ session
     def start(self, *, cursor: bool | None = None) -> dict:
         """Open the share; a refusal comes back typed, never as a crash.
 
@@ -583,7 +517,13 @@ class RustCaptureProvider(PythonCaptureProvider):
         NativeCaptureError would escape the tool instead.
         """
         try:
-            return super().start(cursor=cursor)
+            monitors = [monitor.connector for monitor in self.list_monitors()]
+            return self.screencast.start(
+                monitors,
+                cursor=self.cfg.desktop.include_pointer if cursor is None else cursor,
+            )
+        except DesktopError:
+            raise
         except NativeCaptureError as exc:
             if exc.desktop_error is not None:
                 raise exc.desktop_error from exc
@@ -596,6 +536,12 @@ class RustCaptureProvider(PythonCaptureProvider):
                 suggested_action="Check the native capture helper and the desktop grant.",
             ) from exc
 
+    def close(self) -> None:
+        self.screencast.close()
+
+    def is_open(self) -> bool:
+        return self.screencast.is_open()
+
     def capability_token(self) -> tuple[Any, ...]:
         topology: tuple[Any, ...]
         try:
@@ -607,7 +553,6 @@ class RustCaptureProvider(PythonCaptureProvider):
         ready, _reason = native_binary_ready(self.cfg)
         return (
             "rust",
-            self.cfg.desktop.capture_backend,
             capturelib.PIL_AVAILABLE,
             ready,
             self.screencast.is_open(),
@@ -708,9 +653,7 @@ class RustCaptureProvider(PythonCaptureProvider):
 
         # A window capture is a region of the monitor frame: KWin, Hyprland
         # and, since 2.8, the GNOME extension name the focused window and its
-        # frame, so it stands or falls with monitor capture. On GNOME an
-        # extension from before 2.8 leaves the old gnome-screenshot path,
-        # shown as degraded with what fixes it.
+        # frame, so it stands or falls with monitor capture.
         if kind in ("kde", "hyprland"):
             window = _capability(
                 "capture.window",
@@ -721,10 +664,7 @@ class RustCaptureProvider(PythonCaptureProvider):
                 limitations=monitor.limitations,
             )
         else:
-            window = _gnome_window_capability(
-                monitor,
-                pillow_ok and bool(shutil.which(capturelib.GNOME_SCREENSHOT)),
-            )
+            window = _gnome_window_capability(monitor)
         return {"capture.monitor": monitor, "capture.window": window}
 
     def _hyprland_protocols_ready(self) -> tuple[bool, str]:
@@ -746,6 +686,7 @@ class RustCaptureProvider(PythonCaptureProvider):
             if client is not None:
                 client.close()
 
+    # ------------------------------------------------------------ capture
     def capture(
         self,
         spec: int | str,
@@ -757,16 +698,18 @@ class RustCaptureProvider(PythonCaptureProvider):
         reserved_dirs: Sequence[Path] = (),
         region: Any = None,
     ) -> list[capturelib.Shot]:
-        if compositorlib.current().kind in ("hyprland", "unknown"):
-            # No gnome-screenshot fallback at this native trust boundary.
-            # Startup refuses until the selected native backend is ready.
+        # The share opens with `desktop_unlock`; one that did not (or a
+        # short-lived process such as `pcb-shot`) opens here. There is no
+        # other path to fall back to.
+        if not self.screencast.is_open() or compositorlib.current().kind in ("hyprland", "unknown"):
             self.start(cursor=include_pointer)
         try:
-            return super().capture(
+            return capturelib.capture(
                 spec,
                 out_dir=out_dir,
                 scale_long_edge=scale_long_edge,
                 include_pointer=include_pointer,
+                screencast=self.screencast,
                 copy_meta_to=copy_meta_to,
                 reserved_dirs=reserved_dirs,
                 region=region,
@@ -782,6 +725,187 @@ class RustCaptureProvider(PythonCaptureProvider):
                 retryable=True,
                 suggested_action="Check the native capture helper and the desktop grant.",
             ) from exc
+        except capturelib.ShotLayoutChanged as exc:
+            raise _desktop_error(
+                exc,
+                code=ErrorCode.DISPLAY_CHANGED,
+                category=ErrorCategory.COORDINATE,
+                backend=_backend_name(),
+                retryable=True,
+                suggested_action="Choose the region again and retry.",
+            ) from exc
+        except capturelib.CaptureError as exc:
+            raise _desktop_error(
+                exc,
+                code=ErrorCode.BACKEND_UNAVAILABLE,
+                category=ErrorCategory.CAPABILITY,
+                backend=_backend_name(),
+                retryable=True,
+                suggested_action="Check the screen capture dependencies and the session.",
+            ) from exc
+        except monitorslib.MonitorError as exc:
+            raise _display_mapping_error(exc) from exc
+
+    # -------------------------------------------- monitors and coordinates
+    def list_monitors(self) -> list[monitorslib.Monitor]:
+        try:
+            return monitorslib.list_monitors()
+        except monitorslib.MonitorError as exc:
+            raise _display_mapping_error(exc) from exc
+
+    def topology_id(self) -> str:
+        """The layout's stable identity, the same string the helper computes.
+
+        Whoever asks whether an open capture session or a cached picture is
+        still valid compares this. The rule is in `monitors.topology_id`;
+        here it only crosses the provider boundary with a typed error.
+        """
+        try:
+            return monitorslib.topology_id(monitorslib.list_monitors())
+        except monitorslib.MonitorError as exc:
+            raise _display_mapping_error(exc) from exc
+
+    def describe_monitors(self) -> str:
+        try:
+            return monitorslib.describe()
+        except monitorslib.MonitorError as exc:
+            raise _display_mapping_error(exc) from exc
+
+    def find_monitor(self, x: int, y: int) -> monitorslib.Monitor | None:
+        try:
+            return monitorslib.find_monitor(x, y)
+        except monitorslib.MonitorError as exc:
+            raise _display_mapping_error(exc) from exc
+
+    def to_global(
+        self,
+        x: int,
+        y: int,
+        *,
+        monitor: int | str | None = None,
+        shot: str | None = None,
+        dirs: Sequence[Path] | None = None,
+        guard_age: float = 0.0,
+    ) -> tuple[int, int]:
+        if shot and monitor is not None:
+            code = ErrorCode.AMBIGUOUS_COORDINATE
+        elif shot and not capturelib.SHOT_ID_RE.match(shot):
+            code = ErrorCode.SHOT_INVALID
+        elif shot:
+            code = ErrorCode.SHOT_NOT_FOUND
+        elif guard_age > 0 and monitor is None:
+            code = ErrorCode.AMBIGUOUS_COORDINATE
+        else:
+            code = ErrorCode.DISPLAY_MAPPING_UNKNOWN
+        try:
+            return capturelib.to_global(
+                x,
+                y,
+                monitor=monitor,
+                shot=shot,
+                dirs=dirs,
+                guard_age=guard_age,
+            )
+        except capturelib.ShotLayoutChanged as exc:
+            raise _desktop_error(
+                exc,
+                code=ErrorCode.DISPLAY_CHANGED,
+                category=ErrorCategory.COORDINATE,
+                backend="python.shot-coordinate",
+                retryable=True,
+                suggested_action="Take a new screenshot and use its id.",
+            ) from exc
+        except capturelib.CaptureError as exc:
+            raise _desktop_error(
+                exc,
+                code=code,
+                category=ErrorCategory.COORDINATE,
+                backend="python.shot-coordinate",
+                retryable=code
+                in {ErrorCode.SHOT_NOT_FOUND, ErrorCode.AMBIGUOUS_COORDINATE},
+                suggested_action=(
+                    "Use a fresh shot id or an explicit monitor."
+                ),
+            ) from exc
+        except monitorslib.MonitorError as exc:
+            raise _display_mapping_error(exc) from exc
+
+    def resolve_region(
+        self,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        *,
+        monitor: int | str | None = None,
+        shot: str | None = None,
+        dirs: Sequence[Path] | None = None,
+    ) -> Any:
+        """The region as a global canvas box (Step 8.5), with a typed error.
+
+        The error codes are chosen as `to_global` chooses them: the same
+        three spaces, the same mistakes.
+        """
+        if shot and monitor is not None:
+            code = ErrorCode.AMBIGUOUS_COORDINATE
+        elif shot and not capturelib.SHOT_ID_RE.match(shot):
+            code = ErrorCode.SHOT_INVALID
+        elif shot:
+            code = ErrorCode.SHOT_NOT_FOUND
+        else:
+            code = ErrorCode.DISPLAY_MAPPING_UNKNOWN
+        try:
+            return capturelib.resolve_region(
+                x, y, width, height, monitor=monitor, shot=shot, dirs=dirs
+            )
+        except capturelib.ShotLayoutChanged as exc:
+            raise _desktop_error(
+                exc,
+                code=ErrorCode.DISPLAY_CHANGED,
+                category=ErrorCategory.COORDINATE,
+                backend="python.shot-coordinate",
+                retryable=True,
+                suggested_action="Take a new screenshot and use its id.",
+            ) from exc
+        except capturelib.CaptureError as exc:
+            raise _desktop_error(
+                exc,
+                code=code,
+                category=ErrorCategory.COORDINATE,
+                backend="python.shot-coordinate",
+                retryable=code == ErrorCode.SHOT_NOT_FOUND,
+                suggested_action="Give the region inside one monitor, in the right coordinate space.",
+            ) from exc
+        except monitorslib.MonitorError as exc:
+            raise _display_mapping_error(exc) from exc
+
+    def load_shot(
+        self, shot_id: str, dirs: Sequence[Path]
+    ) -> capturelib.Shot:
+        code = (
+            ErrorCode.SHOT_INVALID
+            if not capturelib.SHOT_ID_RE.match(shot_id or "")
+            else ErrorCode.SHOT_NOT_FOUND
+        )
+        try:
+            return capturelib.load_shot(shot_id, dirs)
+        except capturelib.CaptureError as exc:
+            raise _desktop_error(
+                exc,
+                code=code,
+                category=ErrorCategory.COORDINATE,
+                backend="python.shot-coordinate",
+                retryable=code == ErrorCode.SHOT_NOT_FOUND,
+                suggested_action="Take a fresh screenshot and use its id exactly.",
+            ) from exc
+
+    def save_meta(
+        self, shot: capturelib.Shot, out_dir: Path | None = None
+    ) -> Path | None:
+        return capturelib.save_meta(shot, out_dir)
+
+    def oversize_note(self, shot: capturelib.Shot) -> str:
+        return capturelib.oversize_note(shot)
 
 
 class NativeClipboard:
@@ -810,10 +934,10 @@ class NativeClipboard:
         )
 
     def restore(self, saved: clipboardlib.Saved | None) -> None:
-        # `WlClipboard.restore` ignores a failing `wl-copy`: the paste has
+        # A failing `wl-copy` on the restore is only logged: the paste has
         # already happened, and failing the call now would invite typing the
         # text twice. Anything else -- a refused grant, a missing program, a
-        # timeout -- still propagates, as an exception does there.
+        # timeout -- still propagates.
         try:
             if saved is None:
                 self._provider._clipboard_request("clipboard.clear")
@@ -827,7 +951,7 @@ class NativeClipboard:
             logger.warning("native clipboard restore failed: %s", exc.message)
 
 
-class RustInputProvider(PythonInputProvider):
+class RustInputProvider(inputlib.InputBackend):
     """Native keyboard, pointer and clipboard; typing orchestration stays in Python."""
 
     def __init__(
@@ -838,13 +962,12 @@ class RustInputProvider(PythonInputProvider):
         client: NativeClient | None = None,
         client_factory: Callable[[], NativeClient] | None = None,
     ) -> None:
-        super().__init__(cfg)
+        super().__init__(clipboard=NativeClipboard(self))
         self.cfg = cfg
         self.gate = gate
         self._helper = GrantBoundHelper(client_factory or self._new_input_client, client)
         self._keyboard_used = False
         self._pointer_used = False
-        self.clipboard = NativeClipboard(self)
 
     def _new_input_client(self) -> NativeClient:
         binary = discover_native_binary(
@@ -1207,9 +1330,6 @@ class RustInputProvider(PythonInputProvider):
                     native_error = exc
             finally:
                 self._pointer_used = False
-        # No event path remains in Python, but close any legacy object created
-        # before a runtime switched providers in the same process.
-        released.extend(super().release_all())
         if native_error is not None:
             raise native_error
         return released
@@ -1221,7 +1341,7 @@ class RustInputProvider(PythonInputProvider):
         pointer = list(
             self._read_request("input.pointer.take_auto_released").get("released") or []
         )
-        return keyboard + pointer + super().take_auto_released()
+        return keyboard + pointer
 
     def close(self) -> None:
         # Not one-shot: `desktop_lock` closes this provider every time, and the
@@ -1232,8 +1352,6 @@ class RustInputProvider(PythonInputProvider):
             self.release_all()
         except Exception as exc:
             cleanup_error = exc
-        try:
-            super().close()
         finally:
             self._helper.close()
         if cleanup_error is not None:
@@ -1241,7 +1359,21 @@ class RustInputProvider(PythonInputProvider):
 
     def capability_token(self) -> tuple[Any, ...]:
         ready, reason = native_binary_ready(self.cfg)
-        return ("rust-input", ready, reason, super().capability_token())
+        try:
+            stat = os.stat(inputlib.UINPUT_NODE)
+            device = (stat.st_dev, stat.st_ino, stat.st_mode)
+        except OSError as exc:
+            device = (type(exc).__name__, getattr(exc, "errno", None))
+        return (
+            "rust-input",
+            ready,
+            reason,
+            device,
+            os.access(inputlib.UINPUT_NODE, os.W_OK),
+            shutil.which("wl-copy"),
+            shutil.which("wl-paste"),
+            _wayland_socket(),
+        )
 
     def available(self) -> tuple[bool, str]:
         ready, reason = native_binary_ready(self.cfg)
@@ -1254,7 +1386,7 @@ class RustInputProvider(PythonInputProvider):
         return True, ""
 
     def probe_capabilities(self) -> dict[str, Capability]:
-        values = super().probe_capabilities()
+        values: dict[str, Capability] = {}
         ready, reason = native_binary_ready(self.cfg)
         for name, scope in (
             ("input.keyboard", "os.keyboard"),
@@ -1321,8 +1453,8 @@ RustKeyboardInputProvider = RustInputProvider
 ACCESSIBILITY_TIMEOUT_SECONDS = 20.0
 ACCESSIBILITY_BACKEND = "linux.atspi.native"
 
-# The helper's own verdicts. They reach the caller with the same wording and
-# advice as the Python helper's.
+# The helper's own verdicts, passed on with their wording and the shared
+# advice (`common._accessibility_error`).
 _ACCESSIBILITY_CODES = frozenset({
     ErrorCode.ELEMENT_STALE,
     ErrorCode.ELEMENT_AMBIGUOUS,
@@ -1334,25 +1466,26 @@ _ACCESSIBILITY_CODES = frozenset({
 })
 
 
-class RustAccessibilityProvider(PythonAccessibilityProvider):
+class RustAccessibilityProvider(uitreelib.UiTree):
     """Accessibility through the grant-bound native helper (Tasks 6.2, 6.3).
 
     The dump, the window list and the focused window come from the helper,
     which reads AT-SPI over D-Bus with no GI and no GTK. Everything after the
     read stays in `uitree`: short ids, the last-dump registry and the text
-    shown to the model -- one copy for both readers.
+    shown to the model.
 
     Actions (`click`, `set_text`) go to the same helper. `uitree` still turns
     the short id into a node of the last dump and the password rule still
-    runs first (`PythonAccessibilityProvider.set_text`); the helper is then
-    told only which of its own dumps (the snapshot it returned) and which
-    node, and acts on the identity it recorded itself. A dump from another
-    helper -- another process, or this one before a new grant -- is unknown
-    there and refused with ELEMENT_STALE: a new `ui_dump` fixes it.
+    runs first (`set_text` below); the helper is then told only which of its
+    own dumps (the snapshot it returned) and which node, and acts on the
+    identity it recorded itself. A dump from another helper -- another
+    process, or this one before a new grant -- is unknown there and refused
+    with ELEMENT_STALE: a new `ui_dump` fixes it.
 
-    Without a grant there is no helper to ask. `screen_info` lists windows
-    before `desktop_unlock`, so the window list and the focused window fall
-    back to the Python helper then -- exactly what that call read before.
+    Without a grant there is no helper to ask, so nothing is read: the window
+    list and the focused window are refused like a dump (`screen_info` lists
+    no windows before `desktop_unlock`). The Python AT-SPI helper that once
+    answered then is gone.
     """
 
     def __init__(
@@ -1508,17 +1641,66 @@ class RustAccessibilityProvider(PythonAccessibilityProvider):
         return result
 
     def focused_window(self) -> tuple[str, str]:
-        grant = self._current_grant()
-        if grant is None:
-            return super().focused_window()
+        # The current grant, else the last one, so the helper says why it is
+        # refused (expired, revoked); no grant at all is GRANT_REQUIRED.
+        grant = self._current_grant() or self._dump_grant()
         result = self._request("accessibility.focused", grant)
         return result.get("app") or "?", result.get("window") or ""
 
     def windows(self) -> list[uitreelib.Window]:
-        grant = self._current_grant()
-        if grant is None:
-            return super().windows()
+        grant = self._current_grant() or self._dump_grant()
         return uitreelib.windows_from_response(self._request("accessibility.windows", grant))
+
+    def _translate_accessibility(
+        self,
+        operation: Callable[[], Any],
+        *,
+        code: ErrorCode,
+        category: ErrorCategory,
+        retryable: bool,
+    ) -> Any:
+        """Run a `uitree` step and turn its failure into the shared taxonomy.
+
+        A stable code the step states itself wins over the caller's default;
+        the message is never parsed.
+        """
+        try:
+            return operation()
+        except uitreelib.UiTreeError as exc:
+            raise _accessibility_error(
+                exc, code, category, retryable, backend=ACCESSIBILITY_BACKEND) from exc
+
+    def click(self, node_id: str, action: str = "click") -> dict:
+        return self._translate_accessibility(
+            lambda: super(RustAccessibilityProvider, self).click(node_id, action),
+            code=ErrorCode.ACTION_UNSUPPORTED,
+            category=ErrorCategory.ACCESSIBILITY,
+            retryable=False,
+        )
+
+    def set_text(self, node_id: str, text: str) -> dict:
+        node = self._translate_accessibility(
+            lambda: self.resolve(node_id),
+            code=ErrorCode.ELEMENT_STALE,
+            category=ErrorCategory.ACCESSIBILITY,
+            retryable=True,
+        )
+        # A content gate, not a permission gate: it refuses even when
+        # `SafetyGate` allows, and `force` does not pass it
+        # (docs/dev/desktop-rules.md, section 4 item 7).
+        policy.check_text_target(role=node.role, name=node.name)
+        return self._translate_accessibility(
+            lambda: super(RustAccessibilityProvider, self).set_text(node_id, text),
+            code=ErrorCode.TARGET_MISMATCH,
+            category=ErrorCategory.ACCESSIBILITY,
+            retryable=False,
+        )
+
+    def describe_dump(self, dump: uitreelib.Dump) -> str:
+        return uitreelib.describe(dump)
+
+    def describe_windows(self, windows: list[uitreelib.Window]) -> str:
+        return uitreelib.describe_windows(windows)
 
     def close(self) -> None:
         self._helper.close()
@@ -1531,10 +1713,10 @@ class RustAccessibilityProvider(PythonAccessibilityProvider):
 
     def capability_token(self) -> tuple[Any, ...]:
         ready, reason = native_binary_ready(self.cfg)
-        return ("rust-accessibility", ready, reason, super().capability_token())
+        return ("rust-accessibility", ready, reason)
 
     def probe_capabilities(self) -> dict[str, Capability]:
-        values = super().probe_capabilities()
+        values: dict[str, Capability] = {}
         ready, reason = native_binary_ready(self.cfg)
         if not ready:
             for name in ("accessibility.read", "window.list", "accessibility.action"):
@@ -1566,7 +1748,6 @@ class RustAccessibilityProvider(PythonAccessibilityProvider):
 
 __all__ = [
     "ACCESSIBILITY_BACKEND",
-    "BackendSelection",
     "BACKEND_NAME",
     "KWIN_BACKEND_NAME",
     "NativeCaptureError",
@@ -1577,5 +1758,4 @@ __all__ = [
     "RustKeyboardInputProvider",
     "native_binary_ready",
     "runtime_dir",
-    "select_capture_backend",
 ]

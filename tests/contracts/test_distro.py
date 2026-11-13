@@ -48,13 +48,13 @@ class HintTests(unittest.TestCase):
                 self.assertTrue(all(n.strip() for n in names))
 
     def test_the_install_command_uses_the_family_package_manager(self) -> None:
-        self.assertEqual(distro.install_command("atspi", fam=distro.DEBIAN),
-                         "sudo apt install python3-gi gir1.2-atspi-2.0")
-        self.assertEqual(distro.install_command("atspi", fam=distro.ARCH),
+        self.assertEqual(distro.install_command("python3-gi", "atspi-bus", fam=distro.DEBIAN),
+                         "sudo apt install python3-gi at-spi2-core")
+        self.assertEqual(distro.install_command("python3-gi", "atspi-bus", fam=distro.ARCH),
                          "sudo pacman -S --needed python-gobject at-spi2-core")
         self.assertEqual(distro.install_command("script", "notify-send", fam=distro.ARCH),
                          "sudo pacman -S --needed util-linux libnotify")
-        self.assertEqual(distro.install_command("atspi", fam=distro.FEDORA),
+        self.assertEqual(distro.install_command("python3-gi", "atspi-bus", fam=distro.FEDORA),
                          "sudo dnf install python3-gobject at-spi2-core")
 
     def test_the_plan_runs_the_manager_without_a_second_question(self) -> None:
@@ -67,9 +67,8 @@ class HintTests(unittest.TestCase):
 
     def test_repeats_are_dropped_and_order_is_kept(self) -> None:
         self.assertEqual(
-            distro.packages("atspi", "screencast", fam=distro.ARCH),
-            ["python-gobject", "at-spi2-core", "gst-plugin-pipewire",
-             "gst-plugins-good", "gst-plugins-base"],
+            distro.packages("native-build", "libpipewire", "readelf", fam=distro.ARCH),
+            ["libpipewire", "clang", "pkgconf", "binutils"],
         )
 
     def test_tesseract_languages_are_separate_packages_on_both(self) -> None:

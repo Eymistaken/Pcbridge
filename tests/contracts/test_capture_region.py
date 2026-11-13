@@ -4,7 +4,7 @@
 A region shot is an ordinary shot record whose `offset` is the region's global
 top-left and whose `desktop_size` is the region's size, so `shot=` clicks on
 it convert with the same formula as a whole-monitor shot. These tests pin
-that on all three capture paths, the three coordinate spaces a region can be
+that on both kinds of frame source, the three coordinate spaces a region can be
 given in, the refusals (two monitors, too small, outside the source image,
 `shot` with `monitor`), and that enhancement touches only the copy sent to
 the client.
@@ -64,26 +64,14 @@ class RegionCaptureTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def canvas(self, tmpdir: Path, include_pointer: bool) -> Path:
-        """What `gnome-screenshot -f` writes: both frames side by side."""
-        image = Image.new("RGB", (3840, 1080))
-        for monitor in MONITORS:
-            with Image.open(io.BytesIO(self.frames[monitor.connector])) as frame:
-                image.paste(frame, (monitor.x, monitor.y))
-        path = Path(tmpdir) / "canvas.png"
-        image.save(path)
-        return path
-
     def handles(self):
         return (
-            ("python", FakeLegacyScreenCast(self.frames)),
+            ("plain", FakeLegacyScreenCast(self.frames)),
             ("native", native_handle(self.cfg, FakeNativeClient(self.frames))),
-            ("gnome-screenshot", None),
         )
 
     def shoot(self, screencast, region, scale_long_edge: int = 1536):
-        with mock.patch.object(capturelib, "_grab_canvas", self.canvas), \
-                mock.patch.object(capturelib, "available", return_value=(True, "")):
+        with mock.patch.object(capturelib, "available", return_value=(True, "")):
             return capturelib.capture(
                 "all",
                 out_dir=self.out,
@@ -184,7 +172,7 @@ class RegionCaptureTests(unittest.TestCase):
             )
 
     # ------------------------------------------- GNOME window capture (2.8)
-    def window_shot(self, screencast, frames, grab_window=None):
+    def window_shot(self, screencast, frames):
         """`monitor="window"` on GNOME with the extension's answers queued."""
         from pcbridge.desktop import apps as appslib
 
@@ -197,10 +185,6 @@ class RegionCaptureTests(unittest.TestCase):
             return answer
 
         with mock.patch.object(appslib, "extension_focused_frame", side_effect=focused_frame), \
-                mock.patch.object(capturelib, "_grab_window",
-                                  grab_window or mock.Mock(side_effect=AssertionError(
-                                      "gnome-screenshot ran"))), \
-                mock.patch.object(capturelib, "_grab_canvas", self.canvas), \
                 mock.patch.object(capturelib, "available", return_value=(True, "")):
             return capturelib.capture(
                 "window", out_dir=self.out, scale_long_edge=1536,
@@ -264,21 +248,21 @@ class RegionCaptureTests(unittest.TestCase):
             self.window_shot(FakeLegacyScreenCast(self.frames), [None])
         self.assertIn("No focused window", str(raised.exception))
 
-    def test_an_extension_from_before_2_8_keeps_the_screenshot_path(self) -> None:
+    def test_without_frames_from_the_extension_a_window_is_refused_with_the_fix(self) -> None:
         from pcbridge.desktop.apps import ExtensionFrameUnavailable
 
-        def grab(tmpdir: Path, include_pointer: bool) -> Path:
-            path = Path(tmpdir) / "window.png"
-            Image.new("RGB", (640, 480), (1, 2, 3)).save(path)
-            return path
-
-        for loaded in (True, False):
+        for loaded, words in ((True, "log out and back in"), (False, "pcbridge setup")):
             with self.subTest(loaded=loaded):
-                old = ExtensionFrameUnavailable("old", loaded=loaded)
-                shot = self.window_shot(FakeLegacyScreenCast(self.frames), [old],
-                                        grab_window=grab)[0]
-                self.assertTrue(shot.id.startswith("win-"), shot.id)
-                self.assertEqual(shot.size, (640, 480))
+                why = ("the GNOME extension loaded in this session is older than this pcbridge "
+                       "and cannot report window frames; log out and back in to load the new one"
+                       if loaded else "the pcbridge GNOME extension is not running in this "
+                       "session; `pcbridge setup` installs and enables it")
+                with self.assertRaises(capturelib.CaptureError) as raised:
+                    self.window_shot(FakeLegacyScreenCast(self.frames),
+                                     [ExtensionFrameUnavailable(why, loaded=loaded)])
+                self.assertIn(words, str(raised.exception))
+                self.assertIn("region", str(raised.exception), "it names the way around")
+                self.assertEqual(sorted(self.out.iterdir()), [])
 
     def test_a_layout_change_between_resolve_and_capture_is_refused(self) -> None:
         region = capturelib.resolve_region(2020, 150, 400, 300)

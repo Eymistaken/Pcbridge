@@ -30,8 +30,7 @@ class FakeRuntime:
         self.gate = mock.Mock()
         self.gate.lock.return_value = "Desktop control closed."
         self.gate.unlock.return_value = "Desktop control open for 5 min."
-        self.capture_provider = mock.Mock()
-        self.capture_provider.kill_helpers.return_value = 1
+        self.capture_provider = mock.Mock(spec=["close", "is_open"])
 
     def close(self) -> None:
         self.closed = True
@@ -90,8 +89,10 @@ class GrantTests(unittest.TestCase):
         rt = FakeRuntime()
         with mock.patch("pcbridge.cli.runtime_of", return_value=rt):
             out = grant.lock(cfg(self.state))
-        self.assertIn("Desktop control closed.", out)
-        self.assertIn("1 screen share(s) stopped", out)
+        # The share closes in its own process: the native helper watches the
+        # revoke epoch the gate just changed (`native_revoke.rs`).
+        self.assertEqual(out, "Desktop control closed.")
+        rt.gate.lock.assert_called_once_with()
         self.assertTrue(rt.closed)
 
         rt = FakeRuntime()

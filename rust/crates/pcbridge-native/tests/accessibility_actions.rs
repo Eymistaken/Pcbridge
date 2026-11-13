@@ -1,10 +1,10 @@
 //! Accessibility actions against the shared fixture (Task 6.3).
 //!
 //! Every `action_cases` entry of `tests/fixtures/native/accessibility_cases.json`
-//! runs here the way the Python helper's contract runs it: dump one desktop,
-//! switch to the desktop the application changed into, act on the dumped
-//! node. What took effect and what the fields hold afterwards must match the
-//! expectation, and a refusal must have sent nothing.
+//! runs here the way the Python helper's contract ran it until 2.8: dump
+//! one desktop, switch to the desktop the application changed into, act on
+//! the dumped node. What took effect and what the fields hold afterwards
+//! must match the expectation, and a refusal must have sent nothing.
 
 use std::cell::{Cell, RefCell};
 use std::time::{Duration, Instant};

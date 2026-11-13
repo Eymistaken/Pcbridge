@@ -137,11 +137,12 @@ Hyprland image-copy, drives uinput, and reads and acts on AT-SPI over raw
 D-Bus. On Plasma and Hyprland the daemon also runs
 `pcbridge-native idle-watch`, which holds a Wayland idle notification open
 and writes the idle state to
-`$XDG_RUNTIME_DIR/pcbridge/idle.json`. Each subsystem (`[native] capture / input /
-accessibility`) is `auto` by default: the helper when it is packaged, the
-Python path otherwise, and a fallback is reported, never silent. It
-revalidates the grant file before every protected operation, so a revoke
-from any process stops it.
+`$XDG_RUNTIME_DIR/pcbridge/idle.json`. It is the only desktop backend:
+the Python paths that once stood in for it (a GStreamer screen share,
+python-evdev devices, a system-python AT-SPI helper and gnome-screenshot)
+were removed after 2.8, so without the helper the desktop tools refuse and
+say how to get it. It revalidates the grant file before every protected
+operation, so a revoke from any process stops it.
 
 ## Where things live
 

@@ -1,7 +1,9 @@
 # Linux capture verification
 
 The evidence that made the Rust capture backend the default: it was compared
-with the old Python/GStreamer path on the real desktop.
+with the old Python/GStreamer path on the real desktop. That path was
+removed after 2.8, so the live test now runs the native side of every check
+only; the comparison numbers below are the record of that decision.
 
 ## How to run it
 
@@ -17,7 +19,7 @@ The test **opens screen sharing and covers the monitors with a static test
 pattern for a few minutes.** It sends no input. Every grant lives in a
 temporary state directory; the real grant file is neither read nor written.
 Captures stay in a temporary directory and are removed. The test skips itself
-when the screen is locked or a Python helper with a real grant is running.
+when the screen is locked.
 
 Only a **release** helper is accepted (`--build-info`: `profile: release`,
 `test_harness: false`); `rust/target/debug/pcbridge-native` is rebuilt with

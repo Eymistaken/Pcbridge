@@ -30,7 +30,7 @@ sys.path.insert(0, str(ROOT))
 from pcbridge.config import load_config  # noqa: E402
 from pcbridge.desktop import capture as capturelib  # noqa: E402
 from pcbridge.desktop import monitors as monitorslib  # noqa: E402
-from pcbridge.desktop.backends.python import PythonCaptureProvider  # noqa: E402
+from pcbridge.desktop.backends.rust import RustCaptureProvider  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCategory, ErrorCode  # noqa: E402
 from tests.contracts.test_capture_backend_selection import (  # noqa: E402
     MONITORS,
@@ -67,7 +67,6 @@ class ShotLayoutTests(unittest.TestCase):
         self.out = Path(self.tmp.name)
 
     def shoot(self, screencast, table=MONITORS) -> list[capturelib.Shot]:
-        # Whether gnome-screenshot is installed here is not what is measured.
         with mock.patch.object(monitorslib, "list_monitors", return_value=table), \
                 mock.patch.object(capturelib, "available", return_value=(True, "")):
             return capturelib.capture(
@@ -82,22 +81,13 @@ class ShotLayoutTests(unittest.TestCase):
         with mock.patch.object(monitorslib, "list_monitors", return_value=layout):
             return capturelib.to_global(x, y, shot=shot_id, dirs=[self.out])
 
-    def canvas(self, tmpdir: Path, include_pointer: bool) -> Path:
-        """What `gnome-screenshot -f` would write: the whole 3840x1080 canvas."""
-        path = Path(tmpdir) / "canvas.png"
-        path.write_bytes(png_bytes(3840, 1080))
-        return path
-
     def test_every_capture_path_records_the_layout_it_was_taken_under(self) -> None:
         expected = monitorslib.topology_id(MONITORS)
         for name, screencast in (
-            ("python", FakeLegacyScreenCast(self.frames)),
+            ("plain", FakeLegacyScreenCast(self.frames)),
             ("native", native_handle(self.cfg, FakeNativeClient(self.frames))),
-            ("gnome-screenshot", None),
         ):
-            with self.subTest(backend=name), mock.patch.object(
-                capturelib, "_grab_canvas", self.canvas
-            ):
+            with self.subTest(backend=name):
                 for shot in self.shoot(screencast):
                     self.assertEqual(shot.topology, expected)
                     record = json.loads(
@@ -155,7 +145,7 @@ class ShotLayoutTests(unittest.TestCase):
 
     def test_the_provider_reports_it_as_a_retryable_display_change(self) -> None:
         right = self.shoot(FakeLegacyScreenCast(self.frames))[1]
-        provider = PythonCaptureProvider(self.cfg, screencast=FakeLegacyScreenCast(self.frames))
+        provider = RustCaptureProvider(self.cfg, screencast=FakeLegacyScreenCast(self.frames))
         with mock.patch.object(monitorslib, "list_monitors", return_value=SWAPPED):
             with self.assertRaises(DesktopError) as raised:
                 provider.to_global(100, 100, shot=right.id, dirs=[self.out])

@@ -356,20 +356,22 @@ class Doctor:
             self.add(g, "/dev/uinput", "ok", "writable by this user")
         else:
             self.add(g, "/dev/uinput", "fail", "not writable by this user", udev_hint())
-        for mod, pkg in (("evdev", "evdev"), ("PIL", "Pillow")):
-            try:
-                __import__(mod)
-                self.add(g, f"python {pkg}", "ok", "importable")
-            except ImportError:
-                self.add(g, f"python {pkg}", "fail", "missing", "pcbridge setup  (reinstalls the [desktop] extra)")
-        sysgi = inst.run(["/usr/bin/python3", "-c", "import gi; gi.require_version('Atspi','2.0'); from gi.repository import Atspi"])
-        self.add(g, "AT-SPI (system python3-gi)", "ok" if sysgi.returncode == 0 else "fail",
-                 "available" if sysgi.returncode == 0 else sysgi.stderr.strip()[-160:],
-                 "" if sysgi.returncode == 0 else distrolib.install_command("atspi"))
+        try:
+            __import__("PIL")
+            self.add(g, "python Pillow", "ok", "importable")
+        except ImportError:
+            self.add(g, "python Pillow", "fail", "missing", "pcbridge setup  (reinstalls the [desktop] extra)")
         for tool, pkg, level in (("wl-copy", "wl-clipboard", "fail"), ("tesseract", "tesseract", "warn")):
             have = shutil.which(tool)
             self.add(g, tool, "ok" if have else level, have or "missing",
                      "" if have else distrolib.install_command(pkg))
+        from .plan import _has_a11y_bus
+
+        bus = _has_a11y_bus()
+        self.add(g, "AT-SPI bus", "ok" if bus else "fail",
+                 "org.a11y.Bus is installed (ui_dump reads the tree from it)" if bus
+                 else "org.a11y.Bus is not installed: ui_dump, ui_click and window_list cannot work",
+                 "" if bus else distrolib.install_command("atspi-bus"))
         if kind == KDE:
             self.plasma(g)
         elif kind == GNOME:
@@ -409,6 +411,14 @@ class Doctor:
         self.add(g, "KWin scripting", "ok" if owned else "fail",
                  "org.kde.KWin answers (window focus and the focused window)" if owned
                  else "org.kde.KWin has no owner: this is not a KWin session")
+        # kwin_helper.py loads those scripts from the system python3 with
+        # PyGObject, the one Python helper left (ROADMAP: "Move KWin scripting
+        # into the native helper").
+        sysgi = inst.run(["/usr/bin/python3", "-c", "import gi; gi.require_version('Gio', '2.0'); "
+                          "from gi.repository import Gio"])
+        self.add(g, "KWin scripts (system python3-gi)", "ok" if sysgi.returncode == 0 else "fail",
+                 "available" if sysgi.returncode == 0 else sysgi.stderr.strip()[-160:],
+                 "" if sysgi.returncode == 0 else distrolib.install_command("python3-gi"))
         idle = idlewatch.read_idle_ms()
         self.add(g, "idle time", "ok" if idle is not None else "warn",
                  f"the idle watcher answers ({idle} ms since the last input)" if idle is not None

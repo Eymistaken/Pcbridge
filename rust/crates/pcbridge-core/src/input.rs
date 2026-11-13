@@ -74,7 +74,8 @@ pub fn move_path(
 ///
 /// Wider than the canvas in either direction, so it never blocks real work;
 /// an unbounded delta would be a denial of service against the user's own
-/// desktop. Mirrors `input.MOVE_BY_MAX` on the Python side.
+/// desktop. `batch.MOVE_BY_MAX` on the Python side copies it for an early
+/// refusal; `test_input_contract` keeps the two equal.
 pub const MOVE_BY_MAX: i32 = 4000;
 
 /// Ceiling on how many chunks one relative nudge is split into.

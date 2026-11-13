@@ -292,10 +292,37 @@ class OcrToolTests(unittest.TestCase):
         self.assertIn("is not on the screen", result.content[0].text)
         self.assertIn("Yükleniyor...", result.content[0].text)
 
-    def test_the_window_capture_is_refused(self) -> None:
-        result = self.tool("find_text")(text="Oyna", monitor="window")
-        self.assertIn("window", result.content[0].text)
-        self.assertEqual(self.captures, 0)
+    def test_a_window_capture_is_read_and_clicked_like_a_monitor(self) -> None:
+        # Since the gnome-screenshot path went, a window is a region of its
+        # monitor's frame with a shot id, so the text found in it converts.
+        window = MONITORS[1]
+        seen: list = []
+
+        def window_capture(spec, out_dir, scale_long_edge, **kwargs):
+            seen.append(spec)
+            path = Path(out_dir) / "ocr-window.png"
+            Image.new("RGB", (800, 600), (240, 240, 240)).save(path)
+            shot = capturelib.Shot(
+                path=path, monitor=window, offset=(window.x + 200, 100),
+                size=(800, 600), scaled=(800, 600), scale=1.0,
+                id="m2-0000aa", taken_at=time.time(),
+                desktop_size=(800, 600), region=True,
+            )
+            (Path(out_dir) / f"{shot.id}.json").write_text(json.dumps(shot.meta()))
+            return [shot]
+
+        words = ocr.parse_tsv(tsv((1, 1, 1, 1, 100, 50, 120, 24, 90.0, "Oyna")))
+        with mock.patch.object(toolslib.capturelib, "capture", side_effect=window_capture), \
+                mock.patch.object(ocr, "read_words", return_value=words):
+            result = self.tool("find_text")(text="Oyna", monitor="window")
+        self.assertEqual(seen, ["window"])
+        self.assertFalse(result.is_error)
+        match = result.structured_content["matches"][0]
+        self.assertEqual((match["x"], match["y"], match["shot"]), (160, 62, "m2-0000aa"))
+        self.assertEqual(
+            capturelib.to_global(160, 62, shot="m2-0000aa", dirs=[self.store.dir]),
+            (window.x + 200 + 160, 100 + 62),
+        )
 
     def test_wait_returns_as_soon_as_the_text_shows_and_cleans_up(self) -> None:
         empty = ocr.parse_tsv(tsv((1, 1, 1, 1, 50, 50, 140, 20, 70.0, "Yükleniyor...")))

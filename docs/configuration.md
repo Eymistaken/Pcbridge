@@ -67,14 +67,12 @@ screenshots) are filled in with their 1.x values.
 | `[limits]` | output size, job timeouts, `audit_max_bytes` (log rotation) |
 | `[files]` | the one-time file links: `link_ttl_seconds` (300; the time to start a transfer), `upload_max_mb` (512), `download_max_mb` (2048) |
 | `[power]` | `keep_awake` (**false** by default): hold a sleep inhibitor while a job runs; the running daemon re-reads it, no restart |
-| `[native]` | `capture` / `input` / `accessibility`: `auto` (native helper when packaged), `rust` (the helper, or fail) or `python`; `binary_path` |
-| `[desktop]` | `enabled` (**false** by default), grant length and sliding window, the idle guard, rate limit, pointer speed, hold limit, screenshot scaling (`screenshot_scale_long_edge = 1536`, `screenshot_max_pixels`), shot lifetimes, the capture backend, batch budget and focus checks, OCR languages, `computer_task` agent |
+| `[native]` | `capture` / `input` / `accessibility`: `auto` (default) or `rust`, both the native helper, the only desktop backend since the Python paths were removed after 2.8 (an old `"python"` is read as `auto` with a warning); `binary_path` |
+| `[desktop]` | `enabled` (**false** by default), grant length and sliding window, the idle guard, rate limit, pointer speed, hold limit, screenshot scaling (`screenshot_scale_long_edge = 1536`, `screenshot_max_pixels`), shot lifetimes, batch budget and focus checks, OCR languages, `computer_task` agent |
 | `[agents.<name>]` | a coding agent: command, resume syntax, output parser, `pty`, models, efforts, aliases |
 | `[tools]` | `profile`: `full` (default), `core`, `desktop`, `readonly`; `remote_profile`: the set for HTTP (remote) clients, `same` (default) follows `profile` |
 
-On KDE Plasma no new setting is needed. Three existing ones matter there:
-capture works only through the native helper (`[native] capture` `auto` or
-`rust`, and `[desktop] capture_backend = "auto"`), and
+On KDE Plasma no new setting is needed. One existing one matters there:
 `[desktop] unlock_notification` is the grant's only visible signal, so it
 should stay `true`.
 
@@ -89,9 +87,8 @@ polkit; without it `pcbridge doctor` says so. The inhibitor ends with the
 daemon, so `pcbridge stop --keep-jobs` leaves the jobs running unprotected.
 Measurements: [measured facts](dev/measured-facts.md#keep-awake-while-jobs-run).
 
-On Hyprland, desktop control needs the packaged native helper for capture,
-input, and the visible grant frame. Keep the native desktop backends on
-`auto` or `rust`; the Python fallback does not supply Hyprland capture.
+On Hyprland, as everywhere, desktop control needs the native helper for
+capture and input, and there it also draws the visible grant frame.
 
 ## Adding an agent
 

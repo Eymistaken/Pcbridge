@@ -5,9 +5,9 @@
 //! "Access denied" on GNOME 46, and only the sharing path is silent. Sharing
 //! means a session: `CreateSession`, one `RecordMonitor` per connector, then
 //! `Start`, and the PipeWire node id for each connector arrives afterwards as a
-//! `PipeWireStreamAdded` signal. `screencast_helper.py` does exactly this today
-//! through PyGObject; this module does it through zbus so the helper process --
-//! and the system Python it needs -- can eventually go away.
+//! `PipeWireStreamAdded` signal. `screencast_helper.py` did this through
+//! PyGObject until 2.8; this module does it through zbus, and that helper
+//! process -- and the system Python it needed -- is gone.
 //!
 //! Three things make the session worth its own state machine rather than a pair
 //! of booleans:
@@ -27,10 +27,10 @@
 //!   start/stop and revoke-during-start against a fake, deterministically and
 //!   with no screen sharing actually starting.
 //!
-//! Nothing in the protocol opens a session yet -- `dispatch.rs` has no method
-//! that reaches this module. Task 3.3 sends the capture request and task 3.4
-//! binds it to the Python shot pipeline; until then this is a library with its
-//! own tests, and the Python helper stays the only path that shares a screen.
+//! `capture.session_open` and `capture.frame` (`dispatch.rs`) reach this
+//! module through `NativeCapture` (`capture.rs`), and the Python shot
+//! pipeline takes the frames. Since the Python helper was removed after 2.8,
+//! this is the only path that shares a screen.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};

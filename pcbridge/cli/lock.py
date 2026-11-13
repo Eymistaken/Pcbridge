@@ -8,13 +8,15 @@ sunucudan bagimsiz calisan `bin/pcb-do` de oradan okuyor. pcbridge oldukten
 sonra diskte kalmis acik bir izin, elle calistirilan bir `pcb-do`'yu hala
 yetkilendirirdi.
 
-YAYIN DA KAPATILIYOR (2026-09-06'da eklendi, kullanici fark etti)
-    Izin dosyasini kapatmak yetmiyordu: yayin `screencast_helper.py`
-    surecinde yasiyor ve tutamagi ONU ACAN surecin belleginde. `cli.lock`
-    ayri bir surec, o nesneye ulasamiyor. Sonuc: izin kapali ama ust
-    cubuktaki PAYLASIM GOSTERGESI duruyordu. Gosterge "ajan ekranini
-    gorebiliyor" demek; acil kapatmadan sonra durmasi ya erisimin surdugu ya
-    da gostergenin yalan soyledigi anlamina gelir -- ikisi de kabul edilemez.
+THE SHARE CLOSES TOO
+    The screen share lives in the native helper of the process that opened
+    it, out of reach of `cli.lock`. Every native helper watches the grant
+    and ends its session when the revoke epoch changes (`native_revoke.rs`),
+    so closing the grant closes every share, and the panel's sharing
+    indicator goes with it: the indicator means "an agent can see the
+    screen", so it must not outlive the grant. (Until the Python screen
+    share was removed, this module also had to find and stop its helper
+    processes by path; the user noticed the leftover indicator, 2026-09-06.)
 
 Bu, acil durdurmanin YERINE gecmiyor: olculdu 2026-08-02, `systemctl --user
 stop` calisan ajan islerini de olduruyor (isler servisin cgroup'unda kaliyor,

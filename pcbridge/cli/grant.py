@@ -92,14 +92,10 @@ def lock(cfg: Any) -> str:
 
     runtime = runtime_of(cfg)
     try:
-        out = runtime.gate.lock()
-        # The screen share is a separate resource: its handle lives in the
-        # process that opened it, so the provider finds and stops its helpers.
-        killed = runtime.capture_provider.kill_helpers()
-        if killed:
-            out += (f"\n· {killed} screen share(s) stopped "
-                    "(the sharing indicator is gone)")
-        return out
+        # The screen share is a separate resource whose handle lives in the
+        # process that opened it; its native helper ends the session itself
+        # when the revoke epoch changes (`native_revoke.rs`).
+        return runtime.gate.lock()
     finally:
         runtime.close()
 

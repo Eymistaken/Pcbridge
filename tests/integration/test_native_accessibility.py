@@ -1,36 +1,34 @@
 #!/usr/bin/env python3
-"""Both accessibility helpers, one fixture (Tasks 6.2, 6.3).
+"""The accessibility helper end to end, on the shared fixture (Tasks 6.2, 6.3).
 
 The Rust helper runs in `--test-mode`: its tree is a fixture desktop named by
 `PCBRIDGE_TEST_A11Y_FIXTURE` and `PCBRIDGE_TEST_A11Y_DESKTOP`, never the
 user's applications. Every dump and window case of the shared fixture goes
 through `RustAccessibilityProvider` -> NativeClient -> the helper, and the
-answer must equal both the fixture's expectation and what the Python helper
-produces from the same desktop: node for node, id for id.
+answer must equal the fixture's expectation, node for node. The fixture was
+written for the Python AT-SPI helper (removed after 2.8), so the native
+reader is still held to what that helper read.
 
-Every action case goes through both providers the way `ui_click` and
-`ui_set_text` call them. Both must refuse or act alike, with the same words,
-and leave the fake desktops in the same state.
+Every action case goes through the provider the way `ui_click` and
+`ui_set_text` call it, and must refuse or act as the fixture says, leaving
+the fake desktop in the state it names.
 """
 
 from __future__ import annotations
 
 import dataclasses
-import importlib.util
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from pcbridge.config import load_config  # noqa: E402
 from pcbridge.desktop import uitree as uitreelib  # noqa: E402
-from pcbridge.desktop.backends.python import PythonAccessibilityProvider  # noqa: E402
 from pcbridge.desktop.backends.rust import RustAccessibilityProvider  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCode  # noqa: E402
 from pcbridge.desktop.safety import SafetyGate  # noqa: E402
@@ -38,32 +36,6 @@ from pcbridge.native.client import NativeClient  # noqa: E402
 
 FIXTURE_PATH = ROOT / "tests" / "fixtures" / "native" / "accessibility_cases.json"
 FIXTURE = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
-
-
-def _python_reader():
-    """The Python helper's code on the same fixture, from the contract test."""
-    spec = importlib.util.spec_from_file_location(
-        "accessibility_contract_for_parity",
-        ROOT / "tests" / "contracts" / "test_accessibility_contract.py",
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-CONTRACT = _python_reader()
-
-# Everything a reader decides; `depth` included, the snapshot excluded (it
-# is a fresh random id per dump by design).
-NODE_FIELDS = ("node_id", "ref", "path", "role", "name", "states", "actions", "editable", "depth")
-DUMP_FIELDS = ("app", "window", "truncated", "app_bus", "app_pid", "scope", "window_ref", "same_name")
-
-
-def summary(dump: uitreelib.Dump) -> dict:
-    return {
-        **{field: getattr(dump, field) for field in DUMP_FIELDS},
-        "nodes": [{field: getattr(node, field) for field in NODE_FIELDS} for node in dump.nodes],
-    }
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "native helper is built for Linux")
@@ -112,25 +84,9 @@ class NativeAccessibilityEndToEnd(unittest.TestCase):
         self.helper = helper
         self.native = RustAccessibilityProvider(self.cfg, gate=self.gate, client_factory=helper)
         self.addCleanup(self.native.close)
-        # The Python reader: the real helper code on a fake Atspi, in process.
-        self.atspi = CONTRACT.FakeAtspi()
-        for patcher in (
-            mock.patch.object(CONTRACT.HELPER, "Atspi", self.atspi),
-            mock.patch.object(uitreelib, "_call", self._python_call),
-        ):
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        self.python = uitreelib.UiTree()
-        self.python_provider = PythonAccessibilityProvider()
-
-    @staticmethod
-    def _python_call(payload: dict, timeout: int) -> dict:
-        wire = json.loads(json.dumps(payload, ensure_ascii=False))
-        return json.loads(json.dumps(CONTRACT.HELPER.handle(wire), ensure_ascii=False))
 
     def use(self, desktop: str) -> None:
-        """Point both readers at one fixture desktop."""
-        self.atspi.use(desktop)
+        """Point the helper at one fixture desktop."""
         client = self.native._helper.for_grant(self.native._dump_grant())
         response = client.request("test.accessibility_desktop", {"desktop": desktop}, timeout=5.0)
         self.assertEqual(response.result, {"desktop": desktop})
@@ -146,7 +102,7 @@ class NativeAccessibilityEndToEnd(unittest.TestCase):
             return lambda: provider.click(node_id, act.get("action", "click"))
         return lambda: provider.set_text(node_id, act["text"])
 
-    def test_dump_cases_read_the_same_through_both_helpers(self) -> None:
+    def test_dump_cases_read_what_the_fixture_expects(self) -> None:
         for case in FIXTURE["dump_cases"]:
             with self.subTest(case=case["name"]):
                 self.use(case["desktop"])
@@ -160,43 +116,44 @@ class NativeAccessibilityEndToEnd(unittest.TestCase):
                 if not expect["ok"]:
                     with self.assertRaises(DesktopError) as native_error:
                         self.native.dump(**args)
-                    with self.assertRaises(uitreelib.UiTreeError) as python_error:
-                        self.python.dump(**args)
                     if "code" in expect:
                         self.assertEqual(native_error.exception.code.value, expect["code"])
-                        self.assertEqual(python_error.exception.code.value, expect["code"])
-                    self.assertEqual(native_error.exception.message, str(python_error.exception))
                     continue
                 native = self.native.dump(**args)
-                python = self.python.dump(**args)
-                self.assertEqual(summary(native), summary(python))
                 for key, value in expect.items():
                     if key not in ("ok", "nodes"):
                         self.assertEqual(getattr(native, key), value, key)
                 if "nodes" in expect:
-                    got = [
-                        {"ref": n.ref, "path": n.path, "role": n.role, "name": n.name,
-                         "actions": n.actions, "editable": n.editable}
-                        for n in native.nodes
-                    ]
-                    want = [{key: node[key] for key in got[0]} for node in expect["nodes"]] if got else []
-                    self.assertEqual(got, want)
+                    self.assertEqual(len(native.nodes), len(expect["nodes"]))
+                    for node, want in zip(native.nodes, expect["nodes"]):
+                        for key, value in want.items():
+                            self.assertEqual(getattr(node, key), value, (want["ref"], key))
+                # The ids are made from the read nodes, as for any dump.
+                again = uitreelib.dump_from_response({
+                    "ok": True, "nodes": [
+                        {"path": n.path, "role": n.role, "name": n.name} for n in native.nodes
+                    ],
+                })
+                self.assertEqual([n.node_id for n in native.nodes],
+                                 [n.node_id for n in again.nodes])
 
-    def test_window_cases_read_the_same_through_both_helpers(self) -> None:
+    def test_window_cases_read_what_the_fixture_expects(self) -> None:
         for case in FIXTURE["window_cases"]:
             with self.subTest(case=case["name"]):
                 self.use(case["desktop"])
-                self.assertEqual(self.native.windows(), self.python.windows())
+                self.assertEqual(
+                    self.native.windows(),
+                    uitreelib.windows_from_response({"windows": case["expect_windows"]}),
+                )
                 expect = case["expect_focused"]
                 if expect["ok"]:
                     self.assertEqual(self.native.focused_window(), (expect["app"], expect["window"]))
-                    self.assertEqual(self.python.focused_window(), (expect["app"], expect["window"]))
                 else:
                     with self.assertRaises(DesktopError) as raised:
                         self.native.focused_window()
                     self.assertEqual(raised.exception.code.value, expect["code"])
 
-    def test_action_cases_act_the_same_through_both_helpers(self) -> None:
+    def test_action_cases_act_as_the_fixture_expects(self) -> None:
         ran = 0
         for case in FIXTURE["action_cases"]:
             if "override" in case["act"]:
@@ -210,37 +167,24 @@ class NativeAccessibilityEndToEnd(unittest.TestCase):
                 }
                 self.use(case["dump"]["desktop"])
                 native_dump = self.native.dump(**args)
-                python_dump = self.python_provider.dump(**args)
                 ref = case["act"]["ref"]
                 native_node = next(n for n in native_dump.nodes if n.ref == ref)
-                python_node = next(n for n in python_dump.nodes if n.ref == ref)
-                self.assertEqual(native_node.node_id, python_node.node_id)
                 self.use(case["then"])
                 native_run = self.act(self.native, native_node.node_id, case["act"])
-                python_run = self.act(self.python_provider, python_node.node_id, case["act"])
                 expect = case["expect"]
                 if expect["ok"]:
                     native = native_run()
-                    python = python_run()
-                    for key in ("app", "ref", "role", "name", "resolved_by", "action",
-                                "replaced_chars", "now_chars", "verified"):
-                        self.assertEqual(native.get(key), python.get(key), key)
+                    for key in ("resolved_by", "replaced_chars", "now_chars", "verified"):
                         if key in expect:
                             self.assertEqual(native[key], expect[key], key)
+                    self.assertEqual(native["ref"], ref)
                     self.assertEqual(native["snapshot"], native_dump.snapshot)
                 else:
                     with self.assertRaises(DesktopError) as native_error:
                         native_run()
-                    with self.assertRaises(DesktopError) as python_error:
-                        python_run()
                     self.assertEqual(native_error.exception.code.value, expect["code"])
-                    self.assertEqual(python_error.exception.code.value, expect["code"])
-                    self.assertEqual(native_error.exception.message, python_error.exception.message)
-                    self.assertEqual(native_error.exception.category, python_error.exception.category)
-                    self.assertEqual(native_error.exception.retryable, python_error.exception.retryable)
                 state = self.native_desktop()
                 self.assertEqual(state["performed"], expect["performed"])
-                self.assertEqual(self.atspi.desktop.performed, expect["performed"])
                 for path, text in expect.get("text_after", {}).items():
                     self.assertEqual(state["texts"].get(path), text)
                 ran += 1

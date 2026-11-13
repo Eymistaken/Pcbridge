@@ -23,6 +23,8 @@ from pcbridge import tools as toolslib  # noqa: E402
 from pcbridge.config import AgentSpec, Config, DesktopSpec  # noqa: E402
 from pcbridge.desktop import capture as capturelib  # noqa: E402
 from pcbridge.desktop import monitors as monitorslib  # noqa: E402
+from pcbridge.desktop.backends.rust import RustCaptureProvider  # noqa: E402
+from pcbridge.desktop.runtime import create_runtime  # noqa: E402
 from pcbridge.jobs import JobManager  # noqa: E402
 from pcbridge.shots import ShotStore  # noqa: E402
 
@@ -159,17 +161,46 @@ class OpenGate:
         return 0.0
 
 
+class OpenShare:
+    """A screen share that is already open; each test patches the capture itself."""
+
+    def is_open(self) -> bool:
+        return True
+
+    def close(self) -> None:
+        return None
+
+
+class ReadyCapture(RustCaptureProvider):
+    """The native capture provider with its share open and its helper found.
+
+    The helper is the only capture path, so a tool test needs one that is
+    ready: `capturelib.capture`, patched in the test, then makes the shots.
+    """
+
+    def __init__(self, cfg: Config) -> None:
+        super().__init__(cfg, screencast=OpenShare())
+
+    def available(self) -> tuple[bool, str]:
+        return True, ""
+
+    def start(self, *, cursor: bool | None = None) -> dict:
+        return {"already": True}
+
+
 def build_mcp(root: Path) -> tuple[FastMCP, ShotStore]:
     config = make_config(root)
     store = ShotStore(config)
     mcp = FastMCP("contract")
     with mock.patch.object(toolslib.safetylib, "SafetyGate", OpenGate):
+        runtime = create_runtime(config, gate=OpenGate(), capture_provider=ReadyCapture(config))
         toolslib.register(
             mcp,
             config,
             JobManager(config.jobs_dir, default_timeout=60),
             store,
             transport="stdio",
+            runtime=runtime,
         )
     return mcp, store
 

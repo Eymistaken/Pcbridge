@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Ask KWin about windows through a one-shot KWin script (KDE Plasma).
 
-Runs under the SYSTEM python3 (python-gobject), like `atspi_helper.py`: the
-venv has no GObject. One JSON request on stdin, one JSON reply on stdout.
+Runs under the SYSTEM python3 (python-gobject): the venv has no GObject.
+It is the last Python helper; the capture, input and accessibility ones are
+gone (ROADMAP: "Move KWin scripting into the native helper"). One JSON
+request on stdin, one JSON reply on stdout.
 
     {"cmd": "activate", "target": "kate"}  -> {"ok": true, "activated": true,
                                                "app": "org.kde.kate", "title": "..."}

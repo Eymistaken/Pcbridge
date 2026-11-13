@@ -116,6 +116,10 @@ def _busctl_bool(*args: str) -> bool:
 
 
 _KWIN_HELPER = Path(__file__).with_name("kwin_helper.py")
+# The SYSTEM python3, not the venv's: `kwin_helper.py` needs PyGObject (Gio),
+# which the venv does not have. The one Python helper left (ROADMAP: "Move
+# KWin scripting into the native helper").
+SYSTEM_PYTHON = "python3"
 
 
 def _kwin(request: dict) -> dict | None:
@@ -124,8 +128,6 @@ def _kwin(request: dict) -> dict | None:
     The helper runs a one-shot KWin script (measured: 83-95 ms a call with
     the interpreter start). Its answer is trusted only when it says ok.
     """
-    from .uitree import SYSTEM_PYTHON
-
     try:
         proc = subprocess.run(
             [SYSTEM_PYTHON, str(_KWIN_HELPER)],
@@ -858,7 +860,7 @@ def observe_focus(focused: Callable[[], tuple[str, str]]) -> tuple[str, str]:
     `accessibility.read: supported` diyen `system_capabilities` ile
     celisiyordu. Ayni durum kullanici duvar kagidina tikladiginda da olusuyor.
     Odak dokumunden gelen TARGET_MISMATCH baska bir sey anlatamaz: ada gore
-    arama o yolda hic yapilmiyor (`atspi_helper.cmd_dump`, `accessibility.rs`).
+    arama o yolda hic yapilmiyor (`accessibility.rs`).
     """
     try:
         app, window = focused()

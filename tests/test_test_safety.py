@@ -38,10 +38,13 @@ class LiveTestSelectionSafetyTests(unittest.TestCase):
             spec.loader.exec_module(module)
 
             def forbidden_device(*args, **kwargs):
-                raise AssertionError("capture-only selection constructed a uinput device")
+                raise AssertionError("capture-only selection built the native input provider")
 
-            module.I.InputBackend._make_keyboard = forbidden_device
-            module.I.InputBackend._make_pointer = forbidden_device
+            # Input goes through the native helper only: building its
+            # provider is the first step towards a uinput device.
+            from pcbridge.desktop.backends import rust as rustlib
+
+            rustlib.RustInputProvider.__init__ = forbidden_device
 
             class Selected(RuntimeError):
                 pass
@@ -68,11 +71,10 @@ class LiveTestSelectionSafetyTests(unittest.TestCase):
 
             capture_only = {"PCBRIDGE_TEST_CAPTURE": True}
             assert selected(module.test_real_capture, **capture_only)
-            assert selected(module.test_real_screencast, **capture_only)
-            assert not selected(module.test_real_hold, **capture_only)
+            assert not selected(module.test_real_atspi, **capture_only)
             assert not selected(module.test_real_batch, **capture_only)
 
-            assert selected(module.test_real_hold, PCBRIDGE_TEST_INPUT=True)
+            assert selected(module.test_real_atspi, PCBRIDGE_TEST_ATSPI=True)
             assert not selected(module.test_real_batch, PCBRIDGE_TEST_BATCH=True)
             assert not selected(module.test_real_batch, PCBRIDGE_TEST_INPUT=True)
             assert selected(

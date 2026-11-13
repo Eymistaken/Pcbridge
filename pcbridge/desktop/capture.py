@@ -36,23 +36,15 @@ GLOBAL OFSET VE CEKIM KIMLIGI
     COZUNURLUK koordinati. `shot=` ondan farkli, cunku olcegi de biliyor;
     ikisi birlikte verilemez.
 
-IKI BACKEND
-    1. **Ekran yayini** (`screencast.py`, PipeWire) — acik bir yayin varsa
-       tercih edilen yol. Her monitor AYRI bir akis oldugu icin yukaridaki
-       kirpma adimi DUSER: kirpma kaynakta yapilmis olur.
-    2. `gnome-screenshot` — yedek. Yayin yoksa, gstreamer kurulu degilse ya da
-       `monitor="window"` istendiginde (yayinda pencere secimi yok).
-
-    Yayin yolu 2026-08-03'te olculdu ve iki sebeple tercih ediliyor:
-
-      * `gnome-screenshot` her cekimde BEYAZ FLAS patlatiyor ve ses cikariyor;
-        yayin yolu sessiz (kullanici dogruladi). ASIL SEBEP bu.
-      * Hiz ikincil ve abartilmamali. Ham yakalama 240 ms'ye karsi 833 ms,
-        ama UCTAN UCA (iki monitor + olcekleme + PNG yazma) 1,5 sn'ye karsi
-        2,5 sn: aradaki ~1 saniyenin cogu Pillow'da ve iki yolda da ayni.
-
-    Kayip yok: yayin ciktisi ile gnome-screenshot'in ayni bolgesi **%99,8
-    birebir ayni** cikti (kalan fark iki cekim arasinda ekranin degismesi).
+ONE SOURCE OF FRAMES
+    The frames come from the native helper's screen share (`NativeScreenCast`
+    in `backends/rust.py`): Mutter ScreenCast/PipeWire on GNOME, KWin
+    ScreenShot2 on Plasma, image-copy on Hyprland. Every monitor is its own
+    stream, so the crop above happens at the source. A window capture is a
+    region of its monitor's frame, named by the compositor (the GNOME
+    extension's `FocusedWindowFrame`, KWin, Hyprland). gnome-screenshot, the
+    older second path, is gone: it flashed the screen white and played a
+    sound on every capture, and its window pictures had no global position.
 """
 
 from __future__ import annotations
@@ -64,7 +56,6 @@ import os
 import re
 import secrets
 import shutil
-import subprocess
 import tempfile
 import time
 from collections.abc import Callable, Sequence
@@ -72,7 +63,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .. import distro as distrolib
 from . import compositor as compositorlib
 from . import monitors as monitorslib
 from .errors import DesktopError, ErrorCategory, ErrorCode
@@ -88,10 +78,10 @@ except Exception as _exc:  # pragma: no cover - kuruluysa calismaz
     Image = None  # type: ignore[assignment]
 
 
-GNOME_SCREENSHOT = "gnome-screenshot"
-SCREENCAST_NAME = "screencast (PipeWire)"
-
-# Cekim kimligi: "m2-a1b2c3" (monitor 2) ya da "win-a1b2c3" (pencere cekimi).
+# Cekim kimligi: "m2-a1b2c3" (monitor 2; a window capture is a region of its
+# monitor and gets the same form). "win-a1b2c3" named the monitor-less window
+# pictures of gnome-screenshot, removed after 2.8; a record left from then
+# still loads and refuses coordinates.
 # Hex kismi dosya adi damgasindaki rastgele son ekle AYNI -- ikinci bir
 # rastgelelik kaynagi yok, yani PNG adina bakip kimligi okuyabiliyorsun.
 #
@@ -188,10 +178,6 @@ def oversize_note(shot: "Shot") -> str:
     return OVERSIZE_NOTE.format(
         edge=edge, limit=CLIENT_MAX_LONG_EDGE, ratio=edge / CLIENT_MAX_LONG_EDGE
     )
-# 3840x1080 yakalama olculdu: ~1 saniye. 20 s, kompozitor gecici olarak
-# takildiginda bile yeterli ve MCP'nin 110 saniyelik sinirinin cok altinda.
-GRAB_TIMEOUT = 20
-
 
 class CaptureError(RuntimeError):
     """Ekran goruntusu alinamadi."""
@@ -205,9 +191,9 @@ class ShotLayoutChanged(CaptureError):
 class Shot:
     """Tek bir kirpilmis (ve muhtemelen olceklenmis) goruntu.
 
-    `offset` **None ise** bu goruntuden koordinat turetilemez: `monitor="window"`
-    yolunda `gnome-screenshot -w` pencerenin ekranin neresinde oldugunu
-    bildirmiyor.
+    When `offset` is **None**, no coordinate can be derived from the picture.
+    A new capture always carries an offset; None only comes from a record of
+    gnome-screenshot's window pictures (2.8 and earlier) still on disk.
     """
 
     path: Path
@@ -704,77 +690,22 @@ def _on_a_monitor(point: tuple[int, int], what: str) -> tuple[int, int]:
 
 # --------------------------------------------------------------------- durum
 def available(screencast: Any = None) -> tuple[bool, str]:
-    """(kullanilabilir mi, degilse Turkce gerekce).
+    """(usable, why not): Pillow, and a screen share that is open.
 
-    Acik bir ekran yayini varsa `gnome-screenshot` GEREKMIYOR: kareler
-    PipeWire'dan geliyor. Bu yuzden yayin verildiginde yalnizca Pillow
-    araniyor -- yoksa gnome-screenshot'i olmayan bir makinede sessiz yol
-    calisirken "kurulu degil" hatasi alinirdi.
+    There is no second path: without an open share no picture can be taken,
+    and the provider opens it before it asks.
     """
     if not PIL_AVAILABLE:
         return False, (
             f"the python package `Pillow` is missing ({PIL_IMPORT_ERROR}). "
             "Reinstall pcbridge with its [desktop] extra (`pcbridge setup`)."
         )
-    if screencast is not None and screencast.is_open():
-        return True, ""
-    if not shutil.which(GNOME_SCREENSHOT):
+    if screencast is None or not screencast.is_open():
         return False, (
-            f"`{GNOME_SCREENSHOT}` is not installed. "
-            f"Install it: {distrolib.install_command('gnome-screenshot')}"
+            "the screen share is not open; desktop_unlock opens it (and it closes "
+            "when the screen locks)"
         )
     return True, ""
-
-
-def backend_name(screencast: Any = None) -> str:
-    """Bir sonraki yakalamada FIILEN kullanilacak yol.
-
-    Tani ciktisinda ve `screen_capture` notunda gorunuyor; "hangi yol
-    calisiyor" sorusunun tek cevabi burasi olsun diye tahmin degil DURUM
-    okuyor.
-    """
-    if screencast is not None and screencast.is_open():
-        return SCREENCAST_NAME
-    return GNOME_SCREENSHOT
-
-
-# ------------------------------------------------------------------ yakalama
-def _run_grab(args: list[str], target: Path) -> None:
-    proc = subprocess.run(
-        args, capture_output=True, text=True, timeout=GRAB_TIMEOUT, check=False
-    )
-    if proc.returncode != 0:
-        raise CaptureError(
-            f"{GNOME_SCREENSHOT} failed (exit {proc.returncode}): "
-            f"{(proc.stderr or proc.stdout or '').strip()[:200]}"
-        )
-    # gnome-screenshot bazen cikis 0 verip dosyayi hic yazmiyor (oturum ortami
-    # eksikse); sessizce bos goruntu dondurmektense burada patla.
-    if not target.exists() or target.stat().st_size == 0:
-        raise CaptureError(
-            f"{GNOME_SCREENSHOT} exited 0 but wrote no file. Does the service "
-            "run inside the graphical session? (`pcbridge doctor`)"
-        )
-
-
-def _grab_canvas(tmpdir: Path, include_pointer: bool) -> Path:
-    """Tum tuvali yakala (3840x1080)."""
-    out = tmpdir / "canvas.png"
-    args = [GNOME_SCREENSHOT, "-f", str(out)]
-    if include_pointer:
-        args.append("-p")
-    _run_grab(args, out)
-    return out
-
-
-def _grab_window(tmpdir: Path, include_pointer: bool) -> Path:
-    """Yalnizca odaktaki pencere. Global konumu BILINMIYOR."""
-    out = tmpdir / "window.png"
-    args = [GNOME_SCREENSHOT, "-w", "-f", str(out)]
-    if include_pointer:
-        args.append("-p")
-    _run_grab(args, out)
-    return out
 
 
 def _frame_taken_at(frame: Any, fallback: float) -> float:
@@ -821,43 +752,6 @@ def check_source_size(mon: monitorslib.Monitor, size: tuple[int, int]) -> None:
         f"the {mon.connector} stream delivered {size[0]}x{size[1]}, the monitor table "
         f"expects {accepted}. The monitor layout may have changed; try "
         "again."
-    )
-
-
-def canvas_pixel_ratio(
-    mons: list[monitorslib.Monitor], canvas: tuple[int, int]
-) -> float:
-    """Tuval goruntusunun masaustu birimine orani. Cozulemezse `CaptureError`.
-
-    `gnome-screenshot` yedegi TEK bir goruntu veriyor, yani orani monitor
-    monitor soramiyoruz. Iki durum cozulebilir: goruntu masaustu biriminde
-    (oran 1) ya da butun monitorler AYNI olcekte ve goruntu o olcekte. Karisik
-    olcekli bir duzende hangi pikselin hangi monitore ait oldugu bu yoldan
-    bilinemez: reddediliyor, tahmin edilmiyor (yayin yolu monitor basina
-    ayri kare verdigi icin oradan etkilenmiyor).
-    """
-    expected = monitorslib.canvas_size(mons)
-    if canvas == expected:
-        return 1.0
-    scales = {round(m.pixel_ratio, 4) for m in mons}
-    if len(scales) == 1:
-        scale = scales.pop()
-        scaled = (
-            monitorslib.round_half_away(expected[0] * scale),
-            monitorslib.round_half_away(expected[1] * scale),
-        )
-        if canvas == scaled:
-            return scale
-    raise CaptureError(
-        f"The captured canvas is {canvas[0]}x{canvas[1]}, but the monitor table "
-        f"says {expected[0]}x{expected[1]}"
-        + (
-            " and the monitors have different scales, so this picture cannot tell "
-            "which pixel belongs to which monitor"
-            if len(scales) > 1
-            else ". The monitor layout may have changed"
-        )
-        + "; try again."
     )
 
 
@@ -989,8 +883,8 @@ def enhanced_png(path: Path) -> tuple[bytes, dict]:
 # cekim.
 STAGING_PREFIX = ".staging-"
 # Oldurulmus bir cekimin birakabilecegi tek sey hazirlik dizini, ve icinde
-# TAM COZUNURLUKTE bir ekran goruntusu olabilir. En uzun cekim (yakalama
-# basina GRAB_TIMEOUT) bunun cok altinda, `shot_keep_hours` cok ustunde.
+# TAM COZUNURLUKTE bir ekran goruntusu olabilir. En uzun cekim (her kare en
+# fazla 8 s bekliyor) bunun cok altinda, `shot_keep_hours` cok ustunde.
 STAGING_ABANDONED_SECONDS = 600
 # Son ek 24 bit ve dogrudan kimlige donusuyor: cakisma nadir ama mumkun, ve
 # cakisan bir kimlik `shot=` tiklamasini baska bir cekimin ofset/olcegiyle
@@ -1103,7 +997,7 @@ class _Pending:
     """Hazirlik dizininde bekleyen, henuz adi ve kimligi olmayan goruntu."""
 
     staged: Path
-    monitor: monitorslib.Monitor | None
+    monitor: monitorslib.Monitor
     size: tuple[int, int]
     scaled: tuple[int, int]
     scale: float
@@ -1114,17 +1008,8 @@ class _Pending:
     origin: tuple[int, int] | None = None
 
     def shot(self, out_dir: Path, stamp: str, suffix: str) -> Shot:
-        if self.monitor is None:
-            return Shot(
-                path=out_dir / f"{stamp}-window.png",
-                monitor=None,
-                offset=None,
-                size=self.size,
-                scaled=self.scaled,
-                scale=self.scale,
-                id=f"win-{suffix}",
-                taken_at=self.taken_at,
-            )
+        # Every picture is a monitor's frame or a region of it, a window
+        # included, so every shot has an offset to convert with.
         mon = self.monitor
         part = "-region" if self.origin is not None else ""
         return Shot(
@@ -1336,39 +1221,32 @@ def _render(
         region, verify_window = capture_region(monitorslib.list_monitors(use_cache=False))
         want_window = False
         monitor = None
-    if want_window and region is None and compositorlib.is_kde():
-        # Plasma has no gnome-screenshot: the focused window is a region of
-        # its monitor's frame, which also gives the shot a global offset.
+    if want_window and region is not None:
+        raise CaptureError(
+            "A `window` capture cannot take a region: the window is the region. "
+            "Give the region as monitor or global coordinates instead."
+        )
+    if want_window and compositorlib.is_kde():
+        # The focused window is a region of its monitor's frame, which also
+        # gives the shot a global offset.
         region = _kwin_window_region()
         want_window = False
         monitor = None  # the region names its monitor
-    if want_window and region is None and compositorlib.current().kind == "gnome":
-        # The same on GNOME since 2.8, when the extension reports the frame:
-        # silent, and the shot gets a global offset for `shot=` clicks.
+    if want_window and compositorlib.current().kind == "gnome":
+        # The same on GNOME, with the frame from the extension (2.8).
         from .apps import ExtensionFrameUnavailable
 
         try:
             region, verify_window = _gnome_window_region()
-            want_window = False
-            monitor = None
-        except ExtensionFrameUnavailable:
-            # An extension from before 2.8 (until the next login) or none:
-            # gnome-screenshot below, the old way, reported as degraded.
-            # The next release removes this path.
-            pass
-    if want_window and region is not None:
-        raise CaptureError(
-            "A `window` capture cannot take a region: where the window sits on "
-            "the screen is unknown. Give the region as monitor or global coordinates."
-        )
+        except ExtensionFrameUnavailable as exc:
+            raise CaptureError(
+                f"No window capture: {exc}. Capture the monitor instead "
+                "(`monitor` = its number) and cut the window out with `region`."
+            ) from exc
+        want_window = False
+        monitor = None
     if want_window:
-        if compositorlib.current().kind != "gnome":
-            raise CaptureError("Window capture requires the selected native compositor backend")
-        raw = _grab_window(raw_dir, include_pointer)
-        staged = staging / "window.png"
-        with Image.open(raw) as canvas:
-            size, scaled, scale = _write_crop(canvas, None, staged, scale_long_edge)
-        return [_Pending(staged, None, size, scaled, scale, taken_at)]
+        raise CaptureError("Window capture is not available on this compositor.")
 
     # Monitor tablosu monitors.py'dan gelir; burada ikinci bir okuma YOK.
     mons = monitorslib.list_monitors()
@@ -1395,91 +1273,63 @@ def _render(
     origin = (box_global[0], box_global[1]) if box_global else None
     region_size = (box_global[2], box_global[3]) if box_global else None
 
-    # --- yol 1: acik ekran yayini (sessiz) ------------------------------
     # Her monitor kendi akisi oldugu icin KIRPMA YOK: `_write_crop`
     # kutusuz cagriliyor, yalnizca olcekleme yapiyor.
-    if screencast is not None and screencast.is_open():
-        try:
-            screencast.ensure_cursor(include_pointer)
-            pending: list[_Pending] = []
-            for mon in targets:
-                raw = raw_dir / f"sc-{mon.connector}.png"
-                frame = screencast.capture(mon.connector, raw)
-                staged = staging / f"m{mon.index}.png"
-                with Image.open(raw) as img:
-                    # Karenin TAMAMI bu monitore ait mi -- kirpmadan ONCE.
-                    check_source_size(mon, img.size)
-                    size, scaled, scale = _write_crop(
-                        img, _frame_box(mon, img.size, box_global), staged,
-                        scale_long_edge,
-                    )
-                pending.append(
-                    _Pending(
-                        staged,
-                        mon,
-                        size,
-                        scaled,
-                        scale,
-                        # Kare ham piksel; kayit masaustu birimini de tasiyor.
-                        # Bir backend karenin FIILEN ne zaman geldigini
-                        # biliyorsa o kazanir: `taken_at` bayatlik uyarisini
-                        # suruyor ve bir `all` cekiminde monitorler arasinda
-                        # yuzlerce milisaniye olabiliyor. Bilmiyorsa dizinin
-                        # baslangici, eskisi gibi.
-                        _frame_taken_at(frame, taken_at),
-                        topology,
-                        region_size or (mon.width, mon.height),
-                        origin,
-                    )
-                )
-            if verify_window:
-                verify_window()
-            return pending
-        except (CaptureError, DesktopError):
-            raise
-        except Exception as exc:  # noqa: BLE001
-            # Tipli bir gerekce tasiyan backend hatasi (native yardimcinin
-            # REVOKED, DISPLAY_CHANGED, FRAME_TIMEOUT... cevaplari) OLDUGU GIBI
-            # gecer. Duz bir CaptureError'a sarilinca provider onu "backend
-            # yok" diye raporluyordu: olculdu 2026-09-13, Task 4.2 -- revoke
-            # edilmis izin BACKEND_UNAVAILABLE/capability olarak geldi.
-            typed = getattr(exc, "desktop_error", None)
-            if isinstance(typed, DesktopError):
-                raise typed from exc
-            # Yayin dustu (monitor uykuda, kompozitor yeniden basladi).
-            raise CaptureError(
-                f"no frame from the screen share: {exc}. "
-                "`desktop_lock` + `desktop_unlock` sets the share up again."
-            ) from exc
-
-    # --- yol 2: gnome-screenshot (yedek) --------------------------------
-    if compositorlib.current().kind in ("hyprland", "unknown"):
-        raise CaptureError("This compositor requires an open grant-bound native capture session")
-    raw = _grab_canvas(raw_dir, include_pointer)
-    pending = []
-    with Image.open(raw) as canvas:
-        # Goruntu masaustu biriminde mi, yoksa ortak bir olcekte ham piksel
-        # mi? Kirpma kutusu o orana gore kuruluyor (Task 7.1).
-        ratio = canvas_pixel_ratio(mons, canvas.size)
+    if screencast is None or not screencast.is_open():
+        raise CaptureError(
+            "the screen share is not open; desktop_unlock opens it")
+    try:
+        screencast.ensure_cursor(include_pointer)
+        pending: list[_Pending] = []
         for mon in targets:
+            raw = raw_dir / f"sc-{mon.connector}.png"
+            frame = screencast.capture(mon.connector, raw)
             staged = staging / f"m{mon.index}.png"
-            gx, gy, gw, gh = box_global or (mon.x, mon.y, mon.width, mon.height)
-            box = (
-                monitorslib.round_half_away(gx * ratio),
-                monitorslib.round_half_away(gy * ratio),
-                monitorslib.round_half_away((gx + gw) * ratio),
-                monitorslib.round_half_away((gy + gh) * ratio),
-            )
-            size, scaled, scale = _write_crop(canvas, box, staged, scale_long_edge)
+            with Image.open(raw) as img:
+                # Karenin TAMAMI bu monitore ait mi -- kirpmadan ONCE.
+                check_source_size(mon, img.size)
+                size, scaled, scale = _write_crop(
+                    img, _frame_box(mon, img.size, box_global), staged,
+                    scale_long_edge,
+                )
             pending.append(
                 _Pending(
-                    staged, mon, size, scaled, scale, taken_at, topology,
-                    (gw, gh), origin,
+                    staged,
+                    mon,
+                    size,
+                    scaled,
+                    scale,
+                    # Kare ham piksel; kayit masaustu birimini de tasiyor.
+                    # Bir backend karenin FIILEN ne zaman geldigini
+                    # biliyorsa o kazanir: `taken_at` bayatlik uyarisini
+                    # suruyor ve bir `all` cekiminde monitorler arasinda
+                    # yuzlerce milisaniye olabiliyor. Bilmiyorsa dizinin
+                    # baslangici, eskisi gibi.
+                    _frame_taken_at(frame, taken_at),
+                    topology,
+                    region_size or (mon.width, mon.height),
+                    origin,
                 )
             )
-    if verify_window:
-        verify_window()
-    return pending
+        if verify_window:
+            verify_window()
+        return pending
+    except (CaptureError, DesktopError):
+        raise
+    except Exception as exc:  # noqa: BLE001
+        # Tipli bir gerekce tasiyan backend hatasi (native yardimcinin
+        # REVOKED, DISPLAY_CHANGED, FRAME_TIMEOUT... cevaplari) OLDUGU GIBI
+        # gecer. Duz bir CaptureError'a sarilinca provider onu "backend
+        # yok" diye raporluyordu: olculdu 2026-09-13, Task 4.2 -- revoke
+        # edilmis izin BACKEND_UNAVAILABLE/capability olarak geldi.
+        typed = getattr(exc, "desktop_error", None)
+        if isinstance(typed, DesktopError):
+            raise typed from exc
+        # Yayin dustu (monitor uykuda, kompozitor yeniden basladi).
+        raise CaptureError(
+            f"no frame from the screen share: {exc}. "
+            "`desktop_lock` + `desktop_unlock` sets the share up again."
+        ) from exc
 
 
 # ------------------------------------------------------------------ genel API
@@ -1503,11 +1353,11 @@ def capture(
     `monitor`:
         "all" (varsayilan)  her monitor ayri goruntu
         1 / 2 / "DP-1" / "primary"   tek monitor
-        "window"            yalnizca odaktaki pencere (ofset URETMEZ)
+        "window"            yalnizca odaktaki pencere: monitor karesinin bir
+                            bolgesi, global ofsetiyle
 
-    `screencast`: acik bir `ScreenCast` verilirse kareler ORADAN alinir --
-    sessiz ve hizli yol. Kapaliysa ya da `monitor="window"` istenirse
-    `gnome-screenshot`'a dusulur.
+    `screencast`: kareler ONDAN alinir (native helper'in acik ekran yayini);
+    acik degilse cekim reddedilir, ikinci bir yol yok.
 
     `copy_meta_to`: kaydin PNG'nin yanina EK OLARAK yayimlanacagi dizinler
     (`pcb-shot --out`). Kopya cekimin parcasi: yazilamazsa cekim de

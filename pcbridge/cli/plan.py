@@ -18,23 +18,32 @@ import shlex
 import shutil
 import subprocess
 import sys
-import sysconfig
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import distro as distrolib
 from .. import paths as pathslib
-from ..desktop.session import GNOME
+from ..desktop.session import KDE
 from ..platforminfo import Platform
 from . import install as inst
 
 STATE_FILE = "setup.json"
 
 
-def _has_atspi() -> bool:
+# Where D-Bus looks for activatable session services; at-spi2-core puts the
+# accessibility bus there (`org.a11y.Bus`, measured on Zorin OS 18).
+DBUS_SERVICE_DIRS = (Path("/usr/share/dbus-1/services"), Path("/usr/local/share/dbus-1/services"))
+
+
+def _has_a11y_bus() -> bool:
+    return any((d / "org.a11y.Bus.service").is_file() for d in DBUS_SERVICE_DIRS)
+
+
+def _has_system_gi() -> bool:
+    """The system python3 imports PyGObject (`kwin_helper.py` runs there)."""
     probe = inst.run(["/usr/bin/python3", "-c",
-                      "import gi; gi.require_version('Atspi','2.0'); from gi.repository import Atspi"])
+                      "import gi; gi.require_version('Gio', '2.0'); from gi.repository import Gio"])
     return probe.returncode == 0
 
 
@@ -46,8 +55,8 @@ def _tesseract_languages() -> set[str]:
 
 
 def _has_desktop_extras() -> bool:
-    importlib.invalidate_caches()  # pip may have just installed them
-    return all(importlib.util.find_spec(m) is not None for m in ("evdev", "PIL"))
+    importlib.invalidate_caches()  # pip may have just installed it
+    return importlib.util.find_spec("PIL") is not None
 
 
 def _native_fetchable() -> bool:
@@ -77,24 +86,15 @@ def _native_fetchable() -> bool:
     return not str(named or "").strip()
 
 
-def _can_build_evdev() -> dict[str, bool]:
-    include = Path(sysconfig.get_path("include") or "/nonexistent")
-    return {
-        "compiler": bool(shutil.which("gcc") or shutil.which("cc")),
-        "kernel-headers": Path("/usr/include/linux/input.h").exists(),
-        "python-headers": (include / "Python.h").exists(),
-    }
-
-
 @dataclass
 class Probes:
     """What is installed; replaceable in tests."""
 
     which: Callable[[str], str | None] = shutil.which
-    atspi: Callable[[], bool] = _has_atspi
+    a11y_bus: Callable[[], bool] = _has_a11y_bus
+    system_gi: Callable[[], bool] = _has_system_gi
     ocr_languages: Callable[[], set[str]] = _tesseract_languages
     desktop_extras: Callable[[], bool] = _has_desktop_extras
-    evdev_build: Callable[[], dict[str, bool]] = _can_build_evdev
     # Only a venv pcbridge owns can take the extras; a package's venv has them.
     own_venv: Callable[[], bool] = lambda: inst.install_kind() in ("user", "git", "pip")
     native_fetchable: Callable[[], bool] = _native_fetchable
@@ -128,7 +128,7 @@ class Plan:
     profile_owned: bool             # False: the user chose the profile, setup keeps out
     profile_note: str
     native_note: str
-    extras: bool = False            # pip still has to install evdev and Pillow
+    extras: bool = False            # pip still has to install Pillow
     native_fetch: bool = False      # download the release's native helper (no Rust here)
 
     def chosen_packages(self) -> list[str]:
@@ -223,21 +223,15 @@ def build(platform: Platform, *, profile_now: str = "full", recorded_profile: st
     if platform.desktop_supported:
         if not probes.which("wl-copy"):
             needs.append("wl-clipboard")
-        if platform.desktop_kind == GNOME and not probes.which("gnome-screenshot"):
-            needs.append("gnome-screenshot")
-        if not probes.atspi():
-            needs.append("atspi")
+        # The native helper reads the accessibility tree off the AT-SPI bus.
+        if not probes.a11y_bus():
+            needs.append("atspi-bus")
+        # KDE Plasma's window scripts run in the system python3 with PyGObject.
+        if platform.desktop_kind == KDE and not probes.system_gi():
+            needs.append("python3-gi")
+        # Pillow crops and scales the frames; it has wheels, so nothing is
+        # compiled (evdev was, for the Python input path that is gone).
         extras = not probes.desktop_extras() and probes.own_venv()
-        raw: list[str] = []
-        if extras:
-            build = probes.evdev_build()
-            if not build["compiler"]:
-                needs.append("c-compiler")
-            if not build["kernel-headers"]:
-                needs.append("kernel-headers")
-            if not build["python-headers"]:
-                raw.append(distrolib.python_headers_package(
-                    f"{sys.version_info[0]}.{sys.version_info[1]}", fam))
         # OCR for find_text / wait_for_text: English plus the locale's language.
         langs = ["eng"]
         extra = distrolib.tesseract_language(platform.language)
@@ -258,7 +252,7 @@ def build(platform: Platform, *, profile_now: str = "full", recorded_profile: st
         title = "OCR for find_text / wait_for_text (" + " + ".join(langs) + ")"
         components.append(Component("ocr", title, missing, ticked=True, languages=langs))
     else:
-        extras, raw = False, []
+        extras = False
     # A distribution package carries the helper. Any other installation that
     # has none takes the release's prebuilt one; a checkout with Rust can
     # build its own instead (install.sh tries that first, so getting here
@@ -273,7 +267,6 @@ def build(platform: Platform, *, profile_now: str = "full", recorded_profile: st
                               "from this checkout instead of the download")
     target, note = decide_profile(platform.desktop_supported, profile_now, recorded_profile)
     names = distrolib.packages(*needs, fam=fam)
-    names += [n for n in raw if n not in names]
     return Plan(
         platform=platform,
         family=fam,
@@ -326,7 +319,7 @@ def show(plan: Plan) -> None:
             mark = "x" if (c.ticked or c.installed) else " "
             inst.say(f"  [{mark}] {i}. {c.title}: {state}")
     if plan.extras:
-        inst.say("Python packages for desktop control: evdev Pillow (pip builds evdev; no sudo)")
+        inst.say("Python package for desktop control: Pillow (no sudo)")
     if plan.native_fetch:
         inst.say("Native helper: downloaded from the pcbridge release and checked against "
                  "its sha256sums.txt (no sudo)")
@@ -418,12 +411,12 @@ def constraints_file() -> Path | None:
 
 
 def install_extras() -> bool:
-    """pip-install the [desktop] extra (evdev, Pillow) into this venv."""
+    """pip-install the [desktop] extra (Pillow) into this venv."""
     argv = [sys.executable, "-m", "pip", "install", "-q"]
     constraints = constraints_file()
     if constraints is not None:
         argv += ["-c", str(constraints)]
-    argv += ["evdev", "Pillow"]
+    argv += ["Pillow"]
     inst.say("  $ " + shlex.join(argv))
     try:
         return subprocess.run(argv, check=False, timeout=600).returncode == 0
@@ -484,15 +477,15 @@ def summary(plan: Plan, probes: Probes | None = None) -> list[str]:
     else:
         lines.append(f"{CHECK} Terminal, files, tmux, coding agents")
     if p.desktop_supported and plan.extras and not probes.desktop_extras():
-        lines.append(f"{CROSS} Desktop control: supported here, but evdev and Pillow are not "
+        lines.append(f"{CROSS} Desktop control: supported here, but Pillow is not "
                      "installed (`pcbridge setup` tries again)")
+    elif p.desktop_supported and plan.native_fetch and probes.native_fetchable():
+        lines.append(f"{CROSS} Desktop control: supported here, but the native helper is not "
+                     "installed and desktop control needs it; `pcbridge doctor --fix` "
+                     "downloads it")
     elif p.desktop_supported:
         lines.append(f"{CHECK} Desktop control: supported here, off until you turn it on "
                      "(pcbridge set desktop.enabled true)")
-    if p.desktop_supported and plan.native_fetch and probes.native_fetchable():
-        lines.append(f"{CROSS} Native helper: not installed, so desktop control runs on the "
-                     "older Python paths, which the next release removes; "
-                     "`pcbridge doctor --fix` downloads it")
     if p.desktop_supported:
         for c in plan.components:
             if c.key == "ocr":

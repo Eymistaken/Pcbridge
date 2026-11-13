@@ -168,14 +168,6 @@ class DesktopSpec:
     # Imlec goruntuye dahil edilsin mi. Varsayilan true: fareyi bir yere
     # gonderip "gercekten oraya gitti mi" diye bakmanin tek yolu bu.
     include_pointer: bool = True
-    # Ekran nasil yakalansin (J bolumu):
-    #   "screencast"       PipeWire ekran yayini — SESSIZ, flas yok
-    #   "gnome-screenshot" eski yol — her cekimde beyaz flas + ses
-    #   "auto"             screencast varsa o, yoksa gnome-screenshot
-    # Yayin `desktop_unlock` ile acilir, `desktop_lock`/sure dolumu ile kapanir;
-    # acikken GNOME ust cubukta paylasim gostergesi durur (istenen: ajanin
-    # masaustune erisebildigi oradan gorunuyor).
-    capture_backend: str = "auto"
     # `find_text` / `wait_for_text` (Adim 8.6) icin tesseract dilleri, `+` ile.
     # Her dilin verisi ayri paket: `tesseract-ocr-tur`, `tesseract-ocr-eng`.
     ocr_languages: str = "eng"
@@ -228,21 +220,16 @@ class DesktopSpec:
 
 @dataclass
 class NativeSpec:
-    """Private native helper selection.
+    """The native helper: the only desktop backend.
 
-    `auto` since Task 4.3, after the Linux parity gate passed: the packaged
-    native helper when it is there, the Python helper otherwise.
+    `capture`, `input` and `accessibility` are kept so older configs stay
+    valid: "auto" and "rust" both mean the native helper since the Python
+    desktop paths were removed after 2.8, and "python" is read as "auto"
+    with a warning.
     """
 
     capture: str = "auto"
-    # `auto` since Gate 5 (2026-09-19): keyboard, pointer and clipboard
-    # programs in the native helper when it is packaged, Python otherwise,
-    # visibly. `rust` forbids the fallback, `python` keeps the old path.
     input: str = "auto"
-    # `auto` since Task 6.3 (2026-09-19): accessibility reads (Task 6.2) and
-    # clicks and text (Task 6.3) through the native helper when it is
-    # packaged, the Python helper otherwise, visibly. Live on the GTK4 test
-    # window both gave the same answers for every case.
     accessibility: str = "auto"
     binary_path: Path | None = None
 
@@ -449,6 +436,9 @@ _SECTION_KEYS: dict[str, set[str]] = {
 _HINTS = {
     ("limits", "default_agent"): "`default_agent` belongs at the top of the file, before any [section]",
     ("", "browser"): "pcbridge 2.7.0 removed the browser tools, so the [browser] section can go",
+    ("desktop", "capture_backend"): (
+        "pcbridge removed gnome-screenshot and the Python screen share after 2.8; screenshots "
+        "always come from the native helper, so the line can go"),
 }
 
 
@@ -1057,7 +1047,6 @@ def _load_config(explicit: str | None = None, *, check_state: bool = True) -> Co
         shot_ttl_seconds=int(desktop_raw.get("shot_ttl_seconds", 300)),
         shot_keep_hours=int(desktop_raw.get("shot_keep_hours", 24)),
         include_pointer=bool(desktop_raw.get("include_pointer", True)),
-        capture_backend=str(desktop_raw.get("capture_backend", "auto")).strip().lower(),
         # Bu uc satir E bolumunde ATLANMISTI: alanlar DesktopSpec'te vardi ve
         # config.example.toml'da belgeliydi ama buradan okunmuyordu, yani
         # config.toml'a yazilan deger hicbir sey yapmiyordu. F0 sirasinda
@@ -1156,11 +1145,6 @@ def _load_config(explicit: str | None = None, *, check_state: bool = True) -> Co
             f"[desktop] ({path}): `hold_max_seconds` ({desktop.hold_max_seconds}) "
             "must be 0 (no automatic release) or between 5 and 3600 seconds."
         )
-    if desktop.capture_backend not in ("auto", "screencast", "gnome-screenshot"):
-        raise SystemExit(
-            f"[desktop] ({path}): `capture_backend` ({desktop.capture_backend!r}) "
-            "must be auto, screencast or gnome-screenshot."
-        )
     if desktop.computer_task_max_steps < 1:
         raise SystemExit(
             f"[desktop] ({path}): `computer_task_max_steps` must be at least 1."
@@ -1173,43 +1157,31 @@ def _load_config(explicit: str | None = None, *, check_state: bool = True) -> Co
             "is not enough time to open the link on a phone."
         )
 
-    native_capture = str(native_raw.get("capture", "auto")).strip().lower()
-    if native_capture not in ("python", "rust", "auto"):
-        raise SystemExit(
-            f"[native] ({path}): `capture` ({native_capture!r}) "
-            "must be python, rust or auto."
-        )
-    native_input = str(native_raw.get("input", "auto")).strip().lower()
-    if native_input not in ("python", "rust", "auto"):
-        raise SystemExit(
-            f"[native] ({path}): `input` ({native_input!r}) "
-            "must be python, rust or auto."
-        )
-    native_accessibility = str(native_raw.get("accessibility", "auto")).strip().lower()
-    if native_accessibility not in ("python", "rust", "auto"):
-        raise SystemExit(
-            f"[native] ({path}): `accessibility` ({native_accessibility!r}) "
-            "must be python, rust or auto."
-        )
+    def native_choice(key: str) -> str:
+        value = str(native_raw.get(key, "auto")).strip().lower()
+        if value == "python":
+            # Removed after 2.8 with the Python desktop paths. A config that
+            # still says so is read as "auto" and told, never refused: the
+            # daemon must start, and the rest of pcbridge must keep working.
+            warnings.append(
+                f'[native] {key} = "python" is no longer supported: pcbridge removed the '
+                "Python desktop paths after 2.8 and uses the native helper; set it to "
+                '"auto" or delete the line')
+            return "auto"
+        if value not in ("rust", "auto"):
+            raise SystemExit(
+                f"[native] ({path}): `{key}` ({value!r}) must be auto or rust "
+                "(both mean the native helper)."
+            )
+        return value
+
     native_binary = str(native_raw.get("binary_path", "")).strip()
     native = NativeSpec(
-        capture=native_capture,
-        input=native_input,
-        accessibility=native_accessibility,
+        capture=native_choice("capture"),
+        input=native_choice("input"),
+        accessibility=native_choice("accessibility"),
         binary_path=_expand(native_binary) if native_binary else None,
     )
-    # Deprecated in 2.8, removed in the next release: say so now, while the
-    # setting still works, so nobody meets it first as a changed desktop.
-    for key, value in (("capture", native_capture), ("input", native_input),
-                       ("accessibility", native_accessibility)):
-        if value == "python":
-            warnings.append(
-                f'[native] {key} = "python" is deprecated: the next release removes the '
-                'Python desktop paths and uses the native helper only; set it to "auto"')
-    if desktop.capture_backend != "auto":
-        warnings.append(
-            f'[desktop] capture_backend = "{desktop.capture_backend}" is deprecated: the next '
-            "release removes it and captures through the native helper only; set it to \"auto\"")
 
     state_dir = (
         _expand(paths["state_dir"]) if paths.get("state_dir") else pathslib.state_home()

@@ -127,14 +127,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends gnome-shell mutter \
-            dbus-daemon pipewire wireplumber gstreamer1.0-pipewire \
-            gir1.2-gst-plugins-base-1.0 python3-gi libglib2.0-bin \
+            dbus-daemon pipewire wireplumber libglib2.0-bin \
             libegl-mesa0 libgl1-mesa-dri python3-venv
       - name: pcbridge
         run: |
           python3 -m venv .venv
           .venv/bin/pip install -c packaging/constraints.txt -e ".[desktop]"
-      - name: Shell, extension, capture
+      # Capture runs through the native helper, which this job does not
+      # build: native.yml tests the helper, and a headless shell with the
+      # helper is run by hand (docs/dev/measured-facts.md).
+      - name: Shell, extension, monitor table
         run: |
           export XDG_RUNTIME_DIR="$RUNNER_TEMP/xdg" XDG_DATA_HOME="$RUNNER_TEMP/data"
           mkdir -m 700 -p "$XDG_RUNTIME_DIR"
@@ -154,15 +156,12 @@ jobs:
               --method org.freedesktop.DBus.Properties.Get \
               io.github.eymistaken.Pcbridge.WindowFocus Version
             WAYLAND_DISPLAY=smoke .venv/bin/python -c "
-          from pcbridge.desktop import monitors, screencast
-          from PIL import Image
+          from pcbridge.desktop import apps, monitors
           mons = monitors.list_monitors(use_cache=False)
           print(monitors.describe())
-          sc = screencast.ScreenCast(); sc.start([mons[0].connector], cursor=False)
-          sc.capture(mons[0].connector, \"frame.png\"); sc.close()
-          size = Image.open(\"frame.png\").size
-          print(\"frame\", size)
-          assert size == mons[0].source_pixel_size, size
+          assert mons, mons
+          assert apps.extension_frame_support() is True, \"no FocusedWindowFrame\"
+          print(\"FocusedWindowFrame: present\")
           "
           ' || { grep -i -e pcbridge -e error shell.log | tail -40; exit 1; }
 

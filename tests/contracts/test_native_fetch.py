@@ -227,8 +227,8 @@ def probes(kind: str, *, fetchable: bool = True, cargo: bool = False) -> planlib
     return planlib.Probes(
         which=lambda name: (("/usr/bin/cargo" if cargo else None) if name == "cargo"
                             else f"/usr/bin/{name}"),
-        atspi=lambda: True, ocr_languages=lambda: {"eng"}, desktop_extras=lambda: True,
-        evdev_build=lambda: {}, own_venv=lambda: kind in ("user", "git", "pip"),
+        a11y_bus=lambda: True, system_gi=lambda: True, ocr_languages=lambda: {"eng"},
+        desktop_extras=lambda: True, own_venv=lambda: kind in ("user", "git", "pip"),
         native_fetchable=lambda: fetchable, kind=lambda: kind)
 
 
@@ -259,10 +259,13 @@ class PlanTests(unittest.TestCase):
     def test_the_summary_says_when_the_helper_is_still_missing(self) -> None:
         plan = planlib.build(gnome(), probes=probes("git"))
         lines = "\n".join(planlib.summary(plan, probes=probes("git")))
-        self.assertIn("Native helper: not installed", lines)
+        # The helper is the only desktop backend: without it there is no
+        # desktop control, and the line says what brings it.
+        self.assertIn("the native helper is not installed and desktop control needs it", lines)
         self.assertIn("doctor --fix", lines)
         done = "\n".join(planlib.summary(plan, probes=probes("git", fetchable=False)))
-        self.assertNotIn("Native helper", done)
+        self.assertNotIn("native helper", done)
+        self.assertIn("Desktop control: supported here, off until you turn it on", done)
 
 
 class FetchableProbeTests(unittest.TestCase):

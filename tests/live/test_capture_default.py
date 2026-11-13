@@ -10,9 +10,10 @@ became `auto`, from the example configuration with `[native]` left untouched:
 
 * a stdio server: picks the native helper, and the Mutter session -- the share
   the indicator shows -- opens at `desktop_unlock`, before any capture, which
-  is when the Python path has always opened it;
-* a stdio server that cannot find the helper: falls back to Python and says so
-  in `system_capabilities` and in the `screen_capture` result;
+  is when the share has always opened;
+* a stdio server that cannot find the helper: there is no other capture path
+  since the Python one was removed after 2.8, so it refuses and says why in
+  `system_capabilities`, `desktop_unlock` and the `screen_capture` result;
 * an HTTP server, the way the systemd service runs: native by default too.
 """
 
@@ -42,7 +43,6 @@ from fastmcp.client.transports import StdioTransport, StreamableHttpTransport  #
 
 from tests.live.test_capture_parity import (  # noqa: E402
     PACKAGED,
-    legacy_helpers,
     release_binary,
     screen_locked,
     screencast_sessions,
@@ -53,7 +53,7 @@ from tests.live.test_capture_parity import (  # noqa: E402
 LIVE = os.environ.get("PCBRIDGE_TEST_CAPTURE") == "1"
 VENV_PYTHON = str(ROOT / ".venv" / "bin" / "python")
 SHARE_OPEN = "Screen sharing is on"
-FALLBACK_NOTE = "Native capture was unavailable"
+NOT_READY = "Screen capture is not ready"
 
 
 def shipped_config(root: Path, *, port: int | None = None, token: str | None = None) -> Path:
@@ -119,8 +119,6 @@ class ShippedDefault(unittest.TestCase):
             self.skipTest(why or "the shipped default looks for the packaged helper")
         if screen_locked():
             self.skipTest("the screen is locked")
-        if legacy_helpers():
-            self.skipTest("a Python screencast helper is running (a real grant)")
         self.root = Path(tempfile.mkdtemp(prefix="pcb-default-"))
         self.addCleanup(shutil.rmtree, self.root, True)
         self.sessions_before = screencast_sessions()
@@ -163,12 +161,11 @@ class ShippedDefault(unittest.TestCase):
         self.assertEqual(after_unlock, self.sessions_before + 1)
         self.assertFalse(shot.is_error, text_of(shot))
         self.assertEqual(image_count(shot), 2)
-        self.assertNotIn(FALLBACK_NOTE, text_of(shot))
         self.assertEqual(after_capture, after_unlock, "the capture reuses the unlock session")
         self.assertFalse(lock.is_error, text_of(lock))
         self.assertTrue(closed, "desktop_lock must close the share")
 
-    def test_without_the_helper_a_new_process_falls_back_to_python_visibly(self) -> None:
+    def test_without_the_helper_a_new_process_refuses_and_says_why(self) -> None:
         config = shipped_config(self.root / "fallback")
         env = shimmed_env(
             self.root / "fallback",
@@ -193,12 +190,13 @@ class ShippedDefault(unittest.TestCase):
         caps, unlock, shot, lock = asyncio.run(scenario())
 
         monitor = capture_monitor(caps)
-        self.assertEqual(monitor["state"], "degraded", monitor)
+        self.assertEqual(monitor["state"], "unavailable", monitor)
         self.assertIn("no-such-helper", " ".join(monitor["limitations"]), monitor)
-        self.assertIn(SHARE_OPEN, text_of(unlock), text_of(unlock))
-        self.assertFalse(shot.is_error, text_of(shot))
-        self.assertEqual(image_count(shot), 1)
-        self.assertIn(FALLBACK_NOTE, text_of(shot))
+        self.assertNotIn(SHARE_OPEN, text_of(unlock), text_of(unlock))
+        self.assertIn(NOT_READY, text_of(unlock), text_of(unlock))
+        self.assertTrue(shot.is_error, text_of(shot))
+        self.assertEqual(image_count(shot), 0)
+        self.assertIn("no-such-helper", text_of(shot))
         self.assertFalse(lock.is_error, text_of(lock))
 
     def test_a_service_style_http_process_uses_rust_by_default(self) -> None:

@@ -57,6 +57,10 @@ VERSION_COMMANDS = {
 }
 
 SUPPORTED_KINDS = (GNOME, KDE, HYPRLAND)
+# Desktop control needs the native helper, and releases build it for x86_64
+# only (decided with the maintainer, 2026-11-13: ARM waits for an aarch64
+# build; docs/install.md, Architectures).
+HELPER_ARCHES = ("x86_64", "amd64")
 
 
 def _run(cmd: list[str], timeout: float = 3.0, env: dict[str, str] | None = None) -> str:
@@ -223,12 +227,17 @@ class Platform:
 
     @property
     def desktop_supported(self) -> bool:
-        return self.desktop_kind in SUPPORTED_KINDS and self.session_type == "wayland"
+        return (self.desktop_kind in SUPPORTED_KINDS and self.session_type == "wayland"
+                and self.arch.lower() in HELPER_ARCHES)
 
     def unsupported_reason(self) -> str:
         """Why desktop control will not work here, "" when it will."""
         if self.desktop_supported:
             return ""
+        if self.arch.lower() not in HELPER_ARCHES:
+            return (f"no native helper is built for {self.arch or 'this architecture'} "
+                    "(release builds are x86_64 only), and desktop control needs it; see "
+                    "Architectures in docs/install.md")
         if not self.session_type:
             return ("no graphical session was found for this user (log in to the desktop "
                     "once, then run `pcbridge setup` again)")

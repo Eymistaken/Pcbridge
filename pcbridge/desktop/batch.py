@@ -116,19 +116,21 @@ CLICK_COUNTS = {
     "click": 1, "double_click": 2, "triple_click": 3,
     "right_click": 1, "middle_click": 1,
 }
-# Tiklamada basili kalma (Adim 8.3). KOPYA: asil degerler `input.py`de
-# (`DEFAULT_CLICK_HOLD_MS`, `MAX_CLICK_HOLD_MS`); bu modul cihazlari tanimadigi
-# icin burada duruyor ve ayrismalari `test_input_contract` sabitliyor.
+# How long a click holds the button (Step 8.3). A COPY: the native helper
+# owns the real values (`DEFAULT_CLICK_HOLD`, `MAX_CLICK_HOLD_MS` in
+# `pointer.rs`). This module knows no device, so it carries its own, and
+# `test_input_contract` keeps the copies equal.
 DEFAULT_CLICK_HOLD_MS = 60
 MAX_CLICK_HOLD_MS = 1000
 # Cift/uclu tiklamada tek basisin tavani: basislar GNOME'un 400 ms'lik cift
 # tiklama esiginin icinde kalmali (150 + 80 ms aralik = 230 ms).
 MULTI_CLICK_HOLD_MAX_MS = 150
 
-# `move_by` delta tavani. KOPYA: asil clamp `input.MOVE_BY_MAX`ta ve orasi son
-# sozu soyluyor. Burada duruyor cunku bu modul gercek cihazlari TANIMIYOR
-# (bagimlilik tek yonlu: ops -> batch) ve ayrismalari
-# `test_batch_safety` tarafindan sabitleniyor. Amaci erken ve okunur bir hata.
+# Largest `move_by` delta. A COPY: the helper's clamp
+# (`pcbridge_core::input::MOVE_BY_MAX`) has the last word. It stays here
+# because this module knows no real device (the dependency runs one way,
+# ops -> batch), and `test_input_contract` keeps the two equal. Its purpose
+# is an early, readable error.
 MOVE_BY_MAX = 4000
 
 

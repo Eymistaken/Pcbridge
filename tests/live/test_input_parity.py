@@ -155,6 +155,24 @@ def described(saved: clipboardlib.Saved | None) -> str:
     return "empty" if saved is None else f"{saved.mime}, {len(saved.data)} bytes"
 
 
+def read_clipboard() -> clipboardlib.Saved | None:
+    """The clipboard's first representation, read with wl-paste directly.
+
+    The test reads it itself, not through the provider under test; the
+    arguments are the ones the helper uses (`clipboard_cases.json`).
+    """
+    types = subprocess.run(["wl-paste", "--list-types"], capture_output=True, timeout=10)
+    if types.returncode != 0 or not types.stdout.strip():
+        return None
+    mime = types.stdout.decode("utf-8", "replace").splitlines()[0].strip()
+    got = subprocess.run(
+        ["wl-paste", "--type", mime, "--no-newline"], capture_output=True, timeout=10
+    )
+    if got.returncode != 0:
+        return None
+    return clipboardlib.Saved(mime, got.stdout)
+
+
 def restored(before: clipboardlib.Saved | None) -> tuple[bool, str]:
     """Is the saved representation offered again, byte for byte?
 
@@ -162,7 +180,7 @@ def restored(before: clipboardlib.Saved | None) -> tuple[bool, str]:
     aliases (UTF8_STRING, STRING, TEXT) before the type it was given.
     """
     if before is None:
-        now = clipboardlib.WlClipboard().save()
+        now = read_clipboard()
         return now is None, described(now)
     listing = subprocess.run(["wl-paste", "--list-types"], capture_output=True, timeout=10)
     offered = [line.strip() for line in listing.stdout.decode("utf-8", "replace").splitlines()]
@@ -327,8 +345,7 @@ class NativeInputOnTheDesktop(unittest.TestCase):
     def test_3_turkish_text_arrives_exactly_and_the_clipboard_comes_back(self) -> None:
         _gate, provider = self.provider()
         self.focus_field(provider)
-        clipboard = clipboardlib.WlClipboard()
-        before = clipboard.save()
+        before = read_clipboard()
         self.window.send("clear")
         self.window.wait(lambda e: e.get("event") == "text" and e["value"] == "", 2.0)
         self.require_focus()

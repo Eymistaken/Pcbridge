@@ -144,7 +144,7 @@ class EditTests(EditorCase):
         cases = {
             "desktop.restore_clipboard": ("false", False),
             "desktop.unlock_idle_seconds": ("45", 45),
-            "desktop.capture_backend": ("screencast", "screencast"),
+            "native.capture": ("rust", "rust"),
             "desktop.gui_launch_blocklist": ('["Text Editor", "Firefox"]', ["Text Editor", "Firefox"]),
             "desktop.ocr_languages": ("eng+deu", "eng+deu"),
             "server.inline_images": ("auto", "auto"),

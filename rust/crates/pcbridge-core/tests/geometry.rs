@@ -230,8 +230,8 @@ fn canvas_size_is_the_bounding_box_of_whatever_it_is_given() {
 
 #[test]
 fn a_uniform_scale_layout_reports_its_raw_canvas() {
-    // The single-image fallback needs the raw pixel canvas; each monitor's own
-    // pixel size multiplies out to it when every scale is the same.
+    // When every scale is the same, each monitor's own pixel size multiplies
+    // out to the raw pixel canvas.
     let fixture = fixture();
     let case = fixture
         .canvas_ratio

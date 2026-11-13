@@ -372,7 +372,7 @@ pub struct Dispatcher {
     /// Session and PipeWire loop, both created only by the first real capture.
     capture: Option<NativeCapture>,
     /// Created only by the first explicit native keyboard request. Capability
-    /// probes and the default Python input selection never open `/dev/uinput`.
+    /// probes never open `/dev/uinput`.
     keyboard: Option<(u64, Arc<dyn KeyboardService>)>,
     /// Created only by an explicit pointer request. The topology id and
     /// geometry are replaced together when the display layout changes.

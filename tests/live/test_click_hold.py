@@ -21,8 +21,9 @@ What it measures:
   with no coordinate must still land where the pointer now is, not at the
   stale absolute point, and the next absolute move must still arrive.
 
-Both on the Python backend and the packaged native helper.
-`PCBRIDGE_CLICK_REPORT=<path>` writes the numbers as JSON.
+On the packaged native helper, the only input backend since the Python one
+was removed after 2.8. `PCBRIDGE_CLICK_REPORT=<path>` writes the numbers as
+JSON.
 """
 
 from __future__ import annotations
@@ -43,7 +44,6 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(ROOT))
 
 from pcbridge.config import load_config  # noqa: E402
-from pcbridge.desktop.backends.python import PythonInputProvider  # noqa: E402
 from pcbridge.desktop.backends.rust import RustInputProvider  # noqa: E402
 from pcbridge.desktop.safety import SafetyGate  # noqa: E402
 from tests.live.test_capture_parity import (  # noqa: E402
@@ -100,11 +100,9 @@ class ClickHoldOnTheDesktop(unittest.TestCase):
         gate = SafetyGate(self.cfg)
         gate.unlock(5, reason="live click hold")
         self.addCleanup(gate.lock)
-        python = PythonInputProvider(self.cfg)
         native = RustInputProvider(self.cfg, gate=gate)
-        self.addCleanup(python.close)
         self.addCleanup(native.close)
-        return {"python": python, "native": native}
+        return {"native": native}
 
     def arrive(self, provider, point) -> None:
         mark = self.window.mark()

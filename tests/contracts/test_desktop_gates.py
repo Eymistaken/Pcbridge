@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 from pcbridge.desktop import batch as batchlib  # noqa: E402
 from pcbridge.desktop import policy  # noqa: E402
 from pcbridge.desktop import uitree as uitreelib  # noqa: E402
-from pcbridge.desktop.backends.python import PythonAccessibilityProvider  # noqa: E402
+from pcbridge.desktop.backends.rust import RustAccessibilityProvider  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCategory, ErrorCode  # noqa: E402
 
 
@@ -39,7 +39,7 @@ def _node(role: str, name: str = "Parola") -> uitreelib.Node:
     )
 
 
-class _StubProvider(PythonAccessibilityProvider):
+class _StubProvider(RustAccessibilityProvider):
     """Resolves to a fixed node; everything below it stays untouched."""
 
     def __init__(self, node: uitreelib.Node) -> None:
@@ -113,7 +113,7 @@ class PasswordGateWiringTests(unittest.TestCase):
         # this gate at all -- the provider offers no parameter for it.
         import inspect
 
-        params = inspect.signature(PythonAccessibilityProvider.set_text).parameters
+        params = inspect.signature(RustAccessibilityProvider.set_text).parameters
         self.assertNotIn("force", params)
 
 

@@ -5,7 +5,7 @@ Reads are skipped unless `PCBRIDGE_TEST_ATSPI=1`. The action tests also need
 `PCBRIDGE_TEST_INPUT=1`: they press buttons and fill fields through AT-SPI.
 Both only ever touch `a11y_window.py`, a small GTK4 window this test opens
 itself; every action is addressed by that window's bus name and object path,
-which is exactly what the providers check. No keyboard or pointer device is
+which is exactly what the provider checks. No keyboard or pointer device is
 opened.
 
     PCBRIDGE_TEST_ATSPI=1 PCBRIDGE_TEST_INPUT=1 \\
@@ -13,13 +13,15 @@ opened.
 
 `PCBRIDGE_A11Y_REPORT=<path>` writes the measured timings there as JSON.
 
-The native helper (Tasks 6.2, 6.3) is compared with the Python one on the
-same window when a helper with the accessibility methods is found
-(`PCBRIDGE_NATIVE_BIN` or the packaged one): the same reads, and every
-action test run once more through it. It runs under a grant written to a
-scratch state directory, so the user's own grant is never touched. On
-Hyprland, the native cases also start a temporary idle watcher and visible
-grant frame. They do not open screen capture or a keyboard or pointer device.
+Everything goes through the native helper (Tasks 6.2, 6.3), the only
+accessibility reader since the Python one was removed after 2.8 (Gate 6
+compared the two on this window; the numbers are in
+docs/dev/measured-facts.md). A helper with the accessibility methods must be
+found (`PCBRIDGE_NATIVE_BIN` or the packaged one), or the tests skip. It runs
+under a grant written to a scratch state directory, so the user's own grant
+is never touched. On Hyprland, the cases also start a temporary idle watcher
+and visible grant frame. They do not open screen capture or a keyboard or
+pointer device.
 """
 
 from __future__ import annotations
@@ -41,7 +43,6 @@ sys.path.insert(0, str(ROOT))
 
 from pcbridge.config import load_config  # noqa: E402
 from pcbridge.desktop import uitree as uitreelib  # noqa: E402
-from pcbridge.desktop.backends.python import PythonAccessibilityProvider  # noqa: E402
 from pcbridge.desktop.backends.rust import RustAccessibilityProvider  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCode  # noqa: E402
 from pcbridge.desktop.safety import SafetyGate  # noqa: E402
@@ -194,19 +195,18 @@ def native_provider(case: unittest.TestCase, feature: str) -> RustAccessibilityP
 
 class _LiveCase(unittest.TestCase):
     #: Timings are kept per provider.
-    label = "python"
+    label = "native"
+    #: What the helper must offer for the class's tests.
+    feature = "accessibility.read"
 
     def setUp(self) -> None:
-        ok, why = uitreelib.available()
-        if not ok:
-            self.skipTest(why)
         errors = Path(os.environ.get("TMPDIR", "/tmp")) / f"pcbridge-a11y-window-{os.getpid()}.log"
         self.window = A11yWindow(errors)
         self.addCleanup(self.window.close)
         self.tree = self.provider()
 
     def provider(self):
-        return PythonAccessibilityProvider()
+        return native_provider(self, self.feature)
 
     def dump(self) -> uitreelib.Dump:
         """Dump the test window by name; it may take a moment to register."""
@@ -275,6 +275,8 @@ class LiveReadTests(_LiveCase):
 
 @unittest.skipUnless(ACT, "set PCBRIDGE_TEST_ATSPI=1 and PCBRIDGE_TEST_INPUT=1: presses the test window's buttons")
 class LiveActionTests(_LiveCase):
+    feature = "accessibility.action"
+
     def test_a_moved_button_is_pressed_by_identity(self) -> None:
         dump = self.dump()
         target = self.group(dump, "b")
@@ -366,16 +368,6 @@ class LiveActionTests(_LiveCase):
         )
         self.assertIsNotNone(got, "the field holds what it kept")
 
-
-@unittest.skipUnless(ACT, "set PCBRIDGE_TEST_ATSPI=1 and PCBRIDGE_TEST_INPUT=1: presses the test window's buttons")
-class LiveNativeActionTests(LiveActionTests):
-    """Every action test once more, through the native helper (Task 6.3)."""
-
-    label = "native"
-
-    def provider(self):
-        return native_provider(self, "accessibility.action")
-
     def test_the_helper_opens_no_input_device(self) -> None:
         dump = self.dump()
         self.tree.click(self.group(dump, "b").node_id)
@@ -409,11 +401,7 @@ def summary(dump: uitreelib.Dump) -> dict:
 
 @unittest.skipUnless(READ, "set PCBRIDGE_TEST_ATSPI=1: reads a test window's accessibility tree")
 class LiveNativeReadTests(_LiveCase):
-    """The native reader against the Python one, on the real accessibility bus."""
-
-    def setUp(self) -> None:
-        super().setUp()
-        self.native = native_provider(self, "accessibility.read")
+    """The native reader on the real accessibility bus: stable and timed."""
 
     def timed(self, name: str, read):
         started = time.monotonic()
@@ -421,33 +409,29 @@ class LiveNativeReadTests(_LiveCase):
         _measure(name, started)
         return result
 
-    def test_both_readers_list_the_same_window_node_for_node(self) -> None:
-        self.dump()  # wait until the window is visible to AT-SPI
+    def test_the_reader_lists_the_window_the_same_way_every_time(self) -> None:
+        first = summary(self.dump())  # also waits until AT-SPI shows the window
         for _round in range(3):
-            python = self.timed("python_dump_ms", lambda: self.tree.dump(target=APP))
-            native = self.timed("native_dump_ms", lambda: self.native.dump(target=APP))
-            self.assertEqual(summary(native), summary(python))
+            native = self.timed("native_dump_ms", lambda: self.tree.dump(target=APP))
+            self.assertEqual(summary(native), first)
             self.assertEqual(native.backend, "linux.atspi.native")
         self.window.command("prepend")
-        python = self.tree.dump(target=APP, interactive_only=False)
-        native = self.native.dump(target=APP, interactive_only=False)
-        self.assertEqual(summary(native), summary(python))
+        full = self.tree.dump(target=APP, interactive_only=False)
+        self.assertEqual(full.app_pid, self.window.ready["pid"])
+        self.assertGreater(len(full.nodes), len(first["nodes"]))
 
-    def test_both_readers_see_the_same_test_window(self) -> None:
+    def test_the_reader_sees_the_test_window(self) -> None:
         self.dump()
-        python = self.timed("python_windows_ms", self.tree.windows)
-        native = self.timed("native_windows_ms", self.native.windows)
-        mine = lambda windows: [w for w in windows if w.app_pid == self.window.ready["pid"]]  # noqa: E731
-        self.assertEqual(mine(native), mine(python))
-        self.assertEqual(len(mine(native)), 1)
+        native = self.timed("native_windows_ms", self.tree.windows)
+        mine = [w for w in native if w.app_pid == self.window.ready["pid"]]
+        self.assertEqual(len(mine), 1)
 
     def test_a_large_tree_for_timing(self) -> None:
         if current_compositor().kind != session.GNOME:
             self.skipTest("GNOME Shell is the timing target")
         # gnome-shell's tree changes by itself (the clock), so only time it.
-        python = self.timed("python_shell_dump_ms", lambda: self.tree.dump(target="gnome-shell"))
-        native = self.timed("native_shell_dump_ms", lambda: self.native.dump(target="gnome-shell"))
-        REPORT.setdefault("shell_nodes", []).extend([len(python.nodes), len(native.nodes)])
+        native = self.timed("native_shell_dump_ms", lambda: self.tree.dump(target="gnome-shell"))
+        REPORT.setdefault("shell_nodes", []).append(len(native.nodes))
         self.assertEqual(native.app, "gnome-shell")
 
 

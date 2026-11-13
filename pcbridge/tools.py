@@ -54,7 +54,6 @@ from .desktop import panelicon as paneliconlib
 from .desktop import policy
 from .desktop import presentation as presentationlib
 from .desktop import safety as safetylib
-from .desktop import screencast as screencastlib
 from .desktop import uitree as uitreelib
 from .desktop.errors import DesktopError, ErrorCategory, ErrorCode
 from .desktop.runtime import DesktopRuntime, create_runtime
@@ -1485,68 +1484,28 @@ def register(
         )
 
     def _open_screencast() -> str:
-        """Masaustu izniyle birlikte ekran yayinini ac.
+        """Open the screen share together with the desktop grant.
 
-        Yayin `screen_capture` cagrilmasa bile aciliyor: GNOME'un paylasim
-        gostergesi kullaniciya "ajan su an masaustune erisebiliyor" diyor ve
-        izin acikken bu her zaman dogru. Cekim beklemek gostergeyi izinden
-        daha gec baslatirdi.
+        It opens even if `screen_capture` is never called: GNOME's sharing
+        indicator tells the user "an agent can reach the desktop right now",
+        and while the grant is open that is always true. Waiting for the
+        first capture would start the indicator later than the grant.
 
-        Yayin acilamazsa izin YINE DE verilir -- `gnome-screenshot` yedegi
-        duruyor, yalnizca flas patlatiyor. Sebebi kullaniciya soyleniyor.
+        If it cannot open, the grant is still given and the reason is said;
+        `screen_capture` tries to open it again, and there is no second
+        capture path to fall back to.
         """
+        try:
+            runtime.start_capture(cursor=cfg.desktop.include_pointer)
+        except (DesktopError, monitorslib.MonitorError) as exc:
+            return f"⚠️ Screen capture is not ready: {exc}"
         if compositorlib.current().kind == "hyprland":
-            try:
-                runtime.start_capture(cursor=cfg.desktop.include_pointer)
-            except (DesktopError, monitorslib.MonitorError) as exc:
-                return f"⚠️ Screen capture is not ready: {exc}"
             return "📷 Screen capture is ready."
         if compositorlib.is_kde():
             # KWin gives one frame per call; there is no share to open and no
             # panel indicator, only the grant and the layout to confirm.
-            try:
-                runtime.start_capture(cursor=cfg.desktop.include_pointer)
-            except (DesktopError, monitorslib.MonitorError) as exc:
-                return f"⚠️ Screen capture is not ready: {exc}"
             return ("📷 Screenshots come from KWin: silent, no flash. Plasma shows "
                     "no sharing indicator; the grant notification stands for it.")
-        if cfg.desktop.capture_backend == "gnome-screenshot":
-            return ""
-        try:
-            runtime.start_capture(cursor=cfg.desktop.include_pointer)
-        except DesktopError as exc:
-            if exc.code == ErrorCode.DISPLAY_MAPPING_UNKNOWN:
-                return (
-                    "⚠️ Screen sharing could not start "
-                    f"(the monitor table could not be read: {exc})."
-                )
-            if cfg.desktop.capture_backend == "screencast":
-                return (
-                    f"⚠️ Screen sharing could not start: {exc}\n"
-                    "With `capture_backend = \"screencast\"` no screenshot can be "
-                    "taken; set it to `auto` to fall back to gnome-screenshot "
-                    "(which flashes the screen)."
-                )
-            return (
-                f"⚠️ Screen sharing could not start: {exc}\n"
-                "Screenshots will use gnome-screenshot, which flashes the screen and "
-                "plays a sound on every capture."
-            )
-        except monitorslib.MonitorError as exc:
-            return f"⚠️ Screen sharing could not start (the monitor table could not be read: {exc})."
-        except screencastlib.ScreenCastError as exc:
-            if cfg.desktop.capture_backend == "screencast":
-                return (
-                    f"⚠️ Screen sharing could not start: {exc}\n"
-                    "With `capture_backend = \"screencast\"` no screenshot can be "
-                    "taken; set it to `auto` to fall back to gnome-screenshot "
-                    "(which flashes the screen)."
-                )
-            return (
-                f"⚠️ Screen sharing could not start: {exc}\n"
-                "Screenshots will use gnome-screenshot, which flashes the screen and "
-                "plays a sound on every capture."
-            )
         return (
             "📷 Screen sharing is on: screenshots are silent (no flash). "
             "The sharing indicator in the panel disappears when the grant closes."
@@ -1852,13 +1811,11 @@ def register(
         freed = backend.release_all()
         yayin = capture_provider.is_open()
         runtime.release_resources()
-        # BASKA sureclerin yayinlari da: aynı anda bir `--stdio` istemcisi ya
-        # da `pcb-shot` kendi yayinini acmis olabilir ve `close()` yalnizca
-        # BIZIM tutamagimizi kapatir. Kullanici "kapat" dediginde ust
-        # cubuktaki gostergenin gercekten kaybolmasi gerekiyor.
-        others = capture_provider.kill_helpers()
+        # Another process's share (a `pcb-shot`, another runtime) closes on
+        # its own: every native helper watches the grant and ends its session
+        # when the revoke epoch changes (`native_revoke.rs`).
         note = f"\n· released: {', '.join(freed)}" if freed else ""
-        if yayin or others:
+        if yayin:
             kind = compositorlib.current().kind
             if kind == compositorlib.KWIN.kind:
                 note += "\n· screen capture closed; the grant notification is gone"
@@ -1868,8 +1825,6 @@ def register(
                 note += "\n· screen capture closed; native grant frame cleanup requested"
             else:
                 note += "\n· screen capture closed"
-        if others:
-            note += f" · {others} helper process(es) stopped"
         return message + note
 
     @mcp.tool(
@@ -2308,7 +2263,7 @@ def register(
             f"(`{capture_provider.backend_name()}`)"
             + ("" if cap_ok else f" — {cap_why}")
             + ("" if capture_provider.is_open() else
-               " · sharing is off, captures flash the screen (`desktop_unlock` turns it on)")
+               " · sharing is off (`desktop_unlock` turns it on)")
         )
         in_ok, in_why = backend.available()
         lines.append(
@@ -2317,7 +2272,12 @@ def register(
         )
         ui_ok, ui_why = tree.available()
         ui_line = f"**Accessibility tree:** {'ready' if ui_ok else 'UNAVAILABLE'}"
-        if ui_ok:
+        if ui_ok and gate.current_token() is None:
+            # The tree is read by the grant-bound native helper only; before
+            # `desktop_unlock` nothing on the screen is read, window titles
+            # included.
+            ui_line += " · the windows are listed once `desktop_unlock` opens the grant"
+        elif ui_ok:
             # Pencere listesi ve odak yalnizca buradan okunabiliyor: C
             # bolumunde olculdu, Shell.Introspect "Access denied" veriyor.
             # `windows()` agaci gezmedigi icin `dump`tan ucuz (olculdu: 42 ms).
@@ -2397,10 +2357,8 @@ def register(
                     "Which screen to capture: 'all' (default, one image per "
                     "monitor), a monitor number like '1' or '2', a connector name "
                     "like 'DP-1', 'primary', or 'window' for just the focused "
-                    "window, cut out of its monitor's picture. Use a 'window' "
-                    "image's shot id for coordinates like any other; an image "
-                    "that comes without one cannot be turned back into "
-                    "coordinates."
+                    "window, cut out of its monitor's picture; a 'window' "
+                    "image's shot id works for coordinates like any other."
                 )
             ),
         ] = "all",
@@ -2571,16 +2529,6 @@ def register(
                    enhance=enhance or None,
                    backend=capture_provider.backend_name())
 
-        degraded = getattr(capture_provider, "degraded_reason", "")
-        if degraded:
-            # GORUNUR geri donus (Task 4.3): `auto` native yardimciyi
-            # bulamadi ve kare Python yoluyla alindi. Sessiz kalsaydi "neden
-            # yavas" ya da "neden farkli" sorusunun cevabi hicbir yerde olmazdi.
-            out.append(
-                f"⚠️ Native capture was unavailable ({degraded}); the frame came "
-                "through the Python path."
-            )
-
         out.append("")
         if links:
             out.append(f"Links are valid for {ttl_min} min, then they expire.")
@@ -2732,11 +2680,6 @@ def register(
                     backend="pcbridge.shots",
                 ),
                 text="⛔ The screenshot service is not set up.",
-            )
-        if isinstance(monitor, str) and monitor.strip().lower() == "window":
-            return _text_result(
-                "⛔ Where a `window` capture sits on the screen is unknown, so the "
-                "found text has no usable coordinate. Pick a monitor."
             )
         cap_ok, cap_why = capture_provider.available()
         if not cap_ok:

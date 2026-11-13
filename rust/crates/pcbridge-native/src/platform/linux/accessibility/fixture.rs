@@ -1,11 +1,12 @@
 //! A fake desktop read from `tests/fixtures/native/accessibility_cases.json`.
 //!
-//! The Python helper's contract test builds the same desktops for libatspi's
-//! place. Here they stand in for the accessibility bus, so both readers are
-//! held to one set of trees and one set of expected dumps. A fixture only
-//! describes; it never touches a real application.
+//! The desktops stand in for the accessibility bus, so the reader is held
+//! to one set of trees and one set of expected dumps. They were first
+//! written for the Python AT-SPI helper, removed after 2.8; the expectations
+//! did not change with it. A fixture only describes; it never touches a
+//! real application.
 //!
-//! Actions change the fake the way the Python contract's fake changes: an
+//! Actions change the fake the way an application would: an
 //! action that takes effect is recorded in [`FixtureTree::performed`], and a
 //! text write replaces the node's text. Node keys beyond the tree's shape:
 //! `"text"` gives the Text interface, `"editable_text"` the EditableText
@@ -167,8 +168,7 @@ impl FixtureTree {
     fn record(&self, node: &ObjectRef, action: &str) {
         if let Ok(mut performed) = self.performed.lock() {
             let entry = (node.path.clone(), action.to_owned());
-            // A write is one action however many calls it takes, as in the
-            // Python contract's fake.
+            // A write is one action however many calls it takes.
             if action != "settext" || !performed.contains(&entry) {
                 performed.push(entry);
             }

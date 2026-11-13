@@ -22,9 +22,6 @@ from pcbridge import tools as toolslib  # noqa: E402
 from pcbridge.cli import do as do_cli  # noqa: E402
 from pcbridge.config import AgentSpec, Config, DesktopSpec  # noqa: E402
 from pcbridge.desktop import compositor as compositorlib  # noqa: E402
-from pcbridge.desktop import input as inputlib  # noqa: E402
-from pcbridge.desktop import screencast as screencastlib  # noqa: E402
-from pcbridge.desktop import uitree as uitreelib  # noqa: E402
 from pcbridge.desktop.runtime import DesktopRuntime, create_runtime  # noqa: E402
 from pcbridge.jobs import JobManager  # noqa: E402
 
@@ -158,22 +155,11 @@ class DesktopRuntimeContractTests(unittest.TestCase):
     def test_factory_is_lazy_and_creates_isolated_provider_instances(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             cfg = make_config(Path(raw))
-            with (
-                mock.patch.object(
-                    screencastlib.ScreenCast,
-                    "_spawn",
-                    side_effect=AssertionError("capture started during construction"),
-                ),
-                mock.patch.object(
-                    inputlib.InputBackend,
-                    "ensure",
-                    side_effect=AssertionError("input started during construction"),
-                ),
-                mock.patch.object(
-                    uitreelib,
-                    "_call",
-                    side_effect=AssertionError("accessibility started during construction"),
-                ),
+            # Capture, input and accessibility all run in the native helper:
+            # none may start one while the runtime is only being built.
+            with mock.patch(
+                "pcbridge.desktop.backends.rust.NativeClient",
+                side_effect=AssertionError("a native helper started during construction"),
             ):
                 first = create_runtime(cfg, gate=FakeGate())
                 second = create_runtime(cfg, gate=FakeGate())
@@ -300,9 +286,9 @@ class DesktopRuntimeContractTests(unittest.TestCase):
             compositorlib.UNKNOWN: "screen capture closed",
         }
         for desktop, note in expected.items():
-            for opened, helpers in ((True, 0), (False, 2), (False, 0)):
-                with self.subTest(desktop=desktop.kind, opened=opened, helpers=helpers):
-                    self._check_mcp_lock(note, desktop, opened, helpers)
+            for opened in (True, False):
+                with self.subTest(desktop=desktop.kind, opened=opened):
+                    self._check_mcp_lock(note, desktop, opened)
 
     def test_instructions_require_runtime_shortcuts(self) -> None:
         instructions = serverlib.INSTRUCTIONS
@@ -315,7 +301,7 @@ class DesktopRuntimeContractTests(unittest.TestCase):
     def test_mcp_lock_revokes_before_releasing_any_resource(self) -> None:
         self._check_mcp_lock()
 
-    def _check_mcp_lock(self, note=None, desktop=None, opened=False, helpers=0) -> None:
+    def _check_mcp_lock(self, note=None, desktop=None, opened=False) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             cfg = make_config(root)
@@ -357,8 +343,11 @@ class DesktopRuntimeContractTests(unittest.TestCase):
                     super().close()
 
                 def kill_helpers(self) -> int:
+                    # The Python screen-share helpers are gone; their killer
+                    # must not be called (each native helper ends its own
+                    # session on the revoke).
                     events.append("legacy-kill")
-                    return helpers
+                    return 0
 
                 def describe_monitors(self) -> str:
                     return ""
@@ -383,18 +372,13 @@ class DesktopRuntimeContractTests(unittest.TestCase):
             with mock.patch.object(compositorlib, "current", return_value=desktop or compositorlib.GNOME_SHELL):
                 result = tool.fn()
             expected = "locked"
-            if opened or helpers:
+            if opened:
                 expected += "\n· " + note
-            if helpers:
-                expected += f" · {helpers} helper process(es) stopped"
             self.assertEqual(result, expected)
             self.assertFalse(runtime.capture_provider.is_open())
             self.assertEqual(runtime.capture_provider.close_count, 1)
             self.assertEqual(events[0], "revoke")
-            self.assertEqual(
-                events[1:],
-                ["release-input", "close-capture", "legacy-kill"],
-            )
+            self.assertEqual(events[1:], ["release-input", "close-capture"])
             runtime.close()
 
     def test_cli_and_server_close_runtime_in_finally_blocks(self) -> None:

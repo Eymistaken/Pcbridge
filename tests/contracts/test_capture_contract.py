@@ -13,19 +13,17 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from pcbridge.cli import shot as shot_cli  # noqa: E402
-from pcbridge.config import DesktopSpec  # noqa: E402
+from pcbridge.config import DesktopSpec, NativeSpec  # noqa: E402
 from pcbridge.desktop import capture as capturelib  # noqa: E402
 from pcbridge.desktop import monitors as monitorslib  # noqa: E402
-from pcbridge.desktop.backends.python import (  # noqa: E402
-    PythonCaptureProvider as RuntimeCaptureProvider,
-)
+from pcbridge.desktop.backends.rust import RustCaptureProvider  # noqa: E402
 
 
 FIXTURES = ROOT / "tests" / "fixtures" / "native"
@@ -53,39 +51,48 @@ def make_monitors(case: dict) -> list[monitorslib.Monitor]:
     return monitorslib._ordered(monitors)
 
 
-class PythonCaptureProvider:
-    """Adapter that lets the legacy backend consume provider-neutral fixtures."""
+class FixtureScreenCast:
+    """One frame per monitor, as the native share delivers them, from a fixture case."""
+
+    def __init__(self, case: dict, monitors: list[monitorslib.Monitor]) -> None:
+        self.colors = {item["connector"]: tuple(item["color"]) for item in case["displays"]}
+        self.monitors = {monitor.connector: monitor for monitor in monitors}
+
+    def is_open(self) -> bool:
+        return True
+
+    def ensure_cursor(self, _cursor: bool) -> bool:
+        return False
+
+    def capture(self, connector: str, path) -> dict:
+        monitor = self.monitors[connector]
+        Image.new("RGB", monitor.source_pixel_size, self.colors[connector]).save(path, format="PNG")
+        return {"ok": True, "path": str(path), "monitor": connector}
+
+    def close(self) -> None:
+        return None
+
+
+class FixtureCapture:
+    """Provider-neutral fixtures through `capture.py` and a per-monitor frame source."""
 
     def __init__(self, case: dict) -> None:
         self.case = case
         self.monitors = make_monitors(case)
 
-    def _canvas(self, directory: Path, _include_pointer: bool) -> Path:
-        path = directory / "fixture-canvas.png"
-        canvas = Image.new("RGB", tuple(self.case["expected_canvas"]), (0, 0, 0))
-        draw = ImageDraw.Draw(canvas)
-        colors = {item["connector"]: tuple(item["color"]) for item in self.case["displays"]}
-        for monitor in self.monitors:
-            draw.rectangle(monitor.bbox, fill=colors[monitor.connector])
-        canvas.save(path, format="PNG")
-        return path
-
     def capture(self, output: Path, long_edge: int) -> list[capturelib.Shot]:
-        with (
-            mock.patch.object(monitorslib, "list_monitors", return_value=self.monitors),
-            mock.patch.object(capturelib, "available", return_value=(True, "")),
-            mock.patch.object(capturelib, "_grab_canvas", side_effect=self._canvas),
-        ):
+        with mock.patch.object(monitorslib, "list_monitors", return_value=self.monitors):
             return capturelib.capture(
                 "all",
                 out_dir=output,
                 scale_long_edge=long_edge,
                 include_pointer=False,
+                screencast=FixtureScreenCast(self.case, self.monitors),
             )
 
 
 CAPTURE_PROVIDER_FACTORIES = (
-    ("python", PythonCaptureProvider),
+    ("native frames", FixtureCapture),
 )
 
 
@@ -159,10 +166,10 @@ class CaptureContractTests(unittest.TestCase):
             default_output = root / "default"
             cfg = SimpleNamespace(
                 desktop=DesktopSpec(
-                    capture_backend="gnome-screenshot",
                     screenshot_scale_long_edge=80,
                     shot_keep_hours=24,
                 ),
+                native=NativeSpec(),
                 shot_search_dirs=[default_output],
             )
 
@@ -170,17 +177,13 @@ class CaptureContractTests(unittest.TestCase):
                 def audit(self, *args, **kwargs) -> None:
                     return None
 
-            class ClosedScreenCast:
-                def is_open(self) -> bool:
-                    return False
-
-                def close(self) -> None:
-                    return None
-
-            capture_provider = RuntimeCaptureProvider(cfg, ClosedScreenCast())
+            capture_provider = RustCaptureProvider(
+                cfg, screencast=FixtureScreenCast(case, monitors))
             runtime = SimpleNamespace(
                 gate=FakeGate(),
                 capture_provider=capture_provider,
+                start_capture=lambda cursor=None: {},
+                stop_capture=lambda: None,
                 close=capture_provider.close,
             )
 
@@ -190,9 +193,7 @@ class CaptureContractTests(unittest.TestCase):
 
             # Task 3.5 made the copy part of the capture itself (published with
             # it, or not at all), so the real capture runs here; only the
-            # screenshot program is replaced by the fixture canvas.
-            fixture = PythonCaptureProvider(case)
-
+            # helper's frames are replaced by the fixture's.
             stdout = io.StringIO()
             with (
                 mock.patch.object(shot_cli, "load", return_value=cfg),
@@ -200,8 +201,8 @@ class CaptureContractTests(unittest.TestCase):
                 mock.patch.object(shot_cli, "check_gate", return_value=None),
                 mock.patch.object(shot_cli, "shot_dir", side_effect=default_shot_dir),
                 mock.patch.object(shot_cli, "job_id", return_value="contract-job"),
-                mock.patch.object(capturelib, "available", return_value=(True, "")),
-                mock.patch.object(capturelib, "_grab_canvas", side_effect=fixture._canvas),
+                mock.patch("pcbridge.desktop.backends.rust.native_binary_ready",
+                           return_value=(True, "")),
                 mock.patch.object(monitorslib, "list_monitors", return_value=monitors),
                 contextlib.redirect_stdout(stdout),
             ):
@@ -214,8 +215,9 @@ class CaptureContractTests(unittest.TestCase):
             self.assertTrue(payload["ok"])
             shot = payload["shots"][0]
             self.assertRegex(shot["id"], r"^m2-[0-9a-f]{6}$")
-            self.assertEqual(payload["backend"], "gnome-screenshot")
-            self.assertIsNone(payload["degraded"])
+            self.assertEqual(payload["backend"], "linux.mutter.pipewire")
+            # No fallback path is left to report, so no "degraded" field.
+            self.assertNotIn("degraded", payload)
             self.assertEqual(shot["offset"], [160, 0])
             self.assertTrue((custom_output / f"{shot['id']}.json").is_file())
             copied = json.loads(

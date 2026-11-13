@@ -24,7 +24,6 @@ from pcbridge.config import NativeSpec, load_config  # noqa: E402
 from pcbridge.desktop import runtime as runtimelib  # noqa: E402
 from pcbridge.desktop import uitree as uitreelib  # noqa: E402
 from pcbridge.desktop.backends import rust as rustlib  # noqa: E402
-from pcbridge.desktop.backends.python import PythonAccessibilityProvider  # noqa: E402
 from pcbridge.desktop.backends.rust import RustAccessibilityProvider  # noqa: E402
 from pcbridge.desktop.capabilities import CapabilityState  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCategory, ErrorCode  # noqa: E402
@@ -131,22 +130,6 @@ class _Case(unittest.TestCase):
         self.cfg = dataclasses.replace(
             load_config(str(ROOT / "config.example.toml")), state_dir=Path(self.tmp.name)
         )
-        # The Python helper is never started here; a call to it is a failure
-        # unless a test says otherwise.
-        self.python_calls: list[dict] = []
-
-        def python_helper(payload, timeout):
-            self.python_calls.append(payload)
-            if payload["cmd"] == "windows":
-                return {"ok": True, "windows": []}
-            if payload["cmd"] == "dump":
-                return {"ok": True, "app": "python-side", "window": "p", "nodes": []}
-            return {"ok": True, "role": payload.get("role"), "name": payload.get("name"),
-                    "resolved_by": "path", "replaced_chars": 0}
-
-        patcher = mock.patch.object(uitreelib, "_call", python_helper)
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     def provider(self, client: FakeClient, gate: Gate | None = None) -> RustAccessibilityProvider:
         return RustAccessibilityProvider(
@@ -167,17 +150,16 @@ class ReadRequestTests(_Case):
              "interactive_only": False, "max_nodes": 50},
         )
         self.assertEqual(timeout, rustlib.ACCESSIBILITY_TIMEOUT_SECONDS)
-        self.assertEqual(self.python_calls, [], "a native dump must not start the GI helper")
         self.assertIs(provider._last, dump)
         self.assertEqual(dump.backend, "linux.atspi.native")
         self.assertEqual((dump.app_bus, dump.app_pid, dump.scope), (":1.30", 3100, "window"))
         self.assertRegex(dump.snapshot, r"^[0-9a-f]{12}$")
 
-    def test_ids_are_the_same_whichever_reader_produced_the_dump(self) -> None:
+    def test_the_short_ids_are_made_in_uitree(self) -> None:
         native = self.provider(FakeClient({"accessibility.dump": DUMP})).dump()
-        python = uitreelib.dump_from_response(DUMP)
-        self.assertEqual([n.node_id for n in native.nodes], [n.node_id for n in python.nodes])
-        self.assertEqual([n.ref for n in native.nodes], [n.ref for n in python.nodes])
+        parsed = uitreelib.dump_from_response(DUMP)
+        self.assertEqual([n.node_id for n in native.nodes], [n.node_id for n in parsed.nodes])
+        self.assertEqual([n.ref for n in native.nodes], [n.ref for n in parsed.nodes])
 
     def test_windows_and_focus_go_native_with_a_grant(self) -> None:
         client = FakeClient({
@@ -190,16 +172,34 @@ class ReadRequestTests(_Case):
         self.assertEqual(windows[0].ref, "/org/pcbridge/Editor/a11y/w1")
         self.assertEqual(provider.focused_window(), ("pcbridge-editor", "Belge"))
         self.assertEqual([m for m, _p, _t in client.sent], ["accessibility.windows", "accessibility.focused"])
-        self.assertEqual(self.python_calls, [])
 
-    def test_without_a_grant_windows_and_focus_read_what_they_read_before(self) -> None:
-        # screen_info lists windows before desktop_unlock; no helper exists then.
-        client = FakeClient()
-        provider = self.provider(client, gate=Gate(current=None))
+    def test_an_expired_grant_lets_the_helper_say_why(self) -> None:
+        # The last grant goes along, so the helper answers REVOKED or
+        # EXPIRED itself instead of this side guessing.
+        client = FakeClient({"accessibility.windows": WINDOWS})
+        provider = self.provider(client, gate=Gate(current=None, last=("g0", 2)))
         provider.windows()
-        provider.focused_window()
-        self.assertEqual(client.sent, [])
-        self.assertEqual([c["cmd"] for c in self.python_calls], ["windows", "dump"])
+        self.assertEqual(client.sent[0][1], {"grant_id": "g0", "revoke_epoch": 2})
+
+    def test_without_any_grant_windows_and_focus_are_refused_before_a_helper_starts(self) -> None:
+        # There is no other reader: screen_info lists no windows before
+        # desktop_unlock.
+        created: list[FakeClient] = []
+
+        def factory():
+            created.append(FakeClient())
+            return created[-1]
+
+        provider = RustAccessibilityProvider(
+            self.cfg, gate=SimpleNamespace(current_token=lambda: None, last_token=lambda: None),
+            client_factory=factory,
+        )
+        for read in (provider.windows, provider.focused_window):
+            with self.subTest(read=read.__name__):
+                with self.assertRaises(DesktopError) as raised:
+                    read()
+                self.assertEqual(raised.exception.code, ErrorCode.GRANT_REQUIRED)
+        self.assertEqual(created, [])
 
     def test_dump_without_any_grant_is_refused_before_a_helper_starts(self) -> None:
         created: list[FakeClient] = []
@@ -254,7 +254,6 @@ class ActionRequestTests(_Case):
         self.assertEqual(client.binaries[-1], b"")
         self.assertEqual(result["snapshot"], SNAPSHOT)
         self.assertEqual(result["resolved_by"], "path")
-        self.assertEqual(self.python_calls, [], "a native click must not start the GI helper")
 
     def test_the_text_travels_as_the_binary_payload_not_in_the_header(self) -> None:
         provider, client = self.acting({"accessibility.set_text": WRITTEN})
@@ -271,7 +270,6 @@ class ActionRequestTests(_Case):
         self.assertEqual(client.binaries[-1], text.encode("utf-8"))
         self.assertNotIn(text, repr(params))
         self.assertEqual(result["snapshot"], SNAPSHOT)
-        self.assertEqual(self.python_calls, [])
 
     def test_a_password_field_never_reaches_the_helper(self) -> None:
         provider, client = self.acting({})
@@ -364,7 +362,7 @@ class ActionRequestTests(_Case):
 
 
 class ErrorTests(_Case):
-    def test_target_verdicts_get_the_python_readers_advice(self) -> None:
+    def test_target_verdicts_get_their_own_advice(self) -> None:
         for code in (ErrorCode.ELEMENT_AMBIGUOUS, ErrorCode.TARGET_MISMATCH, ErrorCode.TIMEOUT):
             with self.subTest(code=code):
                 category = (
@@ -448,10 +446,9 @@ class SelectionTests(unittest.TestCase):
         with mock.patch.object(rustlib, "native_binary_ready", return_value=ready):
             return runtimelib.select_accessibility_provider(cfg, Gate())
 
-    def test_auto_is_the_default_since_task_6_3(self) -> None:
+    def test_auto_is_the_default(self) -> None:
         self.assertEqual(self.cfg.native.accessibility, "auto")
         self.assertEqual(NativeSpec().accessibility, "auto")
-        self.assertIs(type(self.select("python")), PythonAccessibilityProvider)
 
     def test_a_config_without_the_setting_gets_auto(self) -> None:
         path = Path(self.tmp.name) / "config.toml"
@@ -461,20 +458,22 @@ class SelectionTests(unittest.TestCase):
         path.write_text(without, encoding="utf-8")
         self.assertEqual(load_config(str(path)).native.accessibility, "auto")
 
-    def test_auto_takes_the_native_reader_when_it_is_there(self) -> None:
-        self.assertIsInstance(self.select("auto"), RustAccessibilityProvider)
+    def test_the_native_reader_is_the_only_one(self) -> None:
+        # With or without a helper: there is no other reader to fall back on.
+        for choice in ("auto", "rust"):
+            for ready in ((True, ""), (False, "no helper")):
+                with self.subTest(choice=choice, ready=ready[0]):
+                    self.assertIs(type(self.select(choice, ready)), RustAccessibilityProvider)
 
-    def test_auto_falls_back_visibly(self) -> None:
-        provider = self.select("auto", ready=(False, "yardimci yok"))
-        self.assertIs(type(provider), PythonAccessibilityProvider)
-        with mock.patch.object(PythonAccessibilityProvider, "_availability", return_value=(True, "", None)):
+    def test_without_a_helper_the_capabilities_say_why(self) -> None:
+        provider = RustAccessibilityProvider(self.cfg, gate=Gate(), client_factory=FakeClient)
+        with mock.patch.object(rustlib, "native_binary_ready", return_value=(False, "no helper here")):
             values = provider.probe_capabilities()
-        read = values["accessibility.read"]
-        self.assertIs(read.state, CapabilityState.DEGRADED)
-        self.assertTrue(any("yardimci yok" in item for item in read.limitations))
-
-    def test_rust_never_falls_back(self) -> None:
-        self.assertIsInstance(self.select("rust", ready=(False, "yok")), RustAccessibilityProvider)
+        for name in ("accessibility.read", "accessibility.action", "window.list"):
+            with self.subTest(name=name):
+                self.assertIs(values[name].state, CapabilityState.UNAVAILABLE)
+                self.assertEqual(values[name].reason_code, ErrorCode.DEPENDENCY_MISSING)
+                self.assertIn("no helper here", values[name].limitations)
 
     def test_unknown_value_is_refused_at_load(self) -> None:
         path = Path(self.tmp.name) / "config.toml"
@@ -488,8 +487,7 @@ class SelectionTests(unittest.TestCase):
 
     def test_native_capabilities_name_the_native_backend(self) -> None:
         provider = RustAccessibilityProvider(self.cfg, gate=Gate(), client_factory=FakeClient)
-        with mock.patch.object(rustlib, "native_binary_ready", return_value=(True, "")), \
-                mock.patch.object(PythonAccessibilityProvider, "_availability", return_value=(True, "", None)):
+        with mock.patch.object(rustlib, "native_binary_ready", return_value=(True, "")):
             values = provider.probe_capabilities()
         self.assertEqual(values["accessibility.read"].backend, "linux.atspi.native")
         self.assertIs(values["accessibility.read"].state, CapabilityState.SUPPORTED)

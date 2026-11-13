@@ -53,18 +53,17 @@ CINNAMON = platform(distro_name="Pardus 25.0", distro_id="pardus", family=distro
                     package_manager="apt-get", session_type="x11", desktop="Cinnamon",
                     desktop_kind=UNKNOWN, desktop_version="6.4.8", glibc=(2, 41))
 
-NO_BUILD = {"compiler": False, "kernel-headers": False, "python-headers": False}
 # Nothing installed, but the Python extras present (the common case after install.sh).
 # The native helper is present in both: test_native_fetch.py covers the download.
-NOTHING = planlib.Probes(which=lambda name: None, atspi=lambda: False, ocr_languages=set,
-                         desktop_extras=lambda: True, evdev_build=lambda: NO_BUILD,
-                         own_venv=lambda: True, native_fetchable=lambda: False,
-                         kind=lambda: "user")
-EVERYTHING = planlib.Probes(which=lambda name: f"/usr/bin/{name}", atspi=lambda: True,
+NOTHING = planlib.Probes(which=lambda name: None, a11y_bus=lambda: False,
+                         system_gi=lambda: False, ocr_languages=set,
+                         desktop_extras=lambda: True, own_venv=lambda: True,
+                         native_fetchable=lambda: False, kind=lambda: "user")
+EVERYTHING = planlib.Probes(which=lambda name: f"/usr/bin/{name}", a11y_bus=lambda: True,
+                            system_gi=lambda: True,
                             ocr_languages=lambda: {"eng", "tur", "osd"},
-                            desktop_extras=lambda: True, evdev_build=lambda: NO_BUILD,
-                            own_venv=lambda: True, native_fetchable=lambda: False,
-                            kind=lambda: "user")
+                            desktop_extras=lambda: True, own_venv=lambda: True,
+                            native_fetchable=lambda: False, kind=lambda: "user")
 
 
 class SessionTests(unittest.TestCase):
@@ -176,7 +175,7 @@ class PlanTests(unittest.TestCase):
     def test_a_supported_desktop_offers_ocr_in_the_locale_language(self) -> None:
         plan = planlib.build(platform(), probes=NOTHING)
         self.assertEqual(plan.packages, ["tmux", "util-linux", "libnotify", "wl-clipboard",
-                                         "python-gobject", "at-spi2-core"])
+                                         "at-spi2-core", "python-gobject"])
         [ocr] = plan.components
         self.assertEqual(ocr.languages, ["eng", "tur"])
         self.assertEqual(ocr.packages, ["tesseract", "tesseract-data-eng", "tesseract-data-tur"])
@@ -194,27 +193,37 @@ class PlanTests(unittest.TestCase):
         [ocr] = planlib.build(platform(language="en"), probes=NOTHING).components
         self.assertEqual(ocr.languages, ["eng"])
 
-    def test_missing_evdev_brings_its_build_tools_only_where_it_is_used(self) -> None:
+    def test_missing_pillow_is_installed_by_pip_only_where_it_is_used(self) -> None:
         probes = replace(NOTHING, desktop_extras=lambda: False)
-        plan = planlib.build(platform(family=distro.DEBIAN, package_manager="apt-get",
-                                      desktop="GNOME", desktop_kind=GNOME), probes=probes)
+        gnome = platform(family=distro.DEBIAN, package_manager="apt-get",
+                         desktop="GNOME", desktop_kind=GNOME)
+        plan = planlib.build(gnome, probes=probes)
         self.assertTrue(plan.extras)
-        for name in ("gcc", "libc6-dev", "linux-libc-dev", f"python{sys.version_info[0]}.{sys.version_info[1]}-dev"):
-            self.assertIn(name, plan.packages)
-        # Only what is missing: here the kernel headers.
-        headers = replace(probes, evdev_build=lambda: {"compiler": True, "kernel-headers": False,
-                                                       "python-headers": True})
-        plan = planlib.build(platform(), probes=headers)
-        self.assertIn("linux-api-headers", plan.packages)
-        self.assertNotIn("gcc", plan.packages)
-        # A compiler and headers already there: only pip runs.
-        ready = replace(probes, evdev_build=lambda: dict.fromkeys(NO_BUILD, True))
-        plan = planlib.build(platform(), probes=ready)
-        self.assertTrue(plan.extras)
-        self.assertNotIn("gcc", plan.packages)
+        # Pillow has wheels: nothing is compiled, so no compiler or headers.
+        for name in ("gcc", "libc6-dev", "linux-libc-dev", "linux-api-headers"):
+            self.assertNotIn(name, plan.packages)
         # Not on an unsupported desktop, and not into a package's venv.
         self.assertFalse(planlib.build(CINNAMON, probes=probes).extras)
         self.assertFalse(planlib.build(platform(), probes=replace(probes, own_venv=lambda: False)).extras)
+
+    def test_the_atspi_bus_and_the_system_gi_are_asked_for_only_where_used(self) -> None:
+        gnome = platform(family=distro.DEBIAN, package_manager="apt-get",
+                         desktop="GNOME", desktop_kind=GNOME)
+        # Every supported desktop reads the tree off the AT-SPI bus ...
+        for where in (gnome, platform(), platform(desktop="Hyprland", desktop_kind=HYPRLAND)):
+            with self.subTest(desktop=where.desktop):
+                self.assertIn("atspi-bus", planlib.build(where, probes=NOTHING).needs)
+                self.assertNotIn("atspi-bus", planlib.build(
+                    where, probes=replace(NOTHING, a11y_bus=lambda: True)).needs)
+        # ... but only KDE Plasma's window scripts run in the system python3.
+        self.assertIn("python3-gi", planlib.build(platform(), probes=NOTHING).needs)
+        self.assertNotIn("python3-gi", planlib.build(gnome, probes=NOTHING).needs)
+        self.assertNotIn("python3-gi", planlib.build(
+            platform(), probes=replace(NOTHING, system_gi=lambda: True)).needs)
+        # Neither where desktop control is not supported.
+        cinnamon = planlib.build(CINNAMON, probes=NOTHING).needs
+        self.assertNotIn("atspi-bus", cinnamon)
+        self.assertNotIn("python3-gi", cinnamon)
 
     def test_nothing_missing_means_nothing_to_run(self) -> None:
         plan = planlib.build(platform(), probes=EVERYTHING)

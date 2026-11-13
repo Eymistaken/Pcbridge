@@ -7,11 +7,11 @@ stdout carries only the framed responses defined here.
 On Linux the helper reads the monitor table, captures single-monitor frames
 through Mutter ScreenCast + PipeWire, produces uinput keyboard and pointer
 events, runs the clipboard programs, and reads and acts on the accessibility
-tree over D-Bus without GI. Each subsystem is selected by `[native]` (`auto`
-by default: the helper when packaged, the Python path otherwise, reported
-visibly). Besides the grant lifecycle, the helper watches the screen lock and
-user activity over the session bus as typed observations; every backend uses
-the same fail-closed boundary.
+tree over D-Bus without GI. It is the only desktop backend: the Python
+paths that once stood in for it were removed after 2.8. Besides the grant
+lifecycle, the helper watches the screen lock and user activity over the
+session bus as typed observations; every backend uses the same fail-closed
+boundary.
 
 ## Frames and limits
 
@@ -158,7 +158,8 @@ connection. After the handshake, a request with a different minor returns
   read the last persisted position. Cleanup and read methods need no fresh
   grant.
 - `clipboard.read`, `clipboard.write`, `clipboard.clear`: run `wl-paste` /
-  `wl-copy` with the same arguments the Python path uses. All three take
+  `wl-copy` with the arguments `clipboard_cases.json` pins (the ones the
+  Python path used until 2.8). All three take
   `grant_id` and `revoke_epoch`; with a wrong grant the program never runs
   (`REVOKED`); an unknown field is `INVALID_PARAMS`.
   - `read` returns the first offered type and its bytes **in the response
@@ -182,7 +183,8 @@ connection. After the handshake, a request with a different minor returns
   - `dump` also takes `target`, `interactive_only`, `max_nodes`,
     `deadline_ms` (defaults `focused`, `true`, 400 (max 2000), 15000 ms (max
     20000)).
-  - The answer has the Python helper's shape: `app`, `app_bus`, `app_pid`,
+  - The answer keeps the shape of the Python helper it replaced (removed
+    after 2.8): `app`, `app_bus`, `app_pid`,
     `same_name`, `scope`, `window`, `window_ref`, `nodes`, `truncated`, and
     `snapshot`, the helper's 12-hex-digit id for this dump. Each node carries
     `path`, `ref`, `role`, `name`, `states`, `actions`, `editable`, `depth`.
@@ -499,18 +501,16 @@ is never downloaded, built at run time or searched on `PATH`. Only
 release's helper into the package path at install time, after checking it
 ([packaging.md](packaging.md#the-release-asset-for-installations-without-one)).
 
-Selection per subsystem (`[native] capture / input / accessibility`):
-`auto` (default) uses the helper when it is found and offers the capability,
-otherwise the Python path with a visible `degraded` reason in
-`system_capabilities`; `rust` never falls back and fails instead; `python`
-ignores the helper. An explicit `[desktop] capture_backend =
-"gnome-screenshot"` keeps capture on the Python path under `auto`.
+`[native] capture / input / accessibility` take `auto` (default) or `rust`;
+both mean the helper, and there is nothing to fall back on: a missing
+helper is `NATIVE_NOT_FOUND`, whose message says how this installation gets
+one. An old `"python"` is read as `auto` with a warning in `pcbridge
+doctor`, and an old `[desktop] capture_backend` line is ignored with one.
 
-The native accessibility reader lives in a grant-bound helper. Without a
-grant (for example `screen_info` listing windows before `desktop_unlock`),
-the window list and focused window come from the Python helper. Short ids
-and the last-dump record are produced in Python (`uitree`) for both readers;
-`ui_click` / `ui_set_text` go to the provider that made the dump, with its
+The accessibility reader lives in a grant-bound helper, so without a grant
+nothing is read: `screen_info` lists no windows before `desktop_unlock`.
+Short ids and the last-dump record are produced in Python (`uitree`);
+`ui_click` / `ui_set_text` go to the helper that made the dump, with its
 snapshot and the node's object path. The password-field rule is applied in
 Python, before the helper is asked.
 
@@ -597,15 +597,16 @@ claims unusable input.
 Every helper has a 0600 record under `runtime_dir/pcbridge/native/` (dirs
 0700) with its PID, process start id and instance id. Cleanup re-matches the
 PID and start id before sending a signal, so a reused PID is never signaled.
-The Python screen-sharing helper is still found by its exact executable path
-and UID (`kill_helpers()`).
+A share opened by another process (another client's daemon, `pcb-shot`)
+needs no signal from `pcbridge lock`: its helper's watchdog sees the revoke
+epoch change and ends the session within 250 ms (the Rust test
+`native_revoke.rs`).
 
-## Rolling back to the Python paths
+## No rolling back to the Python paths
 
-Set `capture`, `input` or `accessibility` under `[native]` to `"python"`, then
-`pcbridge lock` and `pcbridge update` (the daemon restarts when idle). Do not
-restore an old active grant; the agent opens a new one with
-`desktop_unlock`.
+Until 2.8, `[native] capture`, `input` or `accessibility` set to `"python"`
+switched a subsystem back to the Python path. Those paths were removed
+after 2.8; the previous release still has them.
 
 ## Exit and logging rules
 

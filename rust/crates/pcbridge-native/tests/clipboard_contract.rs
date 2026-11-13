@@ -1,8 +1,9 @@
 //! The native clipboard adapter against the shared fixture and real processes.
 //!
-//! `tests/fixtures/native/clipboard_cases.json` is the file the Python
-//! contract reads: the same program calls in the same order, and the same
-//! clipboard afterwards. The process tests run small shell scripts standing in
+//! `tests/fixtures/native/clipboard_cases.json` was written for the Python
+//! wl-clipboard path (removed after 2.8) and still holds this adapter to it:
+//! the same program calls in the same order, and the same clipboard
+//! afterwards. The process tests run small shell scripts standing in
 //! for `wl-paste` and `wl-copy`. The user's clipboard is never touched.
 
 use std::cell::RefCell;

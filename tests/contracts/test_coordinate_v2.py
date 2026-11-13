@@ -260,23 +260,6 @@ class SourceSizeTests(unittest.TestCase):
         self.assertIn("1440x900", str(caught.exception))
         self.assertIn("2880x1800", str(caught.exception))
 
-    def test_the_canvas_ratio_is_resolved_or_refused(self) -> None:
-        for case in CASES["canvas_ratio"]:
-            with self.subTest(case=case["name"]):
-                if "state" in case:
-                    mons = monitorslib.resolve_state(case["state"])
-                else:
-                    mons = table(case["layout"])
-                if case["ratio"] is None:
-                    with self.assertRaises(capturelib.CaptureError) as caught:
-                        capturelib.canvas_pixel_ratio(mons, tuple(case["canvas"]))
-                    self.assertIn("different scales", str(caught.exception))
-                else:
-                    self.assertAlmostEqual(
-                        capturelib.canvas_pixel_ratio(mons, tuple(case["canvas"])),
-                        case["ratio"],
-                    )
-
     def test_the_record_carries_both_sizes_and_the_space(self) -> None:
         monitor = table("hidpi_two_times_and_rotated_portrait")[0]
         record = capturelib.Shot(

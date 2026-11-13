@@ -30,7 +30,7 @@ if str(ROOT) not in sys.path:
 from pcbridge import tools as toolslib  # noqa: E402
 from pcbridge.config import AgentSpec, Config, DesktopSpec  # noqa: E402
 from pcbridge.desktop import monitors as monitorslib  # noqa: E402
-from pcbridge.desktop.backends.python import PythonCaptureProvider  # noqa: E402
+from pcbridge.desktop.backends.rust import RustCaptureProvider  # noqa: E402
 from pcbridge.desktop.capabilities import (  # noqa: E402
     Capability,
     CapabilityEvidence,
@@ -128,11 +128,11 @@ class FixtureScreenCast:
         return {"ok": True, "path": str(path), "taken_at": time.time()}
 
 
-class FixtureCaptureProvider(PythonCaptureProvider):
+class FixtureCaptureProvider(RustCaptureProvider):
     """The real capture provider and pipeline over fixture frames.
 
-    Probing is replaced: the real probe starts the system Python to look for
-    GStreamer, which is neither offline nor what these tests are about.
+    The share is the fixture's and the helper counts as found: probing a
+    real helper is neither offline nor what these tests are about.
     """
 
     def __init__(
@@ -140,10 +140,15 @@ class FixtureCaptureProvider(PythonCaptureProvider):
         cfg: Config,
         *,
         after_capture: Callable[[list[Any]], None] | None = None,
-        degraded_reason: str = "",
     ) -> None:
-        super().__init__(cfg, FixtureScreenCast(), degraded_reason=degraded_reason)
+        super().__init__(cfg, screencast=FixtureScreenCast())
         self.after_capture = after_capture
+
+    def available(self) -> tuple[bool, str]:
+        return True, ""
+
+    def backend_name(self) -> str:
+        return "fixture"
 
     def capability_token(self) -> tuple[Any, ...]:
         return ("fixture-capture",)
@@ -171,9 +176,6 @@ class FixtureCaptureProvider(PythonCaptureProvider):
             ),
             None,
         )
-
-    def kill_helpers(self) -> int:
-        return 0
 
     def capture(self, spec: int | str, **kwargs: Any) -> list[Any]:
         with mock.patch.object(monitorslib, "list_monitors", return_value=list(MONITORS)):
@@ -326,12 +328,9 @@ def fixture_runtime(
     config: Config,
     *,
     after_capture: Callable[[list[Any]], None] | None = None,
-    degraded_reason: str = "",
 ) -> DesktopRuntime:
     return DesktopRuntime(
-        capture_provider=FixtureCaptureProvider(
-            config, after_capture=after_capture, degraded_reason=degraded_reason
-        ),
+        capture_provider=FixtureCaptureProvider(config, after_capture=after_capture),
         input_provider=QuietInput(),
         accessibility_provider=QuietAccessibility(),
         gate=OpenGate(),
@@ -346,14 +345,11 @@ def build(
     *,
     transport: str = "stdio",
     after_capture: Callable[[list[Any]], None] | None = None,
-    degraded_reason: str = "",
 ) -> SimpleNamespace:
     """The fixture server: `mcp`, its `store`, `gate`, `config` and `runtime`."""
     config = make_config(root)
     store = ShotStore(config)
-    runtime = fixture_runtime(
-        config, after_capture=after_capture, degraded_reason=degraded_reason
-    )
+    runtime = fixture_runtime(config, after_capture=after_capture)
     mcp = FastMCP("capture-delivery")
     toolslib.register(
         mcp,

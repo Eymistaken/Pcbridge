@@ -35,11 +35,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Desktop control: evdev drives the virtual keyboard and pointer through
-# /dev/uinput, Pillow crops and scales screenshots. Without them pcbridge
-# still runs; only the desktop tools report that they are unavailable.
+# Desktop control: Pillow crops and scales screenshots. The keyboard, the
+# pointer and the frames come from the native helper (pcbridge/_native).
+# Without it pcbridge still runs; only the desktop tools report that they
+# are unavailable.
 desktop = [
-    "evdev>=1.7.0",
     "Pillow>=10.0.0",
 ]
 

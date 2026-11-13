@@ -1,4 +1,9 @@
-"""Measure lock and activity safety transitions only in the disposable VM."""
+"""Measure lock and activity safety transitions only in the disposable VM.
+
+The kernel observer reads pcbridge's keyboard device with python-evdev, a
+test-side dependency: pcbridge no longer installs it (its Python input path
+was removed after 2.8), so the VM's venv needs `.venv/bin/pip install evdev`.
+"""
 from __future__ import annotations
 
 import os

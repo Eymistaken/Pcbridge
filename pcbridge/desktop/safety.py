@@ -189,7 +189,7 @@ def observe_user_activity() -> ActivityObservation:
     )
 
 
-class _PythonDesktopStateProvider:
+class _SessionStateProvider:
     def screen_lock(self) -> ScreenLockObservation:
         return observe_screen_lock()
 
@@ -277,7 +277,7 @@ class SafetyGate:
         self.spec = cfg.desktop
         self._state_path = Path(cfg.state_dir) / STATE_FILE
         self._lease = LeaseStore(cfg.state_dir)
-        self._state_provider = state_provider or _PythonDesktopStateProvider()
+        self._state_provider = state_provider or _SessionStateProvider()
         # The token this CALL was admitted with. A context variable, not a
         # thread-local: worker threads are reused across calls and, in the
         # daemon, across clients.

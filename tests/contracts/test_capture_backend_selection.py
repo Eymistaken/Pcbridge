@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Which capture backend is chosen, and whether swapping it changes a shot.
+"""The capture provider, its native handle, and what a frame source changes in a shot.
 
-Two questions, both answerable without a compositor:
+Answerable without a compositor:
 
-1. Does the selector implement the table in `PLAN.md` (1.x, in git history)? A forced native backend
-   that cannot start must stay selected and fail visibly -- quietly becoming a
-   Python screencast would hide exactly the thing forcing it was meant to find.
-2. Does a shot taken through the native handle come out identical to one taken
-   through the legacy handle? The shot id, the offset, the scale and the
-   coordinate it maps back to are what a later click depends on, so "the same
-   pixels" is not enough.
+1. The native helper is the only capture backend: every `[native] capture`
+   value builds the native provider, and a missing helper is visible in the
+   capability report rather than replaced by another path.
+2. Does a shot taken through the native handle come out identical to one
+   taken through a plain frame source? The shot id, the offset, the scale
+   and the coordinate it maps back to are what a later click depends on, so
+   "the same pixels" is not enough.
 
 No D-Bus, no PipeWire, no native helper process: both handles are fakes that
 hand `capture.py` the same PNG bytes. Safe with every live flag unset.
@@ -29,14 +29,11 @@ sys.path.insert(0, str(ROOT))
 
 from pcbridge.desktop import capture as capturelib  # noqa: E402
 from pcbridge.desktop import monitors as monitorslib  # noqa: E402
-from pcbridge.desktop.backends.python import PythonCaptureProvider  # noqa: E402
 from pcbridge.desktop.backends.rust import (  # noqa: E402
     BACKEND_NAME,
-    BackendSelection,
     NativeCaptureError,
     NativeScreenCast,
     RustCaptureProvider,
-    select_capture_backend,
 )
 from pcbridge.desktop.capabilities import CapabilityState  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCategory, ErrorCode  # noqa: E402
@@ -80,7 +77,11 @@ def png_bytes(width: int, height: int) -> bytes:
 
 
 class FakeLegacyScreenCast:
-    """The Python handle: writes the frame itself and reports nothing else."""
+    """A plain frame source: writes the frame and reports nothing else (no clock).
+
+    It once stood for the Python screen share; it now stands for any handle
+    that gives `capture.py` frames without a frame time.
+    """
 
     def __init__(self, frames: dict[str, bytes]) -> None:
         self.frames = frames
@@ -172,52 +173,7 @@ class FakeGate:
         return self.current_token()
 
 
-# --------------------------------------------------------------- the table
-
-
-class SelectorTable(unittest.TestCase):
-    def test_python_never_reaches_for_the_native_helper(self):
-        for ready in (True, False):
-            with self.subTest(ready=ready):
-                self.assertEqual(
-                    select_capture_backend(requested="python", native_ready=ready),
-                    BackendSelection(backend="python"),
-                )
-
-    def test_forced_rust_stays_selected_when_the_helper_is_missing(self):
-        selection = select_capture_backend(
-            requested="rust", native_ready=False, native_reason="helper yok"
-        )
-        self.assertEqual(selection.backend, "rust")
-        self.assertFalse(
-            selection.degraded,
-            "a forced backend that silently degrades defeats the point of forcing it",
-        )
-        self.assertEqual(selection.reason, "helper yok")
-
-    def test_auto_prefers_rust_and_falls_back_visibly(self):
-        self.assertEqual(
-            select_capture_backend(requested="auto", native_ready=True),
-            BackendSelection(backend="rust"),
-        )
-        fallback = select_capture_backend(
-            requested="auto", native_ready=False, native_reason="helper yok"
-        )
-        self.assertEqual(fallback.backend, "python")
-        self.assertTrue(fallback.degraded)
-        self.assertIn("helper yok", fallback.reason)
-
-    def test_an_unknown_setting_degrades_rather_than_guessing_rust(self):
-        selection = select_capture_backend(requested="zaphod", native_ready=True)
-        self.assertEqual(selection.backend, "python")
-        self.assertTrue(selection.degraded)
-        self.assertIn("zaphod", selection.reason)
-
-    def test_case_and_padding_do_not_change_the_answer(self):
-        self.assertEqual(
-            select_capture_backend(requested="  RUST ", native_ready=True).backend,
-            "rust",
-        )
+# ------------------------------------------------------------ the provider
 
 
 class ProviderSelection(unittest.TestCase):
@@ -234,40 +190,33 @@ class ProviderSelection(unittest.TestCase):
             return select_capture_provider(cfg, gate=None)
 
     def test_the_shipped_default_is_auto(self):
-        """Task 4.3: after the Linux parity gate, `auto` ships as the default."""
         cfg = load_config(str(ROOT / "config.example.toml"))
         self.assertEqual(cfg.native.capture, "auto")
         self.assertEqual(
             NativeSpec().capture, "auto", "a config without [native] gets the same"
         )
 
-    def test_auto_keeps_an_explicit_gnome_screenshot_choice(self):
-        object.__setattr__(self.cfg.desktop, "capture_backend", "gnome-screenshot")
-        chosen = self._provider("auto", True)
-        self.assertIsInstance(chosen, PythonCaptureProvider)
-        self.assertNotIsInstance(chosen, RustCaptureProvider)
-        self.assertEqual(chosen.degraded_reason, "", "an explicit choice is not a fallback")
-        self.assertIsInstance(self._provider("rust", True), RustCaptureProvider)
+    def test_every_setting_builds_the_native_provider(self):
+        for requested in ("auto", "rust"):
+            for ready in (True, False):
+                with self.subTest(requested=requested, ready=ready):
+                    self.assertIsInstance(self._provider(requested, ready), RustCaptureProvider)
 
-    def test_each_setting_builds_the_provider_it_names(self):
-        self.assertIsInstance(self._provider("python", True), PythonCaptureProvider)
-        self.assertIsInstance(self._provider("rust", True), RustCaptureProvider)
-        self.assertIsInstance(self._provider("auto", True), RustCaptureProvider)
-        fallback = self._provider("auto", False)
-        self.assertIsInstance(fallback, PythonCaptureProvider)
-        self.assertNotIsInstance(fallback, RustCaptureProvider)
-
-    def test_a_fallback_is_visible_in_the_capability_report(self):
+    def test_a_missing_helper_is_visible_in_the_capability_report(self):
         provider = self._provider("auto", False)
-        with mock.patch.object(monitorslib, "list_monitors", return_value=MONITORS):
+        with mock.patch(
+            "pcbridge.desktop.backends.rust.native_binary_ready",
+            return_value=(False, "helper yok"),
+        ), mock.patch.object(monitorslib, "list_monitors", return_value=MONITORS):
             capabilities = provider.probe_capabilities()
         monitor = capabilities["capture.monitor"]
         self.assertIn(
             "helper yok",
             " ".join(monitor.limitations),
-            "a client cannot tell it was downgraded unless the report says so",
+            "a client cannot tell why capture is off unless the report says so",
         )
-        self.assertIsNot(monitor.state, CapabilityState.SUPPORTED)
+        self.assertIs(monitor.state, CapabilityState.UNAVAILABLE)
+        self.assertIs(monitor.reason_code, ErrorCode.DEPENDENCY_MISSING)
 
 
 # ------------------------------------------------------- the native handle

@@ -24,14 +24,14 @@ _pynext="$(python -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_inf
 depends=(
     "python>=$_pyver" "python<$_pynext"
     tmux wl-clipboard libnotify util-linux
+    # python-gobject: KDE Plasma's window scripts (kwin_helper.py) run in the
+    # system python; at-spi2-core: the AT-SPI bus the native helper reads.
     python-gobject at-spi2-core
-    gst-plugin-pipewire gst-plugins-base gst-plugins-good
     libpipewire glibc gcc-libs
 )
 makedepends=(git cargo clang pkgconf glib2)
 optdepends=(
     'tesseract: find_text and wait_for_text (OCR); add tesseract-data-<lang>'
-    'gnome-screenshot: window capture on GNOME'
     'tailscale: remote access through Tailscale Funnel'
 )
 install=pcbridge.install

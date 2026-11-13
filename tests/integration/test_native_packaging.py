@@ -32,7 +32,6 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from pcbridge.config import NativeSpec, load_config  # noqa: E402
-from pcbridge.desktop.backends.python import PythonCaptureProvider  # noqa: E402
 from pcbridge.desktop.backends.rust import RustCaptureProvider  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCategory, ErrorCode  # noqa: E402
 from pcbridge.desktop.runtime import select_capture_provider  # noqa: E402
@@ -183,7 +182,9 @@ class WithoutAHelper(unittest.TestCase):
                 placed.resolve(),
             )
 
-    def test_the_python_install_keeps_capturing_when_no_helper_exists(self) -> None:
+    def test_without_a_helper_capture_says_why_and_how_to_get_one(self) -> None:
+        # The helper is the only capture backend: every setting builds the
+        # native provider, and a missing helper is a refusal with its reason.
         cfg = load_config(str(ROOT / "config.example.toml"))
         not_found = DesktopError(
             code=ErrorCode.NATIVE_NOT_FOUND,
@@ -196,22 +197,24 @@ class WithoutAHelper(unittest.TestCase):
         with mock.patch(
             "pcbridge.desktop.backends.rust.discover_native_binary", side_effect=not_found
         ):
-            automatic = select_capture_provider(
-                replace(cfg, native=NativeSpec(capture="auto")), gate=None
-            )
-            forced = select_capture_provider(
-                replace(cfg, native=NativeSpec(capture="rust")), gate=None
-            )
+            for choice in ("auto", "rust"):
+                with self.subTest(capture=choice):
+                    provider = select_capture_provider(
+                        replace(cfg, native=NativeSpec(capture=choice)), gate=None
+                    )
+                    self.assertIs(type(provider), RustCaptureProvider)
+                    ready, why = provider.available()
+                    self.assertFalse(ready)
+                    self.assertIn("not found", why)
 
-            self.assertIsInstance(automatic, PythonCaptureProvider)
-            self.assertNotIsInstance(automatic, RustCaptureProvider)
-            self.assertIn("not found", automatic.degraded_reason)
-            # Forced stays forced, and says why it cannot capture.
-            self.assertIsInstance(forced, RustCaptureProvider)
-            ready, why = forced.available()
-            self.assertFalse(ready)
-            self.assertIn("not found", why)
-
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    def test_the_real_refusal_says_how_to_get_the_helper(self) -> None:
+        cfg = load_config(str(ROOT / "config.example.toml"))
+        with tempfile.TemporaryDirectory() as raw, mock.patch(
+            "pcbridge.desktop.backends.rust.discover_native_binary",
+            side_effect=lambda spec, **_kw: discover_native_binary(
+                spec, environ={}, package_root=Path(raw)),
+        ):
+            provider = select_capture_provider(cfg, gate=None)
+            ready, why = provider.available()
+        self.assertFalse(ready)
+        self.assertIn("Desktop control needs it. Fix:", why)

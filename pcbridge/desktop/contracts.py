@@ -80,8 +80,6 @@ class CaptureProvider(Protocol):
 
     def oversize_note(self, shot: Any) -> str: ...
 
-    def kill_helpers(self) -> int: ...
-
 
 @runtime_checkable
 class InputProvider(Protocol):

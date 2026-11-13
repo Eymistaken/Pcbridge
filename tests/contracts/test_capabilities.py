@@ -33,14 +33,14 @@ REQUIRED_CAPABILITIES = {
 
 from pcbridge.config import AgentSpec, Config, DesktopSpec  # noqa: E402
 from pcbridge.desktop import capture as capturelib  # noqa: E402
-from pcbridge.desktop import input as inputlib  # noqa: E402
+from pcbridge.desktop import compositor as compositorlib  # noqa: E402
 from pcbridge.desktop import monitors as monitorslib  # noqa: E402
-from pcbridge.desktop import screencast as screencastlib  # noqa: E402
 from pcbridge.desktop import uitree as uitreelib  # noqa: E402
-from pcbridge.desktop.backends.python import (  # noqa: E402
-    PythonAccessibilityProvider,
-    PythonCaptureProvider,
-    PythonInputProvider,
+from pcbridge.desktop.backends import rust as rustlib  # noqa: E402
+from pcbridge.desktop.backends.rust import (  # noqa: E402
+    RustAccessibilityProvider,
+    RustCaptureProvider,
+    RustInputProvider,
 )
 from pcbridge.desktop.capabilities import (  # noqa: E402
     AuthorizationStatus,
@@ -381,33 +381,42 @@ class CapabilityContractTests(unittest.TestCase):
         self.assertIn("closed applications", focus.limitations[0].lower())
         runtime.close()
 
-    def test_input_probe_never_constructs_or_writes_to_devices(self) -> None:
+    def test_input_probe_never_starts_the_helper(self) -> None:
+        # A probe reads the binary, /dev/uinput and the clipboard programs; it
+        # never starts the helper, so no virtual device can appear.
+        def no_helper():
+            raise AssertionError("the probe started the helper")
+
         with tempfile.TemporaryDirectory() as raw:
-            provider = PythonInputProvider(make_config(Path(raw)))
+            provider = RustInputProvider(
+                make_config(Path(raw)), gate=FakeGate(), client_factory=no_helper
+            )
             with (
-                mock.patch.object(
-                    inputlib.InputBackend,
-                    "_make_keyboard",
-                    side_effect=AssertionError("keyboard device constructed"),
-                ),
-                mock.patch.object(
-                    inputlib.InputBackend,
-                    "_make_pointer",
-                    side_effect=AssertionError("pointer device constructed"),
-                ),
+                mock.patch.object(rustlib, "native_binary_ready", return_value=(True, "")),
+                mock.patch.object(rustlib.os.path, "exists", return_value=True),
+                mock.patch.object(rustlib.os, "access", return_value=True),
             ):
                 values = provider.probe_capabilities()
 
-        self.assertIn("input.keyboard", values)
-        self.assertIn("input.pointer", values)
+        self.assertIs(values["input.keyboard"].state, CapabilityState.SUPPORTED)
+        self.assertIs(values["input.pointer"].state, CapabilityState.SUPPORTED)
 
-    def test_provider_maps_legacy_capture_errors_without_message_parsing(self) -> None:
+    def test_provider_maps_capture_errors_without_message_parsing(self) -> None:
+        class OpenShare:
+            def is_open(self) -> bool:
+                return True
+
         with tempfile.TemporaryDirectory() as raw:
             cfg = make_config(Path(raw))
-            provider = PythonCaptureProvider(cfg)
+            provider = RustCaptureProvider(cfg, screencast=OpenShare())
             arbitrary = "a localized message with no classification words"
-            with mock.patch.object(
-                capturelib, "capture", side_effect=capturelib.CaptureError(arbitrary)
+            with (
+                mock.patch.object(
+                    compositorlib, "current", return_value=compositorlib.GNOME_SHELL
+                ),
+                mock.patch.object(
+                    capturelib, "capture", side_effect=capturelib.CaptureError(arbitrary)
+                ),
             ):
                 with self.assertRaises(DesktopError) as raised:
                     provider.capture(
@@ -421,38 +430,34 @@ class CapabilityContractTests(unittest.TestCase):
         self.assertEqual(error.code, ErrorCode.BACKEND_UNAVAILABLE)
         self.assertEqual(error.category, ErrorCategory.CAPABILITY)
         self.assertEqual(error.message, arbitrary)
-        self.assertEqual(error.backend, "linux.python.capture")
+        self.assertEqual(error.backend, rustlib.BACKEND_NAME)
         self.assertEqual(error.to_dict()["code"], "BACKEND_UNAVAILABLE")
 
     def _probe_without_topology(self, frame_support: bool | None) -> dict:
         with tempfile.TemporaryDirectory() as raw:
-            provider = PythonCaptureProvider(make_config(Path(raw)))
+            provider = RustCaptureProvider(make_config(Path(raw)), screencast=mock.Mock())
             with (
-                mock.patch(
-                    "pcbridge.desktop.backends.python.shutil.which",
-                    return_value="/usr/bin/probe-command",
-                ),
                 mock.patch.object(
-                    screencastlib,
-                    "available",
-                    return_value=(True, ""),
+                    compositorlib, "current", return_value=compositorlib.GNOME_SHELL
                 ),
+                mock.patch.object(capturelib, "PIL_AVAILABLE", True),
+                mock.patch.object(rustlib, "native_binary_ready", return_value=(True, "")),
                 mock.patch.object(
                     monitorslib,
                     "list_monitors",
                     side_effect=monitorslib.MonitorError("synthetic topology error"),
                 ),
                 mock.patch(
-                    "pcbridge.desktop.backends.python._gnome_frame_support",
+                    "pcbridge.desktop.backends.common._gnome_frame_support",
                     return_value=frame_support,
                 ),
             ):
                 return provider.probe_capabilities()
 
-    def test_capture_probe_keeps_screenshot_window_capture_without_topology(
+    def test_without_frames_from_the_extension_there_is_no_window_capture(
         self,
     ) -> None:
-        # An extension from before 2.8: gnome-screenshot needs no monitor table.
+        # The gnome-screenshot path is gone; the capability says what fixes it.
         for support in (False, None):
             with self.subTest(frame_support=support):
                 values = self._probe_without_topology(support)
@@ -461,9 +466,10 @@ class CapabilityContractTests(unittest.TestCase):
                     ErrorCode.DISPLAY_MAPPING_UNKNOWN,
                 )
                 window = values["capture.window"]
-                self.assertEqual(window.state, CapabilityState.DEGRADED)
-                self.assertEqual(window.backend, "linux.gnome-screenshot")
-                self.assertTrue(window.usable_now)
+                self.assertEqual(window.state, CapabilityState.UNAVAILABLE)
+                self.assertEqual(window.reason_code, ErrorCode.BACKEND_UNAVAILABLE)
+                self.assertEqual(window.backend, "linux.gnome-shell-extension")
+                self.assertFalse(window.usable_now)
                 self.assertIn(
                     "log out and back in" if support is False else "pcbridge setup",
                     window.limitations[0],
@@ -480,46 +486,25 @@ class CapabilityContractTests(unittest.TestCase):
         self.assertEqual(window.backend, "linux.gnome-shell-extension")
         self.assertFalse(window.usable_now)
 
-    def test_provider_maps_legacy_input_errors_without_message_parsing(self) -> None:
-        with tempfile.TemporaryDirectory() as raw:
-            provider = PythonInputProvider(make_config(Path(raw)))
-            arbitrary = "a localized input message with no classification words"
-            with (
-                mock.patch.object(
-                    provider,
-                    "_availability",
-                    return_value=(True, "", None),
-                ),
-                mock.patch.object(
-                    inputlib.InputBackend,
-                    "key",
-                    side_effect=inputlib.InputError(arbitrary),
-                ),
-            ):
-                with self.assertRaises(DesktopError) as raised:
-                    provider.key("ctrl+a")
-
-        error = raised.exception
-        self.assertEqual(error.code, ErrorCode.EXECUTION_UNKNOWN)
-        self.assertEqual(error.category, ErrorCategory.EXECUTION)
-        self.assertEqual(error.message, arbitrary)
-
-    def test_provider_maps_legacy_accessibility_errors_without_message_parsing(
+    def test_provider_maps_accessibility_errors_without_message_parsing(
         self,
     ) -> None:
-        provider = PythonAccessibilityProvider()
+        # A step that states no code gets the caller's default; the message
+        # is passed on, never read for a classification.
+        with tempfile.TemporaryDirectory() as raw:
+            provider = RustAccessibilityProvider(make_config(Path(raw)), gate=FakeGate())
         arbitrary = "a localized accessibility message with no classification words"
         with mock.patch.object(
             uitreelib.UiTree,
-            "dump",
+            "click",
             side_effect=uitreelib.UiTreeError(arbitrary),
         ):
             with self.assertRaises(DesktopError) as raised:
-                provider.dump()
+                provider.click("1b72")
 
         error = raised.exception
-        self.assertEqual(error.code, ErrorCode.BACKEND_UNAVAILABLE)
-        self.assertEqual(error.category, ErrorCategory.CAPABILITY)
+        self.assertEqual(error.code, ErrorCode.ACTION_UNSUPPORTED)
+        self.assertEqual(error.category, ErrorCategory.ACCESSIBILITY)
         self.assertEqual(error.message, arbitrary)
 
 

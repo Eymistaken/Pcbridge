@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT))
 from pcbridge import tools as toolslib  # noqa: E402
 from pcbridge.config import AgentSpec, Config, DesktopSpec  # noqa: E402
 from pcbridge.desktop import safety as safetylib  # noqa: E402
-from pcbridge.desktop.backends.python import PythonDesktopStateProvider  # noqa: E402
+from pcbridge.desktop.backends.common import SessionStateProvider  # noqa: E402
 from pcbridge.desktop.capabilities import (  # noqa: E402
     Capability,
     CapabilityEvidence,
@@ -126,9 +126,6 @@ class CaptureOnlyProvider:
 
     def describe_monitors(self) -> str:
         return "1 monitor"
-
-    def kill_helpers(self) -> int:
-        return 0
 
 
 class UnavailableInputProvider:
@@ -265,7 +262,7 @@ class DesktopStateContractTests(unittest.TestCase):
         self.assertEqual(call.call_args.args[:2], ("org.freedesktop.ScreenSaver", "/ScreenSaver"))
 
     def test_python_provider_preserves_known_and_unknown_observations(self) -> None:
-        provider = PythonDesktopStateProvider()
+        provider = SessionStateProvider()
         cases = (
             (
                 True,
