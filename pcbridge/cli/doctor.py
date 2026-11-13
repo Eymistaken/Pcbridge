@@ -658,8 +658,23 @@ def offer_missing() -> bool:
         profile = "full"
     plan = planlib.build(platforminfo.detect(), profile_now=profile,
                          recorded_profile=planlib.read_state().get("profile"))
+    fetched = not plan.native_fetch
+    if plan.native_fetch:
+        inst.say("\nThe native helper is missing; the pcbridge release has a prebuilt one "
+                 "(checked against its sha256sums.txt, no sudo).")
+        if not planlib.interactive():
+            inst.say("Not a terminal, so nothing was downloaded; run `pcbridge doctor --fix` "
+                     "in a terminal, or `pcbridge setup --yes`.")
+        else:
+            try:
+                answer = planlib._read_tty("Download it now? [Y/n] ").strip().lower()
+            except EOFError:
+                answer = "n"
+            if answer in ("", "y", "yes"):
+                fetched, line = planlib.fetch_native()
+                (inst.ok if fetched else inst.warn)(line)
     if not plan.chosen_packages():
-        return True
+        return fetched
     inst.say("\nMissing parts (pcbridge setup would install them):")
     planlib.show(plan)
     if not planlib.interactive():
@@ -671,4 +686,4 @@ def offer_missing() -> bool:
         return False
     done, left = planlib.install_packages(plan)
     (inst.ok if done else inst.warn)("installed" if done else f"not installed; run: {left}")
-    return done
+    return done and fetched

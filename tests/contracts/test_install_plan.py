@@ -55,13 +55,16 @@ CINNAMON = platform(distro_name="Pardus 25.0", distro_id="pardus", family=distro
 
 NO_BUILD = {"compiler": False, "kernel-headers": False, "python-headers": False}
 # Nothing installed, but the Python extras present (the common case after install.sh).
+# The native helper is present in both: test_native_fetch.py covers the download.
 NOTHING = planlib.Probes(which=lambda name: None, atspi=lambda: False, ocr_languages=set,
                          desktop_extras=lambda: True, evdev_build=lambda: NO_BUILD,
-                         own_venv=lambda: True)
+                         own_venv=lambda: True, native_fetchable=lambda: False,
+                         kind=lambda: "user")
 EVERYTHING = planlib.Probes(which=lambda name: f"/usr/bin/{name}", atspi=lambda: True,
                             ocr_languages=lambda: {"eng", "tur", "osd"},
                             desktop_extras=lambda: True, evdev_build=lambda: NO_BUILD,
-                            own_venv=lambda: True)
+                            own_venv=lambda: True, native_fetchable=lambda: False,
+                            kind=lambda: "user")
 
 
 class SessionTests(unittest.TestCase):

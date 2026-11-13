@@ -69,6 +69,7 @@ More numbers, and why things are the way they are:
 | GNOME 47-49 on Wayland | expected to work, untested; `system_capabilities` reports it |
 | Debian 12 (standing in for Pardus 23), Cinnamon on X11 | the install script measured in a VM: Python 3.12 through uv, profile `core`, only tmux and libnotify-bin installed |
 | X11, Plasma 5, other desktops | desktop tools refuse and say why; everything else works |
+| ARM (aarch64) | from a git checkout only; no desktop control, since the native helper is built for x86_64 alone (the next release removes the Python paths it uses until then) |
 | Python | 3.12, 3.13, 3.14 |
 
 ## Install

@@ -259,10 +259,10 @@ if [ "$CHECKOUT" = 1 ] && [ -z "$WHEEL" ] && [ -z "$VERSION" ]; then
     pip_install "$HERE/.venv" "$HERE/packaging/constraints.txt" "$HERE" -e
     if [ ! -x "$HERE/pcbridge/_native/x86_64-unknown-linux-gnu/pcbridge-native" ]; then
         if command -v cargo >/dev/null 2>&1; then
-            say "Building the native helper (faster capture, input and accessibility)..."
-            "$HERE/scripts/build-native.sh" || warn "native helper build failed; pcbridge uses the Python paths instead."
+            say "Building the native helper (capture, input and accessibility)..."
+            "$HERE/scripts/build-native.sh" || warn "native helper build failed; \`pcbridge setup\` offers the release's prebuilt helper instead."
         else
-            say "note: no Rust toolchain; pcbridge uses the Python paths (install Rust and run scripts/build-native.sh for the native helper)."
+            say "note: no Rust toolchain; \`pcbridge setup\` offers the release's prebuilt native helper (or install Rust and run scripts/build-native.sh)."
         fi
     fi
     PCB=$HERE/.venv/bin/pcbridge

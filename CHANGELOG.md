@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- **A git checkout without Rust gets the native helper from the release.**
+  The wheel, the `.deb` and the Arch package carry the helper, and a
+  checkout builds it with `scripts/build-native.sh`, but a checkout on a
+  machine without a Rust toolchain had none and fell back to the Python
+  paths. Each release now publishes the helper as an asset of its own,
+  `pcbridge-native-x86_64-unknown-linux-gnu`, listed in `sha256sums.txt`.
+  `pcbridge setup` puts it into the plan it asks about, and `pcbridge
+  doctor --fix` offers it again; both download it from the release of
+  this version, or the latest release for a checkout newer than every
+  release, and install it only after its SHA-256, its `--build-info`
+  (target and release build), the glibc it needs and a real handshake
+  check out. A checkout with Rust can still build its own instead. The
+  daemon itself still never downloads a helper.
+
 ### Changed
 
 - **A `USER_ACTIVE` refusal now tells the agent what to do next.** The

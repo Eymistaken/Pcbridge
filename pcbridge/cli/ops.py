@@ -660,6 +660,17 @@ def setup(argv: list[str]) -> int:
         else:
             inst.warn("evdev and Pillow were not installed; desktop control needs them")
             notes.append("pcbridge setup   # tries evdev and Pillow again")
+    if plan.native_fetch:
+        # A download of an executable waits for the same yes as the packages:
+        # --yes, or the plan confirmed on a terminal (a "no" returned above).
+        if args.yes or planlib.interactive():
+            fetched, line = planlib.fetch_native()
+            (inst.ok if fetched else inst.warn)(line)
+            if not fetched:
+                notes.append("pcbridge doctor --fix   # tries the native helper download again")
+        else:
+            inst.warn("native helper: not downloaded without a terminal or --yes")
+            notes.append("pcbridge doctor --fix   # downloads the native helper")
     if found.desktop_supported and not os.access("/dev/uinput", os.R_OK | os.W_OK):
         from .doctor import udev_hint
 

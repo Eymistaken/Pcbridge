@@ -186,6 +186,31 @@ on the reference desktop.
   suites with that helper. The experimental headless KWin smoke failed, as
   it did on the five `main` commits before it.
 
+## The release helper for installations without one (2026-11-13)
+
+Measured on the reference machine with the release build of 1291338
+(`pcbridge/_native/x86_64-unknown-linux-gnu/`, 7.4 MB). Nothing touched
+the desktop session: the handshake runs in a throwaway state directory.
+
+- **The whole path with the real helper.** A local HTTP server laid out
+  like a release (`download/<tag>/sha256sums.txt` and
+  `download/<tag>/pcbridge-native-x86_64-unknown-linux-gnu`), then
+  `fetch.fetch()` as setup calls it: the checksum, the real `--build-info`,
+  the glibc check and a real handshake passed, the file landed in
+  `pcbridge/_native/<target>/` with a `build-info.json`, and discovery found
+  it (`tests/integration/test_native_fetch_live.py`, 4 tests, 2.1 s). A
+  copy with one flipped byte failed the checksum and left nothing behind;
+  a shell script posing as the helper failed `--build-info` and left
+  nothing behind.
+- **The real GitHub release, before any release has the asset.**
+  `fetch.fetch(version="2.7.2")` read `v2.7.2`'s `sha256sums.txt`, found no
+  `pcbridge-native-*` line, asked the API for the latest release
+  (`v2.7.2`, so no second try) and refused in 1.1 s with "no pcbridge
+  release (v2.7.2) publishes pcbridge-native-x86_64-unknown-linux-gnu yet;
+  install Rust and run scripts/build-native.sh instead". Nothing was
+  written. So until a release publishes the asset, setup on a checkout
+  without Rust warns and leaves the Python paths in use.
+
 ## Remote clients, revocation and the password (2026-10-14)
 
 Measured with unreleased code against a throwaway daemon (temp config, state

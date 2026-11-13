@@ -100,6 +100,28 @@ If none exists: `NATIVE_NOT_FOUND`. `python` for a subsystem ignores the
 helper; `auto` falls back to Python and reports `degraded` in
 `system_capabilities`; `rust` stays selected and fails loudly.
 
+## The release asset for installations without one
+
+Each release publishes the helper on its own as
+`pcbridge-native-<target>` (today `pcbridge-native-x86_64-unknown-linux-gnu`),
+the same binary the wheel and the packages carry, listed in the release's
+`sha256sums.txt` (`release.yml`, "Native helper as its own asset"). The
+name is a contract with `pcbridge/native/fetch.py`.
+
+`pcbridge setup` and `pcbridge doctor --fix` use it when desktop control is
+supported and discovery would find no helper (a git checkout without Rust,
+or a venv without one). The order is fixed: this version's release
+(`v<version>`), else the latest release (a checkout newer than every
+release); the SHA-256 against that release's `sha256sums.txt`;
+`--build-info` (`name`, this machine's target, a release build, no test
+harness); the glibc it needs; a handshake in a throwaway state directory.
+The file goes into `pcbridge/_native/<target>/` by an atomic rename only
+after all of them, with a `build-info.json` beside it like
+`scripts/build-native.sh` leaves; a failed check leaves nothing behind.
+Requests carry a generic `User-Agent` (`pcbridge-setup`) and nothing about
+the user. The daemon never downloads anything: discovery above stays the
+only way the helper is found.
+
 ## Diagnosis
 
 `pcbridge doctor` (its native group runs `python -m

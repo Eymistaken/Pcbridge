@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from pcbridge.config import NativeSpec, load_config  # noqa: E402
-from pcbridge.native import diagnostics  # noqa: E402
+from pcbridge.native import diagnostics, fetch  # noqa: E402
 
 
 RELEASE_INFO = {
@@ -134,7 +134,7 @@ class NativeDiagnostics(unittest.TestCase):
                 findings = self.run_diagnose(capture, binary=None)
                 missing = [f for f in findings if "no native helper" in f.message]
                 self.assertEqual([f.level for f in missing], [level])
-                self.assertIn("scripts/build-native.sh", missing[0].message)
+                self.assertIn(f"Fix: {fetch.remedy()}.", missing[0].message)
                 self.assertIn("python3-gi", findings[-1].message, "legacy GI note last")
 
     def test_the_input_setting_needs_the_helper_as_much_as_capture(self) -> None:

@@ -203,10 +203,10 @@ def diagnose(
             cfg.native, environ=environment, package_root=package_root
         )
     except DesktopError as exc:
+        from .fetch import remedy
+
         level = {"rust": "fail", "auto": "warn"}.get(selected, "info")
-        findings.append(Finding(
-            level, f"no native helper: {exc.message} To build it: scripts/build-native.sh"
-        ))
+        findings.append(Finding(level, f"no native helper: {exc.message} Fix: {remedy()}."))
         findings.append(_legacy_note())
         return findings
     findings.append(Finding("pass", f"found: {binary} ({_source(cfg.native, environment)})"))

@@ -494,7 +494,10 @@ pipes separate from the MCP transport. Discovery order is fixed:
 `$PCBRIDGE_NATIVE_BIN`, `[native] binary_path`, then the package path
 `pcbridge/_native/<target>/pcbridge-native`. An invalid explicit path does not
 silently fall back to a lower-priority binary (`NATIVE_NOT_FOUND`); the helper
-is never downloaded, built at run time or searched on `PATH`.
+is never downloaded, built at run time or searched on `PATH`. Only
+`pcbridge setup` and `pcbridge doctor --fix`, run by the user, may fetch the
+release's helper into the package path at install time, after checking it
+([packaging.md](packaging.md#the-release-asset-for-installations-without-one)).
 
 Selection per subsystem (`[native] capture / input / accessibility`):
 `auto` (default) uses the helper when it is found and offers the capability,

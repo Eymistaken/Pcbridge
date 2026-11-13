@@ -56,6 +56,18 @@ jobs:
           cp install.sh dist/install.sh
           cp packaging/constraints.txt dist/constraints.txt
 
+      # A git checkout without a Rust toolchain cannot build the helper;
+      # `pcbridge setup` and `doctor --fix` download this asset instead and
+      # check it against sha256sums.txt (pcbridge/native/fetch.py), so the
+      # name is part of that contract: pcbridge-native-<target>.
+      - name: Native helper as its own asset
+        run: |
+          for helper in pcbridge/_native/*/pcbridge-native; do
+            target=$(basename "$(dirname "$helper")")
+            install -m 0755 "$helper" "dist/pcbridge-native-$target"
+          done
+          ls -l dist/pcbridge-native-*
+
       - name: Checksums
         working-directory: dist
         run: |

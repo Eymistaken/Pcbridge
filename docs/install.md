@@ -120,9 +120,11 @@ git clone https://github.com/Eymistaken/Pcbridge.git && cd Pcbridge
 
 From a checkout, `install.sh` installs pcbridge into the checkout's own
 `.venv` (editable, with the pinned dependencies), builds the native helper
-when Rust is installed, and runs `pcbridge setup`. The root check and the
-Python offer are the same as above. `pcbridge update` then pulls
-(fast-forward only) and restarts the daemon when idle.
+when Rust is installed, and runs `pcbridge setup`. Without Rust, or when
+that build fails, setup offers the release's prebuilt helper instead (see
+the next section). The root check and the Python offer are the same as
+above. `pcbridge update` then pulls (fast-forward only) and restarts the
+daemon when idle.
 
 ## 2. What `pcbridge setup` does
 
@@ -181,6 +183,18 @@ Runs: sudo pacman -S --needed --noconfirm tmux wl-clipboard tesseract-data-tur
   so. The release helper needs glibc 2.35, so it runs on Ubuntu 22.04
   and Debian 12 (the bases of Linux Mint 21 and Pardus 23) and newer; a
   helper built on another machine needs that machine's glibc.
+- **A missing native helper is downloaded** where desktop control is
+  supported and the installation has none (a git checkout without Rust, or
+  a venv that lost it): the plan says "Native helper: downloaded from the
+  pcbridge release". Setup takes `pcbridge-native-x86_64-unknown-linux-gnu`
+  from this version's release, or the latest release when the checkout is
+  newer, checks it against that release's `sha256sums.txt`, runs its
+  `--build-info` and a handshake, and only then puts it into
+  `pcbridge/_native/`. Nothing is installed when a check fails, and
+  `pcbridge doctor --fix` offers it again. A checkout with Rust can build
+  its own with `scripts/build-native.sh` instead. Only x86_64 is built, so
+  another architecture has nothing to download (see
+  [Architectures](#architectures)).
 
 One confirmation covers the plan: Enter goes ahead, `n` stops with nothing
 changed. `--yes` skips it; without a terminal and without `--yes`, nothing
@@ -247,7 +261,7 @@ On GNOME, log out and back in once so the new extension loads; the panel
 icon then shows pcbridge's state and the kill switch. On KDE Plasma nothing
 waits for a login. Screen capture there needs the native helper (every
 package and release wheel has it; a git install builds it when Rust is
-installed). While a grant is open, pcbridge shows a notification with a
+installed and downloads the release's otherwise). While a grant is open, pcbridge shows a notification with a
 "Lock now" button and turns on Qt accessibility, so `ui_dump` sees Qt
 applications; the end of the grant closes the one and restores the other.
 
@@ -289,6 +303,19 @@ The tunnel does not start at login; `pcbridge remote stop` closes it.
 pcbridge doctor
 pcbridge status
 ```
+
+## Architectures
+
+Releases are built for x86_64 only: the wheel is tagged `linux_x86_64`,
+the packages are `amd64` and `x86_64`, and so is the native helper. On ARM
+(aarch64) the install script stops and points to a git checkout, which
+installs and runs everything except desktop control. Desktop control needs
+the native helper, and none is built for aarch64; until the next release
+removes them, the older Python paths still drive the desktop there.
+Decided with the maintainer (2026-11-13): ARM has no desktop control
+until an aarch64 build of the helper exists, which is an item of its own
+in [ROADMAP.md](../ROADMAP.md). A helper you build yourself can be named
+in `[native] binary_path`, untested.
 
 Restart Claude Desktop and any running Claude Code / Codex session once:
 processes started before the install keep their old server until then.

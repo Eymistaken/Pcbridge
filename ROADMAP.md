@@ -304,9 +304,25 @@ at the machine* checks, batched for a session at the machine.
   locale's language; names for Debian, Arch and Fedora in `distro.py`) in
   one list, and `pcbridge doctor --fix` offers missing parts again. Setup
   also installs the desktop extras (`evdev` is built from source, so the
-  compiler packages join the plan when missing). Left: offer a prebuilt
-  native helper when there is no Rust toolchain on a git install; Fedora's
-  names are untested.
+  compiler packages join the plan when missing). An installation without a
+  native helper (a git checkout without Rust) now downloads the release's
+  prebuilt one, checked against `sha256sums.txt`, its `--build-info` and a
+  handshake (unreleased; measured against a local copy of a release and
+  the real GitHub API, see measured facts). Left: Fedora's names are
+  untested, and the download itself waits for the first release that
+  publishes `pcbridge-native-<target>`.
+- **An aarch64 build of the native helper.** Decided with the maintainer
+  (2026-11-13): ARM has no desktop control until this exists, and the
+  decision is in `docs/install.md` (Architectures) and the README. Today
+  every release artifact is x86_64: `install.sh` stops on ARM, and
+  `_target_triple()` in `pcbridge/native/discovery.py` knows no Linux
+  aarch64 target, so not even a self-built helper is found under
+  `pcbridge/_native/`. What it takes: a `debian:12` job on GitHub's arm64
+  runners, the target in discovery, a wheel and packages per architecture,
+  `install.sh` picking the right one, and the fetch asset for it. No ARM
+  hardware is at hand; QEMU can check the handshake, not a real desktop.
+  Done when an aarch64 GNOME or Plasma system passes the desktop checks
+  with a release install.
 
 ## Optional: more desktops
 

@@ -50,6 +50,33 @@ def _has_desktop_extras() -> bool:
     return all(importlib.util.find_spec(m) is not None for m in ("evdev", "PIL"))
 
 
+def _native_fetchable() -> bool:
+    """No native helper discovery would find, and a release builds one for here.
+
+    A helper is found when it is packaged under `pcbridge/_native/<target>/`
+    or named by `PCBRIDGE_NATIVE_BIN` or `[native] binary_path`. Releases
+    build only x86_64, so another architecture has nothing to fetch.
+    """
+    import os
+
+    from ..native.discovery import _target_triple
+    from ..native.fetch import packaged_path
+
+    target = _target_triple()
+    if target is None or os.environ.get("PCBRIDGE_NATIVE_BIN", "").strip():
+        return False
+    path = packaged_path(target)
+    if path.is_file() and os.access(path, os.X_OK):
+        return False
+    try:
+        from .. import settings as settingslib
+
+        named = settingslib.ConfigEditor(pathslib.config_file()).value("native.binary_path")
+    except Exception:  # noqa: BLE001 - no config yet, so nothing is named
+        named = ""
+    return not str(named or "").strip()
+
+
 def _can_build_evdev() -> dict[str, bool]:
     include = Path(sysconfig.get_path("include") or "/nonexistent")
     return {
@@ -70,6 +97,8 @@ class Probes:
     evdev_build: Callable[[], dict[str, bool]] = _can_build_evdev
     # Only a venv pcbridge owns can take the extras; a package's venv has them.
     own_venv: Callable[[], bool] = lambda: inst.install_kind() in ("user", "git", "pip")
+    native_fetchable: Callable[[], bool] = _native_fetchable
+    kind: Callable[[], str] = lambda: inst.install_kind()
 
 
 @dataclass
@@ -100,6 +129,7 @@ class Plan:
     profile_note: str
     native_note: str
     extras: bool = False            # pip still has to install evdev and Pillow
+    native_fetch: bool = False      # download the release's native helper (no Rust here)
 
     def chosen_packages(self) -> list[str]:
         out = list(self.packages)
@@ -229,6 +259,18 @@ def build(platform: Platform, *, profile_now: str = "full", recorded_profile: st
         components.append(Component("ocr", title, missing, ticked=True, languages=langs))
     else:
         extras, raw = False, []
+    # A distribution package carries the helper. Any other installation that
+    # has none takes the release's prebuilt one; a checkout with Rust can
+    # build its own instead (install.sh tries that first, so getting here
+    # with Rust usually means the build failed).
+    native_fetch, build_note = False, ""
+    if platform.desktop_supported and probes.native_fetchable():
+        kind = probes.kind()
+        if kind in ("git", "pip", "user"):
+            native_fetch = True
+            if kind == "git" and probes.which("cargo"):
+                build_note = ("Rust is installed: scripts/build-native.sh builds the helper "
+                              "from this checkout instead of the download")
     target, note = decide_profile(platform.desktop_supported, profile_now, recorded_profile)
     names = distrolib.packages(*needs, fam=fam)
     names += [n for n in raw if n not in names]
@@ -242,8 +284,9 @@ def build(platform: Platform, *, profile_now: str = "full", recorded_profile: st
         profile_target=target,
         profile_owned=owns_profile(profile_now, recorded_profile),
         profile_note=note,
-        native_note=native_note(platform.glibc or None),
+        native_note=native_note(platform.glibc or None) or build_note,
         extras=extras,
+        native_fetch=native_fetch,
     )
 
 
@@ -284,6 +327,9 @@ def show(plan: Plan) -> None:
             inst.say(f"  [{mark}] {i}. {c.title}: {state}")
     if plan.extras:
         inst.say("Python packages for desktop control: evdev Pillow (pip builds evdev; no sudo)")
+    if plan.native_fetch:
+        inst.say("Native helper: downloaded from the pcbridge release and checked against "
+                 "its sha256sums.txt (no sudo)")
     inst.say(f"Tool profile: {plan.profile_note}")
     argv = plan.install_argv()
     if argv:
@@ -386,6 +432,20 @@ def install_extras() -> bool:
         return False
 
 
+def fetch_native() -> tuple[bool, str]:
+    """Download the release's native helper. (installed, the line to show)."""
+    from .. import __version__
+    from ..native import fetch as fetchlib
+
+    inst.say("  downloading pcbridge-native from the pcbridge release ...")
+    try:
+        got = fetchlib.fetch(version=__version__)
+    except fetchlib.FetchError as exc:
+        return False, f"native helper not installed: {exc}"
+    return True, (f"native helper from release {got.tag} ({got.size / 1_000_000:.1f} MB, "
+                  f"sha256 {got.sha256[:12]}, handshake ok): {got.path}")
+
+
 def apply_settings(plan: Plan, config_path: Path) -> list[str]:
     """Set the tool profile and the OCR languages setup decided on. Returns lines to show."""
     from .. import settings as S
@@ -429,6 +489,10 @@ def summary(plan: Plan, probes: Probes | None = None) -> list[str]:
     elif p.desktop_supported:
         lines.append(f"{CHECK} Desktop control: supported here, off until you turn it on "
                      "(pcbridge set desktop.enabled true)")
+    if p.desktop_supported and plan.native_fetch and probes.native_fetchable():
+        lines.append(f"{CROSS} Native helper: not installed, so desktop control runs on the "
+                     "older Python paths, which the next release removes; "
+                     "`pcbridge doctor --fix` downloads it")
     if p.desktop_supported:
         for c in plan.components:
             if c.key == "ocr":
@@ -446,4 +510,5 @@ def summary(plan: Plan, probes: Probes | None = None) -> list[str]:
 
 
 __all__ = ["Component", "Plan", "Probes", "apply_settings", "ask", "build", "decide_profile",
-           "install_extras", "install_packages", "owns_profile", "read_state", "show", "summary"]
+           "fetch_native", "install_extras", "install_packages", "owns_profile", "read_state",
+           "show", "summary"]
