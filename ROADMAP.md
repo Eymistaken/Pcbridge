@@ -63,7 +63,7 @@ at the machine* checks, batched for a session at the machine.
 ## Optional: terminal UI / product polish
 
 - ~~**Update every screen of the terminal UI, not only the Overview.**~~
-  Done (unreleased, 2026-11-14): nine tabs (Overview, Desktop, Agents &
+  Done (2.9.1): nine tabs (Overview, Desktop, Agents &
   Jobs, Connections, Remote, Tools, Activity, Logs, Advanced), the `Ctrl+P`
   command palette in place of the Commands tab, and the four dialogs, built
   from the design in [TUI_REDESIGN.md](TUI_REDESIGN.md); its *Built*
