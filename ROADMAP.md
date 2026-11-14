@@ -41,14 +41,14 @@ here, not by moving sections.
    files*~~ (done, 2.6.0).
 6. ~~**Browser.**~~ Shipped in 2.6.0, removed in 2.7.0; see *Decided
    against*.
-7. **More desktops.** ~~*A native helper that runs below glibc 2.39*~~
-   (done, 2.8.0) first,
-   then ~~*Retire the legacy Python desktop backends*~~ (gaps closed in
-   2.8.0; removed, unreleased), then *X11, starting
-   with Cinnamon and XFCE*, written straight into the native helper
-   instead of added to Python and moved later. Decided with the maintainer
-   (2026-11-12): X11 support also covers systems below glibc 2.39 (Linux
-   Mint 21, Pardus 23), so the helper has to run there before X11 can.
+7. ~~**More desktops.**~~ ~~*A native helper that runs below glibc
+   2.39*~~ (done, 2.8.0) first, then ~~*Retire the legacy Python desktop
+   backends*~~ (gaps closed in 2.8.0; removed in 2.9.0), then ~~*X11,
+   starting with Cinnamon and XFCE*~~ (done, 2.9.0), written straight into
+   the native helper instead of added to Python and moved later. Decided
+   with the maintainer (2026-11-12): X11 support also covers systems below
+   glibc 2.39 (Linux Mint 21, Pardus 23), so the helper had to run there
+   before X11 could. Left: the checks under each item below.
 8. **Windows.** After everything above; see *Optional: Windows* for what it
    involves. Scope to be written before work starts.
 9. **Website.** Last, once the feature set has settled, so the site is not
@@ -481,7 +481,7 @@ at the machine* checks, batched for a session at the machine.
   `desktop_unlock` and the capability report can be wrong while locked. The
   fix asks the native helper for its session state (a `capture.session_state`
   protocol method), and needs a real lock and unlock to verify.
-- **Retire the legacy Python desktop backends.** Done (unreleased, see
+- **Retire the legacy Python desktop backends.** Done (2.9.0, see
   CHANGELOG). Decided with the maintainer (2026-11-13): close the gaps
   first and ship them in a release of their own (2.8.0: the release's
   helper for installations without one, ARM documented without desktop
