@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The logo stays in the middle of the Overview.** The logo, its state
+  line and the reason box were centered as one block, so the logo sat at
+  the left edge of the widest of them and moved left when a click opened
+  the reason. Each is now centered on its own row.
+
 ## 2.9.2 - 2026-11-14
 
 ### Fixed

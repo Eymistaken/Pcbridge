@@ -112,6 +112,32 @@ class OverviewTests(unittest.TestCase):
 
         run(backend, body)
 
+    def test_the_logo_stays_centered_when_the_reason_opens(self) -> None:
+        """2.9.2 centered the logo, its state line and the reason box as one
+        block, so the logo sat at the block's left edge and moved left when
+        the 84-column reason box opened with a click."""
+        async def body(app, pilot):
+            logo = app.query_one(Logo)
+            area = app.query_one("#logo-area")
+            before = logo.region.x
+            middle = area.region.x + area.region.width / 2
+            if logo.glyph == "word":   # the icon is centered together with its text
+                self.assertLessEqual(abs(logo.region.x + logo.region.width / 2 - middle), 1)
+            logo.click()
+            await pilot.pause()
+            self.assertTrue(app.query_one("#logo-reason").has_class("shown"))
+            self.assertEqual(logo.region.x, before)
+            reason = app.query_one("#logo-reason")
+            self.assertLessEqual(abs(reason.region.x + reason.region.width / 2 - middle), 1)
+            logo.finish()
+            logo.click()
+            await pilot.pause()
+            self.assertEqual(logo.region.x, before)
+            logo.finish()
+
+        run(FakeBackend(), body)
+        run(FakeBackend(), body, size=NARROW)
+
     def test_checks_with_the_same_name_each_get_a_row(self) -> None:
         """doctor reports every native helper finding as "native helper · native";
         2.9.1 crashed on the second one (a duplicate option id)."""

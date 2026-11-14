@@ -26,13 +26,16 @@ from .theme import PALETTE, SPINNER
 from .widgets import SectionTitle, key_label, set_kind
 
 CSS = """
+/* Each part is centered on its own full-width row: Textual's align centers
+   a container's children as one block, so a wider reason box or state line
+   pushed the logo to the left of that block. */
 OverviewPane #logo-area {
     height: auto;
-    align-horizontal: center;
 }
-OverviewPane #logo-row {
+OverviewPane #logo-row, OverviewPane #logo-reason-row {
     height: auto;
-    width: auto;
+    width: 100%;
+    align-horizontal: center;
 }
 OverviewPane #logo-side {
     width: auto;
@@ -40,8 +43,9 @@ OverviewPane #logo-side {
     padding: 2 0 0 2;
 }
 OverviewPane #logo-line {
-    width: auto;
+    width: 100%;
     height: 1;
+    text-align: center;
 }
 OverviewPane #logo-note {
     width: auto;
@@ -224,9 +228,10 @@ class OverviewPane(ScrollPane):
                     yield Static("", id="logo-line-side")
                     yield Static("", id="logo-note")
             yield Static("", id="logo-line")
-            with Horizontal(id="logo-reason"):
-                yield Static("", id="logo-reason-text")
-                yield Button("Activity ›", id="logo-activity", classes="link", compact=True)
+            with Horizontal(id="logo-reason-row"):
+                with Horizontal(id="logo-reason"):
+                    yield Static("", id="logo-reason-text")
+                    yield Button("Activity ›", id="logo-activity", classes="link", compact=True)
         with Horizontal(classes="two"):
             with Vertical(id="col-service"):
                 yield SectionTitle("Service")
