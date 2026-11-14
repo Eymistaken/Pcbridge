@@ -1,7 +1,7 @@
 """The terminal UI: `pcbridge` with no arguments, or `pcbridge ui`.
 
-Textual draws it with the terminal's own colors and takes mouse clicks
-where the terminal reports them. Everything it does goes through
+Textual draws it with pcbridge's own palette over the terminal's own
+background and takes mouse clicks where the terminal reports them. Everything it does goes through
 `backend.Backend`, the same modules the direct commands use.
 """
 
@@ -26,5 +26,8 @@ def run(argv: list[str]) -> int:
         print(f"The terminal UI needs Textual, which is not installed ({exc}). Reinstall pcbridge, "
               "or in a git checkout run: .venv/bin/pip install -e .", file=sys.stderr)
         return 1
-    PcbridgeApp().run()
+    from .logo import query_terminal_background
+
+    # Asked before Textual takes the terminal: the logo's glow blends over it.
+    PcbridgeApp(terminal_background=query_terminal_background()).run()
     return 0
