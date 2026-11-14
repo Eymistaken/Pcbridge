@@ -87,14 +87,36 @@ git clone https://github.com/Eymistaken/Pcbridge.git && cd Pcbridge && ./install
 ```
 
 The script checks the wheel's sha256, offers a pcbridge-only Python when
-the system's is older than 3.12, and hands over to `pcbridge setup`, which
-detects the distribution, desktop and session, shows one plan (packages
-only for what will work here, OCR as an option) and asks once. To read the
-script before running it, see [docs/install.md](docs/install.md).
-`pcbridge setup` writes the config, enables the socket and service,
-installs the GNOME extension (on Plasma: authorizes the native helper for
-KWin screenshots), registers Claude Code, Codex and Claude
-Desktop, and checks that a fresh client works. Details:
+the system's is older than 3.12 (an arrow-key menu on a terminal), and
+hands over to `pcbridge setup`. To read the script before running it, see
+[docs/install.md](docs/install.md).
+
+On a terminal, `pcbridge setup` is a screen of its own. A bridge across the
+top grows a plank per step, from "this pc" to the agents, and every choice
+is taken with the arrow keys, space and Enter, or the mouse:
+
+![The setup screen's welcome: what setup found on this computer](docs/images/setup-welcome.png)
+
+It detects the distribution, desktop and session and offers packages only
+for what will work here, with OCR ticked as Recommended. It ticks Claude
+Code, Codex, Claude Desktop and any client already connected, and shows
+everything it will do, with the exact sudo command, before Install. Then
+each step is a row with its progress and the last thing it did: the config,
+the socket and service, the GNOME extension (on Plasma: the native helper's
+permission for KWin screenshots), the clients, and a check that a fresh
+client gets every tool. The sudo password goes to `sudo` itself, never to
+pcbridge.
+
+![The install step: one row per step, each with its time and result](docs/images/setup-install.png)
+
+Where typing `pcbridge` would find nothing (Arch, for example), setup offers
+to put `~/.local/bin` on `PATH`, backed up and undoable. The last screen
+names the clients it connected and says what to do next:
+
+![The last screen: the connected clients and the next steps](docs/images/setup-ready.png)
+
+`--yes`, `--plain` and a run without a terminal print the steps instead.
+Everything setup changes is backed up with a `ROLLBACK.md`. Details:
 [docs/install.md](docs/install.md).
 
 ## Quick start
@@ -120,6 +142,8 @@ grant notification's "Lock now" on Plasma.
 
 `pcbridge` alone in a terminal opens it: nine tabs, `1` to `9`, with its own
 palette over the terminal's background, mouse and keyboard.
+
+![The terminal UI's Overview: the live logo, the service, health with fixes, jobs and activity](docs/images/tui-overview.png)
 
 - **The bar at the top** shows the daemon, the tunnel and the desktop grant
   on every tab. Its button unlocks (with a duration menu) or locks; `l`
