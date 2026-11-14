@@ -459,7 +459,7 @@ class PcbridgeApp(App):
             for key, value in changes.items():
                 ed.set(key, value)
             result = ed.save()
-        except (S.SettingsError, SystemExit, OSError) as exc:
+        except (Exception, SystemExit) as exc:  # noqa: BLE001 - shown; nothing was written
             self.notify(str(getattr(exc, "message", exc)), title="Nothing was saved",
                         severity="error", timeout=12)
             return False
@@ -711,28 +711,6 @@ class PcbridgeApp(App):
         remote.update(Text("◉ remote" if self.narrow else "◉ remote open", style=PALETTE["warning"])
                       if tunnel else "")
         remote.display = tunnel
-
-    # -- remote clients after a new password ------------------------------------------------
-
-    def offer_revoke_after_password(self) -> None:
-        """A new password does not end the sessions remote apps already have; offer to."""
-        self._count_remote_worker()
-
-    @work(thread=True, exclusive=True, group="remote-count")
-    def _count_remote_worker(self) -> None:
-        try:
-            live = self.backend.connected_remote(self.cfg)
-        except Exception:  # noqa: BLE001 - the offer is optional
-            return
-        if live:
-            self.post(self._offer_revoke, live)
-
-    @while_mounted
-    def _offer_revoke(self, live: int) -> None:
-        self.panes["remote"].confirm_revoke_all(
-            f"The new password does not end the sessions remote apps already have: {live} "
-            "registration(s) still hold tokens.\n\nRevoke every remote app now? Each has to connect "
-            "again with the new password.")
 
     # -- restart and update -----------------------------------------------------------------
 

@@ -158,6 +158,21 @@ def clients(db: Path, include_stale: bool = False, now: float | None = None) -> 
     return sorted(out, key=lambda g: g.last_registered, reverse=True)
 
 
+# A registration with no unexpired token, made this many days ago or more,
+# is a leftover of an earlier connection: "Clean up" in the Remote tab.
+STALE_DAYS = 30
+
+
+def stale(db: Path, days: int = STALE_DAYS, now: float | None = None) -> list[Registration]:
+    """Registrations that hold no token and were made `days` or more ago.
+
+    Live sessions (any unexpired token) are never among them.
+    """
+    now = time.time() if now is None else now
+    return [r for r in registrations(db, now)
+            if not r.connected and now - r.registered >= days * 86400]
+
+
 def connected_count(db: Path) -> int:
     """How many registrations still hold an unexpired token."""
     return sum(1 for r in registrations(db) if r.connected)

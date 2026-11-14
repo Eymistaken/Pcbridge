@@ -214,26 +214,67 @@ class Backend:
                          start_new_session=True)
 
     def remote_clients(self, cfg: Any) -> dict:
-        """The remote apps that hold tokens, and what the HTTP path offers."""
+        """The remote apps that hold tokens, the stale registrations, the tunnel
+        and what the HTTP path offers."""
         import time
 
         from .. import remoteclients as rc
+        from ..cli.ops import funnel_open
 
         if cfg is None:
             raise RuntimeError("the config does not load")
         groups = rc.clients(cfg.db_path)
+        stale = {r.client_id for r in rc.stale(cfg.db_path)}
         remote = getattr(cfg, "remote_tools_profile", "same")
+        counts = {}
+        try:
+            from ..tools import tools_in_profile
+
+            for profile in ("full", "core", "desktop", "readonly"):
+                counts[profile] = len(tools_in_profile(profile))
+        except Exception:  # noqa: BLE001 - the counts are a detail
+            pass
         return {
             "clients": [{"name": g.name, "connected": len(g.connected),
-                         "registrations": len(g.registrations), "expires": g.expires,
+                         "registrations": len(g.registrations),
+                         "stale": sum(1 for r in g.registrations if r.client_id in stale),
+                         "expires": g.expires,
                          "last": time.strftime("%Y-%m-%d %H:%M", time.localtime(g.last_registered))}
                         for g in groups],
             "registrations": len(rc.registrations(cfg.db_path)),
+            "stale": len(stale),
             "static_token": bool(getattr(cfg, "static_token", "")),
             "has_password": bool(getattr(cfg, "password", "")),
             "remote_profile": cfg.tools_profile if remote == "same" else remote,
+            "remote_profile_setting": remote,
             "remote_profile_set": remote != "same",
+            "profile_counts": counts,
+            "url": getattr(cfg, "mcp_url", ""),
+            "tunnel": funnel_open(cfg),
         }
+
+    def set_tunnel(self, cfg: Any, on: bool) -> tuple[bool, str]:
+        """Open or close Tailscale Funnel; (worked, what happened)."""
+        from ..cli.ops import tunnel_start, tunnel_stop
+
+        ok, lines = tunnel_start(cfg) if on else tunnel_stop(cfg)
+        return ok, " ".join(lines)
+
+    def cleanup_stale(self, cfg: Any) -> str:
+        """Remove the registrations that hold no token and are 30 days old or more."""
+        from .. import remoteclients as rc
+
+        ids = [r.client_id for r in rc.stale(cfg.db_path)]
+        if not ids:
+            return "No stale registration."
+        res = rc.revoke(cfg.db_path, ids, cfg.audit_log, cfg.audit_max_bytes)
+        return f"Removed {res.registrations} stale registration(s); live sessions stay."
+
+    def copy_text(self, text: str) -> bool:
+        """Put text on the desktop clipboard with wl-copy; False if it is missing."""
+        from ..remotepassword import copy_to_clipboard
+
+        return copy_to_clipboard(text)
 
     def login_ok(self, password: str) -> bool:
         """Is this the user's login password (PAM)?"""

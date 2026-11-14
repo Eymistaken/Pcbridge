@@ -173,6 +173,8 @@ def words_of(node) -> str:
     for w in [node, *node.query("*")]:
         if isinstance(w, Button):
             parts.append(str(w.label))
+        elif hasattr(w, "label") and type(w).__name__ == "CheckLine":
+            parts.append(("[x] " if w.value else "[ ] ") + w.label)
         elif isinstance(w, Static):
             visual = w.visual if hasattr(w, "visual") else w.render()
             renderable = getattr(visual, "_renderable", visual)

@@ -65,6 +65,19 @@ class RemoteClientsTests(unittest.TestCase):
         d.token("refresh_tokens", "bbbbbbbb-2", None)               # never expires
         d.client("cccccccc-1", None, NOW - 400)                     # no name, no tokens
 
+    def test_stale_registrations_hold_no_token_and_are_old(self) -> None:
+        d = self.db
+        d.client("dddddddd-1", "Google", NOW - 40 * 86400)          # old, no token: stale
+        d.client("dddddddd-2", "Google", NOW - 40 * 86400)
+        d.token("refresh_tokens", "dddddddd-2", NOW + 3600)         # old but live: stays
+        d.client("dddddddd-3", "Google", NOW - 5 * 86400)           # no token but recent: stays
+        found = {r.client_id for r in rc.stale(self.dir / "oauth.db", now=NOW)}
+        self.assertEqual(found, {"dddddddd-1"})
+        rc.revoke(self.dir / "oauth.db", sorted(found))
+        left = {r.client_id for r in rc.registrations(self.dir / "oauth.db", NOW)}
+        self.assertNotIn("dddddddd-1", left)
+        self.assertTrue({"dddddddd-2", "dddddddd-3", "aaaaaaaa-1"} <= left)
+
     def test_groups_by_name_and_hides_stale_ones(self) -> None:
         groups = rc.clients(self.db.path, now=NOW)
         self.assertEqual([g.name for g in groups], ["ChatGPT", "Google"])  # the first spelling seen

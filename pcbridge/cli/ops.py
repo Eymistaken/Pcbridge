@@ -258,21 +258,11 @@ def remote(argv: list[str]) -> int:
         return 1
     port = str(cfg.port)
 
-    def funnel_open() -> bool:
-        return f":{port}" in inst.run(["tailscale", "funnel", "status"], timeout=10).stdout
-
-    def health() -> bool:
-        import urllib.request
-
-        try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=2) as r:
-                return r.status == 200
-        except OSError:
-            return False
-
     if args.action == "status":
-        (inst.ok if health() else inst.warn)(f"local endpoint http://127.0.0.1:{port}/healthz {'answers' if health() else 'does not answer'}")
-        (inst.ok if funnel_open() else inst.warn)(f"funnel {'open' if funnel_open() else 'closed'}; remote address {cfg.mcp_url}")
+        up = _healthz(port)
+        (inst.ok if up else inst.warn)(f"local endpoint http://127.0.0.1:{port}/healthz {'answers' if up else 'does not answer'}")
+        is_open = funnel_open(cfg)
+        (inst.ok if is_open else inst.warn)(f"funnel {'open' if is_open else 'closed'}; remote address {cfg.mcp_url}")
         return 0
     if args.action == "start":
         if not cfg.has_password:
@@ -286,33 +276,72 @@ def remote(argv: list[str]) -> int:
             if remotepw.create(cfg.source_path, cfg.mcp_url, replacing=False) is None:
                 inst.fail("remote access stays off without a password")
                 return 1
-        inst.systemctl("start", "pcbridge.service")
-        for _ in range(25):
-            if health():
-                break
-            time.sleep(0.4)
-        if not health():
-            inst.fail("pcbridge does not answer locally; see `pcbridge logs`")
-            return 1
-        if funnel_open():
-            inst.ok(f"funnel already open: {cfg.mcp_url}")
-            return 0
-        res = inst.run(["tailscale", "funnel", "--bg", port], timeout=30)
-        if res.returncode != 0:
-            inst.fail("tailscale refused: " + (res.stderr or res.stdout).strip()[:300])
-            inst.say(f"  If it needs root, run: sudo tailscale funnel --bg {port}")
-            inst.say("  If HTTPS is not enabled: https://login.tailscale.com/admin/dns")
-            return 1
-        inst.ok(f"remote access open: give remote clients {cfg.mcp_url}")
-        return 0
+            cfg = _load_cfg()  # it holds the new password now
+        ok, lines = tunnel_start(cfg)
+        (inst.ok if ok else inst.fail)(lines[0])
+        for line in lines[1:]:
+            inst.say(f"  {line}")
+        return 0 if ok else 1
     # stop: close the tunnel only. The daemon keeps serving local clients.
+    ok, lines = tunnel_stop(cfg)
+    (inst.ok if ok else inst.fail)(lines[0])
+    for line in lines[1:]:
+        inst.say(f"  {line}")
+    return 0 if ok else 1
+
+
+def _healthz(port: str) -> bool:
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=2) as r:
+            return r.status == 200
+    except OSError:
+        return False
+
+
+def funnel_open(cfg) -> bool:
+    """Does Tailscale Funnel serve this pcbridge's port?"""
+    if not shutil.which("tailscale"):
+        return False
+    return f":{cfg.port}" in inst.run(["tailscale", "funnel", "status"], timeout=10).stdout
+
+
+def tunnel_start(cfg) -> tuple[bool, list[str]]:
+    """Open the tunnel (the daemon first); (worked, what to say). Needs the
+    remote password to be set already: the callers ask for it."""
+    if not shutil.which("tailscale"):
+        return False, ["tailscale is not installed: https://tailscale.com/download/linux"]
+    if not cfg.has_password:
+        return False, ["remote access needs a password first, and none is set"]
+    port = str(cfg.port)
+    inst.systemctl("start", "pcbridge.service")
+    for _ in range(25):
+        if _healthz(port):
+            break
+        time.sleep(0.4)
+    if not _healthz(port):
+        return False, ["pcbridge does not answer locally; see `pcbridge logs`"]
+    if funnel_open(cfg):
+        return True, [f"funnel already open: {cfg.mcp_url}"]
+    res = inst.run(["tailscale", "funnel", "--bg", port], timeout=30)
+    if res.returncode != 0:
+        return False, ["tailscale refused: " + (res.stderr or res.stdout).strip()[:300],
+                       f"If it needs root, run: sudo tailscale funnel --bg {port}",
+                       "If HTTPS is not enabled: https://login.tailscale.com/admin/dns"]
+    return True, [f"remote access open: give remote clients {cfg.mcp_url}"]
+
+
+def tunnel_stop(cfg) -> tuple[bool, list[str]]:
+    """Close the tunnel only; the daemon keeps serving local clients."""
+    if not shutil.which("tailscale"):
+        return True, ["tailscale is not installed, so no tunnel is open"]
+    port = str(cfg.port)
     res = inst.run(["tailscale", "funnel", "--bg", port, "off"], timeout=30)
-    if res.returncode != 0 and funnel_open():
-        inst.fail("tailscale refused: " + (res.stderr or res.stdout).strip()[:300])
-        inst.say(f"  If it needs root, run: sudo tailscale funnel --bg {port} off")
-        return 1
-    inst.ok("remote access closed (local clients keep working)")
-    return 0
+    if res.returncode != 0 and funnel_open(cfg):
+        return False, ["tailscale refused: " + (res.stderr or res.stdout).strip()[:300],
+                       f"If it needs root, run: sudo tailscale funnel --bg {port} off"]
+    return True, ["remote access closed (local clients keep working)"]
 
 
 def _when(ts: float) -> str:

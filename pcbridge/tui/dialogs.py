@@ -63,6 +63,16 @@ Confirm, UnlockConfirm, ShowOnce, PasswordScreen, LoginScreen, HelpScreen {
 #pw-error {
     color: $pb-error;
 }
+.dialog-row Input {
+    width: 1fr;
+}
+.pw-check {
+    width: 12;
+    padding-left: 1;
+}
+#pw-signout {
+    margin-top: 1;
+}
 #once-secret {
     margin: 1 0;
     padding: 0 1;
