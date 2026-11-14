@@ -24,10 +24,13 @@ from pcbridge import settings as S  # noqa: E402
 from pcbridge.desktop import session  # noqa: E402
 from pcbridge.desktop.panelicon import PanelIconError  # noqa: E402
 from pcbridge.tui.app import Confirm, PcbridgeApp  # noqa: E402
+from pcbridge.tui.settings_pane import block_id  # noqa: E402
+from pcbridge.tui.widgets import NumberInput, Segmented  # noqa: E402
 from pcbridge.tui.backend import Backend  # noqa: E402
 from tests.contracts.test_settings import PASSWORD, TOKEN, example_config  # noqa: E402
-from tests.contracts.test_tui import SIZE, FakeBackend, settle  # noqa: E402
-from textual.widgets import Button, DataTable, Input, OptionList, Switch, TabbedContent, TabPane  # noqa: E402
+from tests.contracts.test_tui import (NARROW, SIZE, FakeBackend, flat, screen_text, settle,  # noqa: E402
+                                     words_of)
+from textual.widgets import Input, OptionList, Switch, TabbedContent, TabPane  # noqa: E402
 
 
 class EditorBackend(FakeBackend):
@@ -151,95 +154,63 @@ class SettingsTabTests(unittest.TestCase):
 
         asyncio.run(go())
 
-    async def panel_section(self, app, pilot) -> None:
-        sections = app.query_one("#settings-sections", OptionList)
-        titles = [str(sections.get_option_at_index(i).prompt)
-                  for i in range(sections.option_count)]
-        sections.highlighted = titles.index("Panel icon")
-        await settle(app, pilot)
-
-    async def select(self, app, pilot, key: str) -> None:
+    async def select(self, app, pilot, key: str):
         """Filter down to one setting, as a person typing in the filter box would."""
         await pilot.click("#settings-filter")
         app.query_one("#settings-filter", Input).value = key
-        await pilot.pause()
-        table = app.query_one("#settings-table", DataTable)
-        keys = [str(k.value) for k in table.rows]
-        table.move_cursor(row=keys.index(key))
-        await pilot.pause()
-        self.assertEqual(str(app.query_one("#editor-title").render()), key)
+        await settle(app, pilot)
+        block = app.query_one(f"#{block_id(key)}")
+        return block
 
-    def test_sections_and_rows(self) -> None:
+    def control(self, app, key: str):
+        return app.query_one(f"#ctl-{block_id(key)}")
+
+    def pending(self, app) -> str:
+        return str(app.query_one("#settings-pending").render())
+
+    def test_sections_and_blocks(self) -> None:
         async def body(app, pilot):
             sections = app.query_one("#settings-sections", OptionList)
-            titles = [str(sections.get_option_at_index(i).prompt) for i in range(sections.option_count)]
+            titles = [str(sections.get_option_at_index(i).prompt).strip()
+                      for i in range(sections.option_count)]
             self.assertEqual(titles[:3], ["General", "Server", "Authentication"])
             self.assertIn("Agent: claude", titles)
-            table = app.query_one("#settings-table", DataTable)
-            self.assertIn("port", [str(k.value) for k in table.rows])
-            # Click a section with the mouse.
+            self.assertNotIn("Panel icon", titles)        # it lives in the Desktop tab now
+            self.assertTrue(app.query(f"#{block_id('port')}"))
             sections.highlighted = titles.index("Desktop control")
-            await pilot.pause()
-            keys = [str(k.value) for k in table.rows]
-            self.assertIn("desktop.enabled", keys)
-            self.assertNotIn("port", keys)
+            await settle(app, pilot)
+            self.assertTrue(app.query(f"#{block_id('desktop.enabled')}"))
+            self.assertFalse(app.query(f"#{block_id('port')}"))
+            self.assertIsInstance(self.control(app, "desktop.enabled"), Switch)
+            self.assertIsInstance(self.control(app, "desktop.unlock_idle_seconds"), NumberInput)
+            text = words_of(app.query_one(f"#{block_id('desktop.unlock_idle_seconds')}"))
+            self.assertIn("unlock_idle_seconds restart daemon", text)
+            self.assertIn("default 90 s · 0 (off) or 10 s and more", text)
+            self.assertIn("No unsaved changes. ◦ marks a value that differs from the default.", flat(app))
             screen = app.export_screenshot()
             self.assertNotIn(PASSWORD, screen)
 
         self.run_app(body)
 
-    def test_panel_icon_changes_immediately_without_editing_config(self) -> None:
-        backend = EditorBackend(self.path)
-
+    def test_default_agent_is_a_segmented_choice(self) -> None:
         async def body(app, pilot):
-            await self.panel_section(app, pilot)
-            self.assertIn("shown all the time", str(app.query_one("#panel-icon-state").render()))
-            await pilot.click("#panel-icon-hide")
+            await self.select(app, pilot, "default_agent")
+            picker = self.control(app, "default_agent")
+            self.assertIsInstance(picker, Segmented)
+            self.assertEqual([v for v, _l in picker.options][:1], ["claude"])
+            picker.focus()
+            await pilot.press("right")
             await settle(app, pilot)
-            self.assertEqual(backend.panel_calls, ["when-granted"])
-            self.assertIn("hidden while desktop control is closed",
-                          str(app.query_one("#panel-icon-state").render()))
-            self.assertEqual(self.path.read_text(), self.original)
-            self.assertIn("differs from the default", str(app.query_one("#settings-pending").render()))
-            await pilot.click("#panel-icon-show")
-            await settle(app, pilot)
-            self.assertEqual(backend.panel_calls, ["when-granted", "always"])
-            self.assertIn("shown all the time", str(app.query_one("#panel-icon-state").render()))
+            self.assertIn("1 unsaved change", self.pending(app))
 
-        self.run_app(body, backend)
-
-    def test_panel_icon_unavailable_and_write_failure(self) -> None:
-        backend = EditorBackend(self.path)
-        backend.panel_mode = None
-        backend.panel_note = "KDE Plasma has no pcbridge panel icon."
-
-        async def unavailable(app, pilot):
-            await self.panel_section(app, pilot)
-            self.assertIn("KDE Plasma", str(app.query_one("#panel-icon-note").render()))
-            self.assertTrue(app.query_one("#panel-icon-show").disabled)
-            self.assertTrue(app.query_one("#panel-icon-hide").disabled)
-
-        self.run_app(unavailable, backend)
-
-        backend.panel_mode = "always"
-        backend.panel_error = "gsettings failed"
-
-        async def failed(app, pilot):
-            await self.panel_section(app, pilot)
-            await pilot.click("#panel-icon-hide")
-            await settle(app, pilot)
-            self.assertEqual(backend.panel_mode, "always")
-            self.assertIn("gsettings failed", str(app.query_one("#panel-icon-note").render()))
-            self.assertEqual(self.path.read_text(), self.original)
-
-        self.run_app(failed, backend)
+        self.run_app(body)
 
     def test_a_switch_click_then_save_asks_for_a_sensitive_setting(self) -> None:
         async def body(app, pilot):
             await self.select(app, pilot, "desktop.enabled")
-            await pilot.click(".edit-switch")
-            await pilot.pause()
-            self.assertIn("1 unsaved change", str(app.query_one("#settings-pending").render()))
+            await pilot.click(f"#ctl-{block_id('desktop.enabled')}")
+            await settle(app, pilot)
+            self.assertIn("1 unsaved change", self.pending(app))
             self.assertEqual(self.path.read_text(), self.original)  # staged only
             await pilot.click("#settings-save")
             await pilot.pause()
@@ -248,44 +219,41 @@ class SettingsTabTests(unittest.TestCase):
             await settle(app, pilot)
             self.assertIs(tomllib.loads(self.path.read_text())["desktop"]["enabled"], True)
             self.assertEqual(len(list(self.dir.glob("config.toml.backup-*"))), 1)
-            self.assertTrue(app.query_one("#settings-restart").display)
+            self.assertEqual(app.restart_due, 1)
+            self.assertIn("▲ 1 saved change applies after restarting the daemon", flat(app))
 
         self.run_app(body)
 
-    def test_keep_awake_is_a_switch_that_applies_without_a_restart(self) -> None:
+    def test_keep_awake_applies_without_a_restart(self) -> None:
         async def body(app, pilot):
-            sections = app.query_one("#settings-sections", OptionList)
-            titles = [str(sections.get_option_at_index(i).prompt) for i in range(sections.option_count)]
-            self.assertIn("Power", titles)
             await self.select(app, pilot, "power.keep_awake")
-            self.assertIn("applies at once, no restart", str(app.query_one("#editor-meta").render()))
-            switch = app.query_one(".edit-switch", Switch)
+            self.assertIn("applies now", flat(app))
+            switch = self.control(app, "power.keep_awake")
             self.assertFalse(switch.value)                        # off by default
-            await pilot.click(".edit-switch")
-            await pilot.pause()
-            await pilot.click("#settings-save")
+            await pilot.click(f"#ctl-{block_id('power.keep_awake')}")
             await settle(app, pilot)
-            if isinstance(app.screen, Confirm):
-                await pilot.click("#confirm-yes")
-                await settle(app, pilot)
+            await pilot.press("ctrl+s")
+            await settle(app, pilot)
             self.assertIs(tomllib.loads(self.path.read_text())["power"]["keep_awake"], True)
-            self.assertFalse(app.query_one("#settings-restart").display)
+            self.assertEqual(app.restart_due, 0)
 
         self.run_app(body)
 
-    def test_a_bad_number_is_refused_in_place(self) -> None:
+    def test_a_number_out_of_range_is_refused_in_place(self) -> None:
         async def body(app, pilot):
             await self.select(app, pilot, "desktop.pointer_speed")
-            box = app.query_one(".edit-input", Input)
-            box.value = "fast"
-            await pilot.click(".edit-apply")
-            await pilot.pause()
-            self.assertIn("whole number", str(app.query_one("#editor-error").render()))
-            # A button ignores a second press while it still shows the first one.
-            await pilot.pause(0.3)
-            box.value = "3000"
-            await pilot.click(".edit-apply")
-            await pilot.pause()
+            number = self.control(app, "desktop.pointer_speed")
+            field = number.query_one(Input)
+            field.value = "50"
+            field.focus()
+            await pilot.press("enter")
+            await settle(app, pilot)
+            self.assertIn("takes 0 (off) or 200 px/s to 100000 px/s",
+                          str(app.query_one(f"#{block_id('desktop.pointer_speed')} .key-error").render()))
+            self.assertIn("No unsaved changes", self.pending(app))
+            field.value = "3000"
+            await pilot.press("enter")
+            await settle(app, pilot)
             await pilot.click("#settings-save")
             await settle(app, pilot)
             self.assertEqual(tomllib.loads(self.path.read_text())["desktop"]["pointer_speed"], 3000)
@@ -295,19 +263,36 @@ class SettingsTabTests(unittest.TestCase):
     def test_a_value_the_loader_refuses_is_not_written(self) -> None:
         async def body(app, pilot):
             await self.select(app, pilot, "desktop.unlock_default_minutes")
-            app.query_one(".edit-input", Input).value = "500"
-            await pilot.click(".edit-apply")
-            await pilot.pause()
+            number = self.control(app, "desktop.unlock_default_minutes")
+            number.set_value(500)
+            await settle(app, pilot)
             await pilot.click("#settings-save")
             await settle(app, pilot)
             self.assertEqual(self.path.read_text(), self.original)
-            self.assertIn("1 unsaved change", str(app.query_one("#settings-pending").render()))
-            # Default puts it back; nothing is pending any more.
-            await pilot.click(".edit-reset")
-            await pilot.pause()
+            self.assertIn("1 unsaved change", self.pending(app))
             await pilot.click("#settings-discard")
-            await pilot.pause()
-            self.assertIn("differs from the default", str(app.query_one("#settings-pending").render()))
+            await settle(app, pilot)
+            self.assertIn("No unsaved changes", self.pending(app))
+
+        self.run_app(body)
+
+    def test_reset_key_puts_the_default_back(self) -> None:
+        async def body(app, pilot):
+            await self.select(app, pilot, "desktop.idle_guard_seconds")
+            number = self.control(app, "desktop.idle_guard_seconds")
+            number.set_value(30)
+            await settle(app, pilot)
+            await pilot.click("#settings-save")
+            await settle(app, pilot)
+            self.assertEqual(tomllib.loads(self.path.read_text())["desktop"]["idle_guard_seconds"], 30)
+            await self.select(app, pilot, "desktop.idle_guard_seconds")
+            self.assertIn("◦ idle_guard_seconds", flat(app).replace("desktop.", ""))
+            self.control(app, "desktop.idle_guard_seconds").query_one(Input).focus()
+            await pilot.press("ctrl+z")
+            await settle(app, pilot)
+            await pilot.press("ctrl+s")
+            await settle(app, pilot)
+            self.assertNotEqual(tomllib.loads(self.path.read_text())["desktop"].get("idle_guard_seconds"), 30)
 
         self.run_app(body)
 
@@ -317,8 +302,9 @@ class SettingsTabTests(unittest.TestCase):
 
         async def body(app, pilot):
             await self.select(app, pilot, "auth.static_token")
-            await pilot.click(".edit-generate")
-            await pilot.pause()
+            self.assertIn("✓ set · hashed", flat(app))
+            await pilot.click(f"#ctl-{block_id('auth.static_token')}")
+            await settle(app, pilot)
             await pilot.click("#settings-save")
             await pilot.pause()
             self.assertIsInstance(app.screen, Confirm)
@@ -334,6 +320,7 @@ class SettingsTabTests(unittest.TestCase):
             await pilot.press("escape")
             await pilot.pause()
             self.assertIsInstance(app.screen, ShowOnce)
+            self.assertTrue(app.screen.query_one("#once-done").disabled)
             await pilot.click("#once-saved")
             await pilot.click("#once-done")
             await settle(app, pilot)
@@ -345,25 +332,25 @@ class SettingsTabTests(unittest.TestCase):
 
         self.run_app(body)
 
-    def test_the_password_is_changed_only_in_the_remote_tab(self) -> None:
-        from textual.widgets import TabbedContent
+    def test_the_password_is_replaced_through_the_login_check(self) -> None:
+        from pcbridge.tui.remote_pane import LoginScreen
 
         async def body(app, pilot):
             await self.select(app, pilot, "auth.password")
             self.assertEqual(len(app.query(".edit-input")), 0)
-            self.assertTrue(any("login password" in str(w.render()) for w in app.query(".hint")))
-            app.query_one(".edit-remote", Button).press()
-            await settle(app, pilot)
-            self.assertEqual(app.query_one(TabbedContent).active, "remote")
+            self.assertIn("✓ set · hashed", flat(app))
+            await pilot.click(f"#ctl-{block_id('auth.password')}")
+            await pilot.pause()
+            self.assertIsInstance(app.screen, LoginScreen)
 
         self.run_app(body)
 
     def test_quitting_with_unsaved_changes_asks(self) -> None:
         async def body(app, pilot):
             await self.select(app, pilot, "desktop.restore_clipboard")
-            app.query_one(".edit-switch", Switch).value = False
-            await pilot.pause()
-            app.query_one(DataTable).focus()
+            self.control(app, "desktop.restore_clipboard").value = False
+            await settle(app, pilot)
+            app.set_focus(None)
             await pilot.press("q")
             await pilot.pause()
             self.assertIsInstance(app.screen, Confirm)
@@ -377,8 +364,10 @@ class SettingsTabTests(unittest.TestCase):
     def test_the_example_file_round_trips_through_the_tab_untouched(self) -> None:
         async def body(app, pilot):
             await self.select(app, pilot, "agents.claude.command")
-            await pilot.click(".edit-apply")  # apply the value as shown
-            await pilot.pause()
+            field = self.control(app, "agents.claude.command")
+            field.focus()
+            await pilot.press("enter")  # apply the value as shown
+            await settle(app, pilot)
             await pilot.click("#settings-save")
             await settle(app, pilot)
             after = self.path.read_text()
@@ -387,6 +376,20 @@ class SettingsTabTests(unittest.TestCase):
             self.assertTrue(re.search(r"command = \[\n", after))
 
         self.run_app(body)
+
+    def test_the_tab_at_80_columns(self) -> None:
+        async def go():
+            app = PcbridgeApp(EditorBackend(self.path))
+            async with app.run_test(size=NARROW) as pilot:
+                await settle(app, pilot)
+                await pilot.press("9")
+                await settle(app, pilot)
+                rows = screen_text(app)
+                self.assertTrue(all(len(r) == 80 for r in rows))
+                self.assertIn("General", flat(app))
+                self.assertIn("Save ^s", flat(app))
+
+        asyncio.run(go())
 
 
 if __name__ == "__main__":

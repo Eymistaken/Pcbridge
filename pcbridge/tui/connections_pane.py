@@ -39,7 +39,6 @@ ConnectionsPane .conn-update {
 
 
 class ConnectionsPane(Pane):
-    DEFAULT_CSS = CSS
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)

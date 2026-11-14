@@ -195,7 +195,6 @@ def job_agent(job: dict) -> str:
 
 
 class OverviewPane(ScrollPane):
-    DEFAULT_CSS = CSS
     FOOTER = [("l", "Lock/Unlock", "app.toggle_grant"), ("r", "Restart", "app.restart"),
               ("u", "Update", "app.update"), ("f", "Fix", "key:f")]
 

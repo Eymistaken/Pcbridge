@@ -108,6 +108,27 @@ class FakeBackend(Backend):
     def remote_apps(self, cfg):
         return 2
 
+    def native(self, cfg):
+        return {"findings": [
+            ("pass", "found: /opt/pcbridge/pcbridge-native (package: pcbridge/_native)"),
+            ("pass", "version 0.1.0 · build 053cb3650344 · protocol 1.0"),
+            ("pass", "capture.monitor: supported (linux.mutter.pipewire)"),
+            ("warn", "input.keyboard: degraded (linux.mutter.pipewire) — checked on first use"),
+            ("warn", "input.pointer: degraded (linux.mutter.pipewire) — checked on first use"),
+            ("pass", "accessibility.read: supported (linux.mutter.pipewire)"),
+            ("warn", "window.list: degraded (linux.mutter.pipewire) — accessibility-visible only")],
+            "session": "gnome · wayland", "session_ok": True, "monitors": "2 · DP-2 1920×1080, DP-1 1920×1080"}
+
+    panel_mode = "always"
+
+    def panel_icon_status(self):
+        return self.panel_mode, "Changes apply immediately and persist across logins."
+
+    def set_panel_icon_mode(self, mode):
+        self.calls.append(f"panel {mode}")
+        self.panel_mode = mode
+        return self.panel_icon_status()
+
     def jobs(self, cfg, limit=40, only_running=False):
         return list(getattr(self, "job_rows", []))
 

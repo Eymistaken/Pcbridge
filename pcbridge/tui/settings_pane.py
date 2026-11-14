@@ -1,11 +1,13 @@
-"""The Settings tab: every setting, edited with the widget its type needs.
+"""The Advanced tab: every setting of config.toml, each with the control its
+kind calls for.
 
-Sections on the left, the section's settings in a table on the right, the
-selected setting's editor and description under it. Changes are staged in
-one `ConfigEditor` and written together by Save: one check with the real
+The sections on the left (a `●` marks one with unsaved changes), the
+section's keys on the right, one block per key: the mark (`●` unsaved,
+`◦` differs from the default), the key, when it applies, the control, the
+description, the default and the allowed range. Changes are staged in one
+`ConfigEditor` and written together by Save: one check with the real
 loader, one backup, one atomic write. Secrets are stored as hashes and
-never shown; they can only be replaced or, for the token, generated, and a
-generated token is shown once, after Save.
+never shown; they can only be replaced.
 """
 
 from __future__ import annotations
@@ -14,82 +16,102 @@ import secrets
 from typing import Any
 
 from rich.text import Text
-from textual import on, work
+from textual import on
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import (Button, DataTable, Input, OptionList, Select, Static,
-                             Switch)
+from textual.widgets import Button, Input, OptionList, Static, Switch
 from textual.widgets.option_list import Option
 
 from .. import settings as S
-from .pane import Pane, while_mounted
+from .pane import Pane
+from .theme import PALETTE
+from .widgets import CheckLine, NumberInput, RestartBanner, Segmented, key_label, restart_tag
 
 CSS = """
-SettingsPane #settings-sections {
-    width: 26;
-    height: 1fr;
-    margin-right: 1;
-}
-SettingsPane #settings-right {
-    width: 1fr;
-}
-SettingsPane #panel-icon-right {
-    display: none;
-    width: 1fr;
-    padding: 1 2;
-}
-SettingsPane #panel-icon-title {
-    text-style: bold;
-}
-SettingsPane #panel-icon-actions {
-    height: auto;
-    margin: 1 0;
-}
-SettingsPane #panel-icon-actions Button {
-    margin-right: 1;
-}
-SettingsPane #settings-filter {
+SettingsPane #settings-top {
+    height: 1;
     margin-bottom: 1;
 }
-SettingsPane #settings-table {
+SettingsPane #settings-filter {
+    width: 40;
+}
+SettingsPane #settings-changed-only {
+    margin-left: 2;
+}
+SettingsPane #settings-message {
+    width: 1fr;
+    text-align: right;
+    color: $pb-dim;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+}
+SettingsPane #settings-body {
     height: 1fr;
-    min-height: 6;
 }
-SettingsPane #settings-editor {
+SettingsPane #settings-sections {
+    width: 24;
+    height: 1fr;
+    border: none;
+    background: ansi_default;
+    padding: 0;
+    margin-right: 2;
+}
+SettingsPane.narrow #settings-sections {
+    width: 18;
+}
+SettingsPane #settings-sections > .option-list--option-highlighted {
+    background: $pb-selection;
+}
+SettingsPane #settings-keys {
+    width: 1fr;
+    height: 1fr;
+    scrollbar-size-vertical: 1;
+}
+SettingsPane .key-block {
     height: auto;
-    max-height: 60%;
-    padding-top: 1;
+    margin-bottom: 1;
 }
-SettingsPane #editor-title {
-    text-style: bold;
+SettingsPane .key-block.current {
+    background: $pb-selection-hover;
 }
-SettingsPane #editor-field {
+SettingsPane .key-head {
     height: auto;
-    margin: 1 0 0 0;
 }
-SettingsPane #editor-field Input {
+SettingsPane .key-title {
     width: 1fr;
 }
-SettingsPane #editor-field Button {
-    margin-left: 1;
-}
-SettingsPane #editor-error {
-    color: $error;
-}
-SettingsPane #editor-help {
+SettingsPane .key-control {
+    width: auto;
     height: auto;
-    max-height: 12;
-    margin-top: 1;
+}
+SettingsPane .key-secret {
+    width: auto;
+}
+SettingsPane .key-control Input {
+    width: 36;
+}
+SettingsPane.narrow .key-control Input {
+    width: 24;
+}
+SettingsPane .key-help {
+    color: $pb-muted;
+    padding-left: 2;
+}
+SettingsPane .key-meta {
+    color: $pb-dim;
+    padding-left: 2;
+}
+SettingsPane .key-error {
+    color: $pb-error;
+    padding-left: 2;
 }
 SettingsPane #settings-actions {
-    height: 1;
-    margin-top: 1;
+    height: 2;
+    border-top: solid $pb-rule;
+    padding-top: 0;
 }
 SettingsPane #settings-pending {
     width: 1fr;
-}
-SettingsPane #settings-actions Button {
-    margin-left: 1;
 }
 """
 
@@ -102,209 +124,318 @@ SENSITIVE = {
 }
 
 
+def block_id(key: str) -> str:
+    return "key-" + key.replace(".", "--")
+
+
+def key_of(block_id_: str) -> str:
+    return block_id_.removeprefix("key-").replace("--", ".")
+
+
 class SettingsPane(Pane):
-    DEFAULT_CSS = CSS
+    FOOTER = [("/", "Filter", "key:slash"), ("↑↓", "Section", "key:none"),
+              ("space", "Toggle", "key:space"), ("+-", "Number", "key:none"),
+              ("^s", "Save", "key:ctrl_s"), ("^z", "Reset key", "key:ctrl_z")]
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.ed: S.ConfigEditor | None = None
         self.section = ""
-        self.current: S.Setting | None = None
-        self.restart_level: str | None = None
-        self._panel_mode: str | None = None
-        self._panel_request = 0
+        self.current: str | None = None      # the key whose block has the focus
+        self.generated_token: str | None = None
+        self.quiet = False
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="settings-message", classes="hint")
-        with Horizontal():
+        yield RestartBanner()
+        with Horizontal(id="settings-top"):
+            yield Input(placeholder="Filter: key or description", id="settings-filter")
+            yield CheckLine("Changed from default only", id="settings-changed-only")
+            yield Static("", id="settings-message")
+        with Horizontal(id="settings-body"):
             yield OptionList(id="settings-sections")
-            with Vertical(id="settings-right"):
-                yield Input(placeholder="Filter: type part of a key or its description",
-                            id="settings-filter")
-                yield DataTable(id="settings-table", cursor_type="row")
-                with VerticalScroll(id="settings-editor"):
-                    yield Static("", id="editor-title")
-                    yield Static("", id="editor-meta", classes="hint")
-                    yield Horizontal(id="editor-field")
-                    yield Static("", id="editor-error")
-                    yield Static("", id="editor-help")
-            with Vertical(id="panel-icon-right"):
-                yield Static("Panel icon", id="panel-icon-title")
-                yield Static("", id="panel-icon-state")
-                with Horizontal(id="panel-icon-actions"):
-                    yield Button("Show all the time", id="panel-icon-show", compact=True)
-                    yield Button("Hide while control is closed", id="panel-icon-hide", compact=True)
-                yield Static("", id="panel-icon-note", classes="hint")
+            yield VerticalScroll(id="settings-keys")
         with Horizontal(id="settings-actions"):
             yield Static("", id="settings-pending")
-            yield Button("Restart daemon", id="settings-restart", compact=True)
             yield Button("Discard", id="settings-discard", compact=True)
-            yield Button("Save", id="settings-save", variant="primary", compact=True)
+            yield Button(key_label("Save", "^s"), id="settings-save", classes="primary", compact=True)
 
     def on_mount(self) -> None:
-        table = self.query_one("#settings-table", DataTable)
-        table.add_columns(" ", "Setting", "Value")
-        self.query_one("#settings-restart").display = False
+        self.set_class(self.app.size.width < 100, "narrow")
         self.load()
+
+    def on_resize(self) -> None:
+        self.set_class(self.app.size.width < 100, "narrow")
+
+    def config_changed(self) -> None:
+        # Another tab saved: read the file again unless changes wait here
+        # (their Save then refuses, since the file changed on disk).
+        if self.ed is None or not self.ed.changed:
+            self.load()
 
     # -- loading ------------------------------------------------------------------
 
     def load(self) -> None:
         try:
             self.ed = self.app.backend.editor()
-        except (Exception, SystemExit) as exc:  # noqa: BLE001 - config errors are shown in Settings
+        except (Exception, SystemExit) as exc:  # noqa: BLE001 - config errors are shown here
             self.ed = None
             self.query_one("#settings-message", Static).update(
-                Text(f"The settings cannot be read: {getattr(exc, 'message', exc)}", style="bold"))
+                Text(f"The settings cannot be read: {getattr(exc, 'message', exc)}",
+                     style=f"bold {PALETTE['error']}"))
         else:
-            self.query_one("#settings-message", Static).update(f"{self.ed.path}")
-        sections = self.query_one("#settings-sections", OptionList)
-        sections.clear_options()
-        seen: list[str] = []
-        for s in self.ed.settings if self.ed else []:
-            if s.section not in seen:
-                seen.append(s.section)
-                sections.add_option(Option(s.section_title, id=s.section or "general"))
-                if s.section == "desktop":
-                    seen.append("panel-icon")
-                    sections.add_option(Option("Panel icon", id="panel-icon"))
-        if "panel-icon" not in seen:
-            seen.append("panel-icon")
-            sections.add_option(Option("Panel icon", id="panel-icon"))
-        if self.section not in seen:
-            self.section = seen[0]
-        sections.highlighted = seen.index(self.section)
-        self._show_section()
+            self.query_one("#settings-message", Static).update(str(self.ed.path))
+        self.fill_sections()
+        self.fill_keys()
         self.update_pending()
 
-    def _show_section(self) -> None:
-        panel = self.section == "panel-icon"
-        self.query_one("#settings-right").display = not panel
-        self.query_one("#panel-icon-right").display = panel
-        if panel:
-            self.reload_panel_icon()
-        else:
-            self.fill_table()
+    def sections(self) -> list[tuple[str, str]]:
+        out: list[tuple[str, str]] = []
+        for s in self.ed.settings if self.ed else []:
+            if s.section not in [k for k, _t in out]:
+                out.append((s.section, s.section_title))
+        return out
 
-    def reload_panel_icon(self) -> None:
-        self._panel_request += 1
-        request = self._panel_request
-        self.query_one("#panel-icon-state", Static).update("Reading the panel icon setting...")
-        self.query_one("#panel-icon-note", Static).update("")
-        self.query_one("#panel-icon-show", Button).disabled = True
-        self.query_one("#panel-icon-hide", Button).disabled = True
-        self._read_panel_icon(request)
-
-    @work(thread=True, exclusive=True, group="panel-icon")
-    def _read_panel_icon(self, request: int) -> None:
-        try:
-            mode, note = self.app.backend.panel_icon_status()
-        except Exception as exc:  # noqa: BLE001 - shown in Settings
-            mode, note = None, str(exc)
-        self.app.post(self._panel_loaded, request, mode, note)
-
-    @while_mounted
-    def _panel_loaded(self, request: int, mode: str | None, note: str) -> None:
-        if request != self._panel_request:
+    def fill_sections(self) -> None:
+        menu = self.query_one("#settings-sections", OptionList)
+        menu.clear_options()
+        sections = self.sections()
+        if not sections:
             return
-        self._panel_mode = mode
-        state = {
-            "always": "The panel icon is shown all the time.",
-            "when-granted": "The panel icon is hidden while desktop control is closed.",
-        }.get(mode, "The panel icon setting is unavailable.")
-        self.query_one("#panel-icon-state", Static).update(state)
-        if mode is not None:
-            note += " The icon still appears whenever desktop control is granted."
-        self.query_one("#panel-icon-note", Static).update(note)
-        self.query_one("#panel-icon-show", Button).disabled = mode != "when-granted"
-        self.query_one("#panel-icon-hide", Button).disabled = mode != "always"
+        if self.section not in [k for k, _t in sections]:
+            self.section = sections[0][0]
+        for key, title in sections:
+            menu.add_option(Option(self._section_label(key, title), id=key or "general"))
+        menu.highlighted = [k for k, _t in sections].index(self.section)
 
-    def _change_panel_icon(self, mode: str) -> None:
-        if self._panel_mode is None or self._panel_mode == mode:
-            return
-        self._panel_request += 1
-        request = self._panel_request
-        previous = self._panel_mode
-        self.query_one("#panel-icon-show", Button).disabled = True
-        self.query_one("#panel-icon-hide", Button).disabled = True
-        self.query_one("#panel-icon-note", Static).update("Changing the panel icon setting...")
-        self._write_panel_icon(request, mode, previous)
+    def _section_label(self, key: str, title: str) -> Text:
+        dirty = bool(self.ed and any(self.ed.setting(k).section == key for k in self.ed.changed))
+        out = Text()
+        out.append("● " if dirty else "  ", style=PALETTE["warning"])
+        out.append(title)
+        return out
 
-    @work(thread=True, exclusive=True, group="panel-icon")
-    def _write_panel_icon(self, request: int, mode: str, previous: str) -> None:
-        try:
-            actual, note = self.app.backend.set_panel_icon_mode(mode)
-        except Exception as exc:  # noqa: BLE001 - shown in Settings
-            actual, note = previous, f"The panel icon could not be changed: {exc}"
-        self.app.post(self._panel_loaded, request, actual, note)
-
-    @on(Button.Pressed, "#panel-icon-show")
-    def _show_panel_icon(self) -> None:
-        self._change_panel_icon("always")
-
-    @on(Button.Pressed, "#panel-icon-hide")
-    def _hide_panel_icon(self) -> None:
-        self._change_panel_icon("when-granted")
+    def refresh_sections(self) -> None:
+        menu = self.query_one("#settings-sections", OptionList)
+        for i, (key, title) in enumerate(self.sections()):
+            if i < menu.option_count:
+                menu.replace_option_prompt_at_index(i, self._section_label(key, title))
 
     def visible(self) -> list[S.Setting]:
         if self.ed is None:
             return []
         words = self.query_one("#settings-filter", Input).value.lower().split()
+        changed_only = self.query_one("#settings-changed-only", CheckLine).value
         if words:
-            return [s for s in self.ed.settings
-                    if all(w in f"{s.key} {s.help}".lower() for w in words)]
-        return [s for s in self.ed.settings if s.section == self.section]
+            found = [s for s in self.ed.settings if all(w in f"{s.key} {s.help}".lower() for w in words)]
+        else:
+            found = [s for s in self.ed.settings if s.section == self.section]
+        if changed_only:
+            found = [s for s in found if s.key in self.ed.changed or self._differs(s)]
+        return found
 
-    def _mark(self, s: S.Setting) -> Text:
+    def _differs(self, s: S.Setting) -> bool:
         assert self.ed is not None
+        return self.ed.is_set(s.key) and self.ed.value(s.key) != self.ed.default(s.key)
+
+    # -- the key blocks --------------------------------------------------------------
+
+    def fill_keys(self) -> None:
+        """Show the visible keys' blocks (the old ones are removed first)."""
+        self.run_worker(self._fill_keys(), group="settings-fill", exclusive=True)
+
+    async def _fill_keys(self) -> None:
+        box = self.query_one("#settings-keys", VerticalScroll)
+        rows = self.visible()
+        filtered = bool(self.query_one("#settings-filter", Input).value.strip())
+        self.quiet = True
+        try:
+            await box.remove_children()
+            if not rows:
+                await box.mount(Static("No setting matches." if self.ed else "", classes="key-help"))
+                return
+            await box.mount_all([self._block(s, filtered) for s in rows])
+        finally:
+            self.call_after_refresh(self._unquiet)
+
+    def _unquiet(self) -> None:
+        self.quiet = False
+
+    def _title(self, s: S.Setting, filtered: bool) -> Text:
+        assert self.ed is not None
+        out = Text()
         if s.key in self.ed.changed:
-            return Text("+", style="bold")
-        if self.ed.is_set(s.key) and self.ed.value(s.key) != self.ed.default(s.key):
-            return Text("*")
-        return Text(" ")
+            out.append("● ", style=PALETTE["warning"])
+        elif self._differs(s):
+            out.append("◦ ", style=PALETTE["warning"])
+        else:
+            out.append("  ")
+        out.append(s.key if filtered or not s.section else s.name, style="bold")
+        out.append("  ")
+        out.append_text(restart_tag(s.restart))
+        return out
 
-    def _shown(self, s: S.Setting) -> str:
+    def _meta(self, s: S.Setting) -> Text:
         assert self.ed is not None
-        text = S.format_value(s, self.ed.value(s.key))
+        bits = []
+        unit = S.unit_of(s.key)
+        if not s.secret:
+            default = S.format_value(s, self.ed.default(s.key))
+            bits.append(f"default {default}{' ' + unit if unit and s.kind == 'int' else ''}")
+        span = S.describe_bounds(s.key)
+        if span:
+            bits.append(span)
         env = self.ed.env_override(s.key)
         if env:
-            text += f"  (from ${env})"
-        return text if len(text) <= 70 else text[:67] + "..."
+            bits.append(f"${env} is set and wins over the file")
+        return Text(" · ".join(bits))
 
-    def fill_table(self, keep: str | None = None) -> None:
-        table = self.query_one("#settings-table", DataTable)
-        table.clear()
-        rows = self.visible()
-        for s in rows:
-            label = s.key if self.query_one("#settings-filter", Input).value else s.name
-            table.add_row(self._mark(s), label, self._shown(s), key=s.key)
-        target = keep or (self.current.key if self.current else None)
-        keys = [s.key for s in rows]
-        table.move_cursor(row=keys.index(target) if target in keys else 0)
-        if rows:
-            self.show(self.ed.setting(keys[table.cursor_row]) if table.cursor_row < len(keys) else rows[0])
-        else:
-            self.show(None)
+    def _control(self, s: S.Setting) -> Any:
+        assert self.ed is not None
+        value = self.ed.value(s.key)
+        cid = f"ctl-{block_id(s.key)}"
+        if s.secret:
+            return Horizontal(Static(Text("✓ set · hashed  " if value else "not set  ",
+                                          style=PALETTE["ok" if value else "dim"]), classes="key-secret"),
+                              Button("Replace…", id=cid, classes="edit-replace", compact=True),
+                              classes="key-control")
+        if s.kind == "bool":
+            return Switch(value=bool(value), id=cid, classes="edit-switch")
+        if s.kind == "choice" and s.choices:
+            return Segmented([(c, c) for c in s.choices], value=str(value), id=cid, classes="edit-choice")
+        if s.kind == "int":
+            low, high, zero, _unit = S.BOUNDS.get(s.key, (None, None, False, ""))
+            return NumberInput(int(value or 0), S.unit_of(s.key), low=0 if zero else low, high=high,
+                               id=cid, classes="edit-number")
+        text = S.format_value(s, value) if s.kind in ("list", "table") else str(value)
+        return Input(value=text.strip(), id=cid, classes=f"edit-input edit-{s.kind}",
+                     placeholder={"list": '["a", "b"] or a, b', "table": '{ key = "value" }'}.get(s.kind, ""))
 
-    def refresh_row(self, s: S.Setting) -> None:
-        table = self.query_one("#settings-table", DataTable)
+    def _block(self, s: S.Setting, filtered: bool) -> Vertical:
+        head = Horizontal(Static(self._title(s, filtered), classes="key-title"), self._control(s),
+                          classes="key-head")
+        parts: list[Any] = [head]
+        if s.help:
+            parts.append(Static(Text(" ".join(s.help.split()) if "\n" not in s.help else s.help),
+                                classes="key-help"))
+        parts.append(Static(self._meta(s), classes="key-meta"))
+        parts.append(Static("", classes="key-error"))
+        return Vertical(*parts, id=block_id(s.key), classes="key-block")
+
+    def refresh_block(self, key: str) -> None:
+        assert self.ed is not None
+        s = self.ed.setting(key)
         try:
-            table.update_cell(s.key, table.ordered_columns[0].key, self._mark(s))
-            table.update_cell(s.key, table.ordered_columns[2].key, self._shown(s))
-        except Exception:  # noqa: BLE001 - the row may be filtered out
-            pass
+            block = self.query_one(f"#{block_id(key)}")
+        except Exception:  # noqa: BLE001 - filtered out
+            return
+        filtered = bool(self.query_one("#settings-filter", Input).value.strip())
+        block.query_one(".key-title", Static).update(self._title(s, filtered))
         self.update_pending()
+        self.refresh_sections()
+
+    def _error(self, key: str, text: str) -> None:
+        try:
+            self.query_one(f"#{block_id(key)} .key-error", Static).update(text)
+        except Exception:  # noqa: BLE001
+            pass
 
     def update_pending(self) -> None:
         n = len(self.ed.changed) if self.ed else 0
         pending = self.query_one("#settings-pending", Static)
         if n:
-            pending.update(Text(f"{n} unsaved change{'s' if n != 1 else ''}: {', '.join(self.ed.changed)}",
-                                style="bold"))
+            out = Text()
+            out.append(f"● {n} unsaved change{'s' if n != 1 else ''}", style=f"bold {PALETTE['warning']}")
+            out.append(" · checked with the real loader, backed up before writing", style=PALETTE["muted"])
+            pending.update(out)
         else:
-            pending.update("+ unsaved   * differs from the default")
+            pending.update(Text("No unsaved changes. ◦ marks a value that differs from the default.",
+                                style=PALETTE["muted"]))
         self.query_one("#settings-save", Button).disabled = n == 0
         self.query_one("#settings-discard", Button).disabled = n == 0
+
+    # -- staging --------------------------------------------------------------------
+
+    def _stage(self, key: str, value: Any) -> bool:
+        if self.ed is None:
+            return False
+        try:
+            self.ed.set(key, value)
+        except S.SettingsError as exc:
+            self._error(key, str(exc))
+            return False
+        self._error(key, "")
+        self.refresh_block(key)
+        return True
+
+    @staticmethod
+    def _key_from(widget: Any) -> str | None:
+        wid = widget.id or ""
+        return key_of(wid.removeprefix("ctl-")) if wid.startswith("ctl-") else None
+
+    @on(Switch.Changed, ".edit-switch")
+    def _switch(self, event: Switch.Changed) -> None:
+        key = self._key_from(event.switch)
+        if key and not self.quiet and self.ed and event.value != self.ed.value(key):
+            self._stage(key, event.value)
+
+    @on(Segmented.Changed, ".edit-choice")
+    def _choice(self, event: Segmented.Changed) -> None:
+        key = self._key_from(event.segmented)
+        if key and not self.quiet and self.ed and event.value != str(self.ed.value(key)):
+            self._stage(key, event.value)
+
+    @on(NumberInput.Changed, ".edit-number")
+    def _number(self, event: NumberInput.Changed) -> None:
+        key = self._key_from(event.number)
+        if not key or self.quiet or self.ed is None or event.value == self.ed.value(key):
+            return
+        if not S.in_bounds(key, event.value):
+            self._error(key, f"{key} takes {S.describe_bounds(key)}.")
+            return
+        self._stage(key, event.value)
+
+    @on(Input.Changed, ".edit-str")
+    def _text(self, event: Input.Changed) -> None:
+        key = self._key_from(event.input)
+        if key and not self.quiet and self.ed and event.value != str(self.ed.value(key)):
+            self._stage(key, event.value)
+
+    @on(Input.Submitted, ".edit-list, .edit-table")
+    def _structured(self, event: Input.Submitted) -> None:
+        key = self._key_from(event.input)
+        if key is None or self.ed is None:
+            return
+        try:
+            value = S.parse_value(self.ed.setting(key), event.value)
+        except S.SettingsError as exc:
+            self._error(key, str(exc))
+            return
+        self._stage(key, value)
+
+    @on(Button.Pressed, ".edit-replace")
+    def _replace(self, event: Button.Pressed) -> None:
+        key = self._key_from(event.button)
+        if key == "auth.password":
+            # One path, with the login-password check: the Remote tab's dialog.
+            remote = self.app.panes.get("remote")
+            if remote is not None:
+                remote.replace_password()
+            return
+        if key == "auth.static_token":
+            token = secrets.token_urlsafe(32)
+            if self._stage(key, token):
+                self.generated_token = token
+                self.app.notify("A new static token is staged; it is shown once, after Save.")
+
+    def on_descendant_focus(self, event: Any) -> None:
+        node = event.widget if hasattr(event, "widget") else None
+        while node is not None and not (getattr(node, "id", "") or "").startswith("key-"):
+            node = node.parent
+        if node is not None:
+            for block in self.query(".key-block.current"):
+                block.remove_class("current")
+            node.add_class("current")
+            self.current = key_of(node.id)
 
     # -- navigation -----------------------------------------------------------------
 
@@ -315,160 +446,57 @@ class SettingsPane(Pane):
             self.section = section
             self.current = None
             self.query_one("#settings-filter", Input).value = ""
-            self._show_section()
+            self.fill_keys()
+
+    def show_section(self, section: str) -> None:
+        """Open one section (the Agents tab's "Every setting of NAME")."""
+        keys = [k for k, _t in self.sections()]
+        if section in keys:
+            self.query_one("#settings-filter", Input).value = ""
+            self.query_one("#settings-sections", OptionList).highlighted = keys.index(section)
+            self.section = section
+            self.fill_keys()
 
     @on(Input.Changed, "#settings-filter")
     def _filter(self) -> None:
-        if self.section == "panel-icon":
-            return
         self.current = None
-        self.fill_table()
+        self.fill_keys()
 
-    @on(DataTable.RowHighlighted, "#settings-table")
-    def _row(self, event: DataTable.RowHighlighted) -> None:
-        if self.ed is None or event.row_key is None or event.row_key.value is None:
+    @on(CheckLine.Changed, "#settings-changed-only")
+    def _changed_only(self) -> None:
+        self.fill_keys()
+
+    def key_slash(self) -> None:
+        self.query_one("#settings-filter", Input).focus()
+
+    def key_space(self) -> None:
+        focused = self.app.focused
+        if isinstance(focused, (Switch, CheckLine)):
+            focused.toggle()
+
+    def key_ctrl_s(self) -> None:
+        self.save()
+
+    def key_ctrl_z(self) -> None:
+        key, ed = self.current, self.ed
+        if key is None or ed is None:
             return
-        s = self.ed.setting(str(event.row_key.value))
-        if self.current is None or s.key != self.current.key:
-            self.show(s)
+        ed.reset(key)
+        self.fill_keys()
+        self.update_pending()
+        self.refresh_sections()
+        self.app.notify(f"{key} goes back to its default when you save.")
 
-    # -- the editor --------------------------------------------------------------------
-
-    def show(self, s: S.Setting | None) -> None:
-        self.current = s
-        title = self.query_one("#editor-title", Static)
-        meta = self.query_one("#editor-meta", Static)
-        field = self.query_one("#editor-field", Horizontal)
-        self.query_one("#editor-error", Static).update("")
-        field.remove_children()
-        if s is None or self.ed is None:
-            title.update("No setting matches." if self.ed else "")
-            meta.update("")
-            self.query_one("#editor-help", Static).update("")
-            return
-        title.update(s.key)
-        bits = []
-        if not s.secret:
-            bits.append(f"default {S.format_value(s, self.ed.default(s.key))}")
-        if s.choices:
-            bits.append(f"allowed {', '.join(s.choices)}")
-        bits.append({S.RESTART_DAEMON: "applies after a daemon restart",
-                     S.RESTART_NONE: "applies at once, no restart"}.get(
-                         s.restart, "applies after restarting the daemon and the clients"))
-        env = self.ed.env_override(s.key)
-        if env:
-            bits.append(f"${env} is set and wins over the file")
-        meta.update(" · ".join(bits))
-        value = self.ed.value(s.key)
-        widgets: list[Any] = []
-        if s.key == "auth.password":
-            # One path, with the login-password check: the Remote tab.
-            widgets.append(Static("Created and replaced in the Remote tab, which asks for your "
-                                  "login password first. ", classes="hint"))
-            widgets.append(Button("Open the Remote tab", classes="edit-remote", compact=True))
-        elif s.secret:
-            widgets.append(Input(placeholder="type a new value (hidden)", password=True, classes="edit-input"))
-            widgets.append(Button("Set", classes="edit-apply", compact=True))
-            if s.name == "static_token":
-                widgets.append(Button("Generate", classes="edit-generate", compact=True))
-        elif s.kind == "bool":
-            widgets.append(Switch(value=bool(value), classes="edit-switch"))
-            widgets.append(Static(" true" if value else " false", classes="edit-switch-label"))
-        elif s.kind == "choice":
-            options = [(c, c) for c in s.choices]
-            current = value if value in s.choices else Select.NULL
-            widgets.append(Select(options, value=current, allow_blank=False, classes="edit-select"))
-        else:
-            text = S.format_value(s, value) if s.kind in ("list", "table") else str(value)
-            if s.kind == "table":
-                text = text.strip()
-            widgets.append(Input(value=text, classes="edit-input",
-                                 placeholder={"int": "a whole number", "list": '["a", "b"] or a, b',
-                                              "table": '{ key = "value" }'}.get(s.kind, "")))
-            widgets.append(Button("Apply", classes="edit-apply", compact=True))
-        if not s.secret:
-            widgets.append(Button("Default", classes="edit-reset", compact=True,
-                                  disabled=not self.ed.is_set(s.key)))
-        field.mount(*widgets)
-        self.query_one("#editor-help", Static).update(s.help or "")
-
-    def _stage(self, value: Any) -> None:
-        s, ed = self.current, self.ed
-        if s is None or ed is None:
-            return
-        try:
-            ed.set(s.key, value)
-        except S.SettingsError as exc:
-            self.query_one("#editor-error", Static).update(str(exc))
-            return
-        self.query_one("#editor-error", Static).update("")
-        self.refresh_row(s)
-
-    @on(Switch.Changed, ".edit-switch")
-    def _switch(self, event: Switch.Changed) -> None:
-        if self.current and self.ed and event.value != self.ed.value(self.current.key):
-            self._stage(event.value)
-        for label in self.query(".edit-switch-label"):
-            label.update(" true" if event.value else " false")
-
-    @on(Select.Changed, ".edit-select")
-    def _select(self, event: Select.Changed) -> None:
-        if (self.current and self.ed and event.value is not Select.NULL
-                and event.value != self.ed.value(self.current.key)):
-            self._stage(event.value)
-
-    @on(Button.Pressed, ".edit-apply")
-    @on(Input.Submitted, ".edit-input")
-    def _apply(self) -> None:
-        s = self.current
-        if s is None:
-            return
-        text = self.query_one(".edit-input", Input).value
-        if s.secret:
-            if not text:
-                self.query_one("#editor-error", Static).update("Type the new value first.")
-                return
-            self._stage(text)
-            self.query_one(".edit-input", Input).value = ""
-            return
-        try:
-            value = S.parse_value(s, text)
-        except S.SettingsError as exc:
-            self.query_one("#editor-error", Static).update(str(exc))
-            return
-        self._stage(value)
-
-    @on(Button.Pressed, ".edit-remote")
-    def _open_remote(self) -> None:
-        # Focus left inside this tab pulls TabbedContent back to it.
-        self.app.set_focus(None)
-        self.app.action_show_tab("remote")
-
-    @on(Button.Pressed, ".edit-generate")
-    def _generate(self) -> None:
-        token = secrets.token_urlsafe(32)
-        self._stage(token)
-        self.generated_token = token
-        self.app.notify("A new static token is staged; it is shown once, after Save.")
-
-    @on(Button.Pressed, ".edit-reset")
-    def _reset(self) -> None:
-        s, ed = self.current, self.ed
-        if s is None or ed is None:
-            return
-        ed.reset(s.key)
-        self.refresh_row(s)
-        self.show(s)
+    def key_none(self) -> None:
+        pass
 
     # -- saving -------------------------------------------------------------------------
 
     @on(Button.Pressed, "#settings-discard")
     def discard(self) -> None:
-        keep = self.current.key if self.current else None
         self.generated_token = None
+        self.ed = None
         self.load()
-        if keep:
-            self.fill_table(keep)
         self.app.notify("Unsaved changes discarded.")
 
     @on(Button.Pressed, "#settings-save")
@@ -487,36 +515,26 @@ class SettingsPane(Pane):
 
     def _write(self) -> None:
         assert self.ed is not None
-        keep = self.current.key if self.current else None
         try:
+            restart_keys = [k for k in self.ed.changed if self.ed.setting(k).restart != S.RESTART_NONE]
             result = self.ed.save()
         except S.SettingsError as exc:
             self.app.notify(str(exc), title="Nothing was written", severity="error", timeout=15)
             return
-        advice = S.restart_advice(result.restart)
-        self.app.notify(f"Saved {len(result.changed)} change(s). {advice}".strip()
-                        + (f"\nBackup: {result.backup}" if result.backup else ""), timeout=10)
-        if result.restart:
-            self.restart_level = result.restart
-            self.query_one("#settings-restart").display = True
+        self.app.notify(f"Saved {len(result.changed)} change(s)."
+                        + (f"\nBackup: {result.backup}" if result.backup else ""), timeout=8)
+        if result.restart in (S.RESTART_DAEMON, S.RESTART_CLIENTS):
+            self.app.note_restart_due(len(restart_keys), result.restart)
         self.load()
-        if keep:
-            self.fill_table(keep)
         self.app.reload_config()
         self.app.refresh_grant()
         self.app.load_status()
-        token, self.generated_token = getattr(self, "generated_token", None), None
+        token, self.generated_token = self.generated_token, None
         if token and "auth.static_token" in result.changed:
             from .dialogs import ShowOnce
 
             self.app.push_screen(ShowOnce("The new static token", token,
                                           "HTTP clients send it as: Authorization: Bearer <token>"))
-        if "auth.password" in result.changed:
-            self.app.offer_revoke_after_password()
-
-    @on(Button.Pressed, "#settings-restart")
-    def _restart(self) -> None:
-        self.app.action_restart()
 
     def pending(self) -> int:
         return len(self.ed.changed) if self.ed else 0

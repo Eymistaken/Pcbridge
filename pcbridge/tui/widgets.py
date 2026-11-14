@@ -20,6 +20,66 @@ from textual.widgets import Button, Input, Static
 from .. import settings as S
 from .theme import PALETTE
 
+# Part of the app's stylesheet (app.py), so it ranks with the theme's rules
+# and a tab's own rules can override both by specificity.
+CSS = """
+CheckLine {
+    width: auto;
+    height: 1;
+}
+Segmented {
+    width: auto;
+    height: 1;
+}
+Segmented:focus {
+    text-style: bold;
+}
+Segmented:disabled {
+    opacity: 60%;
+}
+
+NumberInput {
+    width: auto;
+    height: 1;
+}
+NumberInput Input {
+    width: 9;
+    text-align: right;
+    padding: 0 1;
+}
+NumberInput .num-step {
+    margin: 0;
+    min-width: 3;
+    background: $pb-button;
+}
+NumberInput .num-unit {
+    width: auto;
+    color: $pb-muted;
+    padding: 0 1;
+}
+
+RestartBanner {
+    height: 1;
+    background: $pb-banner;
+    color: $pb-banner-text;
+    display: none;
+    margin-bottom: 1;
+    padding: 0 1;
+}
+RestartBanner.shown {
+    display: block;
+}
+RestartBanner .banner-text {
+    width: 1fr;
+    color: $pb-banner-text;
+}
+RestartBanner .banner-note {
+    width: auto;
+    color: $pb-dim;
+    padding-left: 1;
+}
+"""
+
 
 def key_label(label: str, key: str = "") -> Content:
     """A button label with its key after it, in a lighter accent: `Restart r`."""
@@ -72,18 +132,6 @@ class Segmented(Widget, can_focus=True):
     click picks. Changing the value posts `Segmented.Changed`.
     """
 
-    DEFAULT_CSS = """
-    Segmented {
-        width: auto;
-        height: 1;
-    }
-    Segmented:focus {
-        text-style: bold;
-    }
-    Segmented:disabled {
-        opacity: 60%;
-    }
-    """
     BINDINGS = [
         Binding("left", "move(-1)", "Previous", show=False),
         Binding("right", "move(1)", "Next", show=False),
@@ -153,33 +201,69 @@ class Segmented(Widget, can_focus=True):
                 return
 
 
+class CheckLine(Widget, can_focus=True):
+    """`[x] label` / `[ ] label`: a checkbox whose state is in the glyph, not
+    only in a color (Textual's Checkbox shows the same X either way in an
+    ANSI theme). Space, Enter or a click toggles it."""
+
+    BINDINGS = [Binding("space,enter", "toggle", "Toggle", show=False)]
+
+    value: reactive[bool] = reactive(False, init=False)
+
+    class Changed(Message):
+        def __init__(self, check: "CheckLine", value: bool) -> None:
+            super().__init__()
+            self.check = check
+            self.value = value
+
+        @property
+        def control(self) -> "CheckLine":
+            return self.check
+
+    def __init__(self, label: str, value: bool = False, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.label = label
+        self.set_reactive(CheckLine.value, value)
+
+    def get_content_width(self, container, viewport) -> int:
+        return len(self.label) + 4
+
+    def get_content_height(self, container, viewport, width) -> int:
+        return 1
+
+    def render(self) -> Text:
+        out = Text()
+        box_style = f"bold {PALETTE['accent']}" if self.has_focus else PALETTE["muted"]
+        out.append("[x]" if self.value else "[ ]", style=box_style)
+        out.append(f" {self.label}", style=PALETTE["text"] if self.value else PALETTE["muted"])
+        return out
+
+    def watch_value(self, value: bool) -> None:
+        self.refresh()
+        self.post_message(self.Changed(self, value))
+
+    def on_focus(self) -> None:
+        self.refresh()
+
+    def on_blur(self) -> None:
+        self.refresh()
+
+    def action_toggle(self) -> None:
+        self.value = not self.value
+
+    def toggle(self) -> None:
+        self.value = not self.value
+
+    def on_click(self, event: events.Click) -> None:
+        event.stop()
+        self.value = not self.value
+
+
 class NumberInput(Horizontal):
     """`− 90 s +`: the value right-aligned in an input cell, with its unit.
 
     `+` `−` step, digits type; the value stays inside [low, high] where the
     schema knows them. Posts `NumberInput.Changed` with the parsed number.
-    """
-
-    DEFAULT_CSS = """
-    NumberInput {
-        width: auto;
-        height: 1;
-    }
-    NumberInput Input {
-        width: 9;
-        text-align: right;
-        padding: 0 1;
-    }
-    NumberInput .num-step {
-        margin: 0;
-        min-width: 3;
-        background: $pb-button;
-    }
-    NumberInput .num-unit {
-        width: auto;
-        color: $pb-muted;
-        padding: 0 1;
-    }
     """
 
     class Changed(Message):
@@ -294,29 +378,6 @@ class RestartBanner(Horizontal):
 
     There is no Later: it stays until the daemon restarted. The app keeps
     the count (`app.restart_due`); every banner shows the same.
-    """
-
-    DEFAULT_CSS = """
-    RestartBanner {
-        height: 1;
-        background: $pb-banner;
-        color: $pb-banner-text;
-        display: none;
-        margin-bottom: 1;
-        padding: 0 1;
-    }
-    RestartBanner.shown {
-        display: block;
-    }
-    RestartBanner .banner-text {
-        width: 1fr;
-        color: $pb-banner-text;
-    }
-    RestartBanner .banner-note {
-        width: auto;
-        color: $pb-dim;
-        padding-left: 1;
-    }
     """
 
     def compose(self) -> ComposeResult:

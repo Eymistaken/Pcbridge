@@ -104,7 +104,7 @@ class Setting:
 # (kind, default, choices) of the keys outside [desktop] and [agents.*].
 # The defaults are the loader's; a contract test compares them.
 _FIXED: dict[str, tuple[str, Any, tuple[str, ...]]] = {
-    "default_agent": ("str", "claude", ()),
+    "default_agent": ("str", "claude", ()),   # a choice of the configured agents: registry()
     "public_url": ("str", "", ()),
     "host": ("str", "127.0.0.1", ()),
     "port": ("int", 8765, ()),
@@ -135,6 +135,63 @@ _FIXED: dict[str, tuple[str, Any, tuple[str, ...]]] = {
     "tools.profile": ("choice", "full", configlib.TOOL_PROFILES),
     "tools.remote_profile": ("choice", "same", configlib.REMOTE_TOOL_PROFILES),
 }
+
+# The range the loader accepts for an int setting, and its unit, for the
+# terminal UI's number input: (low, high, zero_means_off, unit). Only what
+# config.py actually enforces is listed (a contract test checks each one
+# against the loader); a key missing here has no checked range. `high` None
+# means no upper limit; `zero_means_off` allows 0 below `low`.
+BOUNDS: dict[str, tuple[int, int | None, bool, str]] = {
+    "files.link_ttl_seconds": (10, 3600, False, "s"),
+    "files.upload_max_mb": (1, 16384, False, "MB"),
+    "files.download_max_mb": (1, 16384, False, "MB"),
+    "desktop.unlock_idle_seconds": (10, None, True, "s"),
+    "desktop.batch_budget_seconds": (1, 105, False, "s"),
+    "desktop.batch_max_actions": (1, None, False, ""),
+    "desktop.pointer_speed": (200, 100_000, True, "px/s"),
+    "desktop.pointer_move_max_ms": (20, 5000, False, "ms"),
+    "desktop.click_hold_ms": (0, 150, False, "ms"),
+    "desktop.hold_max_seconds": (5, 3600, True, "s"),
+    "desktop.computer_task_max_steps": (1, None, False, ""),
+    "desktop.shot_ttl_seconds": (10, None, False, "s"),
+    "desktop.repeat_click_limit": (2, None, True, ""),
+    "desktop.screenshot_scale_long_edge": (320, None, True, "px"),
+}
+
+# Units of int settings without a checked range, for the number input.
+UNITS: dict[str, str] = {
+    "auth.access_token_ttl": "s", "auth.refresh_token_ttl": "s", "auth.auth_code_ttl": "s",
+    "auth.lockout_seconds": "s", "limits.default_job_timeout": "s",
+    "limits.max_sync_timeout": "s", "limits.audit_max_bytes": "bytes",
+    "limits.max_output_chars": "chars", "desktop.unlock_default_minutes": "min",
+    "desktop.unlock_max_minutes": "min", "desktop.idle_guard_seconds": "s",
+    "desktop.shot_keep_hours": "h", "desktop.agent_shot_max_age_seconds": "s",
+    "desktop.screenshot_max_pixels": "px",
+}
+
+
+def unit_of(key: str) -> str:
+    return BOUNDS[key][3] if key in BOUNDS else UNITS.get(key, "")
+
+
+def describe_bounds(key: str) -> str:
+    """`10 s to 600 s`, `0 (off) or 10 s and more`; empty when unchecked."""
+    if key not in BOUNDS:
+        return ""
+    low, high, zero, unit = BOUNDS[key]
+    u = f" {unit}" if unit else ""
+    span = f"{low}{u} to {high}{u}" if high is not None else f"{low}{u} and more"
+    return f"0 (off) or {span}" if zero else span
+
+
+def in_bounds(key: str, value: int) -> bool:
+    if key not in BOUNDS:
+        return True
+    low, high, zero, _unit = BOUNDS[key]
+    if zero and value == 0:
+        return True
+    return value >= low and (high is None or value <= high)
+
 
 # [desktop] keys whose value is one of a fixed list; none since
 # `capture_backend` went with the Python capture paths after 2.8.
@@ -322,6 +379,9 @@ def registry(agent_names: list[str] | tuple[str, ...] = ()) -> list[Setting]:
                    else RESTART_DAEMON)
         if key in _LIVE:
             restart = RESTART_NONE
+        if key == "default_agent" and agent_names:
+            # A choice between the configured agents, not a name typed by hand.
+            kind, choices = "choice", tuple(agent_names)
         out.append(Setting(key, section, name, kind, default, choices,
                            secret=key in _SECRETS, restart=restart,
                            help=_HELP.get(key) or helps.get(key, "")))

@@ -28,6 +28,7 @@ from .dialogs import Confirm, HelpScreen, ShowOnce, UnlockConfirm, copy_secret, 
 from .pane import while_mounted
 from .theme import CSS as THEME_CSS
 from .theme import PALETTE, THEME, css_variables
+from .widgets import CSS as WIDGET_CSS
 from .widgets import key_label, set_kind
 
 __all__ = ["Confirm", "PcbridgeApp", "ShowOnce", "copy_secret", "while_mounted"]
@@ -52,7 +53,7 @@ NARROW = 100
 PANE_KEYS = ["u", "f", "c", "o", "d", "t", "y", "p", "x", "k", "g", "a", "slash", "space",
              "ctrl+s", "ctrl+z", "pageup", "pagedown"]
 
-CSS = THEME_CSS + DIALOG_CSS + """
+CSS = THEME_CSS + WIDGET_CSS + DIALOG_CSS + """
 #bar {
     dock: top;
     height: 1;
@@ -250,11 +251,20 @@ def _commands_provider():
     return PcbridgeCommands
 
 
+def _stylesheet() -> str:
+    """The frame's rules and every tab's: one stylesheet, ranked by specificity."""
+    from . import (connections_pane, desktop_pane, overview_pane, remote_pane, settings_pane,
+                   tools_pane)
+
+    return CSS + "".join(m.CSS for m in (overview_pane, desktop_pane, connections_pane,
+                                          remote_pane, settings_pane, tools_pane))
+
+
 class PcbridgeApp(App):
     TITLE = "pcbridge"
     ENABLE_COMMAND_PALETTE = True
     COMMAND_PALETTE_BINDING = "ctrl+p"
-    CSS = CSS
+    CSS = _stylesheet()
     COMMANDS = {_commands_provider}
     BINDINGS = [
         Binding("l", "toggle_grant", "Lock/Unlock", show=False),
@@ -607,6 +617,16 @@ class PcbridgeApp(App):
         default = int(self.cfg.desktop.unlock_default_minutes) if self.cfg is not None else None
         self.unlock_minutes = None if minutes == default else minutes
         self._unlock_now()
+
+    def reclock(self, minutes: int) -> None:
+        """Open the grant again for `minutes`: the clock starts over (a click)."""
+        if self.grant_busy or self.grant is None or not self.grant.enabled_in_config:
+            return
+        if not self.grant.open:
+            self.unlock_with(minutes)
+            return
+        self._set_busy("Unlocking…")
+        self._grant_worker(lock=False, minutes=minutes)
 
     def _unlock_now(self) -> None:
         if self.grant_busy or self.grant is None or self.grant.open or not self.grant.enabled_in_config:

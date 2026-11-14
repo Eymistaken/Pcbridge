@@ -152,7 +152,6 @@ def row_id(name: str) -> str:
 
 
 class RemotePane(Pane):
-    DEFAULT_CSS = CSS
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -242,6 +241,10 @@ class RemotePane(Pane):
         return out
 
     # -- password ----------------------------------------------------------------
+
+    def replace_password(self) -> None:
+        """Advanced's Replace… for auth.password: the same checked dialog."""
+        self._password()
 
     @on(Button.Pressed, "#remote-password")
     def _password(self) -> None:

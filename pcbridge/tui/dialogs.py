@@ -13,9 +13,9 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Static
+from textual.widgets import Button, Static
 
-from .widgets import Segmented, key_label
+from .widgets import CheckLine, Segmented, key_label
 
 CSS = """
 Confirm, UnlockConfirm, ShowOnce, PasswordScreen, LoginScreen, HelpScreen {
@@ -221,7 +221,7 @@ class ShowOnce(ModalScreen[None]):
                 yield Static("", id="once-copied", classes="muted")
             yield Static("\nThis is the only time it is shown: only its hash is stored, so it "
                          "cannot be read back, only replaced.", classes="hint")
-            yield Checkbox("I saved it in a password manager", id="once-saved")
+            yield CheckLine("I saved it in a password manager", id="once-saved")
             with Horizontal(classes="dialog-buttons"):
                 yield Button(key_label("Done", "enter"), id="once-done", classes="primary",
                              compact=True, disabled=True)
@@ -233,8 +233,8 @@ class ShowOnce(ModalScreen[None]):
         label.update(Text(text))
         label.set_class(reached, "ok")
 
-    @on(Checkbox.Changed, "#once-saved")
-    def _saved(self, event: Checkbox.Changed) -> None:
+    @on(CheckLine.Changed, "#once-saved")
+    def _saved(self, event: CheckLine.Changed) -> None:
         self.query_one("#once-done", Button).disabled = not event.value
 
     @on(Button.Pressed, "#once-done")
