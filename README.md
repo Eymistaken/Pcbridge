@@ -26,7 +26,7 @@ keyboard, pointer and screen reader.
 | **Use the desktop** | Virtual keyboard and pointer through uinput, absolute and relative motion, and compositor-specific window activation. GNOME's extension raises windows in ~5 ms. |
 | **Click what you see** | Every screenshot has an id; send the pixel you see plus the id, and pcbridge applies the monitor offset and scale. Changed or missing outputs make old shots invalid. |
 | **Run it from a terminal** | `pcbridge` opens a terminal UI: the desktop grant, health with fixes, jobs, a switch per MCP client, the tunnel and remote apps, the 40 tools, the audit log, the journal and every setting; mouse and keyboard, `Ctrl+P` for any command. Every part of it is also a plain command. |
-| **Stay safe enough to leave on** | Desktop control is off by default; a time-limited grant closes 90 s after the last action; nothing is sent behind a locked screen. GNOME shows a frame and panel icon, Plasma a lasting notification, and Hyprland a native frame. Each has a kill switch. |
+| **Stay safe enough to leave on** | `pcbridge setup` turns desktop control on, and `pcbridge` turns it off; a time-limited grant closes 90 s after the last action; nothing is sent behind a locked screen. GNOME shows a frame and panel icon, Plasma a lasting notification, and Hyprland a native frame. Each has a kill switch. |
 
 ## Always ready
 
@@ -131,8 +131,9 @@ pcbridge doctor          # every check, with the fix next to each problem
 
 Then, in any connected client, ask for work: "run the tests in ~/src/app
 with Claude Code", "what is on my screen", "open Text Editor and type
-hello". Desktop control needs `[desktop] enabled = true` once; the agent
-then opens a time-limited grant by itself with `desktop_unlock`.
+hello". Setup turns desktop control on (`[desktop] enabled = true`); the
+agent then opens a time-limited grant by itself with `desktop_unlock`. To
+turn desktop control off, type `pcbridge` and use the Desktop tab.
 
 Kill switch: `pcbridge lock` (alias `bridgekilit`), "Lock now" in the
 terminal UI, the panel icon's "Lock desktop control now" on GNOME, or the

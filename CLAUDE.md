@@ -109,7 +109,10 @@ up the maintainer's daily limit once (2026-08-03).
 
 - `config.toml` holds the password and the static token; it stays out of git.
   **Never log, print or commit its contents.**
-- `[desktop] enabled` defaults to `false`. **Do not change that.**
+- `[desktop] enabled` is `false` when the key is missing; `pcbridge setup`
+  writes `true` into a config it creates on a supported desktop (the
+  maintainer's decision, 2.10.0). An update never changes the user's value.
+  **Do not change either without the maintainer.**
 - Every new setting goes into `config.example.toml` **with its comment** and
   is actually **read** in `config.py` (skipped once: the fields existed and
   the configured value did nothing; `[tools] profile` repeated it in 1.x).
@@ -118,8 +121,8 @@ up the maintainer's daily limit once (2026-08-03).
 - Never delete files that are not in git permanently; use `gio trash`.
 
 **Not solutions**: switching to X11, removing
-`--dangerously-skip-permissions`, printing secrets, enabling desktop control
-by default. When a fact contradicts the plan, **do not invent**: say so, fix
+`--dangerously-skip-permissions`, printing secrets, turning desktop control
+on in an existing config. When a fact contradicts the plan, **do not invent**: say so, fix
 it with the reason, then continue.
 
 ## Two design decisions defended hard

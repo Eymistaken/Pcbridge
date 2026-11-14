@@ -6,7 +6,7 @@ Bu ozellik pcbridge'in risk profilini buyutuyor: bugune kadar "uzaktan komut
 calistirma" vardi, simdi acik oturumdaki her uygulamaya -- tarayicidaki oturum
 acilmis hesaplara, parola yoneticisine -- erisim ekleniyor. Bu yuzden bes kat:
 
-  1. `[desktop] enabled = false` varsayilani. Acmak bilincli bir islem.
+  1. `[desktop] enabled`: anahtar yoksa false; `pcbridge setup` yeni config'te acar.
   2. Sureli izin. `desktop_unlock(dakika)` sonrasi calisir, sure dolunca
      kendiliginden kapanir. Izin durumu DISKTE tutulur; servis yeniden
      baslayinca izin ne kaybolur ne de uzar.

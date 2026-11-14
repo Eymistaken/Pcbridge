@@ -177,7 +177,9 @@ binary_path = ""
 # ---------------------------------------------------------------------------
 
 [desktop]
-# OFF BY DEFAULT, so that enabling it is a deliberate act.
+# `pcbridge setup` turns this on in the config it creates on a supported
+# desktop; without the key it is off. Agents still open the grant
+# (desktop_unlock) each time, and `pcbridge lock` closes it at once.
 enabled = false
 
 # Desktop tools only work after desktop_unlock(minutes); the grant closes by

@@ -1356,9 +1356,13 @@ class SetupApp(App[str]):
         notes = Text()
         if self.ctx.found.desktop_supported:
             notes.append("◇  ", style=C["accent"])
-            notes.append("Desktop control stays as it is: on, with a grant per use.\n"
-                         if self.desktop_enabled() else
-                         "Desktop control stays off until you turn it on.\n", style=C["muted"])
+            if not self.ctx.xdg.exists():
+                say = "Desktop control will be on; agents open a grant each time. Type pcbridge to turn it off.\n"
+            elif self.desktop_enabled():
+                say = "Desktop control stays on; agents open a grant each time.\n"
+            else:
+                say = "Desktop control stays off, as your config has it.\n"
+            notes.append(say, style=C["muted"])
         notes.append("◇  ", style=C["accent"])
         notes.append("Every file setup changes is backed up first; ROLLBACK.md in the backup says how "
                      "to undo it." if wide else "Changed files are backed up first (ROLLBACK.md).",
@@ -1625,9 +1629,9 @@ class SetupApp(App[str]):
         step("Type", "pcbridge", "to check and change anything.")
         if self.ctx.found.desktop_supported:
             if self.desktop_enabled():
-                step("Desktop control is on; agents ask for a grant first:", "pcbridge", "→ Desktop.")
+                step("Desktop control is on. To turn it off, type", "pcbridge", "→ Desktop.")
             else:
-                step("Desktop control is off until you turn it on:", "pcbridge", "→ Desktop.")
+                step("Desktop control is off. To turn it on, type", "pcbridge", "→ Desktop.")
         step("Remote access for claude.ai and your phone:", "pcbridge", "→ Remote.")
         if outcome is not None and not outcome.ready:
             step("See what is missing:", "pcbridge doctor", "")
@@ -1648,13 +1652,8 @@ class SetupApp(App[str]):
         self.query_one("#attention", Static).update(att)
 
     def desktop_enabled(self) -> bool:
-        """`[desktop] enabled` as the config says now (an update keeps the user's value)."""
-        try:
-            from .. import settings as settingslib
-
-            return bool(settingslib.ConfigEditor(self.ctx.xdg).value("desktop.enabled"))
-        except Exception:  # noqa: BLE001 - no config yet: the default, off
-            return False
+        """`[desktop] enabled` after setup (a new config: on; an update keeps the user's value)."""
+        return setupflow.desktop_enabled(self.ctx.xdg)
 
     # -- actions --------------------------------------------------------------------------
 

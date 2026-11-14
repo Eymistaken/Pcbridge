@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import sys
 import tempfile
 import threading
@@ -17,6 +18,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from pcbridge import config as configlib  # noqa: E402
 from pcbridge.cli import install as inst  # noqa: E402
 from pcbridge.cli import plan as planlib  # noqa: E402
 from pcbridge.cli import setupflow  # noqa: E402
@@ -173,7 +175,7 @@ class WalkThroughTests(unittest.TestCase):
             self.assertIn("$ sudo apt-get install -y tmux wl-clipboard", text)
             self.assertNotIn("tesseract", text)
             self.assertIn("Connect Claude Code", text)
-            self.assertIn("Desktop control stays off until you turn it on.", text)
+            self.assertIn("Desktop control will be on; agents open a grant each time. Type pcbridge to turn it off.", text)
             self.assertEqual(app.executor.calls, [])     # nothing ran before Install
             await pilot.press("enter")
             await settle(app, pilot)
@@ -189,6 +191,7 @@ class WalkThroughTests(unittest.TestCase):
             self.assertIn("✓ Claude Code connected", text)
             self.assertNotIn("Codex connected", text)
             self.assertIn("Type pcbridge to check and change anything.", text)
+            self.assertIn("Desktop control is on. To turn it off, type pcbridge → Desktop.", text)
             self.assertIn("Undo: /tmp/backup/ROLLBACK.md", text)
 
         app, fake = run(body, sudo=sudo)
@@ -331,11 +334,19 @@ class OutcomeTests(unittest.TestCase):
         with mock.patch("builtins.print"):
             self.assertEqual(app.report(setup_app.DONE), 1)
 
-    def test_the_last_screen_reads_whether_desktop_control_is_on(self) -> None:
+    def test_an_update_keeps_desktop_control_as_the_config_has_it(self) -> None:
+        from pcbridge.cli import ops
+
+        tmp = Path(tempfile.mkdtemp(prefix="pcb-setup-off-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        ctx = context()
+        ctx.xdg = tmp / "pcbridge" / "config.toml"
+        ops._fresh_config(ctx.xdg)                       # an existing config, desktop off
+
         async def body(app, pilot):
             await pilot.press("enter", "enter", "enter")
             await settle(app, pilot)
-            self.assertIn("Desktop control stays as it is: on, with a grant per use.", flat(app))
+            self.assertIn("Desktop control stays off, as your config has it.", flat(app))
             await pilot.press("enter")
             await settle(app, pilot)
             self.assertIn("✓ MCP clients", flat(app))
@@ -343,11 +354,26 @@ class OutcomeTests(unittest.TestCase):
             await pilot.press("enter")
             await settle(app, pilot)
             text = flat(app)
-            self.assertIn("Desktop control is on; agents ask for a grant first: pcbridge →", text)
-            self.assertNotIn("off until you turn it on", text)
+            self.assertIn("Desktop control is off. To turn it on, type pcbridge → Desktop.", text)
+            self.assertNotIn("Desktop control is on", text)
 
-        with mock.patch.object(SetupApp, "desktop_enabled", return_value=True):
-            run(body)
+        run(body, ctx=ctx)
+
+    def test_a_new_config_turns_desktop_control_on(self) -> None:
+        from pcbridge.cli import ops
+
+        tmp = Path(tempfile.mkdtemp(prefix="pcb-setup-on-"))
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        on, off = tmp / "on" / "config.toml", tmp / "off" / "config.toml"
+        self.assertTrue(setupflow.desktop_enabled(on))   # no config yet: setup creates it on
+        ops._fresh_config(on, desktop=True)
+        ops._fresh_config(off)
+        self.assertTrue(configlib.load_config(str(on), check_state=False).desktop.enabled)
+        self.assertFalse(configlib.load_config(str(off), check_state=False).desktop.enabled)
+        self.assertTrue(setupflow.desktop_enabled(on))
+        self.assertFalse(setupflow.desktop_enabled(off))
+        self.assertIn("To turn it off, type `pcbridge`", planlib.desktop_line(True))
+        self.assertIn("To turn it on, type `pcbridge`", planlib.desktop_line(False))
 
     def test_home_paths_are_shortened_in_the_rows(self) -> None:
         home = os.path.expanduser("~")

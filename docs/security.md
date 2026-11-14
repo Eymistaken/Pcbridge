@@ -172,8 +172,12 @@ commands does:
   restores the previous value when the grant ends. While it is on, any
   program of your user can read those applications' accessibility trees,
   as on GNOME, where GTK applications are always readable.
-- **`[desktop] enabled` is `false` by default.** Decide what happens if the
-  phone with the static token is lost before turning it on.
+- **`pcbridge setup` turns `[desktop] enabled` on** in the config it
+  creates on a supported desktop (since 2.10.0; the maintainer's decision).
+  Without the key it is `false`, and an update keeps whatever the config
+  says. Every use still needs the time-limited grant. Decide what happens if
+  the phone with the static token is lost, and turn desktop control off
+  (`pcbridge`, Desktop tab) on a machine where that risk is too high.
 
 ### The gate
 

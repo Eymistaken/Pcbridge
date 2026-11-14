@@ -130,7 +130,7 @@ class CliSettingsTests(unittest.TestCase):
         res = self.cli("get", "desktop.enabled")
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("desktop.enabled = false", res.stdout)
-        self.assertIn("deliberate", res.stdout)
+        self.assertIn("turns this on", res.stdout)
         res = self.cli("get", "auth.static_token")
         self.assertNoSecrets(res)
         res = self.cli("get", "nope.nope")

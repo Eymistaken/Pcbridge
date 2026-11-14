@@ -265,7 +265,7 @@ class PlanTests(unittest.TestCase):
         self.assertIn("doctor --fix", lines)
         done = "\n".join(planlib.summary(plan, probes=probes("git", fetchable=False)))
         self.assertNotIn("native helper", done)
-        self.assertIn("Desktop control: supported here, off until you turn it on", done)
+        self.assertIn("Desktop control: on; agents open a grant each time.", done)
 
 
 class FetchableProbeTests(unittest.TestCase):

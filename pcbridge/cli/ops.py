@@ -551,8 +551,14 @@ def _legacy_config_candidates() -> list[Path]:
     return found
 
 
-def _fresh_config(dest: Path) -> None:
+def _fresh_config(dest: Path, *, desktop: bool = False) -> None:
+    """A new config from config.example.toml. `desktop=True` (setup on a
+    supported desktop) turns desktop control on; agents still open the grant
+    each time, and `pcbridge` turns it off."""
     text = assetslib.asset_path("config.example.toml").read_text(encoding="utf-8")
+    if desktop:
+        text, n = re.subn(r'(?m)^(\[desktop\]\n(?:#.*\n)*)enabled = false$', r'\1enabled = true', text, count=1)
+        assert n == 1, "config.example.toml: [desktop] enabled not found"
     text = re.sub(r'(?m)^public_url = .*$', 'public_url = "http://localhost:8765"', text, count=1)
     # No password and no static token: local clients use neither, and remote
     # access stays off until the user creates a password for it

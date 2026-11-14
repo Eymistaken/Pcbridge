@@ -717,6 +717,9 @@ def offer_missing() -> bool:
         profile = "full"
     plan = planlib.build(platforminfo.detect(), profile_now=profile,
                          recorded_profile=planlib.read_state().get("profile"))
+    from . import setupflow
+
+    plan.desktop_on = setupflow.desktop_enabled(pathslib.config_file())
     fetched = not plan.native_fetch
     if plan.native_fetch:
         inst.say("\nThe native helper is missing; the pcbridge release has a prebuilt one "

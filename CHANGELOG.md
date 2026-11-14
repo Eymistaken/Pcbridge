@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.10.0 - 2026-11-15
+
+### Changed
+
+- **Setup turns desktop control on.** A new install no longer needs a
+  trip to the settings before an agent can use the desktop: `pcbridge
+  setup` writes `[desktop] enabled = true` into the config it creates on a
+  supported desktop. Agents still open the time-limited grant with
+  `desktop_unlock` before each use, and `pcbridge lock` closes it at once.
+  An existing config keeps its value, so an update never turns desktop
+  control on or off, and a config without the key still means off.
+- **Setup says how to turn it off.** The review step says desktop control
+  will be on, and the last screen says "Desktop control is on. To turn it
+  off, type pcbridge → Desktop." The printed setup, its plan and its
+  summary say the same; before, the summary said desktop control was off
+  even when the config had it on.
+
 ## 2.9.4 - 2026-11-14
 
 ### Added

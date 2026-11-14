@@ -162,8 +162,9 @@ Install.
    `~/.config/fish/conf.d/`). The file is backed up first and listed in
    `ROLLBACK.md`; "Leave my files alone" changes nothing.
 7. **Ready** names the clients it connected and says what to do next:
-   `pcbridge` to check and change things, where desktop control and remote
-   access are turned on, and anything left to do by hand.
+   `pcbridge` to check and change things, that desktop control is on and
+   `pcbridge` turns it off, where remote access is turned on, and anything
+   left to do by hand.
 
 `TEXTUAL_ANIMATIONS=none` keeps the screen still. `--plain`, `--yes`, a run
 without a terminal and `TERM=dumb` print the steps instead, as described
@@ -174,7 +175,7 @@ Printed, it first detects the machine and shows the plan, once:
 ```
 Found: Linux Mint 21.3 (Debian family) · Cinnamon 6.0.4 · X11 · x86_64
 ✓ Terminal, files, tmux, coding agents
-✓ Desktop control (off until you turn it on: pcbridge set desktop.enabled true)
+✓ Desktop control: on; agents open a grant each time. To turn it off, type `pcbridge` (Desktop tab).
 System packages: nothing to install
 Optional components:
   [x] 1. OCR for find_text / wait_for_text (eng): installed
@@ -196,7 +197,7 @@ part reads:
 ```
 Found: Arch Linux · KDE Plasma 6.7.5 · Wayland · x86_64
 ✓ Terminal, files, tmux, coding agents
-✓ Desktop control (off until you turn it on: pcbridge set desktop.enabled true)
+✓ Desktop control: on; agents open a grant each time. To turn it off, type `pcbridge` (Desktop tab).
 System packages: tmux wl-clipboard  (needs sudo)
 Optional components:
   [x] 1. OCR for find_text / wait_for_text (eng + tur): tesseract-data-tur
@@ -304,7 +305,15 @@ Everything it replaces is backed up under
 `~/.local/state/pcbridge/backup-<time>/` with a `ROLLBACK.md` of exact
 commands. `pcbridge uninstall` undoes it.
 
-## 3. Desktop control (optional, off by default)
+## 3. Desktop control (on after setup)
+
+Since 2.10.0 `pcbridge setup` turns desktop control on (`[desktop] enabled =
+true`) in the config it creates on a supported desktop. An agent still opens
+a time-limited grant with `desktop_unlock` before each use, and `pcbridge
+lock` closes it at once. To turn desktop control off, type `pcbridge` and use
+the Desktop tab, or run `pcbridge set desktop.enabled false`. An existing
+config keeps its value: an update never turns it on or off. Without the key,
+for example in a config written by hand, desktop control is off.
 
 Virtual input needs `/dev/uinput` for your user. The package installs a udev
 rule; for a user install:
@@ -312,9 +321,7 @@ rule; for a user install:
 ```bash
 pcbridge doctor           # the /dev/uinput line prints the exact sudo commands
 ```
-
-Then set `[desktop] enabled = true` in the config and restart pcbridge
-(`pcbridge update`). OCR (`find_text`, `wait_for_text`) needs tesseract;
+ OCR (`find_text`, `wait_for_text`) needs tesseract;
 `pcbridge setup` offers it in its checklist, and `pcbridge doctor --fix`
 offers it again when it is missing.
 

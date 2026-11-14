@@ -140,6 +140,7 @@ class Plan:
     native_note: str
     extras: bool = False            # pip still has to install Pillow
     native_fetch: bool = False      # download the release's native helper (no Rust here)
+    desktop_on: bool = True         # [desktop] enabled after setup: a new config turns it on
 
     def chosen_packages(self) -> list[str]:
         out = list(self.packages)
@@ -308,12 +309,19 @@ CHECK = "✓"
 CROSS = "✗"
 
 
+def desktop_line(on: bool) -> str:
+    """Desktop control's state, and the one command that changes it."""
+    if on:
+        return ("Desktop control: on; agents open a grant each time. "
+                "To turn it off, type `pcbridge` (Desktop tab).")
+    return "Desktop control: off. To turn it on, type `pcbridge` (Desktop tab)."
+
+
 def capability_lines(plan: Plan) -> list[str]:
     p = plan.platform
     lines = [f"{CHECK} Terminal, files, tmux, coding agents"]
     if p.desktop_supported:
-        lines.append(f"{CHECK} Desktop control (off until you turn it on: "
-                     "pcbridge set desktop.enabled true)")
+        lines.append(f"{CHECK} " + desktop_line(plan.desktop_on))
     else:
         lines.append(f"{CROSS} Desktop control: {p.unsupported_reason()}")
     if plan.native_note:
@@ -512,8 +520,7 @@ def summary(plan: Plan, probes: Probes | None = None) -> list[str]:
                      "installed and desktop control needs it; `pcbridge doctor --fix` "
                      "downloads it")
     elif p.desktop_supported:
-        lines.append(f"{CHECK} Desktop control: supported here, off until you turn it on "
-                     "(pcbridge set desktop.enabled true)")
+        lines.append(f"{CHECK} " + desktop_line(plan.desktop_on))
     if p.desktop_supported:
         for c in plan.components:
             if c.key == "ocr":

@@ -98,6 +98,7 @@ def prepare(args: argparse.Namespace) -> Context:
             inst.warn(str(exc))
     plan = planlib.build(found, profile_now=profile_now,
                          recorded_profile=planlib.read_state().get("profile"))
+    plan.desktop_on = desktop_enabled(xdg)
     if args.optional is not None:
         wanted = {w.strip().lower() for w in args.optional.split(",") if w.strip()}
         unknown = wanted - {c.key for c in plan.components} - {"none"}
@@ -106,6 +107,19 @@ def prepare(args: argparse.Namespace) -> Context:
         for c in plan.components:
             c.ticked = c.key in wanted
     return Context(args=args, found=found, plan=plan, xdg=xdg)
+
+
+def desktop_enabled(xdg: Path) -> bool:
+    """`[desktop] enabled` as it is after setup: a config setup creates turns it
+    on; an existing one keeps the user's value."""
+    if not xdg.exists():
+        return True
+    from .. import settings as settingslib
+
+    try:
+        return bool(settingslib.ConfigEditor(xdg).value("desktop.enabled"))
+    except Exception:  # noqa: BLE001 - an unreadable config: say what pcbridge then does
+        return False
 
 
 def desktop_title(kind: str) -> str:
@@ -198,8 +212,10 @@ def execute(ctx: Context, install_now: bool, clients: list[str] | None = None) -
             res = configlib.migrate_config(cands[0], xdg)
             inst.ok(f"migrated {cands[0]} -> {xdg} (the old file is left in place)")
         else:
-            ops._fresh_config(xdg)
-            inst.ok(f"created {xdg}; desktop control is OFF and remote access has no password yet")
+            ops._fresh_config(xdg, desktop=found.desktop_supported)
+            inst.ok(f"created {xdg}; desktop control is "
+                    + ("ON" if found.desktop_supported else "OFF (not supported here)")
+                    + " and remote access has no password yet")
     for line in planlib.apply_settings(plan, xdg):
         inst.ok(line)
     settings_changed = plan.profile_target is not None
@@ -339,6 +355,7 @@ def run_plain(args: argparse.Namespace) -> int:
     if outcome.rollback:
         inst.say(f"\nBackups and undo instructions: {outcome.rollback}")
     inst.say("\nSummary")
+    plan.desktop_on = desktop_enabled(ctx.xdg)
     for line in planlib.summary(plan):
         inst.say(f"  {line}")
     if outcome.notes:
@@ -348,5 +365,5 @@ def run_plain(args: argparse.Namespace) -> int:
     return 0 if outcome.ready else 1
 
 
-__all__ = ["Context", "Outcome", "add_path_line", "desktop_title", "execute", "parser", "prepare",
+__all__ = ["Context", "Outcome", "add_path_line", "desktop_enabled", "desktop_title", "execute", "parser", "prepare",
            "run_plain", "steps", "wants_screen", "write_rollback"]

@@ -127,7 +127,7 @@ class RegistryTests(EditorCase):
 
     def test_descriptions_come_from_the_example_file(self) -> None:
         helps = S.example_help()
-        self.assertIn("deliberate", helps["desktop.enabled"])
+        self.assertIn("turns this on", helps["desktop.enabled"])
         self.assertIn("12 hours", helps["auth.access_token_ttl"])
 
 
