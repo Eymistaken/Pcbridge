@@ -1,5 +1,52 @@
 # Changelog
 
+## 2.9.4 - 2026-11-14
+
+### Added
+
+- **`pcbridge setup` has its own screen.** On a terminal, setup no longer
+  reads like a log. It is a screen with seven steps: welcome, components,
+  clients, review, install, the shell PATH when needed, and ready. A
+  bridge across the top grows a plank per step, from "this pc" to the
+  agents, and the steps already done can be clicked to go back until the
+  install starts. Choices are taken with the arrow keys, space and Enter,
+  or with the mouse, instead of typed numbers. OCR is ticked and marked
+  Recommended. The clients step ticks Claude Code, Codex and Claude
+  Desktop and any client already connected, and leaves unticked ones
+  alone. Nothing changes before Install, and the review step shows the
+  exact sudo command, with Copy, first.
+- **The install shows its progress.** Each step is a row with a spinner, a
+  bar, its time and the last thing it did, and `l` shows the full output,
+  so a long package install or download no longer looks frozen. When a
+  package needs sudo, the screen hands the terminal back for the password
+  (`sudo -v`) and returns right after, so pcbridge never sees the password.
+  The package manager then runs without a terminal and its output goes to
+  the screen.
+- **The last screen says what to do next.** It names the clients that were
+  connected, says to type `pcbridge` to check and change things, says
+  where desktop control and remote access are turned on, and lists
+  anything left to do by hand and where the backup is. The empty parts of
+  the screen fill with softly twinkling stars as the bridge grows;
+  `TEXTUAL_ANIMATIONS=none` keeps them still.
+- **Setup offers to put `~/.local/bin` on PATH.** Where typing `pcbridge`
+  would find nothing (Arch's default profile, for example), setup says why
+  and offers to add one line to the login shell's file: `~/.bashrc`,
+  `~/.zshrc`, or a `fish_add_path` file for fish. The file is backed up
+  first and listed in `ROLLBACK.md`. A no changes nothing, and `--yes` or a
+  run without a terminal only prints the line, as before.
+- **install.sh asks its Python question with the arrow keys.** On a
+  terminal, the one question install.sh asks before pcbridge has a Python
+  is a menu: the arrow keys move, Enter picks, and the number keys still
+  work. Without a terminal, with `TERM=dumb` or with `--yes` it is the
+  numbered prompt. The wheel and uv downloads show curl's progress bar.
+
+### Changed
+
+- `pcbridge setup --plain` prints the steps and asks in the terminal, as
+  `--yes` and a run without a terminal always do. The printed output is
+  unchanged, except for one line: while setup waits for a running job or an
+  open desktop grant before it restarts the daemon, it now says which.
+
 ## 2.9.3 - 2026-11-14
 
 ### Fixed
