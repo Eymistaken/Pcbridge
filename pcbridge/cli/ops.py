@@ -398,7 +398,7 @@ def remote_revoke(argv: list[str]) -> int:
         if not _confirm(f"Revoke every remote client ({live} connected, {len(regs)} registration(s))?",
                         args.yes):
             return 1
-        res = rc.revoke_all(cfg.db_path, cfg.audit_log)
+        res = rc.revoke_all(cfg.db_path, cfg.audit_log, cfg.audit_max_bytes)
     else:
         try:
             regs = rc.select(cfg.db_path, args.client)
@@ -409,7 +409,8 @@ def remote_revoke(argv: list[str]) -> int:
         live = sum(1 for r in regs if r.connected)
         if not _confirm(f"Revoke {name} ({live} connected, {len(regs)} registration(s))?", args.yes):
             return 1
-        res = rc.revoke(cfg.db_path, [r.client_id for r in regs], cfg.audit_log)
+        res = rc.revoke(cfg.db_path, [r.client_id for r in regs], cfg.audit_log,
+                        cfg.audit_max_bytes)
     inst.ok(f"revoked {', '.join(res.names) or 'nothing'}: {res.registrations} registration(s), "
             f"{res.access_tokens} access and {res.refresh_tokens} refresh token(s)")
     inst.say("        The next call from a revoked app fails; to use pcbridge again it must connect "

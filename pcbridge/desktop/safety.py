@@ -856,7 +856,7 @@ class SafetyGate:
 
     # ---------------------------------------------------------- denetim kaydi
     def audit(self, event: str, **fields: Any) -> None:
-        """auth.py'daki `audit()` ile ayni bicim: audit.log'a tek satir JSON.
+        """audit.log'a tek satir JSON, `auditing.write_line` ile (auth.py ayni yazicidan gecer).
 
         Masaustune ozel DEGIL: kabuk, ajan ve dosya araclari da buraya yaziyor.
         Kural her yerde ayni -- ne yapildigi kaydedilir, ICERIK kaydedilmez
@@ -864,36 +864,17 @@ class SafetyGate:
         uzunlugu evet metnin kendisi hayir). Denetim kaydini okuyabilen birinin
         parolalari da okuyabilmesi anlamsiz bir yetki genislemesi olurdu.
         """
-        rec = {
-            "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "event": event,
-            **{k: v for k, v in fields.items() if v is not None},
-        }
+        from .. import auditing
+
+        fields = {k: v for k, v in fields.items() if v is not None}
         # Which client asked, when the daemon knows (from the relay preamble).
         client = sessionctx.client_name()
-        if client and "client" not in rec:
-            rec["client"] = client
-        line = json.dumps(rec, ensure_ascii=False)
+        if client and "client" not in fields:
+            fields["client"] = client
+        line = auditing.record(event, fields)
         logger.info(line)
-        try:
-            path = Path(self.cfg.audit_log)
-            self._rotate(path)
-            with path.open("a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
-        except OSError:  # pragma: no cover
-            pass
-
-    def _rotate(self, path: Path) -> None:
-        """Dosya buyudugunde `.1`'e devret. Tek yedek: bu bir denetim kaydi,
-        arsiv degil; sinirsiz buyumesi diski doldurur."""
-        limit = int(getattr(self.cfg, "audit_max_bytes", 0) or 0)
-        if limit <= 0:
-            return
-        try:
-            if path.exists() and path.stat().st_size >= limit:
-                path.replace(path.with_suffix(path.suffix + ".1"))
-        except OSError:  # pragma: no cover
-            pass
+        auditing.write_line(Path(self.cfg.audit_log),
+                            line, int(getattr(self.cfg, "audit_max_bytes", 0) or 0))
 
     # -------------------------------------------------------------- durum ozet
     def status_line(self) -> str:

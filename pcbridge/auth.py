@@ -221,14 +221,14 @@ class SqliteOAuthProvider(OAuthProvider):
             )
 
     def audit(self, event: str, **fields: Any) -> None:
-        rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "event": event, **fields}
-        line = json.dumps(rec, ensure_ascii=False)
+        from . import auditing
+
+        line = auditing.record(event, fields)
         logger.info(line)
-        try:
-            with Path(self.cfg.audit_log).open("a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
-        except OSError:
-            pass
+        # The same writer as the desktop gate's, so the rotation at
+        # [limits] audit_max_bytes holds for these lines too.
+        auditing.write_line(Path(self.cfg.audit_log), line,
+                            int(getattr(self.cfg, "audit_max_bytes", 0) or 0))
 
     # ------------------------------------------------------- client kayitlari
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:

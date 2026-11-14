@@ -31,6 +31,8 @@ class FakeBackend(Backend):
         self.open = False
         self.calls: list[str] = []
         self.cfg = SimpleNamespace(
+            db_path=Path("/nowhere/oauth.db"), audit_log=Path("/nowhere/audit.log"),
+            jobs_dir=Path("/nowhere/jobs"), audit_max_bytes=5_000_000,
             desktop=SimpleNamespace(enabled=enabled, unlock_default_minutes=15, unlock_max_minutes=120,
                                     unlock_idle_seconds=90),
             tools_profile="core", source_path=Path("/nowhere/config.toml"), warnings=[],
@@ -81,6 +83,40 @@ class FakeBackend(Backend):
     def connected_remote(self, cfg):
         return 0
 
+    checks = [
+        {"group": "install", "name": "version", "status": "info", "detail": "pcbridge x", "fix": "",
+         "fixed": False, "fixable": False},
+        {"group": "daemon", "name": "pcbridge.service", "status": "warn",
+         "detail": "pcbridge.service differs from this version's unit", "fix": "pcbridge doctor --fix",
+         "fixed": False, "fixable": True},
+        {"group": "agents", "name": "tmux", "status": "warn", "detail": "missing (tmux tools)",
+         "fix": "sudo apt install tmux", "fixed": False, "fixable": False},
+    ] + [{"group": "config", "name": f"check {i}", "status": "ok", "detail": "fine", "fix": "",
+          "fixed": False, "fixable": False} for i in range(5)]
+
+    def doctor(self, only=None):
+        self.doctor_calls = getattr(self, "doctor_calls", [])
+        self.doctor_calls.append(f"doctor {only[1]}" if only else "doctor")
+        out = [dict(c) for c in self.checks]
+        if only:
+            for c in out:
+                if (c["group"], c["name"]) == only:
+                    c["fixed"] = True
+            self.checks = out
+        return out
+
+    def remote_apps(self, cfg):
+        return 2
+
+    def jobs(self, cfg, limit=40, only_running=False):
+        return list(getattr(self, "job_rows", []))
+
+    def audit_page(self, cfg, skip, count, keep=None):
+        rows = list(getattr(self, "audit_rows", []))
+        if keep is not None:
+            rows = [e for e in rows if keep(e)]
+        return rows[skip:skip + count], len(rows) > skip + count
+
 
 def run(coro):
     return asyncio.run(coro)
@@ -104,6 +140,19 @@ def screen_text(app) -> list[str]:
 def flat(app) -> str:
     """The screen's words with the wrapping and the box borders taken out."""
     return " ".join(" ".join(screen_text(app)).replace("│", " ").split())
+
+
+def words_of(node) -> str:
+    """The words a widget and its children show, wrapping taken out."""
+    from textual.widgets import Button, Static
+
+    parts = []
+    for w in [node, *node.query("*")]:
+        if isinstance(w, Button):
+            parts.append(str(w.label))
+        elif isinstance(w, Static):
+            parts.append(str(w.render()))
+    return " ".join(" ".join(parts).split())
 
 
 class FrameTests(unittest.TestCase):
@@ -178,7 +227,7 @@ class FrameTests(unittest.TestCase):
                 await pilot.press("l")
                 await pilot.pause()
                 self.assertIsInstance(app.screen, UnlockConfirm)
-                text = flat(app)
+                text = words_of(app.screen)
                 self.assertIn("Unlock desktop control?", text)
                 self.assertIn("It locks after 90 s without agent input, at the latest in 2 h.", text)
                 await pilot.click("#confirm-no")

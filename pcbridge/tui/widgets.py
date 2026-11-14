@@ -29,6 +29,12 @@ def key_label(label: str, key: str = "") -> Content:
     return out
 
 
+def set_kind(button: Button, kind: str = "") -> None:
+    """Make a button primary, danger, link, quiet or default, keeping its other classes."""
+    for k in ("primary", "danger", "link", "quiet"):
+        button.set_class(k == kind, k)
+
+
 def styled(text: str, token: str, bold: bool = False) -> Text:
     return Text(text, style=f"{'bold ' if bold else ''}{PALETTE[token]}")
 

@@ -185,8 +185,12 @@ def select(db: Path, selector: str) -> list[Registration]:
                       + hint)
 
 
-def revoke(db: Path, client_ids: list[str], audit_log: Path | None = None) -> RevokeResult:
-    """Delete these registrations and everything issued to them."""
+def revoke(db: Path, client_ids: list[str], audit_log: Path | None = None,
+           audit_max_bytes: int = 0) -> RevokeResult:
+    """Delete these registrations and everything issued to them.
+
+    The revocation is recorded in `audit_log`, rotated at `audit_max_bytes`.
+    """
     ids = list(dict.fromkeys(client_ids))
     if not ids or not Path(db).exists():
         return RevokeResult([], 0, 0, 0)
@@ -206,24 +210,21 @@ def revoke(db: Path, client_ids: list[str], audit_log: Path | None = None) -> Re
         refresh_tokens=counts.get("refresh_tokens", 0),
     )
     if audit_log is not None:
-        _audit(audit_log, "remote_client_revoked", names=result.names,
+        _audit(audit_log, "remote_client_revoked", audit_max_bytes, names=result.names,
                registrations=result.registrations, access_tokens=result.access_tokens,
                refresh_tokens=result.refresh_tokens)
     return result
 
 
-def revoke_all(db: Path, audit_log: Path | None = None) -> RevokeResult:
+def revoke_all(db: Path, audit_log: Path | None = None, audit_max_bytes: int = 0) -> RevokeResult:
     """Revoke every registered client, connected or not."""
-    return revoke(db, [r.client_id for r in registrations(db)], audit_log)
+    return revoke(db, [r.client_id for r in registrations(db)], audit_log, audit_max_bytes)
 
 
-def _audit(path: Path, event: str, **fields: Any) -> None:
-    rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "event": event, **fields}
-    try:
-        with Path(path).open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    except OSError:
-        pass
+def _audit(path: Path, event: str, max_bytes: int = 0, **fields: Any) -> None:
+    from . import auditing
+
+    auditing.write_line(path, auditing.record(event, fields), max_bytes)
 
 
 def describe_expiry(expires: float | None, now: float | None = None) -> str:

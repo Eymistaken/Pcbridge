@@ -36,6 +36,7 @@ class Check:
     detail: str
     fix: str = ""
     fixed: bool = False
+    fixable: bool = False   # `--fix` (or `fix_only`) repairs it unattended
 
 
 # Job records are never deleted by pcbridge; doctor warns above this size.
@@ -81,11 +82,19 @@ def _plaintext_leftovers(cfg) -> list[Path]:
 
 
 class Doctor:
-    def __init__(self, fix: bool = False) -> None:
+    def __init__(self, fix: bool = False, only: set[tuple[str, str]] | None = None) -> None:
+        """`only` limits `fix` to these (group, name) checks: the terminal UI's
+        "Fix this check" repairs one and checks everything again."""
         self.fix = fix
+        self.only = only
         self.checks: list[Check] = []
         self.backup = inst.Backup()
         self.cfg = None
+
+    def fixing(self, c: Check) -> bool:
+        """Marks `c` as one --fix can repair; True when this run repairs it."""
+        c.fixable = True
+        return self.fix and (self.only is None or (c.group, c.name) in self.only)
 
     def add(self, group: str, name: str, status: str, detail: str, fix: str = "") -> Check:
         c = Check(group, name, status, detail, fix)
@@ -102,7 +111,7 @@ class Doctor:
             self.add(g, "launcher", "ok", str(launcher))
         else:
             c = self.add(g, "launcher", "fail", f"{launcher} is missing", "pcbridge setup")
-            if self.fix:
+            if self.fixing(c):
                 inst.install_launchers(self.backup)
                 c.fixed = launcher.exists()
         on_path = shutil.which("pcbridge")
@@ -135,7 +144,7 @@ class Doctor:
             if mode & 0o077:
                 c = self.add(g, f"mode of {Path(path).name}", "fail", f"{path} is mode {mode:o}; it holds secrets",
                              f"chmod 600 {path}")
-                if self.fix:
+                if self.fixing(c):
                     os.chmod(path, 0o600)
                     c.fixed = True
             else:
@@ -157,7 +166,7 @@ class Doctor:
             c = self.add(g, "stored secrets", "fail",
                          f"{path} holds {' and '.join('auth.' + k for k in plain)} in plaintext",
                          "pcbridge doctor --fix  (the daemon also does it when it starts)")
-            if self.fix:
+            if self.fixing(c):
                 c.fixed = bool(hashing.harden_file(path))
         else:
             self.add(g, "stored secrets", "ok", "the password and static token are stored as hashes")
@@ -188,7 +197,7 @@ class Doctor:
                 else:
                     c = self.add(g, name, "ok", str(path))
                     continue
-                if self.fix:
+                if self.fixing(c):
                     inst.install_units(self.backup)
                     c.fixed = path.exists() and path.read_text() == want
         for name in inst.UNIT_NAMES:
@@ -215,7 +224,7 @@ class Doctor:
                      "" if status == "ok" else "the daemon restarts itself when idle; or: pcbridge update")
         elif sock.exists() and not inst.socket_active():
             c = self.add(g, "socket", "fail", f"{sock} exists but nothing listens (stale)", "pcbridge doctor --fix")
-            if self.fix:
+            if self.fixing(c):
                 sock.unlink(missing_ok=True)  # a dead socket inode, not user data
                 c.fixed = not sock.exists()
         else:
@@ -271,7 +280,7 @@ class Doctor:
                              f"pcbridge connect --client {client}")
             else:
                 c = self.add(g, client, "warn", f"runs {shlex.join(reg.command)}", f"pcbridge connect --client {client}")
-            if self.fix:
+            if self.fixing(c):
                 res = connectlib.connect([client], self.backup)
                 c.fixed = res[0][1] == "ok"
         # The optional clients: connected only on request, so "not connected"
@@ -284,7 +293,7 @@ class Doctor:
                 self.add(g, client, "ok", shlex.join(reg.command) + (f" ({reg.note})" if reg.note else ""))
             elif st == connectlib.OUTDATED:
                 c = self.add(g, client, "warn", f"runs {shlex.join(reg.command)}", f"pcbridge connect {client}")
-                if self.fix:
+                if self.fixing(c):
                     c.fixed = connectlib.connect([client], self.backup)[0][1] == "ok"
             elif st == connectlib.SWITCHED_OFF:
                 self.add(g, client, "info", "switched off; `pcbridge connect " + client + "` turns it on")

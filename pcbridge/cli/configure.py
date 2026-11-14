@@ -237,7 +237,7 @@ def _offer_revoke(path: Any, args: argparse.Namespace) -> None:
         else:
             inst.say("          `pcbridge remote revoke --all` ends them.")
     if revoke:
-        res = rc.revoke_all(cfg.db_path, cfg.audit_log)
+        res = rc.revoke_all(cfg.db_path, cfg.audit_log, cfg.audit_max_bytes)
         inst.ok(f"revoked every remote client: {res.registrations} registration(s), "
                 f"{res.refresh_tokens} refresh token(s)")
 

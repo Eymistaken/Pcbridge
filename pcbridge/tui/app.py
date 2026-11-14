@@ -16,7 +16,6 @@ from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.content import Content
 from textual.markup import escape
 from textual.screen import ModalScreen
 from textual.widgets import Button, OptionList, Static, TabbedContent, TabPane, Tabs
@@ -29,7 +28,7 @@ from .dialogs import Confirm, HelpScreen, ShowOnce, UnlockConfirm, copy_secret, 
 from .pane import while_mounted
 from .theme import CSS as THEME_CSS
 from .theme import PALETTE, THEME, css_variables
-from .widgets import key_label
+from .widgets import key_label, set_kind
 
 __all__ = ["Confirm", "PcbridgeApp", "ShowOnce", "copy_secret", "while_mounted"]
 
@@ -167,24 +166,41 @@ class KeyFooter(Static):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__("", **kwargs)
         self.entries: list[tuple[str, str, str]] = []
+        self._spans: list[tuple[int, int, str]] = []
 
     def set_entries(self, entries: list[tuple[str, str, str]]) -> None:
         self.entries = entries
         self.refresh()
 
-    @staticmethod
-    def _entry(key: str, label: str, action: str) -> str:
-        accent, muted = PALETTE["accent"], PALETTE["muted"]
-        if action.startswith("key:"):
-            action = f"app.pane_key({action[4:]!r})"
-        return (f"[@click={action}][b {accent}]{escape(key)}[/] [{muted}]{escape(label)}[/][/]")
+    def render(self) -> Text:
+        right = [("?", "Help", "app.help"), ("q", "Quit", "app.quit")]
+        width = self.size.width
+        right_len = sum(len(k) + len(lbl) + 1 for k, lbl, _ in right) + 2 * (len(right) - 1)
+        out = Text()
+        self._spans = []
 
-    def render(self) -> Content:
-        left = "  ".join(self._entry(*e) for e in self.entries)
-        right = "  ".join((self._entry("?", "Help", "app.help"), self._entry("q", "Quit", "app.quit")))
-        lc, rc = Content.from_markup(left), Content.from_markup(right)
-        pad = max(2, self.size.width - lc.cell_length - rc.cell_length)
-        return lc + Content(" " * pad) + rc
+        def add(entries: list[tuple[str, str, str]]) -> None:
+            for i, (key, label, action) in enumerate(entries):
+                if i:
+                    out.append("  ")
+                start = out.cell_len
+                out.append(key, style=f"bold {PALETTE['accent']}")
+                out.append(f" {label}", style=PALETTE["muted"])
+                self._spans.append((start, out.cell_len, action))
+
+        add(self.entries)
+        out.append(" " * max(2, width - out.cell_len - right_len))
+        add(right)
+        return out
+
+    async def on_click(self, event: events.Click) -> None:
+        for start, end, action in self._spans:
+            if start <= event.x - self.styles.padding.left < end:
+                if action.startswith("key:"):
+                    self.app.action_pane_key(action[4:])
+                else:
+                    await self.run_action(action)
+                return
 
 
 class DurationMenu(ModalScreen["int | None"]):
@@ -322,6 +338,7 @@ class PcbridgeApp(App):
                 tabbed.get_tab(tab).label = self._tab_label(i, short if narrow else label)
             self.refresh_grant()
             self._render_bar_daemon()
+            self._update_footer()
         self.call_after_refresh(self._update_more)
 
     @while_mounted
@@ -357,7 +374,7 @@ class PcbridgeApp(App):
         entries = list(getattr(pane, "FOOTER", []))
         if not any(key == "^p" for key, _l, _a in entries):
             entries.append(("^p", "Commands", "app.command_palette"))
-        if (self.active_tab() == "overview") and not any(k == "1-9" for k, _l, _a in entries):
+        if self.active_tab() == "overview" and not self.narrow:
             entries.append(("1-9", "Tabs", "app.help"))
         self.query_one(KeyFooter).set_entries(entries)
 
@@ -419,6 +436,32 @@ class PcbridgeApp(App):
         for pane in self.panes.values():
             pane.config_changed()
 
+    # -- saving from a task tab ----------------------------------------------------------
+
+    def apply_settings(self, changes: dict[str, Any]) -> bool:
+        """Save these settings at once (the task tabs: Desktop, Agents, Tools,
+        Remote): checked with the real loader and backed up, as Advanced saves.
+        A change that needs a restart raises the restart notice."""
+        from .. import settings as S
+
+        try:
+            ed = self.backend.editor()
+            for key, value in changes.items():
+                ed.set(key, value)
+            result = ed.save()
+        except (S.SettingsError, SystemExit, OSError) as exc:
+            self.notify(str(getattr(exc, "message", exc)), title="Nothing was saved",
+                        severity="error", timeout=12)
+            return False
+        if result.restart in (S.RESTART_DAEMON, S.RESTART_CLIENTS):
+            due = [k for k in result.changed if ed.setting(k).restart != S.RESTART_NONE]
+            self.note_restart_due(len(due), result.restart)
+        self.notify(f"Saved {', '.join(result.changed)}.", timeout=5)
+        self.reload_config()
+        self.refresh_grant()
+        self.load_status()
+        return True
+
     # -- the restart notice -------------------------------------------------------------
 
     def note_restart_due(self, count: int, level: str | None) -> None:
@@ -466,7 +509,7 @@ class PcbridgeApp(App):
             grant_text.update("Desktop: config error")
             grant_text.remove_class("open")
             button.label, button.disabled = "Config error", True
-            button.set_classes("")
+            set_kind(button, "")
             menu.display = False
             return
         self.grant = self.backend.grant_state(self.cfg)
@@ -482,7 +525,7 @@ class PcbridgeApp(App):
             grant_text.update(Text("◆ Desktop control off", style=PALETTE["muted"]))
             grant_text.remove_class("open")
             button.label, button.disabled = "Unlock", True
-            button.set_classes("primary")
+            set_kind(button, "primary")
             menu.display = False
             button.tooltip = "Turn it on in Desktop > Desktop control."
         elif g.open:
@@ -493,7 +536,7 @@ class PcbridgeApp(App):
             grant_text.add_class("open")
             button.label = key_label("Lock" if narrow else "Lock now", "l")
             button.disabled = False
-            button.set_classes("danger")
+            set_kind(button, "danger")
             menu.display = False
             button.tooltip = "Close desktop control and stop screen sharing (l)."
         else:
@@ -502,7 +545,7 @@ class PcbridgeApp(App):
             grant_text.remove_class("open")
             button.label = "Unlock" if narrow else f"Unlock {minutes_label(current)}"
             button.disabled = False
-            button.set_classes("primary")
+            set_kind(button, "primary")
             menu.display = True
             menu.disabled = False
             button.tooltip = "Let agents use the desktop for a while (l asks first)."

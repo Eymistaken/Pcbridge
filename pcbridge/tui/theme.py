@@ -196,6 +196,7 @@ Input:focus, Input:ansi:focus {
 DataTable, DataTable:ansi {
     background: ansi_default;
     scrollbar-size-vertical: 1;
+    scrollbar-size-horizontal: 0;
 }
 DataTable > .datatable--header, DataTable:ansi > .datatable--header {
     color: $pb-muted;

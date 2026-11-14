@@ -6,6 +6,7 @@ fake backend and never touch the machine's config, grant or daemon.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 
@@ -31,9 +32,87 @@ class Backend:
         return unlock(cfg, minutes, "opened in the pcbridge terminal UI", granted_by="pcbridge ui")
 
     def status(self) -> dict:
-        from ..cli.ops import status_data
+        """`pcbridge status` as data, plus what the Overview shows beside it."""
+        from ..cli.ops import runs_installed_code, status_data
 
-        return status_data()
+        info = status_data()
+        daemon = info.get("daemon") or {}
+        if daemon.get("pid"):
+            info["daemon_started"] = process_started(int(daemon["pid"]))
+            info["daemon_current"] = runs_installed_code(daemon)
+        return info
+
+    def remote_apps(self, cfg: Any) -> int:
+        """How many remote apps hold an unexpired token."""
+        from .. import remoteclients as rc
+
+        return len(rc.clients(cfg.db_path)) if cfg is not None else 0
+
+    def doctor(self, only: tuple[str, str] | None = None) -> list[dict]:
+        """Every doctor check; with `only`, that one check is repaired first."""
+        from dataclasses import asdict
+
+        from ..cli.doctor import Doctor
+
+        doc = Doctor(fix=only is not None, only={only} if only else None)
+        return [asdict(c) for c in doc.run_all()]
+
+    def jobs(self, cfg: Any, limit: int = 40, only_running: bool = False) -> list[dict]:
+        """Running and recent jobs, newest first, with the agent fields of meta.json."""
+        from ..jobs import JobManager
+
+        jm = JobManager(cfg.jobs_dir)
+        out = []
+        for j in jm.list_jobs(limit=limit, only_running=only_running):
+            try:
+                meta = jm.status(j["job_id"])
+            except Exception:  # noqa: BLE001 - a record being written
+                continue
+            out.append({"id": j["job_id"], "kind": j["kind"], "label": j["label"],
+                        "status": meta.get("status"), "exit_code": meta.get("exit_code"),
+                        "agent": meta.get("agent") or "", "model": meta.get("model") or "",
+                        "effort": meta.get("effort") or "", "cwd": meta.get("cwd") or "",
+                        "started": meta.get("started_at") or 0,
+                        "elapsed": meta.get("elapsed_seconds") or 0})
+        return out
+
+    def job_detail(self, cfg: Any, job_id: str, tail: int = 4000) -> dict:
+        """One job: its prompt, the tail of its output and its session id."""
+        from .. import jobs as jobslib
+
+        jm = jobslib.JobManager(cfg.jobs_dir)
+        st = jm.status(job_id)
+        log = jm.read_log(job_id)
+        parsed = jobslib.summarize(log, st.get("parser", "plain"))
+        clean = jobslib.strip_ansi(log)
+        return {"id": job_id, "status": st.get("status"), "exit_code": st.get("exit_code"),
+                "prompt": st.get("prompt") or st.get("label") or st.get("command") or "",
+                "cwd": st.get("cwd") or "", "started": st.get("started_at") or 0,
+                "elapsed": st.get("elapsed_seconds") or 0, "agent": st.get("agent") or "",
+                "model": st.get("model") or "", "session_id": parsed.get("session_id") or "",
+                "output": clean, "tail": clean[-tail:]}
+
+    def cancel_job(self, cfg: Any, job_id: str) -> str:
+        from ..jobs import JobManager
+
+        msg = JobManager(cfg.jobs_dir).cancel(job_id)
+        from ..auditing import append
+
+        append(cfg, "job_cancel", job=job_id, client="pcbridge ui")
+        return msg
+
+    def audit_page(self, cfg: Any, skip: int, count: int, keep: Any = None) -> tuple[list, bool]:
+        from . import auditlog
+
+        return auditlog.page(cfg.audit_log, skip, count, keep)
+
+    def native(self, cfg: Any) -> dict:
+        return native_info(cfg)
+
+    def audit_totals(self, cfg: Any) -> Any:
+        from . import auditlog
+
+        return auditlog.totals(cfg.audit_log)
 
     def restart(self, cfg: Any) -> str:
         from ..cli.ops import _restart_when_idle
@@ -163,10 +242,10 @@ class Backend:
         if cfg is None:
             raise RuntimeError("the config does not load")
         if name is None:
-            res = rc.revoke_all(cfg.db_path, cfg.audit_log)
+            res = rc.revoke_all(cfg.db_path, cfg.audit_log, cfg.audit_max_bytes)
         else:
             res = rc.revoke(cfg.db_path, [r.client_id for r in rc.select(cfg.db_path, name)],
-                            cfg.audit_log)
+                            cfg.audit_log, cfg.audit_max_bytes)
         return (f"Revoked {', '.join(res.names) or 'nothing'}: {res.registrations} registration(s), "
                 f"{res.refresh_tokens} refresh token(s).")
 
@@ -183,3 +262,46 @@ class Backend:
             note = " (git pull: " + ((res.stdout.strip().splitlines() or ["done"])[-1]) + ")"
         inst.write_version_stamp()
         return _restart_when_idle(cfg, 0) + note
+
+
+def process_started(pid: int) -> float | None:
+    """When a process started (epoch seconds), from /proc; None if unknown."""
+    try:
+        stat = open(f"/proc/{pid}/stat", encoding="ascii").read()
+        ticks = int(stat.rsplit(")", 1)[1].split()[19])
+        boot = next(float(line.split()[1]) for line in open("/proc/stat", encoding="ascii")
+                    if line.startswith("btime"))
+    except (OSError, ValueError, IndexError, StopIteration):
+        return None
+    import os
+
+    return boot + ticks / os.sysconf("SC_CLK_TCK")
+
+
+def native_info(cfg: Any) -> dict:
+    """The native helper's diagnostics, the session and the monitors (read-only)."""
+    from ..desktop import monitors, session
+    from ..native.diagnostics import diagnose
+
+    findings = []
+    for f in diagnose(cfg):
+        line = f.line() if hasattr(f, "line") else str(f)
+        level, _, text = line.partition("\t")
+        findings.append((level, text or line))
+    try:
+        kind = session.desktop_kind()
+        note = session.support_note()
+        stype = os.environ.get("XDG_SESSION_TYPE", "") or ("wayland" if os.environ.get("WAYLAND_DISPLAY")
+                                                            else "x11")
+        session_text = f"{kind} · {stype}" + (f" · {note}" if note else "")
+        session_ok = not note
+    except Exception as exc:  # noqa: BLE001
+        session_text, session_ok = str(exc), False
+    try:
+        mons = monitors.list_monitors()
+        names = ", ".join(f"{m.connector} {m.width}×{m.height}" for m in mons)
+        monitor_text = f"{len(mons)} · {names}"
+    except Exception as exc:  # noqa: BLE001
+        monitor_text = f"unknown ({exc})"[:80]
+    return {"findings": findings, "session": session_text, "session_ok": session_ok,
+            "monitors": monitor_text}
