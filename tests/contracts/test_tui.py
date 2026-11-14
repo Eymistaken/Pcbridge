@@ -167,12 +167,21 @@ def words_of(node) -> str:
     """The words a widget and its children show, wrapping taken out."""
     from textual.widgets import Button, Static
 
+    from rich.console import Console
+
     parts = []
     for w in [node, *node.query("*")]:
         if isinstance(w, Button):
             parts.append(str(w.label))
         elif isinstance(w, Static):
-            parts.append(str(w.render()))
+            visual = w.visual if hasattr(w, "visual") else w.render()
+            renderable = getattr(visual, "_renderable", visual)
+            if isinstance(renderable, str) or hasattr(renderable, "plain"):
+                parts.append(str(renderable))
+            else:
+                console = Console(width=500, record=True, file=open("/dev/null", "w"))
+                console.print(renderable)
+                parts.append(console.export_text())
     return " ".join(" ".join(parts).split())
 
 

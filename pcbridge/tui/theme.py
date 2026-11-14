@@ -86,6 +86,15 @@ Screen {
     background: ansi_default;
     color: $pb-text;
 }
+* {
+    scrollbar-color: $pb-rule;
+    scrollbar-color-hover: $pb-button-hover;
+    scrollbar-color-active: $pb-accent;
+    scrollbar-background: ansi_default;
+    scrollbar-background-hover: ansi_default;
+    scrollbar-background-active: ansi_default;
+    scrollbar-corner-color: ansi_default;
+}
 .hint, .dim {
     color: $pb-dim;
 }

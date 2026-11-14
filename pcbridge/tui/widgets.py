@@ -102,10 +102,11 @@ def styled(text: str, token: str, bold: bool = False) -> Text:
 class SectionTitle(Static):
     """A bold muted title followed by a rule to the right edge: `SERVICE ───`."""
 
-    def __init__(self, title: str, extra: str = "", **kwargs: Any) -> None:
+    def __init__(self, title: str, extra: str = "", upper: bool = True, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.title_text = title
         self.extra = extra
+        self.upper = upper
 
     def set(self, title: str | None = None, extra: str | None = None) -> None:
         if title is not None:
@@ -116,7 +117,8 @@ class SectionTitle(Static):
 
     def render(self) -> Text:
         out = Text()
-        out.append(self.title_text.upper(), style=f"bold {PALETTE['muted']}")
+        out.append(self.title_text.upper() if self.upper else self.title_text,
+                   style=f"bold {PALETTE['muted' if self.upper else 'text']}")
         if self.extra:
             out.append(f"  {self.extra}", style=PALETTE["dim"])
         out.append(" ")

@@ -195,6 +195,24 @@ class Backend:
             detail += f" (backup in {backup.root})"
         return status, detail
 
+    def connection_preview(self, client: str, connect: bool) -> tuple[str, str]:
+        """What connecting or disconnecting would write: (ok|plan|skip|warn, detail),
+        from `connect --dry-run`; nothing is changed."""
+        from ..cli import connect as c
+        from ..cli import install as inst
+
+        backup = inst.Backup()
+        results = (c.connect if connect else c.disconnect)([client], backup, dry_run=True)
+        _, status, detail = results[0]
+        return status, detail
+
+    def open_file(self, path: str) -> None:
+        """Open a client's config file in the desktop's default app."""
+        import subprocess
+
+        subprocess.Popen(["xdg-open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+
     def remote_clients(self, cfg: Any) -> dict:
         """The remote apps that hold tokens, and what the HTTP path offers."""
         import time
