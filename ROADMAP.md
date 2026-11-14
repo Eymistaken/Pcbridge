@@ -67,12 +67,14 @@ at the machine* checks, batched for a session at the machine.
   Decided with the maintainer (2026-11-09): the update covers every tab
   (Overview, Settings, Tools, Connections, Remote, Commands) and every
   dialog (the confirmation, the shown-once secret, the login password and
-  the remote password dialogs). The maintainer found many gaps across them;
-  they are not written down yet. Before work starts, go through each screen
-  with the maintainer and list its gaps here, one line each, so the work has
-  a checklist and nothing is fixed on a guess. The Overview's logo below is
-  one part of this update. Done when every listed gap is fixed and each
-  screen is checked at a normal and a narrow terminal width.
+  the remote password dialogs). The gaps, the decisions and the brief for
+  the visual design (done outside the repository) are in
+  [TUI_REDESIGN.md](TUI_REDESIGN.md), collected with the maintainer on
+  2026-11-14; the Tools and Connections tabs and the dialogs still need
+  their review there. The Overview's logo below is one part of this
+  update. Done when every gap listed there is fixed or dropped with the
+  reason, and each screen is checked at a normal and a narrow terminal
+  width.
 - **Responsive Overview with a live Pcbridge logo.** Part of the update
   above. Redesign the terminal
   UI's Overview around a centered Pcbridge logo at the top. At normal widths,
