@@ -4,6 +4,10 @@ Under the logo two columns (SERVICE beside HEALTH), then two more (JOBS
 beside RECENT ACTIVITY); at 80 columns everything stacks in one. Health is
 `pcbridge doctor` in a worker; a selected warning shows its explanation and,
 where doctor can repair it, Fix this check (that one check only).
+
+When a newer release is out the logo turns into a green arrow (the app
+checks at start, `PcbridgeApp.upgrade_phase`); the arrow or `u` installs
+it, the arrow shoots away, and "Restart to upgrade" takes its place.
 """
 
 from __future__ import annotations
@@ -59,6 +63,27 @@ OverviewPane #logo-reason {
     border: round $pb-rule;
     padding: 0 1;
     display: none;
+}
+OverviewPane #logo-restart-box {
+    width: auto;
+    height: auto;
+    align: center middle;
+    display: none;
+}
+OverviewPane #logo-restart {
+    background: #2f8a55;
+    color: #04140a;
+    text-style: bold;
+    border: none;
+    height: 3;
+    min-width: 24;
+}
+OverviewPane #logo-restart:hover {
+    background: #3aa366;
+}
+OverviewPane #logo-restart:disabled {
+    background: #27313b;
+    color: #8d99a6;
 }
 OverviewPane #logo-reason.shown {
     display: block;
@@ -200,7 +225,7 @@ def job_agent(job: dict) -> str:
 
 class OverviewPane(ScrollPane):
     FOOTER = [("l", "Lock/Unlock", "app.toggle_grant"), ("r", "Restart", "app.restart"),
-              ("u", "Update", "app.update"), ("f", "Fix", "key:f")]
+              ("u", "Upgrade", "app.upgrade"), ("f", "Fix", "key:f")]
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -224,6 +249,8 @@ class OverviewPane(ScrollPane):
         with Vertical(id="logo-area"):
             with Horizontal(id="logo-row"):
                 yield Logo("word", id="logo")
+                with Vertical(id="logo-restart-box"):
+                    yield Button(key_label("Restart to upgrade", "u"), id="logo-restart")
                 with Vertical(id="logo-side"):
                     yield Static("", id="logo-line-side")
                     yield Static("", id="logo-note")
@@ -242,7 +269,7 @@ class OverviewPane(ScrollPane):
                 with Horizontal(classes="svc-row", id="svc-update-row"):
                     yield Static("", classes="svc-label")
                     yield Static("", id="svc-update", classes="svc-value warn")
-                    yield Button(key_label("Update", "u"), id="svc-update-button", compact=True)
+                    yield Button("Load now", id="svc-update-button", compact=True)
                 with Horizontal(classes="svc-row"):
                     yield Static("Desktop", classes="svc-label")
                     yield Static("…", id="svc-desktop", classes="svc-value")
@@ -315,7 +342,40 @@ class OverviewPane(ScrollPane):
 
     # -- the logo -------------------------------------------------------------------
 
+    def _upgrade_line(self) -> Text | None:
+        """The logo line while an upgrade is offered or runs; None otherwise."""
+        app = self.app
+        phase = getattr(app, "upgrade_phase", "none")
+        rel = getattr(app, "upgrade_release", None)
+        spin = SPINNER[int(time.monotonic() * 10) % len(SPINNER)]
+        out = Text()
+        if phase == "available" and rel is not None:
+            out.append("upgrade available", style=f"bold {PALETTE['ok']}")
+            out.append(f" · {__version__} → {rel.version}", style=PALETTE["muted"])
+        elif phase == "installing":
+            out.append(f"{spin} ", style=PALETTE["working"])
+            out.append(app.upgrade_text)
+            if app.upgrade_pct is not None:
+                out.append(f"  {app.upgrade_pct}%", style=PALETTE["dim"])
+        elif phase == "installed" and rel is not None:
+            out.append(f"✓ {rel.version} is installed", style=PALETTE["ok"])
+            out.append(" · the daemon and this screen restart; jobs keep running", style=PALETTE["muted"])
+        elif phase == "finishing":
+            out.append(f"{spin} restarting", style=PALETTE["warning"])
+            out.append(f" · {app.upgrade_text}", style=PALETTE["muted"])
+        elif phase == "failed":
+            out.append(f"✕ upgrade failed: {app.upgrade_error}", style=PALETTE["error"])
+        elif phase == "done" and app.upgrade_note:
+            out.append(f"✓ upgraded to {app.upgrade_note.get('to')}", style=f"bold {PALETTE['ok']}")
+            out.append(f" · what's new: {app.upgrade_note.get('url', '')}", style=PALETTE["muted"])
+        else:
+            return None
+        return out
+
     def _logo_line(self) -> Text:
+        upgrade = self._upgrade_line()
+        if upgrade is not None:
+            return upgrade
         out = Text()
         if self.state == "active":
             running = [j for j in self.jobs if j.get("status") == "running"]
@@ -339,14 +399,19 @@ class OverviewPane(ScrollPane):
     def _render_logo_line(self) -> None:
         wide = self.app.size.width >= WIDE
         line = self._logo_line()
+        phase = getattr(self.app, "upgrade_phase", "none")
+        hints = {"none": "click the logo for the reason", "available": "click the arrow or press u",
+                 "failed": "press u to try again"}
+        hint = hints.get(phase, "")
         if wide:
-            line.append(" · click the logo for the reason", style=PALETTE["dim"])
+            if hint:
+                line.append(f" · {hint}", style=PALETTE["dim"])
             self.query_one("#logo-line", Static).update(line)
         else:
             self.query_one("#logo-line-side", Static).update(line)
-            self.query_one("#logo-note", Static).update(
-                f"{__version__} · below {WIDE} columns the wordmark gives way to the icon\n"
-                "click the icon for the reason")
+            note = (f"{__version__} · below {WIDE} columns the wordmark gives way to the icon\n"
+                    "click the icon for the reason") if phase == "none" else hint
+            self.query_one("#logo-note", Static).update(note)
 
     def _reason(self) -> Text:
         heads = {"idle": ("IDLE", "muted"), "active": ("ACTIVE", "working"),
@@ -382,6 +447,65 @@ class OverviewPane(ScrollPane):
             else:
                 out.append("Nothing is running, and no call is recorded yet.")
         return out
+
+    # -- the upgrade --------------------------------------------------------------------
+
+    @while_mounted
+    def upgrade_changed(self) -> None:
+        """The app's upgrade phase changed: the arrow, the button, the line."""
+        logo = self.query_one("#logo", Logo)
+        box = self.query_one("#logo-restart-box")
+        button = self.query_one("#logo-restart", Button)
+        phase = self.app.upgrade_phase
+        if phase in ("available", "failed"):
+            box.display = False
+            logo.display = True
+            if logo.upgrade not in ("morph", "arrow"):
+                logo.clear_upgrade()
+                logo.show_arrow()
+        elif phase == "installing":
+            box.display = False
+            logo.display = True
+            logo.set_fill(self.app.upgrade_fill)
+        elif phase in ("installed", "finishing"):
+            button.disabled = phase == "finishing"
+            button.label = "Restarting…" if phase == "finishing" else key_label("Restart to upgrade", "u")
+            if logo.display and logo.upgrade not in ("launch", "gone"):
+                logo.launch()
+                self.set_timer(0.9, self._show_restart)
+            elif not logo.display or logo.upgrade == "gone":
+                self._show_restart()
+        else:
+            box.display = False
+            logo.display = True
+            if logo.upgrade is not None:
+                logo.clear_upgrade()
+            if phase == "done":
+                logo.play("sparkle")
+        self.upgrade_line_changed()
+
+    @while_mounted
+    def _show_restart(self) -> None:
+        if self.app.upgrade_phase not in ("installed", "finishing"):
+            return
+        logo = self.query_one("#logo", Logo)
+        box = self.query_one("#logo-restart-box")
+        cols, rows = logo.cells
+        box.styles.width = cols
+        box.styles.height = rows
+        logo.display = False
+        box.display = True
+
+    def upgrade_line_changed(self) -> None:
+        self._render_logo_line()
+
+    @on(Logo.UpgradeClicked)
+    def _arrow_clicked(self) -> None:
+        self.app.action_upgrade()
+
+    @on(Button.Pressed, "#logo-restart")
+    def _restart_to_upgrade(self) -> None:
+        self.app.action_upgrade()
 
     @on(Logo.Clicked)
     def _logo_clicked(self) -> None:
@@ -608,7 +732,7 @@ class OverviewPane(ScrollPane):
         self.app.action_show_tab("remote")
 
     def press_u(self) -> None:
-        self.app.action_update()
+        self.app.action_upgrade()
 
     def load_clients(self) -> None:
         self._clients_worker()

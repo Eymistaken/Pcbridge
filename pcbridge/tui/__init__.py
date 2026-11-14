@@ -8,6 +8,7 @@ background and takes mouse clicks where the terminal reports them. Everything it
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 
@@ -29,5 +30,11 @@ def run(argv: list[str]) -> int:
     from .logo import query_terminal_background
 
     # Asked before Textual takes the terminal: the logo's glow blends over it.
-    PcbridgeApp(terminal_background=query_terminal_background()).run()
+    result = PcbridgeApp(terminal_background=query_terminal_background()).run()
+    if result == "reexec":
+        # "Restart to upgrade": the new version's code opens the UI again.
+        from ..upgrade import launcher
+
+        exe = launcher()
+        os.execv(exe, [exe])
     return 0

@@ -6,6 +6,11 @@ pixel is close to square. Wide terminals get the wordmark, narrow ones the
 terminal icon. The state (idle, active, error) tints the gray and adds a
 glow; a click plays one short reaction and shows the reason for the state.
 
+When a newer release is out the logo becomes the upgrade: its pixels flow
+into a green arrow with a black edge (`show_arrow`), which fills from the
+bottom while the upgrade installs (`set_fill`) and then shoots up and away
+(`launch`). A click on the arrow posts `UpgradeClicked`.
+
 The glow is cell backgrounds blended over a base: the terminal's own
 background when it answered OSC 11 at start, else a fixed dark base.
 """
@@ -64,6 +69,46 @@ def _word() -> list[str]:
 
 
 WORD = _word()
+
+# The upgrade arrow: K the black edge (so it shows on a green terminal too),
+# L the lit left side, G the green. One for the wordmark, one for the icon.
+ARROW = [
+    "........K........",
+    ".......KLK.......",
+    "......KLGGK......",
+    ".....KLGGGGK.....",
+    "....KLGGGGGGK....",
+    "...KLGGGGGGGGK...",
+    "..KLGGGGGGGGGGK..",
+    ".KLGGGGGGGGGGGGK.",
+    "KKKKKKLGGGGKKKKKK",
+    ".....KLGGGGK.....",
+    ".....KLGGGGK.....",
+    ".....KLGGGGK.....",
+    ".....KKKKKKK.....",
+]
+ARROW_SMALL = [
+    ".....K.....",
+    "....KLK....",
+    "...KLGGK...",
+    "..KLGGGGK..",
+    ".KLGGGGGGK.",
+    "KKKKLGGKKKK",
+    "...KLGGK...",
+    "...KLGGK...",
+    "...KLGGK...",
+    "...KKKKK...",
+]
+GREEN_TOP = (126, 226, 160)
+GREEN_BOTTOM = (52, 170, 98)
+GREEN_LIGHT = (196, 247, 212)
+GREEN_DIM = (31, 74, 48)           # not filled yet, while the upgrade installs
+GREEN_DIM_LIGHT = (44, 94, 61)
+GREEN_GLOW = (98, 208, 138)
+EDGE = (0, 0, 0)
+MORPH_S = 1.3                      # letters to arrow
+LAUNCH_S = 0.8                     # the arrow shoots up and away
+BOB_S = 0.7                        # the arrow moves half a cell up and down
 
 # (margin left, right, top, bottom) in pixels, for the glow.
 MARGINS = {"word": (3, 3, 3, 2), "icon": (3, 3, 3, 3)}
@@ -176,6 +221,9 @@ class Logo(Widget):
     class Clicked(Message):
         """The logo was clicked while no reaction played: toggle the reason."""
 
+    class UpgradeClicked(Message):
+        """The upgrade arrow was clicked (or Enter/space while it had focus)."""
+
     def __init__(self, glyph: str = "word", state: str = "idle", base: RGB | None = None,
                  seed: int | None = None, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -191,6 +239,13 @@ class Logo(Widget):
         self._rng = random.Random(seed)
         self._sparkles: set[tuple[int, int]] = set()
         self._sparkle_at = -1.0
+        # The upgrade: None, "morph", "arrow", "fill", "launch" or "gone".
+        self.upgrade: str | None = None
+        self.fill = 0.0
+        self.bob = 0
+        self._u_started = 0.0
+        self._u_timer: Any = None
+        self._bob_timer: Any = None
         self._layout()
 
     # -- geometry ----------------------------------------------------------------
@@ -215,6 +270,31 @@ class Logo(Widget):
                     d = max(abs(dx), abs(dy))
                     if d and (p not in self.ring or d < self.ring[p]):
                         self.ring[p] = d
+        self._arrow_layout()
+
+    def _arrow_layout(self) -> None:
+        """Where the arrow's pixels go on this glyph's canvas, and which
+        letter pixel flows to which arrow pixel (left to right, top down)."""
+        bitmap = ARROW if self.glyph == "word" else ARROW_SMALL
+        aw, ah = len(bitmap[0]), len(bitmap)
+        x0 = (self.pw - aw) // 2
+        y0 = 0 if self.glyph == "word" else (self.ph - ah) // 2
+        self.arrow_h = ah
+        self.arrow: dict[tuple[int, int], tuple[str, int]] = {
+            (x + x0, y + y0): (ch, y) for y, row in enumerate(bitmap) for x, ch in enumerate(row) if ch != "."}
+        src = sorted(self.on)
+        tgt = sorted(self.arrow)
+        self.pairs = [(s, tgt[i * len(tgt) // len(src)]) for i, s in enumerate(src)]
+        self.arrow_ring: dict[tuple[int, int], int] = {}
+        for (x, y) in self.arrow:
+            for dy in range(-2, 3):
+                for dx in range(-2, 3):
+                    p = (x + dx, y + dy)
+                    if p in self.arrow or not (0 <= p[0] < self.pw and 0 <= p[1] < self.ph + 1):
+                        continue
+                    d = max(abs(dx), abs(dy))
+                    if d and (p not in self.arrow_ring or d < self.arrow_ring[p]):
+                        self.arrow_ring[p] = d
 
     @property
     def cells(self) -> tuple[int, int]:
@@ -240,8 +320,54 @@ class Logo(Widget):
 
     # -- pixel colors ------------------------------------------------------------
 
+    def letter_color(self, x: int, y: int) -> RGB:
+        st = STATES[self.state]
+        color = mix(st["left"], st["right"], (x - self.ml) / max(1, self.bw - 1))
+        return mix(color, BOTTOM, 0.16 * (y - self.mt) / max(1, self.bh - 1))
+
+    def arrow_color(self, kind: str, row: int, lit: bool = True) -> RGB:
+        if kind == "K":
+            return EDGE
+        if not lit:
+            return GREEN_DIM_LIGHT if kind == "L" else GREEN_DIM
+        color = GREEN_LIGHT if kind == "L" else mix(GREEN_TOP, GREEN_BOTTOM, row / max(1, self.arrow_h - 1))
+        return mix(color, WHITE, 0.18) if self.hover else color
+
+    def _upgrade_pixels(self) -> dict[tuple[int, int], RGB]:
+        mode = self.upgrade
+        out: dict[tuple[int, int], RGB] = {}
+        if mode == "gone":
+            return out
+        if mode == "morph":
+            k = self.progress
+            span = max(1, self.bw - 1)
+            for (sx, sy), (tx, ty) in self.pairs:
+                m = max(0.0, min(1.0, (k - 0.45 * (sx - self.ml) / span) / 0.55))
+                m = m * m * (3 - 2 * m)   # ease in and out
+                kind, row = self.arrow[(tx, ty)]
+                pos = (round(sx + (tx - sx) * m), round(sy + (ty - sy) * m))
+                out[pos] = mix(self.letter_color(sx, sy), self.arrow_color(kind, row), m)
+            return out
+        dy = self.bob if mode == "arrow" else 0
+        if mode == "launch":
+            dy = -round(self.progress ** 2 * (self.ph + 4))
+        threshold = (1 - self.fill) * (self.arrow_h - 1)
+        for (x, y), (kind, row) in self.arrow.items():
+            lit = mode != "fill" or row >= threshold
+            if y + dy >= 0:
+                out[(x, y + dy)] = self.arrow_color(kind, row, lit)
+        if mode == "arrow":
+            rings = (0.42, 0.18) if self.hover else (0.32, 0.12)
+            for (x, y), d in self.arrow_ring.items():
+                target = (x, y + dy)
+                if target not in out and target[1] >= 0:
+                    out[target] = mix(self.base, GREEN_GLOW, rings[d - 1])
+        return out
+
     def pixels(self) -> dict[tuple[int, int], RGB]:
         """The color of every lit pixel at the current frame; unlit ones are absent."""
+        if self.upgrade is not None:
+            return self._upgrade_pixels()
         st = STATES[self.state]
         p = self.progress if self.reaction else 0.0
         env = math.sin(math.pi * p) if self.reaction else 0.0
@@ -331,7 +457,95 @@ class Logo(Widget):
 
     def on_click(self, event: events.Click) -> None:
         event.stop()
+        if self.upgrade == "arrow":
+            self.post_message(self.UpgradeClicked())
+            return
+        if self.upgrade is not None:
+            return
         self.click()
+
+    # -- the upgrade arrow ----------------------------------------------------------
+
+    def _motion(self) -> bool:
+        try:
+            return self.app.animation_level != "none"
+        except Exception:  # noqa: BLE001 - not mounted (tests)
+            return False
+
+    def _stop_upgrade_timers(self) -> None:
+        for name in ("_u_timer", "_bob_timer"):
+            timer = getattr(self, name)
+            if timer is not None:
+                timer.stop()
+                setattr(self, name, None)
+
+    def show_arrow(self) -> None:
+        """Turn the letters into the arrow (at once without motion)."""
+        if self.upgrade in ("morph", "arrow"):
+            return
+        self.finish()
+        self._stop_upgrade_timers()
+        self.fill = 0.0
+        if self._motion():
+            self.upgrade = "morph"
+            self.progress = 0.0
+            self._u_started = time.monotonic()
+            self._u_timer = self.set_interval(1 / FPS, self._upgrade_tick)
+        else:
+            self.upgrade = "arrow"
+        self.refresh()
+
+    def _arrow_rests(self) -> None:
+        self.upgrade = "arrow"
+        self.progress = 0.0
+        self.bob = 0
+        if self._motion():
+            self._bob_timer = self.set_interval(BOB_S, self._bob_tick)
+
+    def _bob_tick(self) -> None:
+        self.bob = 1 - self.bob
+        self.refresh()
+
+    def set_fill(self, fraction: float) -> None:
+        """The arrow fills from the bottom while the upgrade installs."""
+        self._stop_upgrade_timers()
+        self.upgrade = "fill"
+        self.bob = 0
+        self.fill = max(0.0, min(1.0, fraction))
+        self.refresh()
+
+    def launch(self) -> None:
+        """The arrow shoots up and is gone."""
+        self._stop_upgrade_timers()
+        self.fill = 1.0
+        if self._motion():
+            self.upgrade = "launch"
+            self.progress = 0.0
+            self._u_started = time.monotonic()
+            self._u_timer = self.set_interval(1 / FPS, self._upgrade_tick)
+        else:
+            self.upgrade = "gone"
+        self.refresh()
+
+    def clear_upgrade(self) -> None:
+        """Back to the letters."""
+        self._stop_upgrade_timers()
+        self.upgrade = None
+        self.progress = 0.0
+        self.bob = 0
+        self.refresh()
+
+    def _upgrade_tick(self) -> None:
+        length = MORPH_S if self.upgrade == "morph" else LAUNCH_S
+        self.progress = min(1.0, (time.monotonic() - self._u_started) / length)
+        if self.progress >= 1.0:
+            self._stop_upgrade_timers()
+            if self.upgrade == "morph":
+                self._arrow_rests()
+            else:
+                self.upgrade = "gone"
+                self.progress = 0.0
+        self.refresh()
 
     def click(self) -> bool:
         """Play one reaction and toggle the reason; ignored while a reaction runs."""

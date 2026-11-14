@@ -1,5 +1,42 @@
 # Changelog
 
+## 2.10.1 - 2026-11-15
+
+### Added
+
+- **`pcbridge upgrade`.** Upgrading used to mean running the install script
+  again or downloading a package by hand. `pcbridge upgrade` asks GitHub
+  for the latest release, downloads what this installation needs, checks
+  it against the release's `sha256sums.txt`, and installs it the way
+  pcbridge was installed: the wheel into the user install's venv, the
+  `.deb` or Arch package for this system through sudo, or `git pull` for a
+  checkout. Then it runs the new version's setup, which refreshes the
+  service, launchers and desktop extension and restarts the daemon once no
+  job runs and the desktop grant is closed. Settings and client
+  connections are left alone. `--check` only asks (exit code 10 when a
+  newer release is out), and `pcbridge status` adds one line about it.
+- **The logo becomes the upgrade.** The terminal UI checks for a newer
+  release each time it opens, in the background and for three seconds at
+  most; without a network nothing is shown. When one is out, the
+  Overview's logo flows letter by letter into a green arrow with a black
+  edge, so it stays visible on a green or light terminal, and the bar
+  shows `↑ <version> available` on every tab. A click on the arrow, or
+  `u`, installs the release while the arrow fills from the bottom. The
+  arrow then shoots away and **Restart to upgrade** takes its place; it
+  restarts the daemon and opens the terminal UI again in the new version,
+  which says what it was upgraded to. On a package install the terminal is
+  handed back for sudo's password, as setup does. Below 96 columns the
+  icon turns into a smaller arrow. `TEXTUAL_ANIMATIONS=none` skips the
+  motion, and `PCBRIDGE_NO_UPGRADE_CHECK=1` turns the check off.
+
+### Changed
+
+- **Upgrade, not update.** `pcbridge update` keeps its old meaning, loading
+  code that is already installed into the daemon, so everything about
+  getting a new release says "upgrade" instead. Key `u` on the Overview
+  now upgrades, and the Overview's button for loading installed code is
+  called Load now.
+
 ## 2.10.0 - 2026-11-15
 
 ### Changed

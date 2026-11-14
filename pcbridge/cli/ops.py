@@ -127,6 +127,11 @@ def status(argv: list[str]) -> int:
         inst.ok(f"remote tunnel: {out['remote_tunnel']}")
         fine, text = describe_keep_awake(out["keep_awake"])
         (inst.ok if fine else inst.warn)(f"keep awake: {text}")
+    from .upgradecmd import status_line
+
+    line = status_line()
+    if line is not None:
+        (inst.ok if line[0] == "ok" else inst.warn)(line[1])
     return 0
 
 

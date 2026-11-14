@@ -89,6 +89,16 @@ at the machine* checks, batched for a session at the machine.
   a terminal print the steps as before. Left for a person at the machine:
   a first install on an unsupported desktop and on Arch (the PATH offer),
   in a VM.
+- ~~**Upgrade from the terminal UI and `pcbridge upgrade`.**~~ Done
+  (2.10.1): the terminal UI checks GitHub for a newer release when it
+  opens; the Overview's logo then flows into a green arrow with a black
+  edge, which installs the release on a click or `u` (filling from the
+  bottom), shoots away, and leaves **Restart to upgrade**, which runs the
+  new version's setup and opens the terminal UI again in the new version.
+  `pcbridge upgrade` does the same in a terminal or script. Each word says
+  "upgrade", since `pcbridge update` only loads installed code. Left for a
+  person at the machine: the first real upgrade from a published release
+  (2.10.1 to the next), and the `.deb` and Arch paths on their systems.
 - ~~**Offer to put `~/.local/bin` on PATH.**~~ Done (2.9.4), with the
   installer above: setup says why in plain words and offers to add the
   line to the login shell's file (`~/.bashrc`, `~/.zshrc`, or a

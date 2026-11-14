@@ -53,7 +53,7 @@ class OverviewTests(unittest.TestCase):
             self.assertEqual(app.query_one(Logo).glyph, "word")
             self.assertIn("idle · listening, nothing running · click the logo for the reason", text)
             footer = screen_text(app)[-1]
-            self.assertIn("l Lock/Unlock  r Restart  u Update  f Fix  ^p Commands  1-9 Tabs", footer)
+            self.assertIn("l Lock/Unlock  r Restart  u Upgrade  f Fix  ^p Commands  1-9 Tabs", footer)
 
         run(FakeBackend(), body)
 

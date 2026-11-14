@@ -6,3 +6,8 @@ import os
 if os.environ.get("PCBRIDGE_TEST_CAPTURE") != "1":
     os.environ["XDG_CURRENT_DESKTOP"] = "GNOME"
     os.environ.pop("HYPRLAND_INSTANCE_SIGNATURE", None)
+
+import os
+
+# No test asks GitHub for a newer release.
+os.environ["PCBRIDGE_NO_UPGRADE_CHECK"] = "1"

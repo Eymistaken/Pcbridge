@@ -1,14 +1,17 @@
 """The terminal UI's frame: the bar, the nine tabs and the footer.
 
-The bar at the top is on every tab: the daemon, the tunnel, the desktop
-grant with its countdown, and the grant's button (key `l`) with the
-duration menu. Slow work (lock, unlock, restart, status) runs in worker
+The bar at the top is on every tab: the daemon, the tunnel, a green badge
+when a newer release is out, the desktop grant with its countdown, and the
+grant's button (key `l`) with the duration menu. Slow work (lock, unlock, restart, status) runs in worker
 threads so the screen never freezes. The palette is our own
 (`theme.py`); the background stays the terminal's.
 """
 
 from __future__ import annotations
 
+import shlex
+import subprocess
+import sys
 from typing import Any
 
 from rich.text import Text
@@ -49,6 +52,9 @@ TABS = [
 # Below this width the bar and the tabs shorten (the narrow layout).
 NARROW = 100
 
+# Upgrade phases in which nothing is offered (no badge, a plain footer key).
+UPGRADE_QUIET = ("none", "done")
+
 # Keys a tab may claim; the app hands each to the active tab (`Pane.FOOTER`).
 PANE_KEYS = ["u", "f", "c", "o", "d", "t", "y", "p", "x", "k", "g", "a", "v", "slash", "space",
              "ctrl+s", "ctrl+z", "pageup", "pagedown"]
@@ -71,6 +77,17 @@ CSS = THEME_CSS + WIDGET_CSS + DIALOG_CSS + """
 #bar Button {
     width: auto;
     min-width: 0;
+}
+#bar #bar-upgrade {
+    background: #2f8a55;
+    color: #04140a;
+    text-style: bold;
+    padding: 0 1;
+    margin-right: 2;
+    display: none;
+}
+#bar #bar-upgrade.shown {
+    display: block;
 }
 #bar-grant.open {
     color: $pb-warning;
@@ -154,10 +171,19 @@ class GrantBar(Horizontal):
         yield Static("", id="bar-title")
         yield Static("● daemon …", id="bar-daemon")
         yield Static("", id="bar-remote")
+        yield UpgradeBadge("", id="bar-upgrade")
         yield Static("", id="bar-fill")
         yield Static("Desktop: …", id="bar-grant")
         yield Button("…", id="grant-button", compact=True, disabled=True)
         yield Button("▾", id="grant-menu", compact=True, classes="primary")
+
+
+class UpgradeBadge(Static):
+    """`↑ 2.10.1 available` in the bar; a click shows the Overview's arrow."""
+
+    def on_click(self, event: events.Click) -> None:
+        event.stop()
+        self.app.action_show_tab("overview")
 
 
 class KeyFooter(Static):
@@ -185,8 +211,9 @@ class KeyFooter(Static):
                 if i:
                     out.append("  ")
                 start = out.cell_len
-                out.append(key, style=f"bold {PALETTE['accent']}")
-                out.append(f" {label}", style=PALETTE["muted"])
+                green = action == "app.upgrade" and getattr(self.app, "upgrade_phase", "none") not in UPGRADE_QUIET
+                out.append(key, style=f"bold {PALETTE['ok' if green else 'accent']}")
+                out.append(f" {label}", style=PALETTE["ok" if green else "muted"])
                 self._spans.append((start, out.cell_len, action))
 
         add(self.entries)
@@ -291,6 +318,16 @@ class PcbridgeApp(App):
         self.restart_pid: Any = None             # the daemon's pid when they were saved
         self.panes: dict[str, Any] = {}
         self.narrow = False
+        # The upgrade (`pcbridge.upgrade`): "none", "available", "installing",
+        # "installed", "finishing", "failed" or "done" (just upgraded).
+        self.upgrade_phase = "none"
+        self.upgrade_release: Any = None
+        self.upgrade_text = ""
+        self.upgrade_fill = 0.0
+        self.upgrade_pct: int | None = None
+        self.upgrade_error = ""
+        self.upgrade_note: dict | None = None
+        self._upgrade_spin: Any = None
 
     def get_css_variables(self) -> dict[str, str]:
         return {**super().get_css_variables(), **css_variables()}
@@ -332,6 +369,15 @@ class PcbridgeApp(App):
         self.load_status()
         self.set_interval(10.0, self.load_status)
         self._update_footer()
+        from .. import upgrade as up
+
+        self.upgrade_note = up.take_marker()
+        if self.upgrade_note is not None:
+            self.upgrade_phase = "done"
+            self.set_timer(0.3, self._upgrade_changed)
+            self.set_timer(90.0, self._upgrade_note_gone)
+        else:
+            self.set_timer(0.8, self._upgrade_check)
 
     def on_resize(self, event: events.Resize) -> None:
         narrow = event.size.width < NARROW
@@ -376,7 +422,8 @@ class PcbridgeApp(App):
     @while_mounted
     def _update_footer(self) -> None:
         pane = self.active_pane()
-        entries = list(getattr(pane, "FOOTER", []))
+        entries = [(k, self.upgrade_label() if a == "app.upgrade" else label, a)
+                   for k, label, a in getattr(pane, "FOOTER", [])]
         if not any(key == "^p" for key, _l, _a in entries):
             entries.append(("^p", "Commands", "app.commands"))
         if self.active_tab() == "overview" and not self.narrow:
@@ -710,6 +757,7 @@ class PcbridgeApp(App):
         text = Text("● ", style=PALETTE["ok" if running else "error"])
         text.append(word if self.narrow else f"daemon {word}")
         self.query_one("#bar-daemon", Static).update(text)
+        self._render_upgrade_badge()
         tunnel = self.status_info.get("remote_tunnel") == "open"
         remote = self.query_one("#bar-remote", Static)
         remote.update(Text("◉ remote" if self.narrow else "◉ remote open", style=PALETTE["warning"])
@@ -758,6 +806,195 @@ class PcbridgeApp(App):
             f"Load pcbridge {__version__} into the daemon?\n\nThe daemon restarts into the "
             "installed code when no job runs and the desktop grant is closed. "
             f"{self._jobs_note()}", yes="Update"), answer)
+
+    # -- upgrade (the logo's arrow, the bar's badge, key u on the Overview) --------------
+
+    def upgrade_label(self) -> str:
+        rel = self.upgrade_release
+        return {"available": f"Upgrade to {rel.version}" if rel else "Upgrade",
+                "failed": "Try the upgrade again", "installing": "Upgrading…",
+                "installed": "Restart to upgrade", "finishing": "Restarting…"}.get(self.upgrade_phase, "Upgrade")
+
+    @work(thread=True, exclusive=True, group="upgrade-check")
+    def _upgrade_check(self, manual: bool = False) -> None:
+        from .. import upgrade as up
+
+        status = up.check(timeout=10 if manual else up.CHECK_TIMEOUT, use_cache=not manual)
+        self.post(self._upgrade_checked, status, manual)
+
+    def _upgrade_checked(self, status: Any, manual: bool) -> None:
+        if self.upgrade_phase not in UPGRADE_QUIET:
+            return
+        if status.available:
+            self.upgrade_release = status.release
+            self.upgrade_phase = "available"
+            self._upgrade_changed()
+        elif manual:
+            if status.error:
+                self.notify(f"Could not check for a newer release: {status.error}", severity="warning")
+            else:
+                self.notify(f"pcbridge {__version__} is the latest release.")
+
+    def _upgrade_note_gone(self) -> None:
+        if self.upgrade_phase == "done":
+            self.upgrade_phase = "none"
+            self._upgrade_changed()
+
+    def _upgrade_changed(self) -> None:
+        """Tell the bar, the footer and the Overview what the upgrade does now."""
+        busy = self.upgrade_phase in ("installing", "finishing")
+        if busy and self._upgrade_spin is None:
+            self._upgrade_spin = self.set_interval(0.12, self._upgrade_spin_tick)
+        elif not busy and self._upgrade_spin is not None:
+            self._upgrade_spin.stop()
+            self._upgrade_spin = None
+        self._render_upgrade_badge()
+        self._update_footer()
+        pane = self.panes.get("overview")
+        if pane is not None:
+            pane.upgrade_changed()
+
+    def _upgrade_spin_tick(self) -> None:
+        pane = self.panes.get("overview")
+        if pane is not None:
+            pane.upgrade_line_changed()
+
+    @while_mounted
+    def _render_upgrade_badge(self) -> None:
+        badge = self.query_one("#bar-upgrade", UpgradeBadge)
+        rel = self.upgrade_release
+        phase = self.upgrade_phase
+        shown = phase not in UPGRADE_QUIET and rel is not None
+        badge.set_class(shown, "shown")
+        if not shown:
+            return
+        if phase in ("installed", "finishing"):
+            text = "↑ restart" if self.narrow else "↑ restart to upgrade"
+        elif phase == "installing":
+            text = "↑ upgrading" if self.narrow else f"↑ upgrading to {rel.version}"
+        else:
+            text = f"↑ {rel.version}" if self.narrow else f"↑ {rel.version} available"
+        badge.update(text)
+
+    def action_upgrade(self) -> None:
+        phase = self.upgrade_phase
+        if phase in ("available", "failed"):
+            self._start_upgrade()
+        elif phase == "installed":
+            self._finish_upgrade()
+        elif phase in ("installing", "finishing"):
+            self.notify("The upgrade is already running.")
+        else:
+            self.notify("Checking for a newer release…")
+            self._upgrade_check(True)
+
+    def _start_upgrade(self) -> None:
+        if self.upgrade_release is None:
+            return
+        self.upgrade_phase = "installing"
+        self.upgrade_text = f"downloading pcbridge {self.upgrade_release.version}"
+        self.upgrade_fill, self.upgrade_pct, self.upgrade_error = 0.0, 0, ""
+        self._upgrade_changed()
+        self._upgrade_worker()
+
+    @work(thread=True, exclusive=True, group="upgrade")
+    def _upgrade_worker(self) -> None:
+        from .. import upgrade as up
+        from ..cli import install as inst
+
+        def sink(kind: str, msg: str) -> None:
+            msg = msg.strip()
+            if msg and kind in ("say", "ok", "warn", "fail", "out"):
+                self.post(self._upgrade_line, kind, msg)
+
+        def progress(done: int, total: int) -> None:
+            if total:
+                self.post(self._upgrade_progress, done / total)
+
+        inst.set_sink(sink)
+        inst.sudo_prompt = self._sudo_from_thread
+        try:
+            up.install(self.upgrade_release, progress=progress)
+        except up.UpgradeError as exc:
+            self.post(self._upgrade_failed, str(exc))
+        except Exception as exc:  # noqa: BLE001 - shown, not lost
+            self.post(self._upgrade_failed, f"{type(exc).__name__}: {exc}")
+        else:
+            self.post(self._upgrade_installed)
+        finally:
+            inst.set_sink(None)
+            inst.sudo_prompt = None
+
+    def _upgrade_progress(self, fraction: float) -> None:
+        if self.upgrade_phase != "installing":
+            return
+        self.upgrade_pct = int(fraction * 100)
+        self.upgrade_fill = 0.65 * fraction
+        self._upgrade_changed()
+
+    def _upgrade_line(self, kind: str, msg: str) -> None:
+        if self.upgrade_phase == "installing":
+            self.upgrade_pct = None
+            if msg.startswith("downloaded"):
+                self.upgrade_fill = max(self.upgrade_fill, 0.7)
+                msg = f"installing pcbridge {self.upgrade_release.version}"
+            elif msg.startswith("installed"):
+                self.upgrade_fill = 0.95
+            self.upgrade_text = msg
+            self._upgrade_changed()
+        elif self.upgrade_phase == "finishing":
+            self.upgrade_text = msg
+            pane = self.panes.get("overview")
+            if pane is not None:
+                pane.upgrade_line_changed()
+
+    def _upgrade_installed(self) -> None:
+        self.upgrade_phase = "installed"
+        self.upgrade_fill, self.upgrade_pct = 1.0, None
+        self._upgrade_changed()
+
+    def _upgrade_failed(self, error: str) -> None:
+        self.upgrade_phase = "failed"
+        self.upgrade_error = error
+        self.upgrade_pct = None
+        self._upgrade_changed()
+        self.notify(f"The upgrade failed: {error}", severity="error", timeout=15)
+
+    def _finish_upgrade(self) -> None:
+        self.upgrade_phase = "finishing"
+        self.upgrade_text = "starting the new version's setup"
+        self._upgrade_changed()
+        self._finish_worker()
+
+    @work(thread=True, exclusive=True, group="upgrade")
+    def _finish_worker(self) -> None:
+        from .. import upgrade as up
+
+        rel = self.upgrade_release
+        ok, daemon = up.finish(0, line=lambda text: self.post(self._upgrade_line, "out", text))
+        if ok:
+            up.write_marker(__version__, rel.version, rel.url)
+            self.post(self.exit, "reexec")
+        else:
+            self.post(self._finish_failed, daemon)
+
+    def _finish_failed(self, error: str) -> None:
+        self.upgrade_phase = "installed"
+        self._upgrade_changed()
+        self.notify(f"Restarting into the new version failed: {error}", severity="error", timeout=15)
+
+    def _sudo_from_thread(self, argv: list[str]) -> bool:
+        return bool(self.call_from_thread(self.ask_sudo, argv))
+
+    def ask_sudo(self, argv: list[str]) -> bool:
+        """Hand the terminal back for sudo's password; pcbridge never sees it."""
+        out = sys.__stdout__
+        with self.suspend():
+            out.write("\npcbridge upgrade: sudo asks for your password to run\n\n    "
+                      + shlex.join(argv) + "\n\npcbridge never sees the password; the terminal UI "
+                      "comes back right after.\n\n")
+            out.flush()
+            return subprocess.run(["sudo", "-v"], check=False).returncode == 0
 
     @work(thread=True, exclusive=True, group="restart")
     def _restart_worker(self, update: bool) -> None:

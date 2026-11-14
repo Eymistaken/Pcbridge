@@ -39,6 +39,7 @@ pcbridge clients | connect NAME | disconnect NAME   # which MCP clients use pcbr
 pcbridge status                         # daemon, grant, jobs, tunnel
 pcbridge doctor [--json] [--fix]        # every check, with the fix
 pcbridge logs -f                        # the daemon's journal
+pcbridge upgrade [--check]              # the latest release: checked, installed, daemon restarted when idle
 pcbridge update                         # restart into the installed/pulled code when idle
 pcbridge stop [--keep-jobs]             # stops the daemon AND running jobs by default
 pcbridge lock                           # kill switch (alias bridgekilit)

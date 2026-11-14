@@ -150,7 +150,9 @@ palette over the terminal's background, mouse and keyboard.
   on every tab. Its button unlocks (with a duration menu) or locks; `l`
   locks at once and asks before it unlocks.
 - **Overview** opens on a live logo that glows while agents work and turns
-  red after a refused call, then the service, `pcbridge doctor`'s health
+  red after a refused call; when a newer release is out it becomes a green
+  arrow that upgrades pcbridge on a click (`pcbridge upgrade` does the same
+  in a script). Then the service, `pcbridge doctor`'s health
   with a fix per check, the running jobs and the latest activity.
 - **Desktop**, **Agents & Jobs**, **Connections**, **Remote** and **Tools**
   hold the everyday switches and lists: the grant and desktop control, the
@@ -172,7 +174,7 @@ palette over the terminal's background, mouse and keyboard.
 
 | | |
 |---|---|
-| [docs/install.md](docs/install.md) | Install, update, remote access |
+| [docs/install.md](docs/install.md) | Install, upgrade, remote access |
 | [docs/usage.md](docs/usage.md) | The 40 tools, which need the grant, how to drive the screen; the terminal UI and every command |
 | [docs/configuration.md](docs/configuration.md) | The config file and `pcbridge set`; the reference is [config.example.toml](config.example.toml) |
 | [docs/security.md](docs/security.md) | What protects the machine, and what does not |

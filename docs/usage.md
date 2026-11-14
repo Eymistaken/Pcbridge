@@ -232,8 +232,10 @@ from a script, `pcbridge` alone prints the help as before. It is laid out for
   unlocks, with the same duration picker.
 - **1 Overview**: the live logo (blue glow while a tool call or a job runs,
   red for a minute after a call failed or was refused; a click shows the
-  reason), then the service (Restart, and Update when the installed version
-  differs from the running one), the grant, the tunnel, keep awake, tools,
+  reason; when a newer release is out it turns into a green arrow that
+  upgrades on a click or `u`, then offers **Restart to upgrade**), then the
+  service (Restart, and Load now when the installed version differs from
+  the running one), the grant, the tunnel, keep awake, tools,
   clients and the config; health from `pcbridge doctor`, where a selected
   warning shows its explanation and, when doctor can repair it, **Fix this
   check**; the running jobs and the last three audit entries.

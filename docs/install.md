@@ -388,10 +388,39 @@ in `[native] binary_path`, untested.
 Restart Claude Desktop and any running Claude Code / Codex session once:
 processes started before the install keep their old server until then.
 
-## Updating
+## Upgrading
 
-- User install: run the install script again (`--version` for a specific
-  release); the daemon restarts itself when idle.
-- Package: `sudo apt install ./pcbridge_<new>.deb`, or on Arch
-  `sudo pacman -U pcbridge-<new>-x86_64.pkg.tar.zst`; same.
-- Git checkout: `pcbridge update` pulls and restarts the daemon when idle.
+```bash
+pcbridge upgrade            # the latest release, checked and installed
+pcbridge upgrade --check    # only say whether one is out (exit code 10 if so)
+```
+
+`pcbridge upgrade` (since 2.10.1) asks GitHub for the latest release,
+downloads what this installation needs, checks it against the release's
+`sha256sums.txt` and installs it the way pcbridge was installed:
+
+- User install: the release wheel, into the same venv. No sudo.
+- `.deb` or Arch package: the release's package for this system
+  (`pcbridge_<version>_<distribution>_amd64.deb`, chosen from
+  `/etc/os-release`, with the Ubuntu base for Zorin, Mint and the like),
+  installed with `sudo apt-get install` or `sudo pacman -U`; sudo asks for
+  the password itself.
+- Git checkout: `git pull --ff-only`.
+
+Then it runs the new version's `pcbridge setup --yes --no-packages
+--no-connect --no-aliases`, which refreshes the service, the launchers and
+the desktop extension and restarts the daemon once no job runs and the
+desktop grant is closed. Settings and client connections are left alone.
+
+The terminal UI checks for a newer release each time it opens (three
+seconds at most, answered from a ten-minute cache; nothing is shown without
+a network). When one is out, the Overview's logo turns into a green arrow
+and the bar shows `↑ <version> available` on every tab. A click on the
+arrow, or `u`, installs it while the arrow fills; then **Restart to
+upgrade** restarts the daemon and the terminal UI into the new version.
+`PCBRIDGE_NO_UPGRADE_CHECK=1` turns the check off.
+
+`pcbridge update` is a different, older command: it only loads code that is
+already installed into the daemon (for a git checkout it pulls first).
+Running the install script again, or installing a downloaded package by
+hand, still works too.

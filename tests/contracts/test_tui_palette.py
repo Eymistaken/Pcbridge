@@ -56,7 +56,7 @@ async def search(app, pilot, text: str) -> None:
 class PaletteTests(unittest.TestCase):
     def test_the_catalog(self) -> None:
         names = [c.name for c in commands()]
-        self.assertEqual(len(names), 28)
+        self.assertEqual(len(names), 29)
         for left_out in ("serve", "stdio", "ui", "list"):
             self.assertNotIn(left_out, names)
         lock = next(c for c in commands() if c.name == "lock")
@@ -69,13 +69,13 @@ class PaletteTests(unittest.TestCase):
             rows = options(app)
             heads = [r for r in rows if r.isupper()]
             self.assertEqual(heads, ["RUN NOW", "ASKS FIRST", "OPENS A DIALOG", "GO TO"])
-            self.assertIn("28 of 28", words_of(app.screen))
+            self.assertIn("29 of 29", words_of(app.screen))
             self.assertTrue(any(r.startswith(" ▶ doctor") for r in rows))
             self.assertTrue(any(r.startswith(" › tools") for r in rows))
             self.assertTrue(any(r.startswith(" ? restart") for r in rows))
             self.assertTrue(any(r.startswith(" … setup") for r in rows))
             await search(app, pilot, "doc")
-            self.assertIn("1 of 28", words_of(app.screen))
+            self.assertIn("1 of 29", words_of(app.screen))
 
         run_app(self, CliBackend(), body)
 

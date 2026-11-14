@@ -174,7 +174,9 @@ def commands() -> list[Command]:
                 consequence=lambda app: f"{_jobs_line(app)}; it restarts only when no job runs and "
                 "the grant is closed, otherwise it says why and does nothing.",
                 action="Restart", call=restart),
-        Command("update", "ask", "Load the installed version into the daemon when idle.", key="u",
+        Command("upgrade --check", "run", "Whether a newer release is out; the Overview's arrow "
+                "(key u) upgrades to it.", argv=["upgrade", "--check"]),
+        Command("update", "ask", "Load the installed version into the daemon when idle.",
                 question="Load the installed version into the daemon?",
                 consequence=lambda app: f"{_jobs_line(app)}. A git install pulls first; the daemon "
                 "restarts once no job runs.", action="Update", call=update),
