@@ -201,6 +201,7 @@ class OverviewPane(ScrollPane):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.checks: list[dict] = []
+        self.listed: list[dict] = []      # the warning rows, in the order shown
         self.checked_at = 0.0
         self.doctor_busy = False
         self.fix_busy = False
@@ -698,8 +699,9 @@ class OverviewPane(ScrollPane):
         self.query_one("#health-bar", Static).update(bar)
         problems = self.problems()
         menu = self.query_one("#health-list", OptionList)
-        keep = menu.highlighted_option.id if menu.highlighted_option is not None else None
+        kept = self.selected_check()
         menu.clear_options()
+        self.listed = []
         limit = 2 if self.has_class("narrow") and not self.show_all_warnings else len(problems)
         for c in problems[:limit]:
             line = Text()
@@ -709,14 +711,19 @@ class OverviewPane(ScrollPane):
                 line.append("▲ ", style=PALETTE["warning"])
             line.append(f"{c['group']:<9}", style=PALETTE["muted"])
             line.append(" " + c["detail"].splitlines()[0][:70])
-            menu.add_option(Option(line, id=f"{c['group']}\t{c['name']}"))
+            # By position: doctor gives several checks the same group and
+            # name (each native helper finding is "native helper · native").
+            menu.add_option(Option(line, id=f"check-{len(self.listed)}"))
+            self.listed.append(c)
         more = self.query_one("#health-more", Button)
         hidden = len(problems) - limit
         more.display = hidden > 0
         more.label = f"+{hidden} more · Show all warnings ›"
-        ids = [f"{c['group']}\t{c['name']}" for c in problems[:limit]]
+        ids = [f"check-{i}" for i in range(len(self.listed))]
         if ids:
-            menu.highlighted = ids.index(keep) if keep in ids else 0
+            same = [i for i, c in enumerate(self.listed) if kept is not None
+                    and (c["group"], c["name"], c["detail"]) == (kept["group"], kept["name"], kept["detail"])]
+            menu.highlighted = same[0] if same else 0
         menu.display = bool(ids)
         self._show_check()
 
@@ -734,8 +741,9 @@ class OverviewPane(ScrollPane):
         option = menu.highlighted_option
         if option is None or not option.id:
             return None
-        group, _, name = option.id.partition("\t")
-        return next((c for c in self.checks if c["group"] == group and c["name"] == name), None)
+        index = int(option.id.removeprefix("check-"))
+        listed = getattr(self, "listed", [])
+        return listed[index] if index < len(listed) else None
 
     def _show_check(self) -> None:
         check = self.selected_check()

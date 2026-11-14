@@ -2160,3 +2160,21 @@ guard in the code (the guards limit damage, they do not make it impossible):
   watcher; load workers were stopped. Independent final inspection found
   the original two-output layout, unlocked screen, and no helper or
   worker. The native fail-closed rule was not changed.
+
+### FastMCP imported from two threads at once (2026-11-14)
+
+- Measured with the installed 2.9.1 (user install venv, FastMCP 3.4.5): two
+  threads importing `pcbridge.tools` and `pcbridge.auth` at the same moment
+  in a fresh interpreter both failed, 5 runs out of 5, with
+  `ImportError: FastMCP server support is not installed`. FastMCP resolves
+  `from fastmcp import FastMCP` through a module `__getattr__` that imports
+  `fastmcp.server.server`; the second thread sees it half imported, and
+  FastMCP reports any ImportError there as a missing install.
+- The terminal UI started exactly that: the status worker imports the tool
+  table while the doctor worker reaches the OAuth provider. doctor's config
+  group then "crashed" on every fresh start. The tests did not see it
+  because their process had imported FastMCP on one thread before.
+- `pcbridge/tui/imports.py` imports FastMCP once under a lock; every worker
+  that may reach it calls `ready()` first. With it, 3 of 3 fresh runs were
+  clean (`tests/contracts/test_tui_imports.py`). The daemon and the CLI
+  import on one thread and are not affected.

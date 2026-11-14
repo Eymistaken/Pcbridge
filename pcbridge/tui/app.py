@@ -668,7 +668,11 @@ class PcbridgeApp(App):
         if cfg is not None:
             try:
                 # Importing the tool table pulls in FastMCP (about 0.5 s), so
-                # it happens here in the worker, never on the screen's thread.
+                # it happens here in the worker, never on the screen's thread,
+                # and one worker at a time (imports.py says why).
+                from .imports import ready
+
+                ready()
                 from ..tools import TOOL_HINTS, tools_in_profile
 
                 remote = getattr(cfg, "remote_tools_profile", "same")

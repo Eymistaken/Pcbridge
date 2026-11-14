@@ -112,6 +112,30 @@ class OverviewTests(unittest.TestCase):
 
         run(backend, body)
 
+    def test_checks_with_the_same_name_each_get_a_row(self) -> None:
+        """doctor reports every native helper finding as "native helper · native";
+        2.9.1 crashed on the second one (a duplicate option id)."""
+        backend = FakeBackend()
+        backend.checks = backend.checks + [
+            {"group": "native helper", "name": "native", "status": "warn", "detail": f"finding {i}",
+             "fix": "", "fixed": False, "fixable": False} for i in range(3)]
+
+        async def body(app, pilot):
+            text = flat(app)
+            for i in range(3):
+                self.assertIn(f"finding {i}", text)
+            menu = app.query_one("#health-list")
+            menu.highlighted = menu.option_count - 1
+            await pilot.pause()
+            self.assertIn("finding 2", words_of(app.query_one("#health-detail")))
+            await pilot.press("r")          # anything that redraws the list keeps working
+            await pilot.press("escape")
+            app.panes["overview"]._render_health()
+            await pilot.pause()
+            self.assertIn("finding 2", words_of(app.query_one("#health-detail")))
+
+        run(backend, body)
+
     def test_the_narrow_layout_stacks_and_shows_the_icon(self) -> None:
         backend = FakeBackend()
         backend.checks = backend.checks + [

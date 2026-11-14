@@ -53,7 +53,9 @@ class Backend:
         from dataclasses import asdict
 
         from ..cli.doctor import Doctor
+        from .imports import ready
 
+        ready()  # doctor's checks import the OAuth provider (FastMCP)
         doc = Doctor(fix=only is not None, only={only} if only else None)
         return [asdict(c) for c in doc.run_all()]
 
@@ -199,7 +201,9 @@ class Backend:
 
     def tools(self, cfg: Any) -> list:
         from ..toolcatalog import build
+        from .imports import ready
 
+        ready()
         return build(cfg)
 
     def clients(self) -> list[dict]:
@@ -262,6 +266,9 @@ class Backend:
         remote = getattr(cfg, "remote_tools_profile", "same")
         counts = {}
         try:
+            from .imports import ready
+
+            ready()
             from ..tools import tools_in_profile
 
             for profile in ("full", "core", "desktop", "readonly"):

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The terminal UI no longer closes a few seconds after it opens.** When
+  `pcbridge doctor` reported several findings under the same name (the
+  native helper's), the Overview's health list gave them the same row id
+  and the UI stopped with `DuplicateID`. The rows are now numbered.
+- **doctor's config checks no longer "crash" inside the terminal UI.** Two
+  workers imported FastMCP at the same moment, which FastMCP reports as
+  "server support is not installed"; it is now imported once, on one
+  thread, before any worker uses it.
+
 ## 2.9.1 - 2026-11-14
 
 ### Changed
