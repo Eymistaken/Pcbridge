@@ -108,6 +108,12 @@ class FakeBackend(Backend):
     def remote_apps(self, cfg):
         return 2
 
+    def journal(self, lines=300, before=""):
+        return []
+
+    def journal_follow(self, after=""):
+        return iter(())
+
     def native(self, cfg):
         return {"findings": [
             ("pass", "found: /opt/pcbridge/pcbridge-native (package: pcbridge/_native)"),
@@ -176,7 +182,7 @@ def words_of(node) -> str:
         elif hasattr(w, "label") and type(w).__name__ == "CheckLine":
             parts.append(("[x] " if w.value else "[ ] ") + w.label)
         elif isinstance(w, Static):
-            visual = w.visual if hasattr(w, "visual") else w.render()
+            visual = w.render()
             renderable = getattr(visual, "_renderable", visual)
             if isinstance(renderable, str) or hasattr(renderable, "plain"):
                 parts.append(str(renderable))

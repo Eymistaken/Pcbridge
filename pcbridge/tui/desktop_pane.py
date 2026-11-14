@@ -317,12 +317,12 @@ class DesktopPane(ScrollPane):
         if not self.app.apply_settings({key: event.value}):
             self.config_changed()
 
-    def key_space(self) -> None:
+    def press_space(self) -> None:
         focused = self.app.focused
         if isinstance(focused, Switch):
             focused.toggle()
 
-    def key_plus(self) -> None:
+    def press_plus(self) -> None:
         focused = self.app.focused
         if focused is not None and isinstance(focused.parent, NumberInput):
             focused.parent.set_value(focused.parent.value + 1)

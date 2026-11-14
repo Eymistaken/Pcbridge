@@ -480,7 +480,7 @@ class RemotePane(ScrollPane):
             return
         self.set_tunnel(event.value)
 
-    def key_t(self) -> None:
+    def press_t(self) -> None:
         if not self.busy:
             self.set_tunnel(not self.tunnel_open)
 
@@ -533,7 +533,7 @@ class RemotePane(ScrollPane):
     # -- address -------------------------------------------------------------------
 
     @on(Button.Pressed, "#address-copy")
-    def key_y(self) -> None:
+    def press_y(self) -> None:
         url = self.info.get("url")
         if not url:
             return
@@ -557,7 +557,7 @@ class RemotePane(ScrollPane):
             self._render_profile_notes(event.value)
 
     @on(Button.Pressed, "#password-replace")
-    def key_p(self) -> None:
+    def press_p(self) -> None:
         self.replace_password()
 
     def replace_password(self) -> None:
@@ -624,7 +624,7 @@ class RemotePane(ScrollPane):
         if event.coordinate.column == 5:
             self.ask_revoke(str(event.cell_key.row_key.value))
 
-    def key_x(self) -> None:
+    def press_x(self) -> None:
         rid = self.selected_row()
         if rid:
             self.ask_revoke(rid)

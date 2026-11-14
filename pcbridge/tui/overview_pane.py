@@ -601,7 +601,7 @@ class OverviewPane(ScrollPane):
     def _remote(self) -> None:
         self.app.action_show_tab("remote")
 
-    def key_u(self) -> None:
+    def press_u(self) -> None:
         self.app.action_update()
 
     def load_clients(self) -> None:
@@ -760,7 +760,7 @@ class OverviewPane(ScrollPane):
             command.update("")
 
     @on(Button.Pressed, "#health-fix")
-    def key_f(self) -> None:
+    def press_f(self) -> None:
         check = self.selected_check()
         if check is None or not check.get("fixable") or self.fix_busy or self.doctor_busy:
             return

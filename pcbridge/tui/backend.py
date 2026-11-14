@@ -127,6 +127,19 @@ class Backend:
                 break
         return ""
 
+    def run_cli(self, argv: list[str], timeout: float = 300) -> tuple[int, str]:
+        """`pcbridge ARGV` in a fresh process, as a shell runs it: (exit code, output)."""
+        import subprocess
+        import sys
+
+        env = {**os.environ, "NO_COLOR": "1"}
+        try:
+            res = subprocess.run([sys.executable, "-m", "pcbridge", *argv], capture_output=True,
+                                 text=True, timeout=timeout, stdin=subprocess.DEVNULL, env=env)
+        except subprocess.TimeoutExpired:
+            return 124, f"pcbridge {' '.join(argv)} did not finish within {timeout:.0f} s."
+        return res.returncode, (res.stdout + res.stderr).rstrip()
+
     def native(self, cfg: Any) -> dict:
         return native_info(cfg)
 

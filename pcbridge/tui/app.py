@@ -50,7 +50,7 @@ TABS = [
 NARROW = 100
 
 # Keys a tab may claim; the app hands each to the active tab (`Pane.FOOTER`).
-PANE_KEYS = ["u", "f", "c", "o", "d", "t", "y", "p", "x", "k", "g", "a", "slash", "space",
+PANE_KEYS = ["u", "f", "c", "o", "d", "t", "y", "p", "x", "k", "g", "a", "v", "slash", "space",
              "ctrl+s", "ctrl+z", "pageup", "pagedown"]
 
 CSS = THEME_CSS + WIDGET_CSS + DIALOG_CSS + """
@@ -245,27 +245,21 @@ class DurationMenu(ModalScreen["int | None"]):
         self.dismiss(None)
 
 
-def _commands_provider():
-    from .palette import PcbridgeCommands
-
-    return PcbridgeCommands
-
-
 def _stylesheet() -> str:
     """The frame's rules and every tab's: one stylesheet, ranked by specificity."""
-    from . import (connections_pane, desktop_pane, jobs_pane, overview_pane, remote_pane,
-                   settings_pane, tools_pane)
+    from . import (activity_pane, connections_pane, desktop_pane, jobs_pane, logs_pane, overview_pane,
+                   palette, remote_pane, settings_pane, tools_pane)
 
     return CSS + "".join(m.CSS for m in (overview_pane, desktop_pane, jobs_pane, connections_pane,
-                                          remote_pane, settings_pane, tools_pane))
+                                          remote_pane, tools_pane, activity_pane, logs_pane,
+                                          settings_pane, palette))
 
 
 class PcbridgeApp(App):
     TITLE = "pcbridge"
-    ENABLE_COMMAND_PALETTE = True
-    COMMAND_PALETTE_BINDING = "ctrl+p"
+    # Our own palette (palette.py): grouped, with questions and an output view.
+    ENABLE_COMMAND_PALETTE = False
     CSS = _stylesheet()
-    COMMANDS = {_commands_provider}
     BINDINGS = [
         Binding("l", "toggle_grant", "Lock/Unlock", show=False),
         Binding("r", "restart", "Restart", show=False),
@@ -273,6 +267,7 @@ class PcbridgeApp(App):
           for i, (tab, label, _short) in enumerate(TABS)],
         *[Binding(key, f"pane_key('{key}')", key, show=False) for key in PANE_KEYS],
         Binding("question_mark", "help", "Help", show=False),
+        Binding("ctrl+p", "commands", "Commands", show=False),
         Binding("q", "quit", "Quit", show=False),
     ]
 
@@ -383,7 +378,7 @@ class PcbridgeApp(App):
         pane = self.active_pane()
         entries = list(getattr(pane, "FOOTER", []))
         if not any(key == "^p" for key, _l, _a in entries):
-            entries.append(("^p", "Commands", "app.command_palette"))
+            entries.append(("^p", "Commands", "app.commands"))
         if self.active_tab() == "overview" and not self.narrow:
             entries.append(("1-9", "Tabs", "app.help"))
         self.query_one(KeyFooter).set_entries(entries)
@@ -403,6 +398,11 @@ class PcbridgeApp(App):
         pane = self.active_pane()
         if pane is not None:
             pane.dispatch_key(key.replace("+", "_"))
+
+    def action_commands(self) -> None:
+        from .palette import open_palette
+
+        open_palette(self)
 
     def action_help(self) -> None:
         pane = self.active_pane()

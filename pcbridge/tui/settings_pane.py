@@ -466,18 +466,18 @@ class SettingsPane(Pane):
     def _changed_only(self) -> None:
         self.fill_keys()
 
-    def key_slash(self) -> None:
+    def press_slash(self) -> None:
         self.query_one("#settings-filter", Input).focus()
 
-    def key_space(self) -> None:
+    def press_space(self) -> None:
         focused = self.app.focused
         if isinstance(focused, (Switch, CheckLine)):
             focused.toggle()
 
-    def key_ctrl_s(self) -> None:
+    def press_ctrl_s(self) -> None:
         self.save()
 
-    def key_ctrl_z(self) -> None:
+    def press_ctrl_z(self) -> None:
         key, ed = self.current, self.ed
         if key is None or ed is None:
             return
@@ -487,7 +487,7 @@ class SettingsPane(Pane):
         self.refresh_sections()
         self.app.notify(f"{key} goes back to its default when you save.")
 
-    def key_none(self) -> None:
+    def press_none(self) -> None:
         pass
 
     # -- saving -------------------------------------------------------------------------

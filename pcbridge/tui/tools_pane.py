@@ -286,14 +286,14 @@ class ToolsPane(Pane):
         tool = next((t for t in self.catalog if t.name == event.row_key.value), None)
         self.show_tool(tool)
 
-    def key_slash(self) -> None:
+    def press_slash(self) -> None:
         self.query_one("#tools-search", Input).focus()
 
-    def key_p(self) -> None:
+    def press_p(self) -> None:
         self.query_one("#tools-profile", Segmented).focus()
 
-    def key_a(self) -> None:
+    def press_a(self) -> None:
         self.query_one("#tools-show", Segmented).action_move(1)
 
-    def key_none(self) -> None:
+    def press_none(self) -> None:
         pass

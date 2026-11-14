@@ -358,7 +358,7 @@ class JobsPane(Pane):
     # -- actions --------------------------------------------------------------------
 
     @on(Button.Pressed, "#job-cancel")
-    def key_c(self) -> None:
+    def press_c(self) -> None:
         job = next((j for j in self.jobs if j["id"] == self.selected), None)
         if job is None or job.get("status") != "running":
             return
@@ -400,7 +400,7 @@ class JobsPane(Pane):
         self.poll()
 
     @on(Button.Pressed, "#job-full")
-    def key_o(self) -> None:
+    def press_o(self) -> None:
         if self.detail is None:
             return
         from .dialogs import TextView
@@ -416,10 +416,10 @@ class JobsPane(Pane):
                 self.app.copy_to_clipboard(sid)
             self.app.notify("Session id copied.")
 
-    def key_d(self) -> None:
+    def press_d(self) -> None:
         self.query_one("#default-agent", Segmented).focus()
 
-    def key_none(self) -> None:
+    def press_none(self) -> None:
         pass
 
     # -- agents -----------------------------------------------------------------------

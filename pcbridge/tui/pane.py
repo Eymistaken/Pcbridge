@@ -33,9 +33,9 @@ class PaneBase:
 
     FOOTER lists this tab's keys as (key shown, label, action); an action
     is either an app action ("app.toggle_grant") or "key:X", which calls
-    `key_X()` on the pane. The app binds every such key and hands it to the
-    active pane, so a key works wherever the focus is, except inside an
-    input that takes the character.
+    `press_X()` on the pane (not `key_X`: Textual calls those itself). The
+    app binds every such key and hands it to the active pane, so a key works
+    wherever the focus is, except inside an input that takes the character.
     """
 
     FOOTER: ClassVar[list[tuple[str, str, str]]] = []
@@ -50,7 +50,7 @@ class PaneBase:
         """The config was read again."""
 
     def dispatch_key(self, key: str) -> bool:
-        method = getattr(self, f"key_{key}", None)
+        method = getattr(self, f"press_{key}", None)
         if method is None:
             return False
         method()

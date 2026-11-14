@@ -311,7 +311,7 @@ class ConnectionsPane(Pane):
             self.toggle(self.selected)
 
     @on(Button.Pressed, "#conn-update")
-    def key_u(self) -> None:
+    def press_u(self) -> None:
         cid = self.selected
         if cid and self.rows.get(cid, {}).get("state") == "outdated" and cid not in self.busy:
             self._change(cid, connect=True)
@@ -326,15 +326,15 @@ class ConnectionsPane(Pane):
                 self.app.notify(f"The file could not be opened: {exc}", severity="error")
 
     @on(Button.Pressed, "#conn-again")
-    def key_g(self) -> None:
+    def press_g(self) -> None:
         self.query_one("#conn-status", Static).update(Text("Reading the clients…", style=PALETTE["dim"]))
         self.reload()
 
-    def key_space(self) -> None:
+    def press_space(self) -> None:
         if self.selected:
             self.toggle(self.selected)
 
-    def key_none(self) -> None:
+    def press_none(self) -> None:
         pass
 
     def _change(self, cid: str, connect: bool) -> None:
