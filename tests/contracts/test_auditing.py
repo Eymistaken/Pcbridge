@@ -70,8 +70,11 @@ class OneWriterTests(unittest.TestCase):
     def test_no_module_appends_to_the_audit_log_by_itself(self) -> None:
         """auth.py once appended without the rotation check; every writer
         now goes through auditing.write_line."""
+        import pcbridge
+
+        package = Path(pcbridge.__file__).parent   # the installed package in CI, too
         for name in ("auth.py", "remoteclients.py", "desktop/safety.py"):
-            text = (ROOT / "pcbridge" / name).read_text(encoding="utf-8")
+            text = (package / name).read_text(encoding="utf-8")
             self.assertIn("auditing.", text, name)
             self.assertIsNone(re.search(r"audit_log\)?\.open\(", text), name)
 

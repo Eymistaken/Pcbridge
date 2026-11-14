@@ -106,8 +106,8 @@ class OverviewTests(unittest.TestCase):
             await settle(app, pilot)
             self.assertEqual(logo.state, "active")
             text = flat(app)
-            self.assertIn("● agent_run · claude · 2m 14s", text)
-            self.assertIn("JOBS 2 running", text.replace("1 running", "2 running"))
+            self.assertRegex(text, r"● agent_run · claude · 2m 1[4-9]s")   # a slow runner ticks
+            self.assertIn("JOBS 1 running", text)
             self.assertIn("7f3a claude Fix the tests", text)
 
         run(backend, body)
