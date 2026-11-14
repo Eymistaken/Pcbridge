@@ -149,6 +149,8 @@ class JobsPane(Pane):
         self.quiet = False
         self._spin = 0
         self._timer: Any = None
+        self._request = 0
+        self._suppress = False
 
     def compose(self) -> ComposeResult:
         yield RestartBanner()
@@ -214,10 +216,11 @@ class JobsPane(Pane):
     def poll(self) -> None:
         cfg = getattr(self.app, "cfg", None)
         if cfg is not None:
-            self._jobs_worker(cfg, self.selected)
+            self._request += 1
+            self._jobs_worker(cfg, self.selected, self._request)
 
-    @work(thread=True, exclusive=True, group="jobs")
-    def _jobs_worker(self, cfg: Any, selected: str | None) -> None:
+    @work(thread=True, group="jobs")
+    def _jobs_worker(self, cfg: Any, selected: str | None, request: int) -> None:
         try:
             jobs = self.app.backend.jobs(cfg, limit=40)
         except Exception:  # noqa: BLE001 - the tab shows the last list
@@ -232,10 +235,13 @@ class JobsPane(Pane):
                 detail["by"] = self.app.backend.job_started_by(cfg, selected)
             except Exception:  # noqa: BLE001 - a record being written
                 detail = None
-        self.app.post(self._jobs_loaded, jobs, selected, detail)
+        self.app.post(self._jobs_loaded, jobs, selected, detail, request)
 
     @while_mounted
-    def _jobs_loaded(self, jobs: list[dict], selected: str | None, detail: dict | None) -> None:
+    def _jobs_loaded(self, jobs: list[dict], selected: str | None, detail: dict | None,
+                     request: int = 0) -> None:
+        if request and request != self._request:
+            return  # a newer read is on its way
         self.jobs = jobs
         if self.selected is None:
             self.selected = selected
@@ -257,23 +263,37 @@ class JobsPane(Pane):
         self.query_one("#jobs-filter", Segmented).set_options(
             [("running", f"Running {running}"), ("recent", "Recent"), ("all", "All")], self.filter)
         table = self.query_one("#jobs-table", DataTable)
-        table.clear()
         rows = self.visible()
+        cells = []
         for j in rows:
             label, token = STATES.get(state_of(j), (state_of(j), "muted"))
             if state_of(j) == "running":
                 label = f"{SPINNER[self._spin]} running"
             ident = Text(short_id(j["id"]), style=PALETTE["working"] if j.get("status") == "running" else "")
             prompt = " ".join((j.get("label") or "").split())
-            table.add_row(ident, job_agent(j) or j.get("kind", ""), Text(j.get("model") or "", style=PALETTE["dim"]),
-                          prompt[:44], Text(label, style=PALETTE[token]), elapsed(j.get("elapsed", 0)),
-                          key=j["id"])
+            cells.append((j["id"], [ident, job_agent(j) or j.get("kind", ""),
+                                    Text(j.get("model") or "", style=PALETTE["dim"]), prompt[:44],
+                                    Text(label, style=PALETTE[token]), elapsed(j.get("elapsed", 0))]))
+        ids = [k for k, _c in cells]
+        if ids and ids == [str(k.value) for k in table.rows]:
+            # Same jobs: update the cells in place, so the cursor stays put.
+            for key, values in cells:
+                for column, value in zip(table.ordered_columns, values):
+                    table.update_cell(key, column.key, value)
+            return
+        self._suppress = True
+        table.clear()
+        for key, values in cells:
+            table.add_row(*values, key=key)
         if not rows:
             table.add_row(Text("No job here." if self.jobs else "No job yet.", style=PALETTE["dim"]),
                           "", "", "", "", "")
-        ids = [j["id"] for j in rows]
         if self.selected in ids:
             table.move_cursor(row=ids.index(self.selected), animate=False)
+        self.call_after_refresh(self._unsuppress)
+
+    def _unsuppress(self) -> None:
+        self._suppress = False
 
     @on(Segmented.Changed, "#jobs-filter")
     def _filter(self, event: Segmented.Changed) -> None:
@@ -284,6 +304,8 @@ class JobsPane(Pane):
     @on(DataTable.RowHighlighted, "#jobs-table")
     def _row(self, event: DataTable.RowHighlighted) -> None:
         key = event.row_key.value if event.row_key else None
+        if self._suppress:
+            return  # the table was rebuilt, not moved by a person
         if key and key != self.selected and any(j["id"] == key for j in self.jobs):
             self.select_job(str(key))
 
