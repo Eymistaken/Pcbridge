@@ -106,6 +106,27 @@ class Backend:
 
         return auditlog.page(cfg.audit_log, skip, count, keep)
 
+    def journal(self, lines: int = 300, before: str = "") -> list:
+        from . import journal
+
+        return journal.read(lines, before)
+
+    def journal_follow(self, after: str = "") -> Any:
+        from . import journal
+
+        return journal.follow(after)
+
+    def job_started_by(self, cfg: Any, job_id: str) -> str:
+        """The client whose agent_run started the job, from the audit log."""
+        from . import auditlog
+
+        for i, e in enumerate(auditlog.newest(cfg.audit_log)):
+            if e.event in ("agent_run", "computer_task") and e.data.get("job") == job_id:
+                return e.client
+            if i > 5000:
+                break
+        return ""
+
     def native(self, cfg: Any) -> dict:
         return native_info(cfg)
 

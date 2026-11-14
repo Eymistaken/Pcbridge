@@ -253,10 +253,10 @@ def _commands_provider():
 
 def _stylesheet() -> str:
     """The frame's rules and every tab's: one stylesheet, ranked by specificity."""
-    from . import (connections_pane, desktop_pane, overview_pane, remote_pane, settings_pane,
-                   tools_pane)
+    from . import (connections_pane, desktop_pane, jobs_pane, overview_pane, remote_pane,
+                   settings_pane, tools_pane)
 
-    return CSS + "".join(m.CSS for m in (overview_pane, desktop_pane, connections_pane,
+    return CSS + "".join(m.CSS for m in (overview_pane, desktop_pane, jobs_pane, connections_pane,
                                           remote_pane, settings_pane, tools_pane))
 
 

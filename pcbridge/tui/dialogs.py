@@ -18,7 +18,7 @@ from textual.widgets import Button, Static
 from .widgets import CheckLine, Segmented, key_label
 
 CSS = """
-Confirm, UnlockConfirm, ShowOnce, PasswordScreen, LoginScreen, HelpScreen {
+Confirm, UnlockConfirm, ShowOnce, PasswordScreen, LoginScreen, HelpScreen, TextView {
     align: center middle;
     background: black 50%;
 }
@@ -35,6 +35,13 @@ Confirm, UnlockConfirm, ShowOnce, PasswordScreen, LoginScreen, HelpScreen {
 }
 .dialog.destroys {
     border: round $pb-error;
+}
+.dialog.textview {
+    width: 100;
+    height: 80%;
+}
+.textview-body {
+    height: 1fr;
 }
 .dialog-title {
     text-style: bold;
@@ -280,3 +287,34 @@ class HelpScreen(ModalScreen[None]):
     def action_close(self) -> None:
         self.dismiss(None)
 
+
+
+class TextView(ModalScreen[None]):
+    """A long text (a job's full output) in a scrolling box; Escape closes it."""
+
+    BINDINGS = [Binding("escape", "close", "Close"), Binding("y", "copy", "Copy")]
+
+    def __init__(self, title: str, text: str) -> None:
+        super().__init__()
+        self.title_text = title
+        self.text = text
+
+    def compose(self) -> ComposeResult:
+        from textual.containers import VerticalScroll
+
+        with Vertical(classes="dialog textview"):
+            yield Static(self.title_text, classes="dialog-title")
+            with VerticalScroll(classes="box textview-body"):
+                yield Static(Text(self.text))
+            with Horizontal(classes="dialog-buttons"):
+                yield Button(key_label("Copy output", "y"), id="view-copy", compact=True)
+                yield Button(key_label("Close", "esc"), id="view-close", compact=True)
+
+    @on(Button.Pressed, "#view-copy")
+    def action_copy(self) -> None:
+        self.app.copy_to_clipboard(self.text)
+        self.app.notify("Asked the terminal to copy the output (OSC 52).")
+
+    @on(Button.Pressed, "#view-close")
+    def action_close(self) -> None:
+        self.dismiss(None)
