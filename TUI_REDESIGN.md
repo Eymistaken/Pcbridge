@@ -673,6 +673,49 @@ bold title, muted text, buttons right-aligned with their keys.
   update, lock, unlock, the clients' states, the audit pages, the
   journal.
 
+## Built (2026-11-14)
+
+Every screen above is built in `pcbridge/tui/` and checked at 120 and 80
+columns by the `tests/contracts/test_tui*.py` suites (Textual's
+`run_test` with a size, text assertions on the screen). Each point marked
+Maintainer or Proposed, and what became of it:
+
+| Point | Status |
+|---|---|
+| Overview around a live logo | Built: wordmark at 96 columns and more, the icon below; idle, active and error from the jobs and the audit log; the five reactions; a click shows the reason. |
+| Health at a glance, Fix per check | Built: `pcbridge doctor` in a worker; `Doctor(only=...)` repairs one check, `fixable` marks the ones `--fix` can repair (also in `doctor --json`). A check without an unattended repair shows its hint instead of a button. |
+| Restart and update next to the daemon | Built: `Restart r` on the daemon line; `Update u` appears when the running daemon is not the installed code (`runs_installed_code`). |
+| Unlock with a chosen duration | Built: the bar's `▾` menu, the Desktop tab's picker and the `l` question; 5, 15, 30 min, 1 h, 2 h, stopping at `unlock_max_minutes`. |
+| Remote access on and off | Built: the Remote tab's tunnel switch (opening asks). `pcbridge remote start/stop` share `tunnel_start` / `tunnel_stop` with it. |
+| `default_agent` as a choice | Built: a `choice` of the configured agents in the settings schema, so `pcbridge set` checks it too; a picker in Agents & Jobs and Advanced. |
+| Panel icon discoverable | Built: in the Desktop tab. It is the GNOME extension's own GSettings key (`desktop/panelicon.py`), not a `config.toml` key, so it changes at once and is not in Advanced. |
+| A control per setting kind | Built: Switch, segmented picker, bounded number input, text, Replace for a secret. The ranges are `settings.BOUNDS`, only what `config.py` enforces, each checked against the loader by `test_settings_bounds.py`. `port` has no checked range (the loader takes any number), so none is printed. |
+| A lasting restart notice | Built: one banner on Desktop, Agents & Jobs, Tools, Remote and Advanced, `Restart now r`, no Later; it clears when the daemon restarted (from here, or a new daemon pid). |
+| Settings stays as Advanced | Built: tab 9, every key, with the filter and "Changed from default only". |
+| Commands run with an output view | Built as the `Ctrl+P` palette (no Commands tab): run now, asks first, opens a dialog, go to. `setup` and `uninstall` ask questions on a terminal, so their "dialog" says to run them there and copies the command. |
+| Remote tab layout | Built in the brief's order. The apps table is full width under the first three sections: five columns did not fit beside them. "LAST CONNECTED" replaces "LAST SEEN": the database records when an app registered, not when it last called. |
+| Clean up stale registrations | Built: no unexpired token and registered 30 days ago or more (`remoteclients.stale`); live sessions stay. "Unused for 30 days" could not be measured, for the same reason. |
+| Agents and jobs | Built: tab 3. Cancel is recorded in the audit log as `job_cancel` with `client: pcbridge ui`. |
+| Activity (the audit log) | Built: tab 7, read from the end in pages of 22, `.1` after the log. The writers are one function now (`pcbridge/auditing.py`), so auth and remote revocation rotate too; a new log file is created with mode 0600. |
+| Logs | Built: tab 8, `journalctl -o json`, followed in a worker. The daemon logs at journal priority 6 whatever the level, so the level is read from the message. |
+| Tools, Connections and dialog gaps | Built as listed under *Reviewed in the design*. |
+
+The open points of *Building it in Textual*:
+
+- **The glow's base.** Both options were drawn on the maintainer's green
+  (`#1f3a2c`): over a fixed `#0e1216` every glow cell shows as a dark
+  halo; over the terminal's own color it blends in. The UI asks the
+  terminal for its background (OSC 11) before Textual starts and blends
+  over the answer, falling back to `#0e1216` when there is none. Still to
+  check by eye in the maintainer's own terminal.
+- **The panel icon's key**: the extension's GSettings key, above.
+- **Int bounds**: `settings.BOUNDS`, above.
+
+Deviations from the boards: the footer is our own widget (Textual's
+`Footer` cannot right-align `? Help` and `q Quit`), and the palette is our
+own screen (Textual's cannot show group headings or put a question in
+place of the list). The tab underline is Textual's one-row bar.
+
 ## Done when
 
 Every point above marked Maintainer or Proposed is either fixed or

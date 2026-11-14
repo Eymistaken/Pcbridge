@@ -55,41 +55,26 @@ here, not by moving sections.
    chasing every new feature; see *Optional: website*. Until then the
    install script is served from a GitHub release URL.
 
-Alongside, when there is time: *Update every screen of the terminal UI*
-(the Overview logo included), *An installer with
+Alongside, when there is time: *An installer with
 its own terminal UI*, *Review the skill and every text an agent reads*, the
 remaining engineering items, and the *needs a person
 at the machine* checks, batched for a session at the machine.
 
 ## Optional: terminal UI / product polish
 
-- **Update every screen of the terminal UI, not only the Overview.**
-  Decided with the maintainer (2026-11-09): the update covers every tab
-  (Overview, Settings, Tools, Connections, Remote, Commands) and every
-  dialog (the confirmation, the shown-once secret, the login password and
-  the remote password dialogs). The gaps, the decisions and the brief for
-  the visual design (done outside the repository) are in
-  [TUI_REDESIGN.md](TUI_REDESIGN.md), collected with the maintainer on
-  2026-11-14; the Tools and Connections tabs and the dialogs still need
-  their review there. The Overview's logo below is one part of this
-  update. Done when every gap listed there is fixed or dropped with the
-  reason, and each screen is checked at a normal and a narrow terminal
-  width.
-- **Responsive Overview with a live Pcbridge logo.** Part of the update
-  above. Redesign the terminal
-  UI's Overview around a centered Pcbridge logo at the top. At normal widths,
-  show the terminal icon plus the Pcbridge wordmark; when the terminal becomes
-  narrow, collapse it to the terminal icon only instead of squeezing the
-  wordmark. Treat the icon frame as a quiet live status indicator: no glow
-  while idle, a subtle blue edge glow while pcbridge is actively handling a
-  request/tool/job, and a red edge glow for an error. Hover and click should
-  give restrained feedback; clicking the logo should expose the reason for the
-  current state (for example current activity or the last error) without
-  cluttering the main Overview. Keep the rest of the screen terminal-native
-  and information-dense rather than turning it into a card-heavy dashboard.
-  Done when resizing cleanly switches between full and icon-only logo modes,
-  idle/active/error transitions are reliable, and mouse interaction works
-  without changing grant or daemon safety behavior.
+- ~~**Update every screen of the terminal UI, not only the Overview.**~~
+  Done (unreleased, 2026-11-14): nine tabs (Overview, Desktop, Agents &
+  Jobs, Connections, Remote, Tools, Activity, Logs, Advanced), the `Ctrl+P`
+  command palette in place of the Commands tab, and the four dialogs, built
+  from the design in [TUI_REDESIGN.md](TUI_REDESIGN.md); its *Built*
+  section says what became of every gap. Each screen is checked at 120 and
+  80 columns. Left for a person at the machine: the logo's glow over the
+  real terminal's background, and new screenshots for the README.
+- ~~**Responsive Overview with a live Pcbridge logo.**~~ Done with the
+  update above: the wordmark from 96 columns, the icon below; idle, active
+  (blue) and error (red) glows from the jobs and the audit log; a click
+  plays a short reaction and shows the reason; the grant and daemon
+  safety behavior is unchanged.
 - **An installer with its own terminal UI.** The installer from stage 3
   works but reads like a log. Measured problems, from the code
   (2026-10-14):

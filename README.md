@@ -25,7 +25,7 @@ keyboard, pointer and screen reader.
 | **Read the screen** | The accessibility tree as text, silent screenshots, or OCR as plain text. GNOME capture uses screen sharing without a flash or sound. |
 | **Use the desktop** | Virtual keyboard and pointer through uinput, absolute and relative motion, and compositor-specific window activation. GNOME's extension raises windows in ~5 ms. |
 | **Click what you see** | Every screenshot has an id; send the pixel you see plus the id, and pcbridge applies the monitor offset and scale. Changed or missing outputs make old shots invalid. |
-| **Run it from a terminal** | `pcbridge` opens a terminal UI: every setting, the desktop grant with one Lock / Unlock button, all 40 tools with a search box, and a switch per MCP client; mouse and keyboard. Every part of it is also a plain command. |
+| **Run it from a terminal** | `pcbridge` opens a terminal UI: the desktop grant, health with fixes, jobs, a switch per MCP client, the tunnel and remote apps, the 40 tools, the audit log, the journal and every setting; mouse and keyboard, `Ctrl+P` for any command. Every part of it is also a plain command. |
 | **Stay safe enough to leave on** | Desktop control is off by default; a time-limited grant closes 90 s after the last action; nothing is sent behind a locked screen. GNOME shows a frame and panel icon, Plasma a lasting notification, and Hyprland a native frame. Each has a kill switch. |
 
 ## Always ready
@@ -100,7 +100,7 @@ Desktop, and checks that a fresh client works. Details:
 ## Quick start
 
 ```bash
-pcbridge                 # the terminal UI: settings, the desktop grant, the tools
+pcbridge                 # the terminal UI: grant, health, jobs, clients, remote, tools, settings
 pcbridge list            # every command, for work without the UI
 pcbridge clients         # which agents and apps can use pcbridge; connect / disconnect NAME
 pcbridge status          # daemon, grant, jobs, remote tunnel
@@ -118,30 +118,30 @@ grant notification's "Lock now" on Plasma.
 
 ## The terminal UI
 
-`pcbridge` alone in a terminal opens it, in the terminal's own colors:
+`pcbridge` alone in a terminal opens it: nine tabs, `1` to `9`, with its own
+palette over the terminal's background, mouse and keyboard.
 
-![The Settings tab of the terminal UI: sections on the left, the Desktop control settings on the right, and the editor for desktop.enabled with a switch and its description](docs/images/tui-settings.png)
-
-- **The bar at the top** shows the daemon and the desktop grant on every
-  tab. Its button locks or unlocks the grant; `l` locks at once and asks
-  before it unlocks.
-- **Settings** edits every setting with the right control for its type.
-  Save checks the file with the daemon's own loader, backs up the old one
-  and writes only the changed lines; the password and the token are stored
-  as hashes and never shown (a new one is shown once). Its **Panel icon** section changes the GNOME icon immediately,
-  without a daemon restart; KDE Plasma explains that it has no pcbridge icon.
-- **Tools** lists all 40 tools, marks what the `[tools] profile` offers
-  and searches names and descriptions as you type.
-
-- **Connections** has a switch for each MCP client pcbridge knows: Claude
-  Code, Codex, Claude Desktop, Antigravity CLI, Hermes Agent, OpenCode, Pi
-  and oh-my-pi. Where a client can switch an entry off, disconnecting keeps
-  its settings; every changed file is backed up.
+- **The bar at the top** shows the daemon, the tunnel and the desktop grant
+  on every tab. Its button unlocks (with a duration menu) or locks; `l`
+  locks at once and asks before it unlocks.
+- **Overview** opens on a live logo that glows while agents work and turns
+  red after a refused call, then the service, `pcbridge doctor`'s health
+  with a fix per check, the running jobs and the latest activity.
+- **Desktop**, **Agents & Jobs**, **Connections**, **Remote** and **Tools**
+  hold the everyday switches and lists: the grant and desktop control, the
+  jobs with their output and Cancel, a switch per MCP client that shows
+  what it would write first, the tunnel and the remote apps, the 40 tools
+  and the profile.
+- **Activity** reads the audit log (what agents did, never the contents),
+  **Logs** follows the daemon's journal, and **Advanced** edits every
+  setting with the right control for its type; Save checks the file with
+  the daemon's own loader and backs up the old one.
+- **`Ctrl+P`** finds any command: read-only ones run at once, the ones
+  that change state ask first.
 - **Without the UI**: `pcbridge settings`, `get`, `set`, `reset`, `tools`,
   `clients`, `connect`, `disconnect`, `restart`; `pcbridge list` shows them all. Piped or scripted, `pcbridge`
   alone prints the help, so nothing that calls it changes.
 
-![The Tools tab: a search for "mouse" narrows the list to 7 tools and shows the selected tool's description](docs/images/tui-tools.png)
 
 ## Documentation
 

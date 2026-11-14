@@ -21,8 +21,9 @@ without starting.
 
 ## Changing settings
 
-The terminal UI's Settings tab (`pcbridge` alone in a terminal) and these
-commands change any setting without opening the file:
+The terminal UI (`pcbridge` alone in a terminal: every setting in its
+Advanced tab, the everyday ones in Desktop, Agents & Jobs, Tools and Remote)
+and these commands change any setting without opening the file:
 
 ```bash
 pcbridge settings desktop           # every setting whose key or description mentions it

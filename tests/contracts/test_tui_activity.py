@@ -29,8 +29,8 @@ def ts(seconds_ago: float) -> str:
 
 
 def write_log(path: Path, n: int = 30) -> list[dict]:
-    """n entries, oldest first, the newest one a refused click from yesterday's
-    neighbour and today."""
+    """n shell entries from yesterday, then three from today, the newest a
+    refused click."""
     rows = []
     for i in range(n):
         rows.append({"ts": ts(86400 + 1000 - i), "event": "shell_run", "client": "codex",

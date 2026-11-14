@@ -1,5 +1,54 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **The terminal UI is rebuilt around tasks.** `pcbridge` opens nine tabs
+  on keys 1 to 9 instead of six that mirrored the sections of
+  `config.toml`. The UI now has its own palette for accents and states,
+  the same in every terminal, over the terminal's own background, and is
+  laid out for 120 columns while staying usable at 80.
+  - **Overview** opens on a live logo: gray when idle, a blue glow while a
+    tool call or a job runs, red for a minute after a call failed or was
+    refused. A click shows the reason. Below it are the service with
+    Restart and, when the installed code differs from the running daemon,
+    Update; `pcbridge doctor`'s health, with each warning's explanation and
+    a fix for that one check; the running jobs; and the latest activity.
+  - **Desktop** gathers the grant with a duration picker, desktop control's
+    switches and numbers, the GNOME panel icon, keep awake, and the native
+    helper with the operating system's permissions.
+  - **Agents & Jobs** shows the running and recent jobs with their output,
+    and Cancel, which asks first and keeps the output. The default agent
+    is a choice between the configured agents, here and in `pcbridge set`.
+  - **Connections** shows what a change would write before it writes it.
+  - **Remote** has a switch for the tunnel and the public address with
+    Copy. It lists the remote apps with an inline Revoke, and can clean up
+    registrations that hold no token and are 30 days old or more.
+  - **Tools** changes the profile and shows each tool's four hints.
+  - **Activity** reads the audit log page by page from its end, by kind and
+    client.
+  - **Logs** follows the daemon's journal.
+  - **Advanced** is the former Settings tab, with a switch, a picker, a
+    bounded number input or a Replace action for each setting.
+  - `Ctrl+P` lists every command: read-only ones run at once and show their
+    output, the ones that change state ask first, and `lock` never asks.
+  - The bar's Unlock button gains a duration menu. A saved change that
+    needs a restart raises one notice that stays until the daemon
+    restarted.
+  - The password dialog checks the length and the repeat as you type, and
+    can sign out the remote apps in the same step. The shown-once secret
+    keeps Done disabled until "I saved it" is ticked.
+- **`pcbridge doctor --json` marks the checks `--fix` can repair** with a
+  `fixable` field; the terminal UI uses it to offer a fix for one check.
+
+### Fixed
+
+- **Every audit log line now honors `[limits] audit_max_bytes`.** The OAuth
+  provider and remote revocation appended to `audit.log` without the
+  rotation check the desktop gate does; all three now write through one
+  function. A new audit log is created readable by its owner only.
+
 ## 2.9.0 - 2026-11-14
 
 ### Added

@@ -23,7 +23,7 @@ is connected in tens of milliseconds.
 still works, and connecting it again updates it), `switched off`, `not
 connected` or `not installed`. `pcbridge connect NAME...` and `pcbridge
 disconnect NAME...` switch them, and so do the switches on the terminal UI's
-Connections tab. Every file a change touches is backed up first under
+Connections tab, which shows what a change would write first. Every file a change touches is backed up first under
 `~/.local/state/pcbridge/backup-<time>/`, with a `ROLLBACK.md`. A client that
 is running picks the change up when it restarts.
 
@@ -192,7 +192,7 @@ also works without it. `pcbridge list` prints them all by group.
 
 | Command | Does |
 |---|---|
-| `pcbridge` (or `pcbridge ui`) | The terminal UI: settings, the desktop grant, the tool list |
+| `pcbridge` (or `pcbridge ui`) | The terminal UI: overview, desktop, jobs, clients, remote, tools, activity, logs and every setting |
 | `pcbridge list` | Every command, by group |
 | `pcbridge settings [FILTER] [--changed]` | Every setting with its value; FILTER searches keys and descriptions |
 | `pcbridge get KEY` | One setting: value, default, what it does |
@@ -216,50 +216,79 @@ also works without it. `pcbridge list` prints them all by group.
 
 ### The terminal UI
 
-The UI uses the terminal's own colors and takes mouse clicks in terminals
-that report them: measured in GNOME Terminal; Konsole, kitty and tmux (with
-`mouse on`) use the same xterm mouse protocol. To select text while it runs,
-hold Shift. Piped or run from a script,
-`pcbridge` alone prints the help as before.
+The UI has its own palette for accents and states over the terminal's own
+background, and takes mouse clicks in terminals that report them: measured
+in GNOME Terminal; Konsole, kitty and tmux (with `mouse on`) use the same
+xterm mouse protocol. To select text while it runs, hold Shift. Piped or run
+from a script, `pcbridge` alone prints the help as before. It is laid out for
+120 columns and stays usable at 80: the tabs then use short names and a
+`+N ›` marker shows the ones off to the right.
 
-- **The bar at the top**, on every tab: the daemon, the desktop grant
-  (`locked`, or `OPEN` with the time left and, while it slides, its
-  ceiling) and one button that locks or unlocks it. `l` does the same;
-  it locks at once but asks before it unlocks.
-- **Overview**: daemon, grant, running jobs, remote tunnel, the tool
-  profile, the config file and its warnings.
-- **Settings**: sections on the left, their settings on the right, a
-  filter box, and an editor with the right widget for each type (a switch,
-  a list of choices, text; lists and tables as TOML). Changes are staged
-  and written together by **Save**, after the same checks as `pcbridge
-  set`. Changing `desktop.enabled`, `[auth]`, `host`, `port` or
-  `public_url` asks first. **Restart daemon** appears when a saved change
-  needs it. The password and the static token are stored as hashes and
-  never shown; they can be replaced, and the token generated, in which case
-  it is shown once after **Save**. The separate **Panel icon** section
-  shows or hides the GNOME icon immediately and does not use **Save** or
-  require a daemon restart. On KDE Plasma it explains that there is no
-  pcbridge panel icon.
-- **Tools**: all 40 tools with their state (`active`, `not in profile`,
-  `needs desktop`), a search box that filters by name and description as
-  you type, a toggle for the offered ones only, and the selected tool's
-  description, hints and parameters.
-- **Connections**: a switch per client (see above), with **Update** for an
-  entry that runs an older command.
-- **Remote**: the remote password, the remote apps that hold tokens, each
-  with **Revoke**, and **Revoke all**; which profile remote clients get.
-  **Turn on remote access** (or **Replace password** once there is one)
-  first asks for your login password, then generates a six-word passphrase
-  or takes one typed twice. The Settings tab sends `auth.password` here. A generated one
-  is shown once, next to the remote address, and stays on screen until
-  **I saved it**; **Copy** puts it on the clipboard. It takes effect at
-  once, with no daemon restart. Replacing the password, here or in
-  Settings, offers to revoke every remote app, because the password alone
-  does not end their sessions.
-- **Commands**: the table `pcbridge list` prints.
+- **The bar at the top**, on every tab: the daemon, `◉ remote open` while
+  the tunnel is open, and the desktop grant (`◆ Desktop locked`, or
+  `◇ Desktop OPEN` with the time left) with its button. **Unlock 15 min**
+  unlocks at once; its `▾` picks another duration (5 min to the
+  `unlock_max_minutes` ceiling). `l` locks at once but asks before it
+  unlocks, with the same duration picker.
+- **1 Overview**: the live logo (blue glow while a tool call or a job runs,
+  red for a minute after a call failed or was refused; a click shows the
+  reason), then the service (Restart, and Update when the installed version
+  differs from the running one), the grant, the tunnel, keep awake, tools,
+  clients and the config; health from `pcbridge doctor`, where a selected
+  warning shows its explanation and, when doctor can repair it, **Fix this
+  check**; the running jobs and the last three audit entries.
+- **2 Desktop**: the grant with a duration picker; desktop control, the
+  unlock notification and the GUI-launch block as switches; the idle lock
+  and the input guard as numbers; the GNOME panel icon (the extension's own
+  setting, so it changes at once); keep awake; the native helper and the
+  operating system's permissions. Changes save at once; turning desktop
+  control on asks first.
+- **3 Agents & Jobs**: running, recent or all jobs; the selected job's
+  prompt, folder, start, session and live output; **Cancel** asks and keeps
+  the output so far. The default agent and each agent's "Offered to
+  agent_run" switch save at once.
+- **4 Connections**: a switch per client, grouped into the ones on this
+  computer and the ones not found; for the selected client, what a change
+  would write (from `connect --dry-run`) before it writes anything,
+  **Update the entry** for an old command, and a reminder to restart the
+  client afterwards.
+- **5 Remote**: the tunnel's switch (opening asks: it exposes the machine),
+  the public address with **Copy**, the password and the remote tool
+  profile, and the remote apps that hold tokens with **Revoke**, **Revoke
+  every app** and **Clean up** for registrations that hold no token and are
+  30 days old or more. **Replace…** asks for your login password first,
+  then generates a six-word passphrase or takes one typed twice, with live
+  checks; a box, ticked by default, also signs out the apps that hold
+  tokens. A generated password is shown once and stays on screen until "I
+  saved it in a password manager" is ticked.
+- **6 Tools**: all 40 tools, a search box (`/`), the profile as a picker
+  that saves `tools.profile`, All / Offered / Hidden, and the selected
+  tool's hints as tags, whether the profile offers it, its description and
+  parameters.
+- **7 Activity**: the audit log newest first, a page at a time from the end
+  of the file, grouped by day and filtered by kind and client, with the
+  selected entry as written. Nothing new is stored; the log never held
+  contents.
+- **8 Logs**: the daemon's journal of this boot, followed live; pause, a
+  level filter, Find and older lines.
+- **9 Advanced**: every setting of `config.toml` by section, each with the
+  control its type calls for (a switch, a picker, a bounded number with its
+  range, text, or **Replace…** for a secret), when it applies, its default,
+  and a filter. Changes are staged and written together by **Save**
+  (`Ctrl+S`), after the same checks as `pcbridge set`; `desktop.enabled`,
+  `[auth]`, `host`, `port` and `public_url` ask first.
 
-Keys: `1`-`6` switch tabs, `l` lock/unlock, `r` restart the daemon, `q`
-quits (and asks if settings are unsaved).
+A saved change that needs a restart raises one notice, on every tab that
+saves settings, with **Restart now**; it stays until the daemon restarted.
+
+`Ctrl+P` opens the commands: the read-only ones run at once and show their
+output (`lock` among them: locking never asks), the ones that change state
+show their consequence and ask first, `setup` and `uninstall` say to run
+them in a terminal, and every tab is there too.
+
+Keys: `1`-`9` switch tabs, `l` lock/unlock, `r` restart the daemon, `?` this
+tab's keys, `q` quits (and asks if settings are unsaved). The footer lists
+each tab's own keys; each can be clicked.
 
 The GNOME extension's panel icon shows the same state and has "Lock desktop
 control now" in its menu. Use **Settings > Panel icon**, ask an agent to hide
