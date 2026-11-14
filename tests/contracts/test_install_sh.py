@@ -77,6 +77,7 @@ def run_in_pty(keys: list[bytes], term: str = "xterm-256color", timeout: float =
 
 
 @unittest.skipUnless(sys.platform.startswith("linux") and Path("/bin/sh").exists(), "needs a POSIX shell")
+@unittest.skipUnless(SCRIPT.is_file(), "install.sh is not next to the tests (a package's test copy)")
 class InstallMenuTests(unittest.TestCase):
     def test_the_arrow_keys_move_and_enter_picks(self) -> None:
         code, text = run_in_pty([b"\x1b[B", b"\x1b[B", b"\r"])
