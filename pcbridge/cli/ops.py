@@ -613,198 +613,18 @@ def runs_installed_code(reply: dict | str) -> bool:
 
 
 def setup(argv: list[str]) -> int:
-    p = argparse.ArgumentParser(
-        prog="pcbridge setup", description="Install or update pcbridge for this user. "
-        "Detects the machine, shows the plan and asks once; run it again after an update.")
-    p.add_argument("--yes", action="store_true", help="Do not ask; take the defaults (installs the packages).")
-    p.add_argument("--optional", metavar="LIST",
-                   help="Optional components to install, comma-separated (ocr), or none. "
-                        "Default: every one the plan ticks.")
-    p.add_argument("--no-packages", action="store_true",
-                   help="Install no system packages; print the command instead.")
-    p.add_argument("--from-config", help="Migrate this pre-2.0 config.toml instead of the one found automatically.")
-    p.add_argument("--no-connect", action="store_true", help="Do not register MCP clients.")
-    p.add_argument("--no-aliases", action="store_true", help="Leave ~/.bashrc alone.")
-    p.add_argument("--no-extension", action="store_true")
-    p.add_argument("--idle-wait", type=float, default=600, help="Seconds to wait for running jobs before restarting (default 600).")
-    args = p.parse_args(argv)
-    from .. import config as configlib
-    from .. import platforminfo
-    from .. import settings as settingslib
-    from . import plan as planlib
+    """`pcbridge setup`: the setup screen on a terminal, else the printed steps."""
+    from . import setupflow
 
-    backup = inst.Backup()
-    notes: list[str] = []
-    inst.say(f"pcbridge {__version__} setup ({inst.install_kind()} install)\n")
-
-    xdg = pathslib.config_file()
-    found = platforminfo.detect()
-    profile_now = "full"
-    if xdg.exists():
+    args = setupflow.parser().parse_args(argv)
+    if setupflow.wants_screen(args):
         try:
-            profile_now = settingslib.ConfigEditor(xdg).value("tools.profile")
-        except settingslib.SettingsError as exc:
-            inst.warn(str(exc))
-    plan = planlib.build(found, profile_now=profile_now,
-                         recorded_profile=planlib.read_state().get("profile"))
-    if args.optional is not None:
-        wanted = {w.strip().lower() for w in args.optional.split(",") if w.strip()}
-        unknown = wanted - {c.key for c in plan.components} - {"none"}
-        if unknown:
-            inst.warn("not offered on this machine: " + ", ".join(sorted(unknown)))
-        for c in plan.components:
-            c.ticked = c.key in wanted
-    planlib.show(plan)
-    install_now = bool(plan.chosen_packages()) and not args.no_packages
-    if args.yes:
-        pass
-    elif planlib.interactive():
-        if not planlib.ask(plan):
-            inst.say("Stopped; nothing was changed.")
-            return 1
-        install_now = bool(plan.chosen_packages()) and not args.no_packages
-    elif install_now:
-        inst.say("Not a terminal and no --yes: the packages are left for you (the command is repeated at the end).")
-        install_now = False
-
-    inst.say("\n1. System packages")
-    chosen = plan.chosen_packages()
-    if not chosen:
-        inst.ok("all present")
-    elif install_now:
-        done, left = planlib.install_packages(plan)
-        if done:
-            inst.ok("installed: " + " ".join(chosen))
+            from ..tui.setup_app import run_screen
+        except ImportError:  # pragma: no cover - an install without Textual
+            pass
         else:
-            inst.warn("not installed: " + " ".join(chosen))
-            notes.append(left)
-    else:
-        argv_ = plan.install_argv()
-        command = shlex.join(argv_) if argv_ else distrolib.install_command(raw=tuple(chosen), fam=plan.family)
-        inst.warn("missing: " + " ".join(chosen))
-        inst.say(f"          install with: {command}")
-        notes.append(command)
-    if plan.extras:
-        if planlib.install_extras():
-            inst.ok("Python package for desktop control: Pillow")
-        else:
-            inst.warn("Pillow was not installed; desktop control needs it")
-            notes.append("pcbridge setup   # tries Pillow again")
-    if plan.native_fetch:
-        # A download of an executable waits for the same yes as the packages:
-        # --yes, or the plan confirmed on a terminal (a "no" returned above).
-        if args.yes or planlib.interactive():
-            fetched, line = planlib.fetch_native()
-            (inst.ok if fetched else inst.warn)(line)
-            if not fetched:
-                notes.append("pcbridge doctor --fix   # tries the native helper download again")
-        else:
-            inst.warn("native helper: not downloaded without a terminal or --yes")
-            notes.append("pcbridge doctor --fix   # downloads the native helper")
-    if found.desktop_supported and not os.access("/dev/uinput", os.R_OK | os.W_OK):
-        from .doctor import udev_hint
-
-        inst.warn("/dev/uinput is not writable: keyboard and pointer control will not work")
-        inst.say(f"          fix with: {udev_hint()}")
-        notes.append(udev_hint())
-
-    inst.say("\n2. Configuration")
-    if xdg.exists():
-        res = configlib.migrate_config(xdg, xdg)
-        inst.ok(f"{xdg} " + ("migrated to config_version %d" % res.to_version if res.changed else "is current"))
-        if res.backup:
-            backup.entries.append(("copy", str(xdg), str(res.backup)))
-    else:
-        src = Path(args.from_config).expanduser() if args.from_config else None
-        cands = [src] if src else _legacy_config_candidates()
-        if cands and cands[0] and cands[0].exists():
-            res = configlib.migrate_config(cands[0], xdg)
-            inst.ok(f"migrated {cands[0]} -> {xdg} (the old file is left in place)")
-        else:
-            _fresh_config(xdg)
-            inst.ok(f"created {xdg}; desktop control is OFF and remote access has no password yet")
-    for line in planlib.apply_settings(plan, xdg):
-        inst.ok(line)
-    settings_changed = plan.profile_target is not None
-    cfg = configlib.load_config(str(xdg))
-    db = Path(cfg.db_path)
-    if db.exists():
-        os.chmod(db, 0o600)
-
-    inst.say("\n3. Commands")
-    for n in inst.install_launchers(backup):
-        inst.ok(n)
-    inst.ok(f"launcher: {inst.launcher_path()}")
-    inst.ok(inst.install_skill_link(backup))
-    path_note = inst.path_note()
-    if path_note:
-        inst.warn(path_note)
-        notes.append(path_note)
-
-    inst.say("\n4. Background service")
-    changed = inst.install_units(backup)
-    if inst.units_managed_by_package():
-        inst.ok("units provided by the package in /usr/lib/systemd/user"
-                + ("; leftover user units moved to the backup" if changed else ""))
-    else:
-        inst.ok("units " + ("installed" if changed else "up to date") + f" in {inst.USER_UNIT_DIR}")
-    # Stamp BEFORE the restart: the new daemon then reads it as its starting
-    # point. Written after, the daemon saw a "newer" install five seconds
-    # later and restarted itself once more (seen in the journal, 2.0 install).
-    inst.write_version_stamp()
-    running_daemon = False
-    from .doctor import handshake
-
-    try:
-        running_daemon = runs_installed_code(handshake(pathslib.socket_path()))
-    except pathslib.RuntimeDirError:
-        pass
-    if running_daemon and not changed and not settings_changed:
-        inst.systemctl("enable", *inst.UNIT_NAMES)
-        inst.ok("daemon already running the installed code")
-    else:
-        msg = _restart_when_idle(cfg, args.idle_wait)
-        if msg.startswith("daemon"):
-            inst.systemctl("enable", *inst.UNIT_NAMES)
-            inst.ok(msg + "; socket and service enabled (start at login)")
-        else:
-            inst.warn(msg)
-            notes.append("pcbridge update   # finishes the service switch when no job is running")
-
-    setup_desktop(cfg.native, backup, no_extension=args.no_extension, kind=found.desktop_kind)
-
-    if not args.no_connect:
-        inst.say("\n6. MCP clients")
-        for client, st, detail in connectlib.connect(list(connectlib.CLIENTS), backup):
-            (inst.warn if st == "warn" else inst.ok)(f"{client}: {detail}")
-
-    if not args.no_aliases:
-        inst.say("\n7. Shell aliases")
-        inst.ok(inst.write_aliases(backup))
-
-    inst.say("\n8. Readiness")
-    from .doctor import probe
-
-    want = expected_tools(cfg.tools_profile)
-    t0 = time.monotonic()
-    n = probe(inst.client_command())
-    ready = isinstance(n, int) and n >= want
-    if ready:
-        inst.ok(f"a fresh client got {n} tools (profile \"{cfg.tools_profile}\") in {(time.monotonic() - t0) * 1000:.0f} ms")
-    else:
-        inst.fail(f"a fresh client failed: {n}" + (f" (expected {want})" if isinstance(n, int) else ""))
-    _offer_remote_password(args, xdg)
-    rb = backup.write_rollback(extra=["Commands that still need you:", *[f"    {n}" for n in notes]] if notes else None)
-    if rb:
-        inst.say(f"\nBackups and undo instructions: {rb}")
-    inst.say("\nSummary")
-    for line in planlib.summary(plan):
-        inst.say(f"  {line}")
-    if notes:
-        inst.say("\nStill to do by hand:")
-        for n_ in notes:
-            inst.say(f"  {n_}")
-    return 0 if ready else 1
+            return run_screen(args)
+    return setupflow.run_plain(args)
 
 
 def _offer_remote_password(args, path: Path) -> None:
@@ -921,28 +741,28 @@ def setup_desktop(native, backup, *, no_extension: bool = False, kind: str | Non
 
     kind = kind or desktop_kind()
     if kind == CINNAMON:
-        inst.say("\n5. Cinnamon")
+        inst.step("desktop", "Cinnamon", 5)
         inst.ok("panel applet: " + inst.install_cinnamon_applet(backup))
         inst.ok(inst.install_lock_entry("System Settings > Keyboard > Shortcuts"))
         inst.ok("grant frame: drawn by the native helper; X11 gives it no protection "
                 "from other programs (docs/security.md)")
     elif kind == XFCE:
-        inst.say("\n5. Xfce")
+        inst.step("desktop", "Xfce", 5)
         inst.ok(inst.install_lock_entry("Settings > Keyboard > Application Shortcuts"))
         inst.ok("grant frame and a lasting notification with Lock now; X11 gives them no "
                 "protection from other programs (docs/security.md)")
     elif kind == KDE:
-        inst.say("\n5. KDE Plasma")
+        inst.step("desktop", "KDE Plasma", 5)
         for line in inst.install_kde_entries(native):
             (inst.warn if line.startswith("native helper not found") else inst.ok)(line)
     elif kind == GNOME:
-        inst.say("\n5. GNOME Shell extension")
+        inst.step("desktop", "GNOME Shell extension", 5)
         inst.ok(inst.install_extension(backup))
     elif kind == HYPRLAND:
         from .hyprland import setup_notes
 
-        inst.say("\n5. Hyprland")
+        inst.step("desktop", "Hyprland", 5)
         setup_notes()
     else:
-        inst.say("\n5. Desktop integration")
+        inst.step("desktop", "Desktop integration", 5)
         inst.ok("none for this desktop; the terminal, file, tmux and agent tools need none")

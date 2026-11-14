@@ -20,6 +20,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from .. import __version__
 from .. import assets as assetslib
@@ -53,9 +54,28 @@ ALIASES = {
 
 _COLOR = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
 
+# Where the lines go instead of stdout: `pcbridge setup`'s terminal UI sets
+# it to (kind, text) with kind say, ok, warn, fail, step or out, and draws
+# them as rows; nothing may print while Textual owns the terminal.
+Sink = Callable[[str, str], None]
+_sink: Sink | None = None
+
+
+def set_sink(sink: Sink | None) -> None:
+    global _sink
+    _sink = sink
+
+
+def _emit(kind: str, msg: str) -> bool:
+    if _sink is None:
+        return False
+    _sink(kind, msg)
+    return True
+
 
 def say(msg: str = "") -> None:
-    print(msg, flush=True)
+    if not _emit("say", msg):
+        print(msg, flush=True)
 
 
 def _mark(word: str, color: str) -> str:
@@ -63,15 +83,64 @@ def _mark(word: str, color: str) -> str:
 
 
 def ok(msg: str) -> None:
-    say(f"  {_mark('ok', '32')}    {msg}")
+    if not _emit("ok", msg):
+        say(f"  {_mark('ok', '32')}    {msg}")
 
 
 def warn(msg: str) -> None:
-    say(f"  {_mark('warn', '33')}  {msg}")
+    if not _emit("warn", msg):
+        say(f"  {_mark('warn', '33')}  {msg}")
 
 
 def fail(msg: str) -> None:
-    say(f"  {_mark('fail', '31')}  {msg}")
+    if not _emit("fail", msg):
+        say(f"  {_mark('fail', '31')}  {msg}")
+
+
+def step(key: str, title: str, number: int | None = None) -> None:
+    """A step of `pcbridge setup` begins: "\\n1. System packages" on a terminal,
+    a row of the setup screen in the terminal UI. Without a number the
+    printed output shows nothing (a part of the numbered step before it)."""
+    if not _emit("step", f"{key}\t{title}") and number is not None:
+        say(f"\n{number}. {title}")
+
+
+def run_streamed(argv: list[str], timeout: float | None = None,
+                 env: dict[str, str] | None = None) -> int:
+    """Run a command whose output a person may want to see; its exit status.
+
+    Printed straight to the terminal, as before; under the setup screen
+    every line goes to the sink instead (it must not reach the terminal).
+    """
+    if _sink is None:
+        try:
+            return subprocess.run(argv, check=False, timeout=timeout, env=env).returncode
+        except subprocess.TimeoutExpired:
+            return 124
+    try:
+        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, errors="replace", env=env)
+    except OSError as exc:
+        _emit("out", f"{argv[0]}: {exc}")
+        return 127
+    assert proc.stdout is not None
+    with proc.stdout:
+        for line in proc.stdout:
+            line = line.rstrip()
+            if line:
+                _emit("out", line)
+    try:
+        return proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return 124
+
+
+# The setup screen asks for the sudo password with the terminal handed back
+# for a moment: called with the command that needs it, True once sudo has
+# the password cached (`sudo -v`). None: sudo asks on the terminal itself.
+SudoPrompt = Callable[[list[str]], bool]
+sudo_prompt: SudoPrompt | None = None
 
 
 def run(cmd: list[str], timeout: float = 30, check: bool = False,
@@ -202,7 +271,10 @@ class Backup:
             "systemctl --user disable pcbridge.socket",
         ]
         for kind, original, saved in self.entries:
-            lines.append(f"rm -rf '{original}' 2>/dev/null; cp -a '{saved}' '{original}'   # was {kind}d")
+            if kind == "create":
+                lines.append(f"rm -f '{original}'   # did not exist before")
+            else:
+                lines.append(f"rm -rf '{original}' 2>/dev/null; cp -a '{saved}' '{original}'   # was {kind}d")
         lines += [
             "systemctl --user daemon-reload",
             "systemctl --user restart pcbridge.service",
@@ -323,6 +395,65 @@ def path_note(path: str | None = None) -> str:
                 f"the next login (until then: {LOCAL_BIN}/pcbridge)")
     return (f"{LOCAL_BIN} is not on PATH, so `pcbridge` is not found by name: add "
             "'export PATH=\"$HOME/.local/bin:$PATH\"' to ~/.bashrc (or ~/.profile)")
+
+
+PATH_MARK = "# added by pcbridge setup"
+
+
+@dataclass
+class PathFix:
+    """The one line that puts ~/.local/bin on PATH for the user's login shell."""
+
+    shell: str      # "bash", "zsh" or "fish"
+    file: Path
+    line: str
+
+
+def path_fix(path: str | None = None, shell: str | None = None) -> PathFix | None:
+    """What `pcbridge setup` can offer when `pcbridge` is not found by name.
+
+    None when nothing is needed (on PATH already, a package install, or a
+    ~/.profile that adds it at the next login) or the shell is not one setup
+    knows how to change. The file is changed only after the user says yes.
+    """
+    if not path_note(path):
+        return None
+    try:
+        profile = (HOME / ".profile").read_text(encoding="utf-8")
+    except OSError:
+        profile = ""
+    if ".local/bin" in profile:
+        return None
+    name = Path(shell if shell is not None else os.environ.get("SHELL", "")).name
+    if name == "bash":
+        fix = PathFix("bash", HOME / ".bashrc", 'export PATH="$HOME/.local/bin:$PATH"')
+    elif name == "zsh":
+        fix = PathFix("zsh", Path(os.environ.get("ZDOTDIR") or HOME) / ".zshrc",
+                      'export PATH="$HOME/.local/bin:$PATH"')
+    elif name == "fish":
+        fix = PathFix("fish", HOME / ".config" / "fish" / "conf.d" / "pcbridge-path.fish",
+                      "fish_add_path -g $HOME/.local/bin")
+    else:
+        return None
+    try:
+        if ".local/bin" in fix.file.read_text(encoding="utf-8"):
+            return None  # already there: a new terminal has it
+    except OSError:
+        pass
+    return fix
+
+
+def apply_path_fix(fix: PathFix, backup: Backup) -> str:
+    """Add the line (the file is backed up first, or noted as new for ROLLBACK.md)."""
+    existed = fix.file.exists()
+    text = fix.file.read_text(encoding="utf-8") if existed else ""
+    if fix.line in text:
+        return f"already in {fix.file}"
+    new = text + ("" if text.endswith("\n") or not text else "\n") + f"{fix.line}   {PATH_MARK}\n"
+    write_if_changed(fix.file, new, backup)
+    if not existed:
+        backup.entries.append(("create", str(fix.file), ""))
+    return f"added to {fix.file}"
 
 
 # ---------------------------------------------------------------------------

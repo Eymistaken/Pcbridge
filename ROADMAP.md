@@ -55,8 +55,7 @@ here, not by moving sections.
    chasing every new feature; see *Optional: website*. Until then the
    install script is served from a GitHub release URL.
 
-Alongside, when there is time: *An installer with
-its own terminal UI*, *Review the skill and every text an agent reads*, the
+Alongside, when there is time: *Review the skill and every text an agent reads*, the
 remaining engineering items, and the *needs a person
 at the machine* checks, batched for a session at the machine.
 
@@ -75,58 +74,28 @@ at the machine* checks, batched for a session at the machine.
   (blue) and error (red) glows from the jobs and the audit log; a click
   plays a short reaction and shows the reason; the grant and daemon
   safety behavior is unchanged.
-- **An installer with its own terminal UI.** The installer from stage 3
-  works but reads like a log. Measured problems, from the code
-  (2026-10-14):
-  - Choices are typed: `1`/`2`/`3` for the Python, and "a number to tick or
-    untick a component" for the optional parts.
-  - Long silent waits: downloading the wheel, uv fetching Python (about
-    14 s) and `pip -q` show no progress; the Debian VM run took 108 s.
-  - Eight numbered steps of `ok` lines (units, launchers, aliases, a backup
-    path) that mean little to a new user.
-  - No next step at the end: the summary says what works, but not which
-    clients were connected, that typing `pcbridge` opens the terminal UI,
-    or how to turn on desktop control or remote access.
-  - "desktop control is OFF until you enable it there" points at the file.
-  The maintainer wants a dedicated installer UI, separate from the
-  `pcbridge` terminal UI: choices with the arrow keys or the mouse instead
-  of typed numbers, a recommended default marked as such (for example
-  "OCR (Recommended)"), visible progress during downloads and installs, a
-  short and clean final screen that names the connected clients and says
-  to type `pcbridge` to check and change things, and the sudo commands
-  still shown before they run. `--yes` and a run without a terminal keep
-  working without the UI. Decided with the maintainer (2026-10-17): the
-  Python choice comes before pcbridge's own Python exists, so `install.sh`
-  gets a small arrow-key prompt of its own for that one question (`stty`
-  on `/dev/tty`, number keys still work, no mouse), falling back to the
-  numbered prompt without a terminal, with `TERM=dumb` or with `--yes`;
-  the wheel download shows `curl --progress-bar`. Everything after the
-  venv exists (the component checklist, progress during installs, the
-  final screen) is a Textual UI in `pcbridge setup`. Not uv first: the
-  question is asked only below Python 3.12, fetching uv and a Python
-  (about 14 s) before it would choose option 1 before the user does and
-  slow down every machine that already has 3.12, and a machine with no uv
-  build for its architecture but a good system Python would stop
-  installing. Not urgent; it should not be squeezed in between the
-  stages. Done when a first install on a supported and an unsupported
-  desktop needs no typed answers, never looks frozen, and ends on a screen
-  that says what to do next.
-- **Offer to put `~/.local/bin` on PATH.** To be done together with the
-  installer UI above. On Arch (and any system whose profile does not add
-  `~/.local/bin`) setup finishes, then `pcbridge` is "command not found":
-  the only hint is one line under "Still to do by hand" at the very end
-  (seen again on an Arch/GNOME VM in GNOME Boxes, 2026-10-18). Setup leaves
-  the shell's files alone on purpose (`path_note()` in
-  `pcbridge/cli/install.py`), which is right without consent but wrong as
-  the only option. Instead setup should say why in plain words ("on Arch
-  Linux `~/.local/bin` is not on PATH, so typing `pcbridge` finds
-  nothing") and offer to fix it: add the line to the file of the user's
-  login shell (`~/.bashrc`, `~/.zshrc`, or `fish_add_path` for fish), back
-  the file up into the setup backup and list it in `ROLLBACK.md`, and say
-  that the current terminal needs a new window or `source`. Without a
-  terminal or with `--yes` it is not done silently; the line is printed as
-  today. Done when a first install on Arch ends with `pcbridge` working in
-  a new terminal after one yes, and a no leaves every shell file untouched.
+- ~~**An installer with its own terminal UI.**~~ Done (2.9.4): `pcbridge
+  setup` on a terminal is a screen of its own with seven steps (welcome,
+  components, clients, review, install, PATH when needed, ready), a bridge
+  that grows a plank per step, arrow keys, space, Enter and the mouse
+  instead of typed numbers, "OCR (Recommended)", the exact sudo command
+  before it runs (the password goes to `sudo -v` with the terminal handed
+  back), a row per step with a spinner, a bar, its time and its last line,
+  and a last screen that names the connected clients and says to type
+  `pcbridge`. `install.sh` asks its one Python question with an arrow-key
+  menu (`stty` on `/dev/tty`, number keys still work, the numbered prompt
+  without a terminal, with `TERM=dumb` or `--yes`) and shows
+  `curl --progress-bar` for the wheel. `--yes`, `--plain` and a run without
+  a terminal print the steps as before. Left for a person at the machine:
+  a first install on an unsupported desktop and on Arch (the PATH offer),
+  in a VM.
+- ~~**Offer to put `~/.local/bin` on PATH.**~~ Done (2.9.4), with the
+  installer above: setup says why in plain words and offers to add the
+  line to the login shell's file (`~/.bashrc`, `~/.zshrc`, or a
+  `fish_add_path` file for fish), backs the file up, lists it in
+  `ROLLBACK.md` and says that the current terminal needs a new window or
+  `source`. A no leaves every file untouched; `--yes` and a run without a
+  terminal only print the line.
 
 ## Optional: file tools
 

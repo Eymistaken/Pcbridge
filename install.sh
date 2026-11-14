@@ -130,6 +130,72 @@ download() {  # URL FILE
     fi
 }
 
+download_progress() {  # URL FILE: the same, with a progress bar on a terminal
+    if [ "$TTY" = 1 ] && command -v curl >/dev/null 2>&1; then
+        curl -fL --proto '=https' --tlsv1.2 --retry 2 --progress-bar -o "$2" "$1"
+    else
+        download "$1" "$2"
+    fi
+}
+
+# menu DEFAULT "TITLE|DETAIL" ...: sets REPLY to the number chosen. On a
+# terminal the arrow keys move and Enter picks (number keys still work);
+# without one, with TERM=dumb or with --yes it is the numbered prompt.
+menu() {
+    def=$1; shift
+    if [ "$YES" = 1 ] || [ "$TTY" = 0 ] || [ "${TERM:-dumb}" = dumb ] || ! command -v stty >/dev/null 2>&1; then
+        i=1
+        for o in "$@"; do
+            say "  $i) ${o%%|*}"
+            case $o in *"|"*) say "       ${o#*|}" ;; esac
+            i=$((i + 1))
+        done
+        ask "Choice [$def]: " "$def"
+        return
+    fi
+    n=$# sel=$def
+    old=$(stty -g </dev/tty)
+    trap 'stty "$old" </dev/tty; printf "\033[?25h" >/dev/tty; rm -rf "$TMP"; exit 130' INT TERM
+    stty -icanon -echo min 1 time 0 </dev/tty
+    printf '\033[?25l' >/dev/tty
+    while :; do
+        i=1
+        for o in "$@"; do
+            t=${o%%|*} d=""
+            case $o in *"|"*) d=${o#*|} ;; esac
+            if [ "$i" = "$sel" ]; then
+                printf '\r\033[K  \033[1;36m> %s) %s\033[0m\n' "$i" "$t" >/dev/tty
+            else
+                printf '\r\033[K    %s) %s\n' "$i" "$t" >/dev/tty
+            fi
+            printf '\r\033[K       \033[2m%s\033[0m\n' "$d" >/dev/tty
+            i=$((i + 1))
+        done
+        printf '\r\033[K  \033[2m\342\206\221\342\206\223 move   1-%s pick   enter confirm\033[0m' "$n" >/dev/tty
+        key=$(dd bs=1 count=1 2>/dev/null </dev/tty)
+        case $key in
+            "") break ;;
+            "$(printf '\033')")
+                stty min 0 time 1 </dev/tty
+                rest=$(dd bs=2 count=1 2>/dev/null </dev/tty)
+                stty min 1 time 0 </dev/tty
+                case $rest in
+                    "[A"|OA) [ "$sel" -gt 1 ] && sel=$((sel - 1)) ;;
+                    "[B"|OB) [ "$sel" -lt "$n" ] && sel=$((sel + 1)) ;;
+                esac ;;
+            k) [ "$sel" -gt 1 ] && sel=$((sel - 1)) ;;
+            j) [ "$sel" -lt "$n" ] && sel=$((sel + 1)) ;;
+            [1-9]) if [ "$key" -le "$n" ]; then sel=$key; break; fi ;;
+        esac
+        printf '\r\033[%sA' "$((2 * n))" >/dev/tty
+    done
+    printf '\r\033[K\n' >/dev/tty
+    stty "$old" </dev/tty
+    printf '\033[?25h' >/dev/tty
+    trap 'rm -rf "$TMP"' EXIT INT TERM
+    REPLY=$sel
+}
+
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
@@ -146,7 +212,7 @@ uv_python() {
     esac
     url=https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-$t.tar.gz
     say "Downloading uv $UV_VERSION (to fetch Python $UV_PYTHON for pcbridge only)..."
-    download "$url" "$TMP/uv-$t.tar.gz"
+    download_progress "$url" "$TMP/uv-$t.tar.gz"
     download "$url.sha256" "$TMP/uv.sha256"
     check_sha256 "$TMP" "$(awk '{print $1 "  " $2}' "$TMP/uv.sha256" | sed 's/\*//')"
     tar -xzf "$TMP/uv-$t.tar.gz" -C "$TMP"
@@ -201,19 +267,17 @@ offer_python() {
         say "pcbridge needs Python 3.12 or newer; this system has Python $have."
         system_python_command
     fi
-    say "  1) Download a Python for pcbridge only, with uv, into $DATA"
-    say "     (no root; the system and its python3 are not changed)  [default]"
+    opt1="Download a Python for pcbridge only, with uv (Recommended)|into $DATA; no root, the system and its python3 are not changed"
     if [ -n "$SYS_CMD" ]; then
-        say "  2) Install one system-wide:"
-        say "       $SYS_CMD"
+        opt2="Install one system-wide|runs: $SYS_CMD"
     elif is_like debian; then
-        say "  2) $OS_NAME $OS_VERSION has no official package for it: use 1, or upgrade"
-        say "     the distribution (Debian 13 and Pardus 25 have Python 3.13)."
+        opt2="Install one system-wide (not available here)|$OS_NAME $OS_VERSION has no official package for it: use 1, or upgrade the distribution (Debian 13 and Pardus 25 have Python 3.13)."
     else
-        say "  2) No known package for $OS_NAME: use 1, or install Python 3.12+ yourself."
+        opt2="Install one system-wide (not available here)|no known package for $OS_NAME: use 1, or install Python 3.12+ yourself."
     fi
-    say "  3) Quit"
-    ask "Choice [1]: " 1
+    say ""
+    say "Where should pcbridge's Python come from?"
+    menu 1 "$opt1" "$opt2" "Quit|install Python 3.12 or newer yourself, then run this again"
     case $REPLY in
         1) uv_python ;;
         2) [ -n "$SYS_CMD" ] || die "no system-wide command for this distribution; run again and pick 1"
@@ -296,7 +360,7 @@ else
         line=$(grep "pcbridge-[0-9][^ ]*-py3-none-linux_$ARCH\.whl\$" "$TMP/sha256sums.txt" | head -n 1)
         [ -n "$line" ] || die "release $VERSION has no wheel for $ARCH"
         name=$(printf '%s' "$line" | awk '{print $2}' | sed 's/^\*//')
-        download "$BASE/$name" "$TMP/$name"
+        download_progress "$BASE/$name" "$TMP/$name"
         check_sha256 "$TMP" "$line"
         say "sha256 ok: $name"
         WHEEL=$TMP/$name
@@ -312,7 +376,7 @@ else
     mkdir -p "$DATA"
     # Kept for `pcbridge setup`, which may add the desktop extras later.
     if [ -n "$CONSTRAINTS" ]; then cp "$CONSTRAINTS" "$DATA/constraints.txt"; fi
-    say "Installing into $VENV"
+    say "Installing into $VENV (pip takes a minute and prints nothing until it is done)..."
     make_venv "$VENV"
     c=""
     [ -n "$CONSTRAINTS" ] && c="-c $DATA/constraints.txt"

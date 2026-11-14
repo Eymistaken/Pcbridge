@@ -384,15 +384,26 @@ def interactive() -> bool:
 
 
 def run_sudo(argv: list[str]) -> bool:
-    """Print the command, then run it with the terminal (sudo asks there)."""
-    if not interactive() and argv[:1] == ["sudo"]:
+    """Print the command, then run it with the terminal (sudo asks there).
+
+    Under the setup screen the password is asked first, with the terminal
+    handed back for a moment (`inst.sudo_prompt`); the command itself then
+    runs without a terminal and its output goes to the screen's log.
+    """
+    prompt = inst.sudo_prompt
+    if argv[:1] == ["sudo"] and prompt is not None:
+        if not prompt(argv):
+            inst.fail("sudo did not get the password")
+            return False
+        argv = ["sudo", "-n", *argv[1:]]
+    elif not interactive() and argv[:1] == ["sudo"]:
         argv = ["sudo", "-n", *argv[1:]]  # no terminal to ask a password on
-    if not interactive() and argv[:3] == ["sudo", "-n", "apt-get"]:
+    if argv[:3] == ["sudo", "-n", "apt-get"]:
         # No terminal for debconf to ask on: take the package defaults quietly.
         argv = ["sudo", "-n", "env", "DEBIAN_FRONTEND=noninteractive", *argv[2:]]
     inst.say("  $ " + shlex.join(argv))
     try:
-        return subprocess.run(argv, check=False).returncode == 0
+        return inst.run_streamed(argv) == 0
     except OSError as exc:
         inst.fail(f"{argv[0]}: {exc}")
         return False
@@ -436,7 +447,7 @@ def install_extras() -> bool:
     argv += ["Pillow"]
     inst.say("  $ " + shlex.join(argv))
     try:
-        return subprocess.run(argv, check=False, timeout=600).returncode == 0
+        return inst.run_streamed(argv, timeout=600) == 0
     except (OSError, subprocess.SubprocessError) as exc:
         inst.fail(str(exc))
         return False

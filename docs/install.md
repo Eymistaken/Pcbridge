@@ -46,7 +46,10 @@ What it does, in order:
 1. Refuses to run as root: everything is per user, and `pcbridge setup`
    asks for sudo itself when a package is needed.
 2. Finds Python 3.12 or newer (`python3`, `python3.14` ... `python3.12`, or
-   the one it installed before). With an older Python it offers:
+   the one it installed before). With an older Python it asks where
+   pcbridge's Python should come from: on a terminal the arrow keys move
+   and Enter picks (the number keys work too); without a terminal, with
+   `TERM=dumb` or with `--yes` it is a numbered prompt. The choices:
    1. *(the default, and what `--yes` picks)* a Python for pcbridge only,
       downloaded with [uv](https://github.com/astral-sh/uv) (a fixed
       release, checked against its sha256) into
@@ -62,7 +65,8 @@ What it does, in order:
    it) and never offers the PPA outside Ubuntu. On KDE Plasma the KWin
    window scripts keep running under the system `python3` in their own
    process.
-3. Downloads the release wheel and `sha256sums.txt`, checks the wheel's
+3. Downloads the release wheel (with a progress bar on a terminal) and
+   `sha256sums.txt`, checks the wheel's
    sha256 (and `constraints.txt`, the tested dependency versions), and
    installs it into `~/.local/share/pcbridge/venv`. The desktop extra
    (`Pillow`, which crops and scales the frames) is installed too; it comes
@@ -132,7 +136,40 @@ daemon when idle.
 
 ## 2. What `pcbridge setup` does
 
-First it detects the machine and shows the plan, once:
+On a terminal, setup is a screen of its own: a bridge across the top gets
+a plank per step, from "this pc" to the agents, and every choice is taken
+with the arrow keys, space and Enter, or the mouse. Nothing changes before
+Install.
+
+1. **Welcome** shows what setup found: the distribution, desktop and
+   session, the Python, whether desktop control can work here, and the MCP
+   clients on the computer.
+2. **Components** lists what is always installed and the optional parts;
+   OCR is ticked and marked Recommended.
+3. **Clients** ticks Claude Code, Codex and Claude Desktop, and any client
+   that is already connected; the others are offered on request. Unticked
+   clients are left as they are.
+4. **Review** says everything setup will do and shows the exact sudo
+   command, with Copy, before anything runs.
+5. **Install** runs the steps listed below as rows, each with a spinner, a
+   bar, its time and the last thing it did; `l` shows the full output.
+   When a package needs sudo, the screen hands the terminal back for the
+   password (`sudo -v`) and comes back after it, so pcbridge never sees the
+   password; the package manager then runs without a terminal.
+6. **Shell PATH**, only when `~/.local/bin` is not on `PATH` (Arch, for
+   example): setup says why and offers to add one line to the file of your
+   login shell (`~/.bashrc`, `~/.zshrc`, or a `fish_add_path` file in
+   `~/.config/fish/conf.d/`). The file is backed up first and listed in
+   `ROLLBACK.md`; "Leave my files alone" changes nothing.
+7. **Ready** names the clients it connected and says what to do next:
+   `pcbridge` to check and change things, where desktop control and remote
+   access are turned on, and anything left to do by hand.
+
+`TEXTUAL_ANIMATIONS=none` keeps the screen still. `--plain`, `--yes`, a run
+without a terminal and `TERM=dumb` print the steps instead, as described
+below.
+
+Printed, it first detects the machine and shows the plan, once:
 
 ```
 Found: Linux Mint 21.3 (Debian family) · Cinnamon 6.0.4 · X11 · x86_64
@@ -214,7 +251,7 @@ Runs: sudo pacman -S --needed --noconfirm tmux wl-clipboard tesseract-data-tur
   [Architectures](#architectures)).
 
 One confirmation covers the plan: Enter goes ahead, `n` stops with nothing
-changed. `--yes` skips it; without a terminal and without `--yes`, nothing
+changed (on the screen, Install is that confirmation). `--yes` skips it; without a terminal and without `--yes`, nothing
 is installed and the command is repeated at the end. Every command that
 needs sudo is printed before it runs. `--optional ocr|none` picks the
 components, `--no-packages` installs no system packages.
@@ -259,7 +296,9 @@ missing system packages and optional components again.
 
 If `~/.local/bin` is not on your `PATH` (Arch's default profile leaves it
 out), setup says so: the MCP clients use full paths and work anyway, but
-typing `pcbridge` needs the line it prints in `~/.bashrc`.
+typing `pcbridge` needs one line in your shell's file. On a terminal setup
+offers to add it (backed up, listed in `ROLLBACK.md`) and changes nothing
+without a yes; with `--yes` or without a terminal it only prints the line.
 
 Everything it replaces is backed up under
 `~/.local/state/pcbridge/backup-<time>/` with a `ROLLBACK.md` of exact
