@@ -22,7 +22,7 @@ from textual.widgets import (Button, DataTable, Input, OptionList, Select, Stati
 from textual.widgets.option_list import Option
 
 from .. import settings as S
-from .app import while_mounted
+from .pane import Pane, while_mounted
 
 CSS = """
 SettingsPane #settings-sections {
@@ -102,7 +102,7 @@ SENSITIVE = {
 }
 
 
-class SettingsPane(Vertical):
+class SettingsPane(Pane):
     DEFAULT_CSS = CSS
 
     def __init__(self, **kwargs: Any) -> None:
@@ -477,7 +477,7 @@ class SettingsPane(Vertical):
             return
         risky = [k for k in self.ed.changed if k in SENSITIVE or k.startswith("auth.")]
         if risky:
-            from .app import Confirm
+            from .dialogs import Confirm
 
             lines = [f"  {k}: {SENSITIVE.get(k, 'authentication for remote clients')}" for k in risky]
             self.app.push_screen(Confirm("Save these changes?\n\n" + "\n".join(lines), yes="Save"),
@@ -507,7 +507,7 @@ class SettingsPane(Vertical):
         self.app.load_status()
         token, self.generated_token = getattr(self, "generated_token", None), None
         if token and "auth.static_token" in result.changed:
-            from .app import ShowOnce
+            from .dialogs import ShowOnce
 
             self.app.push_screen(ShowOnce("The new static token", token,
                                           "HTTP clients send it as: Authorization: Bearer <token>"))

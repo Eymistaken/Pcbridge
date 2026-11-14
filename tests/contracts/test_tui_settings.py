@@ -88,16 +88,16 @@ class UnreadableConfigTests(unittest.TestCase):
             async with app.run_test(size=SIZE) as pilot:
                 await settle(app, pilot)
                 self.assertEqual({pane.id for pane in app.query(TabPane)},
-                                 {"overview", "settings", "tools", "connections", "remote", "commands"})
+                                 {"overview", "desktop", "jobs", "connections", "remote", "tools", "activity", "logs", "advanced"})
                 self.assertIsNone(app.cfg)
                 self.assertTrue(app.query_one("#grant-button").disabled)
                 self.assertIn("No pcbridge config file found", app.cfg_error)
                 self.assertIn("pcbridge setup", str(app.query_one("#settings-message").render()))
-                for tab in ("overview", "settings", "tools", "connections", "remote", "commands"):
+                for tab in ("overview", "desktop", "jobs", "connections", "remote", "tools", "activity", "logs", "advanced"):
                     app.query_one(TabbedContent).active = tab
                     await settle(app, pilot)
                     self.assertEqual(app.query_one(TabbedContent).active, tab)
-                app.query_one(TabbedContent).active = "settings"
+                app.query_one(TabbedContent).active = "advanced"
                 await settle(app, pilot)
                 self.assertTrue(app.query_one("#settings-save").disabled)
                 self.assertTrue(app.query_one("#settings-discard").disabled)
@@ -145,7 +145,7 @@ class SettingsTabTests(unittest.TestCase):
             app = PcbridgeApp(backend or EditorBackend(self.path))
             async with app.run_test(size=SIZE) as pilot:
                 await settle(app, pilot)
-                app.query_one(TabbedContent).active = "settings"
+                app.query_one(TabbedContent).active = "advanced"
                 await pilot.pause()
                 await body(app, pilot)
 
@@ -313,7 +313,7 @@ class SettingsTabTests(unittest.TestCase):
 
     def test_a_generated_token_is_stored_as_a_hash_and_shown_once(self) -> None:
         from pcbridge import hashing
-        from pcbridge.tui.app import ShowOnce
+        from pcbridge.tui.dialogs import ShowOnce
 
         async def body(app, pilot):
             await self.select(app, pilot, "auth.static_token")
@@ -334,6 +334,7 @@ class SettingsTabTests(unittest.TestCase):
             await pilot.press("escape")
             await pilot.pause()
             self.assertIsInstance(app.screen, ShowOnce)
+            await pilot.click("#once-saved")
             await pilot.click("#once-done")
             await settle(app, pilot)
             self.assertNotIsInstance(app.screen, ShowOnce)

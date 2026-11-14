@@ -19,7 +19,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, Static, Switch
 
-from .app import while_mounted
+from .pane import Pane, while_mounted
 
 CSS = """
 ConnectionsPane .conn-row {
@@ -38,7 +38,7 @@ ConnectionsPane .conn-update {
 """
 
 
-class ConnectionsPane(Vertical):
+class ConnectionsPane(Pane):
     DEFAULT_CSS = CSS
 
     def __init__(self, **kwargs: Any) -> None:

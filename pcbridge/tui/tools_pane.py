@@ -17,7 +17,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, DataTable, Input, Static
 
-from .app import while_mounted
+from .pane import Pane, while_mounted
 
 CSS = """
 ToolsPane #tools-top {
@@ -66,7 +66,7 @@ def describe(tool: Any) -> Group:
     return Group(text, grid)
 
 
-class ToolsPane(Vertical):
+class ToolsPane(Pane):
     DEFAULT_CSS = CSS
 
     def __init__(self, **kwargs: Any) -> None:
@@ -92,6 +92,9 @@ class ToolsPane(Vertical):
         self.query_one("#tools-table", DataTable).add_columns("Tool", "State", "What it does")
         if getattr(self.app, "cfg", None) is not None:
             self.reload()
+
+    def config_changed(self) -> None:
+        self.reload()
 
     def reload(self) -> None:
         cfg = getattr(self.app, "cfg", None)

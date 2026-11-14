@@ -21,7 +21,8 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Static
 
 from .. import remotepassword as rp
-from .app import Confirm, ShowOnce, while_mounted
+from .dialogs import Confirm, ShowOnce
+from .pane import Pane, while_mounted
 
 CSS = """
 RemotePane .remote-row {
@@ -150,7 +151,7 @@ def row_id(name: str) -> str:
     return hashlib.sha1(name.encode()).hexdigest()[:12]
 
 
-class RemotePane(Vertical):
+class RemotePane(Pane):
     DEFAULT_CSS = CSS
 
     def __init__(self, **kwargs: Any) -> None:
@@ -173,6 +174,9 @@ class RemotePane(Vertical):
         yield VerticalScroll(id="remote-list")
 
     def on_mount(self) -> None:
+        self.reload()
+
+    def config_changed(self) -> None:
         self.reload()
 
     def reload(self) -> None:

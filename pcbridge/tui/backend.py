@@ -169,3 +169,17 @@ class Backend:
                             cfg.audit_log)
         return (f"Revoked {', '.join(res.names) or 'nothing'}: {res.registrations} registration(s), "
                 f"{res.refresh_tokens} refresh token(s).")
+
+    def update(self, cfg: Any) -> str:
+        """Load the installed (for a git install: pulled) code into the daemon when idle."""
+        from ..cli import install as inst
+        from ..cli.ops import _restart_when_idle
+
+        note = ""
+        if inst.install_kind() == "git":
+            res = inst.run(["git", "-C", str(inst.repo_root()), "pull", "--ff-only"], timeout=100)
+            if res.returncode != 0:
+                return "git pull failed: " + (res.stderr or res.stdout).strip()[:200]
+            note = " (git pull: " + ((res.stdout.strip().splitlines() or ["done"])[-1]) + ")"
+        inst.write_version_stamp()
+        return _restart_when_idle(cfg, 0) + note

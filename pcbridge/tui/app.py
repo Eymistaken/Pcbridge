@@ -1,10 +1,10 @@
-"""The terminal UI's frame: the grant bar, the tabs and the footer.
+"""The terminal UI's frame: the bar, the nine tabs and the footer.
 
-The bar at the top is on every tab: the daemon, the desktop grant with its
-countdown, and one button that locks or unlocks it (key `l`). Slow work
-(lock, unlock, restart, status) runs in worker threads so the screen never
-freezes. Colors are the terminal's own (`ansi_color=True`) plus the theme's
-accent; nothing else is colored.
+The bar at the top is on every tab: the daemon, the tunnel, the desktop
+grant with its countdown, and the grant's button (key `l`) with the
+duration menu. Slow work (lock, unlock, restart, status) runs in worker
+threads so the screen never freezes. The palette is our own
+(`theme.py`); the background stays the terminal's.
 """
 
 from __future__ import annotations
@@ -12,273 +12,297 @@ from __future__ import annotations
 from typing import Any
 
 from rich.text import Text
-from textual import on, work
+from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical
+from textual.content import Content
+from textual.markup import escape
 from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, Footer, Static, TabbedContent, TabPane
+from textual.widgets import Button, OptionList, Static, TabbedContent, TabPane, Tabs
+from textual.widgets.option_list import Option
 
 from .. import __version__
 from .backend import Backend
+from .dialogs import CSS as DIALOG_CSS
+from .dialogs import Confirm, HelpScreen, ShowOnce, UnlockConfirm, copy_secret, durations, minutes_label
+from .pane import while_mounted
+from .theme import CSS as THEME_CSS
+from .theme import PALETTE, THEME, css_variables
+from .widgets import key_label
 
+__all__ = ["Confirm", "PcbridgeApp", "ShowOnce", "copy_secret", "while_mounted"]
 
-def while_mounted(method):
-    """Run a timer or worker callback only while its widgets exist.
+# (id, full label, short label at 80 columns)
+TABS = [
+    ("overview", "Overview", "Overview"),
+    ("desktop", "Desktop", "Desktop"),
+    ("jobs", "Agents & Jobs", "Agents"),
+    ("connections", "Connections", "Clients"),
+    ("remote", "Remote", "Remote"),
+    ("tools", "Tools", "Tools"),
+    ("activity", "Activity", "Activity"),
+    ("logs", "Logs", "Logs"),
+    ("advanced", "Advanced", "Advanced"),
+]
 
-    The 1 s timer and the workers' callbacks can land while the app is
-    shutting down and its widgets are already gone (measured on a slow CI
-    runner: NoMatches from `refresh_grant`); then there is nothing to update.
-    """
-    import functools
+# Below this width the bar and the tabs shorten (the narrow layout).
+NARROW = 100
 
-    from textual.css.query import NoMatches
+# Keys a tab may claim; the app hands each to the active tab (`Pane.FOOTER`).
+PANE_KEYS = ["u", "f", "c", "o", "d", "t", "y", "p", "x", "k", "g", "a", "slash", "space",
+             "ctrl+s", "ctrl+z", "pageup", "pagedown"]
 
-    @functools.wraps(method)
-    def run(self, *args, **kwargs):
-        try:
-            return method(self, *args, **kwargs)
-        except NoMatches:
-            return None
-
-    return run
-
-CSS = """
-Screen {
-    background: ansi_default;
-}
+CSS = THEME_CSS + DIALOG_CSS + """
 #bar {
     dock: top;
     height: 1;
     padding: 0 1;
+    background: $pb-panel;
 }
-#bar-title {
-    width: auto;
-    text-style: bold;
-    padding-right: 2;
-}
-#bar-daemon {
+#bar Static {
     width: auto;
     padding-right: 2;
 }
-#bar-grant {
+#bar #bar-fill {
     width: 1fr;
+    padding: 0;
+}
+#bar Button {
+    width: auto;
+    min-width: 0;
 }
 #bar-grant.open {
-    color: $warning;
+    color: $pb-warning;
     text-style: bold;
 }
-#grant-button {
-    min-width: 18;
+#bar Button.-textual-compact {
+    margin-right: 0;
 }
-/* The ANSI theme gives a disabled button a border (!important), which
-   breaks a one-line compact button; keep compact buttons one line. */
-Button.-textual-compact:disabled {
-    border: none !important;
-    height: 1;
+#grant-menu {
+    padding: 0 1 0 0;
+    margin-left: 0;
+}
+.narrow ContentTabs {
+    margin-right: 6;
 }
 TabbedContent {
     height: 1fr;
 }
-.pane {
-    padding: 1 1 0 1;
-}
-.hint {
-    color: $text-muted;
-}
-Confirm, ShowOnce, PasswordScreen, LoginScreen {
-    align: center middle;
-}
-#pw-error {
-    color: $error;
-}
-#once-secret {
-    margin: 1 0;
-    padding: 0 1;
-    border: tall $accent;
-    text-style: bold;
-}
-#confirm-box {
-    width: 64;
-    height: auto;
-    padding: 1 2;
-    border: round $primary;
+TabbedContent > ContentTabs, Tabs {
     background: ansi_default;
 }
-#confirm-buttons {
-    height: auto;
-    margin-top: 1;
-    align-horizontal: right;
+Tab, Tab:ansi {
+    color: $pb-muted;
+    text-style: none;
 }
-#confirm-buttons Button {
-    margin-left: 2;
+Tab.-active, Tab:ansi.-active {
+    color: $pb-text;
+    text-style: bold;
+}
+Tab:hover {
+    color: $pb-text;
+}
+Tabs:focus .-active, Tabs:ansi:focus .-active {
+    background: $pb-selection;
+    color: $pb-text;
+    text-style: bold;
+}
+Underline > .underline--bar, Underline:ansi > .underline--bar {
+    color: $pb-accent;
+    background: $pb-rule;
+}
+#tabs-more {
+    position: absolute;
+    width: 6;
+    height: 1;
+    color: $pb-accent;
+    background: $pb-panel;
+    text-align: right;
+    display: none;
+}
+#tabs-more.shown {
+    display: block;
+}
+KeyFooter {
+    dock: bottom;
+    height: 1;
+    background: $pb-panel;
+    padding: 0 1;
+}
+DurationMenu {
+    align: right top;
+    background: transparent;
+}
+#duration-box {
+    width: 30;
+    height: auto;
+    margin: 1 1 0 0;
+    border: round $pb-rule;
+    background: $pb-panel;
+}
+#duration-list {
+    background: $pb-panel;
+    border: none;
+    height: auto;
 }
 """
 
 
-class Confirm(ModalScreen[bool]):
-    """A yes/no question. Escape and the second button say no."""
+class GrantBar(Horizontal):
+    def compose(self) -> ComposeResult:
+        yield Static("", id="bar-title")
+        yield Static("● daemon …", id="bar-daemon")
+        yield Static("", id="bar-remote")
+        yield Static("", id="bar-fill")
+        yield Static("Desktop: …", id="bar-grant")
+        yield Button("…", id="grant-button", compact=True, disabled=True)
+        yield Button("▾", id="grant-menu", compact=True, classes="primary")
 
-    BINDINGS = [Binding("escape", "no", "Cancel")]
 
-    def __init__(self, question: str, yes: str = "Yes", no: str = "Cancel") -> None:
+class KeyFooter(Static):
+    """This tab's keys, the key in accent bold and the label muted, then
+    right-aligned `? Help` and `q Quit`. Each key can be clicked."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__("", **kwargs)
+        self.entries: list[tuple[str, str, str]] = []
+
+    def set_entries(self, entries: list[tuple[str, str, str]]) -> None:
+        self.entries = entries
+        self.refresh()
+
+    @staticmethod
+    def _entry(key: str, label: str, action: str) -> str:
+        accent, muted = PALETTE["accent"], PALETTE["muted"]
+        if action.startswith("key:"):
+            action = f"app.pane_key({action[4:]!r})"
+        return (f"[@click={action}][b {accent}]{escape(key)}[/] [{muted}]{escape(label)}[/][/]")
+
+    def render(self) -> Content:
+        left = "  ".join(self._entry(*e) for e in self.entries)
+        right = "  ".join((self._entry("?", "Help", "app.help"), self._entry("q", "Quit", "app.quit")))
+        lc, rc = Content.from_markup(left), Content.from_markup(right)
+        pad = max(2, self.size.width - lc.cell_length - rc.cell_length)
+        return lc + Content(" " * pad) + rc
+
+
+class DurationMenu(ModalScreen["int | None"]):
+    """`Unlock desktop control for` 5 min … 2 h (max); a pick unlocks at once."""
+
+    BINDINGS = [Binding("escape", "close", "Close")]
+
+    def __init__(self, choices: list[int], current: int, maximum: int) -> None:
         super().__init__()
-        self.question = question
-        self.yes = yes
-        self.no = no
+        self.choices = choices
+        self.current = current
+        self.maximum = maximum
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="confirm-box"):
-            yield Static(self.question, id="confirm-question")
-            with Horizontal(id="confirm-buttons"):
-                yield Button(self.no, id="confirm-no", compact=True)
-                yield Button(self.yes, id="confirm-yes", variant="primary", compact=True)
+        options: list[Option] = [Option(Text("Unlock desktop control for", style=PALETTE["muted"]),
+                                        disabled=True)]
+        for m in self.choices:
+            label = Text()
+            label.append("● " if m == self.current else "  ", style=PALETTE["accent"])
+            label.append(minutes_label(m))
+            if m == self.maximum:
+                label.append(" (max)", style=PALETTE["dim"])
+            options.append(Option(label, id=str(m)))
+        with Vertical(id="duration-box"):
+            yield OptionList(*options, id="duration-list")
 
-    @on(Button.Pressed)
-    def _pressed(self, event: Button.Pressed) -> None:
-        self.dismiss(event.button.id == "confirm-yes")
+    def on_mount(self) -> None:
+        menu = self.query_one(OptionList)
+        menu.focus()
+        menu.highlighted = 1 + self.choices.index(self.current) if self.current in self.choices else 1
 
-    def action_no(self) -> None:
-        self.dismiss(False)
+    @on(OptionList.OptionSelected)
+    def _picked(self, event: OptionList.OptionSelected) -> None:
+        self.dismiss(int(event.option.id or 0) or None)
 
+    def on_click(self, event: events.Click) -> None:
+        if self.get_widget_at(event.screen_x, event.screen_y)[0] is self:
+            self.dismiss(None)
 
-def copy_secret(app: App, text: str) -> str:
-    """Put a secret on the clipboard; say where it went.
-
-    wl-copy reaches the desktop clipboard from any terminal; without it the
-    terminal is asked through OSC 52, which some terminals (GNOME Terminal
-    among them) ignore.
-    """
-    from ..remotepassword import copy_to_clipboard
-
-    if copy_to_clipboard(text):
-        return "Copied to the clipboard."
-    app.copy_to_clipboard(text)
-    return "Asked the terminal to copy it; check that it arrived before you close this."
-
-
-class ShowOnce(ModalScreen[None]):
-    """A new secret, shown the only time it can be: until the user says it is saved.
-
-    No timer and no Escape: the screen stays until "I saved it", so there is
-    time for a screenshot or a password manager.
-    """
-
-    def __init__(self, title: str, secret: str, where: str = "") -> None:
-        super().__init__()
-        self.title_text = title
-        self.secret = secret
-        self.where = where
-
-    def compose(self) -> ComposeResult:
-        with Vertical(id="confirm-box"):
-            yield Static(self.title_text, id="confirm-question")
-            if self.where:
-                yield Static(self.where, classes="hint")
-            yield Static(Text(self.secret), id="once-secret")
-            yield Static("This is the only time it is shown: only its hash is stored, so it "
-                         "cannot be read back, only replaced. Save it now.", classes="hint")
-            with Horizontal(id="confirm-buttons"):
-                yield Button("Copy", id="once-copy", compact=True)
-                yield Button("I saved it", id="once-done", variant="primary", compact=True)
-
-    @on(Button.Pressed, "#once-copy")
-    def _copy(self) -> None:
-        self.app.notify(copy_secret(self.app, self.secret))
-
-    @on(Button.Pressed, "#once-done")
-    def _done(self) -> None:
+    def action_close(self) -> None:
         self.dismiss(None)
 
 
-class GrantBar(Horizontal):
-    def compose(self) -> ComposeResult:
-        yield Static(f"pcbridge {__version__}", id="bar-title")
-        yield Static("daemon: ...", id="bar-daemon")
-        yield Static("Desktop: ...", id="bar-grant")
-        yield Button("...", id="grant-button", compact=True, disabled=True)
+def _commands_provider():
+    from .palette import PcbridgeCommands
 
-
-class OverviewPane(VerticalScroll):
-    def compose(self) -> ComposeResult:
-        yield Static("Reading the status...", id="overview-body")
-        yield Static(
-            "\nPress l or click the button at the top right to lock or unlock desktop control. "
-            "r restarts the daemon, q quits. Every tab works with the mouse.",
-            classes="hint",
-        )
-
-
-class CommandsPane(Vertical):
-    def compose(self) -> ComposeResult:
-        yield Static("The same work without this screen: run `pcbridge COMMAND` in a shell. "
-                     "`pcbridge list` prints this table.", classes="hint")
-        yield DataTable(id="commands-table", cursor_type="row", zebra_stripes=False)
-
-    def on_mount(self) -> None:
-        from ..cli.main import COMMANDS
-
-        table = self.query_one(DataTable)
-        table.add_columns("Group", "Command", "What it does")
-        for group, _name, usage, text in COMMANDS:
-            table.add_row(group, f"pcbridge {usage}", text)
-
-
-def _row(label: str, value: str) -> Text:
-    out = Text()
-    out.append(f"{label:<18}", style="bold")
-    out.append(value)
-    return out
+    return PcbridgeCommands
 
 
 class PcbridgeApp(App):
     TITLE = "pcbridge"
-    ENABLE_COMMAND_PALETTE = False
+    ENABLE_COMMAND_PALETTE = True
+    COMMAND_PALETTE_BINDING = "ctrl+p"
     CSS = CSS
+    COMMANDS = {_commands_provider}
     BINDINGS = [
-        Binding("l", "toggle_grant", "Lock/Unlock"),
-        Binding("r", "restart", "Restart daemon"),
-        Binding("1", "show_tab('overview')", "Overview", show=False),
-        Binding("2", "show_tab('settings')", "Settings", show=False),
-        Binding("3", "show_tab('tools')", "Tools", show=False),
-        Binding("4", "show_tab('connections')", "Connections", show=False),
-        Binding("5", "show_tab('remote')", "Remote", show=False),
-        Binding("6", "show_tab('commands')", "Commands", show=False),
-        Binding("q", "quit", "Quit"),
+        Binding("l", "toggle_grant", "Lock/Unlock", show=False),
+        Binding("r", "restart", "Restart", show=False),
+        *[Binding(str(i + 1), f"show_tab('{tab}')", label, show=False)
+          for i, (tab, label, _short) in enumerate(TABS)],
+        *[Binding(key, f"pane_key('{key}')", key, show=False) for key in PANE_KEYS],
+        Binding("question_mark", "help", "Help", show=False),
+        Binding("q", "quit", "Quit", show=False),
     ]
 
-    def __init__(self, backend: Backend | None = None) -> None:
+    def __init__(self, backend: Backend | None = None,
+                 terminal_background: tuple[int, int, int] | None = None) -> None:
         super().__init__(ansi_color=True)
+        # The terminal's background (OSC 11), when it answered; the logo's
+        # glow blends over it, else over a fixed dark base.
+        self.terminal_background = terminal_background
+        self.register_theme(THEME)
+        self.theme = "pcbridge"
         self.backend = backend or Backend()
         self.cfg: Any = None
         self.cfg_error = ""
         self.grant: Any = None
         self.status_info: dict = {}
         self.grant_busy = False
+        self.unlock_minutes: int | None = None   # the duration picked this session
+        self.restart_due = 0                     # saved changes waiting for a restart
+        self.restart_level: str | None = None
+        self.restart_pid: Any = None             # the daemon's pid when they were saved
+        self.panes: dict[str, Any] = {}
+        self.narrow = False
+
+    def get_css_variables(self) -> dict[str, str]:
+        return {**super().get_css_variables(), **css_variables()}
 
     # -- layout -----------------------------------------------------------------
 
     def compose(self) -> ComposeResult:
+        from .activity_pane import ActivityPane
         from .connections_pane import ConnectionsPane
+        from .desktop_pane import DesktopPane
+        from .jobs_pane import JobsPane
+        from .logs_pane import LogsPane
+        from .overview_pane import OverviewPane
         from .remote_pane import RemotePane
         from .settings_pane import SettingsPane
         from .tools_pane import ToolsPane
 
+        classes = {"overview": OverviewPane, "desktop": DesktopPane, "jobs": JobsPane,
+                   "connections": ConnectionsPane, "remote": RemotePane, "tools": ToolsPane,
+                   "activity": ActivityPane, "logs": LogsPane, "advanced": SettingsPane}
         yield GrantBar(id="bar")
         with TabbedContent(initial="overview"):
-            with TabPane("Overview", id="overview"):
-                yield OverviewPane(classes="pane")
-            with TabPane("Settings", id="settings"):
-                yield SettingsPane(classes="pane")
-            with TabPane("Tools", id="tools"):
-                yield ToolsPane(classes="pane")
-            with TabPane("Connections", id="connections"):
-                yield ConnectionsPane(classes="pane")
-            with TabPane("Remote", id="remote"):
-                yield RemotePane(classes="pane")
-            with TabPane("Commands", id="commands"):
-                yield CommandsPane(classes="pane")
-        yield Footer()
+            for i, (tab, label, _short) in enumerate(TABS):
+                with TabPane(self._tab_label(i, label), id=tab):
+                    pane = classes[tab](id=f"pane-{tab}")
+                    self.panes[tab] = pane
+                    yield pane
+        yield Static("", id="tabs-more")
+        yield KeyFooter(id="footer")
+
+    @staticmethod
+    def _tab_label(i: int, label: str) -> str:
+        return f"[{PALETTE['dim']}]{i + 1}[/] {escape(label)}"
 
     def on_mount(self) -> None:
         self.reload_config()
@@ -286,14 +310,84 @@ class PcbridgeApp(App):
         self.set_interval(1.0, self.refresh_grant)
         self.load_status()
         self.set_interval(10.0, self.load_status)
+        self._update_footer()
+
+    def on_resize(self, event: events.Resize) -> None:
+        narrow = event.size.width < NARROW
+        if narrow != self.narrow:
+            self.narrow = narrow
+            self.screen.set_class(narrow, "narrow")
+            tabbed = self.query_one(TabbedContent)
+            for i, (tab, label, short) in enumerate(TABS):
+                tabbed.get_tab(tab).label = self._tab_label(i, short if narrow else label)
+            self.refresh_grant()
+            self._render_bar_daemon()
+        self.call_after_refresh(self._update_more)
+
+    @while_mounted
+    def _update_more(self) -> None:
+        """`+4 ›` at the right edge for the tabs that do not fit."""
+        marker = self.query_one("#tabs-more", Static)
+        tabs = self.query_one(Tabs)
+        scroll = tabs.query_one("#tabs-scroll")
+        right = scroll.scroll_x + scroll.size.width
+        hidden = sum(1 for t in tabs.query("Tab") if t.virtual_region.right - 1 > right)
+        marker.set_class(hidden > 0, "shown")
+        marker.update(f"+{hidden} ›" if hidden else "")
+        marker.styles.offset = (max(0, self.size.width - 6), 1)
+
+    @on(TabbedContent.TabActivated)
+    def _tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        self._update_footer()
+        pane = self.active_pane()
+        if pane is not None:
+            pane.shown()
+        self.call_after_refresh(self._update_more)
+        self.set_timer(0.5, self._update_more)  # after the tabs' scroll animation
+
+    def active_pane(self) -> Any:
+        try:
+            return self.panes.get(self.query_one(TabbedContent).active)
+        except Exception:  # noqa: BLE001 - during shutdown
+            return None
+
+    @while_mounted
+    def _update_footer(self) -> None:
+        pane = self.active_pane()
+        entries = list(getattr(pane, "FOOTER", []))
+        if not any(key == "^p" for key, _l, _a in entries):
+            entries.append(("^p", "Commands", "app.command_palette"))
+        if (self.active_tab() == "overview") and not any(k == "1-9" for k, _l, _a in entries):
+            entries.append(("1-9", "Tabs", "app.help"))
+        self.query_one(KeyFooter).set_entries(entries)
+
+    def active_tab(self) -> str:
+        try:
+            return str(self.query_one(TabbedContent).active)
+        except Exception:  # noqa: BLE001
+            return ""
 
     def action_show_tab(self, tab: str) -> None:
+        # Focus left inside the old tab pulls TabbedContent back to it.
+        self.set_focus(None)
         self.query_one(TabbedContent).active = tab
 
-    async def action_quit(self) -> None:
-        from .settings_pane import SettingsPane
+    def action_pane_key(self, key: str) -> None:
+        pane = self.active_pane()
+        if pane is not None:
+            pane.dispatch_key(key.replace("+", "_"))
 
-        pending = self.query_one(SettingsPane).pending()
+    def action_help(self) -> None:
+        pane = self.active_pane()
+        title = dict((t, label) for t, label, _s in TABS).get(self.active_tab(), "pcbridge")
+        keys = [(k, label) for k, label, _a in getattr(pane, "FOOTER", [])]
+        keys += [("l", "Lock or unlock desktop control (unlocking asks)"), ("r", "Restart the daemon"),
+                 ("1-9", "Switch tabs"), ("^p", "Commands and tabs"), ("q", "Quit")]
+        self.push_screen(HelpScreen(f"Keys · {title}", keys))
+
+    async def action_quit(self) -> None:
+        pane = self.panes.get("advanced")
+        pending = pane.pending() if pane is not None else 0
         if not pending:
             self.exit()
             return
@@ -303,7 +397,14 @@ class PcbridgeApp(App):
                 self.exit()
 
         self.push_screen(Confirm(f"Quit and discard {pending} unsaved setting change(s)?",
-                                 yes="Discard and quit"), answer)
+                                 yes="Discard and quit", kind="destroys"), answer)
+
+    def post(self, callback, *args, **kwargs) -> None:
+        """call_from_thread that does nothing once the app has stopped."""
+        try:
+            self.call_from_thread(callback, *args, **kwargs)
+        except RuntimeError:  # the app is no longer running
+            pass
 
     # -- config -----------------------------------------------------------------
 
@@ -315,59 +416,113 @@ class PcbridgeApp(App):
             self.cfg = None
             self.cfg_error = str(getattr(exc, "message", exc))
             self.notify(self.cfg_error, title="The config does not load", severity="error", timeout=15)
-        from .remote_pane import RemotePane
-        from .tools_pane import ToolsPane
+        for pane in self.panes.values():
+            pane.config_changed()
 
-        for pane in self.query(ToolsPane):
-            pane.reload()
-        # The Remote tab mounts before the app has loaded the config, so its
-        # first read saw none; it reads again whenever the config does.
-        for pane in self.query(RemotePane):
-            pane.reload()
+    # -- the restart notice -------------------------------------------------------------
+
+    def note_restart_due(self, count: int, level: str | None) -> None:
+        """Saved changes that apply after a restart: every tab's banner shows them."""
+        from .. import settings as S
+
+        if not count or not level:
+            return
+        self.restart_due += count
+        if level == S.RESTART_CLIENTS or self.restart_level != S.RESTART_CLIENTS:
+            self.restart_level = level
+        daemon = self.status_info.get("daemon") or {}
+        self.restart_pid = daemon.get("pid")
+        self.refresh_banners()
+
+    def clear_restart_due(self) -> None:
+        self.restart_due, self.restart_level, self.restart_pid = 0, None, None
+        self.refresh_banners()
+
+    @while_mounted
+    def refresh_banners(self) -> None:
+        from .widgets import RestartBanner
+
+        for banner in self.query(RestartBanner):
+            banner.show(self.restart_due, self.restart_level)
 
     # -- the grant bar --------------------------------------------------------------
+
+    def grant_choices(self) -> tuple[list[int], int, int]:
+        """(durations, the current one, the maximum) for the unlock pickers."""
+        d = self.cfg.desktop
+        maximum = int(getattr(d, "unlock_max_minutes", 120) or 120)
+        default = int(d.unlock_default_minutes)
+        choices = durations(default, maximum)
+        current = self.unlock_minutes or default
+        return choices, current if current in choices else default, maximum
 
     @while_mounted
     def refresh_grant(self) -> None:
         grant_text = self.query_one("#bar-grant", Static)
         button = self.query_one("#grant-button", Button)
+        menu = self.query_one("#grant-menu", Button)
         if self.cfg is None:
             self.grant = None
             grant_text.update("Desktop: config error")
             grant_text.remove_class("open")
-            button.label, button.variant, button.disabled = "Config error", "default", True
+            button.label, button.disabled = "Config error", True
+            button.set_classes("")
+            menu.display = False
             return
         self.grant = self.backend.grant_state(self.cfg)
-        self._render_overview()
+        for pane in self.panes.values():
+            grant_changed = getattr(pane, "grant_changed", None)
+            if grant_changed is not None:
+                grant_changed(self.grant)
         if self.grant_busy:
             return
         g = self.grant
+        narrow = self.narrow
         if not g.enabled_in_config:
-            grant_text.update("Desktop control: off in config")
+            grant_text.update(Text("◆ Desktop control off", style=PALETTE["muted"]))
             grant_text.remove_class("open")
-            button.label, button.variant, button.disabled = "Unlock", "default", True
-            button.tooltip = "Turn it on in Settings > Desktop control > desktop.enabled."
+            button.label, button.disabled = "Unlock", True
+            button.set_classes("primary")
+            menu.display = False
+            button.tooltip = "Turn it on in Desktop > Desktop control."
         elif g.open:
             from ..cli.grant import format_duration
 
-            text = f"Desktop: OPEN, {format_duration(g.seconds_left)} left"
-            if g.sliding:
-                text += f" (at most {format_duration(g.hard_seconds_left)})"
-            grant_text.update(text)
+            left = format_duration(g.seconds_left)
+            grant_text.update(f"◇ OPEN {left}" if narrow else f"◇ Desktop OPEN · {left} left")
             grant_text.add_class("open")
-            button.label, button.variant, button.disabled = "Lock now", "error", False
+            button.label = key_label("Lock" if narrow else "Lock now", "l")
+            button.disabled = False
+            button.set_classes("danger")
+            menu.display = False
             button.tooltip = "Close desktop control and stop screen sharing (l)."
         else:
-            minutes = self.cfg.desktop.unlock_default_minutes
-            grant_text.update("Desktop: locked")
+            _choices, current, _max = self.grant_choices()
+            grant_text.update(Text("◆ locked" if narrow else "◆ Desktop locked", style=PALETTE["muted"]))
             grant_text.remove_class("open")
-            button.label, button.variant, button.disabled = f"Unlock {minutes} min", "primary", False
-            button.tooltip = "Let agents use the desktop for a while (l)."
+            button.label = "Unlock" if narrow else f"Unlock {minutes_label(current)}"
+            button.disabled = False
+            button.set_classes("primary")
+            menu.display = True
+            menu.disabled = False
+            button.tooltip = "Let agents use the desktop for a while (l asks first)."
 
     @on(Button.Pressed, "#grant-button")
     def _grant_button(self) -> None:
         # A click is deliberate: it locks or unlocks at once.
         self.toggle_grant(ask_to_unlock=False)
+
+    @on(Button.Pressed, "#grant-menu")
+    def _grant_menu(self) -> None:
+        if self.cfg is None or self.grant is None or self.grant.open or self.grant_busy:
+            return
+        choices, current, maximum = self.grant_choices()
+
+        def picked(minutes: int | None) -> None:
+            if minutes:
+                self.unlock_with(minutes)
+
+        self.push_screen(DurationMenu(choices, current, maximum), picked)
 
     def action_toggle_grant(self) -> None:
         # A key can be hit by accident (typing while the focus is elsewhere
@@ -379,48 +534,53 @@ class PcbridgeApp(App):
         if self.grant_busy or self.cfg is None or self.grant is None:
             return
         if self.grant.open:
-            self._set_busy("Locking...")
-            self._grant_worker(lock=True)
+            self.lock_now()
         elif self.grant.enabled_in_config:
             if not ask_to_unlock:
                 self._unlock_now()
                 return
-            minutes = self.cfg.desktop.unlock_default_minutes
+            choices, current, maximum = self.grant_choices()
 
-            def answer(yes: bool | None) -> None:
-                if yes:
-                    self._unlock_now()
+            def answer(minutes: int | None) -> None:
+                if minutes:
+                    self.unlock_with(minutes)
 
-            self.push_screen(Confirm(
-                f"Unlock desktop control for {minutes} minutes?\n\nAgents can then use the "
-                "keyboard, the pointer and the screen. l or Lock now closes it again.",
-                yes="Unlock"), answer)
+            self.push_screen(UnlockConfirm(current, choices,
+                                           int(getattr(self.cfg.desktop, "unlock_idle_seconds", 0) or 0),
+                                           maximum), answer)
         else:
-            self.notify("Desktop control is off in the config. Turn on desktop.enabled in Settings first.",
+            self.notify("Desktop control is off in the config. Turn it on in the Desktop tab first.",
                         severity="warning")
 
-    def post(self, callback, *args, **kwargs) -> None:
-        """call_from_thread that does nothing once the app has stopped."""
-        try:
-            self.call_from_thread(callback, *args, **kwargs)
-        except RuntimeError:  # the app is no longer running
-            pass
+    def lock_now(self) -> None:
+        """Locking never asks."""
+        if self.grant_busy or self.grant is None or not self.grant.open:
+            return
+        self._set_busy("Locking…")
+        self._grant_worker(lock=True, minutes=None)
+
+    def unlock_with(self, minutes: int) -> None:
+        """Unlock for `minutes` at once (a click or a confirmed question)."""
+        default = int(self.cfg.desktop.unlock_default_minutes) if self.cfg is not None else None
+        self.unlock_minutes = None if minutes == default else minutes
+        self._unlock_now()
 
     def _unlock_now(self) -> None:
-        if self.grant_busy or self.grant is None or self.grant.open:
+        if self.grant_busy or self.grant is None or self.grant.open or not self.grant.enabled_in_config:
             return
-        self._set_busy("Unlocking...")
-        self._grant_worker(lock=False)
+        self._set_busy("Unlocking…")
+        self._grant_worker(lock=False, minutes=self.unlock_minutes)
 
     def _set_busy(self, label: str) -> None:
         self.grant_busy = True
         button = self.query_one("#grant-button", Button)
         button.label, button.disabled = label, True
+        self.query_one("#grant-menu", Button).disabled = True
 
     @work(thread=True, exclusive=True, group="grant")
-    def _grant_worker(self, lock: bool) -> None:
+    def _grant_worker(self, lock: bool, minutes: int | None) -> None:
         try:
-            msg = self.backend.lock(self.cfg) if lock else self.backend.unlock(self.cfg, None)
+            msg = self.backend.lock(self.cfg) if lock else self.backend.unlock(self.cfg, minutes)
             self.post(self.notify, msg.splitlines()[0] if msg else "Done.")
         except Exception as exc:  # noqa: BLE001 - shown to the user, never raised in the UI
             self.post(self.notify, str(exc), severity="error", timeout=10)
@@ -448,8 +608,10 @@ class PcbridgeApp(App):
                 # it happens here in the worker, never on the screen's thread.
                 from ..tools import TOOL_HINTS, tools_in_profile
 
+                remote = getattr(cfg, "remote_tools_profile", "same")
+                remote = cfg.tools_profile if remote in ("same", "", None) else remote
                 info["tools_offered"] = (cfg.tools_profile, len(tools_in_profile(cfg.tools_profile)),
-                                         len(TOOL_HINTS))
+                                         len(TOOL_HINTS), remote, len(tools_in_profile(remote)))
             except Exception:  # noqa: BLE001 - the overview must not fail on this
                 pass
         self.post(self._show_status, info)
@@ -457,48 +619,35 @@ class PcbridgeApp(App):
     @while_mounted
     def _show_status(self, info: dict) -> None:
         self.status_info = info
-        self._render_overview()
+        daemon = info.get("daemon") or {}
+        if self.restart_due and self.restart_pid and daemon.get("pid") not in (None, self.restart_pid):
+            self.clear_restart_due()  # restarted from somewhere else
+        self._render_bar_daemon()
+        for pane in self.panes.values():
+            pane.status_changed(info)
+
+    def daemon_running(self) -> bool:
+        daemon = self.status_info.get("daemon") or {}
+        return bool(daemon) and daemon.get("reachable") is not False
 
     @while_mounted
-    def _render_overview(self) -> None:
-        info = self.status_info
-        if not info:
+    def _render_bar_daemon(self) -> None:
+        title = Text("pcbridge", style="bold")
+        if not self.narrow:
+            title.append(f" {__version__}", style=PALETTE["dim"])
+        self.query_one("#bar-title", Static).update(title)
+        if not self.status_info:
             return
-        daemon = info.get("daemon") or {}
-        running = bool(daemon) and daemon.get("reachable") is not False
-        self.query_one("#bar-daemon", Static).update("daemon: running" if running else "daemon: not running")
-        lines = []
-        if "error" in info:
-            lines.append(_row("Status", f"could not be read: {info['error']}"))
-        if running:
-            lines.append(_row("Daemon", f"running, pcbridge {daemon.get('version')}, pid {daemon.get('pid')} "
-                                        f"(service {info.get('service')}, socket {info.get('socket_unit')})"))
-        else:
-            lines.append(_row("Daemon", f"not running ({daemon.get('why', 'no answer')})"))
-        if self.cfg is not None:
-            g = self.grant or self.backend.grant_state(self.cfg)
-            lines.append(_row("Desktop control", "enabled in config" if g.enabled_in_config
-                              else "disabled in config (desktop.enabled = false)"))
-            lines.append(_row("Desktop grant", g.describe()))
-            jobs = info.get("jobs_running") or []
-            lines.append(_row("Jobs running", str(len(jobs))))
-            for j in jobs[:10]:
-                lines.append(_row("", f"{j['id']}  {j['kind']}  {j['label']}"))
-            lines.append(_row("Remote tunnel", str(info.get("remote_tunnel", "unknown"))))
-            if "keep_awake" in info:
-                from ..cli.ops import describe_keep_awake
-
-                lines.append(_row("Keep awake", describe_keep_awake(info["keep_awake"])[1]))
-            if "tools_offered" in info:
-                profile, offered, total = info["tools_offered"]
-                lines.append(_row("Tools profile", f"{profile}: {offered} of {total} tools offered"))
-            lines.append(_row("Config file", str(self.cfg.source_path)))
-            for w in getattr(self.cfg, "warnings", []) or []:
-                lines.append(_row("Warning", w))
-        else:
-            lines.append(_row("Config", self.cfg_error or "not loaded"))
-        lines.append(_row("Install", str(info.get("install", "unknown"))))
-        self.query_one("#overview-body", Static).update(Text("\n").join(lines))
+        running = self.daemon_running()
+        word = "running" if running else "not running"
+        text = Text("● ", style=PALETTE["ok" if running else "error"])
+        text.append(word if self.narrow else f"daemon {word}")
+        self.query_one("#bar-daemon", Static).update(text)
+        tunnel = self.status_info.get("remote_tunnel") == "open"
+        remote = self.query_one("#bar-remote", Static)
+        remote.update(Text("◉ remote" if self.narrow else "◉ remote open", style=PALETTE["warning"])
+                      if tunnel else "")
+        remote.display = tunnel
 
     # -- remote clients after a new password ------------------------------------------------
 
@@ -517,14 +666,19 @@ class PcbridgeApp(App):
 
     @while_mounted
     def _offer_revoke(self, live: int) -> None:
-        from .remote_pane import RemotePane
-
-        self.query_one(RemotePane).confirm_revoke_all(
+        self.panes["remote"].confirm_revoke_all(
             f"The new password does not end the sessions remote apps already have: {live} "
             "registration(s) still hold tokens.\n\nRevoke every remote app now? Each has to connect "
             "again with the new password.")
 
-    # -- restart --------------------------------------------------------------------------
+    # -- restart and update -----------------------------------------------------------------
+
+    def _jobs_note(self) -> str:
+        jobs = self.status_info.get("jobs_running") or []
+        if not jobs:
+            return "No job is running."
+        names = ", ".join(f"{j['id'][:4]} ({j.get('agent') or j['kind']})" for j in jobs[:4])
+        return f"Jobs {names} are running, so it waits until they end."
 
     def action_restart(self) -> None:
         if self.cfg is None:
@@ -534,22 +688,40 @@ class PcbridgeApp(App):
 
         def answer(yes: bool | None) -> None:
             if yes:
-                self.notify("Restarting the daemon...")
-                self._restart_worker()
+                self.notify("Restarting the daemon…")
+                self._restart_worker(update=False)
 
         self.push_screen(Confirm(
-            "Restart the pcbridge daemon so it reads the config again?\n\n"
-            "It restarts only when no job is running and the desktop grant is closed; "
-            "otherwise nothing happens and you are told why.",
+            "Restart the pcbridge daemon?\n\nIt reads the config again. It restarts only when no "
+            "job is running and the desktop grant is closed; otherwise nothing happens and you are "
+            f"told why. {self._jobs_note()}",
             yes="Restart",
         ), answer)
 
+    def action_update(self) -> None:
+        if self.cfg is None:
+            self.notify("The config does not load, so the daemon would not start. Fix it first.",
+                        severity="error")
+            return
+
+        def answer(yes: bool | None) -> None:
+            if yes:
+                self.notify("Loading the installed version…")
+                self._restart_worker(update=True)
+
+        self.push_screen(Confirm(
+            f"Load pcbridge {__version__} into the daemon?\n\nThe daemon restarts into the "
+            "installed code when no job runs and the desktop grant is closed. "
+            f"{self._jobs_note()}", yes="Update"), answer)
+
     @work(thread=True, exclusive=True, group="restart")
-    def _restart_worker(self) -> None:
+    def _restart_worker(self, update: bool) -> None:
         try:
-            msg = self.backend.restart(self.cfg)
+            msg = self.backend.update(self.cfg) if update else self.backend.restart(self.cfg)
             ok = msg.startswith("daemon")
             self.post(self.notify, msg, severity="information" if ok else "warning", timeout=10)
+            if ok:
+                self.post(self.clear_restart_due)
         except Exception as exc:  # noqa: BLE001
             self.post(self.notify, str(exc), severity="error", timeout=10)
         self.post(self.load_status)
