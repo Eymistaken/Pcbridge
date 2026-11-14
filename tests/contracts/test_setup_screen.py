@@ -234,6 +234,28 @@ class WalkThroughTests(unittest.TestCase):
             self.assertEqual(app.report(setup_app.STOPPED), 1)
         printed.assert_called_with("Stopped; nothing was changed.")
 
+    def test_the_quit_and_exit_buttons_close_the_screen(self) -> None:
+        async def quit_at_welcome(app, pilot):
+            await pilot.click("#go-quit")
+            await settle(app, pilot)
+            self.assertFalse(app.is_running)
+
+        app, fake = run(quit_at_welcome)
+        self.assertEqual(app.return_value, setup_app.STOPPED)
+        self.assertEqual(fake.calls, [])
+
+        async def exit_at_the_end(app, pilot):
+            await pilot.press("enter", "enter", "enter", "enter")
+            await settle(app, pilot)
+            await pilot.press("enter")
+            await settle(app, pilot)
+            await pilot.click("#go-exit")
+            await settle(app, pilot)
+            self.assertFalse(app.is_running)
+
+        app, _ = run(exit_at_the_end)
+        self.assertEqual(app.return_value, setup_app.DONE)
+
     def test_quit_is_refused_while_the_install_runs(self) -> None:
         gate = threading.Event()
         fake = FakeInstall(gate=gate)
@@ -308,6 +330,29 @@ class OutcomeTests(unittest.TestCase):
         app, _ = run(body, fake=FakeInstall(ready=False))
         with mock.patch("builtins.print"):
             self.assertEqual(app.report(setup_app.DONE), 1)
+
+    def test_the_last_screen_reads_whether_desktop_control_is_on(self) -> None:
+        async def body(app, pilot):
+            await pilot.press("enter", "enter", "enter")
+            await settle(app, pilot)
+            self.assertIn("Desktop control stays as it is: on, with a grant per use.", flat(app))
+            await pilot.press("enter")
+            await settle(app, pilot)
+            self.assertIn("✓ MCP clients", flat(app))
+            self.assertIn("1 connected", flat(app))
+            await pilot.press("enter")
+            await settle(app, pilot)
+            text = flat(app)
+            self.assertIn("Desktop control is on; agents ask for a grant first: pcbridge →", text)
+            self.assertNotIn("off until you turn it on", text)
+
+        with mock.patch.object(SetupApp, "desktop_enabled", return_value=True):
+            run(body)
+
+    def test_home_paths_are_shortened_in_the_rows(self) -> None:
+        home = os.path.expanduser("~")
+        self.assertEqual(setup_app.shorten_homes(f"units in {home}/.config/systemd/user"),
+                         "units in ~/.config/systemd/user")
 
     def test_no_desktop_means_no_optional_part_and_no_sudo_note_for_it(self) -> None:
         async def body(app, pilot):

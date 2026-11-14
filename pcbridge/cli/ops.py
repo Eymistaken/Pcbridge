@@ -570,10 +570,14 @@ def _fresh_config(dest: Path) -> None:
 def _restart_when_idle(cfg, wait_s: float) -> str:
     """Restart pcbridge.service into the daemon, only when nothing is running (I5)."""
     deadline = time.monotonic() + wait_s
+    said = ""
     while True:
         why = inst.idle_reason(cfg)
         if not why:
             break
+        if why != said:
+            inst.say(f"  waiting before the restart: {why}")
+            said = why
         if time.monotonic() >= deadline:
             return f"deferred: {why}. Run `pcbridge update` when it is done."
         time.sleep(5)

@@ -83,6 +83,12 @@ FUTURE = "#3a4552"      # planks not reached yet
 TRACK = "#232c35"       # the empty part of a bar
 
 
+def shorten_homes(text: str) -> str:
+    """Every /home/<user>/ in a line, as ~/ (the rows are short)."""
+    home = os.path.expanduser("~")
+    return text.replace(home + "/", "~/") if home not in ("", "/") else text
+
+
 def short_home(path: object) -> str:
     text = str(path)
     home = os.path.expanduser("~")
@@ -351,10 +357,15 @@ class HRule(Widget):
 
 
 class RevealLogo(Logo):
-    """The pcbridge wordmark, drawn in from the left once, a cursor at its edge."""
+    """The pcbridge wordmark, drawn in from the left once, a cursor at its edge.
 
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(glyph="word", state="active", **kwargs)
+    It glows only over a background the terminal reported (OSC 11): blended
+    over a guessed one, the glow is a box of the wrong color (seen in tmux,
+    which does not answer).
+    """
+
+    def __init__(self, glow: bool = True, **kwargs: Any) -> None:
+        super().__init__(glyph="word", state="active" if glow else "idle", **kwargs)
         self.reveal = 10 ** 6
 
     def pixels(self) -> dict[tuple[int, int], tuple[int, int, int]]:
@@ -710,6 +721,9 @@ Screen.narrow RevealLogo {
     height: auto;
     margin-top: 1;
 }
+#review-notes {
+    margin-top: 1;
+}
 #cmd-row Button {
     margin-left: 1;
 }
@@ -806,6 +820,7 @@ class SetupApp(App[str]):
         self.theme = "pcbridge"
         self.ctx = ctx
         self.base = terminal_background or FIXED_BASE
+        self.background_known = terminal_background is not None
         self.executor = executor or setupflow.execute
         self.sudo_runner = sudo_runner
         self._motion = motion
@@ -945,7 +960,7 @@ class SetupApp(App[str]):
         with Vertical(id="welcome"):
             with Horizontal(id="welcome-cols"):
                 with Vertical(id="welcome-left"):
-                    yield RevealLogo(id="logo", base=self.base)
+                    yield RevealLogo(glow=self.background_known, id="logo", base=self.base)
                     yield Static(LEAD, id="lead")
                     lead2 = Text("About a minute. Nothing on this computer changes before you press ",
                                  style=C["muted"])
@@ -1132,7 +1147,9 @@ class SetupApp(App[str]):
             "welcome": [("⏎", "start"), ("q", "quit")],
             "parts": [("↑↓", "move"), ("space", "tick"), ("⏎", "next"), ("esc", "back")],
             "clients": [("↑↓", "move"), ("space", "tick"), ("⏎", "next"), ("esc", "back")],
-            "review": [("⏎", "install"), ("c", "copy the command"), ("esc", "back")],
+            "review": [("⏎", "install")] + ([("c", "copy the command")] if self.package_command()
+                                             and (self.install_now or self.ctx.args.no_packages) else [])
+            + [("esc", "back")],
             "install": [("l", "hide the output" if self._log_shown() else "show the output")]
             + ([("⏎", "continue")] if self.finished else []),
             "path": [("y", "add the line"), ("n", "leave it")] if self.path_choice is None
@@ -1339,7 +1356,9 @@ class SetupApp(App[str]):
         notes = Text()
         if self.ctx.found.desktop_supported:
             notes.append("◇  ", style=C["accent"])
-            notes.append("Desktop control stays off until you turn it on.\n", style=C["muted"])
+            notes.append("Desktop control stays as it is: on, with a grant per use.\n"
+                         if self.desktop_enabled() else
+                         "Desktop control stays off until you turn it on.\n", style=C["muted"])
         notes.append("◇  ", style=C["accent"])
         notes.append("Every file setup changes is backed up first; ROLLBACK.md in the backup says how "
                      "to undo it." if wide else "Changed files are backed up first (ROLLBACK.md).",
@@ -1384,10 +1403,12 @@ class SetupApp(App[str]):
     def _finish_task(self, task: Task) -> None:
         kinds = [k for k, _ in task.messages]
         task.state = "fail" if "fail" in kinds else "warn" if "warn" in kinds else "ok"
-        pick = next((m for k, m in task.messages if k == task.state), None)
-        if pick is None:
-            pick = task.messages[-1][1] if task.messages else "done"
-        task.detail = pick
+        if task.key == "clients" and task.state == "ok" and task.messages:
+            task.detail = f"{len(task.messages)} connected"
+        else:
+            picks = [m for k, m in task.messages if k == task.state]
+            task.detail = picks[-1] if picks else (task.messages[-1][1] if task.messages else "done")
+        task.detail = shorten_homes(task.detail)
         task.ended = time.monotonic()
 
     def on_setup_line(self, kind: str, msg: str) -> None:
@@ -1409,13 +1430,13 @@ class SetupApp(App[str]):
             self.log_lines.append(f"{mark} {msg}")
             if current is not None:
                 current.messages.append((kind, msg))
-                current.live = msg
+                current.live = shorten_homes(msg)
         else:
             text = msg.strip()
             if text:
                 self.log_lines.append(("    " if kind == "out" else "") + text)
                 if current is not None:
-                    current.live = text
+                    current.live = shorten_homes(text)
         tasks.refresh()
         self._refresh_log()
 
@@ -1603,7 +1624,10 @@ class SetupApp(App[str]):
 
         step("Type", "pcbridge", "to check and change anything.")
         if self.ctx.found.desktop_supported:
-            step("Desktop control is off until you turn it on:", "pcbridge", "→ Desktop.")
+            if self.desktop_enabled():
+                step("Desktop control is on; agents ask for a grant first:", "pcbridge", "→ Desktop.")
+            else:
+                step("Desktop control is off until you turn it on:", "pcbridge", "→ Desktop.")
         step("Remote access for claude.ai and your phone:", "pcbridge", "→ Remote.")
         if outcome is not None and not outcome.ready:
             step("See what is missing:", "pcbridge doctor", "")
@@ -1623,16 +1647,25 @@ class SetupApp(App[str]):
             att.append(short_home(outcome.rollback), style=C["dim"])
         self.query_one("#attention", Static).update(att)
 
+    def desktop_enabled(self) -> bool:
+        """`[desktop] enabled` as the config says now (an update keeps the user's value)."""
+        try:
+            from .. import settings as settingslib
+
+            return bool(settingslib.ConfigEditor(self.ctx.xdg).value("desktop.enabled"))
+        except Exception:  # noqa: BLE001 - no config yet: the default, off
+            return False
+
     # -- actions --------------------------------------------------------------------------
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id or ""
         if bid == "go-start" or bid.startswith("go-next"):
             self.goto(self._next_key())
         elif bid.startswith("go-back"):
             self.action_back()
         elif bid in ("go-quit", "go-exit"):
-            self.action_quit()
+            await self.action_quit()
         elif bid == "go-install":
             self.start_install()
         elif bid == "go-copy":
