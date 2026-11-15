@@ -1,3 +1,4 @@
+#![cfg(target_os = "linux")]
 use std::io::{Read, Write};
 use std::process::{Command, Output, Stdio};
 

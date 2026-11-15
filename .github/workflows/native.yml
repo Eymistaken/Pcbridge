@@ -91,6 +91,27 @@ jobs:
           path: pcbridge/_native/x86_64-unknown-linux-gnu/
           if-no-files-found: error
 
+  # The Windows port (docs/dev/windows-scope.md): the helper builds with
+  # MSVC, the toolchain releases use, and its Windows platform passes clippy
+  # and the tests. (The test VM builds with the GNU toolchain; both link
+  # through windows-targets' import libraries, see rust/Cargo.toml.)
+  windows-x86_64:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain
+        working-directory: rust
+        run: rustup toolchain install && cargo --version
+      - name: Clippy
+        working-directory: rust
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Tests
+        working-directory: rust
+        run: cargo test --workspace --locked --no-fail-fast
+      - name: Release build
+        working-directory: rust
+        run: cargo build --release --locked -p pcbridge-native
+
   # The helper built above, on the system most installs run, with nothing
   # but its runtime library: it must start where it was not built.
   packaging-smoke:

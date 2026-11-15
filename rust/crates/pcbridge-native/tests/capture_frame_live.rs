@@ -2,6 +2,7 @@
 //!
 //! Skipped unless `PCBRIDGE_TEST_CAPTURE=1`: the test briefly opens a screen
 //! share and reads pixels, but writes no image and sends no input.
+#![cfg(target_os = "linux")]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;

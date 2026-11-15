@@ -1,4 +1,5 @@
 //! Opt-in compositor observation; run only inside the disposable Hyprland VM.
+#![cfg(target_os = "linux")]
 
 #[test]
 fn selected_hyprland_session_has_a_real_display_snapshot() {

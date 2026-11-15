@@ -43,6 +43,21 @@ _ALLOWED_ENVIRONMENT = {
     "WAYLAND_DISPLAY",
     # The X11 desktops: the helper connects to DISPLAY with this cookie file.
     "XAUTHORITY",
+    # Windows: a process without SYSTEMROOT cannot even start Winsock, and
+    # the profile folders and TEMP are where Win32 looks for its own files.
+    # None of them carries a credential.
+    "SYSTEMROOT",
+    "WINDIR",
+    "SYSTEMDRIVE",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "LOCALAPPDATA",
+    "APPDATA",
+    "PROGRAMDATA",
+    "USERNAME",
+    "PATHEXT",
+    "COMSPEC",
     "XDG_CONFIG_DIRS",
     "XDG_CURRENT_DESKTOP",
     "XDG_DATA_DIRS",

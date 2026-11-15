@@ -25,3 +25,14 @@ wayland-protocols-wlr = { version = "0.3.12", features = ["client"] }
 # Pure Rust X11 client (RustConnection): no libxcb or libX11 link.
 x11rb = { version = "0.13.2", default-features = false, features = ["randr", "screensaver", "shape", "xfixes"] }
 zbus = "5.13"
+# Windows only: the Win32 API for the Windows platform (platform/windows).
+# 0.58, not later: 0.59 on link through raw-dylib, which the GNU toolchain
+# can only build with MinGW's dlltool and assembler (measured in the test VM:
+# Rust's own dlltool fails without `as`); 0.58's windows-targets ships the
+# import libraries itself, so `x86_64-pc-windows-gnu` and MSVC both build.
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_HiDpi",
+    "Win32_UI_WindowsAndMessaging",
+] }

@@ -1,7 +1,16 @@
-#![forbid(unsafe_code)]
+// Linux needs no unsafe code at all. Windows reaches the Win32 API, which
+// is unsafe to call, so there `unsafe` is denied everywhere except the
+// Windows platform module, which allows it explicitly.
+#![cfg_attr(not(windows), forbid(unsafe_code))]
+#![cfg_attr(windows, deny(unsafe_code))]
 
 pub mod build_info;
+// Each system has a dispatcher of its own with the same protocol (see
+// docs/native/protocol-v1.md): the Linux one is built around AT-SPI,
+// PipeWire, uinput and X11; the Windows one around Win32.
+#[cfg_attr(windows, path = "dispatch_windows.rs")]
 pub mod dispatch;
+#[cfg(target_os = "linux")]
 pub mod lifecycle;
 pub mod platform;
 

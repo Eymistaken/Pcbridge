@@ -1,4 +1,5 @@
 //! Packed image-copy constraints and orientation must not silently guess.
+#![cfg(target_os = "linux")]
 
 use pcbridge_core::frame::{FrameId, MAX_PIXELS, RgbaFrame};
 use pcbridge_native::platform::linux::image_copy::{buffer_spec, normalize};

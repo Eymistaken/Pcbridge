@@ -5,6 +5,7 @@
 //! be authorized the way `pcbridge setup` authorizes the helper (a
 //! `pcbridge*.desktop` file with its path as `Exec`); the test says so when
 //! it is not.
+#![cfg(target_os = "linux")]
 
 use std::time::Instant;
 

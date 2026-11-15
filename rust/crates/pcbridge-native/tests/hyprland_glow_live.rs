@@ -1,4 +1,5 @@
 //! Native renderer observation only: grants and protected control stay closed.
+#![cfg(target_os = "linux")]
 
 use std::time::{Duration, Instant};
 

@@ -7,6 +7,7 @@
 //!
 //! The fake records every call. Most assertions are about that log: what
 //! matters on a failure is not only the error but that the stream went back.
+#![cfg(target_os = "linux")]
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};

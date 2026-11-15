@@ -9,6 +9,7 @@
 //! `tests/capture_session.rs` covers the rules. This covers the one thing a fake
 //! cannot: that the method names, argument signatures and signal shape are the
 //! ones Mutter actually answers to.
+#![cfg(target_os = "linux")]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;

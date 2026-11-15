@@ -1,4 +1,5 @@
-#![forbid(unsafe_code)]
+#![cfg_attr(not(windows), forbid(unsafe_code))]
+#![cfg_attr(windows, deny(unsafe_code))]
 
 use std::ffi::OsString;
 use std::io;
@@ -38,20 +39,36 @@ fn main() -> ExitCode {
         }
         Command::Serve(mode) => serve(mode),
         Command::IdleWatch => idle_watch(),
-        Command::GlowWatch(directory, token) => {
-            match pcbridge_native::platform::linux::glow_watch::watch(&directory, token) {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(error) => {
-                    eprintln!("pcbridge-native glow-watch: {error}");
-                    ExitCode::from(1)
-                }
-            }
+        Command::GlowWatch(directory, token) => glow_watch(&directory, token),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn glow_watch(directory: &std::path::Path, token: pcbridge_core::LeaseToken) -> ExitCode {
+    match pcbridge_native::platform::linux::glow_watch::watch(directory, token) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("pcbridge-native glow-watch: {error}");
+            ExitCode::from(1)
         }
     }
 }
 
+#[cfg(not(target_os = "linux"))]
+fn glow_watch(_directory: &std::path::Path, _token: pcbridge_core::LeaseToken) -> ExitCode {
+    eprintln!("pcbridge-native glow-watch: not available on this system yet");
+    ExitCode::from(2)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn idle_watch() -> ExitCode {
+    eprintln!("pcbridge-native idle-watch: Linux only");
+    ExitCode::from(2)
+}
+
 /// Wayland input idle time (see `platform::linux::idle`); runs until the
 /// compositor goes away, and exits non-zero so the daemon restarts it.
+#[cfg(target_os = "linux")]
 fn idle_watch() -> ExitCode {
     let Some(path) = pcbridge_native::platform::linux::idle::state_path() else {
         eprintln!("pcbridge-native idle-watch: XDG_RUNTIME_DIR is not set");

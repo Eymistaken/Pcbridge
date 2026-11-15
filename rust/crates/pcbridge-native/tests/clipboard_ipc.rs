@@ -1,3 +1,4 @@
+#![cfg(target_os = "linux")]
 #![cfg(feature = "test-harness")]
 //! The clipboard methods over the real protocol, in the test harness.
 //!

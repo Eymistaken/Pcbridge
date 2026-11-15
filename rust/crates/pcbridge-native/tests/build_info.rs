@@ -1,5 +1,6 @@
 //! What the binary says about itself, asked the way `doctor.sh` and the
 //! packaging smoke test ask: a separate process, no protocol, no session.
+#![cfg(target_os = "linux")]
 
 use std::process::{Command, Output};
 

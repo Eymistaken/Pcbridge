@@ -5,6 +5,7 @@
 //! the same program calls in the same order, and the same clipboard
 //! afterwards. The process tests run small shell scripts standing in
 //! for `wl-paste` and `wl-copy`. The user's clipboard is never touched.
+#![cfg(target_os = "linux")]
 
 use std::cell::RefCell;
 use std::fs;

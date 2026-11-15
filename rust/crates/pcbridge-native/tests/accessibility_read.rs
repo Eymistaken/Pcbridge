@@ -4,6 +4,7 @@
 //! the expected dumps; they were written for the Python AT-SPI helper
 //! (removed after 2.8), and a case passes only when the native walk lists
 //! exactly what that helper listed -- node for node, field for field.
+#![cfg(target_os = "linux")]
 
 use std::time::{Duration, Instant};
 

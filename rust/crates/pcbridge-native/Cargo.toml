@@ -9,19 +9,25 @@ default = []
 test-harness = []
 
 [dependencies]
-async-io.workspace = true
-evdev.workspace = true
-futures-lite.workspace = true
 pcbridge-core = { path = "../pcbridge-core" }
-pipewire.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+# The Linux desktops: uinput, PipeWire, Wayland, X11 and D-Bus.
+[target.'cfg(target_os = "linux")'.dependencies]
+async-io.workspace = true
+evdev.workspace = true
+futures-lite.workspace = true
+pipewire.workspace = true
 wayland-client.workspace = true
 wayland-protocols.workspace = true
 wayland-protocols-wlr.workspace = true
 x11rb.workspace = true
 zbus.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows.workspace = true
 
 [dev-dependencies]
 png.workspace = true

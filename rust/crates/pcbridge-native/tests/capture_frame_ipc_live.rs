@@ -8,6 +8,7 @@
 //! directly -- neither exercises grant matching, the `mutter:` scheme, the
 //! snapshot lookup or the `NativeCapture` wiring as a client would reach them.
 //! Those were verified by hand once; this keeps them verified.
+#![cfg(target_os = "linux")]
 
 use std::fs;
 use std::io::{Read, Write};

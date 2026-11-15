@@ -9,6 +9,7 @@
 //! The fake records every call it receives. Most assertions are about that log:
 //! what matters about a failed start is not only the error, but that the session
 //! the compositor already created was stopped.
+#![cfg(target_os = "linux")]
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fs;

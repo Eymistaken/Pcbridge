@@ -7,6 +7,7 @@
 //! side only.
 //!
 //! No D-Bus connection and no compositor: the fixture is the input.
+#![cfg(target_os = "linux")]
 
 use std::fs;
 use std::path::PathBuf;

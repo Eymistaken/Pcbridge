@@ -1,4 +1,5 @@
 //! Unknown lock replies must never turn into an unlocked observation.
+#![cfg(target_os = "linux")]
 
 use pcbridge_native::platform::linux::desktop_state::{ScreenLockState, lock_from_hyprland_reply};
 

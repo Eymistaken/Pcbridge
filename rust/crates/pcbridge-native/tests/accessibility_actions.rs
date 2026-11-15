@@ -5,6 +5,7 @@
 //! one desktop, switch to the desktop the application changed into, act on
 //! the dumped node. What took effect and what the fields hold afterwards
 //! must match the expectation, and a refusal must have sent nothing.
+#![cfg(target_os = "linux")]
 
 use std::cell::{Cell, RefCell};
 use std::time::{Duration, Instant};

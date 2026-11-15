@@ -3,6 +3,7 @@
 //! The fixture is shared with `tests/contracts/test_input_contract.py`: both
 //! implementations must produce the same events for the same call. Nothing
 //! here opens /dev/uinput.
+#![cfg(target_os = "linux")]
 
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

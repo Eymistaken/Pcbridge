@@ -1,4 +1,5 @@
 //! Python/native parity for exact, fresh presentation evidence.
+#![cfg(target_os = "linux")]
 
 use pcbridge_core::LeaseToken;
 use pcbridge_native::platform::linux::glow_state::FrameRecord;
