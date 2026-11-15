@@ -210,7 +210,8 @@ also works without it. `pcbridge list` prints them all by group.
 | `pcbridge remote start/stop/status` (`bridgeac`/`bridgekapat`/`bridgedurum`) | The Tailscale Funnel tunnel |
 | `pcbridge remote clients [--all] [--ids] [--json]` | The remote apps that hold tokens, by name |
 | `pcbridge remote revoke NAME` / `--all` | Cut off a remote app (or every one): its registration and tokens are deleted; `--yes` skips the question |
-| `pcbridge logs [-f]` | The daemon's journal |
+| `pcbridge logs [-f]` | The daemon's journal (on Windows, its log file) |
+| `pcbridge attach SESSION` | Open a live terminal session an agent started (`tmux_start`) in this terminal |
 | `pcbridge stop [--keep-jobs]` | Stop the daemon (and, unless told otherwise, running jobs) |
 | `pcb-shot`, `pcb-do` | Screenshot and action shells for a local agent's Bash (see `skills/computer-use/SKILL.md`) |
 

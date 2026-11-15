@@ -760,12 +760,18 @@ def register(
         return out
 
     # =================================================================== TMUX
+    def _no_terminal_sessions() -> str:
+        if oscompat.IS_WINDOWS:
+            return ("Live terminal sessions need pywinpty and pyte, which pcbridge installs with "
+                    "itself on Windows; reinstall it: `pcbridge upgrade`.")
+        return f"tmux is not installed: `{distrolib.install_command('tmux')}`"
+
     @mcp.tool(annotations={"title": "List live terminal sessions"})
     def tmux_list() -> str:
         """List the live tmux terminal sessions on the computer. These are real
         terminals the user can also attach to physically."""
         if not tmuxctl.available():
-            return f"tmux is not installed: `{distrolib.install_command('tmux')}`"
+            return _no_terminal_sessions()
         rows = tmuxctl.list_sessions()
         if not rows:
             return "No tmux sessions are open."
@@ -791,7 +797,7 @@ def register(
         """Open a new persistent terminal session on the computer, optionally
         launching an interactive CLI (like `claude`) inside it."""
         if not tmuxctl.available():
-            return f"tmux is not installed: `{distrolib.install_command('tmux')}`"
+            return _no_terminal_sessions()
         cwd = _resolve_dir(cfg, workdir)
         if not cwd.is_dir():
             return f"Directory not found: {cwd}"

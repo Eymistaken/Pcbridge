@@ -112,6 +112,22 @@ async def server_authenticate(readline: Callable[[], Awaitable[bytes]],
     return hmac.compare_digest(answer, _proof(secret, b"client", client_nonce, server_nonce))
 
 
+def server_authenticate_sync(sock: socket.socket, secret: bytes) -> bool:
+    """`server_authenticate` for a blocking socket (the terminal host)."""
+    try:
+        hello = json.loads(_readline(sock))["pcbridge_auth"]
+        client_nonce = str(hello["nonce"])
+        if int(hello.get("v", 0)) != AUTH_VERSION or not 16 <= len(client_nonce) <= 128:
+            return False
+        server_nonce = secrets.token_hex(16)
+        proof = _proof(secret, b"daemon", client_nonce, server_nonce)
+        sock.sendall(json.dumps({"pcbridge_auth": {"nonce": server_nonce, "proof": proof}}).encode() + b"\n")
+        answer = str(json.loads(_readline(sock))["pcbridge_auth"]["proof"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    return hmac.compare_digest(answer, _proof(secret, b"client", client_nonce, server_nonce))
+
+
 def connect(path: Path, timeout: float | None = None) -> socket.socket:
     """A connected, authenticated socket to the daemon; OSError when there is none.
 

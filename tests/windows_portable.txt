@@ -13,6 +13,7 @@ tests.contracts.test_capture_backend_selection
 tests.contracts.test_capture_contract
 tests.contracts.test_capture_region
 tests.contracts.test_clipboard_contract
+tests.contracts.test_conpty_keys
 tests.contracts.test_coordinate_contract
 tests.contracts.test_coordinate_v2
 tests.contracts.test_daemon_grant

@@ -57,6 +57,7 @@ _PASSTHROUGH = {
     "remote": _lazy(".ops", "remote"),
     "keep-awake": _lazy(".ops", "keep_awake"),
     "logs": _lazy(".ops", "logs"),
+    "attach": _lazy(".attach", "main"),
     "report": _lazy(".ops", "report"),
     "update": _lazy(".ops", "update"),
     "upgrade": _lazy(".upgradecmd", "main"),
@@ -103,6 +104,9 @@ COMMANDS: list[tuple[str, str, str, str]] = [
      "Upgrade to the latest release: download, check, install, then restart the daemon when idle."),
     ("Service", "update", "update", "Load the installed version into the daemon once no job is running."),
     ("Service", "logs", "logs [-f]", "Show the daemon log (-f to follow)."),
+    ("Interface", "attach", "attach SESSION",
+     "Open a live terminal session an agent started (tmux_start) in this terminal; Ctrl+] (Windows) "
+     "or tmux's detach (Linux) leaves it running."),
     ("Service", "keep-awake", "keep-awake [on|off]",
      "Stop idle suspend while jobs run ([power] keep_awake, off by default); alone, show the state."),
     ("Service", "doctor", "doctor [--fix]", "Check everything and say what to fix (--json)."),

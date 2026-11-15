@@ -522,6 +522,29 @@ supervisor in the desktop session.
   on (the VM's default after setup) it went straight to the notification
   history (read back: title and text as sent) instead of showing a banner.
 
+## Windows: live terminal sessions (W4, 2026-11-15)
+
+Measured in the Windows 11 test VM through a real MCP client
+(`scripts/dev/windows/probes/term_mcp.py`).
+
+- **The session.** `tmux_start` started a `pcbridge.termhost` holding a
+  ConPTY with Windows PowerShell; `tmux_send` typed a command and
+  `tmux_capture` read `hello-42-ğüş` back from the pyte screen; `C-c`
+  reached PowerShell as `^C`.
+- **It outlives the daemon.** After a daemon restart (2.3 s, stop and start
+  through the supervisor) `tmux_list` still showed the session.
+- **pcbridge attach.** Run in a ConPTY the way a terminal would, it drew
+  the screen, a command typed into it ran in the session (its output
+  `attached-5` came back in the stream and in a later capture), and Ctrl+]
+  left with the session still running. PowerShell's syntax colors arrive as
+  escape codes between the typed words, so a check reads the output, not
+  the echo.
+- **pywinpty** looks the first word of a string argv up on PATH with its
+  quotes still on, so `"C:\...\powershell.exe"` was not found; the argv
+  is always a list with a full path.
+- **Closing.** Ending the program first reset the connection before the
+  answer went out (`WinError 10054`); the host now answers, then ends it.
+
 ## Remote clients, revocation and the password (2026-10-14)
 
 Measured with unreleased code against a throwaway daemon (temp config, state

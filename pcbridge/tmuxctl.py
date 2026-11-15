@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import shlex
 import subprocess
+import sys
 import time
 
 SOCKET_ARGS: list[str] = []  # gerekirse ["-L", "pcbridge"] yapilabilir
@@ -16,6 +17,11 @@ SOCKET_ARGS: list[str] = []  # gerekirse ["-L", "pcbridge"] yapilabilir
 
 class TmuxError(RuntimeError):
     pass
+
+
+# Windows has no tmux: the same functions are answered by pcbridge.termhost
+# sessions (see conpty.py), so the tmux_* tools work unchanged.
+IS_WINDOWS = sys.platform == "win32"
 
 
 def _run(args: list[str], timeout: int = 15) -> str:
@@ -143,3 +149,27 @@ def kill(session: str) -> str:
 
 def attach_hint(session: str) -> str:
     return f"tmux attach -t {shlex.quote(session)}"
+
+
+if IS_WINDOWS:
+    from . import conpty as _conpty
+
+    def _windows(fn):
+        def call(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except _conpty.SessionError as exc:
+                raise TmuxError(str(exc)) from exc
+        call.__name__ = fn.__name__
+        call.__doc__ = fn.__doc__
+        return call
+
+    available = _conpty.available  # noqa: F811
+    exists = _windows(_conpty.exists)  # noqa: F811
+    list_sessions = _windows(_conpty.list_sessions)  # noqa: F811
+    start = _windows(_conpty.start)  # noqa: F811
+    send_text = _windows(_conpty.send_text)  # noqa: F811
+    send_keys = _windows(_conpty.send_keys)  # noqa: F811
+    capture = _windows(_conpty.capture)  # noqa: F811
+    kill = _windows(_conpty.kill)  # noqa: F811
+    attach_hint = _conpty.attach_hint  # noqa: F811
