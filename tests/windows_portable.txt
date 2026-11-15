@@ -5,9 +5,12 @@
 # this list goes away. Measured in the Windows 11 test VM: each module on its
 # own (scripts/dev/windows/probes/run_modules.py). One module per line.
 tests.contracts.test_accessibility_contract
+tests.contracts.test_activity_guard_text
 tests.contracts.test_batch_safety
 tests.contracts.test_build_fingerprint
 tests.contracts.test_capabilities
+tests.contracts.test_capture_backend_selection
+tests.contracts.test_capture_contract
 tests.contracts.test_capture_region
 tests.contracts.test_clipboard_contract
 tests.contracts.test_coordinate_contract
@@ -17,6 +20,7 @@ tests.contracts.test_desktop_cancellation
 tests.contracts.test_desktop_gates
 tests.contracts.test_display_contract
 tests.contracts.test_distro
+tests.contracts.test_executables
 tests.contracts.test_execution_paths
 tests.contracts.test_file_links
 tests.contracts.test_glow_owner

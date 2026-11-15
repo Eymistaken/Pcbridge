@@ -31,12 +31,20 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
 from typing import Any
 
 from . import oscompat
+
+# Windows: a process group of its own (CTRL_BREAK reaches only the job), no
+# window, and out of the caller's job object when it allows that, so the job
+# outlives a daemon that runs inside one (an in-process server under an MCP
+# client).
+_WINDOWS_JOB_FLAGS = 0x00000200 | 0x08000000  # CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
+_CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 
 ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])|\r")
 
@@ -137,7 +145,7 @@ class JobManager:
 
         log = self._log_path(job_id)
         exitf = self._exit_path(job_id)
-        cmd_str = shlex.join(argv)
+        cmd_str = subprocess.list2cmdline(argv) if oscompat.IS_WINDOWS else shlex.join(argv)
 
         if pty:
             # `script -qec` komutu sahte bir terminalde calistirir ve cikis
@@ -159,21 +167,28 @@ class JobManager:
 
         argv_run = ["bash", "-lc", wrapper]
         scope = None
-        if self.use_scopes and shutil.which("systemd-run"):
+        popen_extra: dict[str, Any] = {"start_new_session": True}
+        if oscompat.IS_WINDOWS:
+            # No bash: pcbridge.jobrunner runs the argv as is (see there).
+            argv_run = [sys.executable, "-P", "-m", "pcbridge.jobrunner", str(log), str(exitf),
+                        *(["--pty"] if pty else []), "--", *argv]
+            popen_extra = {}
+        elif self.use_scopes and shutil.which("systemd-run"):
             scope = f"pcbridge-job-{job_id}.scope"
             argv_run = [
                 "systemd-run", "--user", "--scope", "--quiet", "--collect",
                 f"--unit={scope}", "--", *argv_run,
             ]
-        proc = subprocess.Popen(
-            argv_run,
-            cwd=str(cwd),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-            env=run_env,
-        )
+        common = dict(cwd=str(cwd), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL, env=run_env)
+        if oscompat.IS_WINDOWS:
+            try:
+                proc = subprocess.Popen(
+                    argv_run, creationflags=_WINDOWS_JOB_FLAGS | _CREATE_BREAKAWAY_FROM_JOB, **common)
+            except OSError:  # the caller's job object forbids breaking away
+                proc = subprocess.Popen(argv_run, creationflags=_WINDOWS_JOB_FLAGS, **common)
+        else:
+            proc = subprocess.Popen(argv_run, **common, **popen_extra)
 
         to = int(timeout if timeout is not None else self.default_timeout)
         meta = {

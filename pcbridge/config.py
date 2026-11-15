@@ -297,6 +297,10 @@ class Config:
     # default. The daemon re-reads it from the file while it runs
     # (`read_keep_awake`), so it needs no restart.
     keep_awake: bool = False
+    # [shell] program: what shell_run and shell_run_background run commands
+    # with. "" (default) is bash on Linux and PowerShell on Windows (pwsh when
+    # installed); see pcbridge/shell.py for the other values.
+    shell_program: str = ""
     source_path: Path | None = None
     # Where the file was found: "explicit" (-c), "env" ($PCBRIDGE_CONFIG),
     # "xdg" (~/.config/pcbridge) or "legacy" (<repo>/config.toml).
@@ -418,7 +422,7 @@ def find_config(explicit: str | None = None) -> Path:
 _TOP_KEYS = {
     "config_version", "public_url", "host", "port", "mcp_path", "default_agent",
     "inline_images", "auth", "paths", "limits", "server", "native", "desktop",
-    "agents", "tools", "power", "files",
+    "agents", "tools", "power", "files", "shell",
 }
 _SECTION_KEYS: dict[str, set[str]] = {
     "auth": {
@@ -431,6 +435,7 @@ _SECTION_KEYS: dict[str, set[str]] = {
     "native": {"capture", "input", "accessibility", "binary_path"},
     "tools": {"profile", "remote_profile"},
     "power": {"keep_awake"},
+    "shell": {"program"},
     "files": {"link_ttl_seconds", "upload_max_mb", "download_max_mb"},
 }
 _HINTS = {
@@ -818,6 +823,14 @@ def _files(raw: dict[str, Any], path: Path | str) -> dict[str, int]:
             )
         out[key] = value
     return out
+
+
+def _shell_program(raw: dict[str, Any], path: Path | str) -> str:
+    shell = raw.get("shell") or {}
+    value = shell.get("program", "") if isinstance(shell, dict) else ""
+    if not isinstance(value, str):
+        raise SystemExit(f"[shell] ({path}): `program = {value!r}` must be a string.")
+    return value.strip()
 
 
 def _keep_awake(raw: dict[str, Any], path: Path | str) -> bool:
@@ -1213,6 +1226,7 @@ def _load_config(explicit: str | None = None, *, check_state: bool = True) -> Co
         tools_profile=_tools_profile(raw, path),
         remote_tools_profile=_tools_profile(raw, path, "remote_profile"),
         keep_awake=_keep_awake(raw, path),
+        shell_program=_shell_program(raw, path),
         inline_images=inline_images,
         agents=agents,
         default_agent=default_agent,

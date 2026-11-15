@@ -76,7 +76,7 @@ class RegistryTests(EditorCase):
     def test_every_key_the_loader_reads_is_editable_or_excused(self) -> None:
         keys = {s.key for s in S.registry(["claude"])}
         sections = {"auth", "paths", "limits", "server", "native", "desktop", "agents", "tools",
-                    "power", "files"}
+                    "power", "files", "shell"}
         expected = {k for k in configlib._TOP_KEYS if k not in sections}
         expected.discard("inline_images")  # the legacy top-level spelling of server.inline_images
         for section, names in configlib._SECTION_KEYS.items():
@@ -105,7 +105,8 @@ class RegistryTests(EditorCase):
         cfg = configlib.load_config(str(self.path), check_state=False)
         ed = self.editor()
         attr = {"server.inline_images": cfg.inline_images, "tools.profile": cfg.tools_profile,
-                "tools.remote_profile": cfg.remote_tools_profile, "power.keep_awake": cfg.keep_awake}
+                "tools.remote_profile": cfg.remote_tools_profile, "power.keep_awake": cfg.keep_awake,
+                "shell.program": cfg.shell_program}
         for s in ed.settings:
             if s.secret or s.key.startswith("paths.") or s.key == "public_url":
                 continue

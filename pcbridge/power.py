@@ -17,6 +17,10 @@ kind (measured in VMs on 2026-10-11, see docs/dev/measured-facts.md):
   Without kde-inhibit, a logind `sleep` block is the fallback: PowerDevil
   honors it the same way, but on systemd 261 it also refuses a deliberate
   Sleep. A logind `idle` block would stop Plasma's screen lock too.
+* Windows: SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED) in a
+  child Python that holds it while it reads the same pipe; idle sleep stops,
+  the display may still turn off and the screen may still lock, and a
+  deliberate Sleep still works. The flag ends with the thread that set it.
 * Hyprland and everything else: hypridle and logind's own `IdleAction` honor
   logind `idle` inhibitors only, so `systemd-inhibit --what=idle` is used.
   hypridle skips EVERY timeout rule while it is held, the lock too, unless
@@ -35,6 +39,7 @@ import json
 import logging
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -78,6 +83,15 @@ GNOME_SESSION = Method("gnome-session", "suspend", (
 
 POWERDEVIL = Method("powerdevil", "suspend", ("kde-inhibit", "--power", "cat"), unconfirmed=True)
 
+# The `cat` of Windows: set the flag, then block on stdin until the daemon
+# closes it (or dies); the flag goes with this process.
+_WINDOWS_HOLD = (
+    "import ctypes, sys; "
+    "ctypes.windll.kernel32.SetThreadExecutionState(0x80000001); "  # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+    "sys.stdin.buffer.read()"
+)
+WINDOWS = Method("windows", "sleep", (sys.executable, "-c", _WINDOWS_HOLD))
+
 
 def confirm(method: Method) -> bool:
     """Whether the desktop really took this inhibitor (for `unconfirmed` ones).
@@ -103,6 +117,8 @@ def confirm(method: Method) -> bool:
 def methods_for(desktop: str) -> tuple[Method, ...]:
     """The inhibitors this desktop honors, best first (see the module docstring)."""
     kind = (desktop or "").lower()
+    if sys.platform == "win32":
+        return (WINDOWS,)
     if kind == "gnome":
         return (GNOME_SESSION,)
     if kind == "kde":

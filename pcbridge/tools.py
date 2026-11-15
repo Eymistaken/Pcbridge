@@ -11,6 +11,7 @@ import base64
 import logging
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import threading
@@ -30,7 +31,9 @@ from pydantic import BaseModel, Field
 from . import __version__
 from . import assets as assetslib
 from . import distro as distrolib
+from . import oscompat
 from . import sessionctx
+from . import shell as shelllib
 from . import executables as exelib
 from . import files as fileslib
 from . import filelinks as filelinkslib
@@ -653,7 +656,10 @@ def register(
         exe = exelib.find_executable(argv[0], (env or {}).get("PATH")) if argv else None
         if exe is None:
             return exelib.not_found_message(res.agent, argv[0] if argv else "", cfg.source_path)
-        argv[0] = str(exe)
+        direct = exelib.direct_argv(exe)
+        if direct is None:
+            return exelib.refused_shim_message(exe)
+        argv[:1] = direct
         if resume_session and spec.resume_args:
             argv += [a.replace("{session_id}", resume_session) for a in spec.resume_args]
 
@@ -920,8 +926,9 @@ def register(
         workdir: str | None = None,
         timeout: Annotated[int, Field(ge=1, le=120)] = 60,
     ) -> str:
-        """Run a short shell command on the user's Linux desktop and return its
-        output. For anything that may take longer than a minute use
+        """Run a short shell command on the user's computer and return its
+        output: bash on Linux; on Windows PowerShell by default (`[shell]
+        program` in the config picks another). For anything that may take longer than a minute use
         shell_run_background instead. This path can also send a deterministic
         request, such as a URL, to an application that is already running. Use
         window_focus when a new graphical process must survive pcbridge restarts
@@ -943,14 +950,19 @@ def register(
         try:
             extra_env = _session_env()
             proc = subprocess.run(
-                ["bash", "-lc", command],
+                shelllib.argv(command, cfg.shell_program),
                 cwd=str(cwd),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=limit,
                 stdin=subprocess.DEVNULL,
                 env={**os.environ, **extra_env} if extra_env else None,
             )
+        except FileNotFoundError as exc:
+            gate.audit("shell_run_denied", reason="no_shell", cmd=_short(command))
+            return f"The shell is not available: {exc}"
         except subprocess.TimeoutExpired:
             gate.audit("shell_run", cmd=_short(command), timeout=limit)
             return (
@@ -989,9 +1001,14 @@ def register(
             gate.audit("shell_run_background_denied", reason="no_workdir",
                        path=str(cwd)[:200])
             return f"Directory not found: {cwd}"
+        try:
+            shell_argv = shelllib.argv(command, cfg.shell_program)
+        except FileNotFoundError as exc:
+            gate.audit("shell_run_background_denied", reason="no_shell", cmd=_short(command))
+            return f"The shell is not available: {exc}"
         job_id = jm.start(
             kind="shell",
-            argv=["bash", "-lc", command],
+            argv=shell_argv,
             cwd=cwd,
             label=jobslib._short(command, 90),
             parser="plain",
@@ -1013,7 +1030,7 @@ def register(
             return f"Directory not found: {d}"
         entries = []
         for item in sorted(d.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
-            if not show_hidden and item.name.startswith("."):
+            if not show_hidden and fileslib.is_hidden(item):
                 continue
             try:
                 stat = item.stat()
@@ -1417,18 +1434,20 @@ def register(
         d = _resolve_dir(cfg, path)
         if not d.is_dir():
             return f"Directory not found: {d}"
-        has_rg = (
-            subprocess.run(["bash", "-lc", "command -v rg"], capture_output=True).returncode
-            == 0
-        )
-        if has_rg:
-            cmd = f"rg -n --no-heading -m {max_results} -- {shlex.quote(query)} ."
+        rg = exelib.find_executable("rg")
+        if rg is not None:
+            search = [str(rg), "-n", "--no-heading", "-m", str(max_results), "--", query, "."]
+        elif not oscompat.IS_WINDOWS and shutil.which("grep"):
+            search = ["grep", "-rnI", "-m", str(max_results), "--", query, "."]
         else:
-            cmd = f"grep -rnI -m {max_results} -- {shlex.quote(query)} ."
-        proc = subprocess.run(
-            ["bash", "-lc", cmd], cwd=str(d), capture_output=True, text=True, timeout=60
-        )
-        out = (proc.stdout or "").strip()
+            search = None
+        if search is None:
+            out = fileslib.search_text(d, query, max_results)
+        else:
+            proc = subprocess.run(search, cwd=str(d), capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace", timeout=60,
+                                  stdin=subprocess.DEVNULL)
+            out = (proc.stdout or "").strip()
         if not out:
             return f"No results for `{query}` under `{d}`."
         lines = out.splitlines()[:max_results]
@@ -3697,7 +3716,10 @@ def register(
             return exelib.not_found_message(
                 res.agent, task_argv[0] if task_argv else "", cfg.source_path
             )
-        task_argv[0] = str(task_exe)
+        task_direct = exelib.direct_argv(task_exe)
+        if task_direct is None:
+            return exelib.refused_shim_message(task_exe)
+        task_argv[:1] = task_direct
 
         job_id = jm.start(
             kind=f"computer_task:{res.agent}",
@@ -3755,21 +3777,11 @@ def register(
     def system_status() -> str:
         """Show the desktop computer's current status: uptime, load, memory, disk
         usage, GPU, plus running jobs and open terminal sessions."""
-        def sh(c: str) -> str:
-            try:
-                return subprocess.run(
-                    ["bash", "-lc", c], capture_output=True, text=True, timeout=15
-                ).stdout.strip()
-            except Exception:
-                return ""
+        from . import sysinfo
 
-        host = sh("hostnamectl --static 2>/dev/null || hostname")
-        uptime = sh("uptime -p")
-        load = sh("cut -d' ' -f1-3 /proc/loadavg")
-        mem = sh("free -h | awk '/Mem:/ {print $3 \" / \" $2}'")
-        disks = sh(
-            "df -h -x tmpfs -x devtmpfs --output=target,size,used,avail,pcent | head -12"
-        )
+        facts = sysinfo.facts()
+        host, uptime, load = facts["host"], facts["uptime"], facts["load"]
+        mem, disks = facts["memory"], facts["disks"]
 
         parts = [
             "**Computer status**",
@@ -3784,10 +3796,7 @@ def register(
             disks,
             "```",
         ]
-        gpu = sh(
-            "nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu "
-            "--format=csv,noheader 2>/dev/null"
-        )
+        gpu = sysinfo.gpu()
         if gpu:
             parts += ["**GPU**", "```", gpu, "```"]
 
@@ -3818,12 +3827,12 @@ def register(
     ) -> str:
         """Pop up a desktop notification on the user's computer screen. Useful to
         leave a note for when they get back to the machine."""
+        from . import notifications
+
         try:
-            subprocess.run(
-                ["notify-send", "-a", "pcbridge", title, message],
-                timeout=10,
-                capture_output=True,
-            )
+            failure = notifications.send(title, message)
+            if failure:
+                return f"Notification failed: {failure}"
             return "Notification sent."
         except FileNotFoundError:
             return f"notify-send not found: `{distrolib.install_command('notify-send')}`"

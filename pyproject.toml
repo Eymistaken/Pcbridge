@@ -32,6 +32,10 @@ dependencies = [
     "tomlkit>=0.13.0",
     # Reads Hermes Agent's config.yaml for `pcbridge clients`.
     "PyYAML>=6.0",
+    # Windows only: ConPTY for jobs started with pty=true and for the live
+    # terminal sessions (the tmux_* tools), and pyte to read their screen.
+    "pywinpty>=2.0; sys_platform == 'win32'",
+    "pyte>=0.8; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

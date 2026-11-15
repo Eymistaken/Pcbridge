@@ -686,3 +686,52 @@ def upload_chunk(path: Path, data: bytes, offset: int, *, chunk_sha256: str,
     os.chmod(stage, _file_mode(path))
     os.replace(stage, path)
     return Upload(path, staged, True, got)
+
+
+def search_text(root: Path, query: str, max_results: int) -> str:
+    """`grep -rnI`'s answer without grep: "path:line:text" lines under `root`.
+
+    For a machine with neither ripgrep nor grep (Windows without them). The
+    query is a regular expression, or plain text when it is not a valid one;
+    binary files (a NUL byte in the first 8 KiB) and dot directories are
+    skipped, as grep -I and ripgrep do."""
+    import re as _re
+
+    try:
+        pattern = _re.compile(query)
+    except _re.error:
+        pattern = _re.compile(_re.escape(query))
+    hits: list[str] = []
+    for directory, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
+        for name in sorted(filenames):
+            path = Path(directory) / name
+            try:
+                with open(path, "rb") as stream:
+                    head = stream.read(8192)
+                    if b"\0" in head:
+                        continue
+                    data = head + stream.read()
+            except OSError:
+                continue
+            text = data.decode("utf-8", "replace")
+            for number, line in enumerate(text.splitlines(), 1):
+                if pattern.search(line):
+                    rel = path.relative_to(root).as_posix()
+                    hits.append(f"./{rel}:{number}:{line[:500]}")
+                    if len(hits) >= max_results:
+                        return "\n".join(hits)
+    return "\n".join(hits)
+
+
+def is_hidden(path: Path) -> bool:
+    """A dot file, or on Windows one with the hidden attribute (AppData,
+    desktop.ini, NTUSER.DAT)."""
+    if path.name.startswith("."):
+        return True
+    attributes = 0
+    try:
+        attributes = getattr(path.lstat(), "st_file_attributes", 0)
+    except OSError:
+        pass
+    return bool(attributes & 0x2)  # FILE_ATTRIBUTE_HIDDEN

@@ -499,6 +499,29 @@ Measured in the Windows 11 test VM with the W2 code.
   quoting style when it updates it, so a fixture's quote style shows in
   what pcbridge writes back.
 
+## Windows: jobs, shell and the system tools (W3, 2026-11-15)
+
+Measured in the Windows 11 test VM through a real MCP client (the relay,
+`scripts/dev/windows/probes/tools_mcp.py`), with the daemon under its
+supervisor in the desktop session.
+
+- **shell_run** ran Windows PowerShell 5.1 (no pwsh installed) without a
+  profile; `ğüş` came back intact once PowerShell's output encoding is set
+  to UTF-8 and the output is read as UTF-8.
+- **Jobs.** `shell_run_background` through `pcbridge.jobrunner`: three
+  lines of output and exit 0 after 2.0 s; `job_cancel` on a 120-second job
+  ended it (`taskkill /T`) and recorded 130.
+- **fs_list** hides what Windows marks hidden (AppData, NTUSER.DAT) as well
+  as dot files; **fs_search** used ripgrep (winget's GNU build) with no
+  shell, and finds `ğüş`.
+- **system_status** reads the uptime, memory and every drive (the VM's ISO
+  and seed show as full read-only drives); Windows has no load average. On
+  Linux under a Turkish locale `free` prints "Bellek:", so the memory line
+  had always come back empty there; the commands now run with `LC_ALL=C`.
+- **notify** raised a toast under PowerShell's app id; with Do Not Disturb
+  on (the VM's default after setup) it went straight to the notification
+  history (read back: title and text as sent) instead of showing a banner.
+
 ## Remote clients, revocation and the password (2026-10-14)
 
 Measured with unreleased code against a throwaway daemon (temp config, state

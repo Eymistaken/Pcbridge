@@ -68,6 +68,7 @@ SECTION_TITLES = {
     "paths": "Paths",
     "limits": "Limits",
     "power": "Power",
+    "shell": "Shell",
     "files": "File links",
     "native": "Native helper",
     "desktop": "Desktop control",
@@ -126,6 +127,7 @@ _FIXED: dict[str, tuple[str, Any, tuple[str, ...]]] = {
     "limits.max_sync_timeout": ("int", 120, ()),
     "limits.audit_max_bytes": ("int", 5_000_000, ()),
     "power.keep_awake": ("bool", False, ()),
+    "shell.program": ("str", "", ()),
     "files.link_ttl_seconds": ("int", 300, ()),
     "files.upload_max_mb": ("int", 512, ()),
     "files.download_max_mb": ("int", 2048, ()),
@@ -410,7 +412,7 @@ def registry(agent_names: list[str] | tuple[str, ...] = ()) -> list[Setting]:
                                default, choices, restart=RESTART_CLIENTS,
                                help=_AGENT_HELP.get(f.name, "")))
     # Keep the document order of the fixed sections: top, server, auth, ...
-    order = ["", "server", "auth", "paths", "limits", "files", "power", "native", "desktop",
+    order = ["", "server", "auth", "paths", "limits", "files", "shell", "power", "native", "desktop",
              "tools"]
     rank = {s: i for i, s in enumerate(order)}
     return sorted(out, key=lambda s: rank.get(s.section, len(order)))

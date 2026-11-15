@@ -118,6 +118,19 @@ upload_max_mb = 512
 download_max_mb = 2048
 
 
+[shell]
+# The shell shell_run and shell_run_background run commands with.
+#   ""            the default: bash on Linux; on Windows PowerShell 7 (pwsh)
+#                 when installed, else Windows PowerShell, without a profile
+#   "bash"        bash (on Windows: Git Bash, when installed)
+#   "pwsh"        PowerShell 7
+#   "powershell"  Windows PowerShell 5.1
+#   "cmd"         cmd.exe (Windows)
+#   a full path   that program, called as `<path> -c <command>`
+# Commands always run without a terminal; output is read as UTF-8.
+program = ""
+
+
 [power]
 # Keep the machine from suspending on idle while at least one job
 # (agent_run, shell_run_background) is running; it may suspend again once
