@@ -4,12 +4,11 @@
 //! the expected dumps; they were written for the Python AT-SPI helper
 //! (removed after 2.8), and a case passes only when the native walk lists
 //! exactly what that helper listed -- node for node, field for field.
-#![cfg(target_os = "linux")]
 
 use std::time::{Duration, Instant};
 
-use pcbridge_native::platform::linux::accessibility::fixture::FixtureTree;
-use pcbridge_native::platform::linux::accessibility::{
+use pcbridge_native::accessibility::fixture::FixtureTree;
+use pcbridge_native::accessibility::{
     self, DumpRequest, NodeInfo, ObjectRef, States, Tree, is_real_action, role_name,
 };
 use serde_json::Value;
@@ -291,7 +290,7 @@ fn gactions_are_not_element_actions() {
 
 #[test]
 fn the_window_managers_focus_wins_over_a_stale_active_state() {
-    use pcbridge_native::platform::linux::accessibility::FocusHint;
+    use pcbridge_native::accessibility::FocusHint;
     // In `editor` the editor's window is ACTIVE; the hint names the other
     // application's process, as xfwm4 kept an ACTIVE window on Xfce 4.20
     // while the window manager had given the focus to Mousepad.
@@ -317,11 +316,8 @@ fn the_window_managers_focus_wins_over_a_stale_active_state() {
     assert_eq!(fallback["app"], "pcbridge-editor");
 }
 
-fn named_hint(
-    title: &str,
-    apps: &[&str],
-) -> pcbridge_native::platform::linux::accessibility::FocusHint {
-    pcbridge_native::platform::linux::accessibility::FocusHint {
+fn named_hint(title: &str, apps: &[&str]) -> pcbridge_native::accessibility::FocusHint {
+    pcbridge_native::accessibility::FocusHint {
         pid: 0,
         title: title.to_owned(),
         apps: apps.iter().map(|name| (*name).to_owned()).collect(),

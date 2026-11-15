@@ -4,6 +4,7 @@
 #![cfg_attr(not(windows), forbid(unsafe_code))]
 #![cfg_attr(windows, deny(unsafe_code))]
 
+pub mod accessibility;
 pub mod build_info;
 // Each system has a dispatcher of its own with the same protocol (see
 // docs/native/protocol-v1.md): the Linux one is built around AT-SPI,

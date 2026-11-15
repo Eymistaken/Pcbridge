@@ -5,16 +5,13 @@
 //! one desktop, switch to the desktop the application changed into, act on
 //! the dumped node. What took effect and what the fields hold afterwards
 //! must match the expectation, and a refusal must have sent nothing.
-#![cfg(target_os = "linux")]
 
 use std::cell::{Cell, RefCell};
 use std::time::{Duration, Instant};
 
-use pcbridge_native::platform::linux::accessibility::action::{
-    self, SEARCH_LIMIT, TEXT_SETTLE, Target,
-};
-use pcbridge_native::platform::linux::accessibility::fixture::FixtureTree;
-use pcbridge_native::platform::linux::accessibility::{
+use pcbridge_native::accessibility::action::{self, SEARCH_LIMIT, TEXT_SETTLE, Target};
+use pcbridge_native::accessibility::fixture::FixtureTree;
+use pcbridge_native::accessibility::{
     self, AccessibilityError, CallError, DumpRecord, DumpRequest, NodeInfo, ObjectRef, Tree, quoted,
 };
 use serde_json::Value;
