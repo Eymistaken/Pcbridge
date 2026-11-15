@@ -4,4 +4,7 @@
 //! the crate denies it. Each block calls one documented Win32 function with
 //! buffers this module owns for the length of the call.
 
+pub mod capture;
+pub mod desktop_state;
 pub mod display;
+pub mod lifecycle;

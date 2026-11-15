@@ -14,9 +14,12 @@ use pcbridge_core::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::platform::windows::display;
+use crate::platform::windows::lifecycle::Binding;
+use crate::platform::windows::{capture, display};
 
 pub const DISPLAY_BACKEND: &str = "windows.gdi";
+/// A monitor's id on the wire: the scheme and the GDI device name.
+pub const DISPLAY_SCHEME: &str = "windows:";
 
 #[derive(Debug)]
 pub enum BackendMode {
@@ -38,14 +41,19 @@ impl BackendMode {
     }
 
     fn features(&self) -> Vec<&'static str> {
-        vec!["display.snapshot"]
+        vec!["display.snapshot", "capture.on_demand"]
     }
 
     fn capabilities(&self) -> Value {
         json!({
             "backend": DISPLAY_BACKEND,
             "capabilities": [
-                unavailable("capture.monitor", "os.capture"),
+                json!({
+                    "name": "capture.monitor",
+                    "status": "supported",
+                    "permission_scope": "os.capture",
+                    "backend": capture::BACKEND,
+                }),
                 unavailable("input.keyboard", "os.keyboard"),
                 unavailable("input.pointer", "os.pointer"),
                 unavailable("input.pointer_relative", "os.pointer"),
@@ -91,6 +99,19 @@ struct InitializeParams {
 }
 
 #[derive(Debug, Deserialize)]
+struct CaptureFrameParams {
+    display_id: String,
+    topology_id: String,
+    session_id: String,
+    grant_id: String,
+    revoke_epoch: u64,
+    timeout_ms: u64,
+    freshness: String,
+    #[serde(default)]
+    include_pointer: bool,
+}
+
+#[derive(Debug, Deserialize)]
 struct CancelParams {
     target_id: String,
 }
@@ -100,6 +121,8 @@ pub struct Dispatcher {
     initialized: bool,
     negotiated_minor: Option<u16>,
     state_dir: Option<PathBuf>,
+    binding: Option<Binding>,
+    frame_sequence: u64,
 }
 
 impl Dispatcher {
@@ -110,6 +133,8 @@ impl Dispatcher {
             initialized: false,
             negotiated_minor: None,
             state_dir: None,
+            binding: None,
+            frame_sequence: 0,
         }
     }
 
@@ -169,6 +194,7 @@ impl Dispatcher {
             "ping" => self.success(request.id, ping_result(request.params), None),
             "capabilities" => self.success(request.id, self.mode.capabilities(), None),
             "display.snapshot" => self.display_snapshot(request.id),
+            "capture.frame" => self.capture_frame(request.id, request.params),
             "cancel" => match serde_json::from_value::<CancelParams>(request.params) {
                 Ok(params) if !params.target_id.is_empty() => self.success(
                     request.id,
@@ -258,6 +284,9 @@ impl Dispatcher {
             );
         }
         display::ensure_dpi_awareness();
+        let binding = Binding::bind(Path::new(&params.state_dir));
+        let lease_bound = binding.is_bound();
+        self.binding = Some(binding);
         self.state_dir = Some(PathBuf::from(&params.state_dir));
         self.initialized = true;
         self.negotiated_minor = Some(PROTOCOL_MINOR);
@@ -269,7 +298,7 @@ impl Dispatcher {
                 "build_id": crate::build_info::build_id(),
                 "platform": std::env::consts::OS,
                 "features": self.mode.features(),
-                "lease_bound": false,
+                "lease_bound": lease_bound,
             }),
             None,
         )
@@ -308,6 +337,141 @@ impl Dispatcher {
                 )
             }
             Err(error) => self.error(id, "DISPLAY_MAPPING_UNKNOWN", error, None),
+        }
+    }
+
+    fn capture_frame(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match serde_json::from_value::<CaptureFrameParams>(params) {
+            Ok(params) => params,
+            Err(error) => {
+                return self.error(
+                    id,
+                    "INVALID_PARAMS",
+                    format!("invalid capture parameters: {error}"),
+                    None,
+                );
+            }
+        };
+        if params.freshness != "after_request" {
+            return self.error(
+                id,
+                "INVALID_PARAMS",
+                "only freshness \"after_request\" is accepted",
+                None,
+            );
+        }
+        let bounded = |text: &str, limit: usize| !text.is_empty() && text.len() <= limit;
+        if !bounded(&params.display_id, 256)
+            || !bounded(&params.topology_id, 16 * 1024)
+            || !bounded(&params.session_id, 256)
+            || !bounded(&params.grant_id, 256)
+        {
+            return self.error(
+                id,
+                "INVALID_PARAMS",
+                "capture identifiers are empty or too long",
+                None,
+            );
+        }
+        let Some(device) = params.display_id.strip_prefix(DISPLAY_SCHEME) else {
+            return self.error(
+                id,
+                "INVALID_PARAMS",
+                format!("display_id must be '{DISPLAY_SCHEME}<device>' on Windows"),
+                None,
+            );
+        };
+        if let Err(failure) = self
+            .binding
+            .as_ref()
+            .expect("an initialized dispatcher is bound")
+            .validate(&params.grant_id, params.revoke_epoch)
+        {
+            return self.typed_error(id, failure.code(), failure.message(), "safety");
+        }
+        let monitors = match display::monitors() {
+            Ok(monitors) => monitors,
+            Err(error) => {
+                return self.typed_error(id, "DISPLAY_MAPPING_UNKNOWN", &error, "capture");
+            }
+        };
+        if pcbridge_core::display::topology_id(&monitors) != params.topology_id {
+            return self.typed_error(
+                id,
+                "DISPLAY_CHANGED",
+                "the monitor layout changed",
+                "capture",
+            );
+        }
+        let Some(monitor) = monitors.iter().find(|monitor| monitor.connector == device) else {
+            return self.typed_error(
+                id,
+                "DISPLAY_MAPPING_UNKNOWN",
+                "no monitor with that id",
+                "capture",
+            );
+        };
+        let timeout = std::time::Duration::from_millis(params.timeout_ms.clamp(1, 8000));
+        let captured = match capture::capture(device, timeout) {
+            Ok(captured) => captured,
+            Err(error) => return self.typed_error(id, "CAPTURE_FAILED", &error, "capture"),
+        };
+        let encode_started = std::time::Instant::now();
+        let png = match captured.frame.to_png() {
+            Ok(png) => png,
+            Err(error) => {
+                return self.typed_error(id, "CAPTURE_FAILED", &error.to_string(), "capture");
+            }
+        };
+        self.frame_sequence += 1;
+        let result = json!({
+            "display_id": params.display_id,
+            "topology_id": params.topology_id,
+            "session_id": params.session_id,
+            "frame_sequence": self.frame_sequence,
+            "frame_timestamp_ns": 0,
+            "frame_identity_source": "request_counter",
+            "pixel_size": [captured.frame.width, captured.frame.height],
+            "desktop_rect": [monitor.x, monitor.y, monitor.width, monitor.height],
+            "stale_frames": 0,
+            // Duplication leaves the pointer out; drawing it is still to come.
+            "include_pointer": false,
+            "pointer_requested": params.include_pointer,
+            "revoke_epoch": params.revoke_epoch,
+            "wait_ms": captured.waited.as_secs_f64() * 1000.0,
+            "encode_ms": encode_started.elapsed().as_secs_f64() * 1000.0,
+            "backend": capture::BACKEND,
+            "mime_type": "image/png",
+        });
+        DispatchOutcome {
+            response: ResponseHeader::success_with_binary(id, result, png.len() as u64),
+            binary: png,
+            close: None,
+        }
+    }
+
+    fn typed_error(
+        &self,
+        id: String,
+        code: &str,
+        message: &str,
+        category: &str,
+    ) -> DispatchOutcome {
+        DispatchOutcome {
+            response: ResponseHeader::error(
+                id,
+                ErrorBody {
+                    code: code.to_owned(),
+                    message: message.to_owned(),
+                    retryable: matches!(
+                        code,
+                        "DISPLAY_CHANGED" | "CAPTURE_FAILED" | "DISPLAY_MAPPING_UNKNOWN"
+                    ),
+                    category: category.to_owned(),
+                },
+            ),
+            binary: Vec::new(),
+            close: None,
         }
     }
 

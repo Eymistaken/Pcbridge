@@ -566,6 +566,27 @@ Measured in the Windows 11 test VM.
 - **Not measured.** Tailscale Funnel on Windows (the VM has no Tailscale
   account); the commands are the same, without sudo.
 
+## Windows: the native helper, display and capture (W6a-b, 2026-11-15)
+
+Measured in the Windows 11 test VM with the helper built by the GNU
+toolchain, through pcbridge's own NativeClient
+(`scripts/dev/windows/probes/native_probe.py`).
+
+- **Building.** The `windows` crate 0.59 and later link through raw-dylib;
+  the GNU toolchain then needs MinGW's dlltool and assembler, and Rust's own
+  self-contained dlltool failed without `as`. 0.58 links through
+  windows-targets' import libraries and built in 38 s with nothing else
+  installed; MSVC builds it too (CI).
+- **Handshake and layout.** `platform: windows`; display.snapshot read the
+  1280x800 monitor at 96 DPI with the topology id
+  `v1|0,0,1280,800,1.0000,0,1`, the same string format Linux produces.
+- **Capture.** DXGI Desktop Duplication opened per request: 1280x800 in a
+  448 KB PNG, 36.9 ms to the frame, 3.8 ms to encode, 89.8 ms for the whole
+  round trip; the picture matched the screen, colors included. Without a
+  grant it answered GRANT_REQUIRED, after the grant's revoke REVOKED, with no
+  payload either time. Duplication does not draw the pointer; the answer
+  says `include_pointer: false` and what was asked.
+
 ## Remote clients, revocation and the password (2026-10-14)
 
 Measured with unreleased code against a throwaway daemon (temp config, state
