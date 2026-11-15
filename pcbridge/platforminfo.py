@@ -191,7 +191,7 @@ def glibc_version() -> tuple[int, ...]:
     """The C library's version, () when it is not glibc (musl)."""
     try:
         raw = os.confstr("CS_GNU_LIBC_VERSION") or ""
-    except (ValueError, OSError):
+    except (ValueError, OSError, AttributeError):  # AttributeError: no confstr on Windows
         raw = ""
     m = re.search(r"(\d+)\.(\d+)", raw)
     return (int(m.group(1)), int(m.group(2))) if m else ()

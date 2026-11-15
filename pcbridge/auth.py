@@ -44,6 +44,7 @@ from fastmcp.server.auth.auth import (
     RevocationOptions,
 )
 
+from . import oscompat
 from . import hashing
 from .config import Config, read_password
 
@@ -203,7 +204,7 @@ class SqliteOAuthProvider(OAuthProvider):
         with self._conn() as conn:
             conn.executescript(SCHEMA)
         try:
-            self.db_path.chmod(0o600)
+            oscompat.restrict_path(self.db_path)
         except OSError:
             pass
         moved = hash_stored_tokens(self.db_path)

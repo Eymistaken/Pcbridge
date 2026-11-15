@@ -44,6 +44,7 @@ from typing import Any
 import anyio
 from anyio.abc import SocketListener, SocketStream
 
+from . import oscompat
 from . import __version__
 from . import build as buildlib
 from . import paths as pathslib
@@ -144,7 +145,7 @@ def _bind_socket(path: Path) -> socket.socket | None:
         sock.bind(str(path))
     finally:
         os.umask(old)
-    os.chmod(path, 0o600)
+    oscompat.restrict_path(path)
     sock.listen(64)
     return sock
 
@@ -387,7 +388,7 @@ class Daemon:
         tmp = path.with_name(f".{STATUS_FILE}.{os.getpid()}.tmp")
         try:
             tmp.write_text(json.dumps(data, sort_keys=True) + "\n", encoding="utf-8")
-            os.chmod(tmp, 0o600)
+            oscompat.restrict_path(tmp)
             os.replace(tmp, path)
         except OSError as exc:
             log.warning("could not write %s: %s", path, exc)

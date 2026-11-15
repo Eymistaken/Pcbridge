@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import json
 import math
 import os
@@ -13,6 +12,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Mapping
+
+from .. import oscompat
 
 
 SCHEMA_VERSION = 1
@@ -102,20 +103,20 @@ class LeaseStore:
 
     def _ensure_directory(self) -> None:
         self.state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(self.state_dir, 0o700)
+        oscompat.restrict_path(self.state_dir, directory=True)
 
     @contextmanager
     def _locked(self, *, exclusive: bool) -> Iterator[None]:
         self._ensure_directory()
         flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
-        flags |= getattr(os, "O_NOFOLLOW", 0)
+        flags |= oscompat.O_NOFOLLOW
         descriptor = os.open(self.lock_path, flags, 0o600)
         try:
-            os.fchmod(descriptor, 0o600)
-            fcntl.flock(descriptor, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            oscompat.restrict_fd(descriptor)
+            oscompat.lock_fd(descriptor, exclusive=exclusive)
             yield
         finally:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            oscompat.unlock_fd(descriptor)
             os.close(descriptor)
 
     def _read_unlocked(self) -> dict[str, Any]:
@@ -148,21 +149,14 @@ class LeaseStore:
         )
         temporary = Path(raw_path)
         try:
-            os.fchmod(descriptor, 0o600)
+            oscompat.restrict_fd(descriptor)
             with os.fdopen(descriptor, "wb", closefd=True) as stream:
                 descriptor = -1
                 stream.write(payload)
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temporary, self.state_path)
-            directory_fd = os.open(
-                self.state_dir,
-                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0),
-            )
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            oscompat.fsync_directory(self.state_dir)
         finally:
             if descriptor >= 0:
                 os.close(descriptor)

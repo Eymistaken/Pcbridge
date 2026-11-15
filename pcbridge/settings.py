@@ -34,6 +34,7 @@ from typing import Any
 import tomlkit
 from tomlkit.items import AoT, Array, Comment, Table, Whitespace
 
+from . import oscompat
 from . import assets as assetslib
 from . import config as configlib
 from . import hashing as hashinglib
@@ -706,7 +707,7 @@ class ConfigEditor:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 fh.write(text)
-            os.chmod(tmp, 0o600)
+            oscompat.restrict_path(tmp)
             try:
                 return configlib.load_config(tmp, check_state=False)
             except configlib.ConfigError as exc:
@@ -747,7 +748,7 @@ class ConfigEditor:
             fh.flush()
             os.fsync(fh.fileno())
         os.replace(tmp, self.path)
-        os.chmod(self.path, 0o600)
+        oscompat.restrict_path(self.path)
         result = SaveResult(self.path, backup, list(self.changed), self.restart_needed())
         self._text = text
         self.doc = tomlkit.parse(text)

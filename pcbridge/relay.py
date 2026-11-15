@@ -42,6 +42,7 @@ import time
 from pathlib import Path
 
 from . import __version__
+from . import oscompat
 from . import paths as pathslib
 
 PROTOCOL = 1
@@ -469,7 +470,7 @@ def _exec_in_process(argv: list[str], reason: str) -> int:
     os.environ["PCBRIDGE_MODE"] = f"degraded: in-process ({reason})"
     args = [a for a in argv if a != "--stdio"]
     try:
-        os.execv(sys.executable, [sys.executable, "-P", "-m", "pcbridge.server", "--stdio", *args])
+        oscompat.exec_replace([sys.executable, "-P", "-m", "pcbridge.server", "--stdio", *args])
     except OSError as exc:  # pragma: no cover - exec failing means a broken install
         _log(f"cannot start the in-process server: {exc}")
         return 1

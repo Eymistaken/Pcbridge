@@ -22,6 +22,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .. import oscompat
+
 # Cikis kodlari. Ajan bunlara Bash'ten bakip karar veriyor, o yuzden
 # anlamlari SKILL.md'de de birebir yaziyor.
 EXIT_OK = 0            # istenen her sey yapildi
@@ -120,7 +122,7 @@ def shot_dir(cfg: Any) -> Path:
     base = cfg.agent_shot_path
     base.mkdir(parents=True, exist_ok=True)
     try:
-        base.chmod(0o700)
+        oscompat.restrict_path(base, directory=True)
     except OSError:  # pragma: no cover — sahibi biz degilsek dokunmuyoruz
         pass
     return base

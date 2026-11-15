@@ -19,6 +19,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import oscompat
 from .. import __version__
 from .. import distro as distrolib
 from .. import paths as pathslib
@@ -222,7 +223,7 @@ def execute(ctx: Context, install_now: bool, clients: list[str] | None = None) -
     cfg = configlib.load_config(str(xdg))
     db = Path(cfg.db_path)
     if db.exists():
-        os.chmod(db, 0o600)
+        oscompat.restrict_path(db)
 
     inst.step("commands", "Commands", 3)
     for n in inst.install_launchers(backup):

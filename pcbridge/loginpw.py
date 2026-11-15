@@ -26,8 +26,8 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 import getpass
-import os
-import pwd
+
+from . import oscompat
 
 SERVICE = "login"
 
@@ -43,8 +43,8 @@ class LoginCheckError(Exception):
 def user() -> str:
     """The account pcbridge runs as."""
     try:
-        return pwd.getpwuid(os.getuid()).pw_name
-    except KeyError:
+        return oscompat.current_user()
+    except (KeyError, OSError):
         return getpass.getuser()
 
 

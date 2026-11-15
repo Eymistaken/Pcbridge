@@ -365,17 +365,10 @@ class Backend:
 
 
 def process_started(pid: int) -> float | None:
-    """When a process started (epoch seconds), from /proc; None if unknown."""
-    try:
-        stat = open(f"/proc/{pid}/stat", encoding="ascii").read()
-        ticks = int(stat.rsplit(")", 1)[1].split()[19])
-        boot = next(float(line.split()[1]) for line in open("/proc/stat", encoding="ascii")
-                    if line.startswith("btime"))
-    except (OSError, ValueError, IndexError, StopIteration):
-        return None
-    import os
+    """When a process started (epoch seconds); None if unknown."""
+    from .. import oscompat
 
-    return boot + ticks / os.sysconf("SC_CLK_TCK")
+    return oscompat.process_started_at(pid)
 
 
 def native_info(cfg: Any) -> dict:

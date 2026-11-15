@@ -21,6 +21,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .. import oscompat
 from .. import __version__
 from .. import paths as pathslib
 from .. import distro as distrolib
@@ -145,7 +146,7 @@ class Doctor:
                 c = self.add(g, f"mode of {Path(path).name}", "fail", f"{path} is mode {mode:o}; it holds secrets",
                              f"chmod 600 {path}")
                 if self.fixing(c):
-                    os.chmod(path, 0o600)
+                    oscompat.restrict_path(path)
                     c.fixed = True
             else:
                 self.add(g, f"mode of {Path(path).name}", "ok", f"{mode:o}")

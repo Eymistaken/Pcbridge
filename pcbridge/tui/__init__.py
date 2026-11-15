@@ -8,7 +8,6 @@ background and takes mouse clicks where the terminal reports them. Everything it
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 
 
@@ -35,6 +34,8 @@ def run(argv: list[str]) -> int:
         # "Restart to upgrade": the new version's code opens the UI again.
         from ..upgrade import launcher
 
+        from .. import oscompat
+
         exe = launcher()
-        os.execv(exe, [exe])
+        oscompat.exec_replace([exe])
     return 0

@@ -16,6 +16,7 @@ import sys
 import tempfile
 import tomllib
 
+from . import oscompat
 from . import hashing as hashinglib
 from . import paths as pathslib
 
@@ -584,7 +585,7 @@ def _backup(path: Path, now: datetime.datetime | None = None) -> Path:
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(text)
     shutil.copystat(path, dest)
-    os.chmod(dest, 0o600)
+    oscompat.restrict_path(dest)
     return dest
 
 
@@ -605,17 +606,17 @@ def migrate_config(source: Path, dest: Path | None = None) -> MigrationResult:
     backup = None
     if dest.exists():
         if dest.read_text(encoding="utf-8") == new_text:
-            os.chmod(dest, 0o600)
+            oscompat.restrict_path(dest)
             return MigrationResult(source, dest, start, CONFIG_VERSION, None, False)
         backup = _backup(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(dest.parent, 0o700)
+    oscompat.restrict_path(dest.parent, directory=True)
     tmp = dest.with_name(dest.name + ".tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(new_text)
     os.replace(tmp, dest)
-    os.chmod(dest, 0o600)
+    oscompat.restrict_path(dest)
     return MigrationResult(source, dest, start, CONFIG_VERSION, backup, True)
 
 

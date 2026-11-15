@@ -1,0 +1,52 @@
+# Test modules that pass on Windows, run by the `windows` job in .github/workflows/ci.yml.
+#
+# The Windows port (docs/dev/windows-scope.md) adds modules here as each stage
+# ports what they test; at the end (W10) the whole suite runs on Windows and
+# this list goes away. Measured in the Windows 11 test VM: each module on its
+# own (scripts/dev/windows/probes/run_modules.py). One module per line.
+tests.contracts.test_accessibility_contract
+tests.contracts.test_batch_safety
+tests.contracts.test_build_fingerprint
+tests.contracts.test_capabilities
+tests.contracts.test_capture_region
+tests.contracts.test_clipboard_contract
+tests.contracts.test_coordinate_contract
+tests.contracts.test_coordinate_v2
+tests.contracts.test_daemon_grant
+tests.contracts.test_desktop_cancellation
+tests.contracts.test_desktop_gates
+tests.contracts.test_display_contract
+tests.contracts.test_distro
+tests.contracts.test_execution_paths
+tests.contracts.test_file_links
+tests.contracts.test_glow_owner
+tests.contracts.test_grant_cli
+tests.contracts.test_hyprland_binds
+tests.contracts.test_hyprland_focus
+tests.contracts.test_hyprland_gate
+tests.contracts.test_hyprland_monitors
+tests.contracts.test_hyprland_state
+tests.contracts.test_hyprland_windows
+tests.contracts.test_input_contract
+tests.contracts.test_kde_windows
+tests.contracts.test_layout_matrix
+tests.contracts.test_mcp_errors
+tests.contracts.test_native_accessibility
+tests.contracts.test_native_clipboard
+tests.contracts.test_native_grant_rebind
+tests.contracts.test_oscompat
+tests.contracts.test_remote_clients
+tests.contracts.test_runtime_contract
+tests.contracts.test_rust_keyboard_provider
+tests.contracts.test_rust_pointer_provider
+tests.contracts.test_shot_layout
+tests.contracts.test_tui
+tests.contracts.test_tui_activity
+tests.contracts.test_tui_connections
+tests.contracts.test_tui_imports
+tests.contracts.test_tui_logo
+tests.contracts.test_tui_logs
+tests.contracts.test_tui_palette
+tests.contracts.test_window_focus
+tests.contracts.test_window_operations
+tests.contracts.test_windows_portable_list

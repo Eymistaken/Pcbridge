@@ -30,12 +30,13 @@ import os
 import re
 import shlex
 import shutil
-import signal
 import subprocess
 import time
 import uuid
 from pathlib import Path
 from typing import Any
+
+from . import oscompat
 
 ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])|\r")
 
@@ -196,7 +197,7 @@ class JobManager:
             self._write_meta(job_id, meta)
         except OSError as exc:
             try:
-                os.killpg(proc.pid, signal.SIGTERM)
+                oscompat.terminate_group(proc.pid, own_group=True)
             except OSError:
                 pass
             raise JobStartError(self._unwritable(exc)) from None
@@ -204,13 +205,8 @@ class JobManager:
 
     # ----------------------------------------------------------------- durum
     def _pid_alive(self, pid: int) -> bool:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
-        return True
+        # Never os.kill(pid, 0) here: on Windows signal 0 is CTRL_C_EVENT.
+        return oscompat.pid_alive(pid)
 
     def status(self, job_id: str) -> dict[str, Any]:
         meta = self.read_meta(job_id)
@@ -282,7 +278,7 @@ class JobManager:
         if not self._pid_alive(pid):
             return "the job was not running"
         try:
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
+            oscompat.terminate_group(pid)
         except (ProcessLookupError, PermissionError):
             pass
         for _ in range(12):
@@ -291,7 +287,7 @@ class JobManager:
                 break
         if self._pid_alive(pid):
             try:
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
+                oscompat.terminate_group(pid, force=True)
             except (ProcessLookupError, PermissionError):
                 pass
         if not self._exit_path(job_id).exists():

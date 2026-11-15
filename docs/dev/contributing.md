@@ -102,6 +102,28 @@ after shows exactly what the install added. Run the installer over SSH:
 that is also the case where setup has to read the session through
 `loginctl`.
 
+### Windows 11: the test VM
+
+The Windows port ([windows-scope.md](windows-scope.md)) is tested in a
+Windows 11 VM. Download Microsoft's multi-edition x64 ISO by hand; the
+script checks it against the SHA-256 the download page publishes.
+
+```bash
+scripts/dev/windows-vm.sh create      # check the ISO; disk, TPM, UEFI vars, answer file
+scripts/dev/windows-vm.sh install     # unattended install, about 25 minutes, ends when SSH answers
+scripts/dev/windows-vm.sh sync        # copy this checkout to %USERPROFILE%\pcbridge
+scripts/dev/windows-vm.sh ssh 'cd /d %USERPROFILE%\pcbridge && .venv\Scripts\python -m unittest tests.contracts.test_oscompat'
+scripts/dev/windows-vm.sh session '.venv\Scripts\python scripts\dev\windows\probes\session_probe.py'
+```
+
+An SSH logon has no desktop: anything that captures the screen, sends
+input or asks for the foreground runs through `session`, in the logged-on
+user's session, unelevated. `type` and `key` reach the VM through QEMU
+before SSH exists. CI's `windows` job runs the modules listed in
+`tests/windows_portable.txt`; add a module there once the stage that ports
+what it tests is done (`scripts/dev/windows/probes/run_modules.py` runs
+every module on its own and says which pass).
+
 ## Testing on your own desktop: the rules
 
 You are on the machine pcbridge controls. uinput clicks and keys go wherever

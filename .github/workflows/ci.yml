@@ -79,6 +79,32 @@ jobs:
             .venv/bin/python tests/readiness/check.py \
             --command "$PWD/.venv/bin/python -m pcbridge stdio"
 
+  # The Windows port (docs/dev/windows-scope.md): the package imports on
+  # Windows, and the modules in tests/windows_portable.txt pass there. The
+  # list grows with each stage of the port until the whole suite runs.
+  windows:
+    name: windows (portable modules)
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m venv .venv
+          .venv\Scripts\pip install -c packaging/constraints.txt -e ".[desktop]"
+      - name: The package imports
+        run: .venv\Scripts\python -W error -c "import pcbridge.tools, pcbridge.relay, pcbridge.daemon, pcbridge.cli.main, pcbridge.tui"
+      - name: Portable modules
+        env:
+          PCBRIDGE_NO_UPGRADE_CHECK: "1"
+          PYTHONUTF8: "1"
+        run: |
+          $modules = Get-Content tests/windows_portable.txt | Where-Object { $_ -and -not $_.StartsWith('#') }
+          .venv\Scripts\python -m unittest @modules
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   wheel:
     name: wheel carries its assets
     runs-on: ubuntu-24.04

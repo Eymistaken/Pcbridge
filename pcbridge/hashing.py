@@ -25,6 +25,8 @@ from pathlib import Path
 
 import tomlkit
 
+from . import oscompat
+
 PASSWORD_PREFIX = "scrypt$"
 TOKEN_PREFIX = "sha256$"
 
@@ -189,5 +191,5 @@ def harden_file(path: Path) -> list[str]:
         fh.flush()
         os.fsync(fh.fileno())
     os.replace(tmp, path)
-    os.chmod(path, 0o600)
+    oscompat.restrict_path(path)
     return keys

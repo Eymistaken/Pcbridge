@@ -58,6 +58,7 @@ from starlette.requests import ClientDisconnect, Request
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 
 from . import files as fileslib
+from . import oscompat
 
 log = logging.getLogger("pcbridge.filelinks")
 
@@ -82,6 +83,21 @@ COMMON_HEADERS = {
     "X-Robots-Tag": "noindex, nofollow",
     "X-Frame-Options": "DENY",
 }
+
+
+def _open_nofollow(path: str | os.PathLike[str]) -> int:
+    """Open a file for reading, refusing a symlink in its last component.
+
+    Linux refuses it in the open itself (O_NOFOLLOW). Windows has no such
+    flag, so a symlink, junction or other reparse point is refused before
+    the open; a swap between the check and the open changes the file's
+    identity, which `_stamp` compares before any byte is served.
+    """
+    if oscompat.IS_WINDOWS:
+        if oscompat.is_link_or_reparse(path):
+            raise OSError(errno.ELOOP, "is a symbolic link or reparse point", str(path))
+        return os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    return os.open(path, os.O_RDONLY | oscompat.O_NOFOLLOW)
 
 
 class LinkError(Exception):
@@ -169,7 +185,7 @@ class LinkStore:
     def create_download(self, path: Path) -> tuple[Link, str]:
         limit = int(self.cfg.download_max_mb) << 20
         try:
-            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            fd = _open_nofollow(path)
         except FileNotFoundError:
             raise LinkError(f"File not found: {path}") from None
         except OSError as exc:
@@ -474,7 +490,7 @@ async def download_file(store: LinkStore, request: Request) -> Response:
     if link is None:
         return not_found()
     try:
-        fd = os.open(link.path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = _open_nofollow(link.path)
     except OSError as exc:
         store.spend(link)
         store.audit("fs_link_failed", direction=DOWNLOAD, path=str(link.path)[:200],

@@ -20,6 +20,7 @@ import time
 import tomllib
 from pathlib import Path
 
+from .. import oscompat
 from .. import __version__
 from .. import assets as assetslib
 from .. import distro as distrolib
@@ -519,7 +520,7 @@ def report(argv: list[str]) -> int:
             info.size = len(data)
             info.mtime = int(time.time())
             tar.addfile(info, io.BytesIO(data))
-    os.chmod(out, 0o600)
+    oscompat.restrict_path(out)
     inst.ok(f"report written: {out} (passwords, tokens and your home path are redacted; read it before sharing)")
     return 0
 
@@ -572,7 +573,7 @@ def _fresh_config(dest: Path, *, desktop: bool = False) -> None:
     text = re.sub(r'(?m)^static_token = .*$', 'static_token = ""', text, count=1)
     tomllib.loads(text)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(dest.parent, 0o700)
+    oscompat.restrict_path(dest.parent, directory=True)
     fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(text)

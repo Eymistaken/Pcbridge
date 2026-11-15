@@ -12,21 +12,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .. import oscompat
+
 
 _MAX_ENTRY_BYTES = 16 * 1024
 
 
-def process_start_identity(pid: int) -> str:
-    """Return Linux process start ticks, which do not repeat when a PID is reused."""
-
-    raw = Path(f"/proc/{int(pid)}/stat").read_text(encoding="utf-8")
-    closing = raw.rfind(")")
-    if closing < 0:
-        raise ValueError("invalid /proc process stat")
-    fields = raw[closing + 2 :].split()
-    if len(fields) <= 19 or not fields[19].isdigit():
-        raise ValueError("process start identity is unavailable")
-    return fields[19]
+# Linux start ticks or the Windows creation time; kept under this name for
+# the callers and tests that import it from here.
+process_start_identity = oscompat.process_start_identity
 
 
 @dataclass(frozen=True)
@@ -47,7 +41,7 @@ class NativeRegistry:
     @staticmethod
     def _private_directory(path: Path) -> None:
         path.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(path, 0o700)
+        oscompat.restrict_path(path, directory=True)
 
     def _ensure_directory(self) -> None:
         self.runtime_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -75,21 +69,14 @@ class NativeRegistry:
         )
         temporary = Path(raw_path)
         try:
-            os.fchmod(descriptor, 0o600)
+            oscompat.restrict_fd(descriptor)
             with os.fdopen(descriptor, "w", encoding="utf-8", closefd=True) as stream:
                 descriptor = -1
                 json.dump(payload, stream, separators=(",", ":"))
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(temporary, entry.path)
-            directory_fd = os.open(
-                self.directory,
-                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0),
-            )
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+            oscompat.fsync_directory(self.directory)
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
@@ -102,7 +89,7 @@ class NativeRegistry:
     @staticmethod
     def _read(path: Path) -> NativeProcessEntry | None:
         flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
-        flags |= getattr(os, "O_NOFOLLOW", 0)
+        flags |= oscompat.O_NOFOLLOW
         try:
             descriptor = os.open(path, flags)
         except OSError:
@@ -139,7 +126,7 @@ class NativeRegistry:
 
     def is_same_process(self, entry: NativeProcessEntry) -> bool:
         try:
-            if Path(f"/proc/{entry.pid}").stat().st_uid != os.getuid():
+            if not oscompat.process_owned_by_me(entry.pid):
                 return False
             return process_start_identity(entry.pid) == entry.process_start_id
         except (OSError, ValueError):

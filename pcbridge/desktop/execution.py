@@ -26,7 +26,6 @@ It knows no device and no MCP type; `pcb-do` imports it as well.
 
 from __future__ import annotations
 
-import fcntl
 import json
 import logging
 import os
@@ -39,6 +38,7 @@ from typing import Any, Callable, Iterator
 from anyio import NoEventLoopError
 from anyio.from_thread import check_cancelled as _worker_check_canceled
 
+from .. import oscompat
 from .errors import DesktopError, ErrorCategory, ErrorCode, error_from_decision
 
 logger = logging.getLogger("pcbridge.desktop.execution")
@@ -173,14 +173,16 @@ class ExecutionLock:
         # O_CLOEXEC matters: a job started while the lock is held must not
         # inherit the descriptor and keep the desktop locked after we exit.
         flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
-        flags |= getattr(os, "O_NOFOLLOW", 0)
+        flags |= oscompat.O_NOFOLLOW
         descriptor = os.open(self.lock_path, flags, 0o600)
+        locked = False
         try:
             started = self._monotonic()
             while True:
                 check_canceled()
                 try:
-                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    oscompat.lock_fd(descriptor, exclusive=True, blocking=False)
+                    locked = True
                     break
                 except BlockingIOError:
                     waited = self._monotonic() - started
@@ -196,10 +198,15 @@ class ExecutionLock:
             finally:
                 slot._set_holder(None)
         finally:
+            # Closing releases the lock on Linux; Windows may release a
+            # byte-range lock only some time after the handle closes, so
+            # it is released explicitly first.
+            if locked:
+                oscompat.unlock_fd(descriptor)
             os.close(descriptor)
 
     def _read_state(self) -> dict[str, Any]:
-        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | oscompat.O_NOFOLLOW
         try:
             descriptor = os.open(self.state_path, flags)
         except OSError:
@@ -220,7 +227,7 @@ class ExecutionLock:
             prefix=f".{EXECUTION_STATE_FILE}.", suffix=".tmp", dir=self.state_dir
         )
         try:
-            os.fchmod(descriptor, 0o600)
+            oscompat.restrict_fd(descriptor)
             with os.fdopen(descriptor, "wb", closefd=True) as stream:
                 descriptor = -1
                 stream.write(payload)
