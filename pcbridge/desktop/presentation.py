@@ -43,7 +43,7 @@ def shot_image(shot: Any, enhance: bool = False) -> ImageContent:
     if (width, height) != expected:
         raise _undelivered(
             label,
-            f"PNG {width}x{height}, kayit {expected[0]}x{expected[1]} diyor",
+            f"the PNG is {width}x{height}, the record says {expected[0]}x{expected[1]}",
         )
     if enhance:
         from . import capture as capturelib
@@ -51,7 +51,7 @@ def shot_image(shot: Any, enhance: bool = False) -> ImageContent:
         try:
             data, _stats = capturelib.enhanced_png(Path(shot.path))
         except (OSError, capturelib.CaptureError) as exc:
-            raise _undelivered(label, f"iyilestirilemedi ({exc})") from exc
+            raise _undelivered(label, f"the enhancement failed ({exc})") from exc
         if struct.unpack(">II", data[16:24]) != expected:
             raise _undelivered(label, "the enhancement changed the size")
     return ImageContent(

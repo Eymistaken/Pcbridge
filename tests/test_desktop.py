@@ -1272,12 +1272,29 @@ def test_uitree_describe() -> None:
           '"Kaydet"' in txt and "#" in txt, txt[:200])
     check("sayim dogru", "5 node(s) · 3 clickable · 1 editable" in txt,
           [l for l in txt.splitlines() if "node(s) ·" in l])
-    check("eylemsiz dugum isaretleniyor", "eylemsiz" in txt, txt[:400])
+    check("a node with no action is flagged in English",
+          '"Hazir" [no action]' in txt, txt[:400])
+
+    # Qt Quick fields carry the EDITABLE state without EditableText (Free
+    # Download Manager, 2026-11-15): listed, but not as `editable`.
+    qt = U.dump_from_response({"ok": True, "app": "qt", "window": "Qt", "nodes": [
+        {"path": [0, 1], "role": "text", "name": "", "states": ["focused", "editable"],
+         "actions": ["SetFocus"], "editable": False, "depth": 6},
+    ]})
+    qtxt = U.describe(qt)
+    field = qt.nodes[0]
+    check("a state-only field is keyboard only", field.keyboard_only and not field.editable)
+    check("it is flagged as editable by keyboard only, not as editable",
+          "[focused, editable by keyboard only]" in qtxt, qtxt)
+    check("it counts as not editable", "1 clickable · 0 editable" in qtxt, qtxt)
+    check("the list says to type with keyboard", "type with `keyboard`" in qtxt, qtxt)
 
     bos = U.Dump(app="claude-desktop", window="Claude", nodes=[])
     btxt = U.describe(bos)
     check("bos agac Electron uyarisi veriyor",
           "Electron" in btxt and "screen_capture" in btxt, btxt[:160])
+    check("the empty tree names Chromium-based browsers too",
+          "Chromium-based browsers" in btxt and "Helium" in btxt, btxt[:200])
 
     kirpik = U.Dump(app="x", window="", nodes=d.nodes, truncated=True)
     check("kirpilma bildiriliyor", "cut short" in U.describe(kirpik))
@@ -1347,9 +1364,9 @@ def test_uitree_actions() -> None:
     sent = len(t.sent)
     try:
         t.click(etiket.node_id)
-        check("eylemsiz dugum reddediliyor", False, "hata firlatilmadi")
+        check("a node with no action is refused", False, "nothing was raised")
     except U.UiTreeError as exc:
-        check("eylemsiz dugum reddediliyor", "offers no action" in str(exc), str(exc))
+        check("a node with no action is refused", "offers no action" in str(exc), str(exc))
         check("koordinat yolu onerilmiyor ama alternatif veriliyor",
               "screen_capture" in str(exc), str(exc))
     check("nothing was sent for it", len(t.sent) == sent)
@@ -1369,6 +1386,21 @@ def test_uitree_actions() -> None:
     check("settext parmak izi gonderiyor",
           sent["role"] == "text" and "name" in sent, str(sent))
     check("settext metni gonderiyor", sent["text"] == "merhaba", str(sent))
+
+    # A keyboard-only field is refused before anything is sent.
+    t._last = qt = U.dump_from_response({"ok": True, "app": "qt", "window": "Qt", "nodes": [
+        {"path": [0, 1], "role": "text", "name": "", "states": ["focused", "editable"],
+         "actions": [], "editable": False, "depth": 6, "ref": "/qt/field"},
+    ]})
+    sent_before = len(t.sent)
+    try:
+        t.set_text(qt.nodes[0].node_id, "hello")
+        check("ui_set_text refuses a keyboard-only field", False, "nothing was raised")
+    except U.UiTreeError as exc:
+        check("ui_set_text refuses a keyboard-only field",
+              "keyboard" in str(exc) and exc.code is not None
+              and exc.code.value == "ACTION_UNSUPPORTED", str(exc))
+    check("nothing was sent for the keyboard-only field", len(t.sent) == sent_before)
 
 
 def test_real_atspi() -> None:

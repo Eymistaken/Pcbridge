@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -84,6 +85,12 @@ class NativeAccessibilityEndToEnd(unittest.TestCase):
         self.helper = helper
         self.native = RustAccessibilityProvider(self.cfg, gate=self.gate, client_factory=helper)
         self.addCleanup(self.native.close)
+        # The fixture desktop is not the real one: the real compositor's
+        # focused window must not reach it.
+        self.focus_hint = mock.patch(
+            "pcbridge.desktop.apps.compositor_focus_hint", return_value=None)
+        self.hint = self.focus_hint.start()
+        self.addCleanup(self.focus_hint.stop)
 
     def use(self, desktop: str) -> None:
         """Point the helper at one fixture desktop."""
@@ -136,6 +143,29 @@ class NativeAccessibilityEndToEnd(unittest.TestCase):
                 })
                 self.assertEqual([n.node_id for n in native.nodes],
                                  [n.node_id for n in again.nodes])
+
+    def test_the_compositors_focus_hint_reaches_the_helper(self) -> None:
+        # In `editor` AT-SPI marks the document window ACTIVE; GNOME's
+        # extension says the preferences window has the focus.
+        self.use("editor")
+        self.hint.return_value = {"title": "Tercihler", "apps": ["pcbridge-editor"]}
+        self.assertEqual(self.native.dump("focused").window, "Tercihler")
+        self.assertEqual(self.native.focused_window(), ("pcbridge-editor", "Tercihler"))
+        active = [w.title for w in self.native.windows() if w.active]
+        self.assertEqual(active, ["Tercihler"])
+        # A named target needs no hint and asks for none.
+        self.hint.reset_mock()
+        self.native.dump("pcbridge-editor")
+        self.hint.assert_not_called()
+
+    def test_no_focused_window_says_what_to_pass_instead(self) -> None:
+        self.use("nothing_active")
+        self.hint.return_value = {"title": "Download - Helium", "apps": ["helium"]}
+        with self.assertRaises(DesktopError) as caught:
+            self.native.dump("focused")
+        self.assertEqual(caught.exception.code, ErrorCode.TARGET_MISMATCH)
+        self.assertIn("Download - Helium", str(caught.exception))
+        self.assertIn("window_list", str(caught.exception))
 
     def test_window_cases_read_what_the_fixture_expects(self) -> None:
         for case in FIXTURE["window_cases"]:

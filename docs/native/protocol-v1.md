@@ -188,6 +188,16 @@ connection. After the handshake, a request with a different minor returns
     `same_name`, `scope`, `window`, `window_ref`, `nodes`, `truncated`, and
     `snapshot`, the helper's 12-hex-digit id for this dump. Each node carries
     `path`, `ref`, `role`, `name`, `states`, `actions`, `editable`, `depth`.
+    `editable` is the EDITABLE state together with the EditableText
+    interface, which `set_text` needs (2.10.3); a field with the state alone
+    keeps `editable` in `states` and is typed into with the keyboard.
+  - All three take `focus` (feature `accessibility.focus_hint`, 2.10.3): the
+    compositor's focused window as `{"title": ..., "apps": [...]}`, where the
+    host can ask the compositor and the helper cannot (GNOME's extension).
+    A window of that title, narrowed by application name, or else the one
+    application of that name, is the focused window ahead of AT-SPI's
+    ACTIVE state; `windows` then marks only it `active`. On X11 the helper's
+    own window manager answer wins over `focus`.
   - The walk matches the Python helper step for step: depth first, left to
     right, at most `max_nodes * 25` visits and depth 100; a node's children
     are read together (at most 32 at once).

@@ -288,7 +288,9 @@ impl AtspiBus {
             ),
         )
         .await;
-        let has_action = interfaces.is_ok_and(|list| list.iter().any(|name| name == ACTION));
+        let interfaces = interfaces.unwrap_or_default();
+        let has_action = interfaces.iter().any(|name| name == ACTION);
+        let editable_text = interfaces.iter().any(|name| name == EDITABLE_TEXT);
         let (role, actions) = future::zip(self.role(node, number), async {
             if has_action {
                 self.actions(node).await
@@ -302,6 +304,7 @@ impl AtspiBus {
             name: name.unwrap_or_default().trim().to_owned(),
             states: states.map_or_else(|_| States::default(), |words| States::from_words(&words)),
             actions,
+            editable_text,
             children,
         }
     }

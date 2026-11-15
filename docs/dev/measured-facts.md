@@ -796,6 +796,27 @@ for optional physical-hardware and engineering follow-ups.
   (Vesktop: 0 nodes).
 - **GNOME's overview blocks the Wayland clipboard**: `type` after `super`
   switches to raw keys.
+- **ACTIVE is missing or stale for some windows (2026-11-15).** Helium
+  (Chromium) and the GNOME file chooser (`xdg-desktop-portal-gnome`) had
+  the focus with no window marked ACTIVE, so `ui_dump(target="focused")`
+  and `window_list` found no focused window; Free Download Manager kept
+  ACTIVE after Helium and Claude (Electron, never ACTIVE) took the focus.
+  Since 2.10.3 the host passes the extension's `FocusedWindow` title,
+  `wm_class` and app id to the helper (`accessibility.focus_hint`), and a
+  window of that title, narrowed by application name, wins over ACTIVE.
+  Checked live: with a second Helium (own profile, "about:blank - Helium")
+  in front, the 2.10.2 helper found no focused window and the 2.10.3 one
+  named it by pid, while the user's own Helium stayed apart.
+- **The EDITABLE state does not mean EditableText (2026-11-15).** Free
+  Download Manager's Qt Quick text fields carry `editable` with `Text` and
+  `Action` but no `EditableText`, so `SetTextContents` is impossible. Since
+  2.10.3 `ui_dump` marks `editable` only with the interface and lists such a
+  field as "editable by keyboard only"; it is typed into with `keyboard`.
+- **A mouse click on a Chromium `<select>` picks the option under the
+  pointer on release (2026-11-15).** In Helium the press opened the popup
+  and the release chose "French" instead of leaving the list open.
+  Keyboard type-ahead on the focused select (`keyboard` raw "Engl") chose
+  the right option. Focus a Chromium select and use the keyboard.
 
 ## Windows and applications
 

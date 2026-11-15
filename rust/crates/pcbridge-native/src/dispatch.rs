@@ -98,6 +98,7 @@ impl BackendMode {
                 "clipboard",
                 "accessibility.read",
                 "accessibility.action",
+                "accessibility.focus_hint",
                 "window.focused",
                 "window.activate",
             ],
@@ -111,6 +112,7 @@ impl BackendMode {
                 "clipboard",
                 "accessibility.read",
                 "accessibility.action",
+                "accessibility.focus_hint",
             ],
         }
     }
@@ -524,14 +526,13 @@ impl Dispatcher {
             "clipboard.clear" => self.clipboard_clear(request.id, request.params),
             "accessibility.dump" => self.accessibility_dump(request.id, request.params),
             "accessibility.windows" => {
-                self.accessibility_read(request.id, request.params, &|tree| {
-                    accessibility::windows(tree)
+                self.accessibility_read(request.id, request.params, &|tree, hint| {
+                    accessibility::windows_hinted(tree, hint)
                 })
             }
             "accessibility.focused" => {
-                let hint = self.x11_focus_hint();
-                self.accessibility_read(request.id, request.params, &|tree| {
-                    accessibility::focused_hinted(tree, hint.as_ref())
+                self.accessibility_read(request.id, request.params, &|tree, hint| {
+                    accessibility::focused_hinted(tree, hint)
                 })
             }
             "window.focused" => self.window_focused(request.id, request.params),
@@ -1399,7 +1400,11 @@ impl Dispatcher {
             .window_info(active)
             .map(|info| info.title)
             .unwrap_or_default();
-        Some(accessibility::FocusHint { pid, title })
+        Some(accessibility::FocusHint {
+            pid,
+            title,
+            apps: Vec::new(),
+        })
     }
 
     fn window_unavailable(&self, id: String, message: String) -> DispatchOutcome {
@@ -1575,7 +1580,9 @@ impl Dispatcher {
             0 => DUMP_DEADLINE_MS,
             value => value.min(DUMP_DEADLINE_MS_MAX),
         };
-        let focus = self.x11_focus_hint();
+        let focus = self
+            .x11_focus_hint()
+            .or_else(|| params.focus.as_ref().map(FocusParams::hint));
         let request = DumpRequest {
             focus,
             target: match params.target.trim() {
@@ -1695,14 +1702,17 @@ impl Dispatcher {
         &mut self,
         id: String,
         params: Value,
-        read: &dyn Fn(&dyn Tree) -> Result<Value, AccessibilityError>,
+        read: &AccessibilityRead,
     ) -> DispatchOutcome {
         let params = match self.accessibility_grant::<AccessibilityGrantParams>(&id, params) {
             Ok(params) => params,
             Err(outcome) => return *outcome,
         };
+        let hint = self
+            .x11_focus_hint()
+            .or_else(|| params.focus.as_ref().map(FocusParams::hint));
         let result = match self.accessibility_tree() {
-            Ok(tree) => read(tree),
+            Ok(tree) => read(tree, hint.as_ref()),
             Err(error) => return self.typed_error(id, error),
         };
         self.accessibility_reply(id, (&params.grant_id, params.revoke_epoch), result)
@@ -2808,7 +2818,48 @@ trait AccessibilityGrant {
 struct AccessibilityGrantParams {
     grant_id: String,
     revoke_epoch: u64,
+    #[serde(default)]
+    focus: Option<FocusParams>,
 }
+
+/// The compositor's focused window, where the host can ask it and the
+/// helper cannot (GNOME's shell extension): its title and the names of its
+/// application. Sent with `accessibility.focus_hint`; an X11 answer the
+/// helper reads itself wins over it.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FocusParams {
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    apps: Vec<String>,
+}
+
+/// Longest title and application name taken from a focus hint, and how many
+/// names: the extension sends at most 200 characters and two names.
+const FOCUS_HINT_FIELD_MAX: usize = 512;
+const FOCUS_HINT_APPS_MAX: usize = 4;
+
+impl FocusParams {
+    fn hint(&self) -> accessibility::FocusHint {
+        let cut = |text: &str| text.chars().take(FOCUS_HINT_FIELD_MAX).collect::<String>();
+        accessibility::FocusHint {
+            pid: 0,
+            title: cut(&self.title),
+            apps: self
+                .apps
+                .iter()
+                .map(|name| cut(name))
+                .filter(|name| !name.trim().is_empty())
+                .take(FOCUS_HINT_APPS_MAX)
+                .collect(),
+        }
+    }
+}
+
+/// A read of the tree, given the focus hint the request carried.
+type AccessibilityRead =
+    dyn Fn(&dyn Tree, Option<&accessibility::FocusHint>) -> Result<Value, AccessibilityError>;
 
 fn default_target() -> String {
     "focused".to_owned()
@@ -2829,6 +2880,8 @@ struct AccessibilityDumpParams {
     /// 0 means the default.
     #[serde(default)]
     deadline_ms: u64,
+    #[serde(default)]
+    focus: Option<FocusParams>,
 }
 
 fn default_action() -> String {
@@ -3253,6 +3306,7 @@ mod tests {
                 "clipboard",
                 "accessibility.read",
                 "accessibility.action",
+                "accessibility.focus_hint",
                 "window.focused",
                 "window.activate"
             ]

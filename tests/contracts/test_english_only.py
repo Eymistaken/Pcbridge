@@ -39,8 +39,13 @@ yuklenemedi asimina ugradi sinirina ulasti kapatiliyor uyumsuz surumu
 islenemedi dondurdu masaustune baglanilamadi protokolunu denetleyin goreli
 gonderilen iyilestirme degistirdi denetimi calismadi dugumu gelmedi
 kurulamadi yakalanamadi varsayilani baslatilamadi ajan olusturuldu baslatmak
-hazirlanamadi yetkilendirme""".split()
-WORD_RX = re.compile(r"(?<![A-Za-z_])(" + "|".join(WORDS) + r")(?![A-Za-z_])", re.I)
+hazirlanamadi yetkilendirme eylemsiz kayit diyor""".split()
+# ASCII-Turkish word endings no English word has: "-siz" (without), "-iyor"
+# (present tense), "-amadi"/"-emedi" (could not). `eylemsiz` and five
+# "...ilemedi"/"...ulamadi" messages once slipped past the word list.
+SUFFIXES = r"[a-z]{2,}(?:siz|suz|iyor|uyor|amadi|emedi|amiyor|emiyor)"
+WORD_RX = re.compile(
+    r"(?<![A-Za-z_])(" + "|".join(WORDS) + "|" + SUFFIXES + r")(?![A-Za-z_])", re.I)
 LETTER_RX = re.compile(r"[çğıöşüÇĞİÖŞÜ]")
 
 # (file, literal) pairs that are data, not prose.
@@ -166,6 +171,36 @@ class EnglishOnlyTests(unittest.TestCase):
                 for m in rx.finditer(line):
                     if _is_turkish(m.group(0)):
                         hits.append(f"{rel}:{n}: {m.group(0)[:100]}")
+        self.assertNoHits(hits)
+
+    def test_accessibility_text_the_model_reads(self) -> None:
+        """What `ui_dump` and `window_list` print, rendered, not just scanned.
+
+        A flag such as "no action" is built from parts, so the literal scan
+        alone cannot prove the text a model reads is English.
+        """
+        from pcbridge.desktop import uitree as U
+
+        states = ["focused", "editable", "checked", "selected", "expanded", "showing"]
+        dump = U.dump_from_response({"ok": True, "app": "app", "window": "Window",
+                                     "same_name": 2, "truncated": True, "nodes": [
+            {"path": [0], "role": "text", "name": "", "states": states,
+             "actions": [], "editable": True},
+            {"path": [1], "role": "text", "name": "", "states": ["focused", "editable"],
+             "actions": [], "editable": False},
+            {"path": [2], "role": "push button", "name": "OK", "states": ["sensitive"],
+             "actions": ["click"], "editable": False},
+            {"path": [3], "role": "label", "name": "Ready", "states": [],
+             "actions": [], "editable": False},
+        ]})
+        texts = [
+            U.describe(dump),
+            U.describe(U.Dump(app="app", window="Window", nodes=[])),
+            U.describe_windows([]),
+            U.describe_windows([U.Window(app="app", title="Window", role="frame",
+                                         active=True, children=1)]),
+        ]
+        hits = [line for text in texts for line in text.splitlines() if _is_turkish(line)]
         self.assertNoHits(hits)
 
     def test_native_helper_messages(self) -> None:

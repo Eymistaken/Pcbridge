@@ -220,6 +220,11 @@ class NativeClient:
             timeout=self.default_timeout if timeout is None else float(timeout),
         )
 
+    def ensure_started(self) -> None:
+        """Start the helper if it is not running, so `features` is known."""
+
+        self._ensure_started()
+
     def close(self) -> None:
         """Shut down, escalate if needed, and reap the child exactly once."""
 
@@ -326,7 +331,7 @@ class NativeClient:
                         candidate.close()
                 raise _desktop_error(
                     ErrorCode.NATIVE_CRASHED,
-                    "Native helper IPC descriptor'lari guvenli hale getirilemedi.",
+                    "The native helper's IPC descriptors could not be made safe.",
                     suggested_action="inspect_native_runtime",
                 ) from error
 
@@ -383,7 +388,7 @@ class NativeClient:
             except (OSError, ValueError) as error:
                 raise _desktop_error(
                     ErrorCode.BACKEND_UNAVAILABLE,
-                    "Native helper process kaydi olusturulamadi.",
+                    "The native helper process could not be registered.",
                     suggested_action="inspect_native_runtime",
                 ) from error
             with self._state_lock:
@@ -437,7 +442,7 @@ class NativeClient:
         except NativeFrameError as error:
             raise _desktop_error(
                 ErrorCode.INVALID_FRAME,
-                "Native helper request'i frame'e donusturulemedi.",
+                "The native helper request could not be encoded as a frame.",
                 suggested_action="check_native_request",
                 execution_state="not_started",
             ) from error

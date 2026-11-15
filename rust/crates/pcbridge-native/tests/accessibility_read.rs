@@ -194,6 +194,7 @@ impl Tree for Deep {
                     name: format!("n{depth}"),
                     states,
                     actions: vec!["click".to_owned()],
+                    editable_text: false,
                     children: vec![Some(ObjectRef::new(":1.9", format!("/n/{}", depth + 1)))],
                 })
             })
@@ -298,7 +299,7 @@ fn the_window_managers_focus_wins_over_a_stale_active_state() {
     assert_eq!(plain["app"], "pcbridge-editor");
     let hint = FocusHint {
         pid: 4591,
-        title: String::new(),
+        ..FocusHint::default()
     };
     let hinted = accessibility::focused_hinted(&desktop, Some(&hint)).expect("hinted");
     assert_eq!(hinted["app"], "gnome-shell");
@@ -309,8 +310,144 @@ fn the_window_managers_focus_wins_over_a_stale_active_state() {
     // A process no application belongs to falls back to the ACTIVE state.
     let unknown = FocusHint {
         pid: 9999,
-        title: String::new(),
+        ..FocusHint::default()
     };
     let fallback = accessibility::focused_hinted(&desktop, Some(&unknown)).expect("fallback");
     assert_eq!(fallback["app"], "pcbridge-editor");
+}
+
+fn named_hint(
+    title: &str,
+    apps: &[&str],
+) -> pcbridge_native::platform::linux::accessibility::FocusHint {
+    pcbridge_native::platform::linux::accessibility::FocusHint {
+        pid: 0,
+        title: title.to_owned(),
+        apps: apps.iter().map(|name| (*name).to_owned()).collect(),
+    }
+}
+
+#[test]
+fn the_compositors_window_title_wins_over_a_stale_active_state() {
+    // GNOME's extension names the focused window by title and application,
+    // with no process. In `editor` the document window is ACTIVE; the
+    // compositor says the preferences window has the focus.
+    let desktop = tree("editor");
+    let hint = named_hint("Tercihler", &["pcbridge-editor", "org.pcbridge.Editor"]);
+    let focused = accessibility::focused_hinted(&desktop, Some(&hint)).expect("hinted");
+    assert_eq!(focused["window"], "Tercihler");
+    let mut dump_request = request(&serde_json::json!({}));
+    dump_request.focus = Some(hint.clone());
+    let dump = accessibility::dump(&desktop, &dump_request).expect("dump");
+    assert_eq!(dump["window"], "Tercihler");
+    assert_eq!(dump["scope"], "window");
+    // The window list marks that window, and only that one.
+    let windows = accessibility::windows_hinted(&desktop, Some(&hint)).expect("windows");
+    let active: Vec<&Value> = windows["windows"]
+        .as_array()
+        .expect("windows")
+        .iter()
+        .filter(|window| window["active"] == true)
+        .map(|window| &window["window"])
+        .collect();
+    assert_eq!(active, vec!["Tercihler"]);
+    // Without a hint the list keeps AT-SPI's ACTIVE state.
+    let plain = accessibility::windows(&desktop).expect("windows");
+    let active: Vec<&Value> = plain["windows"]
+        .as_array()
+        .expect("windows")
+        .iter()
+        .filter(|window| window["active"] == true)
+        .map(|window| &window["window"])
+        .collect();
+    assert_eq!(active, vec!["Belge — Düzenleyici"]);
+}
+
+#[test]
+fn a_window_no_window_marks_active_is_found_by_the_compositors_hint() {
+    // Chromium and the GNOME file chooser leave every window without ACTIVE
+    // (measured 2026-11-15). `similar_names`: the terminal is ACTIVE, the
+    // text editor is not.
+    let desktop = tree("similar_names");
+    let by_title = named_hint("gnome-text-editor penceresi", &["org.gnome.TextEditor"]);
+    let found = accessibility::focused_hinted(&desktop, Some(&by_title)).expect("by title");
+    assert_eq!(found["app"], "gnome-text-editor");
+    // A title AT-SPI does not know: the application's name alone, when one
+    // application of that name has one window.
+    let by_name = named_hint("Some other title", &["gnome-text-editor.desktop"]);
+    let found = accessibility::focused_hinted(&desktop, Some(&by_name)).expect("by name");
+    assert_eq!(found["app"], "gnome-text-editor");
+    // A hint that matches nothing falls back to the ACTIVE state.
+    let unknown = named_hint("A game", &["sdl-game"]);
+    let found = accessibility::focused_hinted(&desktop, Some(&unknown)).expect("fallback");
+    assert_eq!(found["app"], "gnome-terminal-server");
+}
+
+#[test]
+fn two_windows_of_one_title_are_told_apart_by_the_active_state() {
+    let desktop = tree("two_pythons");
+    let hint = named_hint("python3 penceresi", &["python3"]);
+    let found = accessibility::focused_hinted(&desktop, Some(&hint)).expect("hinted");
+    assert_eq!(found["app_pid"], 8001);
+}
+
+#[test]
+fn no_focus_names_the_compositors_window_and_what_to_pass_instead() {
+    let desktop = tree("nothing_active");
+    let plain = accessibility::focused(&desktop).expect_err("nothing is active");
+    assert_eq!(plain.code, "TARGET_MISMATCH");
+    assert!(plain.message.contains("window_list"), "{}", plain.message);
+    let hint = named_hint("Download - Helium", &["helium"]);
+    let mut dump_request = request(&serde_json::json!({}));
+    dump_request.focus = Some(hint);
+    let error = accessibility::dump(&desktop, &dump_request).expect_err("no match");
+    assert_eq!(error.code, "TARGET_MISMATCH");
+    assert!(
+        error.message.contains("'Download - Helium'"),
+        "{}",
+        error.message
+    );
+    assert!(
+        error.message.contains("application's name as target"),
+        "{}",
+        error.message
+    );
+}
+
+#[test]
+fn editable_means_what_set_text_needs() {
+    // A Qt Quick text field carries the EDITABLE state with Text but no
+    // EditableText (Free Download Manager, measured 2026-11-15). It is still
+    // listed, as a field that takes typing, but not as editable.
+    let fixture = serde_json::json!({
+        "apps": {"qt": {"name": "qt-app", "bus": ":1.77", "pid": 7700, "windows": [{
+            "ref": "/qt/w", "role": "frame", "name": "Qt", "states": ["active", "showing"],
+            "children": [
+                {"ref": "/qt/state-only", "role": "text", "name": "", "text": "",
+                 "states": ["showing", "enabled", "sensitive", "editable", "focused"]},
+                {"ref": "/qt/writable", "role": "text", "name": "Name", "text": "",
+                 "editable_text": true,
+                 "states": ["showing", "enabled", "sensitive", "editable"]}
+            ]
+        }]}},
+        "desktops": {"qt": ["qt"]}
+    });
+    let desktop = FixtureTree::from_fixture(&fixture, "qt").expect("fixture loads");
+    let dump = accessibility::dump(&desktop, &request(&serde_json::json!({}))).expect("dump");
+    let nodes = dump["nodes"].as_array().expect("nodes");
+    let by_ref = |path: &str| {
+        nodes
+            .iter()
+            .find(|node| node["ref"] == path)
+            .unwrap_or_else(|| panic!("{path} listed"))
+    };
+    let state_only = by_ref("/qt/state-only");
+    assert_eq!(state_only["editable"], false);
+    assert!(
+        state_only["states"]
+            .as_array()
+            .expect("states")
+            .contains(&Value::from("editable"))
+    );
+    assert_eq!(by_ref("/qt/writable")["editable"], true);
 }

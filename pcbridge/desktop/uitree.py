@@ -43,6 +43,11 @@ from .errors import ErrorCode
 MIN_ID = 4
 BACKEND = "linux.atspi"
 
+# The flags `describe` writes. `ui_click` refuses a NO_ACTION node with
+# "offers no action"; a KEYBOARD_ONLY field takes typing, not ui_set_text.
+NO_ACTION = "no action"
+KEYBOARD_ONLY = "editable by keyboard only"
+
 
 class UiTreeError(RuntimeError):
     """Erisilebilirlik agaci okunamadi ya da eylem uygulanamadi.
@@ -75,15 +80,28 @@ class Node:
     def clickable(self) -> bool:
         return bool(self.actions)
 
+    @property
+    def keyboard_only(self) -> bool:
+        """A field the application calls editable that ui_set_text cannot write.
+
+        The EDITABLE state without the EditableText interface: Qt Quick text
+        fields, measured in Free Download Manager on 2026-11-15. Only typing
+        into it with `keyboard` works. `editable` is set only when the helper
+        found the interface, so the flag means what ui_set_text needs.
+        """
+        return not self.editable and "editable" in self.states
+
     def describe(self) -> str:
         bits = [f"#{self.node_id}", self.role]
         if self.name:
             bits.append(f'"{self.name}"')
-        flags = [s for s in self.states if s not in ("sensitive", "enabled")]
-        if self.editable and "editable" not in flags:
+        flags = [s for s in self.states if s not in ("sensitive", "enabled", "editable")]
+        if self.editable:
             flags.append("editable")
-        if not self.actions and not self.editable:
-            flags.append("eylemsiz")
+        elif self.keyboard_only:
+            flags.append(KEYBOARD_ONLY)
+        if not self.actions and not self.editable and not self.keyboard_only:
+            flags.append(NO_ACTION)
         if flags:
             bits.append("[" + ", ".join(flags) + "]")
         return " ".join(bits)
@@ -356,6 +374,14 @@ class UiTree:
 
     def set_text(self, node_id: str, text: str) -> dict:
         node = self.resolve(node_id)
+        if node.keyboard_only:
+            # Nothing is sent: the helper would refuse it for the same reason.
+            raise UiTreeError(
+                f"{node.role} \"{node.name}\" is {KEYBOARD_ONLY}: the application "
+                "offers no EditableText interface, so ui_set_text cannot write it. "
+                "Focus it, then type with `keyboard`.",
+                ErrorCode.ACTION_UNSUPPORTED,
+            )
         return self._act(
             {"cmd": "settext", "text": text, **self._target_payload(node)},
             "The text could not be written.",
@@ -397,8 +423,9 @@ def describe(dump: Dump) -> str:
         ]
     if not dump.nodes:
         lines.append(
-            "This window publishes no accessibility tree (it came back empty). Some "
-            "Electron applications give no content without `--force-renderer-accessibility`. "
+            "This window publishes no accessibility tree (it came back empty). "
+            "Chromium-based browsers (Helium, Chrome, Brave) and some Electron "
+            "applications give no content without `--force-renderer-accessibility`. "
             "Use screen_capture to see the screen."
         )
         return "\n".join(lines)
@@ -411,6 +438,11 @@ def describe(dump: Dump) -> str:
     lines.append(
         f"{len(dump.nodes)} node(s) · {clickable} clickable · {editable} editable"
     )
+    if any(n.keyboard_only for n in dump.nodes):
+        lines.append(
+            f"A field marked \"{KEYBOARD_ONLY}\" takes no ui_set_text: focus it "
+            "(ui_click, or `mouse` where it offers no action), then type with `keyboard`."
+        )
     if dump.truncated:
         lines.append(
             "⚠️ The list was cut short. Narrow it with target set to one application."

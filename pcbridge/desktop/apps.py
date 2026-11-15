@@ -216,6 +216,16 @@ def extension_focused_window() -> tuple[str, str] | None:
         if not reply or reply.get("found") is not True:
             return None
         return str(reply.get("app") or "").strip() or "?", str(reply.get("title") or "")
+    shell = _gnome_focused_window()
+    if shell is None:
+        return None
+    wm_class, app_id, title = shell
+    app = (app_id or wm_class).strip() or "?"
+    return app, title
+
+
+def _gnome_focused_window() -> tuple[str, str, str] | None:
+    """GNOME's extension `FocusedWindow`: (wm_class, app_id, title), or None."""
     if compositorlib.current().kind != "gnome":
         return None
     try:
@@ -240,8 +250,31 @@ def extension_focused_window() -> tuple[str, str] | None:
         return None
     if reply.get("type") != "bsss" or found is not True:
         return None
-    app = str(app_id or wm_class or "").strip() or "?"
-    return app, str(title or "")
+    return str(wm_class or ""), str(app_id or ""), str(title or "")
+
+
+def compositor_focus_hint() -> dict[str, object] | None:
+    """The focused window as GNOME's compositor names it, for the native helper.
+
+    AT-SPI's ACTIVE state is missing for Chromium windows and the GNOME file
+    chooser, and stale elsewhere (measured 2026-11-15: `ui_dump` said no
+    window had the focus while Helium visibly had it, and Free Download
+    Manager kept ACTIVE after losing the focus). The helper matches this
+    title and these application names against the tree and prefers the
+    window they name. None outside GNOME, without the extension, with the
+    grant closed, or with no focused window: the helper then reads ACTIVE as
+    before. X11 needs no hint; the helper asks the window manager itself.
+    """
+    if compositorlib.is_x11():
+        return None
+    shell = _gnome_focused_window()
+    if shell is None:
+        return None
+    wm_class, app_id, title = shell
+    apps = [name for name in dict.fromkeys((wm_class.strip(), app_id.strip())) if name]
+    if not title.strip() and not apps:
+        return None
+    return {"title": title, "apps": apps}
 
 
 class ExtensionFrameUnavailable(RuntimeError):

@@ -1461,6 +1461,10 @@ RustKeyboardInputProvider = RustInputProvider
 #: (`EXECUTION_UNKNOWN`) and is never sent again.
 ACCESSIBILITY_TIMEOUT_SECONDS = 20.0
 ACCESSIBILITY_BACKEND = "linux.atspi.native"
+# A helper that lists this feature reads the compositor's focus hint.
+FOCUS_HINT_FEATURE = "accessibility.focus_hint"
+# The targets the helper reads as "the focused window".
+FOCUSED_TARGETS = frozenset({"", "focused", "odak", "aktif"})
 
 # The helper's own verdicts, passed on with their wording and the shared
 # advice (`common._accessibility_error`).
@@ -1548,14 +1552,33 @@ class RustAccessibilityProvider(uitreelib.UiTree):
         *,
         binary: bytes = b"",
         acting: bool = False,
+        focus_hint: bool = False,
     ) -> dict[str, Any]:
         grant_id, revoke_epoch = grant
         client = self._helper.for_grant(grant)
         feature = "accessibility.action" if acting else "accessibility.read"
+        params = dict(params or {})
+        if focus_hint:
+            # The features arrive with the handshake; a helper that does not
+            # start fails the request below with its own error.
+            starter = getattr(client, "ensure_started", None)
+            if callable(starter):
+                try:
+                    starter()
+                except DesktopError:
+                    pass
+        if focus_hint and FOCUS_HINT_FEATURE in client.features:
+            # An older helper refuses an unknown parameter, so the hint goes
+            # only to one that says it reads it.
+            from .. import apps as appslib
+
+            hint = appslib.compositor_focus_hint()
+            if hint is not None:
+                params["focus"] = hint
         try:
             response = client.request(
                 method,
-                {"grant_id": grant_id, "revoke_epoch": revoke_epoch, **(params or {})},
+                {"grant_id": grant_id, "revoke_epoch": revoke_epoch, **params},
                 binary=binary,
                 timeout=ACCESSIBILITY_TIMEOUT_SECONDS,
             )
@@ -1623,6 +1646,7 @@ class RustAccessibilityProvider(uitreelib.UiTree):
                 "interactive_only": bool(interactive_only),
                 "max_nodes": int(max_nodes),
             },
+            focus_hint=str(target).strip().lower() in FOCUSED_TARGETS,
         )
         dump = uitreelib.dump_from_response(result, backend=ACCESSIBILITY_BACKEND)
         self._last = dump
@@ -1653,12 +1677,13 @@ class RustAccessibilityProvider(uitreelib.UiTree):
         # The current grant, else the last one, so the helper says why it is
         # refused (expired, revoked); no grant at all is GRANT_REQUIRED.
         grant = self._current_grant() or self._dump_grant()
-        result = self._request("accessibility.focused", grant)
+        result = self._request("accessibility.focused", grant, focus_hint=True)
         return result.get("app") or "?", result.get("window") or ""
 
     def windows(self) -> list[uitreelib.Window]:
         grant = self._current_grant() or self._dump_grant()
-        return uitreelib.windows_from_response(self._request("accessibility.windows", grant))
+        return uitreelib.windows_from_response(
+            self._request("accessibility.windows", grant, focus_hint=True))
 
     def _translate_accessibility(
         self,

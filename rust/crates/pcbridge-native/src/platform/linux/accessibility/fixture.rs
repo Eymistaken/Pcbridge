@@ -98,6 +98,7 @@ impl FixtureTree {
             name: node["name"].as_str().unwrap_or_default().trim().to_owned(),
             states,
             actions: strings(node, "actions")?,
+            editable_text: node["editable_text"].as_bool() == Some(true),
             children,
         };
         let mut interfaces = vec![ACCESSIBLE.to_owned()];

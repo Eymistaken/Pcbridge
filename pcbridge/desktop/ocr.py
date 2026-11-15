@@ -254,7 +254,7 @@ def read_words(png: Path, langs: str, timeout: float = RUN_TIMEOUT) -> list[Word
     except subprocess.TimeoutExpired as exc:
         raise OcrError(f"{ENGINE} did not finish within {timeout:.0f} s") from exc
     except OSError as exc:
-        raise OcrError(f"{ENGINE} calistirilamadi: {exc}") from exc
+        raise OcrError(f"{ENGINE} could not be run: {exc}") from exc
     if proc.returncode != 0:
         detail = proc.stderr.decode("utf-8", "replace").strip().splitlines()
         raise OcrError(

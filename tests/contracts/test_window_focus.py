@@ -157,6 +157,41 @@ class ExtensionFocusSourceTests(unittest.TestCase):
             self.assertIn("FocusedWindow", argv)
             self.assertIn("--json=short", argv)
 
+    def test_the_focus_hint_carries_the_title_and_both_names(self) -> None:
+        stdout = ('{"type":"bsss","data":[true,"helium","helium",'
+                  '"Download Windows 11 - Helium"]}')
+        with mock.patch.object(apps.compositorlib, "is_x11", return_value=False), \
+                mock.patch.object(apps.compositorlib, "current",
+                                  return_value=SimpleNamespace(kind="gnome")), \
+                mock.patch.object(apps.subprocess, "run", return_value=self.reply(stdout)):
+            self.assertEqual(apps.compositor_focus_hint(),
+                             {"title": "Download Windows 11 - Helium", "apps": ["helium"]})
+        stdout = '{"type":"bsss","data":[true,"fdm","org.fdm.App","Free Download Manager"]}'
+        with mock.patch.object(apps.compositorlib, "is_x11", return_value=False), \
+                mock.patch.object(apps.compositorlib, "current",
+                                  return_value=SimpleNamespace(kind="gnome")), \
+                mock.patch.object(apps.subprocess, "run", return_value=self.reply(stdout)):
+            self.assertEqual(apps.compositor_focus_hint(),
+                             {"title": "Free Download Manager", "apps": ["fdm", "org.fdm.App"]})
+
+    def test_no_focus_hint_outside_gnome_or_without_an_answer(self) -> None:
+        with mock.patch.object(apps.compositorlib, "is_x11", return_value=True), \
+                mock.patch.object(apps.subprocess, "run") as run:
+            self.assertIsNone(apps.compositor_focus_hint())
+            run.assert_not_called()
+        with mock.patch.object(apps.compositorlib, "is_x11", return_value=False), \
+                mock.patch.object(apps.compositorlib, "current",
+                                  return_value=SimpleNamespace(kind="kde")), \
+                mock.patch.object(apps.subprocess, "run") as run:
+            self.assertIsNone(apps.compositor_focus_hint())
+            run.assert_not_called()
+        with mock.patch.object(apps.compositorlib, "is_x11", return_value=False), \
+                mock.patch.object(apps.compositorlib, "current",
+                                  return_value=SimpleNamespace(kind="gnome")), \
+                mock.patch.object(apps.subprocess, "run", return_value=self.reply(
+                    '{"type":"bsss","data":[false,"","",""]}')):
+            self.assertIsNone(apps.compositor_focus_hint())
+
     def test_anything_else_is_no_answer_not_a_guess(self) -> None:
         for reply in (
             self.reply('{"type":"bsss","data":[false,"","",""]}'),

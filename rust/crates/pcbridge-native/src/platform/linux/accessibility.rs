@@ -319,6 +319,11 @@ pub struct NodeInfo {
     pub states: States,
     /// Every action name, unfiltered: `is_real_action` is the walk's job.
     pub actions: Vec<String>,
+    /// The node implements EditableText, which `set_text` writes through.
+    /// The EDITABLE state alone does not say so: Qt Quick text fields carry
+    /// the state with Text but no EditableText (measured in Free Download
+    /// Manager, 2026-11-15).
+    pub editable_text: bool,
     /// Children by position. A null reference keeps its index, because the
     /// index path of every later sibling depends on it.
     pub children: Vec<Option<ObjectRef>>,
@@ -567,7 +572,11 @@ struct Kept {
     name: String,
     states: Vec<&'static str>,
     actions: Vec<String>,
+    /// EDITABLE state and the EditableText interface: what `set_text` needs.
     editable: bool,
+    /// The EDITABLE state, with or without the interface: a field that takes
+    /// typing. It decides what the walk keeps, as the state alone did.
+    typable: bool,
     depth: usize,
 }
 
@@ -633,16 +642,17 @@ fn walk<T: Tree + ?Sized>(
             .filter(|name| is_real_action(name))
             .map(|name| name.trim().to_owned())
             .collect();
-        let editable = states.contains(&"editable");
+        let typable = states.contains(&"editable");
+        let editable = typable && info.editable_text;
         let container = CONTAINER_ROLES.contains(&info.role.as_str());
         let keep = showing
-            && (editable
+            && (typable
                 || INTERACTIVE_ROLES.contains(&info.role.as_str())
                 || (!actions.is_empty() && !container)
                 || (!request.interactive_only
                     && !info.name.is_empty()
                     && TEXT_ROLES.contains(&info.role.as_str())));
-        if keep && (!info.name.is_empty() || !actions.is_empty() || editable) {
+        if keep && (!info.name.is_empty() || !actions.is_empty() || typable) {
             if out.len() >= request.max_nodes {
                 truncated = true;
             } else {
@@ -654,6 +664,7 @@ fn walk<T: Tree + ?Sized>(
                     states,
                     actions,
                     editable,
+                    typable,
                     depth,
                 });
             }
@@ -698,13 +709,13 @@ fn walk<T: Tree + ?Sized>(
 fn dedup(nodes: Vec<Kept>) -> Vec<Kept> {
     let actionable: Vec<(Vec<usize>, String)> = nodes
         .iter()
-        .filter(|node| !node.actions.is_empty() || node.editable)
+        .filter(|node| !node.actions.is_empty() || node.typable)
         .map(|node| (node.path.clone(), node.name.clone()))
         .collect();
     nodes
         .into_iter()
         .filter(|node| {
-            if !node.actions.is_empty() || node.editable || node.name.is_empty() {
+            if !node.actions.is_empty() || node.typable || node.name.is_empty() {
                 return true;
             }
             !actionable.iter().any(|(path, name)| {
@@ -717,38 +728,155 @@ fn dedup(nodes: Vec<Kept>) -> Vec<Kept> {
 }
 
 /// The window manager's focused window: its process and title.
+///
+/// X11 gives the process (`pid`). GNOME on Wayland gives no process: its
+/// shell extension names the window by title and its application by
+/// `wm_class` and app id (`apps`), and the helper matches those against the
+/// tree. AT-SPI's ACTIVE state is missing for Chromium windows and the GNOME
+/// file chooser, and stale elsewhere (measured 2026-11-15: Free Download
+/// Manager kept ACTIVE while Helium and Claude had the focus), so a hint
+/// that matches wins over it.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FocusHint {
     pub pid: u32,
     pub title: String,
+    pub apps: Vec<String>,
 }
 
-/// The focused application and window: the one `hint` names when an
-/// application of that process exists (its window of that title, else its
-/// ACTIVE one, else its first), otherwise the first window AT-SPI marks
-/// ACTIVE.
+/// The longest window title the GNOME extension returns; a title of this
+/// many characters may have been cut, so it matches as a prefix.
+const HINT_TITLE_CUT: usize = 200;
+
+type FoundWindow<'a> = (&'a App, &'a (usize, ObjectRef, NodeInfo));
+
+/// The focused application and window: the one `hint` names
+/// (`hinted_window`), otherwise the first window AT-SPI marks ACTIVE.
 fn focused_window<'a, T: Tree + ?Sized>(
     apps: &'a [App],
     tree: &T,
     hint: Option<&FocusHint>,
-) -> Option<(&'a App, &'a (usize, ObjectRef, NodeInfo))> {
-    if let Some(hint) = hint.filter(|hint| hint.pid > 0)
-        && let Some(app) = apps
+) -> Option<FoundWindow<'a>> {
+    hint.and_then(|hint| hinted_window(apps, tree, hint))
+        .or_else(|| {
+            apps.iter()
+                .find_map(|app| app.active().map(|window| (app, window)))
+        })
+}
+
+/// The window `hint` names, or `None` when it names none for certain.
+///
+/// By process (X11): that application's window of that title, else its
+/// ACTIVE one, else its first. By name (GNOME): the one window whose title
+/// matches, narrowed by application name when several do; with no title
+/// match, the one application of that name, its ACTIVE window or its only
+/// one. Two candidates left is no answer: nothing is guessed.
+fn hinted_window<'a, T: Tree + ?Sized>(
+    apps: &'a [App],
+    tree: &T,
+    hint: &FocusHint,
+) -> Option<FoundWindow<'a>> {
+    if hint.pid > 0 {
+        let app = apps
             .iter()
-            .find(|app| !app.windows.is_empty() && tree.pid(&app.reference.bus) == hint.pid)
-    {
+            .find(|app| !app.windows.is_empty() && tree.pid(&app.reference.bus) == hint.pid)?;
         let window = app
             .windows
             .iter()
             .find(|(_, _, info)| !hint.title.is_empty() && info.name == hint.title)
             .or_else(|| app.active())
-            .or_else(|| app.windows.first());
-        if let Some(window) = window {
-            return Some((app, window));
-        }
+            .or_else(|| app.windows.first())?;
+        return Some((app, window));
     }
-    apps.iter()
-        .find_map(|app| app.active().map(|window| (app, window)))
+    let title = hint.title.trim();
+    let named = |app: &App| hint.apps.iter().any(|name| same_app(name, &app.info.name));
+    let titled: Vec<FoundWindow<'a>> = if title.is_empty() {
+        Vec::new()
+    } else {
+        apps.iter()
+            .flat_map(|app| app.windows.iter().map(move |window| (app, window)))
+            .filter(|(_, (_, _, info))| same_title(title, &info.name))
+            .collect()
+    };
+    if !titled.is_empty() {
+        let both: Vec<FoundWindow<'a>> = titled
+            .iter()
+            .copied()
+            .filter(|(app, _)| named(app))
+            .collect();
+        let pool = if both.is_empty() { titled } else { both };
+        if let [only] = pool.as_slice() {
+            return Some(*only);
+        }
+        // Several windows of that title: the one AT-SPI marks ACTIVE, if
+        // exactly one is.
+        let mut active = pool
+            .into_iter()
+            .filter(|(_, (_, _, info))| info.states.contains(STATE_ACTIVE));
+        let first = active.next()?;
+        return active.next().is_none().then_some(first);
+    }
+    let mut candidates = apps
+        .iter()
+        .filter(|app| !app.windows.is_empty() && named(app));
+    let app = candidates.next()?;
+    if candidates.next().is_some() {
+        return None;
+    }
+    let only = match app.windows.as_slice() {
+        [only] => Some(only),
+        _ => None,
+    };
+    let window = app.active().or(only)?;
+    Some((app, window))
+}
+
+/// A window title from the compositor against AT-SPI's window name. The
+/// extension cuts a title at [`HINT_TITLE_CUT`] characters.
+fn same_title(hint: &str, name: &str) -> bool {
+    let name = name.trim();
+    name == hint || (hint.chars().count() >= HINT_TITLE_CUT && name.starts_with(hint))
+}
+
+/// An application name from the compositor (`wm_class`, an app id such as
+/// `helium.desktop` or `org.gnome.TextEditor`) against AT-SPI's application
+/// name: equal ignoring case, spaces and punctuation, or equal to the app
+/// id's last dotted part.
+fn same_app(hint: &str, name: &str) -> bool {
+    fn fold(text: &str) -> String {
+        text.chars()
+            .filter(char::is_ascii_alphanumeric)
+            .map(|character| character.to_ascii_lowercase())
+            .collect()
+    }
+    let name = fold(name);
+    if name.is_empty() {
+        return false;
+    }
+    let hint = hint.trim();
+    let hint = hint.strip_suffix(".desktop").unwrap_or(hint);
+    fold(hint) == name
+        || hint
+            .rsplit('.')
+            .next()
+            .is_some_and(|last| fold(last) == name)
+}
+
+/// The refusal when no focused window can be named.
+fn no_focus(hint: Option<&FocusHint>, dump: bool) -> AccessibilityError {
+    let what = match hint {
+        Some(hint) if hint.pid == 0 && !hint.title.trim().is_empty() => format!(
+            "The compositor says {} has the focus, but no window in the accessibility \
+             tree matches it, and AT-SPI marks no window ACTIVE.",
+            quoted(hint.title.trim())
+        ),
+        _ => "No window has the focus (AT-SPI marks no window ACTIVE).".to_owned(),
+    };
+    let next = if dump {
+        " Give the application's name as target (window_list lists them), or click a window."
+    } else {
+        " window_list lists the open applications by name."
+    };
+    AccessibilityError::new("TARGET_MISMATCH", format!("{what}{next}"))
 }
 
 /// One application with its name and windows, read once.
@@ -818,11 +946,7 @@ pub fn read_dump<T: Tree + ?Sized>(
         if ["focused", "odak", "aktif"].contains(&target.to_lowercase().as_str()) {
             let found = focused_window(&apps, tree, request.focus.as_ref());
             let Some((app, (index, window, info))) = found else {
-                return Err(AccessibilityError::new(
-                    "TARGET_MISMATCH",
-                    "No window has the focus (AT-SPI marks no window ACTIVE). \
-                     Click a window, or give an application name as target.",
-                ));
+                return Err(no_focus(request.focus.as_ref(), true));
             };
             (
                 app,
@@ -956,7 +1080,19 @@ fn find_app<'a>(apps: &'a [App], target: &str) -> Result<(&'a App, usize), Acces
 /// Every window of every application: the helper's `windows` command. Two
 /// levels only, never a walk.
 pub fn windows<T: Tree + ?Sized>(tree: &T) -> Result<Value, AccessibilityError> {
+    windows_hinted(tree, None)
+}
+
+/// `windows`, with `active` set on the window `hint` names when it names
+/// one; otherwise `active` is AT-SPI's ACTIVE state, as before.
+pub fn windows_hinted<T: Tree + ?Sized>(
+    tree: &T,
+    hint: Option<&FocusHint>,
+) -> Result<Value, AccessibilityError> {
     let apps = read_apps(tree)?;
+    let focus = hint
+        .and_then(|hint| hinted_window(&apps, tree, hint))
+        .map(|(app, (_, window, _))| (app.reference.clone(), window.clone()));
     let mut out = Vec::new();
     for app in &apps {
         let pid = tree.pid(&app.reference.bus);
@@ -969,7 +1105,10 @@ pub fn windows<T: Tree + ?Sized>(tree: &T) -> Result<Value, AccessibilityError> 
                 "ref": window.path,
                 "index": index,
                 "role": info.role,
-                "active": info.states.contains(STATE_ACTIVE),
+                "active": match &focus {
+                    Some((owner, focused)) => *owner == app.reference && focused == window,
+                    None => info.states.contains(STATE_ACTIVE),
+                },
                 "children": info.children.len(),
             }));
         }
@@ -989,10 +1128,7 @@ pub fn focused_hinted<T: Tree + ?Sized>(
 ) -> Result<Value, AccessibilityError> {
     let apps = read_apps(tree)?;
     let Some((app, (_, window, info))) = focused_window(&apps, tree, hint) else {
-        return Err(AccessibilityError::new(
-            "TARGET_MISMATCH",
-            "No window has the focus (AT-SPI marks no window ACTIVE).",
-        ));
+        return Err(no_focus(hint, false));
     };
     Ok(json!({
         "ok": true,

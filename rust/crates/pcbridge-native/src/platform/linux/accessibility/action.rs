@@ -404,7 +404,7 @@ pub fn prepare_set_text<T: Tree + ?Sized>(
     };
     if !interfaces.iter().any(|name| name == EDITABLE_TEXT) {
         return Err(unsupported(format!(
-            "{} {} is not editable (no EditableText interface).",
+            "{} {} is not editable (no EditableText interface). Focus it, then type with `keyboard`.",
             resolved.info.role,
             quoted(&resolved.info.name)
         )));

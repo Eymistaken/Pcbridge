@@ -124,6 +124,11 @@ and Qt applications). In Electron applications
 (Vesktop, VS Code, Discord) the accessibility tree is **empty**; there you have
 to work with your eyes. That is why this skill exists.
 
+**Drop-down lists in Chromium browsers (Helium, Chrome, Brave): use the
+keyboard.** A mouse click on a `<select>` opens the list on the press and picks
+whatever option is under the pointer on the release. Focus the select, then
+type the start of the option ("Engl"); the select takes the first match.
+
 ## Say so before you click into another window
 
 When a click moves the focus, `pcb-do` **stops** and does not send the
