@@ -32,6 +32,15 @@ def restrict_path(path: str | os.PathLike[str], *, directory: bool = False) -> N
     os.chmod(path, 0o700 if directory else 0o600)
 
 
+def private_problem(path: str | os.PathLike[str]) -> str | None:
+    """None when only the owner can read `path`, else what is wrong ("mode 644")."""
+    try:
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+    except OSError:
+        return None
+    return f"mode {mode:o}" if mode & 0o077 else None
+
+
 def fsync_directory(path: str | os.PathLike[str]) -> None:
     """Flush a directory entry change (an atomic rename) to disk."""
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0))

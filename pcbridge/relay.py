@@ -2,7 +2,8 @@
 
 A client (Claude Code, Codex, Claude Desktop) starts `pcbridge stdio` (or the
 pre-2.0 `python -m pcbridge.server --stdio`). This process does not serve MCP
-itself. It connects to the resident daemon's unix socket and copies bytes:
+itself. It connects to the resident daemon's unix socket (on Windows, an
+authenticated loopback port; see localipc) and copies bytes:
 
     client stdin  --line-->  daemon socket
     client stdout <--line--  daemon socket
@@ -18,7 +19,8 @@ cancellation reach the client exactly as the daemon wrote them. It only
       daemon goes away mid-call each of them gets an error instead of a hang.
 
 When the socket cannot be reached at start, the relay asks systemd to start
-the socket unit and waits at most two seconds; after that it runs the classic
+the socket unit and waits at most two seconds (on Windows it starts the
+supervisor and waits up to twenty for the daemon's first answer); after that it runs the classic
 in-process server in its place (exec, same stdin and stdout), marked
 "degraded: in-process". If the daemon disappears later, the relay reconnects
 (socket activation brings it back); if that fails for ten seconds it starts
@@ -42,11 +44,13 @@ import time
 from pathlib import Path
 
 from . import __version__
+from . import localipc
 from . import oscompat
 from . import paths as pathslib
 
 PROTOCOL = 1
 CONNECT_WAIT_S = 2.0
+WINDOWS_START_WAIT_S = 20.0
 HANDSHAKE_WAIT_S = 10.0
 RECONNECT_WAIT_S = 10.0
 RETRYABLE_CODE = -32000
@@ -225,12 +229,22 @@ def connect_daemon(sock_path: Path, wait: float, activate: bool) -> SocketBacken
     deadline = time.monotonic() + wait
     activated = False
     while True:
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
-            s.connect(str(sock_path))
-            return SocketBackend(s)
+            return SocketBackend(localipc.connect(sock_path, timeout=CONNECT_WAIT_S))
         except OSError:
-            s.close()
+            pass
+        if activate and not activated and oscompat.IS_WINDOWS:
+            # No socket activation on Windows: start the supervisor and wait
+            # for the daemon's first answer, which a cold start needs longer
+            # than systemd's queued connection does. Only when the service is
+            # enabled (the Run value), as only an enabled socket is started
+            # on Linux: a test's relay must not start the user's daemon.
+            activated = True
+            from . import winservice
+
+            if winservice.is_enabled() and winservice.start(wait=WINDOWS_START_WAIT_S):
+                deadline = time.monotonic() + wait
+            continue
         if activate and not activated and _socket_unit_installed():
             activated = True
             _start_socket_unit()

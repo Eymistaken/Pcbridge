@@ -24,7 +24,7 @@ public_url = "http://localhost:8765"
 [auth]
 password = "tool-catalog-test-password"
 [paths]
-state_dir = "{state}"
+state_dir = '{state}'
 [desktop]
 enabled = {enabled}
 [agents.claude]

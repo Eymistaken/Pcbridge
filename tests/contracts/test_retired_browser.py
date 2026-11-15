@@ -56,7 +56,7 @@ class RetiredBrowserTests(unittest.TestCase):
         path.write_text(
             'public_url = "http://localhost:8765"\n'
             '[auth]\npassword = "a-long-enough-test-password"\n'
-            f'[paths]\nstate_dir = "{self.state}"\n'
+            f"[paths]\nstate_dir = '{self.state}'\n"
             '[agents.claude]\ncommand = ["true"]\n'
             '[browser]\nexecutable = "chrome"\nallow_password_fields = true\n'
         )

@@ -13,6 +13,7 @@ import errno
 import functools
 import msvcrt
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -80,6 +81,8 @@ advapi32.GetNamedSecurityInfoW.argtypes = [W.LPCWSTR, ctypes.c_int, W.DWORD,
                                            ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_void_p),
                                            ctypes.POINTER(ctypes.c_void_p)]
 advapi32.GetNamedSecurityInfoW.restype = W.DWORD
+advapi32.ConvertSecurityDescriptorToStringSecurityDescriptorW.argtypes = [
+    ctypes.c_void_p, W.DWORD, W.DWORD, ctypes.POINTER(W.LPWSTR), ctypes.POINTER(W.ULONG)]
 advapi32.GetUserNameW.argtypes = [W.LPWSTR, ctypes.POINTER(W.DWORD)]
 
 
@@ -175,6 +178,39 @@ def restrict_path(path: str | os.PathLike[str], *, directory: bool = False) -> N
             raise ctypes.WinError(result)
     finally:
         kernel32.LocalFree(descriptor)
+
+
+# Who may hold access to a private file besides its user: the accounts that
+# can read every file anyway, like root on Linux.
+_ALWAYS_ALLOWED = {"SY", "BA", "OW", "S-1-5-18", "S-1-5-32-544"}
+_ACE = re.compile(r"\((A|OA);[^;]*;[^;]*;[^;]*;[^;]*;([^)]*)\)")
+
+
+def private_problem(path: str | os.PathLike[str]) -> str | None:
+    """None when only this user (and SYSTEM / Administrators) may access
+    `path`, else what is wrong, e.g. "open to BU, WD" (SDDL names: BU is
+    the Users group, WD is Everyone)."""
+    descriptor = ctypes.c_void_p()
+    result = advapi32.GetNamedSecurityInfoW(os.fspath(path), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
+                                            None, None, None, None, ctypes.byref(descriptor))
+    if result:
+        return None
+    try:
+        text = W.LPWSTR()
+        if not advapi32.ConvertSecurityDescriptorToStringSecurityDescriptorW(
+                descriptor, 1, DACL_SECURITY_INFORMATION, ctypes.byref(text), None):
+            return None
+        try:
+            sddl = text.value or ""
+        finally:
+            kernel32.LocalFree(text)
+    finally:
+        kernel32.LocalFree(descriptor)
+    if "D:" not in sddl or "NO_ACCESS_CONTROL" in sddl:
+        return "no access control list (open to everyone)"
+    allowed = _ALWAYS_ALLOWED | {user_sid()}
+    others = sorted({sid for _kind, sid in _ACE.findall(sddl) if sid not in allowed})
+    return f"open to {', '.join(others)}" if others else None
 
 
 def fsync_directory(path: str | os.PathLike[str]) -> None:

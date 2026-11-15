@@ -38,7 +38,7 @@ password = ""
 static_token = ""
 
 [paths]
-state_dir = "{state}"
+state_dir = '{state}'
 
 [agents.claude]
 command = ["true"]

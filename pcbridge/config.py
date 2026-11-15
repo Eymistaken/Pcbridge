@@ -7,7 +7,6 @@ import datetime
 import os
 import re
 import shutil
-import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -474,16 +473,14 @@ def _unknown_key_warnings(raw: dict[str, Any]) -> list[str]:
 
 
 def _mode_warning(path: Path) -> str | None:
-    try:
-        mode = stat.S_IMODE(path.stat().st_mode)
-    except OSError:
+    problem = oscompat.private_problem(path)
+    if problem is None:
         return None
-    if mode & 0o077:
-        return (
-            f"{path} holds the password and static token but is readable by other users "
-            f"(mode {mode:o}); run `pcbridge doctor --fix` or `chmod 600 {path}`."
-        )
-    return None
+    fix = "`pcbridge doctor --fix`" if oscompat.IS_WINDOWS else f"`pcbridge doctor --fix` or `chmod 600 {path}`"
+    return (
+        f"{path} holds the password and static token but is readable by other users "
+        f"({problem}); run {fix}."
+    )
 
 
 # ---------------------------------------------------------------------------

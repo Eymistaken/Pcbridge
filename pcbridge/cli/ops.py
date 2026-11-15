@@ -463,6 +463,8 @@ def logs(argv: list[str]) -> int:
     p.add_argument("-f", "--follow", action="store_true")
     p.add_argument("-n", "--lines", type=int, default=200)
     args = p.parse_args(argv)
+    if oscompat.IS_WINDOWS:
+        return _windows_logs(args.lines, args.follow)
     cmd = ["journalctl", "--user", "-u", "pcbridge.service", "-u", "pcbridge.socket", "-n", str(args.lines), "--no-pager"]
     if args.follow:
         cmd.append("-f")
@@ -470,6 +472,38 @@ def logs(argv: list[str]) -> int:
         return subprocess.call(cmd)
     except KeyboardInterrupt:
         return 0
+
+
+def _windows_logs(lines: int, follow: bool) -> int:
+    """`pcbridge logs` on Windows: the supervisor's daemon.log."""
+    from ..supervisor import log_path
+
+    path = log_path()
+    try:
+        with open(path, "rb") as stream:
+            stream.seek(max(0, path.stat().st_size - 4 * 1024 * 1024))
+            tail = stream.read().decode("utf-8", "replace").splitlines()[-lines:]
+            position = stream.tell()
+    except OSError:
+        inst.say(f"no log yet: {path}")
+        return 0
+    for line in tail:
+        print(line)
+    try:
+        while follow:
+            size = path.stat().st_size if path.exists() else 0
+            if size < position:
+                position = 0
+            if size > position:
+                with open(path, "rb") as stream:
+                    stream.seek(position)
+                    sys.stdout.write(stream.read().decode("utf-8", "replace"))
+                    sys.stdout.flush()
+                    position = stream.tell()
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        pass
+    return 0
 
 
 _SECRET_KEYS = re.compile(r'(?im)^(\s*(password|static_token|token|secret)[\w]*\s*=\s*)(".*?"|\'.*?\'|\S+)')
@@ -498,7 +532,13 @@ def report(argv: list[str]) -> int:
         cfg, secret_values, raw_cfg = None, [], ""
     doc = Doctor(fix=False)
     checks = [c.__dict__ for c in doc.run_all()]
-    journal = inst.run(["journalctl", "--user", "-u", "pcbridge.service", "-n", "2000", "--no-pager"], timeout=30).stdout
+    if oscompat.IS_WINDOWS:
+        from ..tui.journal import read as read_log
+
+        journal = "\n".join(line.message for line in read_log(2000))
+    else:
+        journal = inst.run(["journalctl", "--user", "-u", "pcbridge.service", "-n", "2000", "--no-pager"],
+                           timeout=30).stdout
     files = {
         "versions.txt": "\n".join([
             f"pcbridge {__version__} ({inst.install_kind()})",

@@ -45,7 +45,7 @@ class CliSettingsTests(unittest.TestCase):
         text = re.sub(r'(?m)^public_url = .*$', 'public_url = "http://localhost:8765"', text, count=1)
         text = re.sub(r'(?m)^password = .*$', f'password = "{PASSWORD_HASH}"', text, count=1)
         text = re.sub(r'(?m)^static_token = .*$', f'static_token = "{TOKEN_HASH}"', text, count=1)
-        text = re.sub(r'(?m)^state_dir = .*$', f'state_dir = "{self.home / "state"}"', text, count=1)
+        text = re.sub(r'(?m)^state_dir = .*$', lambda _m: f"state_dir = '{self.home / 'state'}'", text, count=1)
         self.cfg = self.home / "config.toml"
         self.cfg.write_text(text)
         self.cfg.chmod(0o600)

@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
+from .. import oscompat
 from .. import __version__
 from .. import assets as assetslib
 from .. import distro as distrolib
@@ -160,7 +161,59 @@ def run(cmd: list[str], timeout: float = 30, check: bool = False,
 
 
 def systemctl(*args: str, timeout: float = 30) -> subprocess.CompletedProcess:
+    if oscompat.IS_WINDOWS:
+        return _windows_systemctl(list(args), timeout)
     return run(["systemctl", "--user", *args], timeout=timeout)
+
+
+def _windows_systemctl(args: list[str], timeout: float) -> subprocess.CompletedProcess:
+    """The systemctl verbs pcbridge uses, answered by the Windows supervisor.
+
+    pcbridge.service is the daemon under its supervisor (winservice);
+    pcbridge.socket has no counterpart (the supervisor starts at logon, and
+    the relay starts it when nothing answers), so it reports what the
+    service does. Job scopes do not exist: jobs are stopped one by one."""
+    from .. import winservice
+
+    cmd = ["systemctl", "--user", *args]
+    verb = args[0] if args else ""
+    names = [a for a in args[1:] if not a.startswith("-")]
+    ours = [n for n in names if n in UNIT_NAMES]
+    if verb in ("daemon-reload", "reset-failed") or (verb in ("start", "stop") and names == ["pcbridge.socket"]):
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+    if verb == "list-units":
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+    if verb == "show":
+        return subprocess.CompletedProcess(cmd, 0, "Environment=\n" if "Environment" in args else "", "")
+    if verb == "is-active":
+        state = winservice.status()
+        active = state["daemon"] or bool(state["supervisor_pid"])
+        return subprocess.CompletedProcess(cmd, 0 if active else 3, "active\n" if active else "inactive\n", "")
+    if verb == "is-enabled":
+        enabled = winservice.is_enabled()
+        return subprocess.CompletedProcess(cmd, 0 if enabled else 1, "enabled\n" if enabled else "disabled\n", "")
+    ok = True
+    if verb == "enable" and ours:
+        winservice.enable()
+        if "--now" in args:
+            ok = winservice.start(wait=timeout)
+    elif verb == "disable" and ours:
+        if "--now" in args:
+            ok = winservice.stop(wait=timeout)
+        winservice.disable()
+    elif verb == "start" and ours:
+        ok = winservice.start(wait=timeout)
+    elif verb == "stop" and ours:
+        ok = winservice.stop(wait=timeout)
+    elif verb == "restart" and ours:
+        ok = winservice.stop(wait=timeout / 2) and winservice.start(wait=timeout / 2)
+    elif verb in ("enable", "disable", "start", "stop", "restart"):
+        pass  # job scopes and other units have no Windows counterpart
+    else:
+        return subprocess.CompletedProcess(cmd, 1, "", f"systemctl {verb}: not available on Windows")
+    if ok:
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+    return subprocess.CompletedProcess(cmd, 1, "", "the pcbridge daemon did not answer in time; see `pcbridge logs`")
 
 
 # ---------------------------------------------------------------------------

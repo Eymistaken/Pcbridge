@@ -388,10 +388,10 @@ def live_config(root: Path, binary: Path) -> Path:
     """The example config, pointed at a scratch state and the Rust backend."""
     text = (ROOT / "config.example.toml").read_text(encoding="utf-8")
     for pattern, value in (
-        (r"^state_dir = .*$", f'state_dir = "{root / "state"}"'),
+        (r"^state_dir = .*$", f"state_dir = '{root / 'state'}'"),
         (r'^capture = "[a-z]+"$', 'capture = "rust"'),
-        (r'^binary_path = ""$', f'binary_path = "{binary}"'),
-        (r'^agent_shot_dir = ""$', f'agent_shot_dir = "{root / "agent-shots"}"'),
+        (r'^binary_path = ""$', f"binary_path = '{binary}'"),
+        (r'^agent_shot_dir = ""$', f"agent_shot_dir = '{root / 'agent-shots'}'"),
         (r"^include_pointer = true$", "include_pointer = false"),
     ):
         text, count = re.subn(pattern, lambda _match, v=value: v, text, flags=re.M)

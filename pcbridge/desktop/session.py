@@ -35,6 +35,7 @@ import os
 import re
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 # Onarilan degisken adlari -- tanida ve loglarda gosterilir.
@@ -48,6 +49,8 @@ def _runtime_dir(env: dict[str, str]) -> Path | None:
         p = Path(raw)
         if p.is_dir():
             return p
+    if sys.platform == "win32":
+        return None
     p = Path(f"/run/user/{os.getuid()}")
     return p if p.is_dir() else None
 
@@ -77,6 +80,9 @@ def ensure_session_env(env: dict[str, str] | None = None) -> list[str]:
     """
     e = os.environ if env is None else env
     fixed: list[str] = []
+    if sys.platform == "win32":
+        # No session bus or XDG runtime directory to repair on Windows.
+        return fixed
 
     runtime = _runtime_dir(e)  # type: ignore[arg-type]
     if runtime is not None and e.get("XDG_RUNTIME_DIR") != str(runtime):
@@ -523,6 +529,12 @@ def desktop_kind(env: dict[str, str] | None = None) -> str:
     global _kind_cache
     e = os.environ if env is None else env
     tokens = _desktop_tokens(e)
+    if sys.platform == "win32" and not tokens and not e.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        # The Windows desktop backend arrives with the port's W6/W7; until
+        # then the desktop tools report it as unsupported, as on an unknown
+        # Linux desktop. (A Linux desktop named in the environment, as the
+        # contract tests do, is still read.)
+        return UNKNOWN
     if tokens and not e.get("HYPRLAND_INSTANCE_SIGNATURE"):
         return _fitting(_kind_from_tokens(tokens), e)
     now = time.monotonic()

@@ -468,7 +468,9 @@ def main(argv: list[str] | None = None) -> int:
     if "legacy" in wanted:
         targets.append(_legacy_target(args.legacy_repo))
     for i, cmd in enumerate(args.command):
-        targets.append(Target(f"command-{i + 1}", shlex.split(cmd), "full", "--command"))
+        # Windows paths keep their backslashes: split them the Windows way.
+        argv = [a.strip('"') for a in shlex.split(cmd, posix=False)] if os.name == "nt" else shlex.split(cmd)
+        targets.append(Target(f"command-{i + 1}", argv, "full", "--command"))
 
     reports = []
     for target in targets:

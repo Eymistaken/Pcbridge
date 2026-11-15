@@ -263,10 +263,15 @@ cmd_put() {
 cmd_sync() {
     local root
     root="$(cd "$HERE/../.." && pwd)"
-    # cmd.exe runs this; tar.exe (bsdtar) ships with Windows. The virtualenv,
-    # the Rust build and the native helper move over from the old copy.
+    # cmd.exe runs this; tar.exe (bsdtar) ships with Windows. The archive is
+    # unpacked aside, then robocopy mirrors it over the checkout in place:
+    # swapping directories fails while a pcbridge process runs from the
+    # checkout (Windows refuses to move or delete it), which a running test
+    # daemon always does. The virtualenv, the Rust build and the native
+    # helper are left out of the mirror, so they stay. robocopy exits below
+    # 8 on success.
     (cd "$root" && git ls-files -z -co --exclude-standard | tar --null -T - -czf -) \
-        | vm_ssh 'cd /d %USERPROFILE% && (if exist pcbridge.new rmdir /s /q pcbridge.new) && mkdir pcbridge.new && tar -xzf - -C pcbridge.new && (if exist pcbridge\.venv move pcbridge\.venv pcbridge.new\.venv >nul) && (if exist pcbridge\rust\target move pcbridge\rust\target pcbridge.new\rust\target >nul) && (if exist pcbridge\pcbridge\_native move pcbridge\pcbridge\_native pcbridge.new\pcbridge\_native >nul) && (if exist pcbridge rmdir /s /q pcbridge) && ren pcbridge.new pcbridge'
+        | vm_ssh 'cd /d %USERPROFILE% && (if exist pcbridge.new rmdir /s /q pcbridge.new) && mkdir pcbridge.new && tar -xzf - -C pcbridge.new && (robocopy pcbridge.new pcbridge /MIR /XD .venv target _native __pycache__ /NFL /NDL /NJH /NJS /NP >nul & if errorlevel 8 (exit 1) else (rmdir /s /q pcbridge.new))'
     echo "synced to %USERPROFILE%\\pcbridge"
 }
 

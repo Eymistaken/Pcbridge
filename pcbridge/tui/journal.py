@@ -5,6 +5,12 @@ line. The daemon logs through Python's logging, which journald stores at
 priority 6 whatever the level, so the level is read from the message
 (`2026-11-14 11:17:50,346 WARNING name: text` or `ERROR: text`) and the
 priority only fills in when the message has none.
+
+On Windows there is no journal: the supervisor writes the daemon's output to
+<state>/log/daemon.log, and the same three functions read that file. Its
+cursor is a line's byte offset ("file:<offset>"); a line without the
+timestamp prefix (a traceback's continuation) takes the time and level of
+the line before it.
 """
 
 from __future__ import annotations
@@ -14,7 +20,10 @@ import os
 import re
 import select
 import subprocess
+import sys
+import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterator
 
 UNITS = ["-u", "pcbridge.service", "-u", "pcbridge.socket"]
@@ -77,8 +86,107 @@ def parse(raw: str) -> Line | None:
     return Line(ts, level, message.rstrip(), str(d.get("__CURSOR") or ""))
 
 
+_STAMP = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)[,.](\d+)")
+_FILE_WINDOW = 4 * 1024 * 1024
+
+
+def _log_file() -> Path:
+    from ..supervisor import log_path
+
+    return log_path()
+
+
+def _offset(cursor: str) -> int | None:
+    if cursor.startswith("file:"):
+        try:
+            return int(cursor[5:])
+        except ValueError:
+            return None
+    return None
+
+
+def _plain_lines(data: bytes, base: int, ts: float = 0.0, level: str = "INFO") -> list[Line]:
+    """Complete lines of daemon.log starting at byte `base`."""
+    out: list[Line] = []
+    offset = base
+    for raw in data.split(b"\n")[:-1]:
+        text = raw.decode("utf-8", "replace").rstrip("\r")
+        stamp = _STAMP.match(text)
+        if stamp:
+            try:
+                ts = time.mktime(time.strptime(stamp.group(1), "%Y-%m-%d %H:%M:%S")) + int(stamp.group(2)[:3]) / 1000
+            except ValueError:
+                pass
+        m = _PREFIX.match(text) or _SHORT.match(text)
+        if m:
+            level = _level(m.group(1))
+            text = text[m.end():]
+        out.append(Line(ts, level, text.rstrip(), f"file:{offset}"))
+        offset += len(raw) + 1
+    return out
+
+
+def _read_file(lines: int, before: str) -> list[Line]:
+    path = _log_file()
+    try:
+        size = path.stat().st_size
+        end = _offset(before) if before else size
+        end = size if end is None else min(end, size)
+        start = max(0, end - _FILE_WINDOW)
+        with open(path, "rb") as stream:
+            stream.seek(start)
+            data = stream.read(end - start)
+    except OSError:
+        return []
+    if start:
+        cut = data.find(b"\n") + 1  # drop the partial first line
+        data, start = data[cut:], start + cut
+    if data and not data.endswith(b"\n"):
+        data = data[: data.rfind(b"\n") + 1]
+    return _plain_lines(data, start)[-lines:]
+
+
+def _follow_file(after: str) -> Iterator[Line | None]:
+    path = _log_file()
+    try:
+        position = path.stat().st_size
+    except OSError:
+        position = 0
+    start = _offset(after)
+    skip_first = start is not None
+    if start is not None:
+        position = start
+    pending = b""
+    while True:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        if size < position:  # rotated: the new file starts from the top
+            position, pending, skip_first = 0, b"", False
+        if size == position:
+            yield None
+            time.sleep(0.5)
+            continue
+        with open(path, "rb") as stream:
+            stream.seek(position)
+            chunk = stream.read(size - position)
+        base = position - len(pending)
+        position = size
+        data = pending + chunk
+        cut = data.rfind(b"\n") + 1
+        pending = data[cut:]
+        for line in _plain_lines(data[:cut], base):
+            if skip_first:
+                skip_first = False
+                continue
+            yield line
+
+
 def read(lines: int = 300, before: str = "") -> list[Line]:
     """The last `lines` of this boot (or the ones before the cursor `before`)."""
+    if sys.platform == "win32":
+        return _read_file(lines, before)
     cmd = ["journalctl", "--user", *UNITS, "-b", "-o", "json", "--no-pager", "-n", str(lines)]
     if before:
         cmd += ["--cursor", before, "--reverse"]
@@ -96,6 +204,9 @@ def read(lines: int = 300, before: str = "") -> list[Line]:
 def follow(after: str = "") -> Iterator[Line | None]:
     """New lines as they come (`journalctl -f`); yields None every half second
     without one, so the caller can stop. Closing the generator ends journalctl."""
+    if sys.platform == "win32":
+        yield from _follow_file(after)
+        return
     cmd = ["journalctl", "--user", *UNITS, "-o", "json", "--no-pager", "-f", "-n", "0"]
     if after:
         cmd = ["journalctl", "--user", *UNITS, "-o", "json", "--no-pager", "-f", "--after-cursor", after]

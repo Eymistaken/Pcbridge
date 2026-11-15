@@ -7,6 +7,7 @@ Windows primitives:
 
     lock_fd / unlock_fd       fcntl.flock          LockFileEx / UnlockFileEx
     restrict_path             chmod 0600 / 0700    a protected DACL for the user's SID
+    private_problem           mode & 0o077         an ACE for anyone but the user, SYSTEM, Administrators
     restrict_fd               fchmod 0600          nothing: the private directory's DACL is inherited
     fsync_directory           fsync of the dir     nothing: Windows cannot open a directory that way
     owned_by_me               st_uid == getuid     the owner SID is the user's
@@ -42,6 +43,7 @@ if IS_WINDOWS:
         lock_fd,
         owned_by_me,
         pid_alive,
+        private_problem,
         process_owned_by_me,
         process_start_identity,
         process_started_at,
@@ -59,6 +61,7 @@ else:
         lock_fd,
         owned_by_me,
         pid_alive,
+        private_problem,
         process_owned_by_me,
         process_start_identity,
         process_started_at,
@@ -78,6 +81,7 @@ __all__ = [
     "lock_fd",
     "owned_by_me",
     "pid_alive",
+    "private_problem",
     "process_owned_by_me",
     "process_start_identity",
     "process_started_at",

@@ -40,7 +40,7 @@ static_token = "sample-static-token-for-tests"
 
 [paths]
 default_workdir = "~"
-state_dir = "{state}"
+state_dir = '{state}'
 
 [limits]
 max_output_chars = 12000

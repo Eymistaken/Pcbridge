@@ -41,7 +41,7 @@ def example_config(state: Path) -> str:
     text = re.sub(r'(?m)^public_url = .*$', 'public_url = "http://localhost:8765"', text, count=1)
     text = re.sub(r'(?m)^password = .*$', f'password = "{PASSWORD_HASH}"', text, count=1)
     text = re.sub(r'(?m)^static_token = .*$', f'static_token = "{TOKEN_HASH}"', text, count=1)
-    text = re.sub(r'(?m)^state_dir = .*$', f'state_dir = "{state}"', text, count=1)
+    text = re.sub(r'(?m)^state_dir = .*$', lambda _m: f"state_dir = '{state}'", text, count=1)
     return text
 
 
@@ -98,7 +98,7 @@ class RegistryTests(EditorCase):
         minimal = (
             'public_url = "http://localhost:8765"\n'
             f'[auth]\npassword = "{PASSWORD}"\n'
-            f'[paths]\nstate_dir = "{self.dir / "state"}"\n'
+            f"[paths]\nstate_dir = '{self.dir / 'state'}'\n"
             '[agents.claude]\ncommand = ["true"]\n'
         )
         self.path.write_text(minimal)

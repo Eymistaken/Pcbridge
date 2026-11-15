@@ -39,7 +39,7 @@ password = "{password}"  # keep me
 static_token = "{token}"
 
 [paths]
-state_dir = "{state}"
+state_dir = '{state}'
 
 [agents.claude]
 command = ["true"]

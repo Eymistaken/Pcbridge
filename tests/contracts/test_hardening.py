@@ -206,7 +206,7 @@ default_agent = "claude"
 [auth]
 password = "hardening-test-password"
 [paths]
-state_dir = "{state}"
+state_dir = '{state}'
 [desktop]
 enabled = true
 [agents.claude]

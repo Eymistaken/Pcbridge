@@ -155,8 +155,11 @@ def runtime_dir(create: bool = False) -> Path:
 
 
 def socket_path() -> Path:
-    """Where the daemon listens for local MCP sessions."""
+    """Where the daemon listens for local MCP sessions (on Windows, the file
+    that says where)."""
     override = os.environ.get("PCBRIDGE_SOCKET", "")
     if override:
         return Path(override)
-    return runtime_dir() / "mcp.sock"
+    # Windows has no Unix socket in CPython: the daemon publishes its
+    # loopback port and secret in this file instead (localipc).
+    return runtime_dir() / ("endpoint.json" if oscompat.IS_WINDOWS else "mcp.sock")

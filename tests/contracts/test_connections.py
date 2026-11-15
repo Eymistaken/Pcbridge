@@ -43,7 +43,7 @@ public_url = "http://localhost:8765"
 [auth]
 password = "connections-test-password"
 [paths]
-state_dir = "{state}"
+state_dir = '{state}'
 [agents.claude]
 command = ["true"]
 """

@@ -93,7 +93,7 @@ if not any(os.environ.get(flag) == "1" for flag in LIVE_FLAGS):
     (_HERMETIC / "config.toml").write_text(
         'config_version = 2\npublic_url = "http://localhost:8765"\n'
         'default_agent = "claude"\n[auth]\npassword = "desktop-test-password"\n'
-        f'[paths]\nstate_dir = "{_HERMETIC / "state"}"\n'
+        f"[paths]\nstate_dir = '{_HERMETIC / 'state'}'\n"
         '[desktop]\nenabled = true\n[agents.claude]\ncommand = ["true"]\n'
     )
     (_HERMETIC / "config.toml").chmod(0o600)

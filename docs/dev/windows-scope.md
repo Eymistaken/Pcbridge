@@ -98,8 +98,8 @@ Every layer of [security.md](../security.md) has a Windows counterpart.
 
 | Layer | Linux | Windows |
 |---|---|---|
-| Local path | Unix socket in a 0700 runtime dir | Named pipe `\\.\pipe\pcbridge-<SID>` with a protected DACL for the user's SID only, `FILE_FLAG_FIRST_PIPE_INSTANCE` (a squatter is refused: measured) and `PIPE_REJECT_REMOTE_CLIENTS` |
-| Service | systemd user units | A per-user scheduled task at logon running the supervisor; not a Windows service, because session 0 cannot see the desktop |
+| Local path | Unix socket in a 0700 runtime dir | 127.0.0.1 at a port the system picks, published with a 32-byte secret in `endpoint.json` inside the runtime directory (a DACL for the user only). Before any MCP byte both sides prove the secret with HMAC, the daemon first, so a process squatting the port learns nothing (`pcbridge/localipc.py`). A named pipe was measured first (W0) but was not used: anyio serves no pipes, and on a synchronous pipe handle a blocked read stalls the write the session needs |
+| Service | systemd user units | `pcbridge.supervisor` under `pythonw`, started at logon by the per-user Run key (no administrator; listed in Task Manager's Startup apps) and by the relay when nothing answers; it applies the unit's restart rules (75, 78, crash back-off) and runs `pcbridge.cli.lock` after every exit. Not a Windows service: session 0 cannot see the desktop |
 | Private files | Mode 0600, dirs 0700 | Owner-only ACLs on `%APPDATA%\pcbridge` and `%LOCALAPPDATA%\pcbridge` |
 | Remote path | OAuth or the static token through Tailscale Funnel to 127.0.0.1 | Unchanged (`tailscale.exe`) |
 | Remote password | Created or replaced only after the login password, checked through PAM | The same, checked with `LogonUserW` (measured for a local account); Windows Hello through `UserConsentVerifier` where it is set up. A Microsoft account is checked with its account password, not the PIN |

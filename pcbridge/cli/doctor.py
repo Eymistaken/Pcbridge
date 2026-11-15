@@ -13,7 +13,6 @@ import os
 import re
 import shlex
 import shutil
-import socket
 import stat
 import subprocess
 import sys
@@ -141,15 +140,17 @@ class Doctor:
         for path in (cfg.source_path, cfg.db_path):
             if path is None or not Path(path).exists():
                 continue
-            mode = stat.S_IMODE(Path(path).stat().st_mode)
-            if mode & 0o077:
-                c = self.add(g, f"mode of {Path(path).name}", "fail", f"{path} is mode {mode:o}; it holds secrets",
-                             f"chmod 600 {path}")
+            problem = oscompat.private_problem(path)
+            if problem is not None:
+                hint = "pcbridge doctor --fix" if oscompat.IS_WINDOWS else f"chmod 600 {path}"
+                c = self.add(g, f"mode of {Path(path).name}", "fail", f"{path} is {problem}; it holds secrets",
+                             hint)
                 if self.fixing(c):
                     oscompat.restrict_path(path)
                     c.fixed = True
             else:
-                self.add(g, f"mode of {Path(path).name}", "ok", f"{mode:o}")
+                detail = "private" if oscompat.IS_WINDOWS else f"{stat.S_IMODE(Path(path).stat().st_mode):o}"
+                self.add(g, f"mode of {Path(path).name}", "ok", detail)
         if "DEGISTIR" in cfg.public_url or "CHANGE" in cfg.public_url:
             self.add(g, "public_url", "warn", "public_url is still the example value; remote access will not work",
                      f"edit {cfg.source_path}")
@@ -602,10 +603,14 @@ def udev_hint() -> str:
 
 
 def handshake(sock: Path, timeout: float = 3.0) -> dict | str:
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    from ..localipc import connect
+
+    try:
+        s = connect(sock, timeout=timeout)
+    except (OSError, ValueError) as exc:
+        return str(exc) or type(exc).__name__
     s.settimeout(timeout)
     try:
-        s.connect(str(sock))
         s.sendall(json.dumps({"pcbridge_relay": {"version": __version__, "protocol": 1, "pid": os.getpid(), "env": {}}}).encode() + b"\n")
         data = b""
         while not data.endswith(b"\n"):

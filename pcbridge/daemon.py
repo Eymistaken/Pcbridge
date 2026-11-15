@@ -44,6 +44,7 @@ from typing import Any
 import anyio
 from anyio.abc import SocketListener, SocketStream
 
+from . import localipc
 from . import oscompat
 from . import __version__
 from . import build as buildlib
@@ -195,6 +196,12 @@ class Daemon:
 
         self.keep_awake = KeepAwake()
         self._keep_awake_on = bool(getattr(cfg, "keep_awake", False))
+        # Windows: the endpoint's secret, which every local connection must
+        # prove before anything else (localipc). None on Linux.
+        self.secret: bytes | None = None
+        # Set by an authenticated `pcbridge_control: stop` (`pcbridge stop`
+        # on Windows, where there is no systemd to send SIGTERM).
+        self.stop_requested = anyio.Event()
 
     # -- session -----------------------------------------------------------
     async def handle(self, stream: SocketStream) -> None:
@@ -206,11 +213,33 @@ class Daemon:
         self.counter += 1
         key = f"sock:{self.counter}"
         lines = _Lines(stream)
+        if self.secret is not None:
+            try:
+                with anyio.fail_after(10):
+                    trusted = await localipc.server_authenticate(lines.readline, stream.send, self.secret)
+            except (TimeoutError, OSError, anyio.BrokenResourceError, anyio.ClosedResourceError):
+                trusted = False
+            if not trusted:
+                log.warning("local connection failed the endpoint authentication; closed")
+                await stream.aclose()
+                return
         try:
             with anyio.fail_after(10):
                 first = await lines.readline()
-            pre = json.loads(first)["pcbridge_relay"]
-        except (TimeoutError, ValueError, KeyError, TypeError):
+            if not first:
+                # A liveness probe (`winservice.daemon_answers`) connects,
+                # authenticates and hangs up: nothing to warn about.
+                await stream.aclose()
+                return
+            message = json.loads(first)
+            if message.get("pcbridge_control") == "stop":
+                log.info("stop requested over the local channel")
+                await stream.send(json.dumps({"pcbridge_daemon": {"stopping": True, "pid": os.getpid()}}).encode() + b"\n")
+                await stream.aclose()
+                self.stop_requested.set()
+                return
+            pre = message["pcbridge_relay"]
+        except (TimeoutError, ValueError, KeyError, TypeError, AttributeError):
             log.warning("local connection without a valid relay preamble; closed")
             await stream.aclose()
             return
@@ -531,13 +560,22 @@ async def _serve(args: argparse.Namespace, bind_socket: bool) -> int:
             path = Path(args.socket) if args.socket else pathslib.socket_path()
             if not args.socket:
                 pathslib.runtime_dir(create=True)
-            sock = _bind_socket(path)
+            if oscompat.IS_WINDOWS:
+                bound = localipc.bind_endpoint(path)
+                if bound is None:
+                    log.warning("another pcbridge server already answers on %s; not binding it", path)
+                else:
+                    sock, daemon.secret = bound
+            else:
+                sock = _bind_socket(path)
             if sock is not None:
                 daemon.state.socket_source = "bound"
+                daemon.state.socket_path = str(path)
         except (OSError, pathslib.RuntimeDirError) as exc:
             log.warning("local socket unavailable (%s); serving HTTP only", exc)
     if sock is not None:
-        daemon.state.socket_path = str(sock.getsockname())
+        if not daemon.state.socket_path:
+            daemon.state.socket_path = str(sock.getsockname())
         # anyio's UNIX listener calls accept() directly: a blocking socket
         # would stall the whole event loop until the next client connects.
         sock.setblocking(False)
@@ -575,10 +613,18 @@ async def _serve(args: argparse.Namespace, bind_socket: bool) -> int:
                     await restart.wait()
                     tg.cancel_scope.cancel()
 
+                async def stop_on_request() -> None:
+                    await daemon.stop_requested.wait()
+                    tg.cancel_scope.cancel()
+
                 async def stop_on_signal() -> None:
                     # `systemctl stop` sends SIGTERM. Without this the process
                     # died on the spot: held keys were not released by us, the
                     # socket file stayed and status.json kept saying running.
+                    # Windows has no signal receiver in anyio; there the stop
+                    # comes over the local channel (stop_on_request).
+                    if oscompat.IS_WINDOWS:
+                        return
                     with anyio.open_signal_receiver(signal.SIGTERM, signal.SIGINT) as signals:
                         async for signum in signals:
                             log.info("received %s; shutting down", signal.Signals(signum).name)
@@ -597,6 +643,7 @@ async def _serve(args: argparse.Namespace, bind_socket: bool) -> int:
 
                     tg.start_soon(idlewatch.supervise, watcher)
                 tg.start_soon(stop_on_restart)
+                tg.start_soon(stop_on_request)
                 tg.start_soon(stop_on_signal)
         if restart.is_set():
             code = RESTART_EXIT_CODE
@@ -605,12 +652,15 @@ async def _serve(args: argparse.Namespace, bind_socket: bool) -> int:
         daemon.keep_awake.close()
         daemon.write_status(cfg, running=False)
         if daemon.state.socket_source == "bound" and daemon.state.socket_path:
-            try:
-                p = Path(daemon.state.socket_path)
-                if p.exists() and stat.S_ISSOCK(p.lstat().st_mode):
-                    p.unlink()
-            except OSError:
-                pass
+            p = Path(daemon.state.socket_path)
+            if oscompat.IS_WINDOWS:
+                localipc.remove_endpoint(p)
+            else:
+                try:
+                    if p.exists() and stat.S_ISSOCK(p.lstat().st_mode):
+                        p.unlink()
+                except OSError:
+                    pass
         runtime.close()
     return code
 

@@ -249,7 +249,7 @@ class ConfigTests(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp(prefix="pcb-keep-awake-cfg-"))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         text = (ROOT / "config.example.toml").read_text(encoding="utf-8")
-        text = re.sub(r'(?m)^state_dir = .*$', f'state_dir = "{tmp / "state"}"', text, count=1)
+        text = re.sub(r'(?m)^state_dir = .*$', lambda _m: f"state_dir = '{tmp / 'state'}'", text, count=1)
         text = re.sub(r'(?m)^password = .*$', 'password = "keep-awake-test-password"', text, count=1)
         text = re.sub(r"(?m)^keep_awake = .*$", body, text, count=1)
         path = tmp / "config.toml"
@@ -290,7 +290,7 @@ class SettingTests(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp(prefix="pcb-keep-awake-ed-"))
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         text = (ROOT / "config.example.toml").read_text(encoding="utf-8")
-        text = re.sub(r'(?m)^state_dir = .*$', f'state_dir = "{tmp / "state"}"', text, count=1)
+        text = re.sub(r'(?m)^state_dir = .*$', lambda _m: f"state_dir = '{tmp / 'state'}'", text, count=1)
         path = tmp / "config.toml"
         path.write_text(text, encoding="utf-8")
         path.chmod(0o600)
@@ -311,7 +311,7 @@ class CliTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
         text = (ROOT / "config.example.toml").read_text(encoding="utf-8")
         text = re.sub(r'(?m)^password = .*$', 'password = "keep-awake-cli-password"', text, count=1)
-        text = re.sub(r'(?m)^state_dir = .*$', f'state_dir = "{self.home / "state"}"', text, count=1)
+        text = re.sub(r'(?m)^state_dir = .*$', lambda _m: f"state_dir = '{self.home / 'state'}'", text, count=1)
         self.cfg = self.home / "config.toml"
         self.cfg.write_text(text)
         self.cfg.chmod(0o600)

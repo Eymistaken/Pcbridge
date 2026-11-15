@@ -30,8 +30,8 @@ default_agent = "claude"
 password = "integration-test-password"
 
 [paths]
-state_dir = "{state}"
-default_workdir = "{work}"
+state_dir = '{state}'
+default_workdir = '{work}'
 
 [desktop]
 enabled = false

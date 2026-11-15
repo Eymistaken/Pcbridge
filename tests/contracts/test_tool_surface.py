@@ -29,7 +29,7 @@ default_agent = "claude"
 [auth]
 password = "tool-surface-test-password"
 [paths]
-state_dir = "{state}"
+state_dir = '{state}'
 [desktop]
 enabled = false
 [agents.claude]

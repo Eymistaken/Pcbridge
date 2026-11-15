@@ -46,7 +46,7 @@ password = "a-very-secret-password-123"
 static_token = "a-very-secret-static-token"
 
 [paths]
-state_dir = "{state}"
+state_dir = '{state}'
 
 [agents.claude]
 command = ["true"]

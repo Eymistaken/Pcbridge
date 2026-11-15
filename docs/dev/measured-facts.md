@@ -463,6 +463,42 @@ What each fact means for the port is in [windows-scope.md](windows-scope.md).
   shims); multi-monitor and DPI scaling; a Microsoft account and Windows
   Hello for the login check.
 
+## Windows: the daemon and its supervisor (W2, 2026-11-15)
+
+Measured in the Windows 11 test VM with the W2 code.
+
+- **The channel.** The daemon listens on 127.0.0.1 at a system-picked port
+  and publishes it with a secret in `endpoint.json` (see `localipc`). A
+  fresh `pcbridge.exe stdio` relay authenticated and passed the readiness
+  check: initialize 125 ms, tools/list 141 ms; the daemon's log shows the
+  `ListToolsRequest`, so the session did not fall back in-process.
+  `pcbridge_control: stop` over the channel answered `stopping`, the daemon
+  exited with 0 and removed `endpoint.json`. Shutting down logs uvicorn's
+  lifespan `CancelledError` at ERROR; the exit is clean.
+- **The supervisor.** Started from an SSH session with
+  `CREATE_BREAKAWAY_FROM_JOB`, it outlived the session. A daemon killed
+  with `taskkill /f` exited with 1 and was running again 1 s later under a
+  new pid; `winservice.stop()` ended both with 0 and no `pythonw` stayed.
+  A venv's `python.exe` is a launcher, so every interpreter shows as two
+  processes.
+- **Ownership and places.** An administrator logged in over SSH runs
+  elevated, and an elevated process creates directories owned by the
+  Administrators group, so `restrict_path` sets the owner as well as the
+  DACL. An unelevated process cannot create files in `C:\`. A directory
+  named `pcbridge` in the working directory shadows the package for
+  `python -m pcbridge` (the reason the service runs `python -P`); the
+  console script `pcbridge.exe` is not affected.
+- **Moving a running checkout.** Windows refuses to delete or move a
+  directory a running process uses, so `windows-vm.sh sync` mirrors the
+  checkout in place with robocopy instead of swapping directories.
+- **TOML and paths.** A Windows path in a TOML basic string (`"C:\Users"`)
+  is invalid TOML (`\U` starts an escape), and in a `re.sub` replacement
+  string it is a bad escape. pcbridge writes config values with tomlkit,
+  which escapes them; the test fixtures now write paths as TOML literal
+  strings and pass replacements as functions. tomlkit keeps a value's
+  quoting style when it updates it, so a fixture's quote style shows in
+  what pcbridge writes back.
+
 ## Remote clients, revocation and the password (2026-10-14)
 
 Measured with unreleased code against a throwaway daemon (temp config, state

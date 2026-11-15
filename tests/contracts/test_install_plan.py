@@ -6,6 +6,7 @@ manager and the installed programs are replaced by fakes.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -37,7 +38,7 @@ def example_config(path: Path, **edits: str) -> None:
     text = re.sub(r'(?m)^password = .*$', 'password = "test-password-123456789"', text, count=1)
     text = re.sub(r'(?m)^static_token = .*$', 'static_token = "test-token-0123456789"', text, count=1)
     for key, value in edits.items():
-        text = re.sub(rf'(?m)^{key} = .*$', f'{key} = "{value}"', text, count=1)
+        text = re.sub(rf'(?m)^{key} = .*$', lambda _m, key=key, value=value: f"{key} = {json.dumps(str(value))}", text, count=1)
     path.write_text(text)
 
 

@@ -24,7 +24,7 @@ default_agent = "claude"
 [auth]
 password = "panel-icon-test-password"
 [paths]
-state_dir = "{state}"
+state_dir = '{state}'
 [desktop]
 enabled = false
 [agents.claude]

@@ -173,7 +173,7 @@ class NativeConfigContractTests(unittest.TestCase):
 
             text = swap(text, 'capture = "auto"', 'capture = "rust"')
             text = swap(text, 'input = "auto"', 'input = "rust"')
-            text = swap(text, 'binary_path = ""', f'binary_path = "{binary}"')
+            text = swap(text, 'binary_path = ""', f"binary_path = '{binary}'")
             path = root / "config.toml"
             path.write_text(text)
 
