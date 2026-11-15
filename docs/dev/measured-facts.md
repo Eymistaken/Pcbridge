@@ -545,6 +545,27 @@ Measured in the Windows 11 test VM through a real MCP client
 - **Closing.** Ending the program first reset the connection before the
   answer went out (`WinError 10054`); the host now answers, then ends it.
 
+## Windows: remote access and the login check (W5, 2026-11-15)
+
+Measured in the Windows 11 test VM.
+
+- **Login check.** `loginpw.verify` through `LogonUserW` for the local
+  account `tester`: the right password True, a wrong one False, an empty
+  one False before Windows is asked. The remote-password paths that take
+  it (`pcbridge set auth.password`, revocation on change) pass the
+  integration suite on Windows, OAuth flow included.
+- **Clipboard.** The remote password and the address go to the Win32
+  clipboard as CF_UNICODETEXT; `Get-Clipboard` read `abc-ğüş` back
+  exactly. (A non-ASCII argument does not survive `windows-vm.sh session`,
+  which writes its batch file in ASCII.)
+- **Text in pipes.** A Windows console takes Unicode through WriteConsoleW,
+  but a redirected stdout is written in the ANSI code page (cp1252 here),
+  so `pcbridge settings > file` raised UnicodeEncodeError; the CLI now
+  writes pipes and files in UTF-8. Files pcbridge reads (the clients'
+  `.claude.json`, Codex's config) are read as UTF-8, not the code page.
+- **Not measured.** Tailscale Funnel on Windows (the VM has no Tailscale
+  account); the commands are the same, without sudo.
+
 ## Remote clients, revocation and the password (2026-10-14)
 
 Measured with unreleased code against a throwaway daemon (temp config, state

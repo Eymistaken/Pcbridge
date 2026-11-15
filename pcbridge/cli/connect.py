@@ -209,7 +209,7 @@ def current(client: str) -> Registration:
     """What the client has registered for pcbridge today (read only)."""
     if client == "claude-code":
         try:
-            data = json.loads(CLAUDE_JSON.read_text())
+            data = json.loads(CLAUDE_JSON.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return Registration(client, False, [], str(CLAUDE_JSON), "no ~/.claude.json")
         entry = (data.get("mcpServers") or {}).get(SERVER)
@@ -220,7 +220,7 @@ def current(client: str) -> Registration:
         return Registration(client, True, _cmd(entry), f"{CLAUDE_JSON} (user scope)", note)
     if client == "codex":
         try:
-            data = tomllib.loads(CODEX_TOML.read_text())
+            data = tomllib.loads(CODEX_TOML.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return Registration(client, False, [], str(CODEX_TOML), f"no readable {CODEX_TOML}")
         entry = (data.get("mcp_servers") or {}).get(SERVER)

@@ -312,7 +312,7 @@ class Backend:
         return f"Removed {res.registrations} stale registration(s); live sessions stay."
 
     def copy_text(self, text: str) -> bool:
-        """Put text on the desktop clipboard with wl-copy; False if it is missing."""
+        """Put text on the desktop clipboard; False when that is not possible."""
         from ..remotepassword import copy_to_clipboard
 
         return copy_to_clipboard(text)

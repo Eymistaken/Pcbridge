@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from . import loginpw, passphrase
@@ -70,7 +71,10 @@ def save(password: str, path: Path | str | None = None, *, login_password: str) 
 
 
 def copy_to_clipboard(text: str) -> bool:
-    """Put `text` on the desktop clipboard with wl-copy; False when that is not possible."""
+    """Put `text` on the desktop clipboard (wl-copy on Linux, the Win32
+    clipboard on Windows); False when that is not possible."""
+    if sys.platform == "win32":
+        return _windows_clipboard(text)
     if not shutil.which("wl-copy"):
         return False
     try:
@@ -78,3 +82,43 @@ def copy_to_clipboard(text: str) -> bool:
     except (OSError, subprocess.SubprocessError):
         return False
     return True
+
+
+def _windows_clipboard(text: str) -> bool:
+    """CF_UNICODETEXT through the Win32 clipboard: no program needed."""
+    import ctypes
+    import ctypes.wintypes as W
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GlobalAlloc.restype = W.HGLOBAL
+    kernel32.GlobalAlloc.argtypes = [W.UINT, ctypes.c_size_t]
+    kernel32.GlobalLock.restype = W.LPVOID
+    kernel32.GlobalLock.argtypes = [W.HGLOBAL]
+    kernel32.GlobalUnlock.argtypes = [W.HGLOBAL]
+    kernel32.GlobalFree.argtypes = [W.HGLOBAL]
+    user32.SetClipboardData.restype = W.HANDLE
+    user32.SetClipboardData.argtypes = [W.UINT, W.HANDLE]
+    data = text.encode("utf-16-le") + b"\0\0"
+    for _ in range(10):  # another program may hold the clipboard for a moment
+        if user32.OpenClipboard(None):
+            break
+        import time
+
+        time.sleep(0.05)
+    else:
+        return False
+    try:
+        user32.EmptyClipboard()
+        handle = kernel32.GlobalAlloc(0x0002, len(data))  # GMEM_MOVEABLE
+        if not handle:
+            return False
+        pointer = kernel32.GlobalLock(handle)
+        ctypes.memmove(pointer, data, len(data))
+        kernel32.GlobalUnlock(handle)
+        if not user32.SetClipboardData(13, handle):  # CF_UNICODETEXT; the clipboard owns it now
+            kernel32.GlobalFree(handle)
+            return False
+        return True
+    finally:
+        user32.CloseClipboard()

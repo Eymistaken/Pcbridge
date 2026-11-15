@@ -577,7 +577,7 @@ def idle_reason(cfg) -> str:
     if running:
         return f"{len(running)} job(s) running"
     try:
-        state = json.loads((Path(cfg.state_dir) / "desktop_unlock.json").read_text())
+        state = json.loads((Path(cfg.state_dir) / "desktop_unlock.json").read_text(encoding="utf-8"))
         import time
 
         if float(state.get("until", 0) or 0) > time.time():

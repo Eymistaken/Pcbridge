@@ -539,7 +539,7 @@ class RemotePane(ScrollPane):
             return
         copied = self.query_one("#copied", Static)
         if self.app.backend.copy_text(url):
-            copied.update(Text("✓ copied with wl-copy", style=PALETTE["ok"]))
+            copied.update(Text("✓ copied to the clipboard", style=PALETTE["ok"]))
         else:
             self.app.copy_to_clipboard(url)
             copied.update(Text("Asked the terminal to copy it (OSC 52); check that it arrived.",

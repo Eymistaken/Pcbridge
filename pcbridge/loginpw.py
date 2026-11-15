@@ -15,6 +15,12 @@ Wrong answers go through the same stack as the login screen: `pam_faildelay`
 waits a few seconds, and where `pam_faillock` is on (Arch) they count
 towards its lockout.
 
+Windows: `LogonUserW` with an interactive logon for the same account, which
+checks the account's password as the sign-in screen does (measured for a
+local account: right 27 ms, wrong 1 ms with ERROR_LOGON_FAILURE). A PIN or
+Windows Hello is not that password; a Microsoft account is checked with its
+account password.
+
 This is a guard for pcbridge's own paths (the terminal UI, `pcbridge set`,
 `remote start`, setup). It is not a boundary against someone who already
 has a shell as the user: `config.toml` is the user's file and anyone who can
@@ -26,6 +32,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 import getpass
+import sys
 
 from . import oscompat
 
@@ -92,6 +99,8 @@ def verify(password: str) -> bool:
     """
     if not password:
         return False
+    if sys.platform == "win32":
+        return _windows_verify(password)
     pam, libc = _libs()
     secret = password.encode("utf-8")
     name = user().encode("utf-8")
@@ -122,3 +131,20 @@ def verify(password: str) -> bool:
     finally:
         pam.pam_end(handle, rc)
     return rc == PAM_SUCCESS
+
+
+def _windows_verify(password: str) -> bool:
+    import ctypes.wintypes as W
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi32.LogonUserW.argtypes = [W.LPCWSTR, W.LPCWSTR, W.LPCWSTR, W.DWORD, W.DWORD,
+                                    ctypes.POINTER(W.HANDLE)]
+    advapi32.LogonUserW.restype = W.BOOL
+    kernel32.CloseHandle.argtypes = [W.HANDLE]
+    token = W.HANDLE()
+    # LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT; "." is this computer.
+    if not advapi32.LogonUserW(user(), ".", password, 2, 0, ctypes.byref(token)):
+        return False
+    kernel32.CloseHandle(token)
+    return True

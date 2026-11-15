@@ -505,7 +505,7 @@ def close_retired_browser(state_dir: Path) -> bool:
     """
     record = state_dir / "browser" / "keeper.json"
     try:
-        pid = int(json.loads(record.read_text())["keeper_pid"])
+        pid = int(json.loads(record.read_text(encoding="utf-8"))["keeper_pid"])
         cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
     except (OSError, ValueError, KeyError, TypeError):
         return False

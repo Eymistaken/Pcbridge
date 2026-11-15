@@ -82,7 +82,7 @@ def show_once(password: str, address: str) -> None:
         if rp.copy_to_clipboard(password):
             inst.ok("copied to the clipboard")
         else:
-            inst.warn("wl-copy is not available; copy it by hand")
+            inst.warn("the clipboard is not reachable (wl-copy on Linux); copy it by hand")
 
 
 def create(path: Path | str, address: str, *, replacing: bool) -> S.SaveResult | None:

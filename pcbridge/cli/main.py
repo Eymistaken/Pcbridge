@@ -136,7 +136,24 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _utf8_pipes() -> None:
+    """Windows writes a redirected stdout in the ANSI code page (cp1252 in
+    the test VM), which cannot hold "✓" or Turkish letters: `pcbridge
+    settings > file` raised UnicodeEncodeError (measured). A console is
+    written through WriteConsoleW and needs nothing; a pipe or file gets
+    UTF-8, as on Linux."""
+    if sys.platform != "win32":
+        return
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream is not None and not stream.isatty():
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _utf8_pipes()
     try:
         code = _main(argv)
         sys.stdout.flush()  # a closed pipe shows here, inside the try, not at exit

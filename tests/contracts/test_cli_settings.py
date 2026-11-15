@@ -47,7 +47,7 @@ class CliSettingsTests(unittest.TestCase):
         text = re.sub(r'(?m)^static_token = .*$', f'static_token = "{TOKEN_HASH}"', text, count=1)
         text = re.sub(r'(?m)^state_dir = .*$', lambda _m: f"state_dir = '{self.home / 'state'}'", text, count=1)
         self.cfg = self.home / "config.toml"
-        self.cfg.write_text(text)
+        self.cfg.write_text(text, encoding="utf-8")
         self.cfg.chmod(0o600)
         self.original = text
         self.env = {
@@ -62,7 +62,7 @@ class CliSettingsTests(unittest.TestCase):
             "PCBRIDGE_CONFIG": str(self.cfg),
             "LANG": "C.UTF-8",
             # tests/stubs/pam stands in for PAM: this is the "login password".
-            "PYTHONPATH": f"{ROOT / 'tests' / 'stubs' / 'pam'}:{ROOT}",
+            "PYTHONPATH": os.pathsep.join([str(ROOT / "tests" / "stubs" / "pam"), str(ROOT)]),
             "PCBRIDGE_TEST_LOGIN_PASSWORD": LOGIN,
         }
 
@@ -144,53 +144,53 @@ class CliSettingsTests(unittest.TestCase):
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertIn("desktop.pointer_speed = 3000", res.stdout)
         self.assertIn("pcbridge restart", res.stdout)
-        self.assertEqual(tomllib.loads(self.cfg.read_text())["desktop"]["pointer_speed"], 3000)
+        self.assertEqual(tomllib.loads(self.cfg.read_text(encoding="utf-8"))["desktop"]["pointer_speed"], 3000)
         backups = list(self.home.glob("config.toml.backup-*"))
         self.assertEqual(len(backups), 1)
-        self.assertEqual(backups[0].read_text(), self.original)
+        self.assertEqual(backups[0].read_text(encoding="utf-8"), self.original)
 
     def test_set_refuses_a_bad_value_and_writes_nothing(self) -> None:
         for args in (("desktop.pointer_speed", "fast"), ("desktop.batch_budget_seconds", "500"),
                      ("tools.profile", "tiny")):
             res = self.cli("set", *args)
             self.assertEqual(res.returncode, 1, args)
-            self.assertEqual(self.cfg.read_text(), self.original, args)
+            self.assertEqual(self.cfg.read_text(encoding="utf-8"), self.original, args)
         self.assertEqual(list(self.home.glob("config.toml.backup-*")), [])
 
     def test_a_secret_is_never_taken_from_the_command_line(self) -> None:
         res = self.cli("set", "auth.password", "a-new-password-on-argv")
         self.assertEqual(res.returncode, 1)
         self.assertIn("shell history", res.stdout)
-        self.assertEqual(self.cfg.read_text(), self.original)
+        self.assertEqual(self.cfg.read_text(encoding="utf-8"), self.original)
 
     def test_a_secret_from_stdin_or_generated(self) -> None:
         res = self.cli("set", "auth.password", "--stdin", stdin=f"{LOGIN}\nanother-long-password-99\n")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertNotIn("another-long-password-99", res.stdout + res.stderr)
-        stored = tomllib.loads(self.cfg.read_text())["auth"]["password"]
+        stored = tomllib.loads(self.cfg.read_text(encoding="utf-8"))["auth"]["password"]
         self.assertTrue(stored.startswith("scrypt$"), stored)
         self.assertTrue(hashinglib.verify_password("another-long-password-99", stored))
-        self.assertNotIn("another-long-password-99", self.cfg.read_text())
+        self.assertNotIn("another-long-password-99", self.cfg.read_text(encoding="utf-8"))
         # A generated token is shown once, and only its hash is stored.
         res = self.cli("set", "auth.static_token", "--generate")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        stored = tomllib.loads(self.cfg.read_text())["auth"]["static_token"]
+        stored = tomllib.loads(self.cfg.read_text(encoding="utf-8"))["auth"]["static_token"]
         self.assertTrue(stored.startswith("sha256$"), stored)
         shown = re.search(r"auth\.static_token: (\S+)", res.stdout).group(1)
         self.assertGreaterEqual(len(shown), 40)
         self.assertTrue(hashinglib.verify_token(shown, stored))
-        self.assertNotIn(shown, self.cfg.read_text())
+        self.assertNotIn(shown, self.cfg.read_text(encoding="utf-8"))
         self.assertIn("only time it is shown", res.stdout + res.stderr)
         for backup in self.home.glob("config.toml.backup-*"):
-            self.assertNotIn("another-long-password-99", backup.read_text())
-            self.assertNotIn(shown, backup.read_text())
+            self.assertNotIn("another-long-password-99", backup.read_text(encoding="utf-8"))
+            self.assertNotIn(shown, backup.read_text(encoding="utf-8"))
         # A password shorter than the loader allows is refused.
         res = self.cli("set", "auth.password", "--stdin", stdin=f"{LOGIN}\nshort\n")
         self.assertEqual(res.returncode, 1)
         self.assertIn("at least 12", res.stdout)
 
     def test_the_password_needs_the_login_password(self) -> None:
-        before = self.cfg.read_text()
+        before = self.cfg.read_text(encoding="utf-8")
         for stdin in ("wrong-login\na-new-long-password\n", "", "\na-new-long-password\n"):
             res = self.cli("set", "auth.password", "--stdin", stdin=stdin)
             self.assertEqual(res.returncode, 1, (stdin, res.stdout + res.stderr))
@@ -199,7 +199,7 @@ class CliSettingsTests(unittest.TestCase):
         res = self.cli("set", "auth.password", "--generate", stdin="wrong-login\n")
         self.assertEqual(res.returncode, 1)
         self.assertNotIn("Password:", res.stdout)
-        self.assertEqual(self.cfg.read_text(), before)
+        self.assertEqual(self.cfg.read_text(encoding="utf-8"), before)
         self.assertEqual(list(self.home.glob("config.toml.backup-*")), [])
         # The static token does not ask for it.
         res = self.cli("set", "auth.static_token", "--generate")
@@ -210,7 +210,7 @@ class CliSettingsTests(unittest.TestCase):
         res = self.cli("reset", "desktop.pointer_speed")
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertIn("5000", res.stdout)
-        self.assertNotIn("pointer_speed", tomllib.loads(self.cfg.read_text())["desktop"])
+        self.assertNotIn("pointer_speed", tomllib.loads(self.cfg.read_text(encoding="utf-8"))["desktop"])
 
     def test_enabling_desktop_control_warns(self) -> None:
         res = self.cli("set", "desktop.enabled", "true")
@@ -236,7 +236,7 @@ class CliSettingsTests(unittest.TestCase):
 
     def test_restart_waits_for_jobs_and_uses_systemctl(self) -> None:
         res = self.cli("restart")
-        self.assertIn("systemctl --user restart pcbridge.service", self.log.read_text())
+        self.assertIn("systemctl --user restart pcbridge.service", self.log.read_text(encoding="utf-8"))
         # The stub systemd has no daemon, so the socket never answers.
         self.assertIn("does not answer", res.stdout)
 

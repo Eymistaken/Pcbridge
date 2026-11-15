@@ -106,7 +106,7 @@ def _writer_matches_binary(pid: int, directory: Path, binary: Path, token: Lease
 
 def _parent_pid(pid: int) -> int | None:
     try:
-        return int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[1])
+        return int(Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1].split()[1])
     except (OSError, ValueError, IndexError):
         return None
 

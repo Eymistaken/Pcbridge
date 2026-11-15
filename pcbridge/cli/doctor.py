@@ -194,14 +194,14 @@ class Doctor:
                 want = inst.render_unit(name)
                 if not path.exists():
                     c = self.add(g, name, "fail", "not installed", "pcbridge setup")
-                elif path.read_text() != want:
+                elif path.read_text(encoding="utf-8") != want:
                     c = self.add(g, name, "warn", f"{path} differs from this version's unit", "pcbridge doctor --fix")
                 else:
                     c = self.add(g, name, "ok", str(path))
                     continue
                 if self.fixing(c):
                     inst.install_units(self.backup)
-                    c.fixed = path.exists() and path.read_text() == want
+                    c.fixed = path.exists() and path.read_text(encoding="utf-8") == want
         for name in inst.UNIT_NAMES:
             enabled = inst.systemctl("is-enabled", name).stdout.strip()
             active = inst.systemctl("is-active", name).stdout.strip()

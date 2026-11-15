@@ -200,14 +200,14 @@ class UnlockConfirm(ModalScreen["int | None"]):
 def copy_secret(app: App, text: str) -> tuple[bool, str]:
     """Put a secret on the clipboard; (reached the desktop clipboard, what happened).
 
-    wl-copy reaches the desktop clipboard from any terminal; without it the
-    terminal is asked through OSC 52, which some terminals (GNOME Terminal
-    among them) ignore.
+    wl-copy (Linux) or the Win32 clipboard (Windows) reaches the desktop
+    clipboard from any terminal; without it the terminal is asked through
+    OSC 52, which some terminals (GNOME Terminal among them) ignore.
     """
     from ..remotepassword import copy_to_clipboard
 
     if copy_to_clipboard(text):
-        return True, "✓ Copied with wl-copy"
+        return True, "✓ Copied to the clipboard"
     app.copy_to_clipboard(text)
     return False, "Asked the terminal to copy it (OSC 52); check that it arrived"
 

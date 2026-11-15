@@ -215,7 +215,7 @@ class RemoteTabTests(unittest.TestCase):
             await pilot.press("y")
             await pilot.pause()
             self.assertEqual(backend.copied, ["https://box.example.ts.net/mcp"])
-            self.assertIn("✓ copied with wl-copy", left(app))
+            self.assertIn("✓ copied to the clipboard", left(app))
 
         run_app(self, backend, body)
 

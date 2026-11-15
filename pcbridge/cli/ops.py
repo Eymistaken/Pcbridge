@@ -260,7 +260,7 @@ def remote(argv: list[str]) -> int:
     args = p.parse_args(argv)
     cfg = _load_cfg()
     if not shutil.which("tailscale"):
-        inst.fail("tailscale is not installed: https://tailscale.com/download/linux")
+        inst.fail(f"tailscale is not installed: {_TAILSCALE_DOWNLOAD}")
         return 1
     port = str(cfg.port)
 
@@ -313,11 +313,21 @@ def funnel_open(cfg) -> bool:
     return f":{cfg.port}" in inst.run(["tailscale", "funnel", "status"], timeout=10).stdout
 
 
+_TAILSCALE_DOWNLOAD = ("https://tailscale.com/download/windows" if oscompat.IS_WINDOWS
+                       else "https://tailscale.com/download/linux")
+
+
+def _root_hint(command: str) -> str:
+    if oscompat.IS_WINDOWS:
+        return f"If Tailscale refuses, check that it is running and logged in, then run: {command}"
+    return f"If it needs root, run: sudo {command}"
+
+
 def tunnel_start(cfg) -> tuple[bool, list[str]]:
     """Open the tunnel (the daemon first); (worked, what to say). Needs the
     remote password to be set already: the callers ask for it."""
     if not shutil.which("tailscale"):
-        return False, ["tailscale is not installed: https://tailscale.com/download/linux"]
+        return False, [f"tailscale is not installed: {_TAILSCALE_DOWNLOAD}"]
     if not cfg.has_password:
         return False, ["remote access needs a password first, and none is set"]
     port = str(cfg.port)
@@ -333,7 +343,7 @@ def tunnel_start(cfg) -> tuple[bool, list[str]]:
     res = inst.run(["tailscale", "funnel", "--bg", port], timeout=30)
     if res.returncode != 0:
         return False, ["tailscale refused: " + (res.stderr or res.stdout).strip()[:300],
-                       f"If it needs root, run: sudo tailscale funnel --bg {port}",
+                       _root_hint(f"tailscale funnel --bg {port}"),
                        "If HTTPS is not enabled: https://login.tailscale.com/admin/dns"]
     return True, [f"remote access open: give remote clients {cfg.mcp_url}"]
 
@@ -346,7 +356,7 @@ def tunnel_stop(cfg) -> tuple[bool, list[str]]:
     res = inst.run(["tailscale", "funnel", "--bg", port, "off"], timeout=30)
     if res.returncode != 0 and funnel_open(cfg):
         return False, ["tailscale refused: " + (res.stderr or res.stdout).strip()[:300],
-                       f"If it needs root, run: sudo tailscale funnel --bg {port} off"]
+                       _root_hint(f"tailscale funnel --bg {port} off")]
     return True, ["remote access closed (local clients keep working)"]
 
 
@@ -588,7 +598,7 @@ def _legacy_config_candidates() -> list[Path]:
             add_from_python(reg.command[0])
     unit = inst.USER_UNIT_DIR / "pcbridge.service"
     if unit.exists():
-        m = re.search(r"^ExecStart=(\S+)", unit.read_text(), re.M)
+        m = re.search(r"^ExecStart=(\S+)", unit.read_text(encoding="utf-8"), re.M)
         if m:
             add_from_python(m.group(1))
     root = inst.repo_root()

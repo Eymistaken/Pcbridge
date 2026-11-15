@@ -95,7 +95,7 @@ class RemoteAccessTests(unittest.TestCase):
             "XDG_DATA_HOME": str(self.tmp / "data"),
             "NO_COLOR": "1",
             # tests/stubs/pam stands in for PAM: LOGIN is the "login password".
-            "PYTHONPATH": f"{ROOT / 'tests' / 'stubs' / 'pam'}:{ROOT}",
+            "PYTHONPATH": os.pathsep.join([str(ROOT / "tests" / "stubs" / "pam"), str(ROOT)]),
             "PCBRIDGE_TEST_LOGIN_PASSWORD": LOGIN,
         })
         self.daemon: subprocess.Popen | None = None
@@ -397,7 +397,12 @@ class RemoteAccessTests(unittest.TestCase):
         self.assertNotIn(STATIC, text)
         self.assertIn('password = "scrypt$', text)
         self.assertIn('static_token = "sha256$', text)
-        self.assertEqual(stat.S_IMODE(self.cfg.stat().st_mode), 0o600)
+        if sys.platform == "win32":
+            from pcbridge import oscompat
+
+            self.assertIsNone(oscompat.private_problem(self.cfg))
+        else:
+            self.assertEqual(stat.S_IMODE(self.cfg.stat().st_mode), 0o600)
         self.assertIn("as hashes", (self.tmp / "daemon.log").read_text())
 
         # ...and both still work: the static token, and the password on the consent page.
