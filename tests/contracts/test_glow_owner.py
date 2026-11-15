@@ -96,7 +96,10 @@ class FrameOwnerTests(unittest.TestCase):
             self.assertEqual(self.owner.open(token), {"ready": True})
             health.assert_called_with(token)
             arguments = spawn.call_args.args[0]
-            self.assertEqual(arguments[1:], ["glow-watch", str(self.directory), token.grant_id, str(token.revoke_epoch)])
+            # The owner resolves the directory; on Windows that also expands
+            # an 8.3 short name in TEMP (RUNNER~1 on GitHub's runners).
+            self.assertEqual(arguments[1:], ["glow-watch", str(self.directory.resolve()), token.grant_id,
+                                             str(token.revoke_epoch)])
             self.assertEqual(self.owner.open(token), {"ready": True})
             self.assertEqual(spawn.call_count, 1)
             process.returncode = 1
