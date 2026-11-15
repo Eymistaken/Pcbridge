@@ -1887,7 +1887,9 @@ impl Dispatcher {
 
     fn keyboard_operation_error(&self, id: String, error: KeyboardError) -> DispatchOutcome {
         match error {
-            KeyboardError::UnknownKey(_) | KeyboardError::EmptyCombo => {
+            KeyboardError::UnknownKey(_)
+            | KeyboardError::EmptyCombo
+            | KeyboardError::HeldWhileTyping => {
                 self.error(id, "INVALID_PARAMS", error.to_string(), None)
             }
             KeyboardError::Closed => self.typed_error(

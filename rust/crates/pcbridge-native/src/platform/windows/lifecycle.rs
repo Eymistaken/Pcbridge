@@ -10,11 +10,18 @@
 //! state `LOCK_STATE_UNKNOWN`. The same codes as Linux.
 
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, Weak};
+use std::thread::{self, JoinHandle};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use pcbridge_core::{DesktopLease, LEASE_STATE_FILE, LeaseToken};
 
 use super::desktop_state::{self, LockState};
+use crate::fail_closed::{FailClosed, LifecycleFailure};
+
+/// How often the watchdog reads the grant and the lock, as on Linux.
+const WATCHDOG_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Failure {
@@ -25,6 +32,16 @@ pub enum Failure {
 }
 
 impl Failure {
+    #[must_use]
+    pub const fn lifecycle(self) -> LifecycleFailure {
+        match self {
+            Self::GrantRequired => LifecycleFailure::GrantRequired,
+            Self::Revoked => LifecycleFailure::Revoked,
+            Self::ScreenLocked => LifecycleFailure::ScreenLocked,
+            Self::LockStateUnknown => LifecycleFailure::LockStateUnknown,
+        }
+    }
+
     #[must_use]
     pub const fn code(self) -> &'static str {
         match self {
@@ -55,6 +72,7 @@ fn unix_time() -> f64 {
 pub struct Binding {
     state_path: PathBuf,
     token: Option<LeaseToken>,
+    watchdog: Option<Watchdog>,
 }
 
 impl Binding {
@@ -64,7 +82,23 @@ impl Binding {
         let token = DesktopLease::read(&state_path)
             .ok()
             .and_then(|lease| lease.native_token_at(unix_time()));
-        Self { state_path, token }
+        let watchdog = token
+            .as_ref()
+            .map(|token| Watchdog::start(state_path.clone(), token.clone()));
+        Self {
+            state_path,
+            token,
+            watchdog,
+        }
+    }
+
+    /// Close `resource` the moment the grant stops holding (a revoke, an
+    /// expiry, a locked or unreadable session). Without a bound grant
+    /// nothing can be opened, so there is nothing to watch.
+    pub fn register_fail_closed(&self, resource: Weak<dyn FailClosed>) {
+        if let Some(watchdog) = self.watchdog.as_ref() {
+            watchdog.register(resource);
+        }
     }
 
     #[must_use]
@@ -78,15 +112,96 @@ impl Binding {
         if token.grant_id() != grant_id || token.revoke_epoch() != revoke_epoch {
             return Err(Failure::Revoked);
         }
-        let valid = DesktopLease::read(&self.state_path)
-            .is_ok_and(|lease| lease.validates_at(token, unix_time()));
-        if !valid {
-            return Err(Failure::Revoked);
+        holds(&self.state_path, token)
+    }
+}
+
+/// Whether the bound grant still holds and the session is unlocked.
+fn holds(state_path: &Path, token: &LeaseToken) -> Result<(), Failure> {
+    let valid =
+        DesktopLease::read(state_path).is_ok_and(|lease| lease.validates_at(token, unix_time()));
+    if !valid {
+        return Err(Failure::Revoked);
+    }
+    match desktop_state::lock_state() {
+        LockState::KnownUnlocked => Ok(()),
+        LockState::KnownLocked => Err(Failure::ScreenLocked),
+        LockState::Unknown => Err(Failure::LockStateUnknown),
+    }
+}
+
+type Resources = Arc<Mutex<Vec<Weak<dyn FailClosed>>>>;
+
+/// Every 100 ms, on its own thread: if the grant stopped holding, tell
+/// every open resource to close (held keys and buttons are released by the
+/// close). Edge-triggered: it fires once when the state turns bad, and
+/// again only after it was good in between (a lock, an unlock, a lock).
+struct Watchdog {
+    resources: Resources,
+    stop: Arc<AtomicBool>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl Watchdog {
+    fn start(state_path: PathBuf, token: LeaseToken) -> Self {
+        let resources: Resources = Arc::default();
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker = {
+            let resources = Arc::clone(&resources);
+            let stop = Arc::clone(&stop);
+            thread::Builder::new()
+                .name("pcbridge-native-watchdog".to_owned())
+                .spawn(move || {
+                    let mut was_good = true;
+                    while !stop.load(Ordering::Acquire) {
+                        match holds(&state_path, &token) {
+                            Ok(()) => was_good = true,
+                            Err(failure) if was_good => {
+                                was_good = false;
+                                close_all(&resources, failure.lifecycle());
+                            }
+                            Err(_) => {}
+                        }
+                        thread::sleep(WATCHDOG_INTERVAL);
+                    }
+                })
+                .ok()
+        };
+        Self {
+            resources,
+            stop,
+            worker,
         }
-        match desktop_state::lock_state() {
-            LockState::KnownUnlocked => Ok(()),
-            LockState::KnownLocked => Err(Failure::ScreenLocked),
-            LockState::Unknown => Err(Failure::LockStateUnknown),
+    }
+
+    fn register(&self, resource: Weak<dyn FailClosed>) {
+        let mut resources = self
+            .resources
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        resources.retain(|known| known.strong_count() > 0);
+        resources.push(resource);
+    }
+}
+
+/// Snapshot first, then call: a resource's close takes its own lock.
+fn close_all(resources: &Resources, failure: LifecycleFailure) {
+    let snapshot: Vec<_> = resources
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .filter_map(Weak::upgrade)
+        .collect();
+    for resource in snapshot {
+        resource.close_fail_closed(failure);
+    }
+}
+
+impl Drop for Watchdog {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
         }
     }
 }

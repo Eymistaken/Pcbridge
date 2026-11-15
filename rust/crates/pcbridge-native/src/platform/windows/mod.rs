@@ -5,6 +5,8 @@
 //! buffers this module owns for the length of the call.
 
 pub mod capture;
+pub mod clipboard;
 pub mod desktop_state;
 pub mod display;
+pub mod input;
 pub mod lifecycle;

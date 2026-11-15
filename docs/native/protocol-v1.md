@@ -175,6 +175,23 @@ connection. After the handshake, a request with a different minor returns
     failed `EXECUTION_UNKNOWN`, content over 128 MiB `UNSUPPORTED`. Only the
     first MIME type is kept; `capabilities` says so in `limitations`. Shared
     fixture: `tests/fixtures/native/clipboard_cases.json`.
+- **On Windows** (`platform: windows`, the port's W6c) the same input
+  methods are served by `SendInput` (backend `windows.sendinput`): keys by
+  set-1 scan code, the pointer over the virtual screen, every event marked
+  with pcbridge's `dwExtraInfo`. There is no device to create, so `ensure`
+  waits 0 s. A 100 ms watchdog closes the devices on a revoke, an expiry or
+  a locked session and releases what they hold. Two differences:
+  - `input.keyboard.type` (feature `input.keyboard.type`): the grant fields
+    of `input.keyboard.ensure`, and the text as UTF-8 in the **request
+    payload**. It types characters (`KEYEVENTF_UNICODE`, a line break and a
+    tab as their keys), one every 10 ms, at most 8000 per request, and
+    returns `typed` and `held`. Refused (`INVALID_PARAMS`) while a key is
+    held.
+  - The clipboard is text (`CF_UNICODETEXT`, backend `windows.clipboard`):
+    a write needs a `text/*` MIME type and UTF-8 content (otherwise
+    `UNSUPPORTED` or `INVALID_PARAMS`); a read returns
+    `text/plain;charset=utf-8`. A clipboard another program holds open for
+    more than 500 ms is `BUSY`.
 - `accessibility.dump`, `accessibility.windows`, `accessibility.focused`:
   read the tree from AT-SPI's own bus (found with `org.a11y.Bus.GetAddress`,
   connected on first use); no GI, GTK or GLib main loop. All take `grant_id`

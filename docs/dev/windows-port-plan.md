@@ -9,14 +9,16 @@ its commit lands; do not copy measurements into this file.
 
 ## Where it stands
 
-W0 to W5 and W6a-b are on `main` (last: `6a4231b`, 2026-11-15). On Windows the
+W0 to W5 and W6a-c are on `main` (W6c: 2026-11-16). On Windows the
 daemon, the supervisor, the local IPC, jobs, shell, agents, files, the system
 tools, the live terminal (`tmux_*` through ConPTY, `pcbridge attach`), remote
 access and the login check work. The native helper builds on Windows, answers
 `display.snapshot` and `capture.frame`, and checks the grant
 (`rust/crates/pcbridge-native/src/dispatch_windows.rs`,
-`src/platform/windows/`). Desktop input, the clipboard, UI Automation, windows,
-lock and idle state, and the frame are next.
+`src/platform/windows/`), and since W6c types, clicks, scrolls and drags
+through `SendInput` and reads and writes the clipboard, under the grant with
+a 100 ms watchdog. UI Automation, windows, lock and idle state, and the
+frame are next.
 
 ## Rules for this work
 
@@ -92,7 +94,7 @@ pcbridge/desktop/platforms/windows/
 
 ## Remaining stages
 
-### W6c: input and the clipboard (native helper)
+### ~~W6c: input and the clipboard (native helper)~~ (done: `fda7c2f` move, then the Windows devices)
 
 1. **Move only.** Take the device-neutral part of
    `platform/linux/input.rs`, `input/pointer.rs` and `input/relative.rs` into

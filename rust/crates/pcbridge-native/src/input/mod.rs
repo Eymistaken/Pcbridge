@@ -10,8 +10,6 @@ mod keyboard;
 mod keys;
 mod pointer;
 mod relative;
-// The Windows dispatcher takes these up with its input methods.
-#[cfg(target_os = "linux")]
 pub(crate) mod requests;
 
 pub use keyboard::*;

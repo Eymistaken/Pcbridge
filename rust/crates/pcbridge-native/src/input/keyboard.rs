@@ -17,6 +17,14 @@ use super::keys::{Key, canonical_name, parse_combo};
 use crate::fail_closed::{FailClosed, LifecycleFailure};
 
 const COMBO_PAUSE: Duration = Duration::from_millis(30);
+/// Text is typed one character at a time, `TEXT_PAUSE` apart, with the lock
+/// released in between, so a revoke stops it within one character. Measured
+/// on Windows 11 (docs/dev/measured-facts.md, W6c): Notepad turned
+/// `KEYEVENTF_UNICODE` characters sent faster than one per 6 ms into repeats
+/// of an earlier one after the first space; one per 6, 8 and 10 ms read back
+/// exactly. 10 ms keeps a margin.
+const TEXT_CHUNK: usize = 1;
+const TEXT_PAUSE: Duration = Duration::from_millis(10);
 pub const DEFAULT_HOLD_MAX: Duration = Duration::from_secs(120);
 pub const DEVICE_SETTLE: Duration = Duration::from_millis(1200);
 
@@ -52,6 +60,16 @@ impl KeyboardEvent {
 
 pub trait KeyboardDevice: Send + 'static {
     fn emit(&mut self, events: &[KeyboardEvent]) -> io::Result<()>;
+
+    /// Type `text` as characters rather than keys, where the system can
+    /// (Windows' `KEYEVENTF_UNICODE`). On Linux the Python side types
+    /// through key names and the clipboard, and uinput has no such event.
+    fn type_text(&mut self, _text: &str) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "this keyboard cannot type text as characters",
+        ))
+    }
 }
 
 pub trait KeyboardClock: Send + Sync + 'static {
@@ -63,6 +81,7 @@ pub trait KeyboardService: FailClosed + fmt::Debug {
     fn key(&self, combo: &str) -> Result<(), KeyboardError>;
     fn key_down(&self, combo: &str) -> Result<(), KeyboardError>;
     fn key_up(&self, combo: &str) -> Result<(), KeyboardError>;
+    fn type_text(&self, text: &str) -> Result<usize, KeyboardError>;
     fn held(&self) -> Vec<String>;
     fn release_all(&self) -> Result<Vec<String>, KeyboardError>;
     fn take_auto_released(&self) -> Vec<String>;
@@ -97,6 +116,8 @@ pub enum KeyboardError {
     EmptyCombo,
     #[error("the virtual keyboard is closed")]
     Closed,
+    #[error("text cannot be typed while a key is held")]
+    HeldWhileTyping,
     #[error("the virtual keyboard failed: {0}")]
     Device(#[source] io::Error),
 }
@@ -213,6 +234,28 @@ impl<D: KeyboardDevice, C: KeyboardClock> Keyboard<D, C> {
         Ok(())
     }
 
+    /// Type `text` as characters; returns how many were typed. Refused
+    /// while a key is held, since a held modifier would turn the text into
+    /// shortcuts.
+    pub fn type_text(&self, text: &str) -> Result<usize, KeyboardError> {
+        let characters: Vec<char> = text.chars().collect();
+        let mut typed = 0;
+        for (index, chunk) in characters.chunks(TEXT_CHUNK).enumerate() {
+            if index > 0 {
+                self.inner.clock.sleep(TEXT_PAUSE);
+            }
+            let piece: String = chunk.iter().collect();
+            let mut state = self.state();
+            ensure_open(&state)?;
+            if !state.held.is_empty() {
+                return Err(KeyboardError::HeldWhileTyping);
+            }
+            type_or_close(&mut state, &piece)?;
+            typed += chunk.len();
+        }
+        Ok(typed)
+    }
+
     #[must_use]
     pub fn held(&self) -> Vec<String> {
         self.state()
@@ -290,6 +333,10 @@ impl<D: KeyboardDevice, C: KeyboardClock> KeyboardService for Keyboard<D, C> {
 
     fn key_up(&self, combo: &str) -> Result<(), KeyboardError> {
         Self::key_up(self, combo)
+    }
+
+    fn type_text(&self, text: &str) -> Result<usize, KeyboardError> {
+        Self::type_text(self, text)
     }
 
     fn held(&self) -> Vec<String> {
@@ -396,6 +443,29 @@ fn emit_or_recover<D: KeyboardDevice>(
         return Err(KeyboardError::Device(error));
     }
     Ok(())
+}
+
+/// Type one piece, or give the device up. Nothing is held (checked by the
+/// caller), so there is nothing to release; a device that cannot type text
+/// at all stays open.
+fn type_or_close<D: KeyboardDevice>(state: &mut State<D>, text: &str) -> Result<(), KeyboardError> {
+    let typed = state
+        .device
+        .as_mut()
+        .ok_or(KeyboardError::Closed)?
+        .type_text(text);
+    match typed {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::Unsupported => {
+            Err(KeyboardError::Device(error))
+        }
+        Err(error) => {
+            state.deadline = None;
+            state.closed = true;
+            state.device.take();
+            Err(KeyboardError::Device(error))
+        }
+    }
 }
 
 fn release_locked<D: KeyboardDevice>(state: &mut State<D>) -> Result<Vec<String>, KeyboardError> {

@@ -587,6 +587,46 @@ toolchain, through pcbridge's own NativeClient
   payload either time. Duplication does not draw the pointer; the answer
   says `include_pointer: false` and what was asked.
 
+## Windows: input and the clipboard (W6c, 2026-11-16)
+
+Measured in the Windows 11 test VM with the helper's release build,
+through NativeClient in the desktop session
+(`scripts/dev/windows/probes/input_probe.py`, `unicode_pace.py`). Low-level
+keyboard and mouse hooks in the probe recorded what Windows delivered; no
+input went to the host desktop.
+
+- **Text by Unicode needs a pace.** `KEYEVENTF_UNICODE` characters sent
+  in one `SendInput` call, or one per call with 5 ms or less between them,
+  came into Windows 11 Notepad as repeats of an earlier character after
+  the first space (`abc yyyyyyyyyyyyyyyy` for `abc typed xyz qwerty`); one
+  every 6, 8 and 10 ms read back exactly. The same line by scan codes in
+  one call read back exactly. The helper types text one character every
+  10 ms (`input.keyboard.type`, 46 characters in 513 ms), so one request
+  carries at most 8000 characters.
+- **Read back.** Turkish letters in both cases, digits, an emoji (a
+  surrogate pair) and a line break typed into Notepad, then `return`,
+  `shift+a`, `b`, `space`, `backspace`, `c` by scan code: WM_GETTEXT on the
+  `RichEditD2DPT` control and the file after `ctrl+s` matched exactly.
+- **The mark.** All 108 key events and every mouse event the hooks saw had
+  the injected flag set and pcbridge's `dwExtraInfo` (`0x50434252`).
+- **Pointer.** `MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK` with the
+  normalized coordinate rounded up (`ceil(x * 65536 / width)`) put the
+  cursor on the exact pixel at 0,0, 1,1, 1279,799 and three more points
+  (`GetCursorPos`). A double click arrived as two down/up pairs held 61.2
+  and 61.6 ms (the 60 ms click hold); scroll -3 as three wheel events of
+  -120; a drag as one down, 11 moves, one up; a relative move of 40,-20
+  moved the cursor by 50,-25 (pointer acceleration applies to relative
+  motion on Windows, as it does to a mouse).
+- **Held keys.** Shift held with `hold_max_seconds` 5 was released by the
+  timer after 5 s (one key-up seen, `take_auto_released` named it).
+- **Revoke.** With Ctrl and the right button held, the grant revoked: the
+  key-up and the button-up arrived 51.0 and 51.5 ms later (the 100 ms
+  watchdog; Linux's target is the same), and the next key was refused with
+  `REVOKED`.
+- **Clipboard.** `CF_UNICODETEXT` written with no owner window:
+  `clipboard.read` and PowerShell's `Get-Clipboard` both read
+  `abc-ğüş-clipboard` back; after `clipboard.clear` the read was empty.
+
 ## Remote clients, revocation and the password (2026-10-14)
 
 Measured with unreleased code against a throwaway daemon (temp config, state
