@@ -1,5 +1,47 @@
 # Changelog
 
+## 2.10.3 - 2026-11-15
+
+### Fixed
+
+- **`ui_dump` finds the focused window in Chromium browsers and the GNOME
+  file chooser.** `ui_dump(target="focused")` answered that no window had
+  the focus while Helium visibly had it, and `window_list` marked no window
+  as focused; the GNOME file chooser behaved the same way. AT-SPI marks no
+  window of theirs ACTIVE, and elsewhere it kept ACTIVE on a window that
+  had lost the focus (measured with Free Download Manager). On GNOME,
+  pcbridge now asks its shell extension which window has the focus, by
+  title and application name, and the native helper prefers the window of
+  that title in the accessibility tree; AT-SPI's ACTIVE state is used only
+  when nothing matches. `window_list` marks that same window. When no
+  window can be named, the error says to pass the application's name as
+  `target`, and names the window the compositor reported.
+- **`editable` in `ui_dump` now means what `ui_set_text` needs.** A Qt
+  Quick text field in Free Download Manager was listed as `editable`, and
+  `ui_set_text` on it then failed with "no EditableText interface". Such a
+  field carries the EDITABLE state without the interface, so nothing can
+  write its text directly. `ui_dump` now marks a node `editable` only when
+  it has the interface, lists the others as "editable by keyboard only",
+  and says to focus them and type with `keyboard`; `ui_set_text` refuses
+  them with the same advice before sending anything.
+- **English everywhere a model reads.** `ui_dump` flagged a node without
+  actions with a Turkish word; it now says "no action", the same words
+  `ui_click` uses when it refuses one. Five error messages of the native
+  client, screen capture delivery and OCR were also still Turkish. The
+  English-only check now renders `ui_dump`'s and `window_list`'s text and
+  recognizes Turkish word endings, so this kind of slip fails the tests.
+- **An empty tree names Chromium-based browsers.** The message for a window
+  that publishes no accessibility tree mentioned only Electron
+  applications; Helium, Chrome and Brave need
+  `--force-renderer-accessibility` the same way.
+
+### Documentation
+
+- **Chromium drop-down lists take the keyboard.** A mouse click on a
+  `<select>` in Helium opened the list on the press and picked the option
+  under the pointer on the release. The computer-use skill now says to
+  focus such a select and type the start of the option instead.
+
 ## 2.10.2 - 2026-11-15
 
 ### Changed
