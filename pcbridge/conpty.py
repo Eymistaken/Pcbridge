@@ -30,7 +30,7 @@ KEYS = {
     "space": " ", "up": "\x1b[A", "down": "\x1b[B", "right": "\x1b[C", "left": "\x1b[D",
     "home": "\x1b[H", "end": "\x1b[F", "ic": "\x1b[2~", "dc": "\x1b[3~", "npage": "\x1b[6~",
     "ppage": "\x1b[5~", "pagedown": "\x1b[6~", "pageup": "\x1b[5~", "btab": "\x1b[Z",
-    "f1": "\x1bOP", "f2": "\x1bOQ", "f3": "\x1bOR", "f4": "\x1bOS", "f5": "\x1b[15~",
+    "f1": "\033OP", "f2": "\033OQ", "f3": "\033OR", "f4": "\033OS", "f5": "\x1b[15~",
     "f6": "\x1b[17~", "f7": "\x1b[18~", "f8": "\x1b[19~", "f9": "\x1b[20~", "f10": "\x1b[21~",
     "f11": "\x1b[23~", "f12": "\x1b[24~",
 }
