@@ -52,7 +52,9 @@ here, not by moving sections.
 8. **Windows.** Full parity on Windows 11 (the maintainer's decision,
    2026-11-15). ~~W0: the test VM, the measurements and the scope~~ (done,
    [docs/dev/windows-scope.md](docs/dev/windows-scope.md)); W1 to W10 follow
-   the order there. See *Optional: Windows*.
+   the order there, step by step in
+   [docs/dev/windows-port-plan.md](docs/dev/windows-port-plan.md). See
+   *Optional: Windows*.
 9. **Website.** Last, once the feature set has settled, so the site is not
    chasing every new feature; see *Optional: website*. Until then the
    install script is served from a GitHub release URL.
