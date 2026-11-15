@@ -8,8 +8,14 @@
 //!
 //! - Keys go by scan code (`KEYEVENTF_SCANCODE`), so a shortcut is the same
 //!   physical key whatever the layout; extended keys carry
-//!   `KEYEVENTF_EXTENDEDKEY`. Text goes by `KEYEVENTF_UNICODE`, which needs
-//!   no layout at all.
+//!   `KEYEVENTF_EXTENDEDKEY`.
+//! - Text goes by the keys the foreground window's own layout uses for each
+//!   character (with Shift or AltGr), and only a character that layout
+//!   cannot type goes as a `KEYEVENTF_UNICODE` packet, followed by a pause.
+//!   Measured in W6c: Windows 11 Notepad turned packets that arrived while
+//!   it was busy (after a space, with many tabs open) into repeats of an
+//!   earlier one, even 10 ms apart, while the same text by keys read back
+//!   exactly at full speed.
 //! - The pointer moves with `MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK`
 //!   over the virtual screen, which is the canvas (`display.rs` normalizes
 //!   its origin to 0,0 the way Linux does).
@@ -17,13 +23,15 @@
 use std::io;
 
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT,
-    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE,
-    MOUSE_EVENT_FLAGS, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN,
-    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE,
-    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL,
-    MOUSEINPUT, SendInput, VIRTUAL_KEY,
+    GetKeyState, GetKeyboardLayout, HKL, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE,
+    KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE,
+    KEYEVENTF_UNICODE, MAPVK_VK_TO_CHAR, MAPVK_VK_TO_VSC_EX, MOUSE_EVENT_FLAGS,
+    MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+    MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN,
+    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT, MapVirtualKeyExW,
+    SendInput, VIRTUAL_KEY, VK_CAPITAL, VkKeyScanExW,
 };
+use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
 use crate::input::{
     Key, KeyboardDevice, KeyboardEvent, PointerDevice, PointerEvent, PointerGeometry, RelativeAxis,
@@ -118,42 +126,128 @@ fn send(inputs: &[INPUT]) -> io::Result<()> {
     }
 }
 
-/// The key events for one piece of text, `KEYEVENTF_UNICODE` per UTF-16
-/// unit. A line break and a tab go as the Enter and Tab keys, since many
-/// applications ignore them as characters.
-#[must_use]
-pub fn text_inputs(text: &str) -> Vec<INPUT> {
-    let mut inputs = Vec::new();
-    let mut previous_cr = false;
-    for character in text.chars() {
-        let key = match character {
-            '\n' if previous_cr => {
-                previous_cr = false;
-                continue;
-            }
-            '\r' | '\n' => Some(Key::Enter),
-            '\t' => Some(Key::Tab),
-            _ => None,
+/// Before and after a Unicode packet: the receiver must have taken the keys
+/// before it, then the packet itself, off its queue (see the module
+/// comment). Measured in W6c: with a pause after the packet only, the first
+/// packet after a space was lost once in three runs.
+const PACKET_PAUSE: std::time::Duration = std::time::Duration::from_millis(40);
+
+/// One character as key events: the scan codes the layout uses for it with
+/// the modifiers it needs, or a Unicode packet when the layout has no key
+/// for it. The flag says which.
+fn character_inputs(character: char, layout: HKL, caps_lock: bool) -> (Vec<INPUT>, bool) {
+    let key_press = |key: Key| {
+        let (scan, extended) = scan_code(key);
+        let base = if extended {
+            KEYEVENTF_SCANCODE | KEYEVENTF_EXTENDEDKEY
+        } else {
+            KEYEVENTF_SCANCODE
         };
-        previous_cr = character == '\r';
-        if let Some(key) = key {
-            let (scan, extended) = scan_code(key);
-            let base = if extended {
-                KEYEVENTF_SCANCODE | KEYEVENTF_EXTENDEDKEY
-            } else {
-                KEYEVENTF_SCANCODE
-            };
-            inputs.push(keyboard_input(scan, base));
-            inputs.push(keyboard_input(scan, base | KEYEVENTF_KEYUP));
-            continue;
-        }
-        let mut units = [0u16; 2];
-        for unit in character.encode_utf16(&mut units) {
-            inputs.push(keyboard_input(*unit, KEYEVENTF_UNICODE));
-            inputs.push(keyboard_input(*unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
-        }
+        vec![
+            keyboard_input(scan, base),
+            keyboard_input(scan, base | KEYEVENTF_KEYUP),
+        ]
+    };
+    match character {
+        '\r' | '\n' => return (key_press(Key::Enter), false),
+        '\t' => return (key_press(Key::Tab), false),
+        _ => {}
     }
-    inputs
+    let mut units = [0u16; 2];
+    let units = character.encode_utf16(&mut units);
+    if units.len() == 1
+        && let Some(inputs) = layout_inputs(units[0], character, layout, caps_lock)
+    {
+        return (inputs, false);
+    }
+    let mut inputs = Vec::with_capacity(units.len() * 2);
+    for unit in units.iter() {
+        inputs.push(keyboard_input(*unit, KEYEVENTF_UNICODE));
+        inputs.push(keyboard_input(*unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
+    }
+    (inputs, true)
+}
+
+/// The layout's own keys for a character, or None: no key types it, it
+/// needs Ctrl or Alt alone (a shortcut, not text), or it is a dead key that
+/// would wait for the next character.
+fn layout_inputs(unit: u16, character: char, layout: HKL, caps_lock: bool) -> Option<Vec<INPUT>> {
+    // SAFETY: plain table lookups in a keyboard layout Windows loaded.
+    let (found, scan, dead) = unsafe {
+        let found = VkKeyScanExW(unit, layout);
+        if found == -1 {
+            return None;
+        }
+        let vk = u32::from(found as u16 & 0xff);
+        let scan = MapVirtualKeyExW(vk, MAPVK_VK_TO_VSC_EX, layout);
+        let dead = MapVirtualKeyExW(vk, MAPVK_VK_TO_CHAR, layout) & 0x8000_0000 != 0;
+        (found, scan, dead)
+    };
+    let modifiers = (found as u16) >> 8;
+    let (mut shift, control, alt) = (modifiers & 1 != 0, modifiers & 2 != 0, modifiers & 4 != 0);
+    if dead || scan == 0 || control != alt || modifiers & !7 != 0 {
+        return None;
+    }
+    // Caps Lock flips Shift for letters; undo that so the case comes out
+    // as asked.
+    if caps_lock && character.is_alphabetic() {
+        shift = !shift;
+    }
+    let extended = scan & 0xff00 == 0xe000 || scan & 0xff00 == 0xe100;
+    let key_flags = if extended {
+        KEYEVENTF_SCANCODE | KEYEVENTF_EXTENDEDKEY
+    } else {
+        KEYEVENTF_SCANCODE
+    };
+    let scan = (scan & 0xff) as u16;
+    let (shift_scan, _) = scan_code(Key::LeftShift);
+    let (control_scan, _) = scan_code(Key::LeftCtrl);
+    let (altgr_scan, _) = scan_code(Key::RightAlt);
+    let altgr = control && alt;
+    let mut inputs = Vec::with_capacity(8);
+    if altgr {
+        inputs.push(keyboard_input(control_scan, KEYEVENTF_SCANCODE));
+        inputs.push(keyboard_input(
+            altgr_scan,
+            KEYEVENTF_SCANCODE | KEYEVENTF_EXTENDEDKEY,
+        ));
+    }
+    if shift {
+        inputs.push(keyboard_input(shift_scan, KEYEVENTF_SCANCODE));
+    }
+    inputs.push(keyboard_input(scan, key_flags));
+    inputs.push(keyboard_input(scan, key_flags | KEYEVENTF_KEYUP));
+    if shift {
+        inputs.push(keyboard_input(
+            shift_scan,
+            KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+        ));
+    }
+    if altgr {
+        inputs.push(keyboard_input(
+            altgr_scan,
+            KEYEVENTF_SCANCODE | KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP,
+        ));
+        inputs.push(keyboard_input(
+            control_scan,
+            KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP,
+        ));
+    }
+    Some(inputs)
+}
+
+/// The keyboard layout of the window in front, which decides what a key
+/// types there, and whether Caps Lock is on.
+fn foreground_layout() -> (HKL, bool) {
+    // SAFETY: plain reads; thread 0 (no foreground window) gives this
+    // thread's layout.
+    unsafe {
+        let thread = GetWindowThreadProcessId(GetForegroundWindow(), None);
+        (
+            GetKeyboardLayout(thread),
+            GetKeyState(i32::from(VK_CAPITAL.0)) & 1 != 0,
+        )
+    }
 }
 
 #[derive(Debug, Default)]
@@ -179,7 +273,18 @@ impl KeyboardDevice for SendInputKeyboard {
     }
 
     fn type_text(&mut self, text: &str) -> io::Result<()> {
-        send(&text_inputs(text))
+        let (layout, caps_lock) = foreground_layout();
+        for character in text.chars() {
+            let (inputs, packet) = character_inputs(character, layout, caps_lock);
+            if packet {
+                std::thread::sleep(PACKET_PAUSE);
+            }
+            send(&inputs)?;
+            if packet {
+                std::thread::sleep(PACKET_PAUSE);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -290,7 +395,7 @@ impl RelativeDevice for SendInputRelative {
 
 #[cfg(test)]
 mod tests {
-    use super::{Key, normalize, scan_code, text_inputs};
+    use super::{HKL, Key, character_inputs, normalize, scan_code};
 
     #[test]
     fn every_pixel_round_trips_through_the_normalized_coordinate() {
@@ -317,9 +422,16 @@ mod tests {
     }
 
     #[test]
-    fn text_becomes_unicode_units_and_line_breaks_become_enter() {
-        // "a", CRLF as one Enter, a surrogate pair: 2 + 2 + 4 events.
-        assert_eq!(text_inputs("a\r\n\u{1F600}").len(), 8);
-        assert_eq!(text_inputs("ğ\n").len(), 4);
+    fn a_character_no_layout_types_goes_as_a_unicode_packet() {
+        let none = HKL::default();
+        let (inputs, packet) = character_inputs('\n', none, false);
+        assert_eq!(
+            (inputs.len(), packet),
+            (2, false),
+            "a line break is the Enter key"
+        );
+        let (inputs, packet) = character_inputs('\u{1F600}', none, false);
+        assert!(packet);
+        assert_eq!(inputs.len(), 4, "a surrogate pair, down and up each");
     }
 }

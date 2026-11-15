@@ -8,14 +8,21 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use pcbridge_core::{
     ErrorBody, Frame, PROTOCOL_MAJOR, PROTOCOL_MINOR, ProtocolError, RequestHeader, ResponseHeader,
 };
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
+use crate::accessibility::requests::{
+    AccessibilityActParams, AccessibilityDumpParams, AccessibilityGrant, AccessibilityGrantParams,
+    AccessibilityRead, AccessibilitySetTextParams, DUMP_DEADLINE_MS, DUMP_DEADLINE_MS_MAX,
+    DumpRegistry, FocusParams, MAX_DUMP_NODES, accessibility_error_body, action_target,
+};
+use crate::accessibility::{self, DumpRequest, FocusHint, action};
 use crate::fail_closed::FailClosed;
 use crate::input::requests::{
     KeyboardActionParams, KeyboardGrantParams, POINTER_STEP, PointerButtonParams,
@@ -33,11 +40,17 @@ use crate::platform::windows::input::{
     self as win_input, SendInputKeyboard, SendInputPointer, SendInputRelative,
 };
 use crate::platform::windows::lifecycle::{Binding, Failure};
-use crate::platform::windows::{capture, display};
+use crate::platform::windows::uia::{self, Uia};
+use crate::platform::windows::{capture, display, process, window};
+use windows::Win32::Foundation::HWND;
 
-/// The most text one `input.keyboard.type` request may carry. At one
-/// character per 10 ms it types in 80 s, under the 110 s call limit.
-const MAX_TYPE_CHARS: usize = 8_000;
+/// The backend `window.focused` and `window.activate` report.
+const WINDOW_BACKEND: &str = "windows.user32";
+
+/// The most text one `input.keyboard.type` request may carry. A character
+/// takes 10 ms by its keys and about 90 ms as a Unicode packet, so even a
+/// text of packets only types in 90 s, under the 110 s call limit.
+const MAX_TYPE_CHARS: usize = 1_000;
 
 pub const DISPLAY_BACKEND: &str = "windows.gdi";
 /// A monitor's id on the wire: the scheme and the GDI device name.
@@ -71,6 +84,11 @@ impl BackendMode {
             "input.pointer",
             "input.pointer_relative",
             "clipboard",
+            "accessibility.read",
+            "accessibility.action",
+            "accessibility.focus_hint",
+            "window.focused",
+            "window.activate",
         ]
     }
 
@@ -89,9 +107,9 @@ impl BackendMode {
                 supported("input.pointer_relative", "os.pointer", win_input::BACKEND),
                 supported("clipboard.read", "os.clipboard", clipboard::BACKEND),
                 supported("clipboard.write", "os.clipboard", clipboard::BACKEND),
-                unavailable("accessibility.read", "os.accessibility"),
-                unavailable("accessibility.windows", "os.accessibility"),
-                unavailable("accessibility.action", "os.accessibility"),
+                supported("accessibility.read", "os.accessibility", uia::BACKEND),
+                supported("accessibility.windows", "os.accessibility", uia::BACKEND),
+                supported("accessibility.action", "os.accessibility", uia::BACKEND),
             ],
         })
     }
@@ -103,16 +121,6 @@ fn supported(name: &str, scope: &str, backend: &str) -> Value {
         "status": "supported",
         "permission_scope": scope,
         "backend": backend,
-    })
-}
-
-fn unavailable(name: &str, scope: &str) -> Value {
-    json!({
-        "name": name,
-        "status": "unavailable",
-        "permission_scope": scope,
-        "reason_code": "BACKEND_UNAVAILABLE",
-        "reason": "this Windows backend is not built yet",
     })
 }
 
@@ -189,6 +197,53 @@ enum PointerRequestError {
 
 type OpenPointer = (String, PointerConfig, Arc<dyn PointerService>);
 
+/// `window.activate`: the grant and the window to bring to the front.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WindowActivateParams {
+    grant_id: String,
+    revoke_epoch: u64,
+    target: String,
+}
+
+/// A window as `window.focused` and `window.activate` answer, the fields
+/// the Linux dispatcher gives.
+fn describe_window(hwnd: Option<HWND>) -> Value {
+    match hwnd {
+        Some(hwnd) => {
+            let pid = process::window_pid(hwnd).unwrap_or(0);
+            json!({
+                "found": true,
+                "app": process::name(pid).unwrap_or_default(),
+                "title": uia::window_title(hwnd),
+                "geometry": uia::window_frame(hwnd).map(|(x, y, w, h)| json!([x, y, w, h])),
+            })
+        }
+        None => json!({"found": false, "app": "", "title": "", "geometry": null}),
+    }
+}
+
+/// Case, accents of spacing and punctuation do not decide a match.
+fn normalize(text: &str) -> String {
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+/// 3 exact, 2 prefix or suffix, 1 substring, 0 no match: X11's rule.
+fn field_score(query: &str, value: &str) -> u8 {
+    if value.is_empty() {
+        0
+    } else if value == query {
+        3
+    } else if value.starts_with(query) || value.ends_with(query) {
+        2
+    } else {
+        u8::from(value.contains(query))
+    }
+}
+
 pub struct Dispatcher {
     mode: BackendMode,
     initialized: bool,
@@ -199,6 +254,10 @@ pub struct Dispatcher {
     keyboard: Option<(u64, Arc<dyn KeyboardService>)>,
     pointer: Option<OpenPointer>,
     relative: Option<Arc<dyn RelativeService>>,
+    /// Connected by the first accessibility request, never at startup.
+    accessibility: Option<Uia>,
+    /// What the dumps listed, for the actions that name them.
+    accessibility_dumps: DumpRegistry,
 }
 
 impl Dispatcher {
@@ -214,6 +273,8 @@ impl Dispatcher {
             keyboard: None,
             pointer: None,
             relative: None,
+            accessibility: None,
+            accessibility_dumps: DumpRegistry::default(),
         }
     }
 
@@ -293,6 +354,17 @@ impl Dispatcher {
             "input.pointer.release_all" => self.pointer_release_all(id),
             "input.pointer.take_auto_released" => self.pointer_take_auto_released(id),
             "input.pointer.position" => self.pointer_position(id),
+            "accessibility.dump" => self.accessibility_dump(id, params),
+            "accessibility.windows" => self.accessibility_read(id, params, &|tree, hint| {
+                accessibility::windows_hinted(tree, hint)
+            }),
+            "accessibility.focused" => self.accessibility_read(id, params, &|tree, hint| {
+                accessibility::focused_hinted(tree, hint)
+            }),
+            "accessibility.act" => self.accessibility_act(id, params),
+            "accessibility.set_text" => self.accessibility_set_text(id, params, &binary),
+            "window.focused" => self.window_focused(id, params),
+            "window.activate" => self.window_activate(id, params),
             "clipboard.read" => self.clipboard_read(id, params),
             "clipboard.write" => self.clipboard_write(id, params, &binary),
             "clipboard.clear" => self.clipboard_clear(id, params),
@@ -669,6 +741,12 @@ impl Dispatcher {
             Ok(keyboard) => keyboard,
             Err(outcome) => return *outcome,
         };
+        // Releasing is always allowed; pressing goes to the window in front.
+        if !matches!(action, KeyAction::Up)
+            && let Some(refused) = self.elevated_target(&id, process::foreground_pid())
+        {
+            return refused;
+        }
         let result = match action {
             KeyAction::Key => keyboard.key(&params.combo),
             KeyAction::Down => keyboard.key_down(&params.combo),
@@ -705,7 +783,12 @@ impl Dispatcher {
             Ok(keyboard) => keyboard,
             Err(outcome) => return *outcome,
         };
-        match keyboard.type_text(text) {
+        if let Some(refused) = self.elevated_target(&id, process::foreground_pid()) {
+            return refused;
+        }
+        // A Windows line break is one Enter, not two.
+        let text = text.replace("\r\n", "\n");
+        match keyboard.type_text(&text) {
             Ok(typed) => self.success(
                 id,
                 json!({"typed": typed, "held": keyboard.held(), "backend": win_input::BACKEND}),
@@ -995,6 +1078,9 @@ impl Dispatcher {
             Ok(ready) => ready,
             Err(outcome) => return *outcome,
         };
+        if let Some(refused) = self.elevated_target(&id, process::pid_under_cursor()) {
+            return refused;
+        }
         let hold = match params.hold_ms {
             None => DEFAULT_CLICK_HOLD,
             Some(ms) if ms <= MAX_CLICK_HOLD_MS => Duration::from_millis(ms),
@@ -1025,6 +1111,9 @@ impl Dispatcher {
             Ok(ready) => ready,
             Err(outcome) => return *outcome,
         };
+        if let Some(refused) = self.elevated_target(&id, process::pid_at(params.x1, params.y1)) {
+            return refused;
+        }
         match pointer.drag(params.x1, params.y1, params.x2, params.y2, &params.button) {
             Ok(()) => self.success(
                 id,
@@ -1045,6 +1134,9 @@ impl Dispatcher {
             Ok(ready) => ready,
             Err(outcome) => return *outcome,
         };
+        if let Some(refused) = self.elevated_target(&id, process::pid_under_cursor()) {
+            return refused;
+        }
         match pointer.scroll(params.amount, params.horizontal) {
             Ok(()) => self.success(
                 id,
@@ -1063,6 +1155,9 @@ impl Dispatcher {
                 Ok(ready) => ready,
                 Err(outcome) => return *outcome,
             };
+        if down && let Some(refused) = self.elevated_target(&id, process::pid_under_cursor()) {
+            return refused;
+        }
         let result = if down {
             pointer.mouse_down(&params.button)
         } else {
@@ -1186,6 +1281,280 @@ impl Dispatcher {
         if let Some(relative) = self.relative.take() {
             relative.close();
         }
+    }
+
+    // ----------------------------------------------------------- accessibility
+
+    fn accessibility_tree(&mut self) -> Result<&Uia, ErrorBody> {
+        if self.accessibility.is_none() {
+            let uia = Uia::connect().map_err(|error| accessibility_error_body(&error))?;
+            self.accessibility = Some(uia);
+        }
+        Ok(self
+            .accessibility
+            .as_ref()
+            .expect("UI Automation was just connected"))
+    }
+
+    fn accessibility_grant<T: DeserializeOwned + AccessibilityGrant>(
+        &self,
+        id: &str,
+        params: Value,
+    ) -> Result<T, Box<DispatchOutcome>> {
+        let params = serde_json::from_value::<T>(params).map_err(|error| {
+            Box::new(self.invalid(
+                id.to_owned(),
+                format!("invalid accessibility parameters: {error}"),
+            ))
+        })?;
+        if params.grant_id().is_empty() || params.grant_id().len() > 256 {
+            return Err(Box::new(
+                self.invalid(id.to_owned(), "grant_id must be nonempty and bounded"),
+            ));
+        }
+        self.validate_grant(params.grant_id(), params.revoke_epoch())
+            .map_err(|failure| Box::new(self.safety_error(id.to_owned(), failure)))?;
+        Ok(params)
+    }
+
+    /// The focused window as Windows knows it: the foreground window's
+    /// process and title, which wins over any hint, as X11's does.
+    fn focus_hint() -> Option<FocusHint> {
+        let hwnd = window::foreground()?;
+        let pid = process::window_pid(hwnd)?;
+        Some(FocusHint {
+            pid,
+            title: uia::window_title(hwnd),
+            apps: Vec::new(),
+        })
+    }
+
+    fn accessibility_dump(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match self.accessibility_grant::<AccessibilityDumpParams>(&id, params) {
+            Ok(params) => params,
+            Err(outcome) => return *outcome,
+        };
+        let deadline_ms = match params.deadline_ms {
+            0 => DUMP_DEADLINE_MS,
+            value => value.min(DUMP_DEADLINE_MS_MAX),
+        };
+        // UIA shows an elevated window's frame and nothing inside it; say
+        // why instead of returning an empty list.
+        let focused = matches!(params.target.trim(), "" | "focused");
+        if focused && let Some(refused) = self.elevated_target(&id, process::foreground_pid()) {
+            return refused;
+        }
+        let request = DumpRequest {
+            focus: Self::focus_hint().or_else(|| params.focus.as_ref().map(FocusParams::hint)),
+            target: match params.target.trim() {
+                "" => "focused".to_owned(),
+                target => target.to_owned(),
+            },
+            interactive_only: params.interactive_only,
+            max_nodes: match params.max_nodes {
+                0 => accessibility::DEFAULT_MAX_NODES,
+                value => usize::try_from(value.min(MAX_DUMP_NODES))
+                    .unwrap_or(accessibility::DEFAULT_MAX_NODES),
+            },
+            deadline: Some(Instant::now() + Duration::from_millis(deadline_ms)),
+            deadline_seconds: deadline_ms.div_ceil(1000),
+        };
+        let read = match self.accessibility_tree() {
+            Ok(tree) => accessibility::read_dump(tree, &request),
+            Err(error) => return self.body_error(id, error),
+        };
+        if let Err(failure) = self.validate_grant(&params.grant_id, params.revoke_epoch) {
+            return self.safety_error(id, failure);
+        }
+        match read {
+            Ok((mut dump, record)) => {
+                let snapshot = self.accessibility_dumps.insert(record);
+                dump["snapshot"] = Value::String(snapshot);
+                dump["backend"] = json!(uia::BACKEND);
+                self.success(id, dump, None)
+            }
+            Err(error) => self.body_error(id, accessibility_error_body(&error)),
+        }
+    }
+
+    fn accessibility_read(
+        &mut self,
+        id: String,
+        params: Value,
+        read: &AccessibilityRead,
+    ) -> DispatchOutcome {
+        let params = match self.accessibility_grant::<AccessibilityGrantParams>(&id, params) {
+            Ok(params) => params,
+            Err(outcome) => return *outcome,
+        };
+        let hint = Self::focus_hint().or_else(|| params.focus.as_ref().map(FocusParams::hint));
+        let result = match self.accessibility_tree() {
+            Ok(tree) => read(tree, hint.as_ref()),
+            Err(error) => return self.body_error(id, error),
+        };
+        if let Err(failure) = self.validate_grant(&params.grant_id, params.revoke_epoch) {
+            return self.safety_error(id, failure);
+        }
+        match result {
+            Ok(result) => self.success(id, result, None),
+            Err(error) => self.body_error(id, accessibility_error_body(&error)),
+        }
+    }
+
+    /// Click: resolve, check the grant once more, then send the action once.
+    fn accessibility_act(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match self.accessibility_grant::<AccessibilityActParams>(&id, params) {
+            Ok(params) => params,
+            Err(outcome) => return *outcome,
+        };
+        let (record, node) = match self
+            .accessibility_dumps
+            .node(&params.snapshot, &params.reference)
+        {
+            Ok(found) => found,
+            Err(error) => return self.body_error(id, accessibility_error_body(&error)),
+        };
+        if let Err(error) = self.accessibility_tree() {
+            return self.body_error(id, error);
+        }
+        let tree = self.accessibility.as_ref().expect("connected above");
+        let target = action_target(&record, &node);
+        let prepared = match action::prepare_act(tree, &target, &params.action) {
+            Ok(prepared) => prepared,
+            Err(error) => return self.body_error(id, accessibility_error_body(&error)),
+        };
+        if let Err(failure) = self.validate_grant(&params.grant_id, params.revoke_epoch) {
+            return self.safety_error(id, failure);
+        }
+        match action::perform_act(tree, prepared) {
+            Ok(result) => self.success(id, result, None),
+            Err(error) => self.body_error(id, accessibility_error_body(&error)),
+        }
+    }
+
+    /// Replace a field's text; the text is the request payload.
+    fn accessibility_set_text(
+        &mut self,
+        id: String,
+        params: Value,
+        data: &[u8],
+    ) -> DispatchOutcome {
+        let params = match self.accessibility_grant::<AccessibilitySetTextParams>(&id, params) {
+            Ok(params) => params,
+            Err(outcome) => return *outcome,
+        };
+        let Ok(text) = std::str::from_utf8(data) else {
+            return self.invalid(id, "the text is not UTF-8");
+        };
+        let (record, node) = match self
+            .accessibility_dumps
+            .node(&params.snapshot, &params.reference)
+        {
+            Ok(found) => found,
+            Err(error) => return self.body_error(id, accessibility_error_body(&error)),
+        };
+        if let Err(error) = self.accessibility_tree() {
+            return self.body_error(id, error);
+        }
+        let tree = self.accessibility.as_ref().expect("connected above");
+        let target = action_target(&record, &node);
+        let prepared = match action::prepare_set_text(tree, &target) {
+            Ok(prepared) => prepared,
+            Err(error) => return self.body_error(id, accessibility_error_body(&error)),
+        };
+        if let Err(failure) = self.validate_grant(&params.grant_id, params.revoke_epoch) {
+            return self.safety_error(id, failure);
+        }
+        match action::perform_set_text(tree, prepared, text, action::TEXT_SETTLE) {
+            Ok(result) => self.success(id, result, None),
+            Err(error) => self.body_error(id, accessibility_error_body(&error)),
+        }
+    }
+
+    // ----------------------------------------------------------------- windows
+
+    /// The focused window with its frame, under the grant: a title is
+    /// screen content.
+    fn window_focused(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match serde_json::from_value::<ClipboardGrantParams>(params) {
+            Ok(params) => params,
+            Err(error) => return self.invalid(id, format!("invalid window parameters: {error}")),
+        };
+        if let Some(refused) = self.clipboard_check(&id, &params.grant_id, params.revoke_epoch) {
+            return refused;
+        }
+        let mut result = describe_window(window::foreground());
+        result["backend"] = json!(WINDOW_BACKEND);
+        self.success(id, result, None)
+    }
+
+    /// Activate the one window `target` names: title or application name,
+    /// exact beats prefix or suffix beats substring, a tie activates
+    /// nothing. Windows lets a process bring a window to the front only
+    /// when it sent the last input, so one key no application sees
+    /// (`VK_F24`) goes first (measured in W0). Confirmed by reading the
+    /// foreground back, never assumed.
+    fn window_activate(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match serde_json::from_value::<WindowActivateParams>(params) {
+            Ok(params) => params,
+            Err(error) => return self.invalid(id, format!("invalid window parameters: {error}")),
+        };
+        if let Some(refused) = self.clipboard_check(&id, &params.grant_id, params.revoke_epoch) {
+            return refused;
+        }
+        let query = normalize(&params.target);
+        let ranked: Vec<(u8, HWND)> = if query.is_empty() || params.target.chars().count() > 256 {
+            Vec::new()
+        } else {
+            uia::top_windows()
+                .into_iter()
+                .filter_map(|window| {
+                    let title = normalize(&uia::window_title(window.hwnd));
+                    let app = normalize(&process::name(window.pid).unwrap_or_default());
+                    let score = field_score(&query, &title).max(field_score(&query, &app));
+                    (score > 0).then_some((score, window.hwnd))
+                })
+                .collect()
+        };
+        let best = ranked.iter().map(|(score, _)| *score).max().unwrap_or(0);
+        let top: Vec<HWND> = ranked
+            .iter()
+            .filter(|(score, _)| *score == best)
+            .map(|(_, hwnd)| *hwnd)
+            .collect();
+        let mut activated = false;
+        if let [hwnd] = top.as_slice() {
+            activated = window::activate(*hwnd);
+        }
+        let mut result = describe_window(window::foreground());
+        result["activated"] = json!(activated);
+        result["ambiguous"] = json!(top.len() > 1);
+        result["backend"] = json!(WINDOW_BACKEND);
+        self.success(id, result, None)
+    }
+
+    /// The refusal of a write whose target runs elevated, before anything
+    /// is sent: Windows would drop it without a word.
+    fn elevated_target(&self, id: &str, pid: Option<u32>) -> Option<DispatchOutcome> {
+        let pid = pid?;
+        if !process::runs_above_us(pid) {
+            return None;
+        }
+        let app = process::name(pid).unwrap_or_else(|| format!("process {pid}"));
+        Some(self.body_error(
+            id.to_owned(),
+            ErrorBody {
+                code: "TARGET_ELEVATED".to_owned(),
+                message: format!(
+                    "{app} runs as administrator. Windows does not let a normal process \
+                     send it input or read it (UIPI), and drops such input without an \
+                     error, so nothing was sent. Use it yourself, or start it without \
+                     administrator rights."
+                ),
+                retryable: false,
+                category: "permission".to_owned(),
+            },
+        ))
     }
 
     // --------------------------------------------------------------- clipboard

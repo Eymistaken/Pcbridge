@@ -10,3 +10,6 @@ pub mod desktop_state;
 pub mod display;
 pub mod input;
 pub mod lifecycle;
+pub mod process;
+pub mod uia;
+pub mod window;

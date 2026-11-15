@@ -183,10 +183,12 @@ connection. After the handshake, a request with a different minor returns
   a locked session and releases what they hold. Two differences:
   - `input.keyboard.type` (feature `input.keyboard.type`): the grant fields
     of `input.keyboard.ensure`, and the text as UTF-8 in the **request
-    payload**. It types characters (`KEYEVENTF_UNICODE`, a line break and a
-    tab as their keys), one every 10 ms, at most 8000 per request, and
-    returns `typed` and `held`. Refused (`INVALID_PARAMS`) while a key is
-    held.
+    payload**. Each character goes by the keys the foreground window's
+    layout types it with (Shift and AltGr included; a line break is Enter,
+    CRLF one Enter), one every 10 ms; a character the layout has no key for
+    goes as a `KEYEVENTF_UNICODE` packet with 40 ms before and after it. At
+    most 1000 characters per request; returns `typed` and `held`. Refused
+    (`INVALID_PARAMS`) while a key is held.
   - The clipboard is text (`CF_UNICODETEXT`, backend `windows.clipboard`):
     a write needs a `text/*` MIME type and UTF-8 content (otherwise
     `UNSUPPORTED` or `INVALID_PARAMS`); a read returns
@@ -267,6 +269,24 @@ connection. After the handshake, a request with a different minor returns
     accessibility, retryable; `ACTION_UNSUPPORTED`, `TEXT_MISMATCH`
     accessibility, not retryable; `TIMEOUT` execution, retryable;
     `EXECUTION_UNKNOWN` execution, not retryable.
+- **On Windows** (W6d) `accessibility.dump`, `.windows`, `.focused`, `.act`
+  and `.set_text` run the same walk, records and checks over UI Automation
+  (backend `windows.uia`), with AT-SPI's names: an application is a process
+  with visible top-level windows (`app_bus` `pid:<pid>`, named after its
+  executable), a window's `ref` is `hwnd:<handle>`, an element's is its
+  RuntimeId (`rid:...`). Control types map to libatspi roles (`Edit`
+  "entry", a password `Edit` "password text", `Document` "text"); patterns
+  to actions (Invoke "click", Toggle "toggle", SelectionItem "select",
+  ExpandCollapse "expand or collapse"); a writable ValuePattern is
+  EditableText. The window in front is the focused one (the focus hint's
+  `pid`). `window.focused` and `window.activate` take the same parameters
+  and answer the same fields as on X11 (backend `windows.user32`); the
+  geometry is DWM's visible frame in canvas coordinates, and activation
+  sends one `VK_F24` first so Windows lets the helper bring the window to
+  the front. A key, a click, the wheel, a drag or a focused dump aimed at a
+  window that runs above the helper's integrity level is refused with
+  `TARGET_ELEVATED` (category `permission`) before anything is sent: UIPI
+  would drop it silently.
 - `cancel`: validates `params.target_id` and today answers `canceled: false`;
   capture has its own 1-8000 ms timeout and lifecycle gates, and the
   dispatcher does not run requests concurrently yet.

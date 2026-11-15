@@ -18,11 +18,9 @@ use crate::fail_closed::{FailClosed, LifecycleFailure};
 
 const COMBO_PAUSE: Duration = Duration::from_millis(30);
 /// Text is typed one character at a time, `TEXT_PAUSE` apart, with the lock
-/// released in between, so a revoke stops it within one character. Measured
-/// on Windows 11 (docs/dev/measured-facts.md, W6c): Notepad turned
-/// `KEYEVENTF_UNICODE` characters sent faster than one per 6 ms into repeats
-/// of an earlier one after the first space; one per 6, 8 and 10 ms read back
-/// exactly. 10 ms keeps a margin.
+/// released in between, so a revoke stops it within one character. The
+/// device decides how each character goes (Windows: the layout's keys, or a
+/// Unicode packet with its own pauses; docs/dev/measured-facts.md, W6c).
 const TEXT_CHUNK: usize = 1;
 const TEXT_PAUSE: Duration = Duration::from_millis(10);
 pub const DEFAULT_HOLD_MAX: Duration = Duration::from_secs(120);

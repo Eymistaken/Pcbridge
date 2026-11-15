@@ -9,7 +9,7 @@ its commit lands; do not copy measurements into this file.
 
 ## Where it stands
 
-W0 to W5 and W6a-c are on `main` (W6c: 2026-11-16). On Windows the
+W0 to W5 and W6a-d are on `main` (W6c-d: 2026-11-16). On Windows the
 daemon, the supervisor, the local IPC, jobs, shell, agents, files, the system
 tools, the live terminal (`tmux_*` through ConPTY, `pcbridge attach`), remote
 access and the login check work. The native helper builds on Windows, answers
@@ -17,8 +17,10 @@ access and the login check work. The native helper builds on Windows, answers
 (`rust/crates/pcbridge-native/src/dispatch_windows.rs`,
 `src/platform/windows/`), and since W6c types, clicks, scrolls and drags
 through `SendInput` and reads and writes the clipboard, under the grant with
-a 100 ms watchdog. UI Automation, windows, lock and idle state, and the
-frame are next.
+a 100 ms watchdog; since W6d it reads and acts on the screen through UI
+Automation (the shared walk of `src/accessibility/` over a UIA `Tree`),
+lists and activates windows, and refuses elevated targets with
+`TARGET_ELEVATED`. Lock and idle state and the frame are next.
 
 ## Rules for this work
 
@@ -122,7 +124,7 @@ pcbridge/desktop/platforms/windows/
    it back, click, drag, scroll, a held key auto-released, the release time
    after revoke (target: as on Linux, at most 100 ms). Record the numbers.
 
-### W6d: UI Automation and windows
+### ~~W6d: UI Automation and windows~~ (done: `36dde54` and `174a234` move, then UIA)
 
 - `ui.dump`, `ui.act`, `ui.set_text` with UIA: `RuntimeId` as the identity,
   Invoke / Toggle / SelectionItem for actions, `ValuePattern` for text with

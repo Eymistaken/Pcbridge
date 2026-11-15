@@ -595,14 +595,23 @@ through NativeClient in the desktop session
 keyboard and mouse hooks in the probe recorded what Windows delivered; no
 input went to the host desktop.
 
-- **Text by Unicode needs a pace.** `KEYEVENTF_UNICODE` characters sent
-  in one `SendInput` call, or one per call with 5 ms or less between them,
-  came into Windows 11 Notepad as repeats of an earlier character after
-  the first space (`abc yyyyyyyyyyyyyyyy` for `abc typed xyz qwerty`); one
-  every 6, 8 and 10 ms read back exactly. The same line by scan codes in
-  one call read back exactly. The helper types text one character every
-  10 ms (`input.keyboard.type`, 46 characters in 513 ms), so one request
-  carries at most 8000 characters.
+- **Text by Unicode packets is unreliable; by keys it is not.**
+  `KEYEVENTF_UNICODE` characters sent in one `SendInput` call, or one per
+  call with 5 ms or less between them, came into Windows 11 Notepad as
+  repeats of an earlier character after the first space (`abc
+  yyyyyyyyyyyyyyyy` for `abc typed xyz qwerty`); one every 6, 8 and 10 ms
+  read back exactly at first, but later, with Notepad holding more tabs,
+  10 ms apart garbled again (`pcbridge eeeed iiii...`). The same line by
+  scan codes in one call read back exactly every time. A packet is one
+  global "last character" the receiver reads when it gets to the message,
+  so a busy receiver reads a later one. So the helper types each character
+  with the keys of the foreground window's layout (`VkKeyScanExW`, Shift and
+  AltGr, Caps Lock undone, dead keys excluded), one every 10 ms, and only a
+  character the layout lacks as a packet. With a 30 ms pause after each
+  packet the first packet after a space was still lost once in three runs;
+  with 40 ms before and after, five runs of 46 characters (13 of them
+  packets on the VM's US layout: Turkish letters and an emoji) read back
+  exactly, 1.5 s each.
 - **Read back.** Turkish letters in both cases, digits, an emoji (a
   surrogate pair) and a line break typed into Notepad, then `return`,
   `shift+a`, `b`, `space`, `backspace`, `c` by scan code: WM_GETTEXT on the
@@ -626,6 +635,39 @@ input went to the host desktop.
 - **Clipboard.** `CF_UNICODETEXT` written with no owner window:
   `clipboard.read` and PowerShell's `Get-Clipboard` both read
   `abc-ğüş-clipboard` back; after `clipboard.clear` the read was empty.
+
+## Windows: UI Automation and windows (W6d, 2026-11-16)
+
+Measured in the Windows 11 test VM with the helper's release build, through
+NativeClient in the desktop session
+(`scripts/dev/windows/probes/uia_native_probe.py`).
+
+- **The walk over UIA.** The focused dump of Notepad listed 30 nodes in
+  151-208 ms (first UIA use in a fresh helper included): the text area as
+  `text` "Text editor" (editable, focused), tabs as `page tab` with
+  `select`, buttons with `click` or `toggle`, menus with `click` and
+  `expand or collapse`. A dump by application name ("notepad") listed the
+  same 30 in 150 ms. `accessibility.windows` took 99 ms the first time
+  and 31 ms after (one cold run took 9.8 s, the first UIA use on that
+  boot); `focused` 31 ms; `window.focused` under 1 ms.
+- **set_text.** `ValuePattern.SetValue` with Turkish letters in both cases
+  and a line break: answered `verified: true`, 34 characters, and Notepad's
+  own control (WM_GETTEXT) held exactly that text, the line break as CRLF.
+  RichEdit stores `\r`; the tree reads line breaks back as `\n`.
+- **act.** Invoke on "Add New Tab" by its dumped ref (`resolved_by:
+  path`) opened a new tab (the window title became "Untitled - Notepad");
+  on "Close Tab" it closed one (8 tabs, then 7). An unknown snapshot was
+  `ELEMENT_STALE`.
+- **window.activate.** With Paint in front, `notepad` brought Notepad to
+  the front in 5.8 and 28.1 ms (`VK_F24`, then `SetForegroundWindow`,
+  confirmed by the foreground read back); an unknown target activated
+  nothing.
+- **Elevated windows.** A Notepad started as administrator (UAC confirmed
+  through QEMU): a key with it in front and a click on it were refused
+  with `TARGET_ELEVATED`; its window is listed by `accessibility.windows`
+  (the title is the top-level window's) though UIA shows nothing inside
+  it. The Python client did not know the code yet and reported it as
+  `INVALID_FRAME` (W7 adds it).
 
 ## Remote clients, revocation and the password (2026-10-14)
 
