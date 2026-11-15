@@ -1,9 +1,6 @@
-use std::collections::VecDeque;
-use std::collections::hash_map::RandomState;
-use std::hash::{BuildHasher, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use pcbridge_core::{
     ErrorBody, Frame, PROTOCOL_MAJOR, PROTOCOL_MINOR, ProtocolError, RequestHeader, ResponseHeader,
@@ -12,6 +9,11 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
+use crate::accessibility::requests::{
+    AccessibilityActParams, AccessibilityDumpParams, AccessibilityGrant, AccessibilityGrantParams,
+    AccessibilityRead, AccessibilitySetTextParams, DUMP_DEADLINE_MS, DUMP_DEADLINE_MS_MAX,
+    DumpRegistry, FocusParams, MAX_DUMP_NODES, accessibility_error_body, action_target,
+};
 use crate::input::requests::{
     KeyboardActionParams, KeyboardGrantParams, POINTER_STEP, PointerButtonParams,
     PointerClickParams, PointerDragParams, PointerEnsureParams, PointerGrantParams,
@@ -21,7 +23,7 @@ use crate::input::requests::{
 #[cfg(feature = "test-harness")]
 use crate::lifecycle::LeaseFailure;
 use crate::lifecycle::{FailClosed, Lifecycle, LifecycleFailure};
-use crate::platform::linux::accessibility::action::{self, Target};
+use crate::platform::linux::accessibility::action;
 use crate::platform::linux::accessibility::bus::AtspiBus;
 #[cfg(feature = "test-harness")]
 use crate::platform::linux::accessibility::fixture::FixtureTree;
@@ -313,71 +315,6 @@ impl AccessibilitySource {
             #[cfg(feature = "test-harness")]
             Self::Fixture(fixture) => fixture.as_ref(),
         }
-    }
-}
-
-/// The dumps this helper made, newest last (Task 6.3).
-///
-/// An action names a dump by the snapshot id that dump returned, and a node
-/// by its object path. The helper acts only on what it listed itself: an id
-/// from another helper, another process or an older grant is unknown here.
-#[derive(Debug, Default)]
-struct DumpRegistry {
-    dumps: VecDeque<(String, DumpRecord)>,
-    /// Seeded from the operating system once per helper, so ids differ
-    /// between helpers and between runs.
-    random: RandomState,
-    issued: u64,
-}
-
-/// Dumps kept for actions. The host acts on its last dump; the few before
-/// it cover a dump that lands while an action on the previous one runs.
-const KEPT_DUMPS: usize = 8;
-
-impl DumpRegistry {
-    /// Keep `record` and return its snapshot id: 12 hex digits, the length
-    /// the Python reader's ids have.
-    fn insert(&mut self, record: DumpRecord) -> String {
-        let id = loop {
-            self.issued += 1;
-            let mut hasher = self.random.build_hasher();
-            hasher.write_u64(self.issued);
-            let id = format!("{:012x}", hasher.finish() & 0xffff_ffff_ffff);
-            if self.dumps.iter().all(|(known, _)| *known != id) {
-                break id;
-            }
-        };
-        self.dumps.push_back((id.clone(), record));
-        while self.dumps.len() > KEPT_DUMPS {
-            self.dumps.pop_front();
-        }
-        id
-    }
-
-    /// The dump and the node an action names.
-    fn node(
-        &self,
-        snapshot: &str,
-        reference: &str,
-    ) -> Result<(DumpRecord, NodeRecord), AccessibilityError> {
-        let Some((_, record)) = self.dumps.iter().find(|(id, _)| id == snapshot) else {
-            return Err(AccessibilityError {
-                code: "ELEMENT_STALE",
-                message: "This helper does not hold that list (the grant may have been renewed \
-                          or the helper restarted). Nothing was done; refresh the list with \
-                          ui_dump."
-                    .to_owned(),
-            });
-        };
-        let Some(node) = record.nodes.get(reference) else {
-            return Err(AccessibilityError {
-                code: "ELEMENT_STALE",
-                message: "That element is not in that list. Nothing was done; refresh the \
-                          list with ui_dump."
-                    .to_owned(),
-            });
-        };
-        Ok((record.clone(), node.clone()))
     }
 }
 
@@ -2652,43 +2589,6 @@ struct SessionOpenParams {
     include_pointer: bool,
 }
 
-/// A dump gives up after this long unless the request asks for less; the
-/// host's own request timeout is longer, so the reason arrives as TIMEOUT.
-const DUMP_DEADLINE_MS: u64 = 15_000;
-/// Finding an action's target again gives up after this long, before
-/// anything is sent. With the call itself (`bus::ACTION_TIMEOUT`) and the
-/// text read back it stays under the host's 20 s.
-const RESOLVE_DEADLINE_MS: u64 = 8_000;
-
-fn action_target<'a>(record: &'a DumpRecord, node: &'a NodeRecord) -> Target<'a> {
-    Target {
-        record,
-        node,
-        deadline: Some(Instant::now() + Duration::from_millis(RESOLVE_DEADLINE_MS)),
-        deadline_seconds: RESOLVE_DEADLINE_MS / 1000,
-    }
-}
-const DUMP_DEADLINE_MS_MAX: u64 = 20_000;
-/// The largest list one dump may return (the walk visits 25 times more).
-const MAX_DUMP_NODES: u64 = 2_000;
-
-fn accessibility_error_body(error: &AccessibilityError) -> ErrorBody {
-    let (category, retryable) = match error.code {
-        "ELEMENT_STALE" | "ELEMENT_AMBIGUOUS" | "TARGET_MISMATCH" => ("accessibility", true),
-        "ACTION_UNSUPPORTED" | "TEXT_MISMATCH" => ("accessibility", false),
-        "TIMEOUT" => ("execution", true),
-        // Sent and not answered: it may have happened, so it is not retried.
-        "EXECUTION_UNKNOWN" => ("execution", false),
-        _ => ("capability", true),
-    };
-    ErrorBody {
-        code: error.code.to_owned(),
-        message: error.message.clone(),
-        retryable,
-        category: category.to_owned(),
-    }
-}
-
 #[cfg(feature = "test-harness")]
 fn load_fixture_desktop(desktop: &str) -> Result<FixtureTree, ErrorBody> {
     let unsupported = |message: String| ErrorBody {
@@ -2705,151 +2605,6 @@ fn load_fixture_desktop(desktop: &str) -> Result<FixtureTree, ErrorBody> {
     let fixture: Value = serde_json::from_str(&text)
         .map_err(|error| unsupported(format!("the accessibility fixture is not JSON: {error}")))?;
     FixtureTree::from_fixture(&fixture, desktop).map_err(unsupported)
-}
-
-trait AccessibilityGrant {
-    fn grant_id(&self) -> &str;
-    fn revoke_epoch(&self) -> u64;
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AccessibilityGrantParams {
-    grant_id: String,
-    revoke_epoch: u64,
-    #[serde(default)]
-    focus: Option<FocusParams>,
-}
-
-/// The compositor's focused window, where the host can ask it and the
-/// helper cannot (GNOME's shell extension): its title and the names of its
-/// application. Sent with `accessibility.focus_hint`; an X11 answer the
-/// helper reads itself wins over it.
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FocusParams {
-    #[serde(default)]
-    title: String,
-    #[serde(default)]
-    apps: Vec<String>,
-}
-
-/// Longest title and application name taken from a focus hint, and how many
-/// names: the extension sends at most 200 characters and two names.
-const FOCUS_HINT_FIELD_MAX: usize = 512;
-const FOCUS_HINT_APPS_MAX: usize = 4;
-
-impl FocusParams {
-    fn hint(&self) -> accessibility::FocusHint {
-        let cut = |text: &str| text.chars().take(FOCUS_HINT_FIELD_MAX).collect::<String>();
-        accessibility::FocusHint {
-            pid: 0,
-            title: cut(&self.title),
-            apps: self
-                .apps
-                .iter()
-                .map(|name| cut(name))
-                .filter(|name| !name.trim().is_empty())
-                .take(FOCUS_HINT_APPS_MAX)
-                .collect(),
-        }
-    }
-}
-
-/// A read of the tree, given the focus hint the request carried.
-type AccessibilityRead =
-    dyn Fn(&dyn Tree, Option<&accessibility::FocusHint>) -> Result<Value, AccessibilityError>;
-
-fn default_target() -> String {
-    "focused".to_owned()
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AccessibilityDumpParams {
-    grant_id: String,
-    revoke_epoch: u64,
-    #[serde(default = "default_target")]
-    target: String,
-    #[serde(default = "default_true")]
-    interactive_only: bool,
-    /// 0 means the default, as in the Python helper.
-    #[serde(default)]
-    max_nodes: u64,
-    /// 0 means the default.
-    #[serde(default)]
-    deadline_ms: u64,
-    #[serde(default)]
-    focus: Option<FocusParams>,
-}
-
-fn default_action() -> String {
-    "click".to_owned()
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AccessibilityActParams {
-    grant_id: String,
-    revoke_epoch: u64,
-    /// The dump the node was listed in, as that dump returned it.
-    snapshot: String,
-    /// The node's object path, the `ref` of its dump entry.
-    #[serde(rename = "ref")]
-    reference: String,
-    #[serde(default = "default_action")]
-    action: String,
-}
-
-/// The text travels in the binary payload.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AccessibilitySetTextParams {
-    grant_id: String,
-    revoke_epoch: u64,
-    snapshot: String,
-    #[serde(rename = "ref")]
-    reference: String,
-}
-
-impl AccessibilityGrant for AccessibilityActParams {
-    fn grant_id(&self) -> &str {
-        &self.grant_id
-    }
-
-    fn revoke_epoch(&self) -> u64 {
-        self.revoke_epoch
-    }
-}
-
-impl AccessibilityGrant for AccessibilitySetTextParams {
-    fn grant_id(&self) -> &str {
-        &self.grant_id
-    }
-
-    fn revoke_epoch(&self) -> u64 {
-        self.revoke_epoch
-    }
-}
-
-impl AccessibilityGrant for AccessibilityGrantParams {
-    fn grant_id(&self) -> &str {
-        &self.grant_id
-    }
-
-    fn revoke_epoch(&self) -> u64 {
-        self.revoke_epoch
-    }
-}
-
-impl AccessibilityGrant for AccessibilityDumpParams {
-    fn grant_id(&self) -> &str {
-        &self.grant_id
-    }
-
-    fn revoke_epoch(&self) -> u64 {
-        self.revoke_epoch
-    }
 }
 
 const CLIPBOARD_BACKEND: &str = "linux.wl-clipboard.native";
@@ -3019,61 +2774,6 @@ fn ping_result(params: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn record(path: &str) -> DumpRecord {
-        let node = NodeRecord {
-            object: accessibility::ObjectRef::new(":1.30", path),
-            path: vec![0, 1],
-            role: "push button".to_owned(),
-            name: "Tamam".to_owned(),
-            shared: false,
-        };
-        DumpRecord {
-            app: "pcbridge-editor".to_owned(),
-            app_bus: ":1.30".to_owned(),
-            window: None,
-            nodes: std::iter::once((path.to_owned(), node)).collect(),
-        }
-    }
-
-    #[test]
-    fn actions_name_only_dumps_this_helper_made() {
-        let mut registry = DumpRegistry::default();
-        let first = registry.insert(record("/a"));
-        assert_eq!(first.len(), 12);
-        assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
-        let (_, node) = registry.node(&first, "/a").expect("its own dump");
-        assert_eq!(node.name, "Tamam");
-        // A node of another dump, an unknown id, an id of another helper.
-        assert_eq!(
-            registry.node(&first, "/b").unwrap_err().code,
-            "ELEMENT_STALE"
-        );
-        assert_eq!(
-            registry.node("000000000000", "/a").unwrap_err().code,
-            "ELEMENT_STALE"
-        );
-        let other = DumpRegistry::default().insert(record("/a"));
-        assert_ne!(other, first, "two helpers issue different ids");
-        assert_eq!(
-            registry.node(&other, "/a").unwrap_err().code,
-            "ELEMENT_STALE"
-        );
-    }
-
-    #[test]
-    fn only_the_last_dumps_are_kept() {
-        let mut registry = DumpRegistry::default();
-        let ids: Vec<String> = (0..=KEPT_DUMPS)
-            .map(|_| registry.insert(record("/a")))
-            .collect();
-        let unique: std::collections::HashSet<&String> = ids.iter().collect();
-        assert_eq!(unique.len(), ids.len());
-        assert!(registry.node(&ids[0], "/a").is_err(), "the oldest is gone");
-        for id in &ids[1..] {
-            assert!(registry.node(id, "/a").is_ok());
-        }
-    }
 
     #[test]
     fn production_mode_never_advertises_fake_backend() {

@@ -31,6 +31,9 @@
 
 pub mod action;
 pub mod fixture;
+// The Windows dispatcher takes these up with its accessibility methods.
+#[cfg(target_os = "linux")]
+pub(crate) mod requests;
 
 use std::collections::HashMap;
 use std::time::Instant;
