@@ -371,6 +371,98 @@ shell on its own session bus, Plasma and Hyprland in their VMs.
   (median 220.5 ms, p95 237.4 ms). Every case closed its grant and
   runtime and left the screen unlocked.
 
+## Windows 11 baseline for the port (W0, 2026-11-15)
+
+Measured in the Windows 11 test VM (`scripts/dev/windows-vm.sh`): Windows 11
+Pro build 26300.9457 (English, x64, from Microsoft's ISO checked against the
+published SHA-256), OVMF Secure Boot, swtpm TPM 2.0, one 1280x800 output on
+QEMU's standard VGA (Microsoft Basic Display Adapter), local administrator
+`tester` running unelevated (Medium integrity). The probes are
+`scripts/dev/windows/probes/` and run in the logged-on desktop session
+through `windows-vm.sh session`; "hardware" input is QEMU's USB tablet and
+keyboard, driven from the host. No input went to the reference desktop.
+What each fact means for the port is in [windows-scope.md](windows-scope.md).
+
+- **The test VM.** The unattended install took about 25 minutes: 8 from
+  the boot to the first logon, then 15 for `setup.ps1`, most of them
+  OpenSSH's download from Windows Update. OpenSSH's firewall rule allows only the Private
+  profile and QEMU's user network comes up Public, so SSH timed out in the
+  banner exchange until the rule was set to every profile (now in
+  `setup.ps1`). OOBE's ComputerName plugin replaced the answer file's
+  `PCBRIDGE-WIN` with `W-`. An SSH logon gets a session of its own with no
+  desktop: everything below that touches the screen ran in the console
+  session (session 2) through an interactive scheduled task.
+- **Python cannot import pcbridge.** CPython 3.12.10 for Windows has no
+  `socket.AF_UNIX`. `pcbridge.tools` fails on `fcntl` (through
+  `desktop.lease`), `pcbridge.loginpw` on `pwd`, `paths.runtime_dir()` on
+  `os.getuid`; `relay`, `daemon` and the CLI import, because their Linux
+  calls happen at run time.
+- **Named pipe.** `CreateNamedPipeW` with a protected DACL that grants only
+  the user's SID (`D:P(A;;GA;;;<SID>)`), `FILE_FLAG_FIRST_PIPE_INSTANCE`
+  and `PIPE_REJECT_REMOTE_CLIENTS` works for an unelevated user; a second
+  "first instance" of the same name is refused with error 5, which is the
+  protection against another process taking the name first. A 200-byte
+  round trip through a thread server took 16.3 us on average (2000 rounds).
+  On 64-bit Windows every ctypes handle parameter needs its `argtypes`:
+  without them the token calls failed quietly and returned no SID.
+- **Injected input and idle time.** `SendInput` resets `GetLastInputInfo`
+  (idle 998 s before, 0.3 s after a 1-pixel move), as uinput does on Linux.
+  A `WH_MOUSE_LL` hook sees pcbridge's own events with `LLMHF_INJECTED` set
+  and the `dwExtraInfo` value pcbridge put there, and saw all 20 of QEMU's
+  hardware events in a 10-second window with the flag clear. So on Windows
+  the user-active guard can count only input that is not pcbridge's own,
+  which uinput cannot offer.
+- **Foreground rules.** A process started by the foreground process comes
+  to the front (Notepad, then Paint). After a hardware click on the taskbar
+  moved the foreground away, `SetForegroundWindow` from the probe returned
+  false and nothing changed; after the probe injected one `VK_F24` (bound to
+  nothing) the same call succeeded, and so it did after an injected Alt.
+  `SendInput` counts as "the calling process received the last input
+  event". With the Start menu open, the foreground stayed "Search" and the
+  call failed even after the injected key. A Run box opened with Win+R took
+  no keyboard focus until it was clicked.
+- **Lock state.** `WTSQuerySessionInformationW(WTSSessionInfoEx)`:
+  `SessionFlags` read 1 unlocked and 0 locked after `LockWorkStation`, as
+  documented, once the structure put the level-1 data at offset 8 (its
+  union holds `LARGE_INTEGER`s; at offset 4 it read 0 in both states).
+  Independently, `OpenInputDesktop` returns the `Default` desktop unlocked
+  and fails with error 5 locked. QEMU's keys reach the lock screen and the
+  UAC secure desktop; an unelevated `SendInput` does not (below).
+- **Capture.** DXGI Desktop Duplication (`dxcam`, BGRA) works on the Basic
+  Display Adapter: first frame 4.9 ms, 800x1280x4. It returns no new frame
+  while nothing on screen changes, so "fresh after the request" needs the
+  last frame kept. A GDI `BitBlt` of the whole 1280x800 screen took 28-33
+  ms. Windows.Graphics.Capture is not measured yet.
+- **UI Automation.** Notepad's text area is a Document element ("Text
+  editor", class `RichEditD2DPT`) with Value, Text and Invoke patterns.
+  `ValuePattern.SetValue("pcbridge uia ğüşiöç")` read back exactly, and
+  the element's `RuntimeId` was the same after the edit, so it can serve as
+  the element identity the way AT-SPI's object path does.
+- **UIPI.** Against a Notepad started elevated (UAC confirmed through
+  QEMU), the unelevated probe found no UIA element, `SendInput` of 46 events
+  returned 46 with no error while Notepad showed 0 characters, and a
+  `WM_CLOSE` posted to it was dropped. The failure is silent: pcbridge must
+  check the target's integrity level and refuse with a reason.
+- **ConPTY.** `pywinpty` 3.1.2 with `pyte` 0.8.2 as the screen: `cmd.exe`
+  in a 100x30 ConPTY, an `echo` and a three-line loop all read back from
+  the emulated screen, and `exit` ended the process within a second.
+- **Login password check.** `LogonUserW` (interactive logon, local
+  account): the right password succeeded in 27 ms, a wrong one failed in
+  1.1 ms with 1326 (`ERROR_LOGON_FAILURE`). A Microsoft account and Windows
+  Hello are not measured (the VM has neither).
+- **Text encoding.** A probe's stdout redirected to a file used cp1252 and
+  failed on "ğ": every child process pcbridge reads on Windows needs an
+  explicit UTF-8 setting.
+- **Display and DPI.** Per-Monitor-V2 awareness set; one monitor
+  `\\.\DISPLAY1` at 0,0 1280x800, 96 DPI. More than one monitor, 150 %
+  scaling and mixed scaling are not measured yet: the Basic Display Adapter
+  offers one output, so they need a display driver with several heads or a
+  physical machine.
+- **Not measured yet.** Windows.Graphics.Capture and its border; the
+  coding agents' Windows installs (`claude.exe`, `codex`, npm `.cmd`
+  shims); multi-monitor and DPI scaling; a Microsoft account and Windows
+  Hello for the login check.
+
 ## Remote clients, revocation and the password (2026-10-14)
 
 Measured with unreleased code against a throwaway daemon (temp config, state

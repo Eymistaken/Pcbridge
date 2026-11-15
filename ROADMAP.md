@@ -49,8 +49,10 @@ here, not by moving sections.
    with the maintainer (2026-11-12): X11 support also covers systems below
    glibc 2.39 (Linux Mint 21, Pardus 23), so the helper had to run there
    before X11 could. Left: the checks under each item below.
-8. **Windows.** After everything above; see *Optional: Windows* for what it
-   involves. Scope to be written before work starts.
+8. **Windows.** Full parity on Windows 11 (the maintainer's decision,
+   2026-11-15). ~~W0: the test VM, the measurements and the scope~~ (done,
+   [docs/dev/windows-scope.md](docs/dev/windows-scope.md)); W1 to W10 follow
+   the order there. See *Optional: Windows*.
 9. **Website.** Last, once the feature set has settled, so the site is not
    chasing every new feature; see *Optional: website*. Until then the
    install script is served from a GitHub release URL.
@@ -333,18 +335,16 @@ at the machine* checks, batched for a session at the machine.
 
 ## Optional: Windows
 
-- **Windows support (to be scoped).** Planned after the stages above. Not
-  designed yet; what is known to differ, so the scope can be written:
-  the daemon's Unix socket and systemd socket activation (Windows has
-  AF_UNIX sockets and named pipes, and services or a per-user startup task
-  instead of systemd), tmux (none; ConPTY or a different live-terminal
-  design), uinput (SendInput), screen capture (Windows.Graphics.Capture),
-  AT-SPI (UI Automation), window activation (Windows' foreground-window
-  rules), the screen lock and idle time, the grant indicator and kill
-  switch, the coding agents' CLIs and paths, and packaging and install.
-  The native helper's provider design is the natural home for the
-  Windows desktop backend. Done when a scope document lists which tools
-  ship on Windows, which do not and why, and the security model for it.
+- **Windows support.** Scoped (W0, 2026-11-15):
+  [docs/dev/windows-scope.md](docs/dev/windows-scope.md) lists every
+  tool's Windows mechanism, the limits Windows imposes (elevated windows,
+  the secure desktop, SmartScreen) and the security model; the
+  measurements behind it are in measured facts, taken in the Windows 11
+  test VM (`scripts/dev/windows-vm.sh`). Left: W1 to W10. Done when all 40
+  tools, the terminal UI, install, upgrade and remote access work on
+  Windows 11, checked end to end in a fresh VM. Open decisions: a
+  code-signing certificate (`uiAccess` for elevated windows, SmartScreen)
+  and the release's version number.
 
 ## Optional: website
 
