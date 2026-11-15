@@ -149,7 +149,7 @@ palette over the terminal's background, mouse and keyboard.
 - **The bar at the top** shows the daemon, the tunnel and the desktop grant
   on every tab. Its button unlocks (with a duration menu) or locks; `l`
   locks at once and asks before it unlocks.
-- **Overview** opens on a live logo that glows while agents work and turns
+- **Overview** opens on a live logo that breathes softly while agents work and turns
   red after a refused call; when a newer release is out it becomes a green
   arrow that upgrades pcbridge on a click (`pcbridge upgrade` does the same
   in a script). Then the service, `pcbridge doctor`'s health

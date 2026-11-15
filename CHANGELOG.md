@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.10.2 - 2026-11-15
+
+### Changed
+
+- **The logo's glow opens, breathes and fades.** The Overview's logo used
+  to switch its glow on and off at once, so a job made it flash. Now the
+  glow opens in about 0.8 s, inner ring first, and fades in about 1.2 s,
+  outer ring first. While a job runs it breathes on a 3.2 s cycle, between
+  full strength and a little over half, and the letters brighten slightly
+  with it. A tool call without a job gives a lighter, still glow that stays
+  lit until 4 s after the last call, so calls a few seconds apart no longer
+  make it flicker. An error comes in red within half a second, stays
+  steady, and fades a minute later. `TEXTUAL_ANIMATIONS=none` keeps the old
+  instant changes.
+
+### Fixed
+
+- **The logo no longer jumps sideways.** When running jobs made the
+  Overview taller than the terminal, a scrollbar appeared and the centered
+  logo moved one column to the left, then back when the jobs ended
+  (measured: column 32 to 31). The scrollbar's column is now always kept.
+  Below 96 columns, the line beside the icon has a fixed width, so the
+  icon stays put while the line changes.
+
 ## 2.10.1 - 2026-11-15
 
 ### Added

@@ -232,10 +232,14 @@ def totals(path: Path) -> Totals:
     return Totals(count, first, size)
 
 
+CALL_HOLD_S = 4.0
+
+
 def logo_state(entries: list[Entry], jobs_running: int, now: float | None = None) -> tuple[str, Entry | None]:
     """idle, active or error from the newest entries (newest first) and the jobs.
 
-    Active: a job runs, or a tool call happened in the last 3 s. Error: the
+    Active: a job runs, or a tool call happened in the last 4 s (calls a few
+    seconds apart keep it lit; the Overview polls every 2 s). Error: the
     last tool call failed or was refused; it clears 60 s after that error.
     """
     now = time.time() if now is None else now
@@ -243,6 +247,6 @@ def logo_state(entries: list[Entry], jobs_running: int, now: float | None = None
     last = calls[0] if calls else None
     if last is not None and last.failed and now - last.when <= 60:
         return "error", last
-    if jobs_running or (last is not None and now - last.when <= 3):
+    if jobs_running or (last is not None and now - last.when <= CALL_HOLD_S):
         return "active", last
     return "idle", last

@@ -6,6 +6,12 @@ pixel is close to square. Wide terminals get the wordmark, narrow ones the
 terminal icon. The state (idle, active, error) tints the gray and adds a
 glow; a click plays one short reaction and shows the reason for the state.
 
+The glow never switches: three levels (blue, red, breathing) ease toward
+the state's targets, so it opens in about 0.8 s, inner ring first, and
+fades in about 1.2 s, outer ring first. While a job runs it breathes on a
+3.2 s cycle; a single tool call gives a lighter glow. Without motion
+(`TEXTUAL_ANIMATIONS=none`) the levels jump, as before.
+
 When a newer release is out the logo becomes the upgrade: its pixels flow
 into a green arrow with a black edge (`show_arrow`), which fills from the
 bottom while the upgrade installs (`set_fill`) and then shoots up and away
@@ -121,6 +127,15 @@ STATES: dict[str, dict[str, Any]] = {
     "error": {"left": (246, 224, 227), "right": (182, 128, 136), "glow": (232, 72, 90),
               "rings": (0.44, 0.22, 0.08)},
 }
+# The glow's easing: the time constant (s) toward a higher and a lower
+# level; about three of them reach the target. Red comes faster and goes
+# slower, so an error is not missed.
+TAU = {"blue": (0.26, 0.42), "red": (0.17, 0.7), "breathe": (0.3, 0.3)}
+BLIP = 0.62                  # a tool call without a job: a lighter glow
+BREATH_S = 3.2               # one breath while a job runs
+BREATH_LOW = 0.58            # the glow at the bottom of a breath
+GLOW_FPS = 15
+RING_STEP = 0.18             # ring d lights once the level passes (d - 1) * this
 BOTTOM = (70, 78, 88)        # the slight darkening toward the bottom row
 FIXED_BASE = (14, 18, 22)    # #0e1216, the glow's base when the terminal did not answer
 WHITE = (255, 255, 255)
@@ -246,6 +261,13 @@ class Logo(Widget):
         self._u_started = 0.0
         self._u_timer: Any = None
         self._bob_timer: Any = None
+        # The glow's levels and where they are heading (set_state).
+        self.levels = dict(self._targets(state, working=True), breathe=0.0)
+        self.targets = dict(self.levels)
+        self._glow_timer: Any = None
+        self._glow_last = 0.0
+        self._t0 = time.monotonic()
+        self._pix: dict[tuple[int, int], RGB] | None = None
         self._layout()
 
     # -- geometry ----------------------------------------------------------------
@@ -313,17 +335,94 @@ class Logo(Widget):
             self._layout()
             self.refresh(layout=True)
 
-    def set_state(self, state: str) -> None:
-        if state in STATES and state != self.state:
-            self.state = state
+    @staticmethod
+    def _targets(state: str, working: bool) -> dict[str, float]:
+        if state == "error":
+            return {"blue": 0.0, "red": 1.0, "breathe": 0.0}
+        if state == "active":
+            return {"blue": 1.0 if working else BLIP, "red": 0.0, "breathe": 1.0 if working else 0.0}
+        return {"blue": 0.0, "red": 0.0, "breathe": 0.0}
+
+    def set_state(self, state: str, working: bool = True) -> None:
+        """Head for `state`'s glow; `working`: a job runs, so it breathes."""
+        if state not in STATES:
+            return
+        targets = self._targets(state, working)
+        if state == self.state and targets == self.targets:
+            return
+        self.state = state
+        self.targets = targets
+        if not self._motion():
+            self.levels = dict(targets)
             self.refresh()
+            return
+        if self._glow_timer is None:
+            self._glow_last = time.monotonic()
+            self._glow_timer = self.set_interval(1 / GLOW_FPS, self._glow_tick)
+
+    def _glow_tick(self) -> None:
+        now = time.monotonic()
+        dt = min(0.25, now - self._glow_last)
+        self._glow_last = now
+        settled = True
+        for key, goal in self.targets.items():
+            value = self.levels[key]
+            up, down = TAU[key]
+            value += (goal - value) * (1 - math.exp(-dt / (up if goal > value else down)))
+            if abs(goal - value) < 0.004:
+                value = goal
+            else:
+                settled = False
+            self.levels[key] = value
+        if settled and not self.levels["breathe"] and self._glow_timer is not None:
+            self._glow_timer.stop()
+            self._glow_timer = None
+        self.refresh()
+
+    def refresh(self, *args: Any, **kwargs: Any) -> Any:
+        self._pix = None
+        return super().refresh(*args, **kwargs)
 
     # -- pixel colors ------------------------------------------------------------
 
+    def _letter_ends(self) -> tuple[RGB, RGB]:
+        """The letters' left and right colors at the current levels."""
+        idle, act, err = STATES["idle"], STATES["active"], STATES["error"]
+        b, r = self.levels["blue"], self.levels["red"]
+        left = mix(mix(idle["left"], act["left"], b), err["left"], r)
+        right = mix(mix(idle["right"], act["right"], b), err["right"], r)
+        return left, right
+
     def letter_color(self, x: int, y: int) -> RGB:
-        st = STATES[self.state]
-        color = mix(st["left"], st["right"], (x - self.ml) / max(1, self.bw - 1))
+        left, right = self._letter_ends()
+        color = mix(left, right, (x - self.ml) / max(1, self.bw - 1))
         return mix(color, BOTTOM, 0.16 * (y - self.mt) / max(1, self.bh - 1))
+
+    def breath(self) -> tuple[float, float]:
+        """(the glow's factor, the wave 0..1) of the breathing now."""
+        amount = self.levels["breathe"]
+        if not amount:
+            return 1.0, 0.0
+        wave = 0.5 - 0.5 * math.cos(2 * math.pi * (time.monotonic() - self._t0) / BREATH_S)
+        return 1 - amount * (1 - (BREATH_LOW + (1 - BREATH_LOW) * wave)), wave
+
+    def glow_now(self) -> tuple[RGB | None, list[float]]:
+        """The glow color and the three rings' strength at the current levels."""
+        b, r = self.levels["blue"], self.levels["red"]
+        level = max(b, r)
+        if level <= 0.004:
+            return None, [0.0, 0.0, 0.0]
+        act, err = STATES["active"], STATES["error"]
+        share = r / (b + r)
+        glow = mix(act["glow"], err["glow"], share)
+        factor, _wave = self.breath()
+        rings = []
+        for d in (1, 2, 3):
+            alpha = act["rings"][d - 1] + (err["rings"][d - 1] - act["rings"][d - 1]) * share
+            start = (d - 1) * RING_STEP
+            stage = max(0.0, min(1.0, (level - start) / (1 - start)))
+            rings.append(alpha * stage * factor)
+        return glow, rings
 
     def arrow_color(self, kind: str, row: int, lit: bool = True) -> RGB:
         if kind == "K":
@@ -366,9 +465,12 @@ class Logo(Widget):
 
     def pixels(self) -> dict[tuple[int, int], RGB]:
         """The color of every lit pixel at the current frame; unlit ones are absent."""
-        if self.upgrade is not None:
-            return self._upgrade_pixels()
-        st = STATES[self.state]
+        return self._upgrade_pixels() if self.upgrade is not None else self._state_pixels()
+
+    def _state_pixels(self) -> dict[tuple[int, int], RGB]:
+        left, right = self._letter_ends()
+        _factor, wave = self.breath()
+        lift = 0.06 * self.levels["breathe"] * wave
         p = self.progress if self.reaction else 0.0
         env = math.sin(math.pi * p) if self.reaction else 0.0
         reaction = self.reaction
@@ -382,8 +484,10 @@ class Logo(Widget):
             t = (x - self.ml) / span
             if reaction == "flow":
                 t = tri(t + 2 * p)
-            color = mix(st["left"], st["right"], t)
+            color = mix(left, right, t)
             color = mix(color, BOTTOM, 0.16 * (y - self.mt) / max(1, self.bh - 1))
+            if lift:
+                color = mix(color, WHITE, lift)
             if reaction == "pulse":
                 color = mix(color, WHITE, 0.15 * env)
             elif reaction == "sweep":
@@ -394,8 +498,7 @@ class Logo(Widget):
             if self.hover:
                 color = mix(color, WHITE, 0.08)
             out[(x, y + shift.get(x, 0))] = color
-        rings = list(st["rings"])
-        glow = st["glow"]
+        glow, rings = self.glow_now()
         if reaction == "pulse":
             rings = [a * (1 + 1.3 * env) + b * env for a, b in zip(rings, (0.30, 0.16, 0.08))]
             glow = glow or (150, 160, 172)  # even idle glows briefly
@@ -424,7 +527,10 @@ class Logo(Widget):
     # -- drawing -----------------------------------------------------------------
 
     def render_line(self, y: int) -> Strip:
-        pix = self.pixels()
+        # One frame's pixels serve all its rows; refresh() starts a new frame.
+        if self._pix is None:
+            self._pix = self.pixels()
+        pix = self._pix
         top, low = 2 * y, 2 * y + 1
         segments = []
         for x in range(self.pw):

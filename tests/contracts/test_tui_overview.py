@@ -195,6 +195,54 @@ class OverviewTests(unittest.TestCase):
         self.assertEqual(auditlog.logo_state([ok, fresh_error], 0, now)[0], "active")
         self.assertEqual(auditlog.logo_state([], 1, now)[0], "active")
         self.assertEqual(auditlog.logo_state([], 0, now)[0], "idle")
+        # Calls a few seconds apart keep it lit (the tab polls every 2 s).
+        call = entry(0, event="fs_read", client="x")
+        self.assertEqual(auditlog.logo_state([call], 0, call.when + 3.5)[0], "active")
+        self.assertEqual(auditlog.logo_state([call], 0, call.when + 4.5)[0], "idle")
+
+    def test_the_logo_stays_in_its_column_when_jobs_make_the_tab_scroll(self) -> None:
+        places = []
+        for jobs in (0, 5):
+            backend = FakeBackend()
+            rows = []
+            for i in range(jobs):
+                j = running_job()
+                j["id"] = f"20261114-02113{i}-7f3a9{i}"
+                rows.append(j)
+            backend.job_rows = rows
+
+            async def body(app, pilot):
+                await pilot.pause(2.5)
+                await settle(app, pilot)
+                places.append(app.query_one(Logo).region.x)
+
+            run(backend, body, size=(120, 30))
+        self.assertEqual(places[0], places[1])
+
+    def test_a_job_breathes_and_a_lone_call_glows_lighter(self) -> None:
+        backend = FakeBackend()
+        backend.job_rows = [running_job()]
+
+        async def body(app, pilot):
+            await pilot.pause(2.5)
+            await settle(app, pilot)
+            logo = app.query_one(Logo)
+            self.assertEqual(logo.targets["breathe"], 1.0)
+            self.assertEqual(logo.targets["blue"], 1.0)
+
+        run(backend, body)
+        backend = FakeBackend()
+        backend.audit_rows = [entry(0.5, event="fs_read", client="claude-code")]
+
+        async def body2(app, pilot):
+            await pilot.pause(2.5)
+            await settle(app, pilot)
+            logo = app.query_one(Logo)
+            self.assertEqual(logo.state, "active")
+            self.assertEqual(logo.targets["breathe"], 0.0)
+            self.assertLess(logo.targets["blue"], 1.0)
+
+        run(backend, body2)
 
 
 if __name__ == "__main__":

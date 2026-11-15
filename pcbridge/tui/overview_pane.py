@@ -30,6 +30,11 @@ from .theme import PALETTE, SPINNER
 from .widgets import SectionTitle, key_label, set_kind
 
 CSS = """
+/* The scrollbar's column is always kept, so the centered logo does not
+   jump one column when the jobs make the tab scroll (measured: 32 -> 31). */
+OverviewPane {
+    scrollbar-gutter: stable;
+}
 /* Each part is centered on its own full-width row: Textual's align centers
    a container's children as one block, so a wider reason box or state line
    pushed the logo to the left of that block. */
@@ -42,7 +47,7 @@ OverviewPane #logo-row, OverviewPane #logo-reason-row {
     align-horizontal: center;
 }
 OverviewPane #logo-side {
-    width: auto;
+    width: 46;
     height: auto;
     padding: 2 0 0 2;
 }
@@ -517,9 +522,10 @@ class OverviewPane(ScrollPane):
     def _to_activity(self) -> None:
         self.app.action_show_tab("activity")
 
-    def set_state(self, state: str, entry: auditlog.Entry | None) -> None:
+    def set_state(self, state: str, entry: auditlog.Entry | None, working: bool = True) -> None:
         self.state, self.state_entry = state, entry
-        self.query_one("#logo", Logo).set_state(state)
+        # A job breathes; a tool call without one glows lighter and still.
+        self.query_one("#logo", Logo).set_state(state, working=working)
         self._render_logo_line()
         if self.query_one("#logo-reason").has_class("shown"):
             self.query_one("#logo-reason-text", Static).update(self._reason())
@@ -549,7 +555,7 @@ class OverviewPane(ScrollPane):
         self.jobs = jobs
         running = [j for j in jobs if j.get("status") == "running"]
         state, entry = auditlog.logo_state(entries, len(running))
-        self.set_state(state, entry)
+        self.set_state(state, entry, working=bool(running))
         self._render_jobs()
         self._render_activity()
 

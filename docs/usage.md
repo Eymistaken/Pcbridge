@@ -230,7 +230,9 @@ from a script, `pcbridge` alone prints the help as before. It is laid out for
   unlocks at once; its `▾` picks another duration (5 min to the
   `unlock_max_minutes` ceiling). `l` locks at once but asks before it
   unlocks, with the same duration picker.
-- **1 Overview**: the live logo (blue glow while a tool call or a job runs,
+- **1 Overview**: the live logo (a blue glow that opens and fades smoothly:
+  it breathes while a job runs and glows lighter for a few seconds after a
+  tool call,
   red for a minute after a call failed or was refused; a click shows the
   reason; when a newer release is out it turns into a green arrow that
   upgrades on a click or `u`, then offers **Restart to upgrade**), then the
