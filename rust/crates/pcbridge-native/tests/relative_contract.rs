@@ -3,7 +3,6 @@
 //! The fixture is shared with `tests/contracts/test_input_contract.py`: both
 //! implementations must produce the same events for the same call. Nothing
 //! here opens /dev/uinput.
-#![cfg(target_os = "linux")]
 
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -11,8 +10,8 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use pcbridge_core::input::{MOVE_BY_MAX, MOVE_BY_MAX_CHUNKS, relative_chunks};
-use pcbridge_native::lifecycle::{FailClosed, LifecycleFailure};
-use pcbridge_native::platform::linux::input::{
+use pcbridge_native::fail_closed::{FailClosed, LifecycleFailure};
+use pcbridge_native::input::{
     PointerClock, PointerError, Relative, RelativeDevice, RelativeEvent,
     supported_relative_pointer_axes, supported_relative_pointer_buttons,
 };

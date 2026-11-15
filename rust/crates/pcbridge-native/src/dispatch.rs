@@ -12,6 +12,12 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
+use crate::input::requests::{
+    KeyboardActionParams, KeyboardGrantParams, POINTER_STEP, PointerButtonParams,
+    PointerClickParams, PointerDragParams, PointerEnsureParams, PointerGrantParams,
+    PointerMoveParams, PointerScrollParams, RelativeGrantParams, RelativeMoveParams,
+    parse_pointer_params, parse_relative_params,
+};
 #[cfg(feature = "test-harness")]
 use crate::lifecycle::LeaseFailure;
 use crate::lifecycle::{FailClosed, Lifecycle, LifecycleFailure};
@@ -2644,115 +2650,6 @@ struct SessionOpenParams {
     include_pointer: bool,
 }
 
-#[derive(Debug, Deserialize)]
-struct KeyboardGrantParams {
-    grant_id: String,
-    revoke_epoch: u64,
-    hold_max_seconds: u64,
-}
-
-#[derive(Debug, Deserialize)]
-struct KeyboardActionParams {
-    #[serde(flatten)]
-    grant: KeyboardGrantParams,
-    combo: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct PointerGrantParams {
-    grant_id: String,
-    revoke_epoch: u64,
-    hold_max_seconds: u64,
-    topology_id: String,
-    pointer_speed: f64,
-    pointer_max_ms: f64,
-}
-
-/// The envelope for the SECOND, relative device.
-///
-/// Deliberately narrow. `topology_id` is absent because a relative device has
-/// no ABS range: the screen layout cannot invalidate it, and accepting the
-/// field only to ignore it would tell the next reader that the topology was
-/// checked. `hold_max_seconds` is absent because this device never presses a
-/// button, so nothing can be left held.
-#[derive(Debug, Deserialize)]
-struct RelativeGrantParams {
-    grant_id: String,
-    revoke_epoch: u64,
-}
-
-#[derive(Debug, Deserialize)]
-struct RelativeMoveParams {
-    #[serde(flatten)]
-    grant: RelativeGrantParams,
-    dx: i32,
-    dy: i32,
-}
-
-/// Which devices `input.pointer.ensure` should open.
-///
-/// Both default to the old behavior, so a helper talking to an older client
-/// that sends only the grant envelope opens the absolute pointer exactly as
-/// before.
-#[derive(Debug, Deserialize)]
-struct PointerEnsureParams {
-    #[serde(flatten)]
-    grant: PointerGrantParams,
-    #[serde(default = "default_true")]
-    pointer: bool,
-    #[serde(default)]
-    relative: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct PointerMoveParams {
-    #[serde(flatten)]
-    grant: PointerGrantParams,
-    x: i32,
-    y: i32,
-    #[serde(default)]
-    smooth: Option<bool>,
-}
-
-#[derive(Debug, Deserialize)]
-struct PointerClickParams {
-    #[serde(flatten)]
-    grant: PointerGrantParams,
-    button: String,
-    count: u8,
-    /// Each press's duration. Absent means `DEFAULT_CLICK_HOLD`; pcbridge's
-    /// Python side always sends it, resolved from `[desktop] click_hold_ms`.
-    #[serde(default)]
-    hold_ms: Option<u64>,
-}
-
-#[derive(Debug, Deserialize)]
-struct PointerDragParams {
-    #[serde(flatten)]
-    grant: PointerGrantParams,
-    x1: i32,
-    y1: i32,
-    x2: i32,
-    y2: i32,
-    button: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct PointerScrollParams {
-    #[serde(flatten)]
-    grant: PointerGrantParams,
-    amount: i32,
-    #[serde(default)]
-    horizontal: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct PointerButtonParams {
-    #[serde(flatten)]
-    grant: PointerGrantParams,
-    button: String,
-}
-
 /// A dump gives up after this long unless the request asks for less; the
 /// host's own request timeout is longer, so the reason arrives as TIMEOUT.
 const DUMP_DEADLINE_MS: u64 = 15_000;
@@ -3046,119 +2943,6 @@ impl ClipboardGrant for ClipboardWriteParams {
         clipboard::validate_mime(&self.mime)
             .map_err(|_| "mime must be 1 to 256 bytes without control characters")
     }
-}
-
-impl KeyboardGrantParams {
-    fn validate(&self) -> Result<(), &'static str> {
-        const MAX_ID_BYTES: usize = 256;
-        if self.grant_id.is_empty() || self.grant_id.len() > MAX_ID_BYTES {
-            return Err("grant_id must be nonempty and bounded");
-        }
-        if self.hold_max_seconds != 0 && !(5..=3_600).contains(&self.hold_max_seconds) {
-            return Err("hold_max_seconds must be zero or between 5 and 3600");
-        }
-        Ok(())
-    }
-}
-
-impl KeyboardActionParams {
-    fn validate(&self) -> Result<(), &'static str> {
-        self.grant.validate()?;
-        if self.combo.is_empty() || self.combo.len() > 256 {
-            return Err("combo must be nonempty and at most 256 bytes");
-        }
-        Ok(())
-    }
-}
-
-impl RelativeGrantParams {
-    fn validate(&self) -> Result<(), &'static str> {
-        const MAX_ID_BYTES: usize = 256;
-        if self.grant_id.is_empty() || self.grant_id.len() > MAX_ID_BYTES {
-            return Err("grant_id must be nonempty and bounded");
-        }
-        Ok(())
-    }
-}
-
-impl PointerGrantParams {
-    fn validate(&self) -> Result<(), &'static str> {
-        const MAX_ID_BYTES: usize = 256;
-        const MAX_TOPOLOGY_BYTES: usize = 16 * 1024;
-        if self.grant_id.is_empty() || self.grant_id.len() > MAX_ID_BYTES {
-            return Err("grant_id must be nonempty and bounded");
-        }
-        if self.topology_id.is_empty() || self.topology_id.len() > MAX_TOPOLOGY_BYTES {
-            return Err("topology_id must be nonempty and bounded");
-        }
-        if self.hold_max_seconds != 0 && !(5..=3_600).contains(&self.hold_max_seconds) {
-            return Err("hold_max_seconds must be zero or between 5 and 3600");
-        }
-        if !self.pointer_speed.is_finite()
-            || (self.pointer_speed != 0.0 && !(200.0..=100_000.0).contains(&self.pointer_speed))
-        {
-            return Err("pointer_speed must be zero or between 200 and 100000");
-        }
-        if !self.pointer_max_ms.is_finite() || !(20.0..=5_000.0).contains(&self.pointer_max_ms) {
-            return Err("pointer_max_ms must be between 20 and 5000");
-        }
-        Ok(())
-    }
-
-    fn config(&self) -> PointerConfig {
-        PointerConfig {
-            speed: self.pointer_speed,
-            max_ms: self.pointer_max_ms,
-            step: POINTER_STEP,
-            hold_max: Duration::from_secs(self.hold_max_seconds),
-            drag_min_steps: 10,
-        }
-    }
-}
-
-/// Gap between the chunks of one relative nudge. Same 8 ms the absolute
-/// pointer walks its path with; real mice report at 125 Hz.
-const POINTER_STEP: Duration = Duration::from_millis(8);
-
-const POINTER_GRANT_FIELDS: &[&str] = &[
-    "grant_id",
-    "revoke_epoch",
-    "hold_max_seconds",
-    "topology_id",
-    "pointer_speed",
-    "pointer_max_ms",
-];
-
-const RELATIVE_GRANT_FIELDS: &[&str] = &["grant_id", "revoke_epoch"];
-
-fn parse_relative_params<T: DeserializeOwned>(
-    params: Value,
-    action_fields: &[&str],
-) -> Result<T, String> {
-    let object = params
-        .as_object()
-        .ok_or_else(|| "relative pointer parameters must be an object".to_owned())?;
-    if let Some(field) = object.keys().find(|field| {
-        !RELATIVE_GRANT_FIELDS.contains(&field.as_str()) && !action_fields.contains(&field.as_str())
-    }) {
-        return Err(format!("unknown relative pointer parameter '{field}'"));
-    }
-    serde_json::from_value(params).map_err(|error| error.to_string())
-}
-
-fn parse_pointer_params<T: DeserializeOwned>(
-    params: Value,
-    action_fields: &[&str],
-) -> Result<T, String> {
-    let object = params
-        .as_object()
-        .ok_or_else(|| "pointer parameters must be an object".to_owned())?;
-    if let Some(field) = object.keys().find(|field| {
-        !POINTER_GRANT_FIELDS.contains(&field.as_str()) && !action_fields.contains(&field.as_str())
-    }) {
-        return Err(format!("unknown pointer parameter '{field}'"));
-    }
-    serde_json::from_value(params).map_err(|error| error.to_string())
 }
 
 impl SessionOpenParams {

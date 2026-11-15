@@ -1,11 +1,10 @@
-#![cfg(target_os = "linux")]
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use pcbridge_native::lifecycle::{FailClosed, LifecycleFailure};
-use pcbridge_native::platform::linux::input::{
+use pcbridge_native::fail_closed::{FailClosed, LifecycleFailure};
+use pcbridge_native::input::{
     Keyboard, KeyboardClock, KeyboardDevice, KeyboardError, KeyboardEvent, supported_key_names,
 };
 use serde_json::{Value, json};

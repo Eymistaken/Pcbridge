@@ -9,14 +9,9 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use evdev::uinput::VirtualDevice;
-use evdev::{
-    AbsInfo, AbsoluteAxisCode, AttributeSet, BusType, EventType, InputEvent, InputId, KeyCode,
-    RelativeAxisCode, UinputAbsSetup,
-};
 use serde::{Deserialize, Serialize};
 
-use crate::lifecycle::{FailClosed, LifecycleFailure};
+use crate::fail_closed::{FailClosed, LifecycleFailure};
 
 const POSITION_MAX_AGE_SECONDS: f64 = 300.0;
 
@@ -192,82 +187,6 @@ pub trait PointerService: FailClosed + fmt::Debug {
     fn note_external_motion(&self);
     fn is_closed(&self) -> bool;
     fn close(&self) -> Result<Vec<String>, PointerError>;
-}
-
-pub struct EvdevPointerDevice {
-    device: VirtualDevice,
-}
-
-impl fmt::Debug for EvdevPointerDevice {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("EvdevPointerDevice(..)")
-    }
-}
-
-impl EvdevPointerDevice {
-    pub fn create(geometry: PointerGeometry) -> io::Result<Self> {
-        let keys: AttributeSet<KeyCode> =
-            [KeyCode::BTN_LEFT, KeyCode::BTN_RIGHT, KeyCode::BTN_MIDDLE]
-                .into_iter()
-                .collect();
-        let relative: AttributeSet<RelativeAxisCode> =
-            [RelativeAxisCode::REL_WHEEL, RelativeAxisCode::REL_HWHEEL]
-                .into_iter()
-                .collect();
-        let x = UinputAbsSetup::new(
-            AbsoluteAxisCode::ABS_X,
-            AbsInfo::new(0, 0, geometry.max_x(), 0, 0, 0),
-        );
-        let y = UinputAbsSetup::new(
-            AbsoluteAxisCode::ABS_Y,
-            AbsInfo::new(0, 0, geometry.max_y(), 0, 0, 0),
-        );
-        let device = VirtualDevice::builder()?
-            .name("pcbridge-pointer")
-            .input_id(InputId::new(BusType::BUS_VIRTUAL, 0, 0, 1))
-            .with_keys(&keys)?
-            .with_absolute_axis(&x)?
-            .with_absolute_axis(&y)?
-            .with_relative_axes(&relative)?
-            .build()?;
-        Ok(Self { device })
-    }
-}
-
-impl PointerDevice for EvdevPointerDevice {
-    fn emit(&mut self, events: &[PointerEvent]) -> io::Result<()> {
-        let events: Vec<_> = events
-            .iter()
-            .map(|event| {
-                let (kind, code) = match (event.kind, event.code) {
-                    (PointerEventKind::Key, "BTN_LEFT") => {
-                        (EventType::KEY.0, KeyCode::BTN_LEFT.code())
-                    }
-                    (PointerEventKind::Key, "BTN_RIGHT") => {
-                        (EventType::KEY.0, KeyCode::BTN_RIGHT.code())
-                    }
-                    (PointerEventKind::Key, "BTN_MIDDLE") => {
-                        (EventType::KEY.0, KeyCode::BTN_MIDDLE.code())
-                    }
-                    (PointerEventKind::Absolute, "ABS_X") => {
-                        (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_X.0)
-                    }
-                    (PointerEventKind::Absolute, "ABS_Y") => {
-                        (EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_Y.0)
-                    }
-                    (PointerEventKind::Relative, "REL_WHEEL") => {
-                        (EventType::RELATIVE.0, RelativeAxisCode::REL_WHEEL.0)
-                    }
-                    (PointerEventKind::Relative, "REL_HWHEEL") => {
-                        (EventType::RELATIVE.0, RelativeAxisCode::REL_HWHEEL.0)
-                    }
-                    _ => unreachable!("pointer events are constructed from fixed codes"),
-                };
-                InputEvent::new(kind, code, event.value)
-            })
-            .collect();
-        self.device.emit(&events)
-    }
 }
 
 pub trait PointerClock: Send + Sync + 'static {
@@ -746,8 +665,6 @@ impl<D: PointerDevice, C: PointerClock> PointerService for Pointer<D, C> {
         Self::close(self)
     }
 }
-
-pub type NativePointer = Pointer<EvdevPointerDevice, SystemPointerClock>;
 
 fn ensure_open<D>(state: &State<D>) -> Result<(), PointerError> {
     if state.closed || state.device.is_none() {

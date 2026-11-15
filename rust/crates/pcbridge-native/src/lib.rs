@@ -10,6 +10,8 @@ pub mod build_info;
 // PipeWire, uinput and X11; the Windows one around Win32.
 #[cfg_attr(windows, path = "dispatch_windows.rs")]
 pub mod dispatch;
+pub mod fail_closed;
+pub mod input;
 #[cfg(target_os = "linux")]
 pub mod lifecycle;
 pub mod platform;

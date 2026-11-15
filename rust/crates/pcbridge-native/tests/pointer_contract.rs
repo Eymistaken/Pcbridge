@@ -1,4 +1,3 @@
-#![cfg(target_os = "linux")]
 use std::fs;
 use std::io;
 use std::path::PathBuf;
@@ -7,8 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use pcbridge_native::lifecycle::{FailClosed, LifecycleFailure};
-use pcbridge_native::platform::linux::input::{
+use pcbridge_native::fail_closed::{FailClosed, LifecycleFailure};
+use pcbridge_native::input::{
     DEFAULT_CLICK_HOLD, MAX_CLICK_HOLD_MS, Pointer, PointerClock, PointerConfig, PointerDevice,
     PointerError, PointerEvent, PointerGeometry, SystemPointerClock, supported_pointer_buttons,
     supported_pointer_relative_axes,

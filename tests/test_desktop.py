@@ -250,10 +250,10 @@ def test_raw_ascii_table() -> None:
 
 def _helper_key_names() -> set[str] | None:
     """The key names the native helper resolves (`KEY_TABLE`), from its source."""
-    source = ROOT / "rust" / "crates" / "pcbridge-native" / "src" / "platform" / "linux" / "input.rs"
+    source = ROOT / "rust" / "crates" / "pcbridge-native" / "src" / "input" / "keys.rs"
     if not source.is_file():
         return None
-    return set(re.findall(r'\("([a-z0-9]+)", KeyCode::', source.read_text(encoding="utf-8")))
+    return set(re.findall(r'\("([a-z0-9]+)", Key::', source.read_text(encoding="utf-8")))
 
 
 # =============================================================== GUVENLIK KAPI

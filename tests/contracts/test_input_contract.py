@@ -37,8 +37,7 @@ FIXTURE = ROOT / "tests" / "fixtures" / "native" / "input_events.json"
 CANVAS = (3840, 1080)
 CORE_INPUT = ROOT / "rust" / "crates" / "pcbridge-core" / "src" / "input.rs"
 POINTER = (
-    ROOT / "rust" / "crates" / "pcbridge-native" / "src" / "platform" / "linux" / "input"
-    / "pointer.rs"
+    ROOT / "rust" / "crates" / "pcbridge-native" / "src" / "input" / "pointer.rs"
 )
 
 REQUIRED_CASES = {

@@ -27,13 +27,10 @@ use std::io;
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
-use evdev::uinput::VirtualDevice;
-use evdev::{AttributeSet, BusType, EventType, InputEvent, InputId, KeyCode, RelativeAxisCode};
-
 use pcbridge_core::input::relative_chunks;
 
-use super::pointer::{PointerClock, PointerError, SystemPointerClock};
-use crate::lifecycle::{FailClosed, LifecycleFailure};
+use super::pointer::{PointerClock, PointerError};
+use crate::fail_closed::{FailClosed, LifecycleFailure};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RelativeAxis {
@@ -102,52 +99,6 @@ pub fn supported_relative_pointer_buttons() -> Vec<String> {
         .into_iter()
         .map(str::to_owned)
         .collect()
-}
-
-pub struct EvdevRelativeDevice {
-    device: VirtualDevice,
-}
-
-impl fmt::Debug for EvdevRelativeDevice {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("EvdevRelativeDevice(..)")
-    }
-}
-
-impl EvdevRelativeDevice {
-    pub fn create() -> io::Result<Self> {
-        let keys: AttributeSet<KeyCode> =
-            [KeyCode::BTN_LEFT, KeyCode::BTN_RIGHT, KeyCode::BTN_MIDDLE]
-                .into_iter()
-                .collect();
-        let axes: AttributeSet<RelativeAxisCode> =
-            [RelativeAxisCode::REL_X, RelativeAxisCode::REL_Y]
-                .into_iter()
-                .collect();
-        let device = VirtualDevice::builder()?
-            .name("pcbridge-pointer-rel")
-            .input_id(InputId::new(BusType::BUS_VIRTUAL, 0, 0, 1))
-            .with_keys(&keys)?
-            .with_relative_axes(&axes)?
-            .build()?;
-        Ok(Self { device })
-    }
-}
-
-impl RelativeDevice for EvdevRelativeDevice {
-    fn emit(&mut self, events: &[RelativeEvent]) -> io::Result<()> {
-        let events: Vec<InputEvent> = events
-            .iter()
-            .map(|event| {
-                let code = match event.axis {
-                    RelativeAxis::X => RelativeAxisCode::REL_X.0,
-                    RelativeAxis::Y => RelativeAxisCode::REL_Y.0,
-                };
-                InputEvent::new(EventType::RELATIVE.0, code, event.value)
-            })
-            .collect();
-        self.device.emit(&events)
-    }
 }
 
 struct RelativeState<D> {
@@ -283,5 +234,3 @@ fn emit_or_close<D: RelativeDevice>(
     }
     Ok(())
 }
-
-pub type NativeRelativePointer = Relative<EvdevRelativeDevice, SystemPointerClock>;
