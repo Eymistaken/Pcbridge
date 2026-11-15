@@ -12,6 +12,7 @@ pub mod build_info;
 #[cfg_attr(windows, path = "dispatch_windows.rs")]
 pub mod dispatch;
 pub mod fail_closed;
+pub mod glow;
 pub mod input;
 #[cfg(target_os = "linux")]
 pub mod lifecycle;

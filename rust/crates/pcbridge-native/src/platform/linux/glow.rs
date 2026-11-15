@@ -4,7 +4,7 @@
 //! a lease before enabling protected operations. No seat or input object is
 //! bound, and every surface has an explicit empty input region.
 
-mod appearance;
+use crate::glow::appearance;
 mod x11;
 
 pub use appearance::{

@@ -1,4 +1,6 @@
-//! GNOME frame constants, easing, and premultiplied strip pixels.
+//! The grant frame's look: constants, easing, and premultiplied strip
+//! pixels, shared by every system that draws it (GNOME's extension has the
+//! same numbers; the native frame on Hyprland, X11 and Windows uses these).
 
 pub const EDGE_ALPHA: f64 = 0.42;
 pub const FADE_IN_MS: f64 = 700.0;
@@ -58,15 +60,18 @@ pub enum Edge {
 }
 
 impl Edge {
-    pub(super) fn horizontal(self) -> bool {
+    #[must_use]
+    pub const fn horizontal(self) -> bool {
         matches!(self, Self::Top | Self::Bottom)
     }
-    pub(super) fn reversed(self) -> bool {
+    #[must_use]
+    pub const fn reversed(self) -> bool {
         matches!(self, Self::Bottom | Self::Right)
     }
 }
 
-pub(super) fn pixels(edge: Edge, width: u32, height: u32, opacity: f64, breathing: f64) -> Vec<u8> {
+#[must_use]
+pub fn pixels(edge: Edge, width: u32, height: u32, opacity: f64, breathing: f64) -> Vec<u8> {
     let mut bytes = vec![0; width as usize * height as usize * 4];
     let axis = if edge.horizontal() { height } else { width };
     let alphas: Vec<_> = (0..axis)

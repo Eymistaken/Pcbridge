@@ -28,7 +28,7 @@ use x11rb::protocol::xproto::{
 };
 use x11rb::wrapper::ConnectionExt as _;
 
-use super::appearance::{Edge, depth, pixels};
+use crate::glow::appearance::{Edge, depth, pixels};
 use crate::platform::linux::x11::X11;
 
 /// The bar width without a compositing manager, in pixels.
