@@ -224,19 +224,17 @@ class OverviewTests(unittest.TestCase):
         backend.job_rows = [running_job()]
 
         async def body(app, pilot):
-            await pilot.pause(2.5)
-            await settle(app, pilot)
             logo = app.query_one(Logo)
             self.assertEqual(logo.targets["breathe"], 1.0)
             self.assertEqual(logo.targets["blue"], 1.0)
 
         run(backend, body)
         backend = FakeBackend()
-        backend.audit_rows = [entry(0.5, event="fs_read", client="claude-code")]
+        backend.audit_rows = [entry(0, event="fs_read", client="claude-code")]
 
         async def body2(app, pilot):
-            await pilot.pause(2.5)
-            await settle(app, pilot)
+            # The first poll runs at start; a call is lit for 4 s, which a
+            # slow machine can use up while waiting for a second poll.
             logo = app.query_one(Logo)
             self.assertEqual(logo.state, "active")
             self.assertEqual(logo.targets["breathe"], 0.0)
