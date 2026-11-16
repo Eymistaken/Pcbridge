@@ -16,6 +16,7 @@ Spark uzerinden bile olsa sunucuya yetki alamaz.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -23,7 +24,7 @@ import secrets
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from mcp.server.auth.provider import (
     AccessToken,
@@ -190,14 +191,25 @@ class SqliteOAuthProvider(OAuthProvider):
         self._init_db()
 
     # ---------------------------------------------------------------- sqlite
-    def _conn(self) -> sqlite3.Connection:
+    @contextlib.contextmanager
+    def _conn(self) -> Iterator[sqlite3.Connection]:
+        """A connection that commits (or rolls back) and is then closed.
+
+        `sqlite3.Connection` as a context manager only ends the transaction;
+        an open handle keeps the file locked on Windows, so uninstall,
+        upgrade and test cleanup could not remove oauth.db.
+        """
         conn = sqlite3.connect(self.db_path, timeout=15)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        # Deleted rows are overwritten, so a revoked token does not linger in
-        # a free page of the file.
-        conn.execute("PRAGMA secure_delete=ON")
-        return conn
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            # Deleted rows are overwritten, so a revoked token does not linger
+            # in a free page of the file.
+            conn.execute("PRAGMA secure_delete=ON")
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_db(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

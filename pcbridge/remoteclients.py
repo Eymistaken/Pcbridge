@@ -20,12 +20,13 @@ Nothing here returns or logs a token.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 UNNAMED = "(unnamed)"
 # A client id given on the command line must be at least this long, so a
@@ -100,10 +101,19 @@ class RevokeResult:
     refresh_tokens: int
 
 
-def _connect(db: Path) -> sqlite3.Connection:
+@contextlib.contextmanager
+def _connect(db: Path) -> Iterator[sqlite3.Connection]:
+    """A connection that commits (or rolls back) and is then closed.
+
+    An open handle keeps the file locked on Windows.
+    """
     conn = sqlite3.connect(db, timeout=15)
-    conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        conn.row_factory = sqlite3.Row
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def _tables(conn: sqlite3.Connection) -> set[str]:
