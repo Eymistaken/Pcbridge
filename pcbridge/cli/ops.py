@@ -777,6 +777,11 @@ def uninstall(argv: list[str]) -> int:
     inst.remove_cinnamon_applet(backup)
     inst.remove_aliases(backup)
     inst.remove_skill_link(backup)
+    if oscompat.IS_WINDOWS:
+        from . import winsetup
+
+        if winsetup.remove_from_user_path():
+            inst.ok(f"{winsetup.scripts_dir()} taken off your user PATH")
     for client in connectlib.ALL_CLIENTS:
         if not connectlib.current(client).present:
             continue
@@ -803,7 +808,7 @@ def setup_desktop(native, backup, *, no_extension: bool = False, kind: str | Non
     """
     if no_extension:
         return
-    from ..desktop.session import CINNAMON, GNOME, KDE, HYPRLAND, XFCE, desktop_kind
+    from ..desktop.session import CINNAMON, GNOME, KDE, HYPRLAND, WINDOWS, XFCE, desktop_kind
 
     kind = kind or desktop_kind()
     if kind == CINNAMON:
@@ -829,6 +834,10 @@ def setup_desktop(native, backup, *, no_extension: bool = False, kind: str | Non
 
         inst.step("desktop", "Hyprland", 5)
         setup_notes()
+    elif kind == WINDOWS:
+        inst.step("desktop", "Windows", 5)
+        inst.ok("grant frame, tray icon with Lock now and the activity guard: drawn and kept by "
+                "the native helper; nothing to install")
     else:
         inst.step("desktop", "Desktop integration", 5)
         inst.ok("none for this desktop; the terminal, file, tmux and agent tools need none")

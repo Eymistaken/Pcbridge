@@ -75,14 +75,18 @@ class Fetched:
     size: int
 
 
+def _suffix(target: str) -> str:
+    return ".exe" if "windows" in target else ""
+
+
 def asset_name(target: str) -> str:
-    """The release asset that carries the helper for `target`."""
-    return f"pcbridge-native-{target}"
+    """The release asset that carries the helper for `target` (`.exe` on Windows)."""
+    return f"pcbridge-native-{target}{_suffix(target)}"
 
 
 def packaged_path(target: str, package_root: Path | None = None) -> Path:
     """Where discovery looks for the packaged helper (`discovery.py`)."""
-    return (package_root or PACKAGE_ROOT) / "_native" / target / "pcbridge-native"
+    return (package_root or PACKAGE_ROOT) / "_native" / target / f"pcbridge-native{_suffix(target)}"
 
 
 def remedy(kind: str | None = None, *, has_cargo: bool | None = None) -> str:
@@ -229,7 +233,8 @@ def fetch(
     dest = packaged_path(target, package_root)
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_name = tempfile.mkstemp(prefix=".pcbridge-native.", dir=dest.parent)
+        fd, tmp_name = tempfile.mkstemp(prefix=".pcbridge-native.", suffix=_suffix(target),
+                                        dir=dest.parent)
     except OSError as exc:
         raise FetchError(f"cannot write next to {dest}: {exc}") from exc
     tmp = Path(tmp_name)

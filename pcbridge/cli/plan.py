@@ -153,6 +153,11 @@ class Plan:
         names = self.chosen_packages()
         if not names or not self.platform.package_manager:
             return None
+        if self.platform.package_manager == "winget":
+            # One package at a time is what winget takes; there is only one.
+            return ["winget", "install", "--id", names[0], "-e", "--silent",
+                    "--accept-package-agreements", "--accept-source-agreements",
+                    "--disable-interactivity"]
         return distrolib.install_argv(names, self.family)
 
 
@@ -219,9 +224,46 @@ def native_note(glibc: tuple[int, ...] | None = None) -> str:
     return why[0].upper() + why[1:] if why else ""
 
 
+#: What winget installs on Windows, by component (the only system package
+#: pcbridge uses there: tmux, notify-send and the clipboard programs have
+#: built-in counterparts).
+WINGET_TESSERACT = "UB-Mannheim.TesseractOCR"
+
+
+def _build_windows(platform: Platform, probes: Probes, profile_now: str,
+                   recorded_profile: str | None) -> Plan:
+    """Windows: no system packages; OCR through winget; the release's helper."""
+    components: list[Component] = []
+    from ..desktop import ocr as ocrlib
+
+    if platform.desktop_supported and ocrlib._engine() is None:
+        components.append(Component("ocr", "OCR for find_text / wait_for_text (eng)",
+                                    [WINGET_TESSERACT], ticked=True, languages=["eng"]))
+    extras = platform.desktop_supported and not probes.desktop_extras() and probes.own_venv()
+    native_fetch = (platform.desktop_supported and probes.native_fetchable()
+                    and probes.kind() in ("git", "pip", "user"))
+    target, note = decide_profile(platform.desktop_supported, profile_now, recorded_profile)
+    return Plan(
+        platform=platform,
+        family="",
+        needs=[],
+        packages=[],
+        components=components,
+        profile_now=profile_now,
+        profile_target=target,
+        profile_owned=owns_profile(profile_now, recorded_profile),
+        profile_note=note,
+        native_note="",
+        extras=extras,
+        native_fetch=native_fetch,
+    )
+
+
 def build(platform: Platform, *, profile_now: str = "full", recorded_profile: str | None = None,
           probes: Probes | None = None) -> Plan:
     probes = probes or Probes()
+    if platform.desktop_kind == "windows":
+        return _build_windows(platform, probes, profile_now, recorded_profile)
     fam = platform.family or distrolib.DEBIAN
     needs: list[str] = []
     if not probes.which("tmux"):
@@ -423,6 +465,16 @@ def install_packages(plan: Plan) -> tuple[bool, str]:
     if argv is None:
         names = plan.chosen_packages()
         return (not names), (distrolib.install_command(raw=tuple(names), fam=plan.family) if names else "")
+    if argv[0] == "winget":
+        # No sudo: the installer asks Windows for administrator rights itself
+        # (a UAC prompt) when it needs them.
+        inst.say("  $ " + shlex.join(argv))
+        try:
+            done = inst.run_streamed(argv, timeout=900) == 0
+        except OSError as exc:
+            inst.fail(f"winget: {exc}")
+            done = False
+        return done, ("" if done else shlex.join(argv))
     if not shutil.which("sudo"):
         return False, shlex.join(argv)
     if run_sudo(argv):
@@ -506,7 +558,8 @@ def summary(plan: Plan, probes: Probes | None = None) -> list[str]:
     probes = probes or Probes()
     p = plan.platform
     lines = []
-    missing = [name for name in ("tmux",) if not probes.which(name)]
+    # Windows' live terminal sessions are ConPTY (`termhost`), not tmux.
+    missing = [name for name in ("tmux",) if not probes.which(name)] if p.desktop_kind != "windows" else []
     if missing:
         lines.append(f"{CROSS} tmux tools: tmux is not installed ({distrolib.install_command('tmux', fam=plan.family)})")
         lines.append(f"{CHECK} Terminal, files, coding agents")

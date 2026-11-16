@@ -320,9 +320,16 @@ def pick_pkg(names: list[str]) -> str:
     return ""
 
 
-def pick_wheel(names: list[str], arch: str) -> str:
+def wheel_platform(arch: str, windows: bool | None = None) -> str:
+    """The wheel's platform tag for this system: `linux_x86_64` or `win_amd64`."""
+    windows = sys.platform == "win32" if windows is None else windows
+    return "win_amd64" if windows else f"linux_{arch}"
+
+
+def pick_wheel(names: list[str], arch: str, windows: bool | None = None) -> str:
+    tag = wheel_platform(arch, windows)
     for name in names:
-        if re.fullmatch(rf"pcbridge-[0-9][^-]*-py3-none-linux_{re.escape(arch)}\.whl", name):
+        if re.fullmatch(rf"pcbridge-[0-9][^-]*-py3-none-{re.escape(tag)}\.whl", name):
             return name
     return ""
 
@@ -381,7 +388,7 @@ def _install_user(release: Release, fetch: _Fetcher, inst: Any) -> str:
     wheel = fetch.get(wheel_name, show=True)
     inst.ok(f"downloaded {wheel_name} and checked it against sha256sums.txt")
     venv = Path(sys.prefix)
-    python = venv / "bin" / "python"
+    python = venv / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
     data = pathslib.data_home()
     constraints: Path | None = None
     if "constraints.txt" in names:
@@ -427,7 +434,7 @@ def launcher() -> str:
     path = inst.launcher_path()
     if Path(path).exists():
         return str(path)
-    return shutil.which("pcbridge") or str(Path(sys.prefix) / "bin" / "pcbridge")
+    return shutil.which("pcbridge") or str(inst.bin_path("pcbridge"))
 
 
 def finish_argv(idle_wait: float) -> list[str]:
@@ -509,4 +516,4 @@ def take_marker(current: str = __version__, now: Callable[[], float] = time.time
 
 __all__ = ["CHECK_TIMEOUT", "Release", "Status", "UpgradeError", "check", "deb_flavors", "finish",
            "install", "latest_release", "newer", "parse_version", "pick_deb", "pick_pkg", "pick_wheel",
-           "take_marker", "write_marker"]
+           "take_marker", "wheel_platform", "write_marker"]

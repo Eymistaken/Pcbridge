@@ -177,20 +177,22 @@ pcbridge/desktop/platforms/windows/
 - Left: `find_text`/`wait_for_text` with tesseract measured end to end in
   the VM (installed there, not yet run through MCP).
 
-### W8: install and upgrade
+### W8: install and upgrade (done, except the uninstall and upgrade runs: W10)
 
-- `install.ps1` (`irm ... | iex`): finds Python or fetches it with uv,
-  checks the wheel against `sha256sums.txt`, installs into
-  `%LOCALAPPDATA%\pcbridge\venv`, runs `pcbridge setup`. The English guard
-  also scans `*.ps1`.
-- `pcbridge setup` on Windows: OCR and Tailscale components, client
+- ~~`install.ps1` (`irm ... | iex`): finds Python or fetches it with uv,
+  checks the wheel against `sha256sums.txt`, installs into the user venv
+  (`%LOCALAPPDATA%\pcbridge\data\venv`, where `paths.data_home()` puts it,
+  so `install_kind()` says "user"), runs `pcbridge setup`. The English guard
+  also scans `*.ps1`.~~
+- ~~`pcbridge setup` on Windows: the OCR component through winget, client
   connections, the Run-key entry, PATH through `HKCU\Environment`,
-  `ROLLBACK.md`.
-- The `win_amd64` wheel tag and the Windows classifier; `_native/*/
-  pcbridge-native.exe` as package data; `upgrade.py` picks the Windows wheel
-  and restarts the daemon when idle; `native/fetch.py` handles `.exe`.
-- `uninstall` removes the Run key, the PATH entry and the files, through the
-  Recycle Bin.
+  `ROLLBACK.md` in PowerShell.~~ Tailscale is not a setup component on
+  Windows either: `pcbridge remote start` says where to get it.
+- ~~The `win_amd64` wheel tag and the Windows classifier; `_native/*/
+  pcbridge-native.exe` as package data; `upgrade.py` picks the Windows wheel;
+  `native/fetch.py` handles `.exe`.~~
+- ~~`uninstall` removes the Run key, the PATH entry and the files, through
+  the Recycle Bin~~ (written; the run is part of W10).
 
 ### W9: CI, documents, release
 

@@ -124,10 +124,10 @@ def desktop_enabled(xdg: Path) -> bool:
 
 
 def desktop_title(kind: str) -> str:
-    from ..desktop.session import CINNAMON, GNOME, HYPRLAND, KDE, XFCE
+    from ..desktop.session import CINNAMON, GNOME, HYPRLAND, KDE, WINDOWS, XFCE
 
     return {CINNAMON: "Cinnamon", XFCE: "Xfce", KDE: "KDE Plasma", GNOME: "GNOME Shell extension",
-            HYPRLAND: "Hyprland"}.get(kind, "Desktop integration")
+            HYPRLAND: "Hyprland", WINDOWS: "Windows"}.get(kind, "Desktop integration")
 
 
 def steps(ctx: Context) -> list[tuple[str, str]]:
@@ -193,7 +193,8 @@ def execute(ctx: Context, install_now: bool, clients: list[str] | None = None) -
         else:
             inst.warn("native helper: not downloaded without a terminal or --yes")
             notes.append("pcbridge doctor --fix   # downloads the native helper")
-    if found.desktop_supported and not os.access("/dev/uinput", os.R_OK | os.W_OK):
+    if (found.desktop_supported and not oscompat.IS_WINDOWS
+            and not os.access("/dev/uinput", os.R_OK | os.W_OK)):
         from .doctor import udev_hint
 
         inst.warn("/dev/uinput is not writable: keyboard and pointer control will not work")
@@ -237,7 +238,10 @@ def execute(ctx: Context, install_now: bool, clients: list[str] | None = None) -
 
     inst.step("service", "Background service", 4)
     changed = inst.install_units(backup)
-    if inst.units_managed_by_package():
+    if oscompat.IS_WINDOWS:
+        inst.ok("the supervisor starts at logon from the Run key "
+                "(HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run)")
+    elif inst.units_managed_by_package():
         inst.ok("units provided by the package in /usr/lib/systemd/user"
                 + ("; leftover user units moved to the backup" if changed else ""))
     else:
@@ -310,7 +314,8 @@ def add_path_line(ctx: Context, outcome: Outcome) -> str:
     if fix is None:
         return ""
     line = inst.apply_path_fix(fix, ctx.backup)
-    outcome.notes = [n for n in outcome.notes if not n.startswith(str(inst.LOCAL_BIN))]
+    outcome.notes = [n for n in outcome.notes
+                     if not n.startswith((str(inst.LOCAL_BIN), str(fix.file)))]
     outcome.path_fix = None
     write_rollback(ctx, outcome)
     return line
@@ -345,6 +350,11 @@ def run_plain(args: argparse.Namespace) -> int:
     outcome = execute(ctx, install_now)
     ops._offer_remote_password(args, ctx.xdg)
     fix = outcome.path_fix
+    if fix is not None and fix.shell == "windows" and (args.yes or planlib.interactive()):
+        # A Windows installer puts its commands on the user's PATH; this one
+        # does too, after the plan was accepted (listed in ROLLBACK.md).
+        inst.ok(add_path_line(ctx, outcome) + "; open a new terminal for it to apply")
+        fix = None
     if fix is not None and not args.yes and planlib.interactive():
         inst.say(f"\n`pcbridge` is not found by name: {inst.LOCAL_BIN} is not on PATH.")
         inst.say(f"  Setup can add this line to {fix.file} (backed up, listed in ROLLBACK.md):")

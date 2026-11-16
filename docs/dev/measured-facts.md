@@ -745,6 +745,30 @@ session; `tests/live/windows/check_mcp.py` and `check_guards.py`).
   "XYZ" typed as "xyz" until the state was read with the input attached to
   the foreground window's thread.
 
+## Windows: install and setup (W8, 2026-11-16)
+
+Measured in the Windows 11 test VM with a wheel built there
+(`pip wheel`, the GNU-built helper in `pcbridge/_native/x86_64-pc-windows-msvc/`).
+
+- **The wheel.** `pcbridge-2.10.3-py3-none-win_amd64.whl`, 2.0 MB, carries
+  `pcbridge-native.exe` and all 19 asset files (`packaging/check-wheel.py`).
+- **install.ps1 -Wheel ... -Yes.** Found Python 3.12.10 through the `py`
+  launcher, checked the wheel against the `sha256sums.txt` beside it,
+  installed into `%LOCALAPPDATA%\pcbridge\data\venv` and ran `pcbridge setup`:
+  Windows found, nothing to install, the config kept, the launcher the
+  venv's `Scripts\pcbridge.exe`, the Run key, the daemon restarted from the
+  new venv, the readiness check got 40 tools in 125-140 ms, and the Scripts
+  folder was added to the user's PATH (`HKCU\Environment`, listed in
+  ROLLBACK.md with the PowerShell line that takes it off again).
+- **What the first run found.** Linux setup steps failed on Windows: a
+  symlink in `~/.local/bin` needs a privilege an ordinary user does not
+  have (WinError 1314), the plan offered apt packages, and the summary
+  asked for tmux. Windows now has its own plan (winget for tesseract, no
+  system packages), commands stay in the venv's Scripts folder, and the
+  computer-use skill is linked with a directory junction. A backup path
+  `C:\...` joined to the backup directory would have named the original
+  place again; backup names drop the drive colon and backslashes.
+
 ## Remote clients, revocation and the password (2026-10-14)
 
 Measured with unreleased code against a throwaway daemon (temp config, state

@@ -242,6 +242,8 @@ def install_kind() -> str:
 
 def bin_path(name: str) -> Path:
     """The entry point of this installation (not a symlink to it)."""
+    if oscompat.IS_WINDOWS:
+        return Path(sys.prefix) / "Scripts" / f"{name}.exe"
     return Path(sys.prefix) / "bin" / name
 
 
@@ -253,6 +255,10 @@ def launcher_path() -> Path:
     distribution package, the venv's own script otherwise.
     """
     kind = install_kind()
+    if oscompat.IS_WINDOWS:
+        # No symlinks for an ordinary user: the venv's own command, whose
+        # folder setup puts on the user's PATH (`winsetup`).
+        return bin_path("pcbridge")
     if kind in SYSTEM_KINDS:
         return Path("/usr/bin/pcbridge")
     if kind == "user":
@@ -280,7 +286,9 @@ class Backup:
     entries: list[tuple[str, str, str]] = field(default_factory=list)  # (kind, original, saved)
 
     def _dest(self, original: Path) -> Path:
-        rel = str(original).lstrip("/").replace("/", "__")
+        # A Windows path ("C:\\Users\\...") must not stay absolute here:
+        # joining it would name the original place again.
+        rel = str(original).lstrip("/").replace("/", "__").replace("\\", "__").replace(":", "")
         return self.root / rel
 
     def save(self, original: Path) -> Path | None:
@@ -313,6 +321,8 @@ class Backup:
         if not self.entries and not extra:
             return None
         self.root.mkdir(parents=True, exist_ok=True)
+        if oscompat.IS_WINDOWS:
+            return self._write_windows_rollback(extra)
         lines = [
             f"# Rollback for `pcbridge setup` ({__version__}), {self.root.name}",
             "",
@@ -339,11 +349,47 @@ class Backup:
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return path
 
+    def _write_windows_rollback(self, extra: list[str] | None) -> Path:
+        """ROLLBACK.md with PowerShell: the Run key and the PATH entry are
+        the registry's, the files are put back from this directory."""
+        lines = [
+            f"# Rollback for `pcbridge setup` ({__version__}), {self.root.name}",
+            "",
+            "Every file this run changed or moved is saved in this directory.",
+            "To undo the run, stop pcbridge and put the saved files back (PowerShell):",
+            "",
+            "```powershell",
+            "pcbridge stop",
+            "Remove-ItemProperty -Path HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run "
+            "-Name pcbridge -ErrorAction SilentlyContinue",
+        ]
+        for kind, original, saved in self.entries:
+            if kind == "create":
+                lines.append(f"Remove-Item -Recurse -Force '{original}'   # did not exist before")
+            elif kind == "path":
+                lines.append(
+                    "[Environment]::SetEnvironmentVariable('Path', (([Environment]::"
+                    "GetEnvironmentVariable('Path', 'User') -split ';') | Where-Object { $_ -ne "
+                    f"'{original}' }}) -join ';', 'User')   # added to your user PATH")
+            else:
+                lines.append(f"Remove-Item -Recurse -Force '{original}' -ErrorAction SilentlyContinue; "
+                             f"Copy-Item -Recurse '{saved}' '{original}'   # was {kind}d")
+        lines.append("```")
+        if extra:
+            lines += ["", *extra]
+        path = self.root / "ROLLBACK.md"
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return path
+
 
 def trash(path: Path) -> bool:
-    """Move to the desktop trash; never a permanent delete."""
+    """Move to the desktop trash (the Recycle Bin on Windows); never a permanent delete."""
     if not (path.exists() or path.is_symlink()):
         return True
+    if oscompat.IS_WINDOWS:
+        from . import winsetup
+
+        return winsetup.recycle(path)
     return run(["gio", "trash", str(path)]).returncode == 0
 
 
@@ -371,6 +417,10 @@ def install_launchers(backup: Backup) -> list[str]:
     """~/.local/bin/{pcbridge,pcb-shot,pcb-do} -> this installation."""
     notes = []
     if is_system_package():
+        return notes
+    if oscompat.IS_WINDOWS:
+        # The commands stay in the venv's Scripts folder (no symlinks for an
+        # ordinary user); setup puts that folder on PATH instead.
         return notes
     LOCAL_BIN.mkdir(parents=True, exist_ok=True)
     for name in LAUNCHERS:
@@ -405,6 +455,17 @@ def install_skill_link(backup: Backup, claude_dir: Path | None = None) -> str:
         return "Claude Code's ~/.claude does not exist; no skill link needed"
     link = claude / "skills" / "computer-use"
     target = skill_source()
+    if oscompat.IS_WINDOWS:
+        from . import winsetup
+
+        if winsetup.is_junction(link) or link.is_symlink():
+            if (link / "SKILL.md").is_file():
+                return f"skill: {link} -> {os.readlink(link)}"
+            backup.move(link)
+        elif link.exists():
+            return f"skill: {link} is a directory of its own; left as it is"
+        winsetup.link_directory(link, target)
+        return f"skill: {link} -> {target} (a directory junction)"
     if link.is_symlink():
         if (link / "SKILL.md").is_file():
             return f"skill: {link} -> {os.readlink(link)}"
@@ -419,6 +480,15 @@ def install_skill_link(backup: Backup, claude_dir: Path | None = None) -> str:
 def remove_skill_link(backup: Backup, claude_dir: Path | None = None) -> bool:
     """Undo install_skill_link: only a link that leads into this installation."""
     link = (claude_dir if claude_dir is not None else HOME / ".claude") / "skills" / "computer-use"
+    if oscompat.IS_WINDOWS:
+        from . import winsetup
+
+        linked = winsetup.is_junction(link) or link.is_symlink()
+        if not linked or os.path.normcase(os.readlink(link).removeprefix("\\\\?\\")) != \
+                os.path.normcase(str(skill_source())):
+            return False
+        os.rmdir(link)  # removes the junction itself, never what it points to
+        return True
     if not link.is_symlink() or Path(os.readlink(link)) != skill_source():
         return False
     backup.move(link)
@@ -435,6 +505,10 @@ def path_note(path: str | None = None) -> str:
     """
     if is_system_package():
         return ""
+    if oscompat.IS_WINDOWS:
+        from . import winsetup
+
+        return winsetup.path_note()
     dirs = [d for d in (path if path is not None else os.environ.get("PATH", "")).split(os.pathsep) if d]
     if any(Path(d).expanduser().resolve() == LOCAL_BIN.resolve() for d in dirs):
         return ""
@@ -471,6 +545,12 @@ def path_fix(path: str | None = None, shell: str | None = None) -> PathFix | Non
     """
     if not path_note(path):
         return None
+    if oscompat.IS_WINDOWS:
+        from . import winsetup
+
+        if winsetup.on_user_path():
+            return None
+        return PathFix("windows", winsetup.scripts_dir(), "user PATH (HKCU\\Environment)")
     try:
         profile = (HOME / ".profile").read_text(encoding="utf-8")
     except OSError:
@@ -498,6 +578,12 @@ def path_fix(path: str | None = None, shell: str | None = None) -> PathFix | Non
 
 def apply_path_fix(fix: PathFix, backup: Backup) -> str:
     """Add the line (the file is backed up first, or noted as new for ROLLBACK.md)."""
+    if fix.shell == "windows":
+        from . import winsetup
+
+        line = winsetup.add_to_user_path(fix.file)
+        backup.entries.append(("path", str(fix.file), ""))
+        return line
     existed = fix.file.exists()
     text = fix.file.read_text(encoding="utf-8") if existed else ""
     if fix.line in text:
@@ -530,6 +616,10 @@ def units_managed_by_package() -> bool:
 
 def install_units(backup: Backup) -> bool:
     """Write the user units for this installation; True when something changed."""
+    if oscompat.IS_WINDOWS:
+        # No units: the supervisor starts from the Run key (`winservice`),
+        # written by the `enable` the setup sends next.
+        return False
     if units_managed_by_package():
         # Units in ~/.config/systemd/user override the package's
         # /usr/lib/systemd/user ones; a leftover from an earlier user install
@@ -840,6 +930,8 @@ def alias_block() -> str:
 
 def write_aliases(backup: Backup, rc: Path | None = None, create: bool = False) -> str:
     """Rewrite the pcbridge alias block in ~/.bashrc (only if one exists, unless create)."""
+    if oscompat.IS_WINDOWS and rc is None:
+        return "none on Windows: `pcbridge lock`, `pcbridge remote` and the rest work by name"
     rc = rc or HOME / ".bashrc"
     text = rc.read_text(encoding="utf-8") if rc.exists() else ""
     start, end = text.find(ALIAS_BEGIN), text.find(ALIAS_END)

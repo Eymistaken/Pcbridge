@@ -156,6 +156,17 @@ class EnglishOnlyTests(unittest.TestCase):
         rx = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'|`[^`]*`')
         self.assertNoHits([h for p in sorted(ext.glob("*.js")) for h in _literal_hits(p, rx)])
 
+    def test_powershell_scripts(self) -> None:
+        # install.ps1 is read whole by the user (its help is its comment), so
+        # comments count as well as strings.
+        hits = []
+        for p in _tracked("*.ps1", "scripts/**/*.ps1", "packaging/*.ps1"):
+            rel = str(p.relative_to(ROOT))
+            for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+                if _is_turkish(line):
+                    hits.append(f"{rel}:{n}: {line[:100]}")
+        self.assertNoHits(hits)
+
     def test_shell_script_output(self) -> None:
         scripts = _tracked("*.sh", "gnome-extension/*.sh", "scripts/*.sh", "packaging/*.sh")
         rx = re.compile(r'"[^"\n]*"|\'[^\'\n]*\'')

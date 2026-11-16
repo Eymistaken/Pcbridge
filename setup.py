@@ -8,7 +8,9 @@ Two things are copied or declared here:
   can install them. A git checkout reads them in place; ``pcbridge.assets``
   knows both layouts.
 * When the native helper has been built into ``pcbridge/_native``, the wheel
-  is marked platform-specific, because it then carries an x86_64 binary.
+  is marked platform-specific, because it then carries an x86_64 binary:
+  ``linux_x86_64`` for the Linux helper, ``win_amd64`` for the Windows one
+  (``pcbridge-native.exe``), whatever system builds the wheel.
 """
 
 from __future__ import annotations
@@ -67,13 +69,15 @@ if _bdist_wheel is not None:
     class bdist_wheel(_bdist_wheel):
         def finalize_options(self):
             super().finalize_options()
-            if any((ROOT / "pcbridge" / "_native").glob("*/pcbridge-native")):
+            native = ROOT / "pcbridge" / "_native"
+            self._windows_helper = any(native.glob("*/pcbridge-native.exe"))
+            if self._windows_helper or any(native.glob("*/pcbridge-native")):
                 self.root_is_pure = False
 
         def get_tag(self):
             python, abi, plat = super().get_tag()
             if not self.root_is_pure:
-                return "py3", "none", plat
+                return "py3", "none", "win_amd64" if self._windows_helper else plat
             return python, abi, plat
 
     cmdclass["bdist_wheel"] = bdist_wheel

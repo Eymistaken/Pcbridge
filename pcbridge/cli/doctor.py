@@ -330,11 +330,11 @@ class Doctor:
             found = exelib.find_executable(exe)
             self.add(g, name, "ok" if found else "warn", str(found) if found else f"`{exe}` not found",
                      "" if found else f"install it, or set its full path in [agents.{name}] command")
-        for tool, pkg, why in (
+        for tool, pkg, why in (() if oscompat.IS_WINDOWS else (
             ("tmux", "tmux", "tmux tools"),
             ("script", "script", "agents with pty = true"),
             ("notify-send", "notify-send", "notifications"),
-        ):
+        )):
             have = shutil.which(tool)
             self.add(g, tool, "ok" if have else "warn", have or f"missing ({why})",
                      "" if have else distrolib.install_command(pkg))

@@ -13,6 +13,7 @@ authors = [{ name = "Eymistaken" }]
 requires-python = ">=3.12"
 classifiers = [
     "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -64,4 +65,5 @@ include = ["pcbridge*"]
 
 [tool.setuptools.package-data]
 # The native helper is gitignored and exists only after scripts/build-native.sh.
-pcbridge = ["_native/*/pcbridge-native", "_native/*/build-info.json", "data/*.txt", "data/*.md"]
+pcbridge = ["_native/*/pcbridge-native", "_native/*/pcbridge-native.exe", "_native/*/build-info.json",
+            "data/*.txt", "data/*.md"]
