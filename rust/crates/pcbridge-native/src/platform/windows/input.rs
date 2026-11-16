@@ -16,6 +16,12 @@
 //!   it was busy (after a space, with many tabs open) into repeats of an
 //!   earlier one, even 10 ms apart, while the same text by keys read back
 //!   exactly at full speed.
+//! - After a word ends (a space or punctuation) the next character waits
+//!   `WORD_PAUSE`. Measured in W10: without it Notepad lost the first event
+//!   after a space (the Shift of "XYZ", or a whole "X" or "4") in 15 of 26
+//!   runs, one line failing the same way every time; it is busy with the
+//!   word that just ended, most likely its spelling. With the pause none of
+//!   25 runs lost a key.
 //! - The pointer moves with `MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK`
 //!   over the virtual screen, which is the canvas (`display.rs` normalizes
 //!   its origin to 0,0 the way Linux does).
@@ -132,6 +138,14 @@ fn send(inputs: &[INPUT]) -> io::Result<()> {
 /// comment). Measured in W6c: with a pause after the packet only, the first
 /// packet after a space was lost once in three runs.
 const PACKET_PAUSE: std::time::Duration = std::time::Duration::from_millis(40);
+
+/// After a space or punctuation, before the next character: the receiver
+/// may be busy with the word that just ended (see the module comment).
+const WORD_PAUSE: std::time::Duration = std::time::Duration::from_millis(40);
+
+fn ends_a_word(character: char) -> bool {
+    character.is_whitespace() || character.is_ascii_punctuation()
+}
 
 /// One character as key events: the scan codes the layout uses for it with
 /// the modifiers it needs, or a Unicode packet when the layout has no key
@@ -260,7 +274,11 @@ fn foreground_layout() -> (HKL, bool) {
 }
 
 #[derive(Debug, Default)]
-pub struct SendInputKeyboard;
+pub struct SendInputKeyboard {
+    /// The last character typed ended a word. Kept here because the shared
+    /// keyboard service hands text over one character per call.
+    after_word: bool,
+}
 
 impl KeyboardDevice for SendInputKeyboard {
     fn emit(&mut self, events: &[KeyboardEvent]) -> io::Result<()> {
@@ -287,11 +305,14 @@ impl KeyboardDevice for SendInputKeyboard {
             let (inputs, packet) = character_inputs(character, layout, caps_lock);
             if packet {
                 std::thread::sleep(PACKET_PAUSE);
+            } else if self.after_word {
+                std::thread::sleep(WORD_PAUSE);
             }
             send(&inputs)?;
             if packet {
                 std::thread::sleep(PACKET_PAUSE);
             }
+            self.after_word = ends_a_word(character);
         }
         Ok(())
     }
@@ -428,6 +449,16 @@ mod tests {
         assert_eq!(scan_code(Key::LeftCtrl), (0x1D, false));
         assert_eq!(scan_code(Key::Delete), (0x53, true));
         assert_eq!(scan_code(Key::LeftMeta), (0x5B, true));
+    }
+
+    #[test]
+    fn spaces_and_punctuation_end_a_word() {
+        for character in [' ', '\n', '\t', '.', ',', ':', '!', '?'] {
+            assert!(super::ends_a_word(character), "{character:?}");
+        }
+        for character in ['a', 'Z', '7', '\u{11F}'] {
+            assert!(!super::ends_a_word(character), "{character:?}");
+        }
     }
 
     #[test]

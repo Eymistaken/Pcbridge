@@ -737,7 +737,7 @@ impl Dispatcher {
         }
         // SendInput needs no device to be created, so there is no settle.
         let keyboard: Arc<dyn KeyboardService> = Arc::new(Keyboard::new(
-            SendInputKeyboard,
+            SendInputKeyboard::default(),
             SystemClock::default(),
             Duration::from_secs(hold_max_seconds),
         ));
