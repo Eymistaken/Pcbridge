@@ -208,8 +208,10 @@ command, and how to install that version on either. Its Windows lines
 appear only when the release carries a `*-win_amd64.whl`. If a body is
 replaced by hand anyway (from v2.10.0 to v2.10.3 the written notes replaced
 the whole draft and the block was lost), the `release-notes` workflow puts
-the block back on top when the release is published or edited, or by hand
-with `gh workflow run release-notes.yml -f tag=vX.Y.Z`.
+the block back on top when the release is published or edited, once a
+day for the five newest releases (editing the v2.10.x bodies started no run
+from the "edited" event), or by hand with
+`gh workflow run release-notes.yml -f tag=vX.Y.Z`.
 `scripts/release_notes.py check vX.Y.Z` says whether a release has it, and
 `tests/contracts/test_release_notes.py` checks that a composed body starts
 with it.

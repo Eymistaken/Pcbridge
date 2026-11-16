@@ -12,6 +12,8 @@ over the whole draft body).
     scripts/release_notes.py publish VERSION NOTES.md         set a release's notes
     scripts/release_notes.py ensure VERSION                   add the block if it is missing
     scripts/release_notes.py check VERSION                    exit 1 if it is missing
+    scripts/release_notes.py ensure-recent [N]                the same for the N newest releases,
+                                                              leaving an older block as it is
 
 The Windows lines appear only when the release carries a Windows wheel
 (`*-win_amd64.whl`); `publish`, `ensure` and `check` read that from the
@@ -93,6 +95,27 @@ def _edit(version: str, body: str) -> None:
         Path(path).unlink(missing_ok=True)
 
 
+def _recent(count: int) -> list[str]:
+    """The tags of the COUNT newest published (not draft) releases."""
+    rows = json.loads(_gh("release", "list", "--limit", str(count * 2),
+                          "--json", "tagName,isDraft"))
+    return [r["tagName"] for r in rows if not r.get("isDraft")][:count]
+
+
+def _ensure(version: str, notes: str | None = None, keep_older: bool = False) -> None:
+    body, windows = _release(version)
+    if keep_older and notes is None and body.replace("\r\n", "\n").lstrip("\n").startswith("## Install\n"):
+        print(f"{version}: has an install block")
+        return
+    new = compose(version, body if notes is None else notes, windows)
+    if new.rstrip() == body.replace("\r\n", "\n").strip():
+        print(f"{version}: unchanged")
+        return
+    _edit(version, new)
+    print(f"{version}: notes written, install block on top"
+          + (" (with Windows)" if windows else " (Linux only: no Windows wheel)"))
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -108,6 +131,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("notes", type=Path)
     for name in ("ensure", "check"):
         sub.add_parser(name).add_argument("version")
+    sub.add_parser("ensure-recent").add_argument("count", nargs="?", type=int, default=5)
     args = ap.parse_args(argv)
 
     if args.cmd == "block":
@@ -117,20 +141,17 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write(compose(args.version, args.notes.read_text(encoding="utf-8"), args.windows))
         return 0
 
-    body, windows = _release(args.version)
+    if args.cmd == "ensure-recent":
+        for tag in _recent(args.count):
+            _ensure(tag, keep_older=True)
+        return 0
     if args.cmd == "check":
+        body, windows = _release(args.version)
         ok = starts_with_block(body, args.version, windows)
         print(f"{args.version}: " + ("the install block is at the top" if ok
                                      else "the install block is missing"))
         return 0 if ok else 1
-    notes = args.notes.read_text(encoding="utf-8") if args.cmd == "publish" else body
-    new = compose(args.version, notes, windows)
-    if new.rstrip() == body.replace("\r\n", "\n").strip():
-        print(f"{args.version}: unchanged")
-        return 0
-    _edit(args.version, new)
-    print(f"{args.version}: notes written, install block on top"
-          + (" (with Windows)" if windows else " (Linux only: no Windows wheel)"))
+    _ensure(args.version, args.notes.read_text(encoding="utf-8") if args.cmd == "publish" else None)
     return 0
 
 

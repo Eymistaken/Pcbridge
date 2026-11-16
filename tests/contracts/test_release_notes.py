@@ -89,6 +89,27 @@ class ReleaseNotesTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 self.rn.install_block(bad)
 
+    def _ensure(self, body: str, windows: bool = False, **kw) -> list[str]:
+        from unittest import mock
+
+        edits: list[str] = []
+        with mock.patch.object(self.rn, "_release", return_value=(body, windows)), \
+                mock.patch.object(self.rn, "_edit", side_effect=lambda v, b: edits.append(b)), \
+                mock.patch("builtins.print"):
+            self.rn._ensure("v2.11.0", **kw)
+        return edits
+
+    def test_ensure_adds_a_missing_block_and_leaves_a_good_body_alone(self) -> None:
+        edits = self._ensure(NOTES)
+        self.assertEqual(edits, [self.rn.compose("v2.11.0", NOTES, windows=False)])
+        self.assertEqual(self._ensure(edits[0]), [])
+
+    def test_the_daily_pass_leaves_an_older_block_as_it_is(self) -> None:
+        self.assertEqual(self._ensure(OLD_BODY, keep_older=True), [])
+        self.assertEqual(len(self._ensure(NOTES, keep_older=True)), 1)
+        # Asked for one tag, an older block is brought up to date.
+        self.assertEqual(len(self._ensure(OLD_BODY)), 1)
+
     def test_the_workflows_write_bodies_through_the_script(self) -> None:
         release = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         self.assertIn("scripts/release_notes.py block", release)
@@ -99,6 +120,9 @@ class ReleaseNotesTests(unittest.TestCase):
         notes = (ROOT / ".github/workflows/release-notes.yml").read_text(encoding="utf-8")
         self.assertRegex(notes, r"types: \[published, edited\]")
         self.assertIn("scripts/release_notes.py ensure", notes)
+        # The "edited" event started no run on 2026-11-16: a daily pass backs it up.
+        self.assertIn("schedule:", notes)
+        self.assertIn("scripts/release_notes.py ensure-recent", notes)
         # The tag goes through the environment, never into the script's text.
         self.assertNotRegex(notes, re.compile(r"run:.*\$\{\{\s*github\.event", re.S))
 

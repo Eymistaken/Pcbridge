@@ -91,7 +91,8 @@ are in `docs/dev/windows-scope.md`.
   written notes replaced the whole draft body, install block included.
   `scripts/release_notes.py publish` now writes notes with the block on
   top, a workflow puts the block back when a release is published or
-  edited, and those four releases have it again.
+  edited and once a day for the newest releases, and those four releases
+  have it again.
 
 ## 2.10.3 - 2026-11-15
 
