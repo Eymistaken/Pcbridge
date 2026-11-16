@@ -14,7 +14,7 @@ you to the screen.
 pcb-shot --monitor 2                 # 1. look
 ```
 ```
-Read /run/user/1000/pcbridge/shots/...png      # 2. really see it
+Read <the PNG path pcb-shot printed>           # 2. really see it
 ```
 ```bash
 pcb-do '[{"a":"click","x":840,"y":312,"shot":"m2-a1b2c3"}]'   # 3. act
@@ -30,7 +30,7 @@ worked.
   number, connector, size, offset and whether it is the primary one. Monitors
   are numbered by position, left to right (then top to bottom), starting at 1.
   Do not assume a layout; read it.
-- **GNOME's panel menus and the `Super` overview open on the primary monitor.**
+- **On GNOME, the panel menus and the `Super` overview open on the primary monitor.**
   `pcb-shot` names it. If you press `Super` and look for the overview on another
   monitor, you will think it "did not work".
 - **Do not convert coordinates — carry the id.** `pcb-shot` writes a
@@ -43,7 +43,7 @@ worked.
   you really mean a global or per-monitor coordinate, add `"monitor": 1` (or
   the right number) and it goes through.
 - Keyboard layouts do not matter: `type` goes through the clipboard.
-- **After `Super` the clipboard is blocked**; to type while the overview is
+- **On GNOME, after `Super` the clipboard is blocked**; to type while the overview is
   open use `{"a":"type","text":"...","raw":true}` (ASCII only).
 
 ## On Windows

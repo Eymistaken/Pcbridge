@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -74,6 +75,7 @@ MAX_INLINE = 4000
 _DESC_AGENT = "Agent name, e.g. 'claude' or 'antigravity'."
 _DESC_MODEL = "Model to run with."
 _DESC_EFFORT = "Reasoning effort level."
+_WIN = oscompat.IS_WINDOWS
 
 
 # Gorsel ajan yonergesi. TEK KAYNAK: depodaki dosya. `pcbridge setup` bunu
@@ -91,6 +93,29 @@ def _default_skill_path() -> Path:
 
 
 _SKILL_PATH = _default_skill_path()
+
+
+def _windows_doc(windows: bool, replacements: dict[str, str]):
+    """On Windows, swap the Linux-only phrases of a tool's docstring.
+
+    The tool names stay the same on both systems (renaming one breaks every
+    connected client), but what a model reads about them must be true where
+    it runs. Whitespace in a phrase matches any whitespace, so a phrase may
+    cross a line break of the docstring. A phrase that is missing raises:
+    the tool-surface test builds the Windows surface, so a docstring edit
+    that drops one fails there and not silently on a user's machine.
+    """
+    def apply(fn):
+        if windows:
+            doc = fn.__doc__ or ""
+            for old, new in replacements.items():
+                rx = r"\s+".join(re.escape(w) for w in old.split())
+                doc, n = re.subn(rx, lambda _m, new=new: new, doc)
+                if n == 0:
+                    raise AssertionError(f"{fn.__name__}: docstring has no {old!r}")
+            fn.__doc__ = doc
+        return fn
+    return apply
 
 
 # Every write tool's `force`, one text (ROADMAP: review the texts an agent
@@ -482,7 +507,11 @@ def register(
     runtime: DesktopRuntime | None = None,
     link_store: "filelinkslib.LinkStore | None" = None,
 ) -> DesktopRuntime:
-    global _DESC_AGENT, _DESC_MODEL, _DESC_EFFORT
+    global _DESC_AGENT, _DESC_MODEL, _DESC_EFFORT, _WIN
+    # Read here, not at import, so a test can build the other system's surface.
+    # Parameter descriptions read the global: with postponed annotations they
+    # are evaluated against the module, not this function.
+    win = _WIN = oscompat.IS_WINDOWS
     local_profile = getattr(cfg, "tools_profile", "full")
     remote = remote_profile(cfg)
     _with_hints(mcp, tools_in_profile(local_profile) | tools_in_profile(remote))
@@ -636,8 +665,8 @@ def register(
             Field(description="Kill the agent after this many seconds. Default 1800."),
         ] = None,
     ) -> str:
-        """Start a coding agent (Claude Code / Antigravity CLI) on the user's Linux
-        desktop with the given prompt. Runs in the background and survives long
+        """Start a coding agent (Claude Code / Antigravity CLI) on the user's
+        computer with the given prompt. Runs in the background and survives long
         tasks. Returns a job id; poll it with job_status. Use model/effort to pick
         how much reasoning power the task deserves — the default is a cheap, fast
         model, so ask for a stronger one for hard work. Call list_agents to see
@@ -766,7 +795,12 @@ def register(
                     "itself on Windows; reinstall it: `pcbridge upgrade`.")
         return f"tmux is not installed: `{distrolib.install_command('tmux')}`"
 
+    # On Windows the tmux_* tools keep their names but drive ConPTY sessions
+    # (pcbridge.conpty), which take the same key names.
     @mcp.tool(annotations={"title": "List live terminal sessions"})
+    @_windows_doc(win, {"live tmux terminal sessions": "live terminal sessions",
+                        "attach to physically.": "attach to physically: on Windows these are "
+                        "ConPTY sessions, not tmux, and `pcbridge attach NAME` opens one."})
     def tmux_list() -> str:
         """List the live tmux terminal sessions on the computer. These are real
         terminals the user can also attach to physically."""
@@ -774,7 +808,7 @@ def register(
             return _no_terminal_sessions()
         rows = tmuxctl.list_sessions()
         if not rows:
-            return "No tmux sessions are open."
+            return "No terminal sessions are open." if win else "No tmux sessions are open."
         out = ["| session | running | directory | attached on the PC |", "|---|---|---|---|"]
         for r in rows:
             out.append(
@@ -784,6 +818,8 @@ def register(
         return "\n".join(out)
 
     @mcp.tool(annotations={"title": "Open a live terminal session"})
+    @_windows_doc(win, {"persistent terminal session": "persistent terminal session (a ConPTY "
+                        "session)"})
     def tmux_start(
         session: Annotated[str, Field(description="Short name, e.g. 'cc' or 'work'.")],
         command: Annotated[
@@ -795,7 +831,8 @@ def register(
         workdir: str | None = None,
     ) -> str:
         """Open a new persistent terminal session on the computer, optionally
-        launching an interactive CLI (like `claude`) inside it."""
+        launching an interactive CLI (like `claude`) inside it. The user can
+        watch it on the computer with the command the reply names."""
         if not tmuxctl.available():
             return _no_terminal_sessions()
         cwd = _resolve_dir(cfg, workdir)
@@ -848,7 +885,9 @@ def register(
         keys: Annotated[
             list[str],
             Field(
-                description="tmux key names, e.g. ['Enter'], ['Escape'], ['C-c'], "
+                description=("Key names in tmux's notation, which pcbridge also takes on "
+                             "Windows" if _WIN else "tmux key names")
+                + ", e.g. ['Enter'], ['Escape'], ['C-c'] (Ctrl+C), "
                 "['Down','Enter'], ['y']. Use for confirming prompts or menus."
             ),
         ],
@@ -927,14 +966,17 @@ def register(
         )
 
     @mcp.tool(annotations={"title": "Run a shell command"})
+    @_windows_doc(win, {"The shell is bash by default (`[shell] program` in the config picks "
+                        "another).": "The shell is PowerShell 7 when installed, else Windows "
+                        "PowerShell; `[shell] program` in the config picks another."})
     def shell_run(
         command: Annotated[str, Field(description="Shell command line to execute.")],
         workdir: str | None = None,
         timeout: Annotated[int, Field(ge=1, le=120)] = 60,
     ) -> str:
         """Run a short shell command on the user's computer and return its
-        output: bash on Linux; on Windows PowerShell by default (`[shell]
-        program` in the config picks another). For anything that may take longer than a minute use
+        output. The shell is bash by default (`[shell] program` in the config
+        picks another). For anything that may take longer than a minute use
         shell_run_background instead. This path can also send a deterministic
         request, such as a URL, to an application that is already running. Use
         window_focus when a new graphical process must survive pcbridge restarts
@@ -1744,9 +1786,10 @@ def register(
         if not cfg.desktop.enabled:
             text = (
                 "⛔ Desktop control is disabled. Set `[desktop] enabled = true` in "
-                f"{cfg.source_path} and restart pcbridge (`pcbridge update`). "
-                "Keyboard and pointer control also need access to /dev/uinput "
-                "(`pcbridge doctor` prints the command); reading the screen does not."
+                f"{cfg.source_path} and restart pcbridge (`pcbridge update`)."
+                + ("" if win else
+                   " Keyboard and pointer control also need access to /dev/uinput "
+                   "(`pcbridge doctor` prints the command); reading the screen does not.")
             )
             error = DesktopError(
                 code=ErrorCode.DESKTOP_DISABLED,
@@ -1986,7 +2029,7 @@ def register(
         force: _FORCE = False,
     ) -> str | ToolResult:
         """Move the mouse pointer, click, drag, scroll or hold a button down on the
-        user's Linux desktop. Requires desktop_unlock first. Use when the user asks
+        user's desktop. Requires desktop_unlock first. Use when the user asks
         you to press a button, open a menu or otherwise operate a graphical
         application. When you took the coordinates off a screenshot, pass that
         image's shot id and give x/y as you see them — the server converts them for
@@ -2170,7 +2213,7 @@ def register(
             str | None,
             Field(
                 description="For key/hold/release: a combination like 'ctrl+v', "
-                "'super', 'alt+tab', 'Return', 'Escape', 'f5', 'down'. Any number "
+                + ("'win'" if _WIN else "'super'") + ", 'alt+tab', 'Return', 'Escape', 'f5', 'down'. Any number "
                 "of keys may be combined with '+' and they all go down together — "
                 "the virtual keyboard has none of the ghosting limits of real "
                 "hardware."
@@ -2179,11 +2222,16 @@ def register(
         raw: Annotated[
             bool,
             Field(
-                description="For type: send raw key codes instead of pasting via the "
-                "clipboard. The clipboard path is the default because it is immune to "
-                "the machine's keyboard layout; raw only handles ASCII and will produce "
-                "wrong punctuation on a non-US layout. Leave this false unless the "
-                "target application ignores paste."
+                description=(
+                    "For type: type with the keyboard layout's own keys instead of pasting "
+                    "via the clipboard. On Windows this is not limited to ASCII, but the "
+                    "clipboard path stays the default because it is faster. Leave this false unless the target "
+                    "application ignores paste." if _WIN else
+                    "For type: send raw key codes instead of pasting via the "
+                    "clipboard. The clipboard path is the default because it is immune to "
+                    "the machine's keyboard layout; raw only handles ASCII and will produce "
+                    "wrong punctuation on a non-US layout. Leave this false unless the "
+                    "target application ignores paste.")
             ),
         ] = False,
         confirm_close: Annotated[
@@ -2198,7 +2246,7 @@ def register(
         ] = False,
         force: _FORCE = False,
     ) -> str | ToolResult:
-        """Type text or press key combinations on the user's Linux desktop.
+        """Type text or press key combinations on the user's desktop.
         Requires desktop_unlock first. Use when the user asks you to fill in a
         field, confirm a dialog with Enter, or trigger a shortcut. Text is entered
         through the clipboard, so accented and non-English characters come out
@@ -2383,6 +2431,7 @@ def register(
         output_schema=None,
         annotations={"title": "Take a screenshot"},
     )
+    @_windows_doc(win, {"For GTK applications prefer": "For native Windows applications prefer"})
     def screen_capture(
         monitor: Annotated[
             str,
@@ -3000,7 +3049,8 @@ def register(
             Field(
                 description=(
                     "Which window to read: 'focused' (default) for the active "
-                    "window, or an application name like 'gnome-text-editor'."
+                    "window, or an application name like "
+                    + ("'Notepad'." if _WIN else "'gnome-text-editor'.")
                 )
             ),
         ] = "focused",
@@ -3193,16 +3243,28 @@ def register(
         output_schema=None,
         annotations={"title": "Bring a window to the front"}
     )
+    @_windows_doc(win, {
+        "An open window is activated through the GNOME Shell extension when available; "
+        "a closed application is started directly. Only when an open window cannot be "
+        "activated that way does desktop search run, as a slower fallback.":
+        "An open window is activated directly by the native helper; a closed "
+        "application is started from the Start menu's list.",
+        "The extension path takes milliseconds, a cold launch about a second, the search "
+        "fallback several seconds.": "Activating takes milliseconds, a cold launch about a second.",
+    })
     def window_focus(
         window: Annotated[
             str,
             Field(
-                description="Application or window name as a human would say it, "
-                "e.g. 'Text Editor', 'Google Chrome', 'Vesktop'. The application "
-                "does NOT have to be running: a closed application is launched. "
-                "On Hyprland, use an exact hyprland:0x... identity from window_list "
-                "or an unambiguous application/title. GNOME titles require its "
-                "Shell extension; without it, give the installed application's name."
+                description="Application or window name as a human would say it, e.g. "
+                + ("'Notepad', 'File Explorer', 'Google Chrome'." if _WIN else
+                   "'Text Editor', 'Google Chrome', 'Vesktop'.")
+                + " The application "
+                "does NOT have to be running: a closed application is launched"
+                + (" from the Start menu's list (shortcuts and Store apps)." if _WIN else
+                   ". On Hyprland, use an exact hyprland:0x... identity from window_list "
+                   "or an unambiguous application/title. GNOME titles require its "
+                   "Shell extension; without it, give the installed application's name.")
             ),
         ],
         force: _FORCE = False,
@@ -3850,6 +3912,16 @@ def register(
             return f"Notification failed: {exc}"
 
     @mcp.tool(annotations={"title": "Show or hide pcbridge's panel icon"})
+    @_windows_doc(win, {
+        "Show or hide pcbridge's icon in the GNOME top bar, when the user asks for it. "
+        "`hide` hides the icon only while desktop control is closed: whenever desktop "
+        "control is granted the icon appears anyway, and nothing can hide it then. The "
+        "setting persists across logins.":
+        "Report pcbridge's tray icon, when the user asks about it. On Windows the tray "
+        "icon shows only while desktop control is granted, together with the frame "
+        "around the screens, and its menu has Lock now; there is no setting to change, "
+        "so every action only reports this.",
+    })
     def panel_icon(
         action: Annotated[
             Literal["show", "hide", "status"],

@@ -35,6 +35,7 @@ tests.contracts.test_hyprland_monitors
 tests.contracts.test_hyprland_state
 tests.contracts.test_hyprland_windows
 tests.contracts.test_input_contract
+tests.contracts.test_install_ps1
 tests.contracts.test_kde_windows
 tests.contracts.test_layout_matrix
 tests.contracts.test_localipc
@@ -46,6 +47,7 @@ tests.contracts.test_native_clipboard
 tests.contracts.test_native_grant_rebind
 tests.contracts.test_oscompat
 tests.contracts.test_panel_icon
+tests.contracts.test_platform_texts
 tests.contracts.test_remote_clients
 tests.contracts.test_remote_password
 tests.contracts.test_runtime_contract

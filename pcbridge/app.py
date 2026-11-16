@@ -15,6 +15,7 @@ from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, PlainTextResponse
 
+from . import oscompat
 from . import tools as toolsmod
 
 
@@ -65,8 +66,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("pcbridge")
 
-INSTRUCTIONS = """\
-This MCP server controls the user's Linux desktop computer. Read
+_INSTRUCTIONS = """\
+This MCP server controls the user's {system} desktop computer. Read
 `system_capabilities` to learn the actual desktop backend and its available support.
 The monitor layout differs from machine to machine and can change:
 call `screen_info` (or `system_capabilities`) to learn the actual monitors,
@@ -76,8 +77,8 @@ You can:
   * send prompts to the terminal coding agents configured on this machine
     (`list_agents` names them) with `agent_run`, then follow them with
     `job_status`;
-  * drive an already-open interactive terminal with `tmux_start` / `tmux_send`
-    / `tmux_keys` / `tmux_capture`;
+  * drive a live interactive terminal with `tmux_start` / `tmux_send`
+    / `tmux_keys` / `tmux_capture`{terminal};
   * run shell commands, read and write files, and check machine status;
   * read and drive the graphical desktop: `ui_dump` to read the screen as text,
     `ui_click` / `ui_set_text` to act on what it lists, `screen_capture` to see
@@ -103,10 +104,7 @@ Guidelines:
   * Call `system_capabilities` before choosing a desktop path, and again after a
     desktop error. Its scopes distinguish pcbridge's grant from operating-system
     capture, pointer, keyboard, accessibility, window, and session permissions.
-  * On Hyprland, inspect the actual registered runtime bindings and active submap
-    available in `system_capabilities` before choosing compositor shortcuts.
-    Do not guess default keys or parse configuration files to infer active bindings.
-  * Screenshots go stale. If you read coordinates off one, act on them right
+{system_note}  * Screenshots go stale. If you read coordinates off one, act on them right
     away — do not do other work in between.
   * Coordinates you read off a screenshot MUST be sent with that image's
     `shot` id (printed next to it, e.g. `m2-a1b2c3`). Give x/y exactly as you
@@ -138,6 +136,41 @@ Desktop rules — these are not preferences:
     done. The permission also expires on its own, but leaving it open keeps
     the on-screen indicator running and worries the user.
 """
+
+# The parts that differ by system. Windows has no Hyprland but has UIPI, and its live
+# terminals are ConPTY sessions under the same `tmux_*` names (renaming the
+# tools would break every connected client).
+_LINUX_PARTS = {
+    "system": "Linux",
+    "terminal": " (tmux sessions the user can join with `tmux attach -t NAME`)",
+    "system_note": (
+        "  * On Hyprland, inspect the actual registered runtime bindings and active submap\n"
+        "    available in `system_capabilities` before choosing compositor shortcuts.\n"
+        "    Do not guess default keys or parse configuration files to infer active bindings.\n"
+    ),
+}
+_WINDOWS_PARTS = {
+    "system": "Windows",
+    "terminal": (" (on Windows these are ConPTY terminal sessions, not tmux; the user\n"
+                 "    opens one with `pcbridge attach NAME`)"),
+    "system_note": (
+        "  * A window that runs as administrator refuses pcbridge's input and shows\n"
+        "    nothing to UI Automation (`TARGET_ELEVATED`), and the UAC prompt and the\n"
+        "    lock screen cannot be reached at all: ask the user to do that part.\n"
+    ),
+}
+
+
+def instructions(windows: bool | None = None) -> str:
+    """The server instructions for Windows or Linux (default: this system)."""
+    if windows is None:
+        windows = oscompat.IS_WINDOWS
+    return _INSTRUCTIONS.format(**(_WINDOWS_PARTS if windows else _LINUX_PARTS))
+
+
+# This system's text; build_app reads instructions() itself, so a test can
+# force the other system.
+INSTRUCTIONS = instructions()
 
 
 class MetadataNormalizer:
@@ -354,7 +387,7 @@ def build_app(cfg: Config, transport: str = "http"):
     provider = SqliteOAuthProvider(cfg)
     mcp = FastMCP(
         name="pcbridge",
-        instructions=INSTRUCTIONS,
+        instructions=instructions(),
         auth=provider,
     )
 
