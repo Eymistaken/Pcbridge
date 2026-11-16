@@ -110,8 +110,9 @@ backend to fall back on: every desktop tool refuses with that message, and
 ## The release asset for installations without one
 
 Each release publishes the helper on its own as
-`pcbridge-native-<target>` (today `pcbridge-native-x86_64-unknown-linux-gnu`),
-the same binary the wheel and the packages carry, listed in the release's
+`pcbridge-native-<target>` (`pcbridge-native-x86_64-unknown-linux-gnu`, and
+`pcbridge-native-x86_64-pc-windows-msvc.exe` since the Windows port), the
+same binary the wheel and the packages carry, listed in the release's
 `sha256sums.txt` (`release.yml`, "Native helper as its own asset"). The
 name is a contract with `pcbridge/native/fetch.py`.
 

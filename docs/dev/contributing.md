@@ -180,6 +180,39 @@ Only `config.toml`; see [configuration.md](../configuration.md#adding-an-agent).
 - Not solutions: switching to X11, removing `--dangerously-skip-permissions`
   from agent commands, logging secrets, enabling desktop control by default.
 
+## Releasing
+
+The maintainer picks the version and publishes; nothing below publishes on
+its own.
+
+1. Bump the version, add the `CHANGELOG.md` entry, commit, and push a
+   `vX.Y.Z` tag. `release.yml` builds every asset (Linux wheel and
+   packages, the Windows wheel, both native helpers, `install.sh`,
+   `install.ps1`, `constraints.txt`, `sha256sums.txt`) and opens a
+   **draft** whose body is the install block and GitHub's generated notes.
+2. Write the release notes in a file (the `changelog` style: prose, no
+   version heading), then put them on the release with the script, never
+   by pasting them over the draft's body:
+
+   ```bash
+   scripts/release_notes.py publish vX.Y.Z notes.md   # install block on top, then the notes
+   gh release edit vX.Y.Z --draft=false               # publish
+   ```
+
+   `scripts/release_notes.py compose vX.Y.Z notes.md` prints the body
+   without touching GitHub.
+
+The install block has one source, `.github/release-install.md`: the Linux
+`curl ... install.sh | sh` command, the Windows `irm ... install.ps1 | iex`
+command, and how to install that version on either. Its Windows lines
+appear only when the release carries a `*-win_amd64.whl`. If a body is
+replaced by hand anyway (from v2.10.0 to v2.10.3 the written notes replaced
+the whole draft and the block was lost), the `release-notes` workflow puts
+the block back on top when the release is published or edited.
+`scripts/release_notes.py check vX.Y.Z` says whether a release has it, and
+`tests/contracts/test_release_notes.py` checks that a composed body starts
+with it.
+
 ## Measurements
 
 A design decision that depends on a measurement is written after the

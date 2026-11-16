@@ -91,12 +91,16 @@ jobs:
           cat sha256sums.txt
 
       # The install commands open every release body, above the generated
-      # notes. When the draft's notes are replaced by the written ones, keep
-      # this block at the top: it is the only place on the release page that
-      # says how to install.
+      # notes: it is the only place on the release page that says how to
+      # install. Write the final notes with `scripts/release_notes.py publish`
+      # (docs/dev/contributing.md), which keeps the block on top; the
+      # release-notes workflow puts it back if a body is replaced by hand.
+      # The Windows lines appear only when the Windows wheel is in dist/.
       - name: Install block for the release notes
         run: |
-          sed "s/{{VERSION}}/${GITHUB_REF_NAME}/g" .github/release-install.md \
+          windows=--no-windows
+          ls dist/*-win_amd64.whl >/dev/null 2>&1 && windows=
+          python3 scripts/release_notes.py block "$GITHUB_REF_NAME" $windows \
             > "$RUNNER_TEMP/release-install.md"
           cat "$RUNNER_TEMP/release-install.md"
 

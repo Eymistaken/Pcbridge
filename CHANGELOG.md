@@ -74,6 +74,24 @@ are in `docs/dev/windows-scope.md`.
 - **`pcbridge settings` and the other commands wrote broken text to a pipe
   or file on Windows.** A redirected stdout used the ANSI code page and
   failed on non-English letters; output to pipes and files is UTF-8 now.
+- **On Windows, the tool texts described Linux.** The server instructions
+  said "the user's Linux desktop", `window_focus` named GNOME's Shell
+  extension, `panel_icon` the GNOME top bar, `shell_run` bash and the
+  `tmux_*` tools tmux. Each text now says what is true where pcbridge runs:
+  on Windows the live terminals are ConPTY sessions (`pcbridge attach
+  NAME`), the shell is PowerShell and the icon is the tray icon. A
+  contract test builds the tool surface for each system and fails on the
+  other system's words.
+- **The install scripts ran on the wrong system.** `install.sh` under Git
+  Bash, MSYS2 or Cygwin went on to install the Linux build; it now prints
+  the PowerShell command and stops. `install.ps1` under PowerShell 7 on
+  Linux or macOS failed on a missing `LOCALAPPDATA`; it now names the
+  `curl` command. Both stop before anything changes; macOS is refused.
+- **Release notes lost the install commands.** From v2.10.0 to v2.10.3 the
+  written notes replaced the whole draft body, install block included.
+  `scripts/release_notes.py publish` now writes notes with the block on
+  top, a workflow puts the block back when a release is published or
+  edited, and those four releases have it again.
 
 ## 2.10.3 - 2026-11-15
 

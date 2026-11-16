@@ -17,7 +17,10 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# The only target: Windows and macOS builds were dropped (ROADMAP.md).
+# This script builds the Linux helper. The Windows helper
+# (x86_64-pc-windows-msvc) is built on a Windows runner by package.yml's
+# native-windows job, or in the test VM (docs/dev/windows-port-plan.md);
+# macOS is not supported.
 TARGET="x86_64-unknown-linux-gnu"
 DEST="$DIR/pcbridge/_native/$TARGET"
 

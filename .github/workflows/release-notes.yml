@@ -1,0 +1,33 @@
+# A release body must open with the install commands. Publishing often
+# replaces the draft's body with the written notes (v2.10.0 to v2.10.3 lost
+# the block that way), so whenever a release is published or its notes are
+# edited, this puts the block from .github/release-install.md back on top.
+# It changes nothing when the block is already there, and its own edit does
+# not start it again (GITHUB_TOKEN's events start no workflow).
+name: release notes
+
+on:
+  release:
+    types: [published, edited]
+
+permissions:
+  contents: write
+
+jobs:
+  install-block:
+    runs-on: ubuntu-24.04
+    steps:
+      # The template and the script from main, not from the tag: an old tag
+      # has an older block (or none).
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Install block on top of the notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python3 scripts/release_notes.py ensure "$TAG"
+          python3 scripts/release_notes.py check "$TAG"
