@@ -321,9 +321,11 @@ HYPRLAND = "hyprland"
 CINNAMON = "cinnamon"
 XFCE = "xfce"
 UNKNOWN = "unknown"
+# The Windows desktop (the port's W7): the native helper's Win32 backends.
+WINDOWS = "windows"
 # The desktops pcbridge's desktop tools are built for, as users know them.
 DESKTOP_NAMES = {GNOME: "GNOME", KDE: "KDE Plasma", HYPRLAND: "Hyprland",
-                 CINNAMON: "Cinnamon", XFCE: "Xfce"}
+                 CINNAMON: "Cinnamon", XFCE: "Xfce", WINDOWS: "Windows"}
 # The desktops the native helper drives through X11 (stage 7). They count
 # only in an X11 session; the others only on Wayland.
 X11_KINDS = frozenset({CINNAMON, XFCE})
@@ -530,11 +532,9 @@ def desktop_kind(env: dict[str, str] | None = None) -> str:
     e = os.environ if env is None else env
     tokens = _desktop_tokens(e)
     if sys.platform == "win32" and not tokens and not e.get("HYPRLAND_INSTANCE_SIGNATURE"):
-        # The Windows desktop backend arrives with the port's W6/W7; until
-        # then the desktop tools report it as unsupported, as on an unknown
-        # Linux desktop. (A Linux desktop named in the environment, as the
-        # contract tests do, is still read.)
-        return UNKNOWN
+        # Windows has one desktop. (A Linux desktop named in the
+        # environment, as the contract tests do, is still read.)
+        return WINDOWS
     if tokens and not e.get("HYPRLAND_INSTANCE_SIGNATURE"):
         return _fitting(_kind_from_tokens(tokens), e)
     now = time.monotonic()
@@ -621,8 +621,8 @@ def platform_summary(env: dict[str, str] | None = None) -> dict:
     if env is None and _platform_cache and now - _platform_cache[0] < _PLATFORM_TTL:
         return _platform_cache[1]
     e = os.environ if env is None else env
-    names = _bus_names()
     kind = desktop_kind(e)
+    names = [] if kind == WINDOWS else _bus_names()
     shell = plasma = hyprland = ""
     if kind == GNOME:
         raw = _busctl("get-property", "org.gnome.Shell", "/org/gnome/Shell",
@@ -663,8 +663,14 @@ def platform_summary(env: dict[str, str] | None = None) -> dict:
         notes.append(f"GNOME Shell {shell} is untested (pcbridge was tested on "
                      f"{', '.join(sorted(TESTED_SHELL_MAJORS))}); the capabilities "
                      "above are what was actually found.")
+    windows = ""
+    if kind == WINDOWS:
+        import platform
+
+        windows = f"{platform.release()} (build {platform.version()})"
     result = {
         "environment": kind,
+        "windows": windows or None,
         "gnome_shell": shell or None,
         "plasma": plasma or None,
         "hyprland": hyprland or None,

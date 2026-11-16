@@ -533,17 +533,18 @@ def _ordered(mons: list[Monitor]) -> list[Monitor]:
 
 
 def _from_native() -> list[Monitor]:
-    """X11 (Cinnamon, Xfce): the native helper's RandR table, as it numbers it.
+    """X11 (Cinnamon, Xfce) and Windows: the native helper's table (RandR,
+    or GDI with Per-Monitor-V2 awareness), as it numbers it.
 
     The helper resolves the table with the same rules (pinned by the shared
     fixtures), so its order and fields are taken over unchanged; pcbridge
     reads no X11 itself.
     """
-    from .platforms.linux import x11native
+    from . import nativewin as x11native
 
     reply = x11native.display_snapshot()
     if not reply or not isinstance(reply.get("monitors"), list) or not reply["monitors"]:
-        raise MonitorError("The native helper did not report the X11 monitor table.")
+        raise MonitorError("The native helper did not report the monitor table.")
     mons = []
     for raw in reply["monitors"]:
         try:
@@ -568,7 +569,8 @@ def list_monitors(use_cache: bool = True) -> list[Monitor]:
     """Mantiksal monitorler, soldan saga sirali ve 1'den numarali."""
     global _cache
     kind = compositorlib.current().kind
-    if kind not in (session.GNOME, session.KDE, session.HYPRLAND, *session.X11_KINDS):
+    if kind not in (session.GNOME, session.KDE, session.HYPRLAND, session.WINDOWS,
+                    *session.X11_KINDS):
         raise MonitorError(f"Monitor discovery is unavailable for {kind}.")
     now = time.monotonic()
     cache_key = (kind, os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", ""),
@@ -579,7 +581,7 @@ def list_monitors(use_cache: bool = True) -> list[Monitor]:
         mons = _from_hyprland()
         _cache = (now, cache_key, mons)
         return mons
-    if kind in session.X11_KINDS:
+    if kind in session.X11_KINDS or kind == session.WINDOWS:
         mons = _from_native()
         _cache = (now, cache_key, mons)
         return mons

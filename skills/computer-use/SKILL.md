@@ -1,6 +1,6 @@
 ---
 name: computer-use
-description: Drive this Linux desktop by looking at the screen. Take a screenshot, read the PNG, click and type, check the result. For GUI tasks — windows, menus, buttons, forms. The only way into applications that accessibility cannot see (Electron: Vesktop, VS Code, Discord).
+description: Drive this desktop (Linux or Windows) by looking at the screen. Take a screenshot, read the PNG, click and type, check the result. For GUI tasks — windows, menus, buttons, forms. The only way into applications that accessibility cannot see (Electron: Vesktop, VS Code, Discord).
 ---
 
 # Driving the computer by looking at the screen
@@ -45,6 +45,23 @@ worked.
 - Keyboard layouts do not matter: `type` goes through the clipboard.
 - **After `Super` the clipboard is blocked**; to type while the overview is
   open use `{"a":"type","text":"...","raw":true}` (ASCII only).
+
+## On Windows
+
+- The Start menu is the `win` key (`{"a":"key","keys":"win"}`); to open an
+  application, prefer `window_focus` with its name: it brings an open window
+  to the front or starts the application the Start menu lists, and checks
+  that its window appeared.
+- `type` goes through the clipboard as on Linux; `raw: true` types with the
+  keyboard layout's own keys there, so it is not limited to ASCII.
+- A window that runs as administrator refuses input from pcbridge
+  (`TARGET_ELEVATED`); Windows would drop it silently. Ask the user to do
+  that part, or to start the program without administrator rights.
+- The secure desktop (the UAC prompt, the lock screen, Ctrl+Alt+Del) cannot
+  be reached at all; when one is up, ask the user.
+- Shortcuts are Windows' own: `ctrl+c`/`ctrl+v`, `alt+f4` closes a window,
+  `win+e` opens File Explorer, `win+r` the Run box (click into it before
+  typing: it takes no keyboard focus on its own).
 
 ## GROUP your actions
 

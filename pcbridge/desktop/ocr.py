@@ -50,6 +50,21 @@ except Exception:  # pragma: no cover - kuruluysa calismaz
     PIL_AVAILABLE = False
 
 ENGINE = "tesseract"
+# Windows: winget's UB-Mannheim.TesseractOCR installs here and does not put
+# itself on PATH.
+WINDOWS_ENGINE_DIRS = ("%ProgramFiles%\\Tesseract-OCR", "%LOCALAPPDATA%\\Programs\\Tesseract-OCR")
+
+
+def _engine() -> str | None:
+    """The tesseract executable: on PATH, or where the Windows installer puts it."""
+    found = shutil.which(ENGINE)
+    if found or os.name != "nt":
+        return found
+    for folder in WINDOWS_ENGINE_DIRS:
+        candidate = Path(os.path.expandvars(folder)) / "tesseract.exe"
+        if candidate.is_file():
+            return str(candidate)
+    return None
 
 
 def install_hint() -> str:
@@ -132,7 +147,7 @@ def available(langs: str) -> tuple[bool, str]:
     """(kullanilabilir mi, degilse Turkce gerekce + kurulum komutu)."""
     if not PIL_AVAILABLE:
         return False, "Pillow is missing (reinstall pcbridge with its [desktop] extra: `pcbridge setup`)"
-    binary = shutil.which(ENGINE)
+    binary = _engine()
     if binary is None:
         return False, f"`{ENGINE}` is not installed. Install it: {install_hint()}"
     try:
@@ -236,7 +251,7 @@ def read_words(png: Path, langs: str, timeout: float = RUN_TIMEOUT) -> list[Word
     """PNG'deki kelimeler. Motor yoksa ya da hata verirse `OcrError`."""
     if not LANGS_RE.match(langs or ""):
         raise OcrError(f"Invalid language list: {langs!r} (for example: eng+deu)")
-    binary = shutil.which(ENGINE)
+    binary = _engine()
     if binary is None:
         raise OcrError(f"`{ENGINE}` is not installed. Install it: {install_hint()}", missing=True)
     data, factor = _prepare(png)

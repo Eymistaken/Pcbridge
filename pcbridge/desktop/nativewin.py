@@ -1,8 +1,9 @@
-"""What the native helper answers for the X11 desktops (Cinnamon, Xfce).
+"""What the native helper answers about windows and monitors, where it is
+the one that knows: the X11 desktops (Cinnamon, Xfce) and Windows.
 
-pcbridge has no X11 code of its own: the monitor table, the focused window
-and window activation on X11 come from the native helper, as the GNOME
-extension and the KWin scripts answer them elsewhere. Each call here starts
+pcbridge has no X11 or Win32 window code of its own: the monitor table, the
+focused window and window activation there come from the native helper, as
+the GNOME extension and the KWin scripts answer them elsewhere. Each call here starts
 one helper, asks one question and stops it, as `kwin_helper.py` starts one
 Python per question on Plasma. The window requests carry the current
 desktop grant, which the helper checks: a title is screen content.
@@ -18,7 +19,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from ...errors import DesktopError
+from .errors import DesktopError
 
 log = logging.getLogger("pcbridge.desktop")
 
@@ -41,7 +42,7 @@ def _cfg() -> Any:
     global _config
     with _lock:
         if _config is None:
-            from ....config import load_config
+            from ..config import load_config
 
             _config = load_config(check_state=False)
         return _config
@@ -53,9 +54,9 @@ def request(method: str, params: dict | None = None, *, grant: bool = True) -> d
     `grant=True` adds the current grant's id and epoch, and returns None
     without starting anything when no grant is open.
     """
-    from ....native import NativeClient, discover_native_binary
-    from ...backends.rust import runtime_dir
-    from ...lease import LeaseStore
+    from ..native import NativeClient, discover_native_binary
+    from .backends.rust import runtime_dir
+    from .lease import LeaseStore
 
     cfg = _cfg()
     body = dict(params or {})
@@ -67,14 +68,14 @@ def request(method: str, params: dict | None = None, *, grant: bool = True) -> d
     try:
         binary = discover_native_binary(cfg.native)
     except DesktopError as exc:
-        log.info("x11: no native helper: %s", exc.message)
+        log.info("native windows: no native helper: %s", exc.message)
         return None
     client = NativeClient(binary, state_dir=Path(cfg.state_dir), runtime_dir=runtime_dir(),
                           default_timeout=REQUEST_TIMEOUT_S)
     try:
         response = client.request(method, body)
     except DesktopError as exc:
-        log.info("x11: %s failed: %s", method, exc.message)
+        log.info("native windows: %s failed: %s", method, exc.message)
         return None
     finally:
         client.close()
@@ -82,7 +83,7 @@ def request(method: str, params: dict | None = None, *, grant: bool = True) -> d
 
 
 def display_snapshot() -> dict | None:
-    """The helper's `display.snapshot`: RandR's monitor table. No grant."""
+    """The helper's `display.snapshot` (RandR on X11, GDI on Windows). No grant."""
     return request("display.snapshot", grant=False)
 
 

@@ -1526,6 +1526,10 @@ def register(
             return f"⚠️ Screen capture is not ready: {exc}"
         if compositorlib.current().kind == "hyprland":
             return "📷 Screen capture is ready."
+        if compositorlib.is_windows():
+            return ("📷 Screenshots come from Windows' desktop duplication: silent, no flash. "
+                    "The frame around the screens and the tray icon (with Lock now) show "
+                    "the grant until it closes.")
         if compositorlib.is_x11():
             # X11 needs no share: any client may read the screen. The frame
             # the native helper draws around the screens is the indicator.
@@ -1851,7 +1855,7 @@ def register(
                 note += "\n· screen capture closed; the grant notification is gone"
             elif kind == compositorlib.GNOME_SHELL.kind:
                 note += "\n· screen sharing stopped (the sharing indicator is gone)"
-            elif kind == compositorlib.HYPRLAND.kind:
+            elif kind in (compositorlib.HYPRLAND.kind, compositorlib.WINDOWS.kind):
                 note += "\n· screen capture closed; native grant frame cleanup requested"
             else:
                 note += "\n· screen capture closed"
@@ -3866,6 +3870,10 @@ def register(
             return ("KDE Plasma has no pcbridge panel icon: there the grant shows as a "
                     "notification only while desktop control is open, so there is "
                     "nothing to hide.")
+        if kind == sessionlib.WINDOWS:
+            return ("On Windows pcbridge's tray icon shows only while desktop control is "
+                    "granted, together with the frame around the screens; its menu has "
+                    "Lock now. There is nothing to hide while control is closed.")
         if kind == sessionlib.HYPRLAND:
             return ("The GNOME panel icon setting is not applicable on Hyprland. "
                     "No panel or tray is required; the native glow is the required "

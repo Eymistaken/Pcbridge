@@ -252,6 +252,15 @@ def _clipboard_capabilities(backend: str) -> dict[str, Capability]:
     """
     import os
 
+    if backend == "windows.clipboard":
+        # The helper uses the Win32 clipboard itself: nothing to install.
+        return {
+            name: _capability(name, CapabilityState.SUPPORTED, backend=backend,
+                              scope="os.clipboard",
+                              limitations=(("Text only (CF_UNICODETEXT).",)
+                                           if name == "clipboard.write" else ()))
+            for name in ("clipboard.read", "clipboard.write")
+        }
     x11 = backend == "linux.xclip.native"
     values: dict[str, Capability] = {}
     for name, command in (

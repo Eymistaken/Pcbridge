@@ -26,7 +26,7 @@ from pathlib import Path
 
 from . import distro as distrolib
 from .desktop.session import (
-    CINNAMON, GNOME, HYPRLAND, KDE, UNKNOWN, XFCE, X11_KINDS, _kind_from_tokens,
+    CINNAMON, GNOME, HYPRLAND, KDE, UNKNOWN, WINDOWS, XFCE, X11_KINDS, _kind_from_tokens,
     session_type_fits,
 )
 
@@ -59,7 +59,7 @@ VERSION_COMMANDS = {
     "Sway": ["sway", "--version"],
 }
 
-SUPPORTED_KINDS = (GNOME, KDE, HYPRLAND, CINNAMON, XFCE)
+SUPPORTED_KINDS = (GNOME, KDE, HYPRLAND, CINNAMON, XFCE, WINDOWS)
 # Desktop control needs the native helper, and releases build it for x86_64
 # only (decided with the maintainer, 2026-11-13: ARM waits for an aarch64
 # build; docs/install.md, Architectures).
@@ -230,6 +230,8 @@ class Platform:
 
     @property
     def desktop_supported(self) -> bool:
+        if self.desktop_kind == WINDOWS:
+            return self.arch.lower() in HELPER_ARCHES
         return (self.desktop_kind in SUPPORTED_KINDS
                 and self.session_type in ("wayland", "x11")
                 and session_type_fits(self.desktop_kind, self.session_type)
@@ -264,7 +266,9 @@ class Platform:
         fam = distrolib.FAMILY_NAMES.get(self.family)
         parts = [f"{self.distro_name or 'unknown distribution'}"
                  + (f" ({fam} family)" if fam and self.distro_id != self.family else "")]
-        if self.session_type:
+        if self.desktop_kind == WINDOWS:
+            parts.append(f"build {self.desktop_version}")
+        elif self.session_type:
             parts.append(" ".join(p for p in (self.desktop or "unknown desktop",
                                               self.desktop_version) if p))
             parts.append("Wayland" if self.session_type == "wayland" else
@@ -275,8 +279,31 @@ class Platform:
         return "Found: " + " · ".join(parts)
 
 
+def _detect_windows() -> Platform:
+    """Windows: one desktop, its release and build; no distribution or glibc."""
+    import locale
+
+    language = (locale.getlocale()[0] or "").split("_")[0].lower()
+    return Platform(
+        arch=platform.machine(),
+        distro_name=f"Windows {platform.release()}",
+        distro_id="windows",
+        family="",
+        package_manager="winget" if shutil.which("winget") else "",
+        session_type="windows",
+        desktop="Windows",
+        desktop_kind=WINDOWS,
+        desktop_version=platform.version(),
+        session_source="windows",
+        glibc=(),
+        language=language if len(language) == 2 else "",
+    )
+
+
 def detect(env: dict[str, str] | None = None, os_release_text: str | None = None) -> Platform:
     """Everything above, measured now (a re-run after an update sees the new state)."""
+    if os.name == "nt" and env is None and os_release_text is None:
+        return _detect_windows()
     fields = distrolib.os_release(os_release_text)
     name = fields.get("NAME", "") or fields.get("PRETTY_NAME", "")
     version = fields.get("VERSION_ID", "")

@@ -22,6 +22,7 @@
 
 use std::io;
 
+use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, GetKeyboardLayout, HKL, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE,
     KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE,
@@ -238,15 +239,23 @@ fn layout_inputs(unit: u16, character: char, layout: HKL, caps_lock: bool) -> Op
 
 /// The keyboard layout of the window in front, which decides what a key
 /// types there, and whether Caps Lock is on.
+///
+/// Key state is per input queue: read from the helper's own thread, which
+/// never receives input, Caps Lock read as on while it was off (measured in
+/// W7: "XYZ" came out as "xyz", ":" right). So the state is read with this
+/// thread's input attached to the foreground window's for that one call.
 fn foreground_layout() -> (HKL, bool) {
-    // SAFETY: plain reads; thread 0 (no foreground window) gives this
-    // thread's layout.
+    // SAFETY: plain reads; the attachment is undone before returning, and
+    // a failed attach leaves the helper's own (possibly stale) state.
     unsafe {
         let thread = GetWindowThreadProcessId(GetForegroundWindow(), None);
-        (
-            GetKeyboardLayout(thread),
-            GetKeyState(i32::from(VK_CAPITAL.0)) & 1 != 0,
-        )
+        let me = GetCurrentThreadId();
+        let attached = thread != 0 && thread != me && AttachThreadInput(me, thread, true).as_bool();
+        let caps_lock = GetKeyState(i32::from(VK_CAPITAL.0)) & 1 != 0;
+        if attached {
+            let _ = AttachThreadInput(me, thread, false);
+        }
+        (GetKeyboardLayout(thread), caps_lock)
     }
 }
 

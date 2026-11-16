@@ -674,10 +674,10 @@ def idle_watch_binary(cfg: Any) -> Path | None:
     """
     if not cfg.desktop.enabled:
         return None
-    from .desktop.session import HYPRLAND, KDE, X11_KINDS, desktop_kind
+    from .desktop.session import HYPRLAND, KDE, WINDOWS, X11_KINDS, desktop_kind
 
     kind = desktop_kind()
-    if kind not in (KDE, HYPRLAND, *X11_KINDS):
+    if kind not in (KDE, HYPRLAND, WINDOWS, *X11_KINDS):
         return None
     from .desktop.errors import DesktopError
     from .native import discover_native_binary

@@ -96,6 +96,20 @@ XFCE = Compositor(
     search_path="EWMH window activation",
 )
 
+# Windows (the port's W7): the native helper's Win32 backends, the same
+# helper that serves the X11 desktops' windows and frame.
+WINDOWS = Compositor(
+    kind=session.WINDOWS,
+    name="Windows",
+    lock_backend="windows.wts+input-desktop",
+    idle_backend="windows.input-hooks",
+    display_backend="windows.gdi",
+    focus_backend="windows.user32",
+    search_backend="windows.start-menu",
+    focus_path="SetForegroundWindow",
+    search_path="the Start menu shortcuts",
+)
+
 UNKNOWN = Compositor(
     kind=session.UNKNOWN,
     name="Unknown desktop",
@@ -116,6 +130,7 @@ def for_kind(kind: str) -> Compositor:
         session.HYPRLAND: HYPRLAND,
         session.CINNAMON: CINNAMON,
         session.XFCE: XFCE,
+        session.WINDOWS: WINDOWS,
     }.get(kind, UNKNOWN)
 
 
@@ -132,3 +147,13 @@ def is_kde() -> bool:
 def is_x11() -> bool:
     """Cinnamon or Xfce: the native helper's X11 backend."""
     return current().kind in session.X11_KINDS
+
+
+def is_windows() -> bool:
+    return current().kind == session.WINDOWS
+
+
+def helper_windows() -> bool:
+    """The desktops whose windows, focus and grant frame the native helper
+    itself handles: the X11 desktops and Windows."""
+    return is_x11() or is_windows()

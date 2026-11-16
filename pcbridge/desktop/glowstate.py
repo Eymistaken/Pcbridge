@@ -31,8 +31,10 @@ def frame_session() -> tuple[str, str, str]:
 
 
 def matches(record: dict, token: LeaseToken, *, display: str, signature: str, now_ms: int,
-            x11_display: str = "") -> bool:
-    """`x11_display` set: an X11 frame record; otherwise Hyprland's."""
+            x11_display: str = "", windows_session: int | None = None) -> bool:
+    """`x11_display` set: an X11 frame record; `windows_session` set: a
+    Windows one (the display fields empty, the session named); otherwise
+    Hyprland's."""
     numbers = ("version", "pid", "writer_start_ticks", "owner_pid", "owner_start_ticks",
                "revoke_epoch", "strip_count", "presented_unix_ms")
     if any(type(record.get(name)) is not int or record[name] < 0 for name in numbers):
@@ -46,6 +48,10 @@ def matches(record: dict, token: LeaseToken, *, display: str, signature: str, no
             and all(record[name] > 0 for name in ("pid", "writer_start_ticks", "owner_pid", "owner_start_ticks"))
             and record.get("grant_id") == token.grant_id and record["revoke_epoch"] == token.revoke_epoch
             and (
+                (record.get("wayland_display") == "" and record.get("hyprland_instance") == ""
+                 and record.get("x11_display", "") == ""
+                 and record.get("windows_session") == windows_session)
+                if windows_session is not None else
                 (bool(x11_display) and record.get("x11_display") == x11_display
                  and record.get("wayland_display") == "" and record.get("hyprland_instance") == "")
                 if x11_display else
@@ -111,9 +117,40 @@ def _parent_pid(pid: int) -> int | None:
         return None
 
 
+def _windows_read(directory: Path, token: LeaseToken, *, binary: Path, now_ms: int | None) -> dict | None:
+    """The Windows frame record: the state directory is private to the user
+    through its ACL (`oscompat`), and the writer is checked through the
+    Win32 API instead of `/proc`: its start time, its parent (the process
+    that owns the frame) and its executable, the configured helper."""
+    from .platforms.windows import proc
+
+    try:
+        path = directory / STATE_FILE
+        if path.is_symlink() or not path.is_file():
+            return None
+        raw = path.read_bytes()[:MAX_RECORD_BYTES + 1]
+        if len(raw) > MAX_RECORD_BYTES:
+            return None
+        record = json.loads(raw)
+        if not isinstance(record, dict) or not matches(record, token, display="", signature="",
+                windows_session=proc.session_id(),
+                now_ms=int(time.time() * 1000) if now_ms is None else now_ms):
+            return None
+        if (proc.start_ticks(record["pid"]) != record["writer_start_ticks"]
+                or proc.start_ticks(record["owner_pid"]) != record["owner_start_ticks"]
+                or proc.parent_pid(record["pid"]) != record["owner_pid"]
+                or not proc.same_file(proc.image_path(record["pid"]), binary)):
+            return None
+        return record
+    except (OSError, ValueError, TypeError):
+        return None
+
+
 def read(directory: Path, token: LeaseToken, *, binary: Path, now_ms: int | None = None) -> dict | None:
     """None means frame health is unavailable, never permission to act."""
     directory = directory.resolve()
+    if os.name == "nt":
+        return _windows_read(directory, token, binary=binary, now_ms=now_ms)
     try:
         fd = os.open(directory / STATE_FILE, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
         with os.fdopen(fd, "rb") as stream:

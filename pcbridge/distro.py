@@ -15,6 +15,8 @@ support existed; `detected_family` tells the two cases apart.
 
 from __future__ import annotations
 
+import os
+
 import re
 import shutil
 from pathlib import Path
@@ -187,12 +189,30 @@ def install_argv(names: list[str], fam: str | None = None) -> list[str]:
     return ["sudo", "apt-get", "install", "-y", *names]
 
 
+# Windows: what winget installs for a need. Only tesseract has a Windows
+# counterpart; the rest are Linux desktop tools pcbridge does not use there.
+_WINGET_IDS = {"tesseract": "UB-Mannheim.TesseractOCR"}
+
+
+def _windows_install_command(needs: tuple[str, ...], raw: tuple[str, ...]) -> str:
+    ids = [_WINGET_IDS[need] for need in needs if need in _WINGET_IDS]
+    parts = [f"winget install --id {winget_id} -e" for winget_id in ids]
+    languages = [name.rsplit("-", 1)[-1] for name in raw if name.startswith("tesseract-")]
+    if languages:
+        parts.append("add " + ", ".join(f"{lang}.traineddata" for lang in languages)
+                     + " from github.com/tesseract-ocr/tessdata to the tessdata folder "
+                       "of the Tesseract-OCR installation")
+    return "; then ".join(parts) or "this is not needed on Windows"
+
+
 def install_command(*needs: str, fam: str | None = None, raw: tuple[str, ...] = ()) -> str:
     """`sudo apt install …`, `sudo pacman -S --needed …` or `sudo dnf install …`.
 
     `raw` adds package names that are already distribution-specific (a
     tesseract language from `tesseract_language_package`).
     """
+    if os.name == "nt" and fam is None:
+        return _windows_install_command(needs, raw)
     fam = fam or family()
     names = packages(*needs, fam=fam)
     names += [n for n in raw if n not in names]

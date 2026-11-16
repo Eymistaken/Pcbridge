@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -43,6 +44,16 @@ _BACKOFF_S = (2.0, 5.0, 15.0, 60.0)
 def state_path() -> Path | None:
     base = pathslib.runtime_base()
     return base / "pcbridge" / STATE_FILE if base else None
+
+
+def _windows_writer(pid: int, start: int) -> bool:
+    """Windows: the record's writer is still that process, the helper, in
+    this session (`/proc` has no counterpart; the Win32 API answers)."""
+    from .platforms.windows import proc
+
+    image = proc.image_path(pid)
+    return (proc.start_ticks(pid) == start and image is not None
+            and image.name.lower().startswith("pcbridge-native"))
 
 
 def _writer_alive(pid: int) -> bool:
@@ -80,7 +91,13 @@ def read_idle_ms(path: Path | None = None, now_ms: int | None = None) -> int | N
     from . import session as sessionlib
 
     x11 = sessionlib.x11_session()
-    if x11:
+    windows = sys.platform == "win32" and sessionlib.desktop_kind() == sessionlib.WINDOWS
+    if windows:
+        from .platforms.windows import proc
+
+        session_ok = (display == "" and x11_display == "" and signature == ""
+                      and record.get("windows_session") == proc.session_id())
+    elif x11:
         session_ok = (isinstance(x11_display, str) and bool(x11_display)
                       and x11_display == os.environ.get("DISPLAY", "") and display == "")
     else:
@@ -94,11 +111,14 @@ def read_idle_ms(path: Path | None = None, now_ms: int | None = None) -> int | N
             or type(record.get("timeout_ms")) is not int or record["timeout_ms"] != 1000
             or not session_ok
             or not isinstance(signature, str)
-            or signature != os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+            or (not windows and signature != os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", ""))
             or not 0 <= now - heartbeat <= MAX_RECORD_AGE_MS
             or since > heartbeat):
         return None
-    if not _writer_alive(pid) or _writer_start_ticks(pid) != start:
+    if windows:
+        if not _windows_writer(pid, start):
+            return None
+    elif not _writer_alive(pid) or _writer_start_ticks(pid) != start:
         return None
     if idle is not True:
         return 0
@@ -113,7 +133,13 @@ async def supervise(binary: Path) -> None:
     while True:
         started = time.monotonic()
         try:
-            proc = await anyio.open_process([str(binary), WATCH_ARGUMENT])
+            # Windows has no XDG_RUNTIME_DIR to agree on: the record's
+            # place is passed.
+            argv = [str(binary), WATCH_ARGUMENT]
+            if sys.platform == "win32" and (path := state_path()) is not None:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                argv.append(str(path))
+            proc = await anyio.open_process(argv)
         except OSError as exc:
             log.warning("idle watcher did not start: %s", exc)
             code: int | None = None

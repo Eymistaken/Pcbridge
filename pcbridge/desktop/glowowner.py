@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
+import shutil
+import sys
 from pathlib import Path
 import subprocess
 import threading
@@ -29,7 +32,25 @@ def _backend() -> str:
     # From the environment alone: an error path must not start processes.
     from . import session
 
+    if _windows():
+        return "windows.frame"
     return "linux.x11.frame" if session.x11_session() else "linux.hyprland.glow"
+
+
+def _windows() -> bool:
+    from . import session
+
+    return os.name == "nt" and session.desktop_kind() == session.WINDOWS
+
+
+def _lock_program() -> Path | None:
+    """pcbridge's own executable, for the Windows tray icon's "Lock now":
+    the console script next to this interpreter, else the one on PATH."""
+    here = Path(sys.executable).with_name("pcbridge.exe")
+    if here.is_file():
+        return here
+    found = shutil.which("pcbridge")
+    return Path(found) if found else None
 
 
 class FrameOwner:
@@ -119,8 +140,13 @@ class FrameOwner:
             self._stop_process()
             self._stop = threading.Event()
             try:
+                argv = [str(self.binary), "glow-watch", str(self.directory), token.grant_id,
+                        str(token.revoke_epoch)]
+                if _windows() and (lock := _lock_program()) is not None:
+                    # The tray icon's "Lock now" runs `<program> lock`.
+                    argv.append(str(lock))
                 self._process = subprocess.Popen(
-                    [str(self.binary), "glow-watch", str(self.directory), token.grant_id, str(token.revoke_epoch)],
+                    argv,
                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                     close_fds=True, env=helper_environment(),
                 )

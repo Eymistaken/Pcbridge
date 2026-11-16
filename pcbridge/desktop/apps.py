@@ -156,10 +156,11 @@ def extension_focus_available() -> bool:
         except hyprland.HyprlandIPCError:
             return False
         return True
-    if compositorlib.is_x11():
-        # The native helper activates through EWMH; it needs only the helper.
+    if compositorlib.helper_windows():
+        # The native helper activates the window itself (EWMH on X11,
+        # SetForegroundWindow on Windows); it needs only the helper.
         from ..native import discover_native_binary
-        from .platforms.linux.x11native import _cfg
+        from .nativewin import _cfg
 
         try:
             discover_native_binary(_cfg().native)
@@ -206,9 +207,9 @@ def extension_focused_window() -> tuple[str, str] | None:
     verdigi addan FARKLI olabilir; ayni dizi icinde iki kaynagin karismasi
     "odak degisti" sayilir, yani yanlis yonde degil guvenli yonde hata.
     """
-    if compositorlib.is_kde() or compositorlib.is_x11():
-        if compositorlib.is_x11():
-            from .platforms.linux import x11native
+    if compositorlib.is_kde() or compositorlib.helper_windows():
+        if compositorlib.helper_windows():
+            from . import nativewin as x11native
 
             reply = x11native.focused()
         else:
@@ -265,7 +266,7 @@ def compositor_focus_hint() -> dict[str, object] | None:
     grant closed, or with no focused window: the helper then reads ACTIVE as
     before. X11 needs no hint; the helper asks the window manager itself.
     """
-    if compositorlib.is_x11():
+    if compositorlib.helper_windows():
         return None
     shell = _gnome_focused_window()
     if shell is None:
@@ -373,10 +374,10 @@ def _extension_activate(window: str) -> bool:
     if compositorlib.is_kde():
         reply = _kwin({"cmd": "activate", "target": window})
         return bool(reply and reply.get("activated") is True)
-    if compositorlib.is_x11():
-        # Cinnamon and Xfce: the native helper, with the same matching rules
-        # (`x11.rs`), confirmed by reading `_NET_ACTIVE_WINDOW` back.
-        from .platforms.linux import x11native
+    if compositorlib.helper_windows():
+        # Cinnamon, Xfce and Windows: the native helper, with the same
+        # matching rules, confirmed by reading the active window back.
+        from . import nativewin as x11native
 
         reply = x11native.activate(window)
         return bool(reply and reply.get("activated") is True)
@@ -510,7 +511,14 @@ def _exec_binary(value: str) -> str:
 
 
 def entries() -> list[Entry]:
-    """Kurulu .desktop girdileri. Ilk gorulen kazanir (XDG oncelik sirasi)."""
+    """Kurulu .desktop girdileri. Ilk gorulen kazanir (XDG oncelik sirasi).
+
+    On Windows the Start menu's applications (`platforms.windows.apps`).
+    """
+    if compositorlib.is_windows():
+        from .platforms.windows import apps as windows_apps
+
+        return windows_apps.entries(Entry)
     seen: dict[str, Entry] = {}
     for d in _dirs():
         try:
@@ -974,7 +982,21 @@ def _launch_argv(entry: Entry) -> list[str]:
 
 
 def _gtk_launch(entry: Entry, timeout: int) -> None:
-    """`gtk-launch` ile baslat. Cikis kodu yalnizca "istek gitti" demek."""
+    """`gtk-launch` ile baslat. Cikis kodu yalnizca "istek gitti" demek.
+
+    On Windows the Start menu's way: `shell:AppsFolder\\<AppID>`.
+    """
+    if compositorlib.is_windows():
+        from .platforms.windows import apps as windows_apps
+
+        try:
+            windows_apps.launch(entry.entry_id)
+        except OSError as exc:
+            raise _unknown(
+                f"{entry.name} could not be started: {exc}",
+                "Check with window_list whether the application opened after all.",
+            ) from None
+        return
     if not shutil.which("gtk-launch"):
         from .. import distro as distrolib
 

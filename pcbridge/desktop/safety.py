@@ -138,6 +138,10 @@ def screen_locked() -> bool | None:
         return hyprland.screen_locked()
     elif kind in session.X11_KINDS:
         return _x11_screen_locked(kind)
+    elif kind == session.WINDOWS:
+        from .platforms.windows import proc
+
+        return proc.screen_locked()
     else:
         return None
     return bool(val) if isinstance(val, bool) else None
@@ -224,7 +228,7 @@ def _session_bus_names() -> set[str] | None:
 def idle_ms() -> int | None:
     """Kullanicinin son girdisinden bu yana gecen ms. Ogrenilemezse None."""
     kind = compositorlib.current().kind
-    if kind in (session.KDE, session.HYPRLAND, *session.X11_KINDS):
+    if kind in (session.KDE, session.HYPRLAND, *session.X11_KINDS, session.WINDOWS):
         from . import idlewatch
 
         val = idlewatch.read_idle_ms()
@@ -310,6 +314,13 @@ def _seconds(n: int) -> str:
     return f"{n} second" if n == 1 else f"{n} seconds"
 
 
+# Linux cannot tell uinput's events from a person's; Windows can (each of
+# pcbridge's events carries its mark, and `idle-watch` leaves them out).
+_OWN_INPUT_NOTE = ("pcbridge's own keyboard and pointer actions do not count here."
+                   if os.name == "nt" else
+                   "pcbridge's own keyboard and pointer actions count too.")
+
+
 def _user_active_decision(idle: int, guard: int) -> Decision:
     """`USER_ACTIVE`, worded so an agent picks the right next step.
 
@@ -330,7 +341,7 @@ def _user_active_decision(idle: int, guard: int) -> Decision:
         "([desktop] idle_guard_seconds), so an agent and a person at the machine "
         "do not fight over them. Right after the user types a request on this "
         "machine this refusal is expected: that keystroke was the request. "
-        "pcbridge's own keyboard and pointer actions count too. If the user "
+        f"{_OWN_INPUT_NOTE} If the user "
         "asked you for this desktop work, call the same tool again with "
         "force=true (a parameter of this tool, not of desktop_unlock; pcb-do "
         "takes --force) and keep passing it for the rest of that work. If "
@@ -376,9 +387,9 @@ class SafetyGate:
     def requires_frame(self) -> bool:
         """The desktops whose grant frame the native helper draws, and on which
         control is open only while that frame is proven visible: Hyprland,
-        and the X11 desktops (Cinnamon, Xfce)."""
+        the X11 desktops (Cinnamon, Xfce) and Windows."""
         kind = compositorlib.current().kind
-        return kind == session.HYPRLAND or kind in session.X11_KINDS
+        return kind in (session.HYPRLAND, session.WINDOWS) or kind in session.X11_KINDS
 
     def visible_frame(self, token: LeaseToken | None, *, current_outputs: bool = False) -> bool:
         if not self.requires_frame:

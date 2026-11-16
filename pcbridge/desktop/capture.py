@@ -113,6 +113,15 @@ META_SUFFIX = ".json"
 CLIENT_MAX_LONG_EDGE = 1568
 
 
+
+def file_safe(connector: str) -> str:
+    """A connector name as part of a file name. Linux names (`DP-1`) are
+    kept; Windows' device names (`\\\\.\\DISPLAY1`) lose the path characters
+    (`DISPLAY1`)."""
+    cleaned = re.sub(r'[\\/:*?"<>|]+', "", connector).strip(". ")
+    return cleaned or "monitor"
+
+
 def oversized(shot: "Shot") -> bool:
     """Bu cekimden guvenle koordinat cikarilamaz mi?
 
@@ -1013,7 +1022,7 @@ class _Pending:
         mon = self.monitor
         part = "-region" if self.origin is not None else ""
         return Shot(
-            path=out_dir / f"{stamp}-m{mon.index}-{mon.connector}{part}.png",
+            path=out_dir / f"{stamp}-m{mon.index}-{file_safe(mon.connector)}{part}.png",
             monitor=mon,
             offset=self.origin or (mon.x, mon.y),
             size=self.size,
@@ -1199,7 +1208,7 @@ def _gnome_window_region() -> tuple[
 def _x11_window_region() -> tuple[
     tuple[tuple[int, int, int, int], monitorslib.Monitor], Callable[[], None]
 ]:
-    """The focused window on Cinnamon or Xfce as a region of its monitor.
+    """The focused window on Cinnamon, Xfce or Windows as a region of its monitor.
 
     The native helper reads the active window and its frame (decorations
     included) in root coordinates, which are the canvas on X11. The box is
@@ -1207,7 +1216,7 @@ def _x11_window_region() -> tuple[
     the frames arrived withdraws the picture if the focus or the frame moved
     in between, as on GNOME.
     """
-    from .platforms.linux import x11native
+    from . import nativewin as x11native
 
     def read() -> tuple[str, str, tuple[int, int, int, int]] | None:
         reply = x11native.focused()
@@ -1281,8 +1290,9 @@ def _render(
         region = _kwin_window_region()
         want_window = False
         monitor = None  # the region names its monitor
-    if want_window and compositorlib.is_x11():
-        # Cinnamon and Xfce: the frame from the native helper (EWMH).
+    if want_window and compositorlib.helper_windows():
+        # Cinnamon, Xfce and Windows: the frame from the native helper
+        # (EWMH, or DWM's visible frame on Windows).
         region, verify_window = _x11_window_region()
         want_window = False
         monitor = None
@@ -1336,7 +1346,7 @@ def _render(
         screencast.ensure_cursor(include_pointer)
         pending: list[_Pending] = []
         for mon in targets:
-            raw = raw_dir / f"sc-{mon.connector}.png"
+            raw = raw_dir / f"sc-{file_safe(mon.connector)}.png"
             frame = screencast.capture(mon.connector, raw)
             staged = staging / f"m{mon.index}.png"
             with Image.open(raw) as img:

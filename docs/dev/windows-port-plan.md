@@ -9,7 +9,7 @@ its commit lands; do not copy measurements into this file.
 
 ## Where it stands
 
-W0 to W6 are on `main` (W6c-e: 2026-11-16). On Windows the
+W0 to W7 are on `main` (W6c-W7: 2026-11-16). On Windows the
 daemon, the supervisor, the local IPC, jobs, shell, agents, files, the system
 tools, the live terminal (`tmux_*` through ConPTY, `pcbridge attach`), remote
 access and the login check work. The native helper builds on Windows, answers
@@ -22,8 +22,9 @@ Automation (the shared walk of `src/accessibility/` over a UIA `Tree`),
 lists and activates windows, and refuses elevated targets with
 `TARGET_ELEVATED`; since W6e it reads the lock from two signals, has
 `idle-watch` (the user's input apart from pcbridge's) and `glow-watch`
-(the frame and the tray icon with "Lock now"). The Python wiring (W7) is
-next: until then the daemon does not use any of the W6 desktop methods.
+(the frame and the tray icon with "Lock now"). Since W7 the daemon
+drives all of it through the MCP desktop tools, measured through a real
+client in the VM. Install and upgrade (W8) are next.
 
 ## Rules for this work
 
@@ -152,19 +153,29 @@ pcbridge/desktop/platforms/windows/
   `glow-watch` command as on Linux; `FrameVisibilityProvider` confirms it is
   shown. A tray icon with "Lock now".
 
-### W7: the Python desktop wiring
+### W7: the Python desktop wiring (done: `ca10f8e` move, then the Windows wiring)
 
-- Move first (layout above), then add Windows: `session.WINDOWS`, the
+- ~~Move first (layout above), then add Windows: `session.WINDOWS`, the
   compositor descriptor, the backend names in `rust.py`,
-  `monitors._from_native`, `SafetyGate` probes reading the native state.
-- `grantnotice` as a toast with "Lock now"; `panel_icon` for the tray icon.
-- `apps.py` and `window_focus`: Start menu shortcuts and
-  `shell:AppsFolder\<AUMID>`, the blocklist matched against them.
-- OCR: tesseract's Windows location (winget `UB-Mannheim.TesseractOCR`).
-- `policy.check_text_target` from UIA `IsPassword`.
-- `skills/computer-use/SKILL.md` and `bin/pcb-do`: Windows shortcuts and apps.
-- Live tests under `tests/live/windows/`, run only in the VM, through a real
-  MCP client: every desktop tool, the kill switch, `USER_ACTIVE`.
+  `monitors._from_native`, `SafetyGate` probes reading the native state.~~
+  The Linux desktops' modules are in `pcbridge/desktop/platforms/linux/`;
+  `x11native` became the shared `desktop/nativewin.py` (the helper answers
+  the same window questions on X11 and Windows).
+- ~~`grantnotice` as a toast with "Lock now"; `panel_icon` for the tray
+  icon.~~ The toast is a one-off; "Lock now" is in the tray icon's menu,
+  which `glow-watch` owns with the frame.
+- ~~`apps.py` and `window_focus`: Start menu applications and
+  `shell:AppsFolder\<AppID>`.~~ (`Get-StartApps` lists shortcuts and packaged
+  apps alike.)
+- ~~OCR: tesseract's Windows location (winget `UB-Mannheim.TesseractOCR`).~~
+- ~~`policy.check_text_target` from UIA `IsPassword`~~ (a password `Edit` is
+  the role "password text", which the policy already refuses).
+- ~~`skills/computer-use/SKILL.md`: Windows shortcuts and apps.~~ `pcb-do`
+  is a console script, so Windows has `pcb-do.exe`.
+- ~~Live tests under `tests/live/windows/`, run only in the VM, through a real
+  MCP client: the desktop tools, the kill switch, `USER_ACTIVE`.~~
+- Left: `find_text`/`wait_for_text` with tesseract measured end to end in
+  the VM (installed there, not yet run through MCP).
 
 ### W8: install and upgrade
 

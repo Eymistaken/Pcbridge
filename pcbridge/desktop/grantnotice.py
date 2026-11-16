@@ -18,6 +18,10 @@ panel item, so the button is its kill switch beside the native grant frame;
 Cinnamon has the pcbridge applet too, but keeps a critical notification on
 screen until it is closed (measured on Cinnamon 5.6.8), so a one-off one
 would still say "granted" after the grant ended.
+
+Windows shows a one-off toast; the lasting signal there is the frame around
+the screens and the tray icon, whose menu has "Lock now" (the native
+helper's `glow-watch`).
 """
 
 from __future__ import annotations
@@ -64,6 +68,13 @@ def lasting() -> bool:
 
 def show(title: str, body: str) -> None:
     """Show the grant. A plain notification, or on Plasma, Xfce and Cinnamon a lasting one."""
+    if compositorlib.is_windows():
+        from .. import notifications
+
+        # PowerShell takes a second to start; the grant does not wait for it.
+        threading.Thread(target=notifications.send, args=(title, body),
+                         name="pcbridge-grant-toast", daemon=True).start()
+        return
     if not lasting():
         try:
             subprocess.run(["notify-send", "-a", "pcbridge", "-u", "critical", title, body],

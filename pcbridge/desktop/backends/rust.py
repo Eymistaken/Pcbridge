@@ -76,6 +76,7 @@ from ...native import NativeClient, discover_native_binary
 DISPLAY_SCHEME = "mutter"
 KWIN_DISPLAY_SCHEME = "kwin"
 X11_DISPLAY_SCHEME = "x11"
+WINDOWS_DISPLAY_SCHEME = "windows"
 
 #: Matches the native side's own ceiling. A frame that has not arrived in eight
 #: seconds is not coming, and one MCP call may not block for 110.
@@ -88,19 +89,24 @@ BACKEND_NAME = "linux.mutter.pipewire"
 KWIN_BACKEND_NAME = "linux.kwin.screenshot2"
 HYPRLAND_BACKEND_NAME = "linux.hyprland.image-copy"
 X11_BACKEND_NAME = "linux.x11.getimage"
+WINDOWS_BACKEND_NAME = "windows.dxgi.duplication"
+#: Windows' input and clipboard backends (the helper's W6c).
+WINDOWS_INPUT_BACKEND = "windows.sendinput"
+WINDOWS_CLIPBOARD_BACKEND = "windows.clipboard"
 
 
 def _display_scheme() -> str:
     kind = compositorlib.current().kind
     return {"kde": KWIN_DISPLAY_SCHEME, "gnome": DISPLAY_SCHEME,
-            "cinnamon": X11_DISPLAY_SCHEME, "xfce": X11_DISPLAY_SCHEME}.get(kind, kind)
+            "cinnamon": X11_DISPLAY_SCHEME, "xfce": X11_DISPLAY_SCHEME,
+            "windows": WINDOWS_DISPLAY_SCHEME}.get(kind, kind)
 
 
 def _backend_name() -> str:
     kind = compositorlib.current().kind
     return {"kde": KWIN_BACKEND_NAME, "gnome": BACKEND_NAME,
             "hyprland": HYPRLAND_BACKEND_NAME, "cinnamon": X11_BACKEND_NAME,
-            "xfce": X11_BACKEND_NAME}.get(kind, "unavailable")
+            "xfce": X11_BACKEND_NAME, "windows": WINDOWS_BACKEND_NAME}.get(kind, "unavailable")
 
 logger = logging.getLogger(__name__)
 
@@ -589,7 +595,7 @@ class RustCaptureProvider:
     def probe_capabilities(self) -> dict[str, Capability]:
         """Report monitor capture from the native path without opening a session."""
         kind = compositorlib.current().kind
-        if kind not in ("gnome", "kde", "hyprland", "cinnamon", "xfce"):
+        if kind not in ("gnome", "kde", "hyprland", "cinnamon", "xfce", "windows"):
             return {
                 name: _capability(
                     name, CapabilityState.UNAVAILABLE, backend="unavailable",
@@ -659,7 +665,7 @@ class RustCaptureProvider:
         # and, since 2.8, the GNOME extension name the focused window and its
         # frame, so it stands or falls with monitor capture. On X11 the
         # helper reads the focused window's frame through EWMH.
-        if kind in ("kde", "hyprland", "cinnamon", "xfce"):
+        if kind in ("kde", "hyprland", "cinnamon", "xfce", "windows"):
             window = _capability(
                 "capture.window",
                 monitor.state,
@@ -1058,6 +1064,24 @@ class RustInputProvider(inputlib.InputBackend):
         response = client.request(method, params, timeout=5.0)
         return self._result_dict(response)
 
+    def _type_raw(self, text: str) -> str:
+        """Windows: the helper types each character with the foreground
+        window's own layout (`input.keyboard.type`), so `raw` text is not
+        limited to ASCII or to the US layout there, as it is on Linux."""
+        if not compositorlib.is_windows():
+            return super()._type_raw(text)
+        typed = 0
+        # A request carries at most 1000 characters (the helper's limit).
+        for start in range(0, len(text), 1000):
+            params = self._grant_params()
+            client = self._input_client_for(params)
+            self._keyboard_used = True
+            piece = text[start:start + 1000]
+            response = client.request("input.keyboard.type", params,
+                                      binary=piece.encode("utf-8"), timeout=110.0)
+            typed += int(self._result_dict(response).get("typed", 0))
+        return f"typed {typed} characters with the keyboard layout's own keys"
+
     def _clipboard_request(
         self,
         method: str,
@@ -1386,6 +1410,9 @@ class RustInputProvider(inputlib.InputBackend):
         ready, reason = native_binary_ready(self.cfg)
         if not ready:
             return False, reason or "native input helper not found"
+        if compositorlib.is_windows():
+            # SendInput needs no device node or permission.
+            return True, ""
         if not os.path.exists(inputlib.UINPUT_NODE):
             return False, f"{inputlib.UINPUT_NODE} does not exist"
         if not os.access(inputlib.UINPUT_NODE, os.W_OK):
@@ -1404,10 +1431,20 @@ class RustInputProvider(inputlib.InputBackend):
                 values[name] = _capability(
                     name,
                     CapabilityState.UNAVAILABLE,
-                    backend="linux.uinput.native",
+                    backend=(WINDOWS_INPUT_BACKEND if compositorlib.is_windows()
+                             else "linux.uinput.native"),
                     scope=scope,
                     reason_code=ErrorCode.DEPENDENCY_MISSING,
                     limitations=(reason,) if reason else (),
+                )
+            elif compositorlib.is_windows():
+                values[name] = _capability(
+                    name,
+                    CapabilityState.SUPPORTED,
+                    backend=WINDOWS_INPUT_BACKEND,
+                    scope=scope,
+                    limitations=("A window that runs as administrator refuses input "
+                                 "(TARGET_ELEVATED).",),
                 )
             elif not os.path.exists(inputlib.UINPUT_NODE):
                 values[name] = _capability(
@@ -1432,7 +1469,8 @@ class RustInputProvider(inputlib.InputBackend):
                     backend="linux.uinput.native",
                     scope=scope,
                 )
-        clipboard_backend = ("linux.xclip.native" if compositorlib.is_x11()
+        clipboard_backend = (WINDOWS_CLIPBOARD_BACKEND if compositorlib.is_windows()
+                             else "linux.xclip.native" if compositorlib.is_x11()
                              else "linux.wl-clipboard.native")
         if ready:
             values.update(_clipboard_capabilities(clipboard_backend))
@@ -1461,6 +1499,12 @@ RustKeyboardInputProvider = RustInputProvider
 #: (`EXECUTION_UNKNOWN`) and is never sent again.
 ACCESSIBILITY_TIMEOUT_SECONDS = 20.0
 ACCESSIBILITY_BACKEND = "linux.atspi.native"
+#: Windows: the same walk over UI Automation (the helper's W6d).
+WINDOWS_ACCESSIBILITY_BACKEND = "windows.uia"
+
+
+def _accessibility_backend() -> str:
+    return WINDOWS_ACCESSIBILITY_BACKEND if compositorlib.is_windows() else ACCESSIBILITY_BACKEND
 # A helper that lists this feature reads the compositor's focus hint.
 FOCUS_HINT_FEATURE = "accessibility.focus_hint"
 # The targets the helper reads as "the focused window".
@@ -1540,7 +1584,7 @@ class RustAccessibilityProvider(uitreelib.UiTree):
                 category=ErrorCategory.SAFETY,
                 retryable=False,
                 suggested_action="Open the desktop grant with desktop_unlock and try again.",
-                backend=ACCESSIBILITY_BACKEND,
+                backend=_accessibility_backend(),
             )
         return str(token.grant_id), int(token.revoke_epoch)
 
@@ -1594,7 +1638,7 @@ class RustAccessibilityProvider(uitreelib.UiTree):
                     category=ErrorCategory.CAPABILITY,
                     retryable=False,
                     suggested_action="scripts/build-native.sh",
-                    backend=ACCESSIBILITY_BACKEND,
+                    backend=_accessibility_backend(),
                 ) from exc
             if acting and exc.execution_state == "unknown":
                 # Sent, and the helper never answered (timeout, crash, closed
@@ -1609,7 +1653,7 @@ class RustAccessibilityProvider(uitreelib.UiTree):
                     ErrorCode.EXECUTION_UNKNOWN,
                     ErrorCategory.EXECUTION,
                     False,
-                    backend=ACCESSIBILITY_BACKEND,
+                    backend=_accessibility_backend(),
                 ) from exc
             if exc.code in _ACCESSIBILITY_CODES:
                 raise _accessibility_error(
@@ -1617,7 +1661,7 @@ class RustAccessibilityProvider(uitreelib.UiTree):
                     exc.code,
                     ErrorCategory.ACCESSIBILITY,
                     exc.retryable,
-                    backend=ACCESSIBILITY_BACKEND,
+                    backend=_accessibility_backend(),
                 ) from exc
             raise
         result = getattr(response, "result", None)
@@ -1628,7 +1672,7 @@ class RustAccessibilityProvider(uitreelib.UiTree):
                 category=ErrorCategory.IPC,
                 retryable=False,
                 suggested_action="check_native_protocol",
-                backend=ACCESSIBILITY_BACKEND,
+                backend=_accessibility_backend(),
             )
         return result
 
@@ -1648,7 +1692,7 @@ class RustAccessibilityProvider(uitreelib.UiTree):
             },
             focus_hint=str(target).strip().lower() in FOCUSED_TARGETS,
         )
-        dump = uitreelib.dump_from_response(result, backend=ACCESSIBILITY_BACKEND)
+        dump = uitreelib.dump_from_response(result, backend=_accessibility_backend())
         self._last = dump
         return dump
 
@@ -1702,7 +1746,7 @@ class RustAccessibilityProvider(uitreelib.UiTree):
             return operation()
         except uitreelib.UiTreeError as exc:
             raise _accessibility_error(
-                exc, code, category, retryable, backend=ACCESSIBILITY_BACKEND) from exc
+                exc, code, category, retryable, backend=_accessibility_backend()) from exc
 
     def click(self, node_id: str, action: str = "click") -> dict:
         return self._translate_accessibility(
@@ -1757,7 +1801,7 @@ class RustAccessibilityProvider(uitreelib.UiTree):
                 values[name] = _capability(
                     name,
                     CapabilityState.UNAVAILABLE,
-                    backend=ACCESSIBILITY_BACKEND,
+                    backend=_accessibility_backend(),
                     scope="os.accessibility",
                     reason_code=ErrorCode.DEPENDENCY_MISSING,
                     limitations=(reason,) if reason else (),
@@ -1767,13 +1811,13 @@ class RustAccessibilityProvider(uitreelib.UiTree):
             values[name] = _capability(
                 name,
                 CapabilityState.SUPPORTED,
-                backend=ACCESSIBILITY_BACKEND,
+                backend=_accessibility_backend(),
                 scope="os.accessibility",
             )
         values["window.list"] = _capability(
             "window.list",
             CapabilityState.DEGRADED,
-            backend=ACCESSIBILITY_BACKEND,
+            backend=_accessibility_backend(),
             scope="os.accessibility",
             limitations=("Only accessibility-visible applications are listed.",),
         )

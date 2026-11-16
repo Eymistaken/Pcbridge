@@ -704,6 +704,47 @@ Measured in the Windows 11 test VM with the helper's release build
 - **Tray.** The tray icon's menu, opened by its window message and
   answered with Down and Enter, ran the lock program with `lock`.
 
+## Windows: the desktop tools through MCP (W7, 2026-11-16)
+
+Measured in the Windows 11 test VM through a real MCP client (`pcbridge.exe
+stdio`, the relay to the daemon under its supervisor in the desktop
+session; `tests/live/windows/check_mcp.py` and `check_guards.py`).
+
+- **Capabilities.** Every desktop capability reports supported with a
+  Windows backend (`windows.dxgi.duplication`, `windows.uia`,
+  `windows.sendinput`, `windows.clipboard`, `windows.wts+input-desktop`,
+  `windows.input-hooks`, `windows.user32`); `window.list` is degraded as on
+  Linux (only windows UI Automation lists), `window.move_resize` unsupported
+  as everywhere.
+- **The grant.** `desktop_unlock` 567-740 ms (the frame is up and proven
+  before it answers); `desktop_lock` 567 ms. A key after the lock was
+  refused at once.
+- **Reading.** `screen_info` 133 ms, `window_list` 225 ms (4 windows),
+  `ui_dump` of Notepad 366-386 ms (30 nodes, 29 clickable, 1 editable),
+  `screen_capture` scaled to 640 px 326 ms.
+- **Writing.** `window_focus("notepad")` raised the open Notepad by
+  `SetForegroundWindow` (624-666 ms); `window_focus("Paint")` with Paint
+  closed started it from the Start menu's list (`Get-StartApps`,
+  `shell:AppsFolder\<AppID>`) and saw its window focused in 5.4 s.
+  `ui_set_text` wrote "set through ui_set_text: ğüş" (28 characters, read
+  back by WM_GETTEXT); `keyboard type` through the clipboard wrote Turkish
+  letters exactly; `raw: true` typed "abc XYZ 123 ğ" with the layout's
+  keys; a click, and a two-action `computer_batch`, landed.
+- **Guards.** A key pressed on QEMU's keyboard made the next `keyboard`
+  call answer `USER_ACTIVE` 2 and 5 s later (pcbridge's own input before it
+  did not count); `pcbridge lock` (the kill switch, its own process)
+  closed the grant, the frame process ended and removed `glow.json`, and the
+  next key was refused.
+- **Two Windows-only failures found and fixed on the way.** The grant
+  state's atomic replace failed with access denied while another handle
+  read the file (Windows refuses to replace an open file without delete
+  sharing): it is retried for up to a second (`oscompat.replace_file`). A
+  screenshot's file name took the monitor's device name `\\.\DISPLAY1`
+  as is: it is now made safe for a file name. And the helper's own thread
+  read Caps Lock as on (its key state is stale; it receives no input):
+  "XYZ" typed as "xyz" until the state was read with the input attached to
+  the foreground window's thread.
+
 ## Remote clients, revocation and the password (2026-10-14)
 
 Measured with unreleased code against a throwaway daemon (temp config, state

@@ -207,6 +207,8 @@ def capabilities_result(snapshot: CapabilitySnapshot) -> ToolResult:
         if plat["environment"] == "cinnamon"
         else f"Xfce {plat.get('x11_desktop') or '(version unknown)'} on X11"
         if plat["environment"] == "xfce"
+        else f"Windows {plat.get('windows') or '(version unknown)'}"
+        if plat["environment"] == "windows"
         else "unknown or unsupported desktop"
     )
     yes = {True: "available", False: "missing"}
@@ -222,6 +224,11 @@ def capabilities_result(snapshot: CapabilitySnapshot) -> ToolResult:
             "- security: X11 lets every program of the session read the screen and send "
             "input; pcbridge's grant, frame and kill switch are the only protection "
             "(docs/security.md)")
+    elif plat["environment"] == "windows":
+        lines.append(
+            "- security: a window that runs as administrator refuses pcbridge's input and "
+            "is invisible to UI Automation (UIPI); pcbridge says so (TARGET_ELEVATED) "
+            "instead of sending anything")
     else:
         lines.append(f"- Mutter ScreenCast: {yes[plat['screencast']]}"
                      f" · RemoteDesktop: {yes[plat['remote_desktop']]}")

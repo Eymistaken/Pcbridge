@@ -79,6 +79,7 @@ impl BackendMode {
         vec![
             "display.snapshot",
             "capture.on_demand",
+            "capture.session_open",
             "input.keyboard",
             "input.keyboard.type",
             "input.pointer",
@@ -154,6 +155,16 @@ struct CaptureFrameParams {
     revoke_epoch: u64,
     timeout_ms: u64,
     freshness: String,
+    #[serde(default)]
+    include_pointer: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct SessionOpenParams {
+    topology_id: String,
+    session_id: String,
+    grant_id: String,
+    revoke_epoch: u64,
     #[serde(default)]
     include_pointer: bool,
 }
@@ -372,6 +383,7 @@ impl Dispatcher {
             "capabilities" => self.success(id, self.mode.capabilities(), None),
             "display.snapshot" => self.display_snapshot(id),
             "capture.frame" => self.capture_frame(id, params),
+            "capture.session_open" => self.capture_session_open(id, params),
             "cancel" => match serde_json::from_value::<CancelParams>(params) {
                 Ok(params) if !params.target_id.is_empty() => self.success(
                     id,
@@ -510,6 +522,54 @@ impl Dispatcher {
             }
             Err(error) => self.error(id, "DISPLAY_MAPPING_UNKNOWN", error, None),
         }
+    }
+
+    /// Windows needs no capture session: each frame opens its own
+    /// duplication, as KWin's screenshots need none. The grant and the layout
+    /// are still checked, so `desktop_unlock` learns the same things it
+    /// learns elsewhere (protocol-v1.md, `capture.session_open`).
+    fn capture_session_open(&mut self, id: String, params: Value) -> DispatchOutcome {
+        let params = match serde_json::from_value::<SessionOpenParams>(params) {
+            Ok(params) => params,
+            Err(error) => {
+                return self.invalid(id, format!("invalid session parameters: {error}"));
+            }
+        };
+        let bounded = |text: &str, limit: usize| !text.is_empty() && text.len() <= limit;
+        if !bounded(&params.topology_id, 16 * 1024)
+            || !bounded(&params.session_id, 256)
+            || !bounded(&params.grant_id, 256)
+        {
+            return self.invalid(id, "session identifiers are empty or too long");
+        }
+        if let Err(failure) = self.validate_grant(&params.grant_id, params.revoke_epoch) {
+            return self.safety_error(id, failure);
+        }
+        let monitors = match display::monitors() {
+            Ok(monitors) => monitors,
+            Err(error) => {
+                return self.typed_error(id, "DISPLAY_MAPPING_UNKNOWN", &error, "capture");
+            }
+        };
+        if pcbridge_core::display::topology_id(&monitors) != params.topology_id {
+            return self.typed_error(
+                id,
+                "DISPLAY_CHANGED",
+                "the monitor layout changed",
+                "capture",
+            );
+        }
+        self.success(
+            id,
+            json!({
+                "outcome": "not_needed",
+                "monitors": monitors.iter().map(|monitor| monitor.connector.clone()).collect::<Vec<_>>(),
+                "include_pointer": false,
+                "pointer_requested": params.include_pointer,
+                "backend": capture::BACKEND,
+            }),
+            None,
+        )
     }
 
     fn capture_frame(&mut self, id: String, params: Value) -> DispatchOutcome {

@@ -38,7 +38,7 @@ from fastmcp.client.transports import StdioTransport  # noqa: E402
 
 from pcbridge.config import load_config  # noqa: E402
 from pcbridge.desktop import idlewatch, safety  # noqa: E402
-from pcbridge.desktop.platforms.linux import x11native  # noqa: E402
+from pcbridge.desktop import nativewin as x11native  # noqa: E402
 
 CINNAMON = "cinnamon" in DESKTOP.lower()
 TEXT = "typed over MCP on X11 ğüşİ"

@@ -31,6 +31,9 @@ class ErrorCode(str, Enum):
     PERMISSION_REQUIRED = "PERMISSION_REQUIRED"
     PERMISSION_DENIED = "PERMISSION_DENIED"
     DEVICE_NOT_GRANTED = "DEVICE_NOT_GRANTED"
+    # Windows: the target runs as administrator, and UIPI would drop the
+    # input without an error (measured in the port's W0).
+    TARGET_ELEVATED = "TARGET_ELEVATED"
 
     UNSUPPORTED = "UNSUPPORTED"
     BACKEND_UNAVAILABLE = "BACKEND_UNAVAILABLE"

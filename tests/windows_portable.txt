@@ -68,3 +68,9 @@ tests.contracts.test_tui_settings
 tests.contracts.test_window_focus
 tests.contracts.test_window_operations
 tests.contracts.test_windows_portable_list
+tests.integration.test_mcp_capture_delivery
+tests.integration.test_native_accessibility
+tests.integration.test_native_clipboard
+tests.integration.test_native_fetch_live
+tests.integration.test_native_revoke
+tests.integration.test_remote_access

@@ -231,7 +231,7 @@ class ExecutionLock:
             with os.fdopen(descriptor, "wb", closefd=True) as stream:
                 descriptor = -1
                 stream.write(payload)
-            os.replace(raw_path, self.state_path)
+            oscompat.replace_file(raw_path, self.state_path)
         finally:
             if descriptor >= 0:
                 os.close(descriptor)

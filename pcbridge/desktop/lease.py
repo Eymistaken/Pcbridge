@@ -155,7 +155,7 @@ class LeaseStore:
                 stream.write(payload)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temporary, self.state_path)
+            oscompat.replace_file(temporary, self.state_path)
             oscompat.fsync_directory(self.state_dir)
         finally:
             if descriptor >= 0:

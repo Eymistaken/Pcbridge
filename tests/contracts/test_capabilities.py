@@ -164,6 +164,8 @@ class CapabilityContractTests(unittest.TestCase):
                 "PERMISSION_REQUIRED",
                 "PERMISSION_DENIED",
                 "DEVICE_NOT_GRANTED",
+                # Windows: the target runs as administrator (UIPI).
+                "TARGET_ELEVATED",
                 "UNSUPPORTED",
                 "BACKEND_UNAVAILABLE",
                 "DEPENDENCY_MISSING",
