@@ -129,7 +129,8 @@ Windows:
 
 `install.ps1 -Uninstall [-Purge] [-Yes]` runs `pcbridge uninstall` (the Run
 key, the PATH entry, the client entries) and sends the venv to the Recycle
-Bin; `-Purge` also the config and state. Unsigned executables may get a
+Bin; `-Purge` also the config and everything under `%LOCALAPPDATA%\pcbridge`
+(state, data, cache, the runtime folder). Unsigned executables may get a
 SmartScreen warning on their first run; signing is not decided yet.
 
 ### From the .deb

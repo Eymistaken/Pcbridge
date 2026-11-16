@@ -111,6 +111,13 @@ if ($Uninstall) {
     & $pcb @uninstallArgs
     # The venv cannot remove itself while it runs; it goes now.
     foreach ($dir in @($Venv, (Join-Path $Data "python"), (Join-Path $Data "uv"))) { Recycle $dir }
+    if ($Purge) {
+        # `pcbridge uninstall --purge` cannot move the data folder while its
+        # own venv inside it runs, and the cache, the runtime folder and
+        # idle.json are not its to purge. All of them are under one root,
+        # which goes now.
+        Recycle (Join-Path $env:LOCALAPPDATA "pcbridge")
+    }
     Finish 0
     return
 }
