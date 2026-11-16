@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.11.0 - 2026-11-16
 
 This release adds Windows 11 (x64) with the same tools as Linux. Every
 tool keeps its name and its answers; what is under it is Windows' own. It
