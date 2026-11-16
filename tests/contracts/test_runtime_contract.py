@@ -291,12 +291,15 @@ class DesktopRuntimeContractTests(unittest.TestCase):
                     self._check_mcp_lock(note, desktop, opened)
 
     def test_instructions_require_runtime_shortcuts(self) -> None:
-        instructions = serverlib.INSTRUCTIONS
+        # The Linux text, on any system: Windows has no Hyprland and its
+        # instructions leave the rule out (test_platform_texts).
+        instructions = serverlib.instructions(windows=False)
         self.assertNotIn("(GNOME or KDE", instructions)
         for text in ("actual desktop backend", "Hyprland", "registered runtime bindings",
                      "active submap", "before choosing compositor shortcuts",
                      "Do not guess default keys or parse configuration files"):
             self.assertIn(text, instructions)
+        self.assertNotIn("Hyprland", serverlib.instructions(windows=True))
 
     def test_mcp_lock_revokes_before_releasing_any_resource(self) -> None:
         self._check_mcp_lock()
