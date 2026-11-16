@@ -84,7 +84,9 @@ manual_redirect = false
 # Directory used when a tool call gives no workdir
 default_workdir = "~"
 # Job records, logs, the grant state and the OAuth database live here.
-# Default: $XDG_STATE_HOME/pcbridge (~/.local/state/pcbridge).
+# Default: $XDG_STATE_HOME/pcbridge (~/.local/state/pcbridge); on Windows
+# %LOCALAPPDATA%\pcbridge\state, where setup leaves this key commented out
+# and this exact Linux path counts as unset.
 state_dir = "~/.local/state/pcbridge"
 
 

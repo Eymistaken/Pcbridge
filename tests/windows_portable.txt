@@ -52,6 +52,7 @@ tests.contracts.test_rust_keyboard_provider
 tests.contracts.test_rust_pointer_provider
 tests.contracts.test_settings_bounds
 tests.contracts.test_shot_layout
+tests.contracts.test_state_dir_default
 tests.contracts.test_tool_surface
 tests.contracts.test_toolcatalog
 tests.contracts.test_tui

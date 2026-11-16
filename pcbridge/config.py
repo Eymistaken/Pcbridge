@@ -28,6 +28,23 @@ def _expand(p: str) -> Path:
     return Path(os.path.expandvars(os.path.expanduser(p))).resolve()
 
 
+# config.example.toml's value: the Linux default spelled out.
+_TEMPLATE_STATE_DIR = "~/.local/state/pcbridge"
+
+
+def _own_state_dir(value: Any) -> bool:
+    """Whether `[paths] state_dir` names a directory of the user's own.
+
+    On Windows the template's Linux path is no choice of the user's: a config
+    written by a pre-release Windows setup, or copied from the template,
+    carries it, and the state would land in `~\\.local\\state` while setup,
+    upgrade and uninstall work in %LOCALAPPDATA%\\pcbridge\\state.
+    """
+    if not value:
+        return False
+    return not (oscompat.IS_WINDOWS and str(value).strip() == _TEMPLATE_STATE_DIR)
+
+
 @dataclass
 class AgentSpec:
     name: str
@@ -1195,7 +1212,7 @@ def _load_config(explicit: str | None = None, *, check_state: bool = True) -> Co
     )
 
     state_dir = (
-        _expand(paths["state_dir"]) if paths.get("state_dir") else pathslib.state_home()
+        _expand(paths["state_dir"]) if _own_state_dir(paths.get("state_dir")) else pathslib.state_home()
     )
     if check_state:
         _ensure_writable_state(state_dir)

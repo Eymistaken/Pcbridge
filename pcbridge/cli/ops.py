@@ -616,6 +616,11 @@ def _fresh_config(dest: Path, *, desktop: bool = False) -> None:
         text, n = re.subn(r'(?m)^(\[desktop\]\n(?:#.*\n)*)enabled = false$', r'\1enabled = true', text, count=1)
         assert n == 1, "config.example.toml: [desktop] enabled not found"
     text = re.sub(r'(?m)^public_url = .*$', 'public_url = "http://localhost:8765"', text, count=1)
+    if oscompat.IS_WINDOWS:
+        # The template spells out the Linux path; left out, the key falls
+        # back to %LOCALAPPDATA%\pcbridge\state, where setup and uninstall work.
+        text, n = re.subn(r'(?m)^state_dir = ', '# state_dir = ', text, count=1)
+        assert n == 1, "config.example.toml: [paths] state_dir not found"
     # No password and no static token: local clients use neither, and remote
     # access stays off until the user creates a password for it
     # (`pcbridge remote start`, the Remote tab, or the end of setup).
