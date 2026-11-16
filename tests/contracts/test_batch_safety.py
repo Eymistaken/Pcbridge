@@ -739,7 +739,13 @@ class ExecutionLockTests(TempDirTest):
         finally:
             child.stdin.close()
             child.stdout.close()
-        with ExecutionLock(self.root).hold("computer_batch", timeout=0.0):
+        # flock is gone when the process is. Windows releases a dead
+        # process's LockFileEx range itself, but "the time it takes ...
+        # depends upon available system resources" (the LockFileEx docs): a
+        # CI runner saw it still held right after wait(). The product's
+        # default wait covers that; the test allows a short one there.
+        wait = 5.0 if sys.platform == "win32" else 0.0
+        with ExecutionLock(self.root).hold("computer_batch", timeout=wait):
             pass
 
     def test_a_process_started_while_locked_does_not_keep_the_lock(self) -> None:
