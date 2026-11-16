@@ -20,7 +20,11 @@ are in `docs/dev/windows-scope.md`.
   daemon at logon from the Run key, connects the MCP clients, offers
   tesseract through winget for `find_text`, and writes a `ROLLBACK.md` with
   the PowerShell lines that undo it. `install.ps1 -Uninstall` reverses it
-  through the Recycle Bin. The daemon is not a Windows service on purpose:
+  through the Recycle Bin, and `-Purge` also moves the config and
+  everything under `%LOCALAPPDATA%\pcbridge` there. The state (the grant,
+  jobs, the audit log, the OAuth database) lives in
+  `%LOCALAPPDATA%\pcbridge\state`; a config whose `[paths] state_dir`
+  still holds the Linux default is read as if the key were unset. The daemon is not a Windows service on purpose:
   services run in session 0, which cannot see the desktop.
 - **The daemon, jobs, shell and files on Windows.** Local clients reach the
   daemon through 127.0.0.1 with a per-start secret that both sides prove
@@ -40,7 +44,9 @@ are in `docs/dev/windows-scope.md`.
   offers **Lock now**; the frame is left out of screenshots. `window_focus`
   starts an application that is not open from the Start menu's own list,
   Store apps included. `keyboard` with `raw: true` types with the keyboard
-  layout's own keys, so it is not limited to ASCII there.
+  layout's own keys, so it is not limited to ASCII there, and waits 40 ms
+  after a space or punctuation: Notepad, busy with the word just ended,
+  otherwise lost the next key in more than half of the test runs.
 - **The activity guard ignores pcbridge's own input on Windows.** Each of
   pcbridge's input events carries a mark, and the input hook that measures
   idle time leaves marked events out, so `USER_ACTIVE` answers only to a
@@ -58,6 +64,10 @@ are in `docs/dev/windows-scope.md`.
 
 ### Fixed
 
+- **A job could stay "running" after it had ended.** A process that has
+  exited but was never reaped (a zombie, as in a container whose first
+  process does not reap) counted as alive, so `job_status` kept a finished
+  job running and `job_cancel` waited on it. A zombie no longer counts.
 - **`system_status` showed no memory line under a Turkish locale.** `free`
   prints "Bellek:" there, and the line was looked for in English; the
   system commands now run with `LC_ALL=C`.

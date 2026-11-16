@@ -769,6 +769,88 @@ Measured in the Windows 11 test VM with a wheel built there
   `C:\...` joined to the backup directory would have named the original
   place again; backup names drop the drive colon and backslashes.
 
+## Windows: end to end in a fresh VM (W10, 2026-11-16)
+
+Measured in the Windows 11 test VM on a throwaway overlay disk
+(`windows-vm.sh fresh`), with a wheel built there from `main` (no Windows
+release exists yet, so "from the release" is `install.ps1 -Wheel` with a
+`sha256sums.txt` beside the wheel). Every client was a fresh process: the
+installed `pcbridge.exe stdio`, or HTTP with a throwaway static token.
+
+- **Uninstall, then install.** After `install.ps1 -Uninstall -Purge -Yes`
+  the Run key and the PATH entry were gone, but `cache\`, `run\`,
+  `idle.json` and two files in `data\` were left (the running venv kept
+  `data\` from moving); `-Purge` now recycles all of `%LOCALAPPDATA%\pcbridge`
+  after the venv, and a second purge left nothing there or in
+  `%APPDATA%\pcbridge` (all in the Recycle Bin, no pcbridge process).
+  A fresh install over the purged profile took 81 s (pip fetching every
+  dependency) and its readiness check got 40 tools in 109 ms.
+- **The state directory was in the wrong place.** The grant frame's
+  `glow-watch` ran with `C:\Users\<user>\.local\state\pcbridge`: the
+  config setup writes from `config.example.toml` spelled out the Linux
+  `state_dir`, so the daemon kept the grant, jobs, the audit log and
+  `oauth.db` there while setup, upgrade and uninstall work in
+  `%LOCALAPPDATA%\pcbridge\state`. Setup on Windows now leaves the key
+  commented out and the loader reads that Linux path as unset there; after
+  the fix `glow.json` was in `%LOCALAPPDATA%\pcbridge\state` during the
+  grant and gone after the lock.
+- **Reinstall over a running install** (the stand-in for an upgrade until a
+  Windows release exists): 24 s; the daemon came back under a new process
+  with the new helper (its hash checked) and 40 tools in 109-140 ms.
+- **Readiness** (`tests/readiness/check.py --desktop`): initialize
+  110-125 ms, `tools/list` 109-125 ms, `system_status` 15 ms,
+  `system_capabilities` 46-47 ms, `desktop_unlock` 547-625 ms,
+  `desktop_lock` 547-579 ms; over HTTP with the static token the full tool
+  set and `system_status` in 15 ms.
+- **The desktop tools** (`tests/live/windows/check_mcp.py`, six runs):
+  `desktop_unlock` 545-557 ms, `screen_info` 132-143 ms, `window_list`
+  210-220 ms, `window_focus("notepad")` 609-625 ms, `ui_dump` 394-416 ms
+  (29 nodes), `ui_set_text` 522-528 ms, `keyboard type` through the
+  clipboard 938-942 ms, `screen_capture` at 640 px 276-867 ms,
+  `computer_batch` (two actions) 1.8 s, `desktop_lock` 554-565 ms, and a
+  key after the lock refused in 6-9 ms.
+- **`find_text` through MCP** with tesseract (winget
+  `UB-Mannheim.TesseractOCR`): "raw keys" found once, confidence 95-96 %,
+  in 0.6-1.3 s.
+- **Raw typing lost the first key after a space.** Into Notepad, `raw:
+  true` typed "abc xYZ" (the Shift lost), "abc YZ" or "XYZ 56" in 15 of 26
+  runs, one 11-word line failing the same way every time. Sending Shift in
+  a `SendInput` call of its own did not help (the whole character went
+  instead). A 40 ms pause after a space or punctuation did: 0 of 25 runs
+  lost a key (10 and 12 runs of the line, three of `check_mcp.py`); the
+  line takes about 0.5 s longer. One further run came back after 327 ms
+  with nothing typed and no readable answer; it did not recur in the 15
+  runs after it, and its cause is not known.
+- **Guards** (`tests/live/windows/check_guards.py`): `window_focus("Paint")`
+  started Paint and focused it in 3.8-5.0 s; a Shift on QEMU's keyboard
+  made the next two keys answer `USER_ACTIVE` ("used 2 seconds ago", then
+  5); `pcbridge lock` closed the grant, the frame record went away, and the
+  next key was refused.
+- **`tests/test_e2e.py`** with `PCBRIDGE_TEST_NO_AGENT=1` against the
+  installed daemon: 264 passed, 0 failed, 9 skipped (the agent section,
+  and the grant refusal because desktop control is on). It needed two test
+  fixes: the stdio section used the checkout's `.venv/bin/python`, and a
+  fresh state directory rightly answers `job_list` with "No jobs recorded."
+- **CI on Windows and in containers** (the failures W10 began with). A
+  `sqlite3.Connection` used as a context manager is only committed, not
+  closed, and since Python 3.11 it sits in a reference cycle with its
+  statement cache, so it closes only when the cyclic GC runs: on the 3.13
+  and 3.14 runners the open handle kept `state\oauth.db` locked (WinError
+  32). Windows releases a killed process's `LockFileEx` range itself, but
+  not at once: right after `wait()` the 3.12 runner still saw it held.
+  And in the package test containers PID 1 does not reap, so a killed
+  job's grandchild stayed a zombie, which `kill(pid, 0)` reports as alive.
+  The headless KWin smoke job has failed the same way since at least
+  2026-11-07, before the Windows work (`CaptureWorkspace`: "Message
+  recipient disconnected from message bus without replying"); it is
+  experimental and allowed to fail.
+
+Not measured: Tailscale Funnel on Windows, more than one monitor or a DPI
+other than 100 %, `pcbridge upgrade` from a published Windows release, the
+Windows login check behind `pcbridge set auth.password` (the test set the
+VM's remote password through the settings editor), and claude.ai through
+the tunnel.
+
 ## Remote clients, revocation and the password (2026-10-14)
 
 Measured with unreleased code against a throwaway daemon (temp config, state

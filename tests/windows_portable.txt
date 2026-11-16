@@ -1,8 +1,9 @@
 # Test modules that pass on Windows, run by the `windows` job in .github/workflows/ci.yml.
 #
 # The Windows port (docs/dev/windows-scope.md) adds modules here as each stage
-# ports what they test; at the end (W10) the whole suite runs on Windows and
-# this list goes away. Measured in the Windows 11 test VM: each module on its
+# ports what they test. W10 (2026-11-16) did not reach the whole suite: the
+# modules missing here still need a Windows run and per-test skips or fixes
+# (docs/dev/windows-port-plan.md, W10). Measured in the Windows 11 test VM: each module on its
 # own (scripts/dev/windows/probes/run_modules.py). One module per line.
 tests.contracts.test_accessibility_contract
 tests.contracts.test_activity_guard_text

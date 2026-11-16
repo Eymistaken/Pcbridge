@@ -9,7 +9,9 @@ its commit lands; do not copy measurements into this file.
 
 ## Where it stands
 
-W0 to W7 are on `main` (W6c-W7: 2026-11-16). On Windows the
+W0 to W10 are on `main` (W6c-W10: 2026-11-16); what is left is the
+maintainer's (the release, its version, code signing) and the measurements
+listed at the end of W10. On Windows the
 daemon, the supervisor, the local IPC, jobs, shell, agents, files, the system
 tools, the live terminal (`tmux_*` through ConPTY, `pcbridge attach`), remote
 access and the login check work. The native helper builds on Windows, answers
@@ -207,32 +209,39 @@ pcbridge/desktop/platforms/windows/
   security.md, native packaging, CLAUDE.md, ROADMAP. CHANGELOG with the
   `changelog` skill~~ (under "Unreleased": the version is the maintainer's).
 
-### W10: end to end in a fresh VM (started, paused 2026-11-16)
+### ~~W10: end to end in a fresh VM~~ (done 2026-11-16: `6ed9748` to `c2b0683`)
 
-Where it stopped: a `fresh` overlay (`test.qcow2`) was made and booted, and
-`install.ps1 -Uninstall -Purge -Yes` ran there: it removed the PATH entry and
-moved config, state and the venv to the Recycle Bin. Not done yet: checking
-that the Run key is gone, installing from the local wheel
-(`dist\pcbridge-2.10.3-py3-none-win_amd64.whl`, no release exists yet), and
-the runs below. Since no Windows release exists, "from the release" means the
-locally built wheel and `install.ps1 -Wheel`; the upgrade from an earlier
-Windows build is an install over the existing one until a release exists.
+The numbers are in measured facts ("Windows: end to end in a fresh VM").
+No Windows release exists yet, so "from the release" meant the wheel built
+in the VM and `install.ps1 -Wheel`, and the upgrade was an install over the
+running one.
 
-CI is red on 109f347 and must be fixed first:
-
-- Windows portable job (3.12 to 3.14): `test_panel_icon`, `test_tool_surface`
-  and `test_mcp_capture_delivery` fail cleaning up their temporary folder
-  (WinError 32 on `state\oauth.db`: the SQLite handle is still open);
-  `test_batch_safety.test_a_killed_holder_leaves_no_stale_lock` is refused
-  with `SequenceRefused` (the lock of the killed child is still seen).
-- `package.yml` deb jobs: `test_oscompat.test_terminate_group_ends_the_child_and_its_children`
-  sees the grandchild still alive in the container (a zombie counts as alive
-  there); the arch job failed in the same suite run.
-- Headless KWin smoke (experimental): `CaptureWorkspace` got no D-Bus reply.
-
-- A `fresh` disk, install from the release with `install.ps1`.
-- All 40 tools from a client inside the VM (`tests/readiness/check.py
-  --desktop --http`), `test_e2e.py` with `PCBRIDGE_TEST_NO_AGENT=1`, an
-  upgrade from the previous Windows build.
-- Left for the maintainer: connecting claude.ai through the tunnel, and
-  publishing the release.
+- ~~CI green first.~~ The Windows jobs: `oauth.db` connections are closed
+  when their block ends (`6ed9748`); the killed-holder lock test allows
+  Windows a short wait (`1d966d7`). The deb and arch jobs: a zombie is not
+  alive (`160bce3`). The headless KWin smoke job is experimental and has
+  failed the same way since at least 2026-11-07, before this work; left as
+  it is.
+- ~~Uninstall on the `fresh` disk, then install from the wheel.~~ The Run
+  key and the PATH entry were gone; `-Purge` left files under
+  `%LOCALAPPDATA%\pcbridge` and now removes that root too (`c2b0683`).
+- ~~All 40 tools from fresh clients~~ (`tests/readiness/check.py --desktop`,
+  stdio and HTTP), `tests/live/windows/check_mcp.py`, `check_guards.py`,
+  `test_e2e.py` with `PCBRIDGE_TEST_NO_AGENT=1` (264 passed, 0 failed;
+  `0bde63b` fixed two Linux assumptions in the test), and a reinstall over
+  the running install.
+- Found and fixed on the way: raw typing lost the first key after a space
+  in Notepad (`e0de001`, a 40 ms pause after a word), and the daemon kept
+  its state in `~\.local\state\pcbridge` because setup copied the
+  template's Linux `state_dir` (`b752f84`).
+- Not done: `tests/windows_portable.txt` still lists the modules that run
+  on Windows (70 of the 112 in `tests/contracts` and `tests/integration`).
+  The other 42 mix Linux-only subjects (KWin, Hyprland, `install.sh`, the
+  idle watcher) with shared ones that were never run on Windows module by
+  module (the CLI, the file tools, settings, upgrade, the daemon); each
+  needs a Windows run and per-test skips or fixes before the list can go.
+  That is its own task after the release, not part of W10's end-to-end run.
+- Left for the maintainer: the release version, the code-signing
+  certificate, publishing the release, and connecting claude.ai through the
+  tunnel. Not measured yet: Tailscale Funnel on Windows, several monitors
+  and DPI scaling, and `pcbridge upgrade` from a published Windows release.

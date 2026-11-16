@@ -51,10 +51,10 @@ here, not by moving sections.
    before X11 could. Left: the checks under each item below.
 8. **Windows.** Full parity on Windows 11 (the maintainer's decision,
    2026-11-15). ~~W0: the test VM, the measurements and the scope~~ (done,
-   [docs/dev/windows-scope.md](docs/dev/windows-scope.md)); W1 to W10 follow
-   the order there, step by step in
-   [docs/dev/windows-port-plan.md](docs/dev/windows-port-plan.md). See
-   *Optional: Windows*.
+   [docs/dev/windows-scope.md](docs/dev/windows-scope.md)); ~~W1 to W10~~
+   (done 2026-11-16, step by step in
+   [docs/dev/windows-port-plan.md](docs/dev/windows-port-plan.md)). Left:
+   the first release with the Windows wheel. See *Optional: Windows*.
 9. **Website.** Last, once the feature set has settled, so the site is not
    chasing every new feature; see *Optional: website*. Until then the
    install script is served from a GitHub release URL.
@@ -342,13 +342,18 @@ at the machine* checks, batched for a session at the machine.
   tool's Windows mechanism, the limits Windows imposes (elevated windows,
   the secure desktop, SmartScreen) and the security model; the
   measurements behind it are in measured facts, taken in the Windows 11
-  test VM (`scripts/dev/windows-vm.sh`). W1 to W9 are done (the working
+  test VM (`scripts/dev/windows-vm.sh`). W1 to W10 are done (the working
   plan: [docs/dev/windows-port-plan.md](docs/dev/windows-port-plan.md)):
-  every tool, setup, install.ps1 and the release workflow. Left: W10, the
-  end-to-end run in a fresh VM, and publishing the first release with the
-  Windows wheel. Open decisions for the maintainer: a code-signing
-  certificate (`uiAccess` for elevated windows, SmartScreen) and the
-  release's version number.
+  every tool, setup, install.ps1, the release workflow, and the end-to-end
+  run in a fresh VM (install, all 40 tools, the guards, `test_e2e.py`, a
+  reinstall and a purge). Left: publishing the first release with the
+  Windows wheel, and connecting claude.ai through the tunnel. Open
+  decisions for the maintainer: a code-signing certificate (`uiAccess` for
+  elevated windows, SmartScreen) and the release's version number. Not
+  measured yet: Tailscale Funnel on Windows, several monitors and DPI
+  scaling, `pcbridge upgrade` from a published Windows release. The rest of
+  the test suite on Windows (42 modules outside `tests/windows_portable.txt`)
+  is a task of its own.
 
 ## Optional: website
 
