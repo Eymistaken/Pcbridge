@@ -149,6 +149,24 @@ class ProcessTest(unittest.TestCase):
             time.sleep(0.1)
         self.assertFalse(oscompat.pid_alive(grandchild))
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "reads /proc")
+    def test_a_zombie_is_not_alive(self) -> None:
+        # Not waited for, the exited child stays a zombie until wait().
+        child = subprocess.Popen([sys.executable, "-c", "pass"])
+        try:
+            deadline = time.monotonic() + 10
+            proc_stat = Path(f"/proc/{child.pid}/stat")
+            while time.monotonic() < deadline:
+                text = proc_stat.read_text(encoding="utf-8")
+                if text[text.rfind(")") + 2] == "Z":
+                    break
+                time.sleep(0.05)
+            else:
+                self.fail("the child never became a zombie")
+            self.assertFalse(oscompat.pid_alive(child.pid))
+        finally:
+            child.wait(10)
+
     def test_a_missing_process_is_not_alive(self) -> None:
         child = subprocess.Popen([sys.executable, "-c", "pass"])
         child.wait(10)

@@ -69,13 +69,25 @@ def current_user() -> str:
 
 
 def pid_alive(pid: int) -> bool:
+    """Whether the process runs. A zombie does not: it has exited and only
+    waits for its parent to reap it, which may never happen when it was
+    reparented to an init that does not reap (a container's PID 1)."""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
-    return True
+    return not _is_zombie(pid)
+
+
+def _is_zombie(pid: int) -> bool:
+    try:
+        raw = Path(f"/proc/{int(pid)}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    state = raw[raw.rfind(")") + 2 : raw.rfind(")") + 3]
+    return state in ("Z", "X")
 
 
 def process_start_identity(pid: int) -> str:
