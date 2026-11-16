@@ -19,7 +19,8 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
-from pcbridge.desktop import glowstate, hyprland, monitors as monitorlib  # noqa: E402
+from pcbridge.desktop import glowstate, monitors as monitorlib  # noqa: E402
+from pcbridge.desktop.platforms.linux import hyprland  # noqa: E402
 from pcbridge.desktop.lease import LeaseStore, LeaseToken  # noqa: E402
 
 

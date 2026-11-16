@@ -24,7 +24,7 @@ mkdir -p "$XDG_DATA_HOME/applications"
 # The system python takes the screenshots in this smoke, so it is what a
 # .desktop file authorizes here (pcbridge itself authorizes only its helper).
 SYSPY="$(readlink -f /usr/bin/python3)"
-"$PY" -c 'import sys; from pathlib import Path; from pcbridge.desktop import kwin
+"$PY" -c 'import sys; from pathlib import Path; from pcbridge.desktop.platforms.linux import kwin
 sys.stdout.write(kwin.helper_entry(Path(sys.argv[1])))' "$SYSPY" \
     > "$XDG_DATA_HOME/applications/pcbridge-smoke.desktop"
 
@@ -43,7 +43,7 @@ assert session.desktop_kind() == "kde", session.desktop_kind()
 mons = monitors.list_monitors(use_cache=False)
 print(monitors.describe())
 assert mons and monitors.canvas_size(mons) == (1280, 720), monitors.canvas_size(mons)
-reply = json.loads(subprocess.run(["/usr/bin/python3", "pcbridge/desktop/kwin_helper.py"],
+reply = json.loads(subprocess.run(["/usr/bin/python3", "pcbridge/desktop/platforms/linux/kwin_helper.py"],
                                   input="{\"cmd\": \"focused\"}", capture_output=True,
                                   text=True).stdout)
 print("kwin script:", reply)

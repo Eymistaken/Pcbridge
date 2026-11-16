@@ -37,7 +37,8 @@ from fastmcp import Client  # noqa: E402
 from pcbridge.app import build_app  # noqa: E402
 from pcbridge.config import load_config  # noqa: E402
 from pcbridge.native import discover_native_binary  # noqa: E402
-from pcbridge.desktop import hyprland, idlewatch  # noqa: E402
+from pcbridge.desktop import idlewatch  # noqa: E402
+from pcbridge.desktop.platforms.linux import hyprland  # noqa: E402
 from tests.live.hyprland.check_glow_owner import layers, wait_for  # noqa: E402
 from tests.live.hyprland.wayland_test_support import Observer, compile_observer  # noqa: E402
 

@@ -100,7 +100,7 @@ async def main() -> int:
         # Click into the document through the window's own geometry, via KWin.
         reply = json.loads(subprocess.run(
             ["/usr/bin/python3", str(Path(__file__).resolve().parents[3]
-                                      / "pcbridge/desktop/kwin_helper.py")],
+                                      / "pcbridge/desktop/platforms/linux/kwin_helper.py")],
             input='{"cmd": "focused"}', capture_output=True, text=True).stdout)
         x, y, w, h = reply["geometry"]
         target = {"x": int(x + w / 2), "y": int(y + h / 2)}

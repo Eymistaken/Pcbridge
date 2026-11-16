@@ -11,7 +11,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
-from pcbridge.desktop import hyprland  # noqa: E402
+from pcbridge.desktop.platforms.linux import hyprland  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCode  # noqa: E402
 from pcbridge.desktop.glowowner import FrameOwner  # noqa: E402
 from pcbridge.desktop.lease import LeaseStore  # noqa: E402

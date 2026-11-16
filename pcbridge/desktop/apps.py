@@ -115,7 +115,7 @@ def _busctl_bool(*args: str) -> bool:
     return proc.returncode == 0 and proc.stdout.split() == ["b", "true"]
 
 
-_KWIN_HELPER = Path(__file__).with_name("kwin_helper.py")
+_KWIN_HELPER = Path(__file__).parent / "platforms" / "linux" / "kwin_helper.py"
 # The SYSTEM python3, not the venv's: `kwin_helper.py` needs PyGObject (Gio),
 # which the venv does not have. The one Python helper left (ROADMAP: "Move
 # KWin scripting into the native helper").
@@ -149,7 +149,7 @@ def extension_focus_available() -> bool:
     the one-shot scripts `kwin_helper.py` loads.
     """
     if compositorlib.current().kind == "hyprland":
-        from . import hyprland
+        from .platforms.linux import hyprland
 
         try:
             hyprland.focus_context()
@@ -159,7 +159,7 @@ def extension_focus_available() -> bool:
     if compositorlib.is_x11():
         # The native helper activates through EWMH; it needs only the helper.
         from ..native import discover_native_binary
-        from .x11native import _cfg
+        from .platforms.linux.x11native import _cfg
 
         try:
             discover_native_binary(_cfg().native)
@@ -208,7 +208,7 @@ def extension_focused_window() -> tuple[str, str] | None:
     """
     if compositorlib.is_kde() or compositorlib.is_x11():
         if compositorlib.is_x11():
-            from . import x11native
+            from .platforms.linux import x11native
 
             reply = x11native.focused()
         else:
@@ -376,7 +376,7 @@ def _extension_activate(window: str) -> bool:
     if compositorlib.is_x11():
         # Cinnamon and Xfce: the native helper, with the same matching rules
         # (`x11.rs`), confirmed by reading `_NET_ACTIVE_WINDOW` back.
-        from . import x11native
+        from .platforms.linux import x11native
 
         reply = x11native.activate(window)
         return bool(reply and reply.get("activated") is True)
@@ -1140,7 +1140,7 @@ def bring_to_front(
         raise AppError("`focus` needs a window or application name.")
 
     if compositorlib.current().kind == "hyprland":
-        from .hyprland_windows import HyprlandWindowProvider
+        from .platforms.linux.hyprland_windows import HyprlandWindowProvider
 
         if checkpoint is None:
             raise _refused(ErrorCode.GRANT_REQUIRED,

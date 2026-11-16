@@ -10,12 +10,12 @@ from dataclasses import dataclass
 from typing import Callable
 
 from . import hyprland
-from .errors import DesktopError, ErrorCategory, ErrorCode
+from ...errors import DesktopError, ErrorCategory, ErrorCode
 
 
 def capture_region(table):
     """Visible focused-window portion on its center output, with an identity check."""
-    from . import monitors
+    from ... import monitors
 
     def focused():
         try:
@@ -168,7 +168,7 @@ class HyprlandWindowProvider:
     def activate(self, target: str, *, checkpoint: Callable[[], None],
                  deadline: float | None = None, application=None) -> Window | None:
         """Resolve unambiguously, dispatch one exact identity, verify actual focus."""
-        from .apps import _is_app, _norm, NoTimeLeft
+        from ...apps import _is_app, _norm, NoTimeLeft
 
         query = _norm(target)
         if not query or len(target) > 200:

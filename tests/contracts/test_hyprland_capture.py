@@ -6,7 +6,8 @@ import unittest
 from unittest import mock
 
 from pcbridge.config import load_config
-from pcbridge.desktop import capture, compositor, hyprland, monitors
+from pcbridge.desktop import capture, compositor, monitors
+from pcbridge.desktop.platforms.linux import hyprland
 from pcbridge.desktop.backends.rust import NativeScreenCast, RustCaptureProvider
 from pcbridge.desktop.capabilities import CapabilityState
 from pcbridge.desktop.errors import DesktopError, ErrorCode

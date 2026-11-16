@@ -227,7 +227,7 @@ def capabilities_result(snapshot: CapabilitySnapshot) -> ToolResult:
                      f" · RemoteDesktop: {yes[plat['remote_desktop']]}")
     hyprland_bindings = None
     if plat["environment"] == "hyprland":
-        from .hyprland import bindings_snapshot
+        from .platforms.linux.hyprland import bindings_snapshot
 
         hyprland_bindings = bindings_snapshot()
         lines += ["", "**Hyprland runtime bindings**"]

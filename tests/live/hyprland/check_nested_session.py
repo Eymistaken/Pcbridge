@@ -22,7 +22,8 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
-from pcbridge.desktop import hyprland, idlewatch, session  # noqa: E402
+from pcbridge.desktop import idlewatch, session  # noqa: E402
+from pcbridge.desktop.platforms.linux import hyprland  # noqa: E402
 from tests.live.hyprland.check_glow_owner import layers, wait_for  # noqa: E402
 
 

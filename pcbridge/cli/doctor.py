@@ -443,7 +443,8 @@ class Doctor:
 
     def plasma(self, g: str) -> None:
         """KDE Plasma's pieces: KWin screenshots, scripting, idle time, a11y."""
-        from ..desktop import a11y, idlewatch, kwin
+        from ..desktop import a11y, idlewatch
+        from ..desktop.platforms.linux import kwin
 
         binary = None
         if self.cfg is not None:

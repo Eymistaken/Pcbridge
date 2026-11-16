@@ -764,7 +764,7 @@ def lock_entry(launcher: Path) -> str:
 
 def install_kde_entries(native_spec: object) -> list[str]:
     """Plasma: authorize the native helper for KWin screenshots, add the lock entry."""
-    from ..desktop import kwin
+    from ..desktop.platforms.linux import kwin
     from ..native import discover_native_binary
 
     notes = []
@@ -817,7 +817,7 @@ def remove_cinnamon_applet(backup: Backup) -> None:
 
 
 def remove_kde_entries(backup: Backup) -> None:
-    from ..desktop import kwin
+    from ..desktop.platforms.linux import kwin
 
     for name in (kwin.HELPER_ENTRY, LOCK_ENTRY):
         path = applications_dir() / name

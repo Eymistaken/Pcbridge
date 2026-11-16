@@ -6,9 +6,10 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from pcbridge.desktop import apps, compositor, hyprland, ops
+from pcbridge.desktop import apps, compositor, ops
+from pcbridge.desktop.platforms.linux import hyprland
 from pcbridge.desktop.errors import DesktopError, ErrorCode
-from pcbridge.desktop.hyprland_windows import HyprlandWindowProvider
+from pcbridge.desktop.platforms.linux.hyprland_windows import HyprlandWindowProvider
 from pcbridge.desktop.runtime import DesktopRuntime, create_runtime
 from pcbridge.desktop.capabilities import CapabilityState
 from pcbridge.desktop.safety import ActivityState, ScreenLockState

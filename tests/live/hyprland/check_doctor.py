@@ -15,7 +15,8 @@ sys.path.insert(0, str(ROOT))
 from pcbridge.cli.doctor import Doctor  # noqa: E402
 from pcbridge.cli.hyprland import setup_notes  # noqa: E402
 from pcbridge.config import load_config  # noqa: E402
-from pcbridge.desktop import hyprland, idlewatch  # noqa: E402
+from pcbridge.desktop import idlewatch  # noqa: E402
+from pcbridge.desktop.platforms.linux import hyprland  # noqa: E402
 from pcbridge.desktop.errors import ErrorCode  # noqa: E402
 from pcbridge.desktop.safety import SafetyGate  # noqa: E402
 from pcbridge.native import discover_native_binary  # noqa: E402

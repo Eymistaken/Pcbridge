@@ -5,9 +5,10 @@ from contextvars import copy_context
 from types import SimpleNamespace
 from unittest import mock
 
-from pcbridge.desktop import apps, compositor, hyprland
+from pcbridge.desktop import apps, compositor
+from pcbridge.desktop.platforms.linux import hyprland
 from pcbridge.desktop.errors import DesktopError, ErrorCode
-from pcbridge.desktop.hyprland_windows import HyprlandWindowProvider, Window
+from pcbridge.desktop.platforms.linux.hyprland_windows import HyprlandWindowProvider, Window
 from pcbridge.desktop.runtime import DesktopRuntime
 from pcbridge.desktop.safety import Decision
 
@@ -63,7 +64,7 @@ class HyprlandFocusTests(unittest.TestCase):
         with mock.patch.object(provider, "windows", return_value=[A, B]), \
                 mock.patch.object(provider, "_focused", return_value=B), \
                 mock.patch.object(hyprland, "focus_exact"), \
-                mock.patch("pcbridge.desktop.hyprland_windows.time.monotonic", side_effect=[0, 2]):
+                mock.patch("pcbridge.desktop.platforms.linux.hyprland_windows.time.monotonic", side_effect=[0, 2]):
             with self.assertRaises(DesktopError) as error:
                 provider.activate(A.ref, checkpoint=mock.Mock())
         self.assertEqual(error.exception.code, ErrorCode.EXECUTION_UNKNOWN)
@@ -119,7 +120,7 @@ class HyprlandFocusTests(unittest.TestCase):
         provider = HyprlandWindowProvider()
         with mock.patch.object(provider, "windows", return_value=[A]), \
                 mock.patch.object(hyprland, "focus_context", return_value=("selected", "lua")), \
-                mock.patch("pcbridge.desktop.hyprland_windows.time.monotonic", return_value=100), \
+                mock.patch("pcbridge.desktop.platforms.linux.hyprland_windows.time.monotonic", return_value=100), \
                 mock.patch.object(hyprland.subprocess, "run") as run:
             with self.assertRaises(apps.NoTimeLeft):
                 provider.activate(A.ref, checkpoint=mock.Mock(), deadline=99)

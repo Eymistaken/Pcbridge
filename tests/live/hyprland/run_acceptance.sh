@@ -18,7 +18,8 @@ echo "Acceptance logs: $out_dir"
 
 verify_clean() {
     "$python" - <<'PY'
-from pcbridge.desktop import hyprland, idlewatch
+from pcbridge.desktop import idlewatch
+from pcbridge.desktop.platforms.linux import hyprland
 from tests.live.hyprland.check_glow_owner import layers
 
 rows = hyprland.monitors()

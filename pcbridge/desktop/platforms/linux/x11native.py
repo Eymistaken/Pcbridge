@@ -18,7 +18,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .errors import DesktopError
+from ...errors import DesktopError
 
 log = logging.getLogger("pcbridge.desktop")
 
@@ -41,7 +41,7 @@ def _cfg() -> Any:
     global _config
     with _lock:
         if _config is None:
-            from ..config import load_config
+            from ....config import load_config
 
             _config = load_config(check_state=False)
         return _config
@@ -53,9 +53,9 @@ def request(method: str, params: dict | None = None, *, grant: bool = True) -> d
     `grant=True` adds the current grant's id and epoch, and returns None
     without starting anything when no grant is open.
     """
-    from ..native import NativeClient, discover_native_binary
-    from .backends.rust import runtime_dir
-    from .lease import LeaseStore
+    from ....native import NativeClient, discover_native_binary
+    from ...backends.rust import runtime_dir
+    from ...lease import LeaseStore
 
     cfg = _cfg()
     body = dict(params or {})

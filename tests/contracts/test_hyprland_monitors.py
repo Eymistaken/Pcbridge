@@ -7,7 +7,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from pcbridge.desktop import hyprland, monitors, session
+from pcbridge.desktop import monitors, session
+from pcbridge.desktop.platforms.linux import hyprland
 
 
 def output(name: str, x: int, y: int, *, scale: float = 1,

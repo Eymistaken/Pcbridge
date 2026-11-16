@@ -133,7 +133,7 @@ def screen_locked() -> bool | None:
             "GetActive",
         )
     elif kind == session.HYPRLAND:
-        from . import hyprland
+        from .platforms.linux import hyprland
 
         return hyprland.screen_locked()
     elif kind in session.X11_KINDS:

@@ -11,7 +11,8 @@ import subprocess
 import tempfile
 import time
 
-from pcbridge.desktop import hyprland, session
+from pcbridge.desktop import session
+from pcbridge.desktop.platforms.linux import hyprland
 
 
 def wait_lock(expected, timeout=10):

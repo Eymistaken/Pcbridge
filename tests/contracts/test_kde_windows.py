@@ -13,7 +13,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from pcbridge.desktop import a11y, apps, capture, compositor, monitors  # noqa: E402
-from pcbridge.desktop import kwin_helper  # noqa: E402
+from pcbridge.desktop.platforms.linux import kwin_helper  # noqa: E402
 
 
 def done(stdout: str = "", returncode: int = 0):

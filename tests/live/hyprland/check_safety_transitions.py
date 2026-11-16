@@ -39,7 +39,8 @@ from fastmcp.server.middleware import Middleware  # noqa: E402
 from pcbridge.app import build_app  # noqa: E402
 from pcbridge.config import load_config  # noqa: E402
 from pcbridge.native import discover_native_binary  # noqa: E402
-from pcbridge.desktop import glowstate, hyprland, idlewatch, monitors  # noqa: E402
+from pcbridge.desktop import glowstate, idlewatch, monitors  # noqa: E402
+from pcbridge.desktop.platforms.linux import hyprland  # noqa: E402
 from pcbridge.desktop.lease import LeaseStore  # noqa: E402
 from tests.live.hyprland.check_glow_owner import layers, wait_for  # noqa: E402
 from tests.live.test_input_parity import InputWindow  # noqa: E402

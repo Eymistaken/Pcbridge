@@ -1207,7 +1207,7 @@ def _x11_window_region() -> tuple[
     the frames arrived withdraws the picture if the focus or the frame moved
     in between, as on GNOME.
     """
-    from . import x11native
+    from .platforms.linux import x11native
 
     def read() -> tuple[str, str, tuple[int, int, int, int]] | None:
         reply = x11native.focused()
@@ -1265,7 +1265,7 @@ def _render(
     want_window = isinstance(monitor, str) and monitor.strip().lower() == "window"
     verify_window = None
     if want_window and region is None and compositorlib.current().kind == "hyprland":
-        from .hyprland_windows import capture_region
+        from .platforms.linux.hyprland_windows import capture_region
 
         region, verify_window = capture_region(monitorslib.list_monitors(use_cache=False))
         want_window = False

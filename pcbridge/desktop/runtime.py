@@ -549,7 +549,7 @@ def create_runtime(
         gate if gate is not None else SafetyGate(cfg, state_provider=state_provider)
     )
     if window_provider is None and compositorlib.current().kind == "hyprland":
-        from .hyprland_windows import HyprlandWindowProvider
+        from .platforms.linux.hyprland_windows import HyprlandWindowProvider
 
         window_provider = HyprlandWindowProvider()
     return DesktopRuntime(

@@ -27,7 +27,8 @@ def main():
     containment()  # Before imports, IPC discovery, or any fixture mutation.
     root = Path(__file__).resolve().parents[3]
     sys.path.insert(0, str(root))
-    from pcbridge.desktop import hyprland, session
+    from pcbridge.desktop import session
+    from pcbridge.desktop.platforms.linux import hyprland
     from pcbridge.desktop.capabilities import AuthorizationStatus, CapabilitySnapshot
     from pcbridge.desktop.presentation import capabilities_result
     from tests.live.hyprland.check_glow_owner import layers

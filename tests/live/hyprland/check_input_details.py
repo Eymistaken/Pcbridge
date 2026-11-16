@@ -25,7 +25,8 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 from pcbridge.config import load_config  # noqa: E402
 from pcbridge.native import discover_native_binary  # noqa: E402
-from pcbridge.desktop import hyprland, idlewatch, monitors  # noqa: E402
+from pcbridge.desktop import idlewatch, monitors  # noqa: E402
+from pcbridge.desktop.platforms.linux import hyprland  # noqa: E402
 from pcbridge.desktop.backends.rust import RustInputProvider  # noqa: E402
 from pcbridge.desktop.runtime import create_runtime  # noqa: E402
 from pcbridge.desktop.safety import SafetyGate  # noqa: E402

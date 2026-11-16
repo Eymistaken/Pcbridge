@@ -6,7 +6,8 @@ import subprocess
 import unittest
 from unittest import mock
 
-from pcbridge.desktop import hyprland, presentation, session
+from pcbridge.desktop import presentation, session
+from pcbridge.desktop.platforms.linux import hyprland
 from pcbridge.desktop.capabilities import AuthorizationStatus, CapabilitySnapshot
 
 

@@ -15,7 +15,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
-from pcbridge.desktop import hyprland  # noqa: E402
+from pcbridge.desktop.platforms.linux import hyprland  # noqa: E402
 from tests.live.test_capture_parity import LineReader  # noqa: E402
 
 FALLOFF = [(0.0, 1.0), (0.06, 0.7), (0.18, 0.38), (0.35, 0.16),

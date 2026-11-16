@@ -11,7 +11,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from pcbridge.desktop import kwin  # noqa: E402
+from pcbridge.desktop.platforms.linux import kwin  # noqa: E402
 
 
 class HelperEntryTests(unittest.TestCase):

@@ -317,7 +317,8 @@ class NativeHandle(unittest.TestCase):
         self.assertFalse(provider.is_open())
 
     def test_plasma_capture_is_claimed_only_once_kwin_authorizes_the_helper(self):
-        from pcbridge.desktop import compositor, kwin
+        from pcbridge.desktop import compositor
+        from pcbridge.desktop.platforms.linux import kwin
 
         provider = RustCaptureProvider(
             self.cfg,

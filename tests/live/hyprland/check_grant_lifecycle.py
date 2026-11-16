@@ -22,7 +22,8 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 from pcbridge.config import load_config  # noqa: E402
 from pcbridge.cli.grant import read_state  # noqa: E402
-from pcbridge.desktop import glowstate, hyprland, idlewatch  # noqa: E402
+from pcbridge.desktop import glowstate, idlewatch  # noqa: E402
+from pcbridge.desktop.platforms.linux import hyprland  # noqa: E402
 from pcbridge.desktop.errors import ErrorCode  # noqa: E402
 from pcbridge.desktop.lease import LeaseStore  # noqa: E402
 from pcbridge.desktop.safety import SafetyGate  # noqa: E402

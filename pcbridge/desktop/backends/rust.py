@@ -302,7 +302,7 @@ class NativeScreenCast:
         outputs = [monitor.connector for monitor in table]
         verify_window = None
         if isinstance(spec, str) and spec.strip().lower() == "window":
-            from ..hyprland_windows import capture_region
+            from ..platforms.linux.hyprland_windows import capture_region
 
             _, verify_window = capture_region(table)
         def verify():
@@ -577,7 +577,7 @@ class RustCaptureProvider:
         return _backend_name() if self.screencast.is_open() else "pcbridge-native"
 
     def _kwin_authorized(self) -> bool:
-        from .. import kwin as kwinlib
+        from ..platforms.linux import kwin as kwinlib
 
         try:
             binary = discover_native_binary(

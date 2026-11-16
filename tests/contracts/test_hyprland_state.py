@@ -3,7 +3,8 @@
 import unittest
 from unittest import mock
 
-from pcbridge.desktop import compositor, hyprland, idlewatch, safety
+from pcbridge.desktop import compositor, idlewatch, safety
+from pcbridge.desktop.platforms.linux import hyprland
 
 
 class HyprlandStateTests(unittest.TestCase):

@@ -18,7 +18,8 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
-from pcbridge.desktop import glowstate, hyprland, idlewatch, monitors  # noqa: E402
+from pcbridge.desktop import glowstate, idlewatch, monitors  # noqa: E402
+from pcbridge.desktop.platforms.linux import hyprland  # noqa: E402
 from pcbridge.config import DesktopSpec, NativeSpec  # noqa: E402
 from pcbridge.desktop.safety import SafetyGate  # noqa: E402
 from pcbridge.desktop.errors import DesktopError, ErrorCode  # noqa: E402

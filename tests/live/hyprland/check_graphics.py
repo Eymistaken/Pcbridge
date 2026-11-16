@@ -15,7 +15,8 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-from pcbridge.desktop import hyprland, session  # noqa: E402
+from pcbridge.desktop import session  # noqa: E402
+from pcbridge.desktop.platforms.linux import hyprland  # noqa: E402
 from tests.live.test_capture_parity import (  # noqa: E402
     LineReader, MARKERS, close_to, marker_color, read_counter,
 )

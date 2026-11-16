@@ -8,7 +8,7 @@ import re
 import subprocess
 from typing import Any, Callable
 
-from . import session
+from ... import session
 
 
 class HyprlandIPCError(RuntimeError):

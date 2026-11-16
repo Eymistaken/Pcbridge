@@ -454,7 +454,7 @@ def _hyprland_state(data: list[dict]) -> dict:
 
 
 def _from_hyprland() -> list[Monitor]:
-    from . import hyprland
+    from .platforms.linux import hyprland
 
     try:
         return resolve_state(_hyprland_state(hyprland.monitors()))
@@ -539,7 +539,7 @@ def _from_native() -> list[Monitor]:
     fixtures), so its order and fields are taken over unchanged; pcbridge
     reads no X11 itself.
     """
-    from . import x11native
+    from .platforms.linux import x11native
 
     reply = x11native.display_snapshot()
     if not reply or not isinstance(reply.get("monitors"), list) or not reply["monitors"]:
