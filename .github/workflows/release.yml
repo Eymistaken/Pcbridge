@@ -39,6 +39,16 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
+          name: wheel-windows
+          path: dist/
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-helper-windows
+          path: native-windows/
+
+      - uses: actions/download-artifact@v8
+        with:
           pattern: deb-*
           path: dist/
           merge-multiple: true
@@ -51,9 +61,10 @@ jobs:
       # The install script is served from the release (`.../releases/latest/
       # download/install.sh`) and reads constraints.txt and sha256sums.txt
       # from it, so both are release assets too.
-      - name: Install script and dependency constraints
+      - name: Install scripts and dependency constraints
         run: |
           cp install.sh dist/install.sh
+          cp install.ps1 dist/install.ps1
           cp packaging/constraints.txt dist/constraints.txt
 
       # A git checkout without a Rust toolchain cannot build the helper;
@@ -65,6 +76,11 @@ jobs:
           for helper in pcbridge/_native/*/pcbridge-native; do
             target=$(basename "$(dirname "$helper")")
             install -m 0755 "$helper" "dist/pcbridge-native-$target"
+          done
+          # Windows: pcbridge-native-x86_64-pc-windows-msvc.exe
+          for helper in native-windows/*/pcbridge-native.exe; do
+            target=$(basename "$(dirname "$helper")")
+            install -m 0755 "$helper" "dist/pcbridge-native-$target.exe"
           done
           ls -l dist/pcbridge-native-*
 

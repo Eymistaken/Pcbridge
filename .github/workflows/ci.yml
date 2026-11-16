@@ -83,13 +83,17 @@ jobs:
   # Windows, and the modules in tests/windows_portable.txt pass there. The
   # list grows with each stage of the port until the whole suite runs.
   windows:
-    name: windows (portable modules)
+    name: windows (portable modules, Python ${{ matrix.python }})
     runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
       - name: Install
         run: |
           python -m venv .venv

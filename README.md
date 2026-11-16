@@ -4,13 +4,13 @@
 [![native](https://github.com/Eymistaken/Pcbridge/actions/workflows/native.yml/badge.svg)](https://github.com/Eymistaken/Pcbridge/actions/workflows/native.yml)
 [![package](https://github.com/Eymistaken/Pcbridge/actions/workflows/package.yml/badge.svg)](https://github.com/Eymistaken/Pcbridge/actions/workflows/package.yml)
 
-**Turn a Linux desktop into an MCP server, and let an agent actually use it.**
+**Turn a Linux or Windows desktop into an MCP server, and let an agent actually use it.**
 
 pcbridge exposes one machine over the [Model Context Protocol](https://modelcontextprotocol.io).
 A connected agent can hand work to terminal coding agents, drive a live
 tmux session, run commands, read and write files, and, when explicitly
-permitted, operate a GNOME, KDE Plasma, or Hyprland desktop with a virtual
-keyboard, pointer and screen reader.
+permitted, operate a GNOME, KDE Plasma, Hyprland, Cinnamon, Xfce or
+Windows 11 desktop with a virtual keyboard, pointer and screen reader.
 
 > **Read [docs/security.md](docs/security.md) before installing.** pcbridge
 > is remote code execution on your own desktop, by design.
@@ -70,6 +70,7 @@ More numbers, and why things are the way they are:
 | Debian 13 and Debian 12 (standing in for Pardus 23), Cinnamon and Xfce on X11 | the desktop checks (capture, input, window focus, lock, idle, grant frame, kill switch) pass through MCP in VMs; X11 is a weaker security model, see [security](docs/security.md) |
 | Linux Mint 21.3, Cinnamon 6.0 on X11 (glibc 2.35) | the same checks pass in the live session |
 | GNOME or Plasma on X11, Plasma 5, other desktops | desktop tools refuse and say why; everything else works |
+| Windows 11 (x64) | all 40 tools, setup and the install script tested through MCP in a Windows 11 VM (one monitor at 96 DPI); the first release that carries the Windows wheel is still to be published. A window that runs as administrator refuses input (Windows' UIPI), and pcbridge says so ([Windows scope](docs/dev/windows-scope.md)) |
 | ARM (aarch64) | from a git checkout only; no desktop control, since the native helper is built for x86_64 alone |
 | Python | 3.12, 3.13, 3.14 |
 
@@ -84,6 +85,13 @@ sudo apt install ./pcbridge_<version>_<distro>_amd64.deb && pcbridge setup
 (cd packaging/arch && makepkg -si) && pcbridge setup
 # or from git:
 git clone https://github.com/Eymistaken/Pcbridge.git && cd Pcbridge && ./install.sh
+```
+
+On Windows 11, in PowerShell (no administrator rights; from the first
+release that carries the Windows wheel):
+
+```powershell
+irm https://github.com/Eymistaken/Pcbridge/releases/latest/download/install.ps1 | iex
 ```
 
 The script checks the wheel's sha256, offers a pcbridge-only Python when

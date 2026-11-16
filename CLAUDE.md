@@ -9,7 +9,12 @@ Wayland) drivable over MCP: 40 tools for coding-agent jobs, background
 jobs, tmux, shell and files, and, under `[desktop]`, a virtual keyboard and
 pointer plus screen reading. KDE Plasma 6 and Hyprland 0.56.2 on Arch Linux
 have VM evidence (`scripts/dev/arch-vm.sh` and `scripts/dev/hyprland-vm.sh`),
-not physical-hardware validation on this desktop.
+not physical-hardware validation on this desktop. Windows 11 support (full
+parity, the maintainer's decision) is tested in a Windows 11 VM
+(`scripts/dev/windows-vm.sh`; the plan and its rules:
+[docs/dev/windows-port-plan.md](docs/dev/windows-port-plan.md)). Code for one
+system lives apart from the shared code: `pcbridge/desktop/platforms/` and
+`rust/crates/pcbridge-native/src/platform/`.
 
 Since 2.0 **one resident daemon** (`pcbridge serve`, `pcbridge.service`,
 started by `pcbridge.socket`) serves every client. Local clients (Claude

@@ -93,6 +93,45 @@ old one, and setup detects the machine again.
 `packaging/install-user.sh WHEEL` still installs a wheel the old way (no
 Python offer, no checksum, no detection before setup).
 
+### On Windows 11
+
+```powershell
+irm https://github.com/Eymistaken/Pcbridge/releases/latest/download/install.ps1 | iex
+# a given release, or with options:
+& ([scriptblock]::Create((irm https://github.com/Eymistaken/Pcbridge/releases/latest/download/install.ps1))) -Version vX.Y.Z -Yes
+# from a wheel you have, with sha256sums.txt beside it:
+powershell -ExecutionPolicy Bypass -File install.ps1 -Wheel .\pcbridge-<version>-py3-none-win_amd64.whl
+```
+
+The script needs no administrator rights. It finds Python 3.12 or newer
+through the `py` launcher (the Microsoft Store's `python.exe` stub is not
+taken), or downloads one for pcbridge only with uv into
+`%LOCALAPPDATA%\pcbridge`. It checks the `win_amd64` wheel against the
+release's `sha256sums.txt`, installs it into
+`%LOCALAPPDATA%\pcbridge\data\venv`, and runs `pcbridge setup`, which on
+Windows:
+
+- installs nothing system-wide; it offers tesseract for `find_text` through
+  winget (`UB-Mannheim.TesseractOCR`, whose installer asks for
+  administrator rights itself);
+- writes the config to `%APPDATA%\pcbridge\config.toml` (desktop control on
+  in a config it creates), state to `%LOCALAPPDATA%\pcbridge\state`, both
+  private to your user through their ACLs;
+- puts the venv's `Scripts` folder on your user PATH (`HKCU\Environment`),
+  so `pcbridge`, `pcb-shot` and `pcb-do` work by name in new terminals;
+- starts the daemon at logon from the Run key
+  (`HKCU\...\CurrentVersion\Run`, listed in Task Manager's Startup apps),
+  not as a Windows service: a service runs in session 0, which cannot see
+  the desktop;
+- connects the MCP clients you choose, as on Linux, and links the
+  computer-use skill with a directory junction;
+- writes `ROLLBACK.md` with the PowerShell lines that undo it.
+
+`install.ps1 -Uninstall [-Purge] [-Yes]` runs `pcbridge uninstall` (the Run
+key, the PATH entry, the client entries) and sends the venv to the Recycle
+Bin; `-Purge` also the config and state. Unsigned executables may get a
+SmartScreen warning on their first run; signing is not decided yet.
+
 ### From the .deb
 
 ```bash

@@ -306,6 +306,35 @@ these desktops. If that model is not acceptable on a machine, keep
 Plasma on X11 stay unsupported: their backends speak Wayland compositor
 interfaces.
 
+### Windows
+
+The layers are the same; each has a Windows counterpart
+([Windows scope](dev/windows-scope.md#security-model) has the table):
+
+- **The local path** is 127.0.0.1 at a port the system picks, published with
+  a 32-byte secret in `endpoint.json` inside the user-only runtime
+  directory; both sides prove the secret before any MCP byte, the daemon
+  first, so a process squatting the port learns nothing.
+- **Private files** get owner-only ACLs instead of modes 0600 and 0700.
+- **The screen lock** is known only when the session's lock flag and the
+  input desktop agree; anything else is unknown and refused.
+- **User activity** counts only input that does not carry pcbridge's mark:
+  a low-level hook sees the injected flag and pcbridge's `dwExtraInfo` on
+  its own events. This is stricter than Linux, where uinput's events reset
+  the idle time.
+- **The grant on screen** is a click-through frame around every monitor and
+  a tray icon with "Lock now", both drawn by the native helper, which proves
+  the frame is up before the grant is used. The frame is left out of
+  screenshots.
+- **Elevated windows** are out of reach: Windows drops an unelevated
+  process's input to them without an error (UIPI), so pcbridge refuses with
+  `TARGET_ELEVATED` before sending anything. Lifting this would need
+  `uiAccess`, a code-signing certificate and an install under Program Files:
+  not done. The secure desktop (UAC, the lock screen) is unreachable for
+  every program.
+- **The remote password** is created or replaced only after your Windows
+  account password is checked (`LogonUserW`).
+
 ### What `enabled = false` does NOT turn off
 
 Only the desktop tools. `shell_run`, `agent_run`, `fs_*` and `tmux_*` work

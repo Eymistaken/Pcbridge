@@ -194,15 +194,18 @@ pcbridge/desktop/platforms/windows/
 - ~~`uninstall` removes the Run key, the PATH entry and the files, through
   the Recycle Bin~~ (written; the run is part of W10).
 
-### W9: CI, documents, release
+### W9: CI, documents, release (done; the workflows run on the next push and tag)
 
-- CI: the Windows job runs the portable suites on Python 3.12 to 3.14;
-  `native.yml` builds, lints and tests with MSVC.
-- `release.yml` adds the Windows wheel, `pcbridge-native-x86_64-pc-windows-msvc.exe`
-  and `install.ps1`, all in `sha256sums.txt`.
-- Documents: README, install, usage, architecture, a Windows section in
+- ~~CI: the Windows job runs the portable suites on Python 3.12 to 3.14;
+  `native.yml` builds, lints and tests with MSVC.~~ `package.yml` builds the
+  MSVC release helper and the Windows wheel on a Windows runner, and installs
+  the wheel with `install.ps1`.
+- ~~`release.yml` adds the Windows wheel, `pcbridge-native-x86_64-pc-windows-msvc.exe`
+  and `install.ps1`, all in `sha256sums.txt`~~; the release notes' install
+  block has the PowerShell line.
+- ~~Documents: README, install, usage, architecture, a Windows section in
   security.md, native packaging, CLAUDE.md, ROADMAP. CHANGELOG with the
-  `changelog` skill.
+  `changelog` skill~~ (under "Unreleased": the version is the maintainer's).
 
 ### W10: end to end in a fresh VM
 

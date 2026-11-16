@@ -70,6 +70,64 @@ jobs:
           path: pcbridge/_native/
           if-no-files-found: error
 
+  # The Windows helper (the port's W9): MSVC, the toolchain releases use.
+  # The test VM builds with GNU; both link through windows-targets' import
+  # libraries (rust/Cargo.toml).
+  native-windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - name: Release helper
+        working-directory: rust
+        run: |
+          rustup toolchain install
+          cargo build --release --locked -p pcbridge-native
+          New-Item -ItemType Directory -Force ..\pcbridge\_native\x86_64-pc-windows-msvc | Out-Null
+          Copy-Item target\release\pcbridge-native.exe ..\pcbridge\_native\x86_64-pc-windows-msvc\
+          ..\pcbridge\_native\x86_64-pc-windows-msvc\pcbridge-native.exe --build-info
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-helper-windows
+          path: pcbridge/_native/
+          if-no-files-found: error
+
+  # The Windows wheel: the same package with the Windows helper inside,
+  # tagged win_amd64 by setup.py. Built on Windows from a checkout that has
+  # only that helper in pcbridge/_native.
+  wheel-windows:
+    needs: native-windows
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-helper-windows
+          path: pcbridge/_native/
+      - name: Wheel
+        run: |
+          python -m pip install build
+          python -m build --wheel --outdir dist
+          python packaging/check-wheel.py (Get-ChildItem dist\*.whl).FullName
+          if (-not (Get-ChildItem dist\pcbridge-*-py3-none-win_amd64.whl)) { throw "the Windows wheel is not tagged win_amd64" }
+      # A runner is not a desktop session, so setup's daemon and readiness
+      # steps may not hold there; the install itself must.
+      - name: Install it the way users do
+        continue-on-error: true
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -Wheel (Get-ChildItem dist\*.whl).FullName -Yes --no-connect --no-extension
+      - name: The installed command runs
+        run: |
+          & "$env:LOCALAPPDATA\pcbridge\data\venv\Scripts\pcbridge.exe" --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel-windows
+          path: dist/*.whl
+          if-no-files-found: error
+
   deb:
     name: deb ${{ matrix.name }}
     needs: native

@@ -342,11 +342,13 @@ at the machine* checks, batched for a session at the machine.
   tool's Windows mechanism, the limits Windows imposes (elevated windows,
   the secure desktop, SmartScreen) and the security model; the
   measurements behind it are in measured facts, taken in the Windows 11
-  test VM (`scripts/dev/windows-vm.sh`). Left: W1 to W10. Done when all 40
-  tools, the terminal UI, install, upgrade and remote access work on
-  Windows 11, checked end to end in a fresh VM. Open decisions: a
-  code-signing certificate (`uiAccess` for elevated windows, SmartScreen)
-  and the release's version number.
+  test VM (`scripts/dev/windows-vm.sh`). W1 to W9 are done (the working
+  plan: [docs/dev/windows-port-plan.md](docs/dev/windows-port-plan.md)):
+  every tool, setup, install.ps1 and the release workflow. Left: W10, the
+  end-to-end run in a fresh VM, and publishing the first release with the
+  Windows wheel. Open decisions for the maintainer: a code-signing
+  certificate (`uiAccess` for elevated windows, SmartScreen) and the
+  release's version number.
 
 ## Optional: website
 

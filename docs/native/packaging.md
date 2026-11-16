@@ -173,6 +173,19 @@ helper as an artifact; then, on Ubuntu 24.04 with only
 builds the release helper the same way, once for all `.deb` builds and the
 wheel. Live capture and input tests never run in CI.
 
+## Windows
+
+The Windows helper (`pcbridge-native.exe`) is built with MSVC in CI
+(`native.yml` checks it with clippy and the tests; `package.yml` builds the
+release helper and the Windows wheel), and with the GNU toolchain in the
+test VM, without Visual Studio. Both link through windows-targets' import
+libraries; the `windows` crate stays at 0.58, since 0.59 and later link
+through raw-dylib, which needs MinGW's assembler with GNU. The release
+carries it inside the `win_amd64` wheel and as the asset
+`pcbridge-native-x86_64-pc-windows-msvc.exe`, listed in `sha256sums.txt`.
+Discovery looks for `pcbridge/_native/x86_64-pc-windows-msvc/pcbridge-native.exe`.
+The executable is not signed yet, so SmartScreen may warn on its first run.
+
 ## Not planned
 
 - The Rust toolchain as a runtime requirement.

@@ -120,6 +120,18 @@ question.
 | Raise / name a window | extension D-Bus | one-shot KWin script | exact compositor identity, with focus verification | the helper's EWMH `_NET_ACTIVE_WINDOW`, read back |
 | The grant on screen | frame + panel indicator | lasting notification with "Lock now" | native white frame with fresh presentation proof | native frame (override-redirect windows, read back), lasting notification, and the Cinnamon applet |
 
+Windows (`session.WINDOWS`) answers the same questions through the native
+helper: the lock from the session flag and the input desktop, idle time
+from its `idle-watch` input hooks, the monitor table from GDI, screenshots
+from DXGI desktop duplication (GDI when a still screen gives no image),
+windows through `SetForegroundWindow` and UI Automation, and the grant on
+screen as its own frame and tray icon. The code that belongs to one system
+lives apart: `pcbridge/desktop/platforms/linux/` (KWin, Hyprland) and
+`platforms/windows/` in Python; `rust/crates/pcbridge-native/src/platform/`
+`linux/` and `windows/` in the helper, with the device-neutral input,
+accessibility walk and frame appearance shared in `src/input/`,
+`src/accessibility/` and `src/glow/`.
+
 All of them feed the same neutral display state (`monitors.resolve_state` in
 Python, `DisplayState` in Rust), so coordinates, scale and rotation follow
 one set of rules. A shot records output identity as well as geometry; a shot

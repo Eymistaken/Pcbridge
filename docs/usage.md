@@ -362,3 +362,25 @@ The VM evidence includes native input, AT-SPI, rotated and negative-origin
 layouts, a mirrored source shot, and lock/revoke safety. Physical monitor
 mirroring and hotplug have not been tested; see
 [measured facts](dev/measured-facts.md#hyprland-release-scope-and-limits).
+
+## On Windows
+
+Every tool keeps its name; what is under it is Windows' own
+([Windows scope](dev/windows-scope.md) lists each one). The `tmux_*` tools
+drive a ConPTY session that `pcbridge attach NAME` opens in your terminal;
+`shell_run` runs PowerShell. Screenshots come from DXGI desktop duplication
+(silent), the accessibility tree from UI Automation, input from `SendInput`.
+While a grant is open a soft frame shows around every monitor and a tray
+icon offers "Lock now"; the frame is left out of screenshots.
+
+- `keyboard type` goes through the clipboard as on Linux; with `raw: true`
+  it types with the keyboard layout's own keys, so it is not limited to
+  ASCII.
+- `window_focus` brings an open window to the front, or starts the
+  application from the Start menu's own list (shortcuts and Store apps).
+- A window that runs as administrator refuses pcbridge's input and shows
+  nothing to UI Automation (Windows' UIPI); pcbridge refuses with
+  `TARGET_ELEVATED` instead of sending input that would vanish. The UAC
+  prompt and the lock screen are out of reach for every program.
+- The activity guard counts only your own input: pcbridge's events carry a
+  mark that its input hook leaves out, which uinput cannot offer on Linux.

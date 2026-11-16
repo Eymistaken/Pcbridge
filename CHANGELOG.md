@@ -1,5 +1,70 @@
 # Changelog
 
+## Unreleased
+
+This release adds Windows 11 (x64) with the same tools as Linux. Every
+tool keeps its name and its answers; what is under it is Windows' own. It
+was tested through a real MCP client in a Windows 11 VM with one monitor at
+96 DPI; more monitors, display scaling, a Microsoft account and Windows
+Hello are not measured yet. The scope, the limits and the security model
+are in `docs/dev/windows-scope.md`.
+
+### Added
+
+- **Install on Windows without administrator rights.** In PowerShell,
+  `irm https://github.com/Eymistaken/Pcbridge/releases/latest/download/install.ps1 | iex`
+  finds Python 3.12 or newer (or downloads one for pcbridge only with uv),
+  checks the `win_amd64` wheel against the release's `sha256sums.txt`,
+  installs it into `%LOCALAPPDATA%\pcbridge\data\venv` and runs
+  `pcbridge setup`. Setup puts the commands on the user's PATH, starts the
+  daemon at logon from the Run key, connects the MCP clients, offers
+  tesseract through winget for `find_text`, and writes a `ROLLBACK.md` with
+  the PowerShell lines that undo it. `install.ps1 -Uninstall` reverses it
+  through the Recycle Bin. The daemon is not a Windows service on purpose:
+  services run in session 0, which cannot see the desktop.
+- **The daemon, jobs, shell and files on Windows.** Local clients reach the
+  daemon through 127.0.0.1 with a per-start secret that both sides prove
+  before any MCP byte, since a Unix socket is not available. Jobs run in
+  their own Job Objects and survive a daemon restart; `shell_run` runs
+  PowerShell with UTF-8 set explicitly, because a redirected child process
+  otherwise wrote the ANSI code page and lost letters such as "ğ".
+- **Live terminal sessions without tmux.** The `tmux_*` tools keep their
+  names and drive a ConPTY session held by its own process, which outlives
+  a daemon restart. `pcbridge attach NAME` opens the same session in your
+  terminal, as `tmux attach` does, and Ctrl+] leaves it running.
+- **Desktop control on Windows.** Screenshots come from DXGI desktop
+  duplication, the accessibility tree from UI Automation (with the same
+  roles, actions and `ui_set_text` read-back as AT-SPI on Linux), input
+  from `SendInput`, window activation from `SetForegroundWindow`. While a
+  grant is open a soft frame shows around every monitor and a tray icon
+  offers **Lock now**; the frame is left out of screenshots. `window_focus`
+  starts an application that is not open from the Start menu's own list,
+  Store apps included. `keyboard` with `raw: true` types with the keyboard
+  layout's own keys, so it is not limited to ASCII there.
+- **The activity guard ignores pcbridge's own input on Windows.** Each of
+  pcbridge's input events carries a mark, and the input hook that measures
+  idle time leaves marked events out, so `USER_ACTIVE` answers only to a
+  person at the keyboard or mouse. On Linux uinput's events cannot be told
+  apart, and they still count.
+- **Elevated windows are refused, not silently missed.** Windows drops an
+  unelevated program's input to a window that runs as administrator and
+  reports success. pcbridge checks where a key, click, scroll, drag or
+  focused `ui_dump` would land and refuses with the new `TARGET_ELEVATED`
+  error, saying why, instead of sending input that would vanish.
+- **Remote access on Windows.** `pcbridge remote` drives Tailscale with
+  the same commands as on Linux, without sudo (Funnel itself is not yet
+  measured on Windows), and the remote password is created or replaced
+  only after the Windows account password is checked.
+
+### Fixed
+
+- **`system_status` showed no memory line under a Turkish locale.** `free`
+  prints "Bellek:" there, and the line was looked for in English; the
+  system commands now run with `LC_ALL=C`.
+- **`pcbridge settings` and the other commands wrote broken text to a pipe
+  or file on Windows.** A redirected stdout used the ANSI code page and
+  failed on non-English letters; output to pipes and files is UTF-8 now.
+
 ## 2.10.3 - 2026-11-15
 
 ### Fixed
