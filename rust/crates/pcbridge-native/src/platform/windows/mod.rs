@@ -8,6 +8,8 @@ pub mod capture;
 pub mod clipboard;
 pub mod desktop_state;
 pub mod display;
+pub mod frame;
+pub mod idle;
 pub mod input;
 pub mod lifecycle;
 pub mod process;

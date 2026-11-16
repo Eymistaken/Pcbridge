@@ -678,3 +678,24 @@ While idle, `since_unix_ms` is the last input, so idle time is
 timeout and is reported as 0, the safe side for the idle guard. Readers trust the file only while its `pid` is alive and runs
 `idle-watch`; anything else is `unknown`. The daemon starts and supervises
 it on Plasma while desktop control is enabled.
+
+## `idle-watch` and `glow-watch` on Windows (W6e)
+
+- `pcbridge-native idle-watch [PATH]` holds low-level keyboard and mouse
+  hooks and writes `PATH` (default `%LOCALAPPDATA%\pcbridge\idle.json`)
+  every 250 ms: the version-3 record above with `wayland_display`,
+  `hyprland_instance` and `x11_display` empty, `windows_session` added,
+  and `writer_start_ticks` the process creation time (100 ns since 1601).
+  Input that carries pcbridge's `dwExtraInfo` mark with the injected flag
+  is not the user's; everything else is, and input `GetLastInputInfo`
+  reports that the hooks did not see counts as the user's.
+- `pcbridge-native glow-watch DIR GRANT_ID EPOCH [LOCK_PROGRAM]` draws the
+  frame (`src/glow/appearance.rs`, one click-through, topmost layered
+  window per strip, left out of captures) and a tray icon whose "Lock now"
+  runs `LOCK_PROGRAM lock`. It keeps `DIR\glow.json` current (version 2,
+  the Linux fields with the display fields empty and `windows_session`
+  added) and ends, removing it, when the grant ends, the session is not
+  known unlocked, or its parent process ends.
+- The lock state is known only when two signals agree: the session's lock
+  flag (`WTSQuerySessionInformationW`) and whether the input desktop
+  opens (`OpenInputDesktop`); otherwise it is `unknown`.

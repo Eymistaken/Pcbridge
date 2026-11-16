@@ -8,11 +8,18 @@
 //! texture, read as BGRA row by row (the row pitch is not the width) and
 //! turned into the shared `RgbaFrame`. The pointer is not drawn: duplication
 //! leaves it out, and the answer says `include_pointer: false`.
+//!
+//! Measured in W6e: on a screen where nothing changes, the first frame of a
+//! new duplication can carry no image (`LastPresentTime` 0) and its texture
+//! is black. Such a frame is released and the next one awaited for at most
+//! `IMAGE_WAIT`; if none comes, the monitor is copied with GDI (`BitBlt`
+//! with `CAPTUREBLT`, 28-33 ms for the whole screen in W0), which always
+//! has the current picture.
 
 use std::time::{Duration, Instant};
 
 use pcbridge_core::{FrameId, FrameSpec, MAX_PIXELS, PixelFormat, RgbaFrame};
-use windows::Win32::Foundation::HMODULE;
+use windows::Win32::Foundation::{HMODULE, HWND, RECT};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_UNKNOWN;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAP_READ,
@@ -23,9 +30,17 @@ use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO, IDXGIAdapter1,
     IDXGIFactory1, IDXGIOutput, IDXGIOutput1, IDXGIResource,
 };
+use windows::Win32::Graphics::Gdi::{
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CAPTUREBLT, CreateCompatibleBitmap,
+    CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, ReleaseDC,
+    SRCCOPY, SelectObject,
+};
 use windows::core::Interface;
 
 pub const BACKEND: &str = "windows.dxgi.duplication";
+
+/// How long a duplication may take to hand out a frame with an image.
+const IMAGE_WAIT: Duration = Duration::from_millis(250);
 
 #[derive(Debug)]
 pub struct Captured {
@@ -97,22 +112,124 @@ pub fn capture(device: &str, timeout: Duration) -> Result<Captured, String> {
     let duplication = unsafe { output1.DuplicateOutput(&device3d) }
         .map_err(|error| format!("DuplicateOutput: {error}"))?;
 
-    let mut info = DXGI_OUTDUPL_FRAME_INFO::default();
-    let mut resource: Option<IDXGIResource> = None;
     let millis = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX);
-    // SAFETY: two out-parameters this frame owns.
-    match unsafe { duplication.AcquireNextFrame(millis, &mut info, &mut resource) } {
-        Ok(()) => {}
-        Err(error) if error.code() == DXGI_ERROR_WAIT_TIMEOUT => {
-            return Err(format!("no frame within {} ms", timeout.as_millis()));
+    let mut first = true;
+    loop {
+        let mut info = DXGI_OUTDUPL_FRAME_INFO::default();
+        let mut resource: Option<IDXGIResource> = None;
+        let wait = if first {
+            millis
+        } else {
+            u32::try_from(IMAGE_WAIT.as_millis()).unwrap_or(250)
+        };
+        // SAFETY: two out-parameters this frame owns.
+        match unsafe { duplication.AcquireNextFrame(wait, &mut info, &mut resource) } {
+            Ok(()) => {}
+            Err(error) if error.code() == DXGI_ERROR_WAIT_TIMEOUT && !first => {
+                let desktop = output_rect(&output)?;
+                return gdi_capture(desktop).map(|frame| Captured {
+                    frame,
+                    waited: started.elapsed(),
+                });
+            }
+            Err(error) if error.code() == DXGI_ERROR_WAIT_TIMEOUT => {
+                return Err(format!("no frame within {} ms", timeout.as_millis()));
+            }
+            Err(error) => return Err(format!("AcquireNextFrame: {error}")),
         }
-        Err(error) => return Err(format!("AcquireNextFrame: {error}")),
+        first = false;
+        if info.LastPresentTime == 0 {
+            // A pointer-only update: no picture in it.
+            // SAFETY: a frame was acquired above and is released once.
+            let _ = unsafe { duplication.ReleaseFrame() };
+            continue;
+        }
+        let waited = started.elapsed();
+        let result = read_frame(&device3d, &context, resource.as_ref());
+        // SAFETY: a frame was acquired above and is released exactly once.
+        let _ = unsafe { duplication.ReleaseFrame() };
+        return result.map(|frame| Captured { frame, waited });
     }
-    let waited = started.elapsed();
-    let result = read_frame(&device3d, &context, resource.as_ref());
-    // SAFETY: a frame was acquired above and is released exactly once.
-    let _ = unsafe { duplication.ReleaseFrame() };
-    result.map(|frame| Captured { frame, waited })
+}
+
+/// The monitor's rectangle on the virtual screen.
+fn output_rect(output: &IDXGIOutput) -> Result<RECT, String> {
+    // SAFETY: GetDesc fills a structure the call returns by value.
+    unsafe { output.GetDesc() }
+        .map(|desc| desc.DesktopCoordinates)
+        .map_err(|error| format!("IDXGIOutput::GetDesc: {error}"))
+}
+
+/// The monitor copied from the screen with GDI, layered windows included.
+fn gdi_capture(rect: RECT) -> Result<RgbaFrame, String> {
+    let width = rect.right - rect.left;
+    let height = rect.bottom - rect.top;
+    if width <= 0 || height <= 0 {
+        return Err("the monitor has no area".to_owned());
+    }
+    if u64::from(width as u32) * u64::from(height as u32) > MAX_PIXELS {
+        return Err(format!("{width}x{height} is above the frame limit"));
+    }
+    let mut info = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB.0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let stride = width as u32 * 4;
+    let mut bytes = vec![0u8; stride as usize * height as usize];
+    // SAFETY: a screen copy into a bitmap of the monitor's size, read into
+    // a buffer of exactly that many BGRA pixels; every GDI object is freed.
+    let copied = unsafe {
+        let screen = GetDC(HWND::default());
+        let memory = CreateCompatibleDC(screen);
+        let bitmap = CreateCompatibleBitmap(screen, width, height);
+        let previous = SelectObject(memory, bitmap);
+        let blitted = BitBlt(
+            memory,
+            0,
+            0,
+            width,
+            height,
+            screen,
+            rect.left,
+            rect.top,
+            SRCCOPY | CAPTUREBLT,
+        )
+        .is_ok();
+        SelectObject(memory, previous);
+        let lines = GetDIBits(
+            memory,
+            bitmap,
+            0,
+            height as u32,
+            Some(bytes.as_mut_ptr().cast()),
+            &mut info,
+            DIB_RGB_COLORS,
+        );
+        let _ = DeleteObject(bitmap);
+        let _ = DeleteDC(memory);
+        ReleaseDC(HWND::default(), screen);
+        blitted && lines == height
+    };
+    if !copied {
+        return Err("the screen could not be copied (BitBlt)".to_owned());
+    }
+    let spec = FrameSpec {
+        format: PixelFormat::Bgrx,
+        width: width as u32,
+        height: height as u32,
+        stride,
+        offset: 0,
+        size: u32::try_from(bytes.len()).map_err(|_| "frame too large".to_owned())?,
+    };
+    RgbaFrame::from_buffer(&spec, &bytes, FrameId::default()).map_err(|error| error.to_string())
 }
 
 fn read_frame(

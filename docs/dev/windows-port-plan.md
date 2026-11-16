@@ -9,7 +9,7 @@ its commit lands; do not copy measurements into this file.
 
 ## Where it stands
 
-W0 to W5 and W6a-d are on `main` (W6c-d: 2026-11-16). On Windows the
+W0 to W6 are on `main` (W6c-e: 2026-11-16). On Windows the
 daemon, the supervisor, the local IPC, jobs, shell, agents, files, the system
 tools, the live terminal (`tmux_*` through ConPTY, `pcbridge attach`), remote
 access and the login check work. The native helper builds on Windows, answers
@@ -20,7 +20,10 @@ through `SendInput` and reads and writes the clipboard, under the grant with
 a 100 ms watchdog; since W6d it reads and acts on the screen through UI
 Automation (the shared walk of `src/accessibility/` over a UIA `Tree`),
 lists and activates windows, and refuses elevated targets with
-`TARGET_ELEVATED`. Lock and idle state and the frame are next.
+`TARGET_ELEVATED`; since W6e it reads the lock from two signals, has
+`idle-watch` (the user's input apart from pcbridge's) and `glow-watch`
+(the frame and the tray icon with "Lock now"). The Python wiring (W7) is
+next: until then the daemon does not use any of the W6 desktop methods.
 
 ## Rules for this work
 
@@ -66,6 +69,10 @@ Known traps:
 - `sync` uses robocopy because a running daemon locks files; it keeps
   `.venv`, `target` and `_native`.
 - ctypes calls need `argtypes` for handles, or they fail silently on 64-bit.
+- On the lock screen QEMU's keyboard drops keys at `type`'s default pace;
+  `PCBRIDGE_WIN_TYPE_DELAY=0.25 windows-vm.sh type ...` types a password.
+  Dismiss the curtain with a key that types nothing (`key ctrl`): an Enter
+  on a visible password field submits it empty.
 - GitHub's Windows runners use 8.3 temp paths (`RUNNER~1`): compare resolved
   paths in tests.
 
@@ -134,7 +141,7 @@ pcbridge/desktop/platforms/windows/
 - Refuse an elevated target with `TARGET_ELEVATED` (check its integrity
   level): UIPI drops input to it silently.
 
-### W6e: lock, idle and the indicator
+### ~~W6e: lock, idle and the indicator~~ (done: `97fa3c8` move, then the Windows parts)
 
 - Lock state from WTS session flags with `OpenInputDesktop` as the second
   signal, tri-state; the gate refuses while locked or unknown.

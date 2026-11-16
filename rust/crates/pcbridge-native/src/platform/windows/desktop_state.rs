@@ -5,10 +5,18 @@
 //! `LockWorkStation`, as documented (a hand-made structure had read the
 //! wrong field; the crate's typed structure is used here). A failed query is
 //! `Unknown`, never "unlocked": the fail-closed rules treat it as a refusal.
+//!
+//! A second, independent signal confirms it: `OpenInputDesktop` opens the
+//! `Default` desktop while the session is unlocked and fails with access
+//! denied while the lock screen (the secure desktop) has the input (also
+//! measured in W0). Only when both agree is the state known.
 
 use windows::Win32::System::RemoteDesktop::{
     WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION, WTSFreeMemory, WTSINFOEXW,
     WTSQuerySessionInformationW, WTSSessionInfoEx,
+};
+use windows::Win32::System::StationsAndDesktops::{
+    CloseDesktop, DESKTOP_ACCESS_FLAGS, DESKTOP_CONTROL_FLAGS, OpenInputDesktop,
 };
 use windows::core::PWSTR;
 
@@ -22,8 +30,40 @@ pub enum LockState {
     Unknown,
 }
 
+/// Both signals; they must agree.
 #[must_use]
 pub fn lock_state() -> LockState {
+    match (session_lock_state(), input_desktop_open()) {
+        (LockState::KnownUnlocked, true) => LockState::KnownUnlocked,
+        (LockState::KnownLocked, false) => LockState::KnownLocked,
+        _ => LockState::Unknown,
+    }
+}
+
+/// Whether this session's input desktop opens for this process: it does
+/// on the user's desktop and not on the lock screen.
+fn input_desktop_open() -> bool {
+    // SAFETY: opens a desktop handle with read access only
+    // and closes it at once.
+    unsafe {
+        // DESKTOP_READOBJECTS, the access W0 measured with.
+        match OpenInputDesktop(
+            DESKTOP_CONTROL_FLAGS(0),
+            false,
+            DESKTOP_ACCESS_FLAGS(0x0001),
+        ) {
+            Ok(desktop) => {
+                let _ = CloseDesktop(desktop);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+}
+
+/// The session flag from Remote Desktop Services alone.
+#[must_use]
+pub fn session_lock_state() -> LockState {
     let mut buffer = PWSTR::null();
     let mut bytes = 0u32;
     // SAFETY: two out-parameters this frame owns; the buffer is freed below.

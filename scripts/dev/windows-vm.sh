@@ -93,7 +93,10 @@ PY
 # Works before SSH exists, which is what it is for.
 qmp_type() {
     python3 - "$QMP" "$1" <<'PY'
-import json, socket, sys, time
+import json, os, socket, sys, time
+# The lock screen drops keys at the default pace; PCBRIDGE_WIN_TYPE_DELAY
+# (seconds between keys) slows it down.
+DELAY = float(os.environ.get("PCBRIDGE_WIN_TYPE_DELAY", "0.05"))
 s = socket.socket(socket.AF_UNIX)
 s.connect(sys.argv[1])
 f = s.makefile("rw")
@@ -129,7 +132,7 @@ for ch in sys.argv[2]:
         sys.exit(f"cannot type {ch!r}")
     send({"execute": "send-key", "arguments": {
         "keys": [{"type": "qcode", "data": k} for k in keys], "hold-time": 50}})
-    time.sleep(0.05)
+    time.sleep(DELAY)
 PY
 }
 

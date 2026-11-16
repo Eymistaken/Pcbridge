@@ -669,6 +669,41 @@ NativeClient in the desktop session
   it. The Python client did not know the code yet and reported it as
   `INVALID_FRAME` (W7 adds it).
 
+## Windows: lock, idle and the frame (W6e, 2026-11-16)
+
+Measured in the Windows 11 test VM with the helper's release build
+(`scripts/dev/windows/probes/w6e_probe.py`), in the desktop session; the
+"hardware" is QEMU's keyboard driven from the host.
+
+- **Capture on a still screen.** A new DXGI duplication's first frame
+  carried no image when nothing on screen had changed: the PNG came back
+  black (21 KB instead of about 430 KB), with or without the frame up. W6b
+  had measured a changing screen. The helper now skips frames without an
+  image (`LastPresentTime` 0), waits 250 ms for one, and otherwise copies
+  the monitor with GDI (`BitBlt` with `CAPTUREBLT`); the capture then
+  matched the screen again (424 KB, 52 ms round trip).
+- **Lock state.** With a capture every 0.5 s: locking (Win+L) turned the
+  answer to `SCREEN_LOCKED` within one poll, once with a
+  `LOCK_STATE_UNKNOWN` in between (the session flag and
+  `OpenInputDesktop` disagreed for a moment: fail-closed), and a Shift the
+  helper held was released by then. After unlocking the next capture
+  succeeded. The QEMU keyboard drops keys on the lock screen at 50 ms per
+  key; `PCBRIDGE_WIN_TYPE_DELAY=0.25` types the password reliably.
+- **idle-watch.** The record (`idle.json`, version 3, heartbeat every
+  250 ms) stayed idle (7399 s) through 10 of pcbridge's own pointer moves
+  over 2 s; one `SendInput` move without the mark reset it (394 ms later
+  it read active, 1.9 s later idle again); a key pressed on QEMU's keyboard
+  reset it too.
+- **The frame.** `glow-watch` drew its first ready record 49-70 ms after
+  starting (4 strips on the one monitor). On QEMU's own screenshot the
+  edges brightened (left edge pixel 96,111,138 to 153,162,180, mean
+  difference 30 at the edge, 0 in the middle); a capture through the
+  helper at the same time showed the screen without it
+  (`WDA_EXCLUDEFROMCAPTURE`). After the grant was revoked the process
+  ended in 536-578 ms (the 500 ms fade-out) and removed `glow.json`.
+- **Tray.** The tray icon's menu, opened by its window message and
+  answered with Down and Enter, ran the lock program with `lock`.
+
 ## Remote clients, revocation and the password (2026-10-14)
 
 Measured with unreleased code against a throwaway daemon (temp config, state
