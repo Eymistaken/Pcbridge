@@ -30,6 +30,22 @@ param(
     [string[]]$SetupArgs = @()
 )
 
+# This script installs the Windows build. PowerShell 7 also runs on Linux and
+# macOS, where $IsWindows is false (Windows PowerShell 5.1, which runs only on
+# Windows, does not define it). Stop there before anything changes.
+if ($PSVersionTable.PSEdition -eq "Core" -and -not $IsWindows) {
+    if ($IsMacOS) {
+        Write-Host "pcbridge install: macOS is not supported: pcbridge runs on Linux and Windows." -ForegroundColor Red
+    } else {
+        Write-Host "pcbridge install: this script installs pcbridge on Windows. On Linux, run this in a terminal instead:" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "    curl -fsSL https://github.com/Eymistaken/Pcbridge/releases/latest/download/install.sh | sh"
+        Write-Host ""
+    }
+    if ($PSCommandPath) { exit 1 }
+    throw "pcbridge install stopped"
+}
+
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12

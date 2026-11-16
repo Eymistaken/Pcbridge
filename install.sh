@@ -32,6 +32,22 @@ say() { printf '%s\n' "$*"; }
 warn() { printf 'pcbridge install: %s\n' "$*" >&2; }
 die() { warn "$*"; exit 1; }
 
+# This script installs the Linux build. Under Git Bash, MSYS2 or Cygwin on
+# Windows it would set up a Linux pcbridge that cannot work there, so it names
+# the Windows installer and stops before anything changes.
+case $(uname -s 2>/dev/null || echo unknown) in
+    MINGW*|MSYS*|CYGWIN*|Windows_NT) PLATFORM=windows ;;
+    Darwin) PLATFORM=macos ;;
+    *) PLATFORM=linux ;;
+esac
+[ "${OS:-}" = Windows_NT ] && PLATFORM=windows
+if [ "$PLATFORM" = windows ]; then
+    warn "this script installs pcbridge on Linux. On Windows, run this in PowerShell instead:"
+    printf '\n    irm https://github.com/%s/releases/latest/download/install.ps1 | iex\n\n' "$REPO" >&2
+    exit 1
+fi
+[ "$PLATFORM" != macos ] || die "macOS is not supported: pcbridge runs on Linux and Windows."
+
 usage() {
     sed -n '2,22p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//' || true
     say ""

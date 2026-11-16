@@ -102,5 +102,64 @@ class InstallMenuTests(unittest.TestCase):
         self.assertEqual(code, 1)
 
 
+def run_with_uname(system: str, extra_env: dict[str, str] | None = None,
+                   args: tuple[str, ...] = ()) -> tuple[int, str]:
+    """install.sh with `uname -s` answering SYSTEM; stdin is not a terminal."""
+    import subprocess
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        bin_ = tmp / "bin"
+        bin_.mkdir()
+        uname = bin_ / "uname"
+        uname.write_text(f"#!/bin/sh\necho '{system}'\n")
+        uname.chmod(0o755)
+        env = {"PATH": f"{bin_}:/usr/bin:/bin", "HOME": str(tmp),
+               "XDG_DATA_HOME": str(tmp / "data"), "LANG": "C.UTF-8", **(extra_env or {})}
+        proc = subprocess.run(["/bin/sh", str(SCRIPT), *args], cwd=tmp, env=env, stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True, timeout=30)
+        left = {p.name for p in tmp.iterdir()}
+    assert left == {"bin"}, left
+    return proc.returncode, proc.stdout + proc.stderr
+
+
+WINDOWS_COMMAND = "irm https://github.com/Eymistaken/Pcbridge/releases/latest/download/install.ps1 | iex"
+
+
+@unittest.skipUnless(sys.platform.startswith("linux") and Path("/bin/sh").exists(), "needs a POSIX shell")
+@unittest.skipUnless(SCRIPT.is_file(), "install.sh is not next to the tests (a package's test copy)")
+class InstallPlatformTests(unittest.TestCase):
+    """Run on Windows (Git Bash, MSYS2, Cygwin) or macOS, the script names the
+    right installer and stops before it touches anything."""
+
+    def test_windows_shells_get_the_powershell_command(self) -> None:
+        for system in ("MINGW64_NT-10.0-26100", "MSYS_NT-10.0-26100", "CYGWIN_NT-10.0-26100"):
+            with self.subTest(system=system):
+                code, text = run_with_uname(system)
+                self.assertEqual(code, 1, text)
+                self.assertIn("this script installs pcbridge on Linux", text)
+                self.assertIn(WINDOWS_COMMAND, text)
+                self.assertNotIn("Python", text)
+
+    def test_the_windows_os_variable_is_enough(self) -> None:
+        code, text = run_with_uname("Linux", {"OS": "Windows_NT"})
+        self.assertEqual(code, 1, text)
+        self.assertIn(WINDOWS_COMMAND, text)
+
+    def test_macos_is_refused(self) -> None:
+        code, text = run_with_uname("Darwin")
+        self.assertEqual(code, 1, text)
+        self.assertIn("macOS is not supported", text)
+        self.assertNotIn(WINDOWS_COMMAND, text)
+
+    def test_linux_goes_on(self) -> None:
+        # --help ends the script right after the check, before any download.
+        code, text = run_with_uname("Linux", args=("--help",))
+        self.assertEqual(code, 0, text)
+        self.assertIn("Options:", text)
+        self.assertNotIn("macOS is not supported", text)
+        self.assertNotIn(WINDOWS_COMMAND, text)
+
+
 if __name__ == "__main__":
     unittest.main()
