@@ -207,7 +207,28 @@ pcbridge/desktop/platforms/windows/
   security.md, native packaging, CLAUDE.md, ROADMAP. CHANGELOG with the
   `changelog` skill~~ (under "Unreleased": the version is the maintainer's).
 
-### W10: end to end in a fresh VM
+### W10: end to end in a fresh VM (started, paused 2026-11-16)
+
+Where it stopped: a `fresh` overlay (`test.qcow2`) was made and booted, and
+`install.ps1 -Uninstall -Purge -Yes` ran there: it removed the PATH entry and
+moved config, state and the venv to the Recycle Bin. Not done yet: checking
+that the Run key is gone, installing from the local wheel
+(`dist\pcbridge-2.10.3-py3-none-win_amd64.whl`, no release exists yet), and
+the runs below. Since no Windows release exists, "from the release" means the
+locally built wheel and `install.ps1 -Wheel`; the upgrade from an earlier
+Windows build is an install over the existing one until a release exists.
+
+CI is red on 109f347 and must be fixed first:
+
+- Windows portable job (3.12 to 3.14): `test_panel_icon`, `test_tool_surface`
+  and `test_mcp_capture_delivery` fail cleaning up their temporary folder
+  (WinError 32 on `state\oauth.db`: the SQLite handle is still open);
+  `test_batch_safety.test_a_killed_holder_leaves_no_stale_lock` is refused
+  with `SequenceRefused` (the lock of the killed child is still seen).
+- `package.yml` deb jobs: `test_oscompat.test_terminate_group_ends_the_child_and_its_children`
+  sees the grandchild still alive in the container (a zombie counts as alive
+  there); the arch job failed in the same suite run.
+- Headless KWin smoke (experimental): `CaptureWorkspace` got no D-Bus reply.
 
 - A `fresh` disk, install from the release with `install.ps1`.
 - All 40 tools from a client inside the VM (`tests/readiness/check.py
