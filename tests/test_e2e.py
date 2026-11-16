@@ -137,8 +137,13 @@ def _stdio_session(timeout: float = 45.0):
     import subprocess
 
     root = pathlib.Path(__file__).resolve().parent.parent
+    python = root / (".venv/Scripts/python.exe" if os.name == "nt" else ".venv/bin/python")
+    if not python.exists():
+        # An installed pcbridge (the Windows VM runs this with the install's
+        # own Python): the interpreter running the test has the package.
+        python = pathlib.Path(sys.executable)
     proc = subprocess.Popen(
-        [str(root / ".venv/bin/python"), "-m", "pcbridge.server", "--stdio"],
+        [str(python), "-m", "pcbridge.server", "--stdio"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         # Banner ve loglar stderr'e gidiyor; testin isine yaramiyor ama
@@ -992,7 +997,10 @@ def _main() -> int:
         check("job_output ham log verdi", "session_id" in out, out[:300])
 
     out = call("job_list", {"limit": 5})
-    check("job_list calisti", "job_id" in out, out[:300])
+    # Without an agent run nothing may have been started yet: a fresh state
+    # directory rightly has no jobs (measured on a fresh Windows install).
+    check("job_list calisti", "job_id" in out or (not job_id and "No jobs recorded" in out),
+          out[:300])
 
     section("13. Arka plan shell isi")
     out = call(
