@@ -9,6 +9,12 @@ name: release notes
 on:
   release:
     types: [published, edited]
+  # By hand, for one tag: `gh workflow run release-notes.yml -f tag=vX.Y.Z`.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v2.11.0"
+        required: true
 
 permissions:
   contents: write
@@ -27,7 +33,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           python3 scripts/release_notes.py ensure "$TAG"
           python3 scripts/release_notes.py check "$TAG"
