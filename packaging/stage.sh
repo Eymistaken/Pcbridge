@@ -100,12 +100,12 @@ APPLET="$STAGE/usr/share/cinnamon/applets/pcbridge@eymistaken"
 install -d "$APPLET"
 cp -r "$ROOT/cinnamon-applet/pcbridge@eymistaken/." "$APPLET/"
 # KDE Plasma: KWin gives screenshots only to programs a .desktop file names
-# (pcbridge.desktop.kwin), and the kill switch gets a launcher entry that a
+# (pcbridge.desktop.platforms.linux.kwin), and the kill switch gets a launcher entry that a
 # shortcut can be bound to. Written by pcbridge itself, so the text is one.
 HELPER="$(ls "$VENV"/lib/python*/site-packages/pcbridge/_native/*/pcbridge-native 2>/dev/null | head -n 1 || true)"
 install -d "$STAGE/usr/share/applications"
 if [ -n "$HELPER" ]; then
-    "$VENV/bin/python" -c 'import sys; from pathlib import Path; from pcbridge.desktop import kwin; sys.stdout.write(kwin.helper_entry(Path(sys.argv[1])))' \
+    "$VENV/bin/python" -c 'import sys; from pathlib import Path; from pcbridge.desktop.platforms.linux import kwin; sys.stdout.write(kwin.helper_entry(Path(sys.argv[1])))' \
         "${HELPER#"$STAGE"}" > "$STAGE/usr/share/applications/pcbridge-native.desktop"
 fi
 "$VENV/bin/python" -c 'import sys; from pathlib import Path; from pcbridge.cli import install; sys.stdout.write(install.lock_entry(Path("/usr/bin/pcbridge")))' \
