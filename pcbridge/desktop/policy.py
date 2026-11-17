@@ -107,10 +107,24 @@ CLOSE_COMBOS = frozenset({
 })
 
 
+# The native helper takes these spellings for the same key or the same
+# modifier, so the close-combo check reads them the same way: "ctrl+rshift+q"
+# quits an application exactly like "ctrl+shift+q".
+_KEY_ALIASES = {
+    "control": "ctrl",
+    "meta": "super",
+    "win": "super",
+    "cmd": "super",
+    "rightshift": "shift",
+    "rshift": "shift",
+    "shift_r": "shift",
+    "right_shift": "shift",
+}
+
+
 def _chord(keys: str | None) -> frozenset[str]:
-    return frozenset(
-        part.strip().lower() for part in (keys or "").split("+") if part.strip()
-    )
+    parts = (part.strip().lower() for part in (keys or "").split("+"))
+    return frozenset(_KEY_ALIASES.get(part, part) for part in parts if part)
 
 
 def is_close_combo(keys: str | None) -> bool:

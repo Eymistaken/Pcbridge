@@ -95,6 +95,7 @@ keys! {
     Comma = 51, "KEY_COMMA";
     Dot = 52, "KEY_DOT";
     Slash = 53, "KEY_SLASH";
+    RightShift = 54, "KEY_RIGHTSHIFT";
     LeftAlt = 56, "KEY_LEFTALT";
     Space = 57, "KEY_SPACE";
     CapsLock = 58, "KEY_CAPSLOCK";
@@ -180,6 +181,7 @@ const KEY_TABLE: &[(&str, Key)] = &[
     ("alt", Key::LeftAlt),
     ("altgr", Key::RightAlt),
     ("shift", Key::LeftShift),
+    ("rightshift", Key::RightShift),
     ("super", Key::LeftMeta),
     ("return", Key::Enter),
     ("kpenter", Key::KpEnter),
@@ -226,6 +228,7 @@ fn resolve_key(name: &str) -> Result<Key, KeyboardError> {
     let canonical = match name {
         "control" => "ctrl",
         "meta" | "win" | "cmd" => "super",
+        "rshift" | "shift_r" | "right_shift" => "rightshift",
         "enter" => "return",
         "esc" => "escape",
         "period" => "dot",

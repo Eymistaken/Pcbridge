@@ -263,9 +263,18 @@ class CloseConfirmationGateTests(unittest.TestCase):
                 with self.assertRaises(DesktopError):
                     policy.check_key_combo(keys)
 
+    def test_other_spellings_of_the_same_keys_are_close_combos(self) -> None:
+        # The native helper takes these names for the same keys, so they
+        # must not be a way around the gate.
+        for keys in ("ctrl+rightshift+q", "ctrl+rshift+q", "ctrl+shift_r+q",
+                     "ctrl+right_shift+q", "control+w", "meta+q", "win+q"):
+            with self.subTest(keys=keys):
+                with self.assertRaises(DesktopError):
+                    policy.check_key_combo(keys)
+
     def test_ordinary_combos_are_untouched(self) -> None:
         for keys in ("ctrl+v", "Return", "alt+tab", "super", "ctrl+shift+t",
-                     "f4", "alt", "ctrl+s"):
+                     "f4", "alt", "ctrl+s", "rightshift", "ctrl+rshift+t"):
             with self.subTest(keys=keys):
                 policy.check_key_combo(keys)
 

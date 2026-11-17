@@ -447,6 +447,7 @@ mod tests {
         assert_eq!(scan_code(Key::Esc), (0x01, false));
         assert_eq!(scan_code(Key::F12), (0x58, false));
         assert_eq!(scan_code(Key::LeftCtrl), (0x1D, false));
+        assert_eq!(scan_code(Key::RightShift), (0x36, false));
         assert_eq!(scan_code(Key::Delete), (0x53, true));
         assert_eq!(scan_code(Key::LeftMeta), (0x5B, true));
     }

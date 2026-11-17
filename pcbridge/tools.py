@@ -2216,7 +2216,8 @@ def register(
                 + ("'win'" if _WIN else "'super'") + ", 'alt+tab', 'Return', 'Escape', 'f5', 'down'. Any number "
                 "of keys may be combined with '+' and they all go down together — "
                 "the virtual keyboard has none of the ghosting limits of real "
-                "hardware."
+                "hardware. 'shift' is the left Shift; use 'rightshift' when the "
+                "right Shift key itself matters."
             ),
         ] = None,
         raw: Annotated[

@@ -90,15 +90,61 @@ fn keyboard() -> (
     )
 }
 
+/// Keys added after the golden fixture was recorded. The fixture is a
+/// recording of the Python backend and is never regenerated, so a key the
+/// Python backend never had is listed here instead of edited into it.
+const KEYS_ADDED_SINCE_FIXTURE: &[&str] = &["KEY_RIGHTSHIFT"];
+
 #[test]
 fn virtual_keyboard_capabilities_match_the_python_golden_fixture() {
-    let expected: Vec<String> = fixture()["devices"]["keyboard"]["keys"]
+    let mut expected: Vec<String> = fixture()["devices"]["keyboard"]["keys"]
         .as_array()
         .unwrap()
         .iter()
         .map(|name| name.as_str().unwrap().to_owned())
         .collect();
+    for added in KEYS_ADDED_SINCE_FIXTURE {
+        assert!(!expected.iter().any(|name| name == added), "{added}");
+        expected.push((*added).to_owned());
+    }
+    expected.sort();
     assert_eq!(supported_key_names(), expected);
+}
+
+#[test]
+fn right_shift_is_its_own_key() {
+    for combo in ["rightshift+a", "RShift+a", "shift_r+a", "right_shift+a"] {
+        let (keyboard, device, _clock) = keyboard();
+        keyboard.key(combo).unwrap();
+        assert_eq!(
+            *device.events.lock().unwrap(),
+            vec![
+                json!(["EV_KEY", "KEY_RIGHTSHIFT", 1]),
+                json!(["EV_KEY", "KEY_A", 1]),
+                json!(["SYN"]),
+                json!(["sleep", 0.03]),
+                json!(["EV_KEY", "KEY_A", 0]),
+                json!(["EV_KEY", "KEY_RIGHTSHIFT", 0]),
+                json!(["SYN"]),
+            ],
+            "{combo}"
+        );
+    }
+}
+
+#[test]
+fn right_shift_can_be_held_and_released() {
+    let (keyboard, device, _clock) = keyboard();
+    keyboard.key_down("rightshift").unwrap();
+    assert_eq!(keyboard.held(), vec!["rightshift".to_owned()]);
+    assert_eq!(keyboard.release_all().unwrap(), vec!["rightshift".to_owned()]);
+    assert!(
+        device
+            .events
+            .lock()
+            .unwrap()
+            .contains(&json!(["EV_KEY", "KEY_RIGHTSHIFT", 0]))
+    );
 }
 
 #[test]
