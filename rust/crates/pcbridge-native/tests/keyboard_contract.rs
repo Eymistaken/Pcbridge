@@ -137,7 +137,10 @@ fn right_shift_can_be_held_and_released() {
     let (keyboard, device, _clock) = keyboard();
     keyboard.key_down("rightshift").unwrap();
     assert_eq!(keyboard.held(), vec!["rightshift".to_owned()]);
-    assert_eq!(keyboard.release_all().unwrap(), vec!["rightshift".to_owned()]);
+    assert_eq!(
+        keyboard.release_all().unwrap(),
+        vec!["rightshift".to_owned()]
+    );
     assert!(
         device
             .events
