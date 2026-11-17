@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.11.1 - 2026-11-17
+
+### Added
+
+- **The right Shift key.** The virtual keyboard only had the left Shift,
+  so a combination could not name the right one. `rightshift` (also
+  `rshift`, `shift_r` or `right_shift`) now presses the right Shift on
+  Linux and Windows, in `key`, `hold` and `release` alike; `shift` stays
+  the left one. On Linux the virtual keyboard now also declares
+  `KEY_RIGHTSHIFT`.
+
+### Fixed
+
+- **Another spelling no longer skips the close-shortcut check.** The check
+  that asks for `confirm_close` compared the keys as written, so
+  `ctrl+rshift+q`, `control+w` or `win+q` went through without it although
+  they close a window just like `ctrl+shift+q`, `ctrl+w` and `super+q`.
+  The check now reads every alias the keyboard takes as the key it names.
+
 ## 2.11.0 - 2026-11-16
 
 This release adds Windows 11 (x64) with the same tools as Linux. Every
